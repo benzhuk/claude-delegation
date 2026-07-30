@@ -21,7 +21,27 @@ subagents inherit none of it by default.
 - Report-to-disk needs a write-capable tool set. Before spawning any read-only agent
   type, check its tools — an agent without Write/Bash can never land a report file and
   you'll wait on a path that doesn't exist. For those, ask for the full conclusion
-  inline in the reply.
+  inline in the reply, and follow the inline-report rules below.
+
+## Inline reports: the final message IS the deliverable (lossy-channel rule)
+
+Observed repeatedly (2026-07-30, three times in one session): only an agent's FINAL
+message text ever reaches the orchestrator. The agent, however, sees its whole
+conversation and assumes earlier messages were delivered — so after a resume it ends
+with "report already delivered above" / "already in this thread", and the content is
+lost. Nothing "above" exists on the orchestrator's side.
+
+- **Put this clause verbatim into every inline-report agent's prompt (spawn AND every
+  resume):** "Only the literal text of your final message reaches me — earlier messages
+  in your conversation were never delivered and never will be. Every time you finish a
+  turn, your final message must contain the COMPLETE report. Never reference earlier
+  messages ('as delivered above', 'already in this thread') — re-emit the full content."
+- **Orchestrator-side recovery:** if a completion notification's result references
+  prior messages instead of containing the report, resume that agent once with the
+  clause above plus "resend the complete report as your final message; output nothing
+  else." If the second attempt also comes back empty, respawn with report-to-disk.
+- This is the core reason report-to-disk is the default: a file survives any number of
+  resumes; inline content must be re-emitted on every single turn end.
 
 ## Never trust the reply — read the report
 
@@ -49,7 +69,12 @@ End every agent prompt with this (plain "then STOP" does not survive harness re-
 > started (by PID: servers, watchers; never broad kills), reap your background jobs,
 > then reply with verdict + ≤10-line summary + the path as your FINAL message. If you
 > are ever re-invoked after that final reply with nothing new to do, end immediately
-> with '(already reported)' — never re-state your verdict."
+> with '(already reported: `<path>`)' — never re-state your verdict."
+
+The '(already reported)' escape is for report-to-disk agents ONLY — the path keeps the
+content recoverable. An INLINE-report agent must never use it: with no file, a
+reference-only final message destroys the deliverable (see the lossy-channel rule
+above). Inline agents re-emit the complete report on every re-invocation instead.
 
 Leaving a server running for a later agent is opt-in only — the prompt must request it,
 and the orchestrator then owns stopping it.
