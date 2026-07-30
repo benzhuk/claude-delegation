@@ -1,0 +1,14 @@
+{
+  "name": "benzhuk",
+  "owner": { "name": "Ben Zhuk", "url": "https://github.com/benzhuk" },
+  "description": "Ben Zhuk's Claude Code plugins",
+  "plugins": [
+    {
+      "name": "delegation",
+      "source": "./",
+      "description": "Multi-agent orchestration: delegate (parallel fan-out) and team-build (builder/reviewer pipeline) skills, shared subagent mechanics, and a prompt-routing hook.",
+      "version": "0.1.0",
+      "author": { "name": "Ben Zhuk" }
+    }
+  ]
+}

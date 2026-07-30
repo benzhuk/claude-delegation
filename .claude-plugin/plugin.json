@@ -1,0 +1,13 @@
+{
+  "name": "delegation",
+  "displayName": "Delegation",
+  "description": "Multi-agent orchestration for Claude Code: a delegate skill for parallel research/review fan-out, a team-build skill for spec-driven builder/reviewer builds, shared subagent mechanics (reports, termination, pacing, concurrency budgets), and a prompt-routing hook.",
+  "version": "0.1.0",
+  "author": { "name": "Ben Zhuk", "url": "https://github.com/benzhuk" },
+  "repository": "https://github.com/benzhuk/claude-delegation",
+  "license": "MIT",
+  "keywords": ["delegation", "subagents", "orchestration", "multi-agent"],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "hooks": "./hooks/hooks.json"
+}
