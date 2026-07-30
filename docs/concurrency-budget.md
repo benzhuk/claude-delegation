@@ -42,8 +42,10 @@ and became unusable; it fell to 169 within seconds of the agents dying.
    nice -n 10 npx tsc --noEmit
    ```
    Agents keep working in parallel; only the expensive verb is serial.
-2. **Move verification to the integrator.** Builders write code and report; ONE
-   integrator runs typecheck/lint/tests once per gate. The failure mode is letting
+2. **Move repo-wide verification to the integrator.** Builders run only their own
+   diff-scoped gate (territory tests + scoped typecheck, through the mutex); the
+   REPO-WIDE typecheck/lint/suite belongs to ONE integrator, once per gate. The failure
+   mode is letting
    builders *also* verify every fix round: N builders × M rounds × one full type-graph
    build each.
 3. **Share the incremental cache.** `tsc --incremental` with a shared `tsbuildinfo`

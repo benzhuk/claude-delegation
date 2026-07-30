@@ -33,6 +33,10 @@ ready, nothing more.
 - For anything load-bearing, **read the report file (at least its first lines), never
   the reply**.
 - Never spawn a follow-up action off a bare `Done.` — grep the report first.
+- If the reply is bare and the report path never appears on disk, the write was
+  rejected — almost always a blocked-prefix filename. Ask that SAME agent for the
+  report inline; do not re-grant tools, do not redesign the pipeline, and use a
+  suffix-style path next round.
 - **Relay findings by path, never by copy.** A reviewer's findings file path goes to the
   builder verbatim; the content never passes through orchestrator context. Zero
   paraphrase risk, zero carrying cost.
@@ -56,7 +60,7 @@ Duplicate completion notifications for the same agent are normal — sometimes m
 long after it finished. On any notification, the orchestrator's first move is to check
 whether that lane's work is already consumed (report read, fix relayed). Act on state,
 never on the notification itself. The moment an agent's report is consumed and no fix
-round is planned, **stop the agent** — a lingering agent's background children re-wake
+round is planned, **stop the agent** (TaskStop) — a lingering agent's background children re-wake
 it, and every re-stop re-fires a notification at the user.
 
 ## Agents die mid-edit — recover deliberately

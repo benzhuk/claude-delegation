@@ -49,7 +49,8 @@ is the build pipeline that uses them.
 ## Roles
 
 - **Builder** (Sonnet; **Opus for the hardest territory** — core algorithms,
-  concurrency/state machines, data integrity, subtle migrations): implements only its
+  concurrency/state machines, data integrity, subtle migrations — set `model: opus` on
+  the spawn call, which overrides the agent file's frontmatter): implements only its
   territory. Gate before reporting: territory-scoped tests + typecheck via the shared
   verification mutex (`../../docs/concurrency-budget.md`) — builders do NOT run
   repo-wide checks every fix round; the full graph belongs to the integrator's gate.
@@ -68,7 +69,9 @@ is the build pipeline that uses them.
   measured-count evidence, and a concrete fix; mechanical findings carry a
   ready-to-apply patch (exact old → exact new) the builder applies verbatim. Verdict
   `APPROVE`/`NEEDS_FIXES` first. **Check the reviewer's tools against what the review
-  requires** — a reviewer that must run a typecheck needs a shell. Sonnet reviewers
+  requires** — a reviewer that must run a typecheck needs a shell. The bundled
+  `reviewer` agent ships read-only (no Bash) — grant tools at the spawn call for any
+  review with a mechanical component. Sonnet reviewers
   only for genuinely low-risk territories; reviews are not optional for anything that
   computes a number someone will act on.
 - **Seam reviewer** (Opus, after all territories land; worth it at ≥3 territories or

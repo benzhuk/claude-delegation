@@ -49,6 +49,7 @@ function detectModel(input) {
 }
 
 let raw = "";
+process.stdin.setEncoding("utf8");
 process.stdin.on("data", (d) => (raw += d));
 process.stdin.on("end", () => {
   let input = {};
@@ -58,7 +59,12 @@ process.stdin.on("end", () => {
   const model = detectModel(input).toLowerCase();
   // Top-tier orchestrator models get the economy sentence; unknown models too
   // (cheap to include, harmless to ignore). Execution-tier sessions skip it.
-  const topTier = !model || model.includes("fable") || model.includes("opus");
+  // Extend the list without editing this file: CLAUDE_DELEGATION_TOP_TIER="opus,foo".
+  const tiers = (process.env.CLAUDE_DELEGATION_TOP_TIER || "opus")
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  const topTier = !model || tiers.some((t) => model.includes(t));
   const text = topTier ? ROUTING + ECONOMY : ROUTING;
   process.stdout.write(
     JSON.stringify({

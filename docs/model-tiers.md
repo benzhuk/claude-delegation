@@ -12,8 +12,13 @@ Everything else is delegated. Tier by cost:
 - **Verifier — Opus, or at minimum a tier above the writer.** Reviews of executor
   output, adjudicating conflicts, and implementation hard enough that executor retries
   would cost more than doing it once (core algorithms, concurrency, data integrity).
+  Full strength here too — review depth is the last thing to economize.
 - **Bulk — Haiku.** Only genuinely mindless sweeps at volume (hundreds of binary
   per-file checks). When in doubt, it's a Sonnet job.
+- **Never blanket-upgrade.** The strong tier is quota-bound; the fast tier effectively
+  is not. Spend the strong tier at the leverage points — spec red-team, hardest
+  territory, reviews, seam review — and nowhere else. A strong-tier integrator or a
+  strong-tier mechanical-UI builder buys nothing the fast tier already delivers.
 - **Orchestrator model — main loop only.** Never spawn it as an execution subagent.
 
 ## The pattern that works, observed at scale

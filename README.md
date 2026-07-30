@@ -48,9 +48,9 @@ claude plugin install delegation@benzhuk
 
 **Three agents** for the team-build pipeline: `builder`, `reviewer`, `integrator`.
 
-**One hook** (UserPromptSubmit): injects a one-line routing reminder — build →
-team-build, fan-out → delegate, small task → no agents — so the policy survives long
-sessions and context compaction.
+**One hook** (UserPromptSubmit, requires `node` on PATH): injects a one-line routing
+reminder — build → team-build, fan-out → delegate, small task → no agents — so the
+policy survives long sessions and context compaction.
 
 ## The philosophy, in four lines
 
