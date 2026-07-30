@@ -6,8 +6,5 @@
   "author": { "name": "Ben Zhuk", "url": "https://github.com/benzhuk" },
   "repository": "https://github.com/benzhuk/claude-delegation",
   "license": "MIT",
-  "keywords": ["delegation", "subagents", "orchestration", "multi-agent"],
-  "skills": "./skills/",
-  "agents": "./agents/",
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["delegation", "subagents", "orchestration", "multi-agent"]
 }
