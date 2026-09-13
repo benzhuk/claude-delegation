@@ -211,7 +211,7 @@ safety gate and its failures are silent.
 | exit | meaning | what you do |
 |---|---|---|
 | 1 | bad arguments, envelope, or packet | read the message; it names the field and the fix. The same object is on stdout as JSON, so a pipe never swallows it |
-| 2 | pane not found or ambiguous | re-send with one of the listed `term_…` handles; never guess |
+| 2 | pane not found or ambiguous | **the note is still recorded and queued** — do NOT re-send the id. Fix the pane name or rename the pane to its slug, and the queued wake-up lands on the next flush |
 | 3 | **deferred — queued, NOT typed** | nothing to do. The ledger has the note and `note-flush` retries the wake-up. Do NOT re-send the id |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
@@ -220,6 +220,12 @@ Exit 3 covers a permission prompt, a shell pane, a hibernated pane, an unreadabl
 Codex pane mid-turn. All of them mean the same thing: nothing was typed, the note is recorded,
 the retry is automatic. **If a pane's state cannot be read, nothing is sent — a deferred note is
 cheap, an approved dialog is not.**
+
+**A pane-NAME problem costs latency, not the note.** Exit 2 writes the ledger and queues the wake-up
+before it reports, so a pane renamed mid-flight, an ambiguous title or Orca's status tag can no
+longer swallow an ask. The one exception is a raw `term_…` handle that resolves to nothing: a handle
+names no slug, so there is no readable recipient to record, and that case exits 2 having written
+nothing and says so. Send to a slug, not a handle, if you want the ledger to keep it.
 
 The one exit 3 that does need you: "the text may be sitting UNSENT in the composer". That one is
 NOT queued for retry, because retyping it is how the same note arrives twice. Clear the pane by hand.

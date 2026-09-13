@@ -114,10 +114,17 @@ has no safety gate of its own, so the SENDER is the gate:
    both pilot panes).
 4. Two-phase write: send the line WITHOUT Enter; re-read the pane; only if the line is visible in the
    composer and the state is unchanged, send Enter. If the state changed between reads, abort (exit 3).
-5. Ledger lines are written BEFORE the delivery attempt, so the record exists even when delivery is
-   deferred or fails. A refused wake-up is queued in `~/.agents/notes/outbox/<id>.json` and exits 3.
+5. Ledger lines are written BEFORE the delivery attempt AND before pane resolution can fail, so the
+   record exists even when the pane cannot be found at all — a renamed pane, an ambiguous title or a
+   status tag costs latency, never the note. (The single exception: a raw `term_…` handle that resolves
+   to nothing names no slug, so there is no readable recipient; that exits 2 having written nothing and
+   says so.) A refused wake-up is queued in `~/.agents/notes/outbox/<id>.json` and exits 3.
    **`note-flush` retries it** — at the start of every note-send, at every Codex turn end (`note-notify`
-   from `~/.codex/config.toml`), and from a 2-minute timer. A superseded id is dropped, never retyped.
+   from `~/.codex/config.toml`), and from a 2-minute timer. Those three drainers share one outbox, so a
+   wake-up is CLAIMED by an atomic rename before it is typed: exactly one drainer can hold it, and a
+   delivered entry can never be resurrected by a stale reader and typed twice. A superseded id is
+   dropped, never retyped. Every orca call carries a hard timeout and is killed on expiry, and every
+   advertised budget is enforced, so a wedged pane cannot hold a sender, a hook or a turn end open.
    A validation failure prints its `ok:false` JSON on STDOUT as well as one line on stderr, so a
    rejection is never silent in a pipe. Nothing is ever dropped silently.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,

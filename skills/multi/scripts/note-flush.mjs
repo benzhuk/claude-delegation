@@ -31,6 +31,7 @@ import {
   toPosix, makeOrcaRunner, resolvePane, showPane, readPane, classifyPane, isSendable,
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
   notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
+  claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
 } from './transport.mjs';
 
 export const DEFAULT_MAX_MS = 8_000;
@@ -38,8 +39,10 @@ export const DEFAULT_MAX_MS = 8_000;
 export const DEFAULT_MAX_ATTEMPTS = 20;
 /** Older than this and the nudge is pointless — the recipient has read the ledger or moved on. */
 export const DEFAULT_MAX_AGE_HOURS = 48;
+/** One pane may not eat the whole drain: a single entry's attempt is bounded independently (H4). */
+export const DEFAULT_PER_ENTRY_MS = 6_000;
 
-const STRING_FLAGS = new Set(['to', 'max-ms', 'max-attempts', 'max-age-hours', 'orca', 'home']);
+const STRING_FLAGS = new Set(['to', 'max-ms', 'max-attempts', 'max-age-hours', 'per-entry-ms', 'orca', 'home']);
 const BOOL_FLAGS = new Set(['json', 'dry-run', 'help']);
 
 export function parseFlushArgs(argv) {
@@ -87,6 +90,8 @@ export async function runNoteFlush(argv, deps = {}) {
   if (!Number.isFinite(maxMs) || maxMs < 0) throw new NoteError(1, `--max-ms must be a non-negative number (got "${args['max-ms']}")`);
   const maxAttempts = args['max-attempts'] !== undefined ? Number(args['max-attempts']) : DEFAULT_MAX_ATTEMPTS;
   const maxAgeHours = args['max-age-hours'] !== undefined ? Number(args['max-age-hours']) : DEFAULT_MAX_AGE_HOURS;
+  const perEntryMs = args['per-entry-ms'] !== undefined ? Number(args['per-entry-ms']) : DEFAULT_PER_ENTRY_MS;
+  if (!Number.isFinite(perEntryMs) || perEntryMs < 0) throw new NoteError(1, `--per-entry-ms must be a non-negative number (got "${args['per-entry-ms']}")`);
 
   const started = clock();
   const deadline = started + maxMs;
@@ -98,6 +103,9 @@ export async function runNoteFlush(argv, deps = {}) {
     return text;
   };
 
+  // A flusher killed mid-attempt leaves a claim behind; return anything long abandoned to the outbox
+  // before reading it, or that entry is invisible forever (review M2).
+  if (!dryRun) reclaimStaleClaims(home, { fsImpl, now });
   const entries = readOutbox(home, fsImpl).filter((e) => entryMatchesTarget(e, args.to));
   if (entries.length === 0) {
     return { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: 0, results, home, dryRun };
@@ -150,29 +158,38 @@ export async function runNoteFlush(argv, deps = {}) {
   let remaining = 0;
 
   for (const entry of live) {
-    if (clock() >= deadline) { remaining += 1; continue; }
+    const budget = deadline - clock();
+    if (budget <= 0) { remaining += 1; continue; }
+
+    // M2: claim the entry before touching a pane. Losing the rename means another drainer owns it —
+    // skip silently rather than double-typing the same wake-up into the same composer.
+    const claim = claimOutboxEntry(home, entry.id, fsImpl);
+    if (!claim) {
+      results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'claimed-elsewhere' });
+      continue;
+    }
+
     attempted += 1;
     const target = entry.handle && HANDLE_RE.test(entry.handle) ? entry.handle : (entry.toSlug ?? entry.to);
     let outcome;
     let detail = '';
     try {
-      const pane = resolvePane(terminals, target);
-      const show = await showPane(orca, pane.handle);
-      const read = await readPane(orca, pane.handle);
-      const classification = classifyPane(show, read, { now: clock() });
-      if (!isSendable(classification, pane.agentIdentity)) {
-        outcome = 'deferred';
-        detail = `pane is ${classification}`;
-      } else {
-        const res = await twoPhaseSend(orca, pane, entry.envelope, entry.id, classification);
-        if (res.delivered) {
-          outcome = 'delivered';
-          detail = `typed into ${pane.handle} (${classification})`;
-        } else {
-          outcome = res.stranded ? 'stranded' : 'deferred';
-          detail = res.reason ?? 'not delivered';
+      // H4: a per-entry wall-clock bound, on top of the orca runner's own subprocess timeout. One hung
+      // pane must not eat the whole drain's budget and leave the rest queued for another two minutes.
+      const attempt = (async () => {
+        const pane = resolvePane(terminals, target);
+        const show = await showPane(orca, pane.handle);
+        const read = await readPane(orca, pane.handle);
+        const classification = classifyPane(show, read, { now: clock() });
+        if (!isSendable(classification, pane.agentIdentity)) {
+          return { outcome: 'deferred', detail: `pane is ${classification}` };
         }
-      }
+        const res = await twoPhaseSend(orca, pane, entry.envelope, entry.id, classification);
+        if (res.delivered) return { outcome: 'delivered', detail: `typed into ${pane.handle} (${classification})` };
+        return { outcome: res.stranded ? 'stranded' : 'deferred', detail: res.reason ?? 'not delivered' };
+      })();
+      const TIMED_OUT = { outcome: 'timed-out', detail: `no answer from orca within ${Math.round(budget)} ms` };
+      ({ outcome, detail } = await withDeadline(attempt, Math.min(budget, perEntryMs), TIMED_OUT));
     } catch (err) {
       outcome = err instanceof NoteError && err.exitCode === 2 ? 'no-pane' : 'error';
       detail = err?.message ?? String(err);
@@ -180,13 +197,14 @@ export async function runNoteFlush(argv, deps = {}) {
 
     if (outcome === 'delivered') {
       drained += 1;
-      removeOutboxEntry(home, entry.id, fsImpl);
+      releaseClaim(claim, fsImpl); // the claim IS the entry now; dropping it retires the wake-up
     } else {
       remaining += 1;
       writeOutboxEntry(home, {
         ...entry, attempts: Number(entry.attempts ?? 0) + 1,
         lastAttemptAt: new Date(now).toISOString(), lastOutcome: outcome, lastError: detail,
       }, fsImpl);
+      releaseClaim(claim, fsImpl);
     }
     // The first line of the detail only: a CLI error can be a paragraph, and flush.log is a scan target.
     results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome, detail, log: log(outcome, entry, detail.split('\n')[0]) });

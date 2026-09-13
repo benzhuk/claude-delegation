@@ -891,3 +891,67 @@ test('AR: a note to a pane Orca titled "Action Required" is recorded and queued,
   // The slug still resolved — the whole point. A decorated title used to be exit 2.
   assert.match(err.envelope, /taxonomy → nucleus,/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H3 — a pane-NAME problem must never cost the note
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('H3: a pane that does not resolve still gets the note into the ledger, then exits 2', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [idlePane({ title: 'someone-else', worktreePath: repo })] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /no pane titled "nucleus"/,
+  );
+  // The whole point: exit 2 used to mean the note vanished.
+  assert.ok(err.ledgers.length > 0, 'the note must be recorded even when the pane is not found');
+  assert.equal(err.queued, true);
+  const mirror = err.ledgers.find((l) => l.includes('/.agents/notes/'));
+  assert.ok(mirror, `the mirror is what every note-inbox reads; got ${err.ledgers}`);
+  assert.match(fs.readFileSync(mirror, 'utf8'), /\[taxonomy-ping-1\] FYI:/);
+  assert.ok(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')));
+  assert.match(err.message, /The note IS recorded/);
+  assert.match(err.message, /Do NOT re-send this id/);
+  assert.equal(orca.sends().length, 0);
+});
+
+test('H3: an AMBIGUOUS pane is the same — recorded, queued, then exit 2 with the candidates', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({
+    panes: [
+      idlePane({ handle: 'term_one', title: 'nucleus', worktreePath: repo }),
+      idlePane({ handle: 'term_two', title: '◑ nucleus', worktreePath: repo }),
+    ],
+  });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /matches 2 panes/,
+  );
+  assert.ok(err.ledgers.length > 0);
+  assert.equal(err.queued, true);
+  assert.match(err.message, /term_one/);
+  assert.equal(orca.sends().length, 0);
+});
+
+test('H3: the ledger falls back to ORCA_WORKTREE_ID, and the warning says whose repo it is', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--json']), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /no pane titled/,
+  );
+  assert.ok(err.ledgers.some((l) => l.startsWith(toPosix(repo))), `repo ledger missing from ${err.ledgers}`);
+  assert.ok(err.warnings.some((w) => /did not resolve/.test(w)));
+});
+
+test('H3: a raw handle that resolves to nothing records NOTHING, and says why', async () => {
+  const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'term_gone']), { orca, home, git: () => '.git', now: NOW }),
+    2, /Nothing was recorded/,
+  );
+  // A handle names no slug, so a ledger line would be addressed to nobody and no note-inbox would see it.
+  assert.match(err.message, /Re-send with --to <slug>/);
+  assert.equal(fs.existsSync(path.join(home, '.agents/notes')), false);
+});

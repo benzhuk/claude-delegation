@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 import { NoteError, SLUG_RE, validateSlug } from './envelope.mjs';
 
@@ -234,13 +235,21 @@ export function normalizeTitle(title) {
 }
 
 /**
- * Drop a leading `[<tag>] <words> |` segment — Orca's waiting-on-a-human decoration, e.g.
- * `[ . ] Action Required | astra | bto-workflows` → `astra | bto-workflows`. The pane still classifies
- * `permission` (titleSignalsPermission); this only keeps the slug resolvable, so the note reaches the
- * ledger and the outbox instead of dying at exit 2.
+ * Drop Orca's waiting-on-a-human decoration, e.g. `[ . ] Action Required | astra | bto-workflows` →
+ * `astra | bto-workflows`, so the slug still resolves and the note reaches the ledger and the outbox
+ * instead of dying at exit 2. The pane still classifies `permission` — that is titleSignalsPermission's
+ * job, and it fails closed on ANY bracket.
+ *
+ * The RESOLVER must not generalise the same way (review M4). Eating the first segment for any bracketed
+ * tag renames `[2] astra | bto-workflows` to `bto-workflows` — a pane answering to its worktree, which
+ * would then read and ack another slug's inbox. So a segment is dropped only when it carries a KNOWN
+ * waiting label (with or without a bracket); an unrecognised tag loses the bracket and nothing else.
  */
 export function stripStatusTag(title) {
-  return String(title ?? '').replace(/^\s*\[[^\]]*\]\s*[^|]*\|\s*/, '');
+  const raw = String(title ?? '');
+  const m = /^\s*(?:\[[^\]]*\]\s*)?([^|]*?)\s*\|\s*/.exec(raw);
+  if (m && TITLE_PERMISSION_MARKERS.some((k) => m[1].toLowerCase().includes(k))) return raw.slice(m[0].length);
+  return raw.replace(/^\s*\[[^\]]*\]\s*/, ''); // unknown tag: never eat a segment
 }
 
 /** The slug form of a pane title, or null when the title does not reduce to a legal slug. */
@@ -405,15 +414,37 @@ export function orcaHint(resolved) {
     + "`bash -lc 'note-send …'` so the profile that puts ~/.local/bin on PATH is sourced.";
 }
 
+/**
+ * Every advertised budget in v4 is a lie unless the subprocess underneath it can be killed. A hung
+ * `terminal read` is exactly the rc 143/124 failure the pilot already paid for, one layer down: it
+ * would block a sender past its "never more than 15 seconds" promise, pin the 2-minute timer unit, and
+ * leave one stuck node process per Codex turn end. So every orca call is killed on expiry (review H4).
+ */
+export const DEFAULT_ORCA_TIMEOUT_MS = 8_000;
+
+export function orcaTimeoutMs(env = process.env) {
+  const raw = Number(env.ORCA_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ORCA_TIMEOUT_MS;
+}
+
 /** execFile with an argv array — never a shell string, so a `$` or a quote in the substance is inert (M7). */
 export function makeOrcaRunner(explicit, env = process.env, deps = {}) {
   const resolved = resolveOrcaCommand(explicit, env, deps);
   const { exe, base } = resolved;
+  const timeout = deps.timeoutMs ?? orcaTimeoutMs(env);
+  const run = deps.execFile ?? execFileAsync;
   return async (args) => {
     let stdout;
     try {
-      ({ stdout } = await execFileAsync(exe, [...base, ...args], { maxBuffer: 64 * 1024 * 1024, windowsHide: true }));
+      ({ stdout } = await run(exe, [...base, ...args], {
+        maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout, killSignal: 'SIGKILL',
+      }));
     } catch (err) {
+      // `killed` is how execFile reports "I hit the timeout and shot it". Never retried here: the
+      // caller's own deadline decides, and a retry inside the runner would double every budget.
+      if (err?.killed === true) {
+        throw new NoteError(4, `orca ${args.slice(0, 2).join(' ')} timed out after ${timeout} ms and was killed${orcaHint(resolved)}`);
+      }
       stdout = err?.stdout;
       if (!stdout) throw new NoteError(4, `orca ${args.slice(0, 2).join(' ')} failed: ${err?.message ?? err}${orcaHint(resolved)}`);
     }
@@ -428,6 +459,25 @@ export function makeOrcaRunner(explicit, env = process.env, deps = {}) {
     }
     return json.result;
   };
+}
+
+/**
+ * Run `work` with a hard wall-clock bound, returning `fallback` if it does not finish. The underlying
+ * orca subprocess is separately killed by its own timeout, so a losing promise cannot keep the process
+ * alive — this bound is about the CALLER's budget, which is what every v4 number promises (review H4).
+ */
+export async function withDeadline(work, ms, fallback) {
+  if (!(ms > 0)) return fallback;
+  let timer;
+  const expiry = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work, expiry]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function showPane(orca, handle) {
@@ -579,27 +629,68 @@ export const CURSOR_VERSION = 1;
  * by several processes, so an offset would double-report and drift. Ids are exact and are the same thing
  * the on-receipt dedup rule greps for.
  */
-export function readCursor(home, slug, fsImpl = fs) {
-  const raw = readIfExists(cursorPath(home, slug), fsImpl);
-  if (!raw.trim()) return { version: CURSOR_VERSION, slug, updatedAt: null, seen: {} };
-  try {
-    const c = JSON.parse(raw);
-    if (c && typeof c.seen === 'object' && c.seen) return { version: CURSOR_VERSION, slug, updatedAt: c.updatedAt ?? null, seen: c.seen };
-  } catch { /* a corrupt cursor is a fresh cursor, never a crash */ }
-  return { version: CURSOR_VERSION, slug, updatedAt: null, seen: {} };
+/**
+ * Where a cursor goes when `~/.agents/notes` cannot be written — a read-only home, an EACCES, or the
+ * `.cursor-<slug>` path occupied by a directory. Without this the hooks go PERMANENTLY SILENT: the
+ * write throws, the hook swallows it, and a real pending note produces zero bytes forever (review M1).
+ */
+export function fallbackCursorHome(home, tmpDir = os.tmpdir()) {
+  // Keyed by the home it stands in for. A single shared `note-cursor-fallback` directory would make
+  // the fallback GLOBAL per slug: two homes on one machine (or two runs with different HOMEs) would
+  // inherit each other's "already seen" set and silently swallow notes.
+  const key = createHash('sha1').update(toPosix(home ?? '')).digest('hex').slice(0, 12);
+  return toPosix(path.posix.join(toPosix(tmpDir), `note-cursor-fallback-${key}`));
 }
 
-/** Prune to the scan window so the file cannot grow without bound. */
-export function writeCursor(home, slug, cursor, { fsImpl = fs, keepFrom = null } = {}) {
+function parseCursor(raw, slug) {
+  if (!raw.trim()) return null;
+  try {
+    const c = JSON.parse(raw);
+    if (c && typeof c.seen === 'object' && c.seen) {
+      return { version: CURSOR_VERSION, slug, updatedAt: c.updatedAt ?? null, seen: c.seen };
+    }
+  } catch { /* a corrupt cursor is a fresh cursor, never a crash */ }
+  return null;
+}
+
+export function readCursor(home, slug, fsImpl = fs, deps = {}) {
+  const primary = parseCursor(readIfExists(cursorPath(home, slug), fsImpl), slug);
+  if (primary) return primary;
+  // The primary is missing or unreadable; a fallback cursor means a previous run could not write here
+  // and parked its state in the temp dir. Using it is what keeps "emit once" from becoming "emit always".
+  const fallback = parseCursor(readIfExists(cursorPath(fallbackCursorHome(home, deps.tmpDir), slug), fsImpl), slug);
+  return fallback ?? { version: CURSOR_VERSION, slug, updatedAt: null, seen: {} };
+}
+
+function writeCursorTo(home, slug, seen, fsImpl) {
+  const file = cursorPath(home, slug);
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  fsImpl.writeFileSync(file, `${JSON.stringify({ version: CURSOR_VERSION, slug, updatedAt: new Date().toISOString(), seen }, null, 0)}\n`, 'utf8');
+  return file;
+}
+
+/**
+ * Prune to the scan window so the file cannot grow without bound, then write — falling back to the temp
+ * dir rather than throwing. Returns `{ file, fallback, error }`; the caller reports `error` instead of
+ * going quiet.
+ */
+export function writeCursor(home, slug, cursor, { fsImpl = fs, keepFrom = null, tmpDir = undefined } = {}) {
   const seen = {};
   for (const [id, ymd] of Object.entries(cursor.seen ?? {})) {
     if (keepFrom && String(ymd) < keepFrom) continue;
     seen[id] = ymd;
   }
-  const file = cursorPath(home, slug);
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  fsImpl.writeFileSync(file, `${JSON.stringify({ version: CURSOR_VERSION, slug, updatedAt: new Date().toISOString(), seen }, null, 0)}\n`, 'utf8');
-  return file;
+  try {
+    return { file: writeCursorTo(home, slug, seen, fsImpl), fallback: false, error: null };
+  } catch (err) {
+    const why = err?.message ?? String(err);
+    try {
+      return { file: writeCursorTo(fallbackCursorHome(home, tmpDir), slug, seen, fsImpl), fallback: true, error: why };
+    } catch (err2) {
+      // Both paths are gone. Still not a throw: the caller must surface the notes, not disappear.
+      return { file: null, fallback: false, error: `${why}; fallback also failed: ${err2?.message ?? err2}` };
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -644,6 +735,58 @@ export function readOutbox(home, fsImpl = fs) {
 
 export function removeOutboxEntry(home, id, fsImpl = fs) {
   try { fsImpl.rmSync(outboxPath(home, id), { force: true }); return true; } catch { return false; }
+}
+
+/**
+ * Three drainers share the outbox — the 2-minute timer, note-notify at a Codex turn end, and every
+ * note-send piggyback — so "read, attempt, delete on success" races (review M2). Flusher B holding a
+ * stale copy of an entry A just delivered would take the `composerShows` early return, record a
+ * deferral, and RESURRECT the file; the nudge is retyped later and the note lands in the pane twice.
+ *
+ * A claim is an atomic rename. Exactly one flusher can win it, because rename fails when the source is
+ * already gone, and the winner owns the entry for the length of one attempt.
+ */
+export function claimPath(home, id, pid = process.pid) {
+  return `${outboxPath(home, id)}.${pid}.claim`;
+}
+
+export function claimOutboxEntry(home, id, fsImpl = fs, pid = process.pid) {
+  const claim = claimPath(home, id, pid);
+  try {
+    fsImpl.renameSync(outboxPath(home, id), claim);
+    return claim;
+  } catch {
+    return null; // another flusher got there first, or it was delivered and deleted
+  }
+}
+
+export function releaseClaim(claim, fsImpl = fs) {
+  try { fsImpl.rmSync(claim, { force: true }); return true; } catch { return false; }
+}
+
+export const STALE_CLAIM_MS = 5 * 60 * 1000;
+
+/**
+ * A flusher killed mid-attempt leaves a claim behind, and the entry would be invisible forever. Any
+ * claim older than STALE_CLAIM_MS is returned to the outbox at the start of the next drain — but only
+ * when no live entry exists for that id, so a reclaim can never clobber a newer write.
+ */
+export function reclaimStaleClaims(home, { fsImpl = fs, now = Date.now(), maxAgeMs = STALE_CLAIM_MS } = {}) {
+  const dir = outboxDir(home);
+  const reclaimed = [];
+  for (const name of safeReaddir(dir, fsImpl)) {
+    const m = /^(.+\.json)\.\d+\.claim$/.exec(name);
+    if (!m) continue;
+    const claim = toPosix(path.posix.join(dir, name));
+    const target = toPosix(path.posix.join(dir, m[1]));
+    try {
+      if (now - fsImpl.statSync(claim).mtimeMs < maxAgeMs) continue;
+      if (fsImpl.existsSync(target)) { fsImpl.rmSync(claim, { force: true }); continue; }
+      fsImpl.renameSync(claim, target);
+      reclaimed.push(m[1].replace(/\.json$/, ''));
+    } catch { /* another drain is racing us for the same claim; it can have it */ }
+  }
+  return reclaimed;
 }
 
 /** `~/.agents/notes/flush.log` — one line per attempt, so a silent retry loop is impossible to hide. */

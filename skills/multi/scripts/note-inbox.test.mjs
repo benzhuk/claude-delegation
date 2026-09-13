@@ -320,3 +320,70 @@ test('V2: ORCA_WORKTREE_ID names the pane\'s own repo when cwd is somewhere else
   const res = await runNoteInbox(['--cold-start-hours', '0'], deps(home, { env, cwd: tmp() }));
   assert.deepEqual(res.notes.map((n) => n.id), ['astra-worktree-1']);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review r2: H5 (cursor window) and M1 (an unwritable cursor must not silence anything)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('H5: a repo-ledger note older than the mirror window is shown ONCE, not on every run', async () => {
+  const home = tmp();
+  // The committed cross-host path: docs/ledger/*.md pulled from the other machine is older than
+  // anything in this machine's mirror. Pruning against the mirror alone retired the id the instant it
+  // was acked, so the note came back on every run — and Stop blocked on every stop, forever.
+  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-today-1', 'FYI', 'From this machine')]);
+  repoLedger(home, '2026-09-12', ['astra → taxonomy, 9.12.26 09:00 NYC [astra-repoonly-1] ASK: From the other host.']);
+
+  const first = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(home));
+  assert.deepEqual(first.notes.map((n) => n.id).sort(), ['astra-repoonly-1', 'astra-today-1']);
+
+  for (const run of [2, 3]) {
+    const again = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(home));
+    assert.equal(again.count, 0, `run ${run} re-showed an acked note: ${JSON.stringify(again.notes.map((n) => n.id))}`);
+  }
+  // the id survives the prune because the window covers every file actually scanned, both sources
+  assert.ok(readCursor(home, 'taxonomy').seen['astra-repoonly-1']);
+});
+
+test('M1: an unwritable cursor reports itself and still dedupes through the temp-dir fallback', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-pr137-1', 'ASK', 'Review PR 137')]);
+  // The reviewer's probe: the cursor path occupied by a directory.
+  fs.mkdirSync(cursorPath(home, 'taxonomy'), { recursive: true });
+
+  const first = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(home));
+  assert.equal(first.count, 1, 'the note must still be surfaced — silence was the bug');
+  assert.equal(first.cursorFallback, true);
+  assert.ok(first.problems.some((p) => /cursor not writable/.test(p)), JSON.stringify(first.problems));
+  assert.match(formatInbox(first), /! .*cursor not writable/);
+
+  const second = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(home));
+  assert.equal(second.count, 0, 'the fallback cursor still stops it repeating');
+});
+
+test('M1: the fallback cursor is scoped per home — two homes never share a seen-set', async () => {
+  const a = tmp();
+  const b = tmp();
+  for (const home of [a, b]) {
+    mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-pr137-1', 'ASK', 'Review PR 137')]);
+    fs.mkdirSync(cursorPath(home, 'taxonomy'), { recursive: true });
+  }
+  const first = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(a));
+  assert.equal(first.count, 1);
+  // A shared fallback directory would make b inherit a's cursor and swallow the note entirely.
+  const other = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(b));
+  assert.equal(other.count, 1, 'a second home must not inherit the first home’s seen-set');
+});
+
+test('M1: a cursor that cannot be written ANYWHERE still surfaces the notes', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-pr137-1', 'ASK', 'Review PR 137')]);
+  const fsImpl = {
+    ...fs,
+    writeFileSync() { throw new Error('EROFS: read-only file system'); },
+    mkdirSync() { throw new Error('EROFS: read-only file system'); },
+  };
+  const res = await runNoteInbox(['--me', 'taxonomy', '--ack', '--cold-start-hours', '0'], deps(home, { fsImpl }));
+  assert.equal(res.count, 1);
+  assert.equal(res.cursor, null);
+  assert.ok(res.problems.some((p) => /WILL repeat/.test(p)), JSON.stringify(res.problems));
+});

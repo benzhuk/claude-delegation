@@ -134,11 +134,55 @@ test('V3: my own sends and other panes\' notes are never injected', () => {
   assert.equal(runHook('UserPromptSubmit', home), null);
 });
 
-test('V3: a hook that cannot import its script still exits 0 and prints nothing', () => {
+test('M1: a hook that cannot import its script exits 0 and SAYS SO once, never silently', () => {
   const home = tmp();
   mirror(home, [note('astra-pr137-1')]);
-  const stdout = execFileSync(process.execPath, [HOOK, 'UserPromptSubmit'], {
+  const broken = () => execFileSync(process.execPath, [HOOK, 'UserPromptSubmit'], {
     input: '{}',
+    encoding: 'utf8',
+    env: {
+      ...process.env, HOME: home, USERPROFILE: home,
+      CLAUDE_PLUGIN_ROOT: path.join(home, 'nowhere'), NOTE_SLUG: 'taxonomy',
+    },
+  });
+  // Silence here was the bug: a broken config meant peer notes stopped arriving with no signal at all.
+  const first = JSON.parse(broken());
+  assert.equal(first.suppressOutput, true);
+  assert.match(first.hookSpecificOutput.additionalContext, /peer notes are not being read/);
+  assert.match(first.hookSpecificOutput.additionalContext, /note-inbox --me/);
+  // …but it must not nag on every prompt: the same message is emitted once.
+  assert.equal(broken().trim(), '', 'the same warning must not repeat every prompt');
+});
+
+test('M1: an unwritable cursor still surfaces the notes, with the problem named', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  // The reviewer's probe: `.cursor-taxonomy` occupied by a directory. writeCursor used to throw, the
+  // hook swallowed it, and a real pending note produced zero bytes forever.
+  fs.mkdirSync(cursorPath(home, 'taxonomy'), { recursive: true });
+  const out = runHook('UserPromptSubmit', home);
+  assert.ok(out, 'a pending note must still be injected');
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.match(ctx, /astra-pr137-1/);
+  assert.match(ctx, /cursor not writable/);
+  // and the fallback cursor means it is not repeated forever
+  assert.equal(runHook('UserPromptSubmit', home), null, 'the temp-dir fallback cursor still dedupes');
+});
+
+test('M1: a bad NOTE_SLUG is reported once instead of silencing the pane', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  const out = runHook('UserPromptSubmit', home, {}, { NOTE_SLUG: 'Taxonomy' });
+  assert.ok(out, 'an uppercase NOTE_SLUG used to make the hook silent forever');
+  assert.match(out.hookSpecificOutput.additionalContext, /peer notes are not being read/);
+  assert.match(out.hookSpecificOutput.additionalContext, /lowercase/);
+});
+
+test('M1/M3: Stop never emits a config warning — a broken hook must not block a stop', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  const stdout = execFileSync(process.execPath, [HOOK, 'Stop'], {
+    input: JSON.stringify({ hook_event_name: 'Stop', cwd: home }),
     encoding: 'utf8',
     env: {
       ...process.env, HOME: home, USERPROFILE: home,
@@ -148,6 +192,40 @@ test('V3: a hook that cannot import its script still exits 0 and prints nothing'
   assert.equal(stdout.trim(), '');
 });
 
+test('M3: a missing packet is surfaced in the injected context, not just on stderr', () => {
+  const home = tmp();
+  mirror(home, [`astra → taxonomy, ${STAMP} ${CLOCK} NYC [astra-gone-1] ASK: See the packet. Details: docs/notes/astra-gone-1.md`]);
+  const out = runHook('UserPromptSubmit', home);
+  assert.match(out.hookSpecificOutput.additionalContext, /packet MISSING: docs\/notes\/astra-gone-1\.md/);
+  assert.match(out.hookSpecificOutput.additionalContext, /! \[astra-gone-1\] points at/);
+});
+
+test('L3: a Stop reason stays small — six notes, each truncated', () => {
+  const home = tmp();
+  const long = 'x'.repeat(400);
+  mirror(home, Array.from({ length: 12 }, (_, i) => note(`astra-bulk${i}-1`, 'FYI', long)));
+  const out = runHook('Stop', home);
+  assert.equal(out.decision, 'block');
+  assert.ok(out.reason.length < 2500, `Stop reason was ${out.reason.length} bytes`);
+  assert.match(out.reason, /…and 6 more in ~\/\.agents\/notes\//);
+  assert.match(out.reason, /note-inbox --me taxonomy/);
+});
+
+test('L1: a stale pane-slug cache entry is not used — PostToolUse never acks the previous slug', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  const cache = path.join(home, '.agents/notes/.pane-slug.json');
+  fs.mkdirSync(path.dirname(cache), { recursive: true });
+  fs.writeFileSync(cache, JSON.stringify({ term_abc: { slug: 'taxonomy', at: Date.now() - 20 * 60 * 1000 } }));
+  const env = { NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: 'term_abc' };
+  assert.equal(runHook('PostToolUse', home, {}, env), null, 'an 20-minute-old cache entry is not "me"');
+  assert.equal(fs.existsSync(cursorPath(home, 'taxonomy')), false, 'and nothing was acked under it');
+
+  fs.writeFileSync(cache, JSON.stringify({ term_abc: { slug: 'taxonomy', at: Date.now() } }));
+  const fresh = runHook('PostToolUse', home, {}, env);
+  assert.match(fresh.hookSpecificOutput.additionalContext, /astra-pr137-1/);
+});
+
 test('V3: malformed stdin is not a crash', () => {
   const home = tmp();
   const stdout = execFileSync(process.execPath, [HOOK, 'UserPromptSubmit'], {
@@ -155,5 +233,45 @@ test('V3: malformed stdin is not a crash', () => {
     encoding: 'utf8',
     env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: 'taxonomy' },
   });
+  assert.equal(stdout.trim(), '');
+});
+
+test('H4: a wedged orca cannot hold a prompt open — the hook returns inside its own budget', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  // An `orca` that never answers, and a subprocess timeout far beyond the hook's own bound, so what is
+  // being measured is the HOOK's budget rather than execFile's. NOTE_SLUG is cleared, so slug
+  // resolution has to go through this hanging runner.
+  const started = Date.now();
+  const stdout = execFileSync(process.execPath, [HOOK, 'UserPromptSubmit'], {
+    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', cwd: home }),
+    encoding: 'utf8',
+    env: {
+      ...process.env, HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_ROOT: REPO,
+      NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: 'term_abc',
+      ORCA_CLI: `${process.execPath} -e setInterval(()=>{},1000)`,
+      ORCA_TIMEOUT_MS: '600000',
+    },
+  });
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 5000, `the hook took ${elapsed} ms; its advertised ceiling is under 5 s`);
+  assert.equal(stdout.trim(), '', 'and it says nothing rather than guessing at a slug');
+});
+
+test('H4: PostToolUse never pays for orca at all, wedged or not', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  const started = Date.now();
+  const stdout = execFileSync(process.execPath, [HOOK, 'PostToolUse'], {
+    input: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: home }),
+    encoding: 'utf8',
+    env: {
+      ...process.env, HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_ROOT: REPO,
+      NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: 'term_abc',
+      ORCA_CLI: `${process.execPath} -e setInterval(()=>{},1000)`,
+    },
+  });
+  // No cached slug, so there is nothing to do — and it must reach that conclusion without an orca call.
+  assert.ok(Date.now() - started < 2000);
   assert.equal(stdout.trim(), '');
 });

@@ -86,10 +86,34 @@ function cheapSlug() {
   try {
     const cache = JSON.parse(fs.readFileSync(path.join(NOTES_DIR, ".pane-slug.json"), "utf8"));
     const hit = cache[handle];
-    return hit && hit.slug ? hit.slug : null;
+    if (!hit || !hit.slug) return null;
+    // L1: honour the same 10-minute TTL resolveSlug uses. Without it, a renamed pane keeps reading —
+    // and ACKING — the previous slug's inbox, which is the one thing rule 4 forbids.
+    if (Date.now() - Number(hit.at || 0) >= PANE_SLUG_CACHE_MS) return null;
+    return hit.slug;
   } catch {
     return null;
   }
+}
+
+const PANE_SLUG_CACHE_MS = 10 * 60 * 1000;
+
+/**
+ * M1: a config error (an unwritable cursor, `NOTE_SLUG=Taxonomy` with a capital) used to make this hook
+ * permanently silent — runNoteInbox threw, the catch swallowed it, zero bytes, forever. Now it is said
+ * once: the message is stamped to disk and only re-emitted when it CHANGES, so a broken pane complains
+ * without nagging on every prompt.
+ */
+function warnOnce(message) {
+  const stamp = path.join(NOTES_DIR, ".hook-warn");
+  try {
+    if (fs.readFileSync(stamp, "utf8") === message) return null;
+  } catch { /* no stamp yet */ }
+  try {
+    fs.mkdirSync(NOTES_DIR, { recursive: true });
+    fs.writeFileSync(stamp, message, "utf8");
+  } catch { /* cannot stamp: emit anyway, once per prompt is still better than never */ }
+  return message;
 }
 
 /** Nothing to do at all: no pane identity anywhere, so this session is not part of the protocol. */
@@ -102,18 +126,26 @@ async function inbox(argv, cwd) {
   return mod.runNoteInbox(argv, { cwd });
 }
 
-/** Keep an injection small: hooks' output is concatenated into the context on every prompt. */
-function summarise(result, limit = 12) {
+/**
+ * Keep an injection small: hooks' output is concatenated into the context on every prompt, and the
+ * practical guidance is ~500 tokens per injection. `maxChars` truncates each envelope line — the full
+ * line is always in the ledger, and the id is at the front (L3).
+ */
+function summarise(result, limit = 12, maxChars = 0) {
   const shown = result.notes.slice(0, limit);
   const lines = shown.map((n) => {
     const packet = n.details ? (n.packetExists ? ` (packet: ${n.packetPath})` : ` (packet MISSING: ${n.details})`) : "";
-    return `  ${n.line}${packet}`;
+    const text = `${n.line}${packet}`;
+    return `  ${maxChars > 0 && text.length > maxChars ? `${text.slice(0, maxChars)}…` : text}`;
   });
   const more = result.notes.length - shown.length;
   return [
     `${result.count} new peer note${result.count === 1 ? "" : "s"} for ${result.slug} (the multi skill; the ledger is the channel):`,
     ...lines,
-    more > 0 ? `  …and ${more} more in ~/.agents/notes/` : null,
+    more > 0 ? `  …and ${more} more in ~/.agents/notes/ — read them with \`note-inbox --me ${result.slug}\`` : null,
+    // M3: problems are the packet that never arrived, the cursor that cannot be written. They reached
+    // note-inbox's stderr and nowhere else, and hook stderr on exit 0 does not reach the model.
+    ...(result.problems || []).map((p) => `  ! ${p}`),
     "Read the packet before acting. ACK an ASK you take, or send BLOCKED with the reason. "
     + "Never re-send an id someone else sent, and never wait on a peer inside this turn.",
   ].filter(Boolean).join("\n");
@@ -141,8 +173,10 @@ async function handleStop(input, cwd) {
   if (!result || result.count === 0) return;
   writeStamp(result.slug, newestLedgerMtime());
   emit({
+    // L3: a Stop reason is read in full by the model at the worst moment for a wall of text. Six notes,
+    // each truncated; the rest are one `note-inbox` away and are already in the ledger.
     decision: "block",
-    reason: `${summarise(result)}\n\nHandle these before you stop: ACK what you are taking, answer what you can, `
+    reason: `${summarise(result, 6, 220)}\n\nHandle these before you stop: ACK what you are taking, answer what you can, `
       + "or send BLOCKED with the reason. If none of it is for you, say so in one line and stop.",
   });
 }
@@ -153,13 +187,15 @@ async function handlePostToolUse(cwd) {
   if (!slug) return;
   const newest = newestLedgerMtime();
   if (newest === 0 || newest <= readStamp(slug)) return;
-  writeStamp(slug, newest);
   const result = await inbox(["--me", slug, "--ack", "--no-repo"], cwd);
+  // L2: the stamp moves only AFTER a successful read. Advancing it first meant any failure underneath
+  // was never retried until some other write happened to touch the mirror again.
+  writeStamp(slug, newest);
   if (!result || result.count === 0) return;
   emit({
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: `${summarise(result, 6)}\nThis arrived mid-turn. Finish the current atomic step first — a note never interrupts an in-flight edit.`,
+      additionalContext: `${summarise(result, 6, 220)}\nThis arrived mid-turn. Finish the current atomic step first — a note never interrupts an in-flight edit.`,
     },
   });
 }
@@ -183,10 +219,27 @@ async function main() {
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
   const work = (async () => {
-    if (event === "Stop") return handleStop(input, cwd);
-    if (event === "PostToolUse") return handlePostToolUse(cwd);
-    if (event === "UserPromptSubmit" || event === "") return handleUserPromptSubmit(cwd);
-    return undefined;
+    try {
+      if (event === "Stop") return await handleStop(input, cwd);
+      if (event === "PostToolUse") return await handlePostToolUse(cwd);
+      if (event === "UserPromptSubmit" || event === "") return await handleUserPromptSubmit(cwd);
+      return undefined;
+    } catch (err) {
+      // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
+      // tool call) and never on Stop (a broken hook must not block a stop).
+      if (event !== "UserPromptSubmit" && event !== "") return undefined;
+      const once = warnOnce(`multi-inbox: peer notes are not being read — ${err && err.message ? err.message : String(err)}`);
+      if (once) {
+        emit({
+          suppressOutput: true,
+          hookSpecificOutput: {
+            hookEventName: "UserPromptSubmit",
+            additionalContext: `${once}\nPeer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <your-slug>\`.`,
+          },
+        });
+      }
+      return undefined;
+    }
   })();
 
   const budget = event === "PostToolUse" ? POST_TOOL_BUDGET_MS : BUDGET_MS;

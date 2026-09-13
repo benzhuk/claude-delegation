@@ -37,7 +37,7 @@ import path from 'node:path';
 import { NoteError, parseEnvelope, envelopeInstant, timeParts, DEFAULT_ZONE } from './envelope.mjs';
 import {
   toPosix, gitRunner, mainCheckout, makeOrcaRunner, resolveSlug, isMainModule,
-  notesDir, ledgerDir, recentLedgerFiles, readIfExists, readCursor, writeCursor, worktreePathFromEnv,
+  notesDir, ledgerDir, recentLedgerFiles, readIfExists, readCursor, writeCursor, cursorPath, worktreePathFromEnv,
 } from './transport.mjs';
 
 export const DEFAULT_DAYS = 3;
@@ -187,18 +187,39 @@ export async function runNoteInbox(argv, deps = {}) {
   }
 
   let cursorFile = null;
+  let cursorFallback = false;
+  /**
+   * H5: prune against the oldest day we ACTUALLY SCANNED, across BOTH sources. Computing it from the
+   * mirror alone retired a repo-ledger id the instant it was acked whenever the mirror's window started
+   * later — a fresh machine, a cleared `~/.agents/notes`, or `docs/ledger/*.md` pulled from the other
+   * host. The note was then re-shown on every run, so `Stop` blocked on every stop, forever.
+   *
+   * M1: a cursor that cannot be written must not silence this. writeCursor falls back to the temp dir
+   * and reports, and the problem is surfaced rather than thrown.
+   */
+  const persist = (keepFrom) => {
+    const res = writeCursor(home, slug, cursor, { fsImpl, keepFrom });
+    cursorFile = res.file;
+    cursorFallback = res.fallback;
+    if (res.error) {
+      problems.push(
+        `cursor not writable at ${cursorPath(home, slug)} (${res.error})`
+        + `${res.file ? ` — using ${res.file} instead, so these notes are not repeated` : ' — these notes WILL repeat until it is fixed'}`,
+      );
+    }
+  };
+
   if (args.ack) {
     for (const n of notes) cursor.seen[n.id] = n.ymd;
-    const keepFrom = recentLedgerFiles(notesDir(home), days, todayYmd, fsImpl)[0]?.ymd ?? null;
-    cursorFile = writeCursor(home, slug, cursor, { fsImpl, keepFrom });
+    persist(files.map((f) => f.ymd).sort()[0] ?? null);
   } else if (suppressed > 0) {
     // The cold-start suppression must persist even without --ack, or every run re-suppresses and the
     // "N older notes" banner never stops.
-    cursorFile = writeCursor(home, slug, cursor, { fsImpl });
+    persist(null);
   }
 
   return {
-    ok: true, exitCode: 0, slug, slugSource, acked: Boolean(args.ack), cursor: cursorFile,
+    ok: true, exitCode: 0, slug, slugSource, acked: Boolean(args.ack), cursor: cursorFile, cursorFallback,
     scanned: files.map((f) => f.file), days, coldStart, suppressed,
     count: notes.length, notes, problems,
   };
@@ -231,6 +252,9 @@ export function formatInbox(result) {
   if (result.suppressed > 0) {
     lines.push(`  (cursor initialised for ${result.slug}: ${result.suppressed} note(s) older than the cold-start window were marked seen — read them with \`cat ~/.agents/notes/$(date +%F).md\`)`);
   }
+  // A missing packet or an unwritable cursor belongs in the OUTPUT, not only on stderr: a caller that
+  // pipes this never sees stderr, and the hook's stderr on exit 0 does not reach the model at all (M3).
+  for (const p of result.problems ?? []) lines.push(`  ! ${p}`);
   return lines.join('\n');
 }
 

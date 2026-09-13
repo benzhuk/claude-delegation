@@ -12,6 +12,7 @@ import {
   toPosix, outboxPath, readOutbox, writeOutboxEntry, flushLogPath, supersededIds,
   classifyPane, isSendable, hasShimmerLine,
   normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
+  claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
 } from './transport.mjs';
 import { runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush } from './note-flush.mjs';
 import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-notify.mjs';
@@ -423,4 +424,135 @@ test('AR: the Claude agents-list overlay captures Enter, so the pane is not send
   ]);
   assert.equal(classifyPane(claudePane({ preview: '' }), overlay, { now: NOW }), 'permission');
   assert.equal(classifyPane(codexPane({ preview: '' }), overlay, { now: NOW }), 'permission');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review r2: M4 (resolver scope), M2 (outbox claim), H4 (enforced budgets)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('M4: a status tag is only eaten when it carries a KNOWN waiting label', () => {
+  // Row 1 already worked; rows 2 and 3 were the regression the generalised strip introduced.
+  assert.equal(titleToSlug('[ . ] Action Required | astra | bto-workflows'), 'astra');
+  assert.equal(titleToSlug('[2] astra | bto-workflows'), 'astra', 'an unknown tag must never eat a segment');
+  assert.equal(titleToSlug('Action Required | astra | bto-workflows'), 'astra', 'the label counts without a bracket');
+  // and the decorated pane still must not answer to its worktree
+  assert.equal(titleMatchesSlug('[2] astra | bto-workflows', 'bto-workflows'), false);
+  assert.equal(titleMatchesSlug('[ . ] Action Required | astra | bto-workflows', 'bto-workflows'), false);
+  // every previously correct answer is unchanged
+  assert.equal(titleToSlug('◑ taxonomy'), 'taxonomy');
+  assert.equal(titleToSlug('⠇ astra | bto-workflows'), 'astra');
+  assert.equal(titleToSlug('n-astra | bto_nucleus'), 'n-astra');
+  assert.equal(stripStatusTag('astra | bto-workflows'), 'astra | bto-workflows');
+  // classification still fails closed on ANY bracket, which is the half that must stay broad
+  assert.equal(titleSignalsPermission('[2] astra | bto-workflows'), true);
+});
+
+test('M4: an unknown-tag pane resolves to its slug, so the note is not dropped at exit 2', () => {
+  const panes = [codexPane({ title: '[2] astra | bto-workflows' })];
+  assert.equal(resolvePane(panes, 'astra').handle, 'term_bbb');
+  assert.throws(() => resolvePane(panes, 'bto-workflows'), (e) => e instanceof NoteError && e.exitCode === 2);
+});
+
+test('M2: a claimed entry is invisible to a second flusher — no double-typing', async () => {
+  const home = tmp();
+  queue(home);
+  // Simulate flusher A holding the claim while flusher B runs.
+  const claim = claimOutboxEntry(home, 'astra-pr137-1');
+  assert.ok(claim, 'the first claim must win');
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.sends().length, 0, 'a claimed wake-up must never be typed twice');
+});
+
+test('M2: a delivered entry cannot be resurrected by a stale reader', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(readOutbox(home).length, 0);
+  assert.equal(fs.existsSync(outboxPath(home, 'astra-pr137-1')), false);
+  assert.equal(fs.existsSync(outboxPath(home, 'astra-pr137-1') + '.' + process.pid + '.claim'), false, 'the claim goes with the entry');
+});
+
+test('M2: a claim abandoned by a killed flusher is reclaimed, not lost forever', () => {
+  const home = tmp();
+  queue(home);
+  const claim = claimOutboxEntry(home, 'astra-pr137-1', fs, 99999);
+  assert.ok(claim);
+  assert.equal(readOutbox(home).length, 0, 'while claimed it is invisible');
+
+  // Too fresh: a live flusher is probably still working on it.
+  assert.deepEqual(reclaimStaleClaims(home, { now: Date.now() }), []);
+  // Old enough: it comes back.
+  assert.deepEqual(reclaimStaleClaims(home, { now: Date.now() + 10 * 60 * 1000 }), ['astra-pr137-1']);
+  assert.equal(readOutbox(home).length, 1);
+});
+
+test('M2: a reclaim never clobbers a newer entry for the same id', () => {
+  const home = tmp();
+  queue(home);
+  claimOutboxEntry(home, 'astra-pr137-1', fs, 99999);
+  queue(home, { attempts: 3 });                      // a newer write landed while the claim was held
+  reclaimStaleClaims(home, { now: Date.now() + 10 * 60 * 1000 });
+  const entries = readOutbox(home);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].attempts, 3, 'the live entry wins; the stale claim is discarded');
+});
+
+test('H4: the orca runner kills a hung subprocess and reports a timeout, not a hang', async () => {
+  const killed = () => Promise.reject(Object.assign(new Error('timeout'), { killed: true }));
+  const deps = { execFile: killed, existsSync: () => true, platform: 'linux', home: '/home/ben' };
+  const runner = makeOrcaRunner('fake-orca', {}, deps);
+  await assert.rejects(
+    runner(['terminal', 'read']),
+    (e) => e instanceof NoteError && e.exitCode === 4 && /timed out after \d+ ms and was killed/.test(e.message),
+  );
+
+  // The timeout is passed down to execFile, which is what actually does the killing.
+  let opts = null;
+  const spy = (exe, argv, o) => { opts = o; return Promise.resolve({ stdout: '{"ok":true,"result":{}}' }); };
+  await makeOrcaRunner('fake-orca', { ORCA_TIMEOUT_MS: '1234' },
+    { ...deps, execFile: spy })(['terminal', 'list']);
+  assert.equal(opts.timeout, 1234);
+  assert.equal(opts.killSignal, 'SIGKILL');
+});
+
+test('H4: one wedged pane cannot eat the whole drain — the per-entry budget is enforced', async () => {
+  const home = tmp();
+  queue(home, { id: 'astra-slow-1' });
+  queue(home, { id: 'astra-fast-1', toSlug: 'nucleus', handle: 'term_zzz' });
+  let list = 0;
+  const orca = async (args) => {
+    if (args[1] === 'list') { list += 1; return { terminals: [claudePane({ handle: 'term_aaa', title: 'taxonomy' })] }; }
+    return new Promise(() => {});     // every show/read hangs forever
+  };
+  const started = Date.now();
+  const res = await runNoteFlush(['--per-entry-ms', '60'], { home, orca, now: NOW });
+  assert.ok(Date.now() - started < 2000, 'the drain must not wait on a wedged pane');
+  assert.equal(list, 1);
+  assert.ok(res.results.some((r) => r.outcome === 'timed-out'), JSON.stringify(res.results));
+  assert.equal(readOutbox(home).length, 2, 'nothing is lost; both stay queued for the next drain');
+});
+
+test('H4: the whole drain still stops at --max-ms with entries left', async () => {
+  const home = tmp();
+  for (let i = 0; i < 4; i++) queue(home, { id: 'astra-many' + i + '-1' });
+  const orca = async (args) => {
+    if (args[1] === 'list') return { terminals: [claudePane()] };
+    return new Promise(() => {});
+  };
+  const res = await runNoteFlush(['--max-ms', '120', '--per-entry-ms', '50'], { home, orca, now: NOW });
+  assert.ok(res.attempted < 4, 'attempted ' + res.attempted + ' of 4 — the budget was not enforced');
+  assert.equal(res.drained, 0);
+});
+
+test('H4: note-notify stays inside its budget when slug resolution hangs', async () => {
+  const home = tmp();
+  const orca = async () => new Promise(() => {});
+  const started = Date.now();
+  const res = await runNoteNotify(['--max-ms', '150'], { home, orca, now: NOW, env: { ORCA_TERMINAL_HANDLE: 'term_bbb' } });
+  assert.ok(Date.now() - started < 2000, 'a Codex turn end must never leave a stuck process');
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.slug, null);
 });

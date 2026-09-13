@@ -79,7 +79,7 @@ import {
   classifyPane, isSendable, twoPhaseSend, showPane, readPane,
   resolvePane, isLocalPane, titleToSlug,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
-  writeOutboxEntry, benInboxPath, notesDir, isMainModule,
+  writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
 } from './transport.mjs';
 
 import { drainQuietly } from './note-flush.mjs';
@@ -236,6 +236,7 @@ export async function runNoteSend(argv, deps = {}) {
   let pane = null;
   let orca = null;
   let drained = null;
+  let paneError = null;
   if (isBen) {
     plan.push('"ben" is a reserved recipient: no pane is resolved; the line is recorded and printed');
   } else if (dryRun) {
@@ -248,7 +249,22 @@ export async function runNoteSend(argv, deps = {}) {
       const flush = deps.flush ?? drainQuietly;
       drained = await flush({ fsImpl, home, env, orca, now: now.getTime() }, { maxMs: DRAIN_BUDGET_MS });
     }
-    pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw);
+    // H3: a pane-NAME problem must never cost the note. The ledger is the channel and the pane is only
+    // a wake-up, so an exit 2 is carried past the ledger write and thrown after it — with the record,
+    // and the outbox entry, already on disk. The pilot's real failures were exactly this shape: a pane
+    // renamed mid-flight, an ambiguous title, Orca's status tag.
+    try {
+      pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw);
+    } catch (err) {
+      if (!(err instanceof NoteError) || err.exitCode !== 2) throw err;
+      // A raw `term_…` handle that resolves to nothing is the one case we cannot record: without a pane
+      // there is no slug, and a ledger line addressed to "peer" is invisible to every note-inbox.
+      if (HANDLE_RE.test(toRaw)) {
+        throw new NoteError(2, `${err.message}\n\nNothing was recorded: a handle names no slug, so the note would `
+          + 'have no readable recipient. Re-send with --to <slug> and the ledger keeps it even if the pane is gone.');
+      }
+      paneError = err;
+    }
   }
 
   // ── 4. Where the files go. v3: the packet ALWAYS lives in the recipient's repo.
@@ -273,6 +289,16 @@ export async function runNoteSend(argv, deps = {}) {
       throw new NoteError(1, `pane ${pane.handle} ("${pane.title}") has no worktreePath (floating pane) — pass --recipient-repo`);
     }
     targetRepo = mainCheckout(pane.worktreePath, git);
+  } else if (paneError) {
+    // H3, orchestrator ruling: no pane, so no recipient repo — fall back to this pane's own worktree
+    // (ORCA_WORKTREE_ID), then the cwd's main checkout. The `~/.agents/notes` mirror is the record that
+    // actually matters here, because every note-inbox reads it; the repo ledger is a bonus.
+    targetRepo = mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
+    if (!targetRepo) throw new NoteError(2, `${paneError.message}\n\nAnd no repo could be resolved to record it in.`);
+    warnings.push(
+      `pane "${toRaw}" did not resolve, so the ledger line went to ${targetRepo} (this session's repo), `
+      + 'not the recipient\'s. The ~/.agents/notes mirror is what note-inbox reads.',
+    );
   } else if (noType) {
     throw new NoteError(1, '--no-type needs --recipient-repo: no pane is resolved, so nothing says where the note lives');
   } else {
@@ -320,6 +346,9 @@ export async function runNoteSend(argv, deps = {}) {
     notesMirrorPath(home, ymd),
   ].filter(Boolean));
 
+  if (packetPath && paneError) {
+    warnings.push(`the packet was written to ${packetPath} — this session's repo, not the recipient's, because the pane did not resolve. Details: may not resolve for the reader.`);
+  }
   if (details && !packetPath && !dryRun && !fsImpl.existsSync(path.posix.join(toPosix(targetRepo), details))) {
     warnings.push(`Details points at ${details}, which does not exist in ${targetRepo} — write it, or pass --packet-file`);
   }
@@ -378,6 +407,20 @@ export async function runNoteSend(argv, deps = {}) {
       ok: true, exitCode: 0, ...base, classification: 'n/a (ben)',
       delivered: false, deferred: false, queued: false, notified: true, benInbox, outbox: null, error: null,
     };
+  }
+
+  // ── H3: the pane did not resolve, but the note now EXISTS. Queue the wake-up keyed on the raw --to
+  //       (note-flush re-resolves on every drain, so a pane that comes back still gets nudged) and only
+  //       then report the exit 2, with the ledger paths in the message and in the JSON.
+  if (paneError) {
+    const outbox = queue('not-resolved');
+    throw new NoteError(
+      2,
+      `${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is queued — `
+      + 'note-inbox reads the mirror, so the recipient still gets it. Do NOT re-send this id; fix the pane name '
+      + 'or rename the pane to its slug, and the queued wake-up lands on the next flush.',
+      { ...base, classification: 'not-resolved', notified: false, queued: true, outbox },
+    );
   }
 
   // ── `--no-type`: the ledger is the channel; the wake-up is queued for note-flush. Not a failure.

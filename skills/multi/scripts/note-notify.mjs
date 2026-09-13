@@ -43,7 +43,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 
 import {
-  toPosix, makeOrcaRunner, resolveSlug, titleToSlug, appendFlushLog, isMainModule,
+  toPosix, makeOrcaRunner, resolveSlug, titleToSlug, appendFlushLog, isMainModule, withDeadline,
 } from './transport.mjs';
 import { drainQuietly } from './note-flush.mjs';
 
@@ -160,18 +160,24 @@ export async function runNoteNotify(argv, deps = {}) {
     orca = deps.orca ?? makeOrcaRunner(args.orca, env);
   } catch { orca = null; }
 
-  try {
-    // allowActiveTerminal: false — the focused pane is not necessarily the pane whose turn ended.
-    const r = await resolveSlug({ explicit: args.to, env, home, fsImpl, orca, now, allowActiveTerminal: false });
-    slug = r.slug;
-    slugSource = r.source;
-  } catch {
-    if (orca && payload?.cwd) {
-      const terminals = await orca(['terminal', 'list', '--json']).then((r) => r?.terminals).catch(() => null);
-      slug = slugFromCwd(terminals, payload.cwd);
-      if (slug) slugSource = 'payload cwd (unique Codex pane)';
+  // H4: slug resolution can reach orca, so it gets its own slice of the budget. Without a bound here,
+  // one hung `terminal show` would blow the "within ~10 s" promise before the drain even starts, and
+  // leave one stuck node process per Codex turn end.
+  const identifyBudget = Math.max(0, Math.min(maxMs / 3, maxMs - (clock() - started)));
+  await withDeadline((async () => {
+    try {
+      // allowActiveTerminal: false — the focused pane is not necessarily the pane whose turn ended.
+      const r = await resolveSlug({ explicit: args.to, env, home, fsImpl, orca, now, allowActiveTerminal: false });
+      slug = r.slug;
+      slugSource = r.source;
+    } catch {
+      if (orca && payload?.cwd) {
+        const terminals = await orca(['terminal', 'list', '--json']).then((r) => r?.terminals).catch(() => null);
+        slug = slugFromCwd(terminals, payload.cwd);
+        if (slug) slugSource = 'payload cwd (unique Codex pane)';
+      }
     }
-  }
+  })(), identifyBudget, undefined);
 
   // ── 3. Drain, inside whatever budget is left.
   const budget = Math.max(0, maxMs - (clock() - started) - DRAIN_RESERVE_MS);
