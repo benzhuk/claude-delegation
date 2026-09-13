@@ -1,0 +1,3 @@
+# Everything here is deployed to macOS/Linux boxes too; a CRLF shebang breaks direct execution.
+* text=auto eol=lf
+*.png binary
