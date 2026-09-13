@@ -450,13 +450,15 @@ test('v3: --recipient-repo on a non-local pane is exit 5 and names the ssh form'
     runNoteSend(ARGS_OK(['--recipient-repo', tmp()]), { orca, home: tmp(), git: () => '.git', now: NOW }),
     5, /--recipient-repo cannot reach it/,
   );
-  assert.match(err.message, /ssh <host> note-send/);
+  // R4: the suggested command must be the robust one — absolute path, single-quoted as one argument.
+  assert.match(err.message, /ssh <host> '~\/\.local\/bin\/note-send .* --packet-file -'/);
 });
 
 test('v3: a non-local pane whose repo is not here is exit 5 pointing at ssh', async () => {
   const orca = mockOrca({ panes: [idlePane({ executionHostId: 'netcup', worktreePath: '/home/ben/code/bto_nucleus' })] });
   const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 5, /does not exist here/);
   assert.match(err.message, /Run note-send on that host/);
+  assert.match(err.message, /ssh <host> '~\/\.local\/bin\/note-send .* --packet-file -'/);
 });
 
 test('v3: run on the recipient host, the same note is an ordinary local send', async () => {

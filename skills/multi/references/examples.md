@@ -82,25 +82,33 @@ taxonomy → n-astra, 9.13.26 12:02 NYC [taxonomy-corpus-run-2] FYI: Batch finis
 
 ## 7. A note to a peer on another machine
 
-`taxonomy` runs on Netcup; `accounts` runs on Ben's Windows desktop. A note is always
-written where the RECIPIENT works, so it is sent by running note-send ON that machine over
-ssh, with the packet body on stdin. `Details:` stays repo-relative — there is no `<host>:`
-path form, and a Windows path could not be expressed in one anyway.
+`accounts` runs on Ben's Windows desktop; `taxonomy` runs on Netcup. A note is always written
+where the RECIPIENT works, so it is sent by running note-send ON that machine over ssh, with
+the packet body on stdin. `Details:` stays repo-relative — there is no `<host>:` path form,
+and a Windows path could not be expressed in one anyway.
+
+From Git Bash on the desktop, as one line:
 
 ```
-ssh ben@ben-desktop note-send --from taxonomy --to accounts --kind ASK \
-  --topic ledger-schema --text "Does the accounts app already have a table I should append the ledger rows to?" \
-  --goal "avoid a second store" --details docs/notes/taxonomy-ledger-schema-1.md \
-  --needs decision --by 17:00 --packet-file -   < packet.md
+ssh ben@100.69.249.18 '~/.local/bin/note-send --from accounts --to taxonomy --kind ASK --topic ledger-schema --text "Does the ledger already have a table I should append these rows to?" --goal "avoid a second store" --details docs/notes/accounts-ledger-schema-1.md --needs decision --by 17:00 --packet-file -' < packet.md
 ```
 
 ```
-taxonomy → accounts, 9.13.26 13:30 NYC [taxonomy-ledger-schema-1] ASK: Does the accounts app already have a table I should append the ledger rows to? Goal: avoid a second store. Details: docs/notes/taxonomy-ledger-schema-1.md Needs: decision by 17:00
+accounts → taxonomy, 9.13.26 13:30 NYC [accounts-ledger-schema-1] ASK: Does the ledger already have a table I should append these rows to? Goal: avoid a second store. Details: docs/notes/accounts-ledger-schema-1.md Needs: decision by 17:00
 ```
 
-Running it locally against a pane on another host is refused with exit 5, which names the
-ssh form. Passing `--recipient-repo` for such a pane is the same refusal: the sender cannot
-write a file on a machine it is not on.
+The absolute `~/.local/bin/note-send` is not decoration: `ssh box 'cmd'` gets a non-login
+shell on the Linux boxes, so nothing has put `~/.local/bin` on PATH. Single-quote the whole
+remote command as one argument, or ssh word-splits `--text` at the first space — and because
+it is single-quoted, a `\` continuation would be literal, so keep it on one line. `~` also
+survives Git Bash's path rewriting in a way a leading `/home/ben` does not.
+
+Going the other way, to a pane on the Windows desktop, the same command uses bare
+`note-send`: `C:\Users\benzh\.local\bin` is already on the Windows PATH.
+
+Running any of this locally against a pane on another host is refused with exit 5, which
+names the ssh form. Passing `--recipient-repo` for such a pane is the same refusal: the
+sender cannot write a file on a machine it is not on.
 
 ---
 

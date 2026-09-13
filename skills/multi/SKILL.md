@@ -111,11 +111,28 @@ If PATH is not set up yet, call the script directly:
 ledger lines then land where the recipient actually works, and `Details:` stays
 repo-relative. There is no `<host>:` path form.
 
+Call it by its absolute path and quote the whole remote command as ONE argument:
+
 ```
-ssh ben@100.69.249.18 note-send --from taxonomy --to nucleus --kind ASK \
-  --topic ledger-schema --text "Does the accounts app already have a table for these rows?" \
-  --needs decision --by 17:00 --packet-file -   < packet.md
+ssh ben@100.69.249.18 '~/.local/bin/note-send --from taxonomy --to nucleus --kind ASK --topic ledger-schema --text "Does the accounts app already have a table for these rows?" --needs decision --by 17:00 --packet-file -' < packet.md
 ```
+
+Three things that form gets right, each of which bites otherwise:
+
+- **`~/.local/bin/note-send`, not bare `note-send`.** `ssh box 'cmd'` runs a non-login shell
+  on the Linux boxes, which never sources the profile that puts `~/.local/bin` on PATH. The
+  shim itself finds node (PATH, then fnm), so the absolute path is all that is missing.
+- **Single quotes around the entire command.** ssh joins its arguments into one string for
+  the remote shell, so unquoted `--text "two words"` arrives word-split. Quote once, on the
+  outside; the substance keeps its double quotes inside. Note that a `\` line continuation
+  does NOT work inside single quotes — this command is one line.
+- **`~` not `/home/ben`.** From Git Bash on Windows, an argument starting with `/` can be
+  rewritten to a Windows path before ssh ever sees it; `~` is left alone and the remote
+  shell expands it. The command above is identical from Git Bash, PowerShell, macOS and the
+  boxes — `< packet.md` reads the local file and ssh forwards it to the remote stdin.
+
+Sending to a pane on Ben's **Windows** desktop is the same command with bare `note-send`:
+`C:\Users\benzh\.local\bin` is already on the Windows PATH, and `~` means nothing there.
 
 **`--to ben`** resolves no pane. The note is recorded and printed for Ben to read; exit 0
 with `delivered:false, notified:true`. Use it for anything only Ben can decide.

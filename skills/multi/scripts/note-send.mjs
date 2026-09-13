@@ -482,7 +482,8 @@ export async function runNoteSend(argv, deps = {}) {
     throw new NoteError(
       5,
       `pane ${pane.handle} runs on host "${pane.executionHostId}", not this runtime — --recipient-repo cannot reach it. ` +
-      `Send from that host instead: ssh <host> note-send --from ${from} --to ${toRaw} … --packet-file -`,
+      `Send from that host instead, quoting the whole remote command as one argument: ` +
+      `ssh <host> '~/.local/bin/note-send --from ${from} --to ${toRaw} … --packet-file -' < packet.md`,
     );
   }
 
@@ -508,7 +509,8 @@ export async function runNoteSend(argv, deps = {}) {
       throw new NoteError(
         5,
         `pane ${pane.handle} works in "${targetRepo}" on host "${pane.executionHostId}", which does not exist here. ` +
-        `Run note-send on that host: ssh <host> note-send --from ${from} --to ${toRaw} … --packet-file -`,
+        `Run note-send on that host, quoting the whole remote command as one argument: ` +
+        `ssh <host> '~/.local/bin/note-send --from ${from} --to ${toRaw} … --packet-file -' < packet.md`,
       );
     }
     throw new NoteError(1, `recipient repo "${targetRepo}" does not exist`);
@@ -682,8 +684,10 @@ const USAGE = `note-send — one peer-note envelope, ledger-first, typed into a 
             [--needs decision|review|ack|none] [--by "<time>"] [--recipient-repo <dir>] [--sender-repo <dir>]
             [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>] [--dry-run] [--json]
 
-Cross-host: run note-send ON the recipient's host over ssh, e.g.
-  ssh ben@<host> note-send --from <you> --to <pane> --kind ASK --topic <t> --text "…" --packet-file -
+Cross-host: run note-send ON the recipient's host over ssh. Use the absolute path (an ssh command
+gets a non-login shell, which has no ~/.local/bin on PATH) and quote the whole remote command as
+ONE argument, on one line (a \\ continuation is literal inside single quotes):
+  ssh ben@<host> '~/.local/bin/note-send --from <you> --to <pane> --kind ASK --topic <t> --text "…" --packet-file -' < packet.md
 
 Exit: 0 delivered (or notified, for ben) · 1 bad arguments/envelope · 2 pane not found/ambiguous ·
       3 deferred or unsafe pane state (NOT delivered — you own the retry) · 4 orca CLI error · 5 cross-host misuse
