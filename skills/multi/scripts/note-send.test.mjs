@@ -142,7 +142,11 @@ test('R7: Claude titles are a glyph plus the name', () => {
 });
 
 test('R7: every spinner frame normalizes away', () => {
-  for (const glyph of ['⠇', '⠋', '⠙', '⠸', '◐', '◑', '◒', '◓', '✳', '✢', '·', '*']) {
+  // the full braille spinner cycle Orca uses, plus the block/star frames and a couple of strays
+  for (const glyph of [
+    '⠇', '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠏',
+    '◐', '◑', '◒', '◓', '✳', '●', '✢', '·', '*',
+  ]) {
     assert.equal(normalizeTitle(`${glyph} astra`), 'astra', `glyph ${glyph}`);
     assert.equal(normalizeTitle(`${glyph} astra | bto-workflows`), 'astra', `glyph ${glyph} with worktree`);
   }
