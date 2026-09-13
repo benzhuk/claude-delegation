@@ -66,7 +66,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import {
   NoteError, RESERVED_RECIPIENT, DEFAULT_ZONE, DEFAULT_TZ_LABEL, SLUG_RE,
@@ -740,5 +740,29 @@ async function main() {
   }
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) await main();
+/**
+ * Is this module the process entry point?
+ *
+ * The naive `import.meta.url === pathToFileURL(process.argv[1]).href` check is FALSE whenever the
+ * script is reached through a symlink: Node resolves the module URL to the real path while
+ * `process.argv[1]` keeps the link path. The mirror publishes `~/.agents/skills/multi` as a symlink on
+ * macOS and Linux, and the PATH shim runs the script through exactly that path — so the guard failed,
+ * `main()` never ran, and `note-send` exited 0 having printed nothing and written no ledger line. A
+ * silent drop, which is the one failure this whole protocol exists to prevent.
+ *
+ * So: compare real paths on both sides, and fall back to the basename. Being wrong in the "run it"
+ * direction is a visible error; being wrong the other way is silence.
+ */
+export function isMainModule(metaUrl, entry = process.argv[1]) {
+  if (!entry) return false;
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const canon = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const self = real(fileURLToPath(metaUrl));
+  const argv1 = real(entry);
+  if (canon(self) === canon(argv1)) return true;
+  // Launched through a path we could not canonicalise (a dangling link, a junction on a mapped drive):
+  // if the entry point carries this file's name, nothing else plausibly imported us.
+  return path.basename(argv1).toLowerCase() === path.basename(self).toLowerCase();
+}
+
+if (isMainModule(import.meta.url)) await main();

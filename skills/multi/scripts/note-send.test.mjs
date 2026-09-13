@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import {
   NoteError, MAX_LINE,
@@ -12,7 +14,7 @@ import {
   classifyPane, composerShows, LIVE_TAIL_LINES,
   mainCheckout, toPosix,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
-  parseArgs, resolveOrcaCommand, timeParts,
+  parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   runNoteSend,
 } from './note-send.mjs';
 
@@ -630,6 +632,70 @@ test('argument parsing rejects unknown flags and missing values', () => {
 
 test('missing required arguments are named', async () => {
   await rejectsWith(runNoteSend(['--from', 'a'], { orca: mockOrca({}), home: tmp() }), 1, /--to is required/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R5 — the script must run when it is reached through a symlink
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SCRIPT = fileURLToPath(new URL('./note-send.mjs', import.meta.url));
+
+/** A directory symlink to this script's folder: a junction on Windows (no admin needed), else a symlink. */
+function linkedScriptsDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'note-send-link-'));
+  const link = path.join(dir, 'scripts');
+  try {
+    fs.symlinkSync(path.dirname(SCRIPT), link, process.platform === 'win32' ? 'junction' : 'dir');
+    return link;
+  } catch {
+    return null; // no symlink privilege: the caller skips
+  }
+}
+
+function runScript(script, args) {
+  try {
+    return { code: 0, stdout: execFileSync(process.execPath, [script, ...args], { encoding: 'utf8' }) };
+  } catch (err) {
+    return { code: err.status, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
+  }
+}
+
+test('R5: isMainModule sees through a symlinked entry path', () => {
+  const url = new URL('./note-send.mjs', import.meta.url).href;
+  assert.equal(isMainModule(url, SCRIPT), true, 'the real path is main');
+  assert.equal(isMainModule(url, undefined), false, 'no entry point means not main');
+  assert.equal(isMainModule(url, path.join(path.dirname(SCRIPT), 'envelope.mjs')), false, 'a sibling module is not main');
+  // a path that cannot be canonicalised still counts when it carries our basename
+  assert.equal(isMainModule(url, path.join(os.tmpdir(), 'nope', 'note-send.mjs')), true);
+});
+
+test('R5: running the script THROUGH a symlink still produces output and exit codes', () => {
+  const link = linkedScriptsDir();
+  if (!link) return; // unprivileged environment; the unit test above still covers the guard
+  const linked = path.join(link, 'note-send.mjs');
+
+  const help = runScript(linked, ['--help']);
+  assert.equal(help.code, 0);
+  assert.ok(help.stdout.length > 200, `--help through a symlink printed ${help.stdout.length} bytes — a silent no-op is the bug this test exists for`);
+  assert.match(help.stdout, /note-send --from/);
+
+  const repo = tmp();
+  const dry = runScript(linked, ['--dry-run', '--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI',
+    '--topic', 'ping', '--text', 'through a symlink', '--recipient-repo', repo]);
+  assert.equal(dry.code, 0);
+  assert.match(dry.stdout, /taxonomy → nucleus, .* \[taxonomy-ping-1\] FYI: through a symlink\./);
+
+  const bad = runScript(linked, ['--from', 'x', '--to', 'y', '--kind', 'FYI', '--topic', 't', '--text', 'a; rm -rf /']);
+  assert.equal(bad.code, 1, 'a rejected note must still exit 1 through a symlink');
+});
+
+test('R5: --help prints usage and exits 0 on the direct path too', () => {
+  const help = runScript(SCRIPT, ['--help']);
+  assert.equal(help.code, 0);
+  assert.ok(help.stdout.length > 200);
+  const noArgs = runScript(SCRIPT, []);
+  assert.equal(noArgs.code, 1, 'no arguments is usage + exit 1');
+  assert.ok(noArgs.stdout.length > 200, 'even the no-argument path prints the usage');
 });
 
 test('the orca command resolves --orca > $ORCA_CLI > orca', () => {
