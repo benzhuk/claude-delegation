@@ -1,6 +1,6 @@
 ---
 name: team-build
-description: Use when building a substantial multi-file feature with an agent team — builder/reviewer pipeline, model-split execution ("Sonnet writes, Opus verifies"), spec-driven parallel implementation. This is the DEFAULT build method for any substantial multi-file feature unless the user instructs otherwise. NOT for research/review/audit fan-out without a build: that is delegate.
+description: Use when building a substantial multi-file feature with an agent team — builder/reviewer pipeline, tiered execution (mid tier writes, high tier verifies), spec-driven parallel implementation. This is the DEFAULT build method for any substantial multi-file feature unless the user instructs otherwise. NOT for research/review/audit fan-out without a build: that is delegate. NOT for messaging, briefing, or handing off to an EQUAL session you do not own: that is the multi skill.
 ---
 
 # Team build — builder/reviewer orchestration
@@ -8,9 +8,10 @@ description: Use when building a substantial multi-file feature with an agent te
 > Independent research/review/audit lanes with nothing to build? Stop — invoke the
 > **delegate** skill instead.
 
-You are the orchestrator. Builders (fast model) write; independent reviewers (strong
-model) verify adversarially; an integrator runs the mechanical gates; you own the spec,
-adjudication, and the ship decision. Token efficiency comes from paying for context
+You are the orchestrator. Builders (mid tier: Claude Sonnet / OpenAI GPT-5.6-Terra)
+write; independent reviewers (high tier: Claude Opus / OpenAI GPT-5.6-Sol) verify
+adversarially; an integrator runs the mechanical gates; you own the spec, adjudication,
+and the ship decision. Token efficiency comes from paying for context
 once (specs on disk, warm agents, reports by path); speed comes from ownership
 boundaries, not luck.
 
@@ -37,9 +38,10 @@ is the build pipeline that uses them.
    a contract-mismatch round in every territory (proven: 4 builders compiled against a
    frozen `contracts.ts` simultaneously with zero mismatch rounds — one built its eval
    harness against an engine signature before that engine existed).
-4. **Opus spec red-team** (skip only for small/low-risk builds): one Opus agent
-   adversarially reviews spec + contracts — missing cases, ambiguities, wrong
-   decomposition. The highest-leverage Opus spend in the pipeline.
+4. **High-tier spec red-team** (Claude Opus / OpenAI GPT-5.6-Sol; skip only for
+   small/low-risk builds): one high-tier agent adversarially reviews spec + contracts —
+   missing cases, ambiguities, wrong decomposition. The highest-leverage high-tier spend
+   in the pipeline.
 5. **Estimate ETAs and plan the timers** (`../../docs/agent-pacing.md`). Anchor
    estimates: pure-code territory ≈ 30–60 min; build + measurement harness ≈
    60–90 min; anything paying a prod build per iteration ≈ 2–3 h unless parallelized —
@@ -48,19 +50,23 @@ is the build pipeline that uses them.
 
 ## Roles
 
-- **Builder** (Sonnet; **Opus for the hardest territory** — core algorithms,
-  concurrency/state machines, data integrity, subtle migrations — set `model: opus` on
-  the spawn call, which overrides the agent file's frontmatter): implements only its
+- **Builder** (mid tier: Claude Sonnet / OpenAI GPT-5.6-Terra; **high tier for the
+  hardest territory** — core algorithms, concurrency/state machines, data integrity,
+  subtle migrations — on Claude Code, set `model: opus` on the `Agent` call, which
+  overrides the agent file's frontmatter; on Codex, point that territory's role at the
+  `.codex/agents/*.toml` file with `model = "gpt-5.6-sol"` — see
+  `../../docs/model-tiers.md`'s spawn-mechanics section): implements only its
   territory. Gate before reporting: territory-scoped tests + typecheck via the shared
   verification mutex (`../../docs/concurrency-budget.md`) — builders do NOT run
   repo-wide checks every fix round; the full graph belongs to the integrator's gate.
   Commits its territory early and often. If a cross-territory import doesn't exist yet,
   code against the contract and note it.
-- **Contract-test writer** (Sonnet, optional but cheap): writes integration/contract
+- **Contract-test writer** (mid tier, optional but cheap): writes integration/contract
   tests from the spec while builders build — converts contract compliance from a
-  judgment call into a mechanical gate. Upgrade to Opus when the contracts ARE the risk
-  center: a wrong test is a false-green gate, worse than none.
-- **Reviewer** (Opus, fresh per phase, never the planner): read-only; spawns only after
+  judgment call into a mechanical gate. Upgrade to the high tier when the contracts ARE
+  the risk center: a wrong test is a false-green gate, worse than none.
+- **Reviewer** (high tier: Claude Opus / OpenAI GPT-5.6-Sol, fresh per phase, never the
+  planner): read-only; spawns only after
   that builder's own gate is green. Its prompt is a **specific attack brief**, not
   "review this" — name the priorities, the explicit questions, and the attack surface
   ("try to defeat the traceability gate: numbers as words, reformatted numbers, empty
@@ -71,15 +77,15 @@ is the build pipeline that uses them.
   `APPROVE`/`NEEDS_FIXES` first. **Check the reviewer's tools against what the review
   requires** — a reviewer that must run a typecheck needs a shell. The bundled
   `reviewer` agent ships read-only (no Bash) — grant tools at the spawn call for any
-  review with a mechanical component. Sonnet reviewers
+  review with a mechanical component. Mid-tier reviewers
   only for genuinely low-risk territories; reviews are not optional for anything that
   computes a number someone will act on.
-- **Seam reviewer** (Opus, after all territories land; worth it at ≥3 territories or
+- **Seam reviewer** (high tier, after all territories land; worth it at ≥3 territories or
   any cross-territory data handoff): one pass scoped to the contract boundaries — call
   sites across territories, shared types in use, data handoffs. Per-territory reviewers
   never see the joints; the integrator's gate is mechanical; without this, seams are
   reviewed by no one.
-- **Integrator** (Sonnet): runs the full suite ONCE per gate, triages failures to
+- **Integrator** (mid tier): runs the full suite ONCE per gate, triages failures to
   territories, drives live smoke verification (routes load, console clean, loading/error
   states, visual placement). This is where the expensive verification verbs live —
   once per gate, not per agent per round. Reports pass/fail + failure file; never
@@ -122,6 +128,13 @@ One builder commits at the end: conventional commits split by territory (respect
 user's attribution config). If a local production build is unsafe (dev server running),
 use the CI/preview build as the gate. The integrator runs deployment smoke checks; you
 read its verdict and own the ship decision.
+
+## Peer sessions
+
+To ask, brief or hand off to an EQUAL session you do not own — another territory's
+owner on a different pane, a peer machine's session — use the `multi` skill, never Orca
+orchestration dispatch. Builders, reviewers, and the integrator here are subordinates
+you spawned and own; a peer note goes to a session you don't.
 
 ## Common mistakes
 

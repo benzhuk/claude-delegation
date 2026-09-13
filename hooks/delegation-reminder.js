@@ -59,8 +59,14 @@ process.stdin.on("end", () => {
   const model = detectModel(input).toLowerCase();
   // Top-tier orchestrator models get the economy sentence; unknown models too
   // (cheap to include, harmless to ignore). Execution-tier sessions skip it.
-  // Extend the list without editing this file: CLAUDE_DELEGATION_TOP_TIER="opus,foo".
-  const tiers = (process.env.CLAUDE_DELEGATION_TOP_TIER || "opus")
+  // Extend the list without editing this file: DELEGATION_TOP_TIER="opus,fable,foo".
+  // Vendor-neutral rename (see docs/model-tiers.md): DELEGATION_TOP_TIER is read first;
+  // CLAUDE_DELEGATION_TOP_TIER is a fallback for 0.2.x, removed in 0.3.0.
+  const tierEnv =
+    process.env.DELEGATION_TOP_TIER ||
+    process.env.CLAUDE_DELEGATION_TOP_TIER ||
+    "fable,opus,gpt-6-astra,gpt-5.6-sol";
+  const tiers = tierEnv
     .split(",")
     .map((t) => t.trim().toLowerCase())
     .filter(Boolean);

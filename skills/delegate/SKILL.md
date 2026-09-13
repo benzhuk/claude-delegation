@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: Use when a prompt decomposes into independent research, review, audit, or analysis lanes that should run as parallel subagents — "investigate these three", "review this from several angles", "audit all X", "sweep the codebase for Y" — or when deciding whether and how to delegate any task to subagents. NOT for multi-file feature builds: that is team-build.
+description: Use when a prompt decomposes into independent research, review, audit, or analysis lanes that should run as parallel subagents — "investigate these three", "review this from several angles", "audit all X", "sweep the codebase for Y" — or when deciding whether and how to delegate any task to subagents. NOT for multi-file feature builds: that is team-build. NOT for messaging, briefing, or handing off to an EQUAL session you do not own: that is the multi skill.
 ---
 
 # Delegate — parallel fan-out orchestration
@@ -21,8 +21,10 @@ description: Use when a prompt decomposes into independent research, review, aud
 
 1. **Decompose into independent questions.** One agent per question. Spawn them all in
    a single message so they run truly concurrently; staggering serializes for nothing.
-2. **Tier the models** (`../../docs/model-tiers.md`): Sonnet executes at full strength,
-   Opus verifies and adjudicates, Haiku only for mindless bulk sweeps. Verify with a
+2. **Tier the models** (`../../docs/model-tiers.md`): the mid tier (Claude Sonnet /
+   OpenAI GPT-5.6-Terra) executes at full strength, the high tier (Claude Opus /
+   OpenAI GPT-5.6-Sol) verifies and adjudicates, the fast tier (Claude Haiku / OpenAI
+   GPT-5.6-Luna, GPT-5.3-Codex-Spark) is only for mindless bulk sweeps. Verify with a
    stronger tier than the writer.
 3. **Check the concurrency budget** (`../../docs/concurrency-budget.md`): read-only
    agents are effectively free — spawn as many as there are questions. Anything that
@@ -46,6 +48,13 @@ description: Use when a prompt decomposes into independent research, review, aud
    prior messages instead of containing the report, resume once with the clause, then
    respawn with report-to-disk.
 
+## Peer sessions
+
+To ask, brief or hand off to an EQUAL session you do not own, use the `multi` skill —
+never Orca orchestration dispatch. This skill's fan-out is for subordinate work you
+spawn and own; a peer note goes to a session that outlives this one and doesn't answer
+to you.
+
 ## Orchestrator economy
 
 Your tokens buy judgment: decomposition, adjudication, synthesis. Never pull big files
@@ -55,7 +64,7 @@ report path. If you're reading raw file dumps, you've mis-delegated.
 ## Synthesis
 
 Fan-in is your job: read verdict lines, open only failed/surprising reports, adjudicate
-conflicts yourself (or spawn one Opus adjudicator when two agents disagree on facts),
+conflicts yourself (or spawn one high-tier adjudicator when two agents disagree on facts),
 and state conclusions with each lane's evidence path. A confirmed absence or a proven
 limit reported by a lane is a first-class result — surface it, don't re-run the lane
 hoping for a positive.

@@ -37,3 +37,41 @@ Concrete ids (2026-09-13): Claude `claude-fable-5-1`, `claude-opus-5`, `claude-s
 <!-- Builder T2 expands this file with the spawn mechanics per vendor (Claude: `model:` on the Agent call /
 agents/*.md frontmatter; Codex: `~/.codex/agents/*.toml` `model =` from the same row) — everything above
 this line is frozen. -->
+
+## Spawn mechanics per vendor
+
+How an orchestrator actually pins a tier at spawn time, so "run this on a high-tier
+model" becomes a concrete argument instead of a hope.
+
+### Claude Code
+
+- **`model:` on the `Agent` tool call is the override** — pass it at the spawn call site
+  (e.g. `model: "opus"`) and it wins over whatever the agent definition's frontmatter
+  says. Use this to upgrade one territory (the hardest builder) without touching the
+  shared agent file.
+- **`agents/*.md` frontmatter `model:` is the default** for every spawn of that agent
+  type that doesn't override it — `agents/builder.md` and `agents/integrator.md` ship
+  `model: sonnet` (mid tier), `agents/reviewer.md` ships `model: opus` (high tier). This
+  is a Claude Code-only mechanism (frontmatter format + the `Agent` tool's `model` param);
+  Codex has no equivalent file format, hence the parallel `.toml` files below.
+- Concrete ids to pass: `claude-fable-5-1` (top), `claude-opus-5` (high),
+  `claude-sonnet-5` (mid), `claude-haiku-4-5-20251001` (fast).
+
+### Codex
+
+- **`~/.codex/agents/*.toml` `model =`** is the equivalent default-pin: each custom role
+  file (`name`, `description`, `developer_instructions`, `model`, `sandbox_mode`) names
+  its model id directly, no per-call override mechanism confirmed (unlike Claude's
+  `Agent` call `model:` param — Codex equivalent: unverified). Pick the id from the same
+  tier row as the Claude counterpart, so a `builder.toml` sets `model = "gpt-5.6-terra"`
+  (mid) to mirror `agents/builder.md`'s `model: sonnet`, and a `reviewer.toml` sets
+  `model = "gpt-5.6-sol"` (high) to mirror `agents/reviewer.md`'s `model: opus`.
+- Codex 0.154 ships three built-in roles (`default`, `worker`, `explorer`); custom roles
+  in `.codex/agents/*.toml` extend that set. `[agents]` config controls `max_threads`
+  (default 6) and `max_depth` (default 1) — the Codex-side equivalent of this plugin's
+  concurrency budget, but configured globally rather than per-mandate; treat
+  `concurrency-budget.md`'s per-task numbers as the intent and cap them at whatever
+  `max_threads` allows.
+- Top-tier Codex spawns (adjudication, spec red-team) use `gpt-6-astra` by the same
+  reasoning as the table's note: OpenAI's one flagship covers both the "judge" and the
+  "hardest build territory" rows when cost allows `gpt-6-astra` for both.
