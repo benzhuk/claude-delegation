@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// note-send — PINNED CLI CONTRACT v2 (2026-09-13). Builder T1 implements the body; the interface below is frozen.
+// note-send — PINNED CLI CONTRACT v3 (2026-09-13). Builder T1 implements the body; the interface below is frozen.
 //
 // Compose one peer-note envelope (see ../references/envelope.md), write it to the ledger(s), then type it
 // into the recipient's Orca pane through the plain terminal path. The SENDER is the safety gate; nothing is
@@ -9,7 +9,11 @@
 //   note-send --from <slug> --to <slug|term_handle> --kind ASK|ACK|RESULT|BLOCKED|FYI --topic <slug> --text "<substance>"
 //             [--n <int>] [--re <parent-id>] [--supersedes <id>] [--goal "<why>"] [--details <path>]
 //             [--needs decision|review|ack|none] [--by "<time>"] [--recipient-repo <dir>] [--sender-repo <dir>]
-//             [--tz NYC] [--orca <cmd>] [--wait-max <seconds>=600] [--dry-run] [--json]
+//             [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>=600] [--dry-run] [--json]
+//
+//   --packet-file writes the detail packet to <recipient-repo>/docs/notes/<id>.md BEFORE the ledger line (stdin when `-`);
+//   an existing packet is never overwritten without --force. Cross-host notes: run note-send on the recipient's host
+//   over ssh (see envelope.md transport step 7); there is no <host>: Details form.
 //
 //   The id is derived: <from>-<topic>-<n>; --n defaults to (highest n already in the ledgers for that prefix) + 1.
 //   Text for any field is passed as an argv value and forwarded to `orca` with execFile(argv[]) — never through a
@@ -25,8 +29,8 @@
 //      + packet, print the line, exit 0 with delivered:false, notified:true.
 //   3. Decide where files go. Recipient repo = the pane's `worktreePath` main checkout (`git rev-parse
 //      --git-common-dir`), unless --recipient-repo overrides; empty worktreePath → require --recipient-repo (exit 1).
-//      If the pane's `executionHostId` differs from the sender's host: packet + ledger go to --sender-repo,
-//      Details must be `<host>:<abs path>`, and passing --recipient-repo is exit 5 (cross-host).
+//      If the pane's `executionHostId` is not the local runtime and --recipient-repo was passed: exit 5 (cross-host
+//      misuse — send from the recipient's host instead). Details is always repo-relative, POSIX, no host prefix.
 //   4. Ledger first: append the line to <repo>/docs/ledger/<YYYY-MM-DD>.md (mkdir -p) in the recipient repo and,
 //      when --sender-repo differs, in the sender repo; always also to ~/.agents/notes/<YYYY-MM-DD>.md. Then
 //      classify the pane from `<orca> terminal show --terminal <h> --json` (agentIdentity, agentWait, connected,
