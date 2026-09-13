@@ -19,6 +19,13 @@ description: Use when a prompt decomposes into independent research, review, aud
 
 ## The fan-out
 
+Every `../../docs/<name>.md` path below is relative to this file inside the
+claude-delegation repo. If you're reading a mirrored copy without `docs/` alongside it
+(e.g. Codex's `~/.agents/skills/delegate/SKILL.md`), find the same files at the
+delegation plugin's install location instead — e.g.
+`~/.claude/plugins/cache/benzhuk/delegation/<version>/docs/<name>.md`, or
+`github.com/benzhuk/claude-delegation/blob/main/docs/<name>.md`.
+
 1. **Decompose into independent questions.** One agent per question. Spawn them all in
    a single message so they run truly concurrently; staggering serializes for nothing.
 2. **Tier the models** (`../../docs/model-tiers.md`): the mid tier (Claude Sonnet /

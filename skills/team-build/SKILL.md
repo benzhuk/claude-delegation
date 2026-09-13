@@ -17,7 +17,12 @@ boundaries, not luck.
 
 Shared mechanics live in `../../docs/` — model-tiers, subagent-contract (reports,
 termination, recovery), concurrency-budget, agent-pacing, mandate-standards. This file
-is the build pipeline that uses them.
+is the build pipeline that uses them. Those `../../docs/<name>.md` paths are relative to
+this file inside the claude-delegation repo; if you're reading a mirrored copy without
+`docs/` alongside it (e.g. Codex's `~/.agents/skills/team-build/SKILL.md`), find the
+same files at the delegation plugin's install location instead — e.g.
+`~/.claude/plugins/cache/benzhuk/delegation/<version>/docs/<name>.md`, or
+`github.com/benzhuk/claude-delegation/blob/main/docs/<name>.md`.
 
 ## Setup — before spawning anything
 
@@ -53,9 +58,10 @@ is the build pipeline that uses them.
 - **Builder** (mid tier: Claude Sonnet / OpenAI GPT-5.6-Terra; **high tier for the
   hardest territory** — core algorithms, concurrency/state machines, data integrity,
   subtle migrations — on Claude Code, set `model: opus` on the `Agent` call, which
-  overrides the agent file's frontmatter; on Codex, point that territory's role at the
-  `~/.codex/agents/*.toml` file with `model = "gpt-5.6-sol"` — see
-  `../../docs/model-tiers.md`'s spawn-mechanics section): implements only its
+  overrides the agent file's frontmatter; on Codex, no pre-built high-tier builder role
+  ships — copy `~/.codex/agents/builder.toml` to `builder-high.toml` and set
+  `model = "gpt-5.6-sol"` for that one territory — see `../../docs/model-tiers.md`'s
+  spawn-mechanics section): implements only its
   territory. Gate before reporting: territory-scoped tests + typecheck via the shared
   verification mutex (`../../docs/concurrency-budget.md`) — builders do NOT run
   repo-wide checks every fix round; the full graph belongs to the integrator's gate.

@@ -39,7 +39,11 @@ claude plugin install delegation@benzhuk
 Neither `delegate` nor `team-build` is for talking to a session you don't own — see
 [`multi`](#multi--peer-sessions) below for that.
 
-**Shared mechanics** (`docs/`, referenced by both skills):
+**Shared mechanics** (`docs/`, referenced by both skills — these links are repo-relative;
+if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
+`~/.agents/skills/{delegate,team-build}/SKILL.md`, find the same files at
+`~/.claude/plugins/cache/benzhuk/delegation/<version>/docs/<name>.md` or
+`github.com/benzhuk/claude-delegation/blob/main/docs/<name>.md`):
 
 - [`model-tiers.md`](docs/model-tiers.md) — the tier table (below): mid tier writes,
   high tier verifies, fast tier sweeps, top tier orchestrates and judges; orchestrator
@@ -99,7 +103,7 @@ Notes are one physical line, ≤500 characters, following a pinned envelope gram
 contract in `skills/multi/references/envelope.md`):
 
 ```
-taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please review my PR #132. Goal: faster wall clock, better batch orchestration. Details: docs/notes/taxonomy-pr132-review-1.md. Needs: review by 15:00
+taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please review my PR #132. Goal: faster wall clock, better batch orchestration. Details: docs/notes/taxonomy-pr132-review-1.md Needs: review by 15:00
 ```
 
 Send one with the bundled CLI (shipped with 0.2.0):
