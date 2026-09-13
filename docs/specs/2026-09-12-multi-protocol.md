@@ -42,7 +42,7 @@ out subordinate work you own. `team-build` unchanged in role. Both Claude and Co
 | top  | orchestrate, judge, decide   | Fable  | GPT-6-Astra               |
 | high | verify, adjudicate, hardest  | Opus   | GPT-5.6-Sol               |
 | mid  | default executor             | Sonnet | GPT-5.6-Terra             |
-| fast | bulk sweeps only             | Haiku  | GPT-5.6-Luna, Codex-Spark |
+| fast | bulk sweeps only             | Haiku  | GPT-5.6-Luna, GPT-5.3-Codex-Spark |
 Sentence pattern in skills: "run this on a high-tier model (Claude Opus / GPT-5.6-Sol)". Every tier
 mention names the tier AND both vendors in parentheses. Env var `CLAUDE_DELEGATION_TOP_TIER` →
 vendor-neutral `DELEGATION_TOP_TIER` holding a mixed list (`fable,opus,gpt-6-astra,gpt-5.6-sol`);
@@ -91,3 +91,28 @@ installed for Orca's task/worker features, not for peer chat. No Orca fork chang
 
 Out of scope this round: any Orca fork change; touching `~/.claude/skills/orchestration` (Orca's own); per-note git commits; a hook-based delivery path.
 Git rules for every builder: commit on the named branch with the machine's configured identity only — never `-c user.*`, `--author`, `GIT_AUTHOR_*`, `--no-verify`. Conventional commit messages. Do not push.
+
+## Red-team adjudication (2026-09-13) — binding on all territories
+Report: `C:\Users\benzh\Code\Zhuk Projects\.claude\agent-reports\74ca276f-70e5-4b77-9678-3d4720d95d0f\redteam-multi-spec.md`.
+Accepted and folded into the v2 contracts (envelope.md, note-send.mjs header, model-tiers.md): C1 two-phase send +
+state re-read + never-send-on-unknown; C2 classifyPane from `terminal show` (`agentIdentity`, `agentWait`) + read tail;
+C3 authority clause; H1 one physical line ≤500 chars; H2/H3 Details path format + regex without trailing period;
+H4 ids prefixed by sender; H5 recipient always appends, grep dedup; H6 main checkout + `~/.agents/notes` mirror;
+H7 `merge=union`; H8 cross-host rule + exit 5; H9 ambiguity → exit 2, `--to` accepts handles, pilot panes renamed to
+slugs; H10 reserved `ben`; H11 precedence line (T3) + NOT-clauses in `multi`/`delegate`/`team-build` descriptions
+(T1/T2); M1 Codex recipients idle-only until the pilot proves queuing; M2 hibernated = do not send; M3 kind/needs
+enforced; M4 lowercase ids; M5 `supersedes` in brackets + packet field; M6 shell panes never typed into; M7 execFile
+argv, no shell strings; M8 Astra-for-review note in the tier table (table rows unchanged — Ben's decision); M9 T3 also
+owns `dot_claude/rules/00-machine.md`; M10 T2 also owns `.claude-plugin/marketplace.json`; M11 the mirror publishes
+ONLY to `~/.agents/skills/` and `~/.codex/agents/` (Claude keeps getting plugin skills from the plugin cache; sources
+are the plugin `skills/*` plus the chezmoi-managed `~/.claude/skills/{knowledge,triage,dev-server,learn}`);
+M13/M14 receipt rules verbatim in SKILL.md; L2 `GPT-5.3-Codex-Spark`; L4 NOT-clause in delegate/team-build; L5 packet
+"Received / acted" section.
+
+## Added territory: Integrator + orchestrator (install, pilot, rollback)
+Owner: orchestrator (Ben's session) with the integrator's smoke report. Deliverables: run the mirror on Windows,
+Netcup, Hetzner, Mac (`~/.agents/skills/multi`, codex agent files); create `docs/ledger/`, `docs/notes/`, the
+`merge=union` line in `.gitattributes`, and the one-line rule in CLAUDE.md/AGENTS.md of the two pilot repos
+(bto-workflows, bto_nucleus); rename pilot panes to slugs; a documented rollback (remove the mirror, drop the rule
+line). Pilot exit criteria (2026-09-13 → 09-14): ≥10 notes delivered, 0 silent drops, 0 permission-prompt approvals
+attributable to a note, "does Codex queue typed input mid-turn?" answered yes/no in writing with evidence.
