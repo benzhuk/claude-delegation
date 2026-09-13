@@ -57,6 +57,9 @@
 //
 // NEVER: print or log token material; use orca orchestration commands; press Enter into a pane whose state you
 //        did not just verify; pick one of several matching panes.
+//
+// The grammar (constants, validation, build, parse, id derivation, time, packet template) lives in
+// ./envelope.mjs and is re-exported here; this file owns I/O and transport only.
 
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -65,34 +68,25 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
+import {
+  NoteError, RESERVED_RECIPIENT, DEFAULT_ZONE, DEFAULT_TZ_LABEL, SLUG_RE,
+  assertFieldSafe, validateSlug, validateId, validateDetails, validateKindNeeds,
+  buildEnvelope, nextCounter, timeParts,
+} from './envelope.mjs';
+
+export * from './envelope.mjs';
+
 const execFileAsync = promisify(execFile);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Contract constants
+// Pane classification
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const KINDS = ['ASK', 'ACK', 'RESULT', 'BLOCKED', 'FYI'];
-export const NEEDS = ['decision', 'review', 'ack', 'none'];
-/** Only ASK may carry a need other than `none` (envelope.md, Needs row; red-team M3). */
-export const ASK_ONLY_NEEDS = ['decision', 'review', 'ack'];
-export const RESERVED_WORDS = [' Goal: ', ' Details: ', ' Needs: '];
-export const MAX_LINE = 500;
-export const ARROW = '\u2192'; // →
-export const RESERVED_RECIPIENT = 'ben';
-export const DEFAULT_ZONE = 'America/New_York';
-export const DEFAULT_TZ_LABEL = 'NYC';
+export const HANDLE_RE = /^term_[A-Za-z0-9-]+$/;
 /** No agent output for this long, with no agent composer on screen, reads as a dead pane (red-team M2). */
 export const STALE_MS = 30 * 60 * 1000;
 /** Permission markers are only trusted inside the live screen region, never in old scrollback. */
 export const LIVE_TAIL_LINES = 30;
-
-export const ENVELOPE_RE =
-  /^(?<from>[a-z0-9-]+) → (?<to>[a-z0-9-]+), (?<date>\d{1,2}\.\d{1,2}\.\d{2}) (?<time>\d{2}:\d{2}) (?<tz>[A-Z]{2,5}) \[(?<id>[a-z0-9-]+-\d+)(?: re (?<re>[a-z0-9-]+-\d+))?(?: supersedes (?<sup>[a-z0-9-]+-\d+))?\] (?<kind>ASK|ACK|RESULT|BLOCKED|FYI): (?<body>.+?)(?: Goal: (?<goal>[^\t\n]+?))?(?: Details: (?<details>(?:[a-z0-9-]+:)?[A-Za-z0-9._/-]+))?(?: Needs: (?<needs>decision|review|ack|none)(?: by (?<by>[^\t\n]+?))?)?$/u;
-
-export const DETAILS_RE = /^(?:[a-z0-9-]{2,}:)?[A-Za-z0-9._/-]+$/;
-export const SLUG_RE = /^[a-z0-9-]+$/;
-export const ID_RE = /^[a-z0-9-]+-\d+$/;
-export const HANDLE_RE = /^term_[A-Za-z0-9-]+$/;
 
 /**
  * Permission / approval markers.
@@ -116,265 +110,22 @@ export const PERMISSION_MARKERS = [
   'allow command', 'approve?', 'press enter to approve',
 ];
 
-/** The agent is mid-turn. Claude Code accepts typed input here (it queues it); Codex is not yet proven to. */
-export const WORKING_MARKERS = ['esc to interrupt', 'ctrl+c to stop', 'working…', 'thinking…', 'esc to stop'];
+/**
+ * The agent is visibly mid-turn. This list is INCOMPLETE by nature: Claude Code randomises the spinner
+ * verb ("Schlepping…", "Crunching…"), so a working pane often shows none of these and classifies
+ * `agent-idle` instead. Harmless for Claude, where both states are sendable — but it must never be the
+ * basis of the Codex idle gate, which is why that gate goes through Orca's own `terminal wait --for
+ * tui-idle` unconditionally (review C1).
+ */
+export const WORKING_MARKERS = [
+  'esc to interrupt', 'ctrl+c to stop', 'working…', 'thinking…', 'esc to stop', 'esc to pause',
+];
 
 /** An agent composer is on screen: the pane is alive and accepting input. */
 export const COMPOSER_MARKERS = [
   '? for shortcuts', 'shift+tab to cycle', 'bypass permissions on', 'for agents', '/clear to save',
   'press up to edit queued messages', '⏵⏵', '⏎ send', 'newline', 'try "', 'plan mode on', 'accept edits on',
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Errors
-// ─────────────────────────────────────────────────────────────────────────────
-
-export class NoteError extends Error {
-  constructor(exitCode, message, extra = {}) {
-    super(message);
-    this.name = 'NoteError';
-    this.exitCode = exitCode;
-    Object.assign(this, extra);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Field + envelope validation
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Reject anything that would split the line, hide a field, or execute in a shell pane (H1, M6, M7). */
-export function assertFieldSafe(name, value) {
-  if (value === undefined || value === null) return;
-  const s = String(value);
-  if (/[\r\n\t]/.test(s)) {
-    throw new NoteError(1, `--${name} contains a newline or tab; an envelope is exactly one physical line`);
-  }
-  for (const word of RESERVED_WORDS) {
-    if (s.includes(word)) {
-      throw new NoteError(1, `--${name} contains the reserved word "${word.trim()}"; it would silently swallow later fields`);
-    }
-  }
-  if (s.includes('`') || s.includes('$(')) {
-    throw new NoteError(1, `--${name} contains \` or $( — a note must never be able to execute if it lands in a shell pane`);
-  }
-}
-
-export function assertLowercase(name, value) {
-  if (value !== String(value).toLowerCase()) {
-    throw new NoteError(1, `--${name} must be lowercase; use "${String(value).toLowerCase()}"`);
-  }
-}
-
-export function validateSlug(name, value) {
-  assertLowercase(name, value);
-  if (!SLUG_RE.test(value)) {
-    throw new NoteError(1, `--${name} must match [a-z0-9-]+ (got "${value}")`);
-  }
-  return value;
-}
-
-export function validateId(name, value) {
-  assertLowercase(name, value);
-  if (!ID_RE.test(value)) {
-    throw new NoteError(1, `--${name} must be <slug>-<counter>, lowercase (got "${value}")`);
-  }
-  return value;
-}
-
-/**
- * Details is validated BEFORE the regex so a bad path is a clear error, never three silently dropped
- * fields (red-team H2/H3). Repo-relative POSIX, optionally `<host>:` prefixed for a cross-host note.
- */
-export function validateDetails(details) {
-  const s = String(details);
-  if (/\s/.test(s)) throw new NoteError(1, `--details must not contain spaces (got "${s}"); move the file or rename it`);
-  if (s.includes('\\')) throw new NoteError(1, `--details must use POSIX slashes, not backslashes (got "${s}")`);
-  if (/^[A-Za-z]:/.test(s)) throw new NoteError(1, `--details must not start with a drive letter (got "${s}"); use a repo-relative path`);
-  if (s.endsWith('.')) throw new NoteError(1, `--details must not end with a period (got "${s}"); the trailing period is not part of the path`);
-  if (!DETAILS_RE.test(s)) throw new NoteError(1, `--details must match ${DETAILS_RE} (got "${s}")`);
-  return s;
-}
-
-/**
- * Cross-host Details: `<host>:<absolute path on that host>`.
- *
- * CONTRACT GAP (reported, not worked around): envelope.md's Details grammar forbids spaces and drive
- * letters, so a Windows absolute path cannot be expressed at all. We fail loudly with the reason rather
- * than emit a line the recipient's parser would mangle.
- */
-export function crossHostDetails(repo, relative, hostPrefix) {
-  const abs = toPosix(path.posix.join(toPosix(repo), String(relative)));
-  if (/^[A-Za-z]:/.test(abs)) {
-    throw new NoteError(
-      5,
-      `cross-host Details cannot express the absolute path "${abs}": envelope.md's grammar allows no drive letters. ` +
-      `Pass --details <host>:<posix-absolute-path> yourself, or keep the packet on a POSIX host.`,
-    );
-  }
-  if (/\s/.test(abs)) {
-    throw new NoteError(5, `cross-host Details cannot express "${abs}": envelope.md's grammar allows no spaces in a path`);
-  }
-  return validateDetails(`${hostPrefix}:${abs}`);
-}
-
-/** Only ASK may ask for something back (red-team M3). */
-export function validateKindNeeds(kind, needs) {
-  if (!KINDS.includes(kind)) throw new NoteError(1, `--kind must be one of ${KINDS.join('|')} (got "${kind}")`);
-  if (needs === undefined) return;
-  if (!NEEDS.includes(needs)) throw new NoteError(1, `--needs must be one of ${NEEDS.join('|')} (got "${needs}")`);
-  if (kind !== 'ASK' && ASK_ONLY_NEEDS.includes(needs)) {
-    throw new NoteError(1, `${kind} may only carry "Needs: none" or no Needs field; "${needs}" is ASK-only`);
-  }
-}
-
-/**
- * Close a sentence field so the next reserved word reads as a boundary, matching the canonical example in
- * envelope.md. Applied to `substance` and `Goal:` only — never to `Details:` or `by`, which must stay
- * period-free (red-team H3).
- */
-export function terminate(text) {
-  const s = String(text).trim();
-  return /[.!?:;,]$/.test(s) ? s : `${s}.`;
-}
-
-/**
- * Assemble the one-line envelope. Every field is validated first; the result must match the pinned regex,
- * so a build that passes here is a line the reader's parser accepts.
- */
-export function buildEnvelope(o) {
-  validateSlug('from', o.from);
-  validateSlug('to', o.to);
-  validateId('id', o.id);
-  if (o.re !== undefined) validateId('re', o.re);
-  if (o.supersedes !== undefined) validateId('supersedes', o.supersedes);
-  if (!o.id.startsWith(`${o.from}-`)) {
-    throw new NoteError(1, `id "${o.id}" must start with the sender slug "${o.from}-" (ids are collision-free by sender prefix)`);
-  }
-  validateKindNeeds(o.kind, o.needs);
-
-  for (const [name, value] of [['text', o.body], ['goal', o.goal], ['by', o.by], ['tz', o.tz]]) {
-    assertFieldSafe(name, value);
-  }
-  if (!o.body || !String(o.body).trim()) throw new NoteError(1, '--text is required and must not be empty');
-  if (o.details !== undefined) validateDetails(o.details);
-  if (o.by !== undefined && o.needs === undefined) {
-    throw new NoteError(1, '--by requires --needs');
-  }
-  if (!/^[A-Z]{2,5}$/.test(o.tz)) throw new NoteError(1, `--tz must be 2-5 uppercase letters (got "${o.tz}")`);
-  if (!/^\d{1,2}\.\d{1,2}\.\d{2}$/.test(o.date)) throw new NoteError(1, `internal: bad date "${o.date}"`);
-  if (!/^\d{2}:\d{2}$/.test(o.time)) throw new NoteError(1, `internal: bad time "${o.time}"`);
-
-  const brackets = [o.id, o.re ? `re ${o.re}` : null, o.supersedes ? `supersedes ${o.supersedes}` : null]
-    .filter(Boolean).join(' ');
-
-  let line = `${o.from} ${ARROW} ${o.to}, ${o.date} ${o.time} ${o.tz} [${brackets}] ${o.kind}: ${terminate(o.body)}`;
-  if (o.goal) line += ` Goal: ${terminate(o.goal)}`;
-  if (o.details) line += ` Details: ${o.details}`;
-  if (o.needs) line += ` Needs: ${o.needs}${o.by ? ` by ${String(o.by).trim()}` : ''}`;
-
-  if (line.length > MAX_LINE) {
-    throw new NoteError(1, `envelope is ${line.length} chars, over the ${MAX_LINE} cap; shorten --text and move the rest into the detail packet`);
-  }
-  if (!ENVELOPE_RE.test(line)) {
-    throw new NoteError(1, `built line does not match the pinned envelope regex:\n${line}`);
-  }
-  return line;
-}
-
-/**
- * Parse an envelope line back out. Strips at most one trailing period from `details`, so the v2 contract's own
- * example line (which still carries one) yields a usable path (red-team H3).
- */
-export function parseEnvelope(line) {
-  const m = ENVELOPE_RE.exec(line);
-  if (!m) return null;
-  const g = { ...m.groups };
-  if (g.details && g.details.endsWith('.')) g.details = g.details.slice(0, -1);
-  return g;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Id derivation
-// ─────────────────────────────────────────────────────────────────────────────
-
-function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
-/** Highest counter already used for `<from>-<topic>` anywhere in the ledger text we can see. */
-export function highestCounter(texts, prefix) {
-  const re = new RegExp(`${escapeRe(prefix)}-(\\d+)(?=[\\s\\]])`, 'g');
-  let max = 0;
-  for (const text of texts) {
-    if (!text) continue;
-    for (const m of String(text).matchAll(re)) {
-      const n = Number(m[1]);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  return max;
-}
-
-export function nextCounter(texts, prefix) { return highestCounter(texts, prefix) + 1; }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Time
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Ben's local zone always, whatever clock the box runs on (rule 05-time.md). */
-export function timeParts(now = new Date(), zone = DEFAULT_ZONE) {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hour12: false,
-    }).formatToParts(now).map((p) => [p.type, p.value]),
-  );
-  const hour = parts.hour === '24' ? '00' : parts.hour;
-  return {
-    date: `${Number(parts.month)}.${Number(parts.day)}.${String(parts.year).slice(-2)}`,
-    time: `${hour}:${parts.minute}`,
-    ymd: `${parts.year}-${parts.month}-${parts.day}`,
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Pane resolution + classification
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Strip Orca's status glyphs and collapse whitespace so a pane title can be compared to a slug (L3). */
-export function normalizeTitle(title) {
-  return String(title ?? '')
-    .replace(/[^\p{L}\p{N}\s_-]+/gu, ' ')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
-
-export function titleMatchesSlug(title, slug) {
-  const n = normalizeTitle(title);
-  return n === slug || n.replace(/[\s_]+/g, '-') === slug;
-}
-
-/** Never guess between candidates: ambiguity is exit 2 with the list (red-team H9). */
-export function resolvePane(terminals, to) {
-  const list = Array.isArray(terminals) ? terminals : [];
-  if (HANDLE_RE.test(to)) {
-    const exact = list.find((t) => t.handle === to);
-    if (exact) return exact;
-    throw new NoteError(2, `no pane with handle ${to}\n${describePanes(list)}`);
-  }
-  const matches = list.filter((t) => titleMatchesSlug(t.title, to));
-  if (matches.length === 1) return matches[0];
-  if (matches.length === 0) {
-    throw new NoteError(2, `no pane titled "${to}"\n${describePanes(list)}`);
-  }
-  throw new NoteError(
-    2,
-    `"${to}" matches ${matches.length} panes — refusing to guess. Re-send with one of these handles:\n${describePanes(matches)}`,
-  );
-}
-
-export function describePanes(list) {
-  return list.map((t) => `  ${t.handle}  ${JSON.stringify(t.title ?? '')}  ${t.agentIdentity ?? 'no-agent'}`).join('\n');
-}
 
 function containsAny(haystack, markers) {
   const s = haystack.toLowerCase();
@@ -413,22 +164,89 @@ export function classifyPane(show, read, opts = {}) {
 
 export const SENDABLE = new Set(['agent-idle', 'agent-working']);
 
+/**
+ * Whitespace-insensitive check for the typed line in the composer. The terminal wraps, so only the
+ * `[<id>` token is reliable. Restricted to the same live window the classifier trusts, so an id sitting
+ * in old scrollback can never stand in for text that never reached the composer (review H1).
+ */
+export function composerShows(read, id, lines = LIVE_TAIL_LINES) {
+  const tail = Array.isArray(read?.tail) ? read.tail.slice(-lines).join('') : '';
+  return tail.replace(/\s+/g, '').includes(`[${id}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pane resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Strip Orca's status glyphs and collapse whitespace so a pane title can be compared to a slug (L3). */
+export function normalizeTitle(title) {
+  return String(title ?? '')
+    .replace(/[^\p{L}\p{N}\s_-]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+export function titleMatchesSlug(title, slug) {
+  const n = normalizeTitle(title);
+  return n === slug || n.replace(/[\s_]+/g, '-') === slug;
+}
+
+export function describePanes(list) {
+  return list.map((t) => `  ${t.handle}  ${JSON.stringify(t.title ?? '')}  ${t.agentIdentity ?? 'no-agent'}`).join('\n');
+}
+
+/** Never guess between candidates: ambiguity is exit 2 with the list (red-team H9). */
+export function resolvePane(terminals, to) {
+  const list = Array.isArray(terminals) ? terminals : [];
+  if (HANDLE_RE.test(to)) {
+    const exact = list.find((t) => t.handle === to);
+    if (exact) return exact;
+    throw new NoteError(2, `no pane with handle ${to}\n${describePanes(list)}`);
+  }
+  const matches = list.filter((t) => titleMatchesSlug(t.title, to));
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0) throw new NoteError(2, `no pane titled "${to}"\n${describePanes(list)}`);
+  throw new NoteError(
+    2,
+    `"${to}" matches ${matches.length} panes — refusing to guess. Re-send with one of these handles:\n${describePanes(matches)}`,
+  );
+}
+
+/**
+ * A pane is local when the runtime says so. `executionHostId` is `local` for every pane served by the
+ * runtime we are talking to; ORCA_SENDER_HOST only names an ADDITIONAL id that counts as ours, so a
+ * mis-set value can never flip every local pane to cross-host (review M4).
+ */
+export function isLocalPane(pane, senderHost) {
+  const id = pane?.executionHostId;
+  if (!id || id === 'local') return true;
+  return Boolean(senderHost) && id === senderHost;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Repo resolution
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function toPosix(p) { return String(p).replace(/\\/g, '/'); }
 
+/** Default git shell-out. Tests inject their own `git` through deps, so this is never hit off-box. */
+export function gitRunner(args, cwd) {
+  return execFileSync('git', args, {
+    cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+  }).toString();
+}
+
 /**
  * Ledger and packet belong in the repo's MAIN checkout — an Orca worktree is deleted after merge and would
  * take the record with it (red-team H6).
  */
-export function mainCheckout(dir, gitRunner) {
+export function mainCheckout(dir, runner) {
   if (!dir) return null;
   const start = toPosix(dir);
   let common;
   try {
-    common = gitRunner(['rev-parse', '--git-common-dir'], start);
+    common = runner(['rev-parse', '--git-common-dir'], start);
   } catch {
     return start; // not a git repo (or no git): write where we were told
   }
@@ -437,13 +255,6 @@ export function mainCheckout(dir, gitRunner) {
   if (!c) return start;
   if (!path.posix.isAbsolute(c) && !/^[A-Za-z]:/.test(c)) c = toPosix(path.resolve(start, c));
   return c.replace(/\/?\.git\/?$/, '') || start;
-}
-
-/** Default git shell-out. Tests inject their own `git` through deps, so this is never hit off-box. */
-export function gitRunner(args, cwd) {
-  return execFileSync('git', args, {
-    cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
-  }).toString();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -487,45 +298,29 @@ export function makeOrcaRunner(explicit, env = process.env) {
 
 export function ledgerPath(repo, ymd) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger', `${ymd}.md`)); }
 export function notesMirrorPath(home, ymd) { return toPosix(path.posix.join(toPosix(home), '.agents/notes', `${ymd}.md`)); }
+export function packetPathFor(repo, id) { return toPosix(path.posix.join(toPosix(repo), 'docs/notes', `${id}.md`)); }
 
+/**
+ * Append one envelope line. The day header goes through the exclusive `wx` flag so two concurrent senders
+ * cannot both emit it (review L5); the line itself is one O_APPEND write, atomic at the ≤500 bytes an
+ * envelope can be.
+ */
 export function appendLine(file, line, fsImpl = fs) {
-  const dir = path.dirname(file);
-  fsImpl.mkdirSync(dir, { recursive: true });
-  const exists = fsImpl.existsSync(file);
-  const header = exists ? '' : `# Peer-note ledger ${path.basename(file, '.md')}\n\n`;
-  fsImpl.appendFileSync(file, `${header}${line}\n`, 'utf8');
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  try {
+    fsImpl.writeFileSync(file, `# Peer-note ledger ${path.basename(file, '.md')}\n\n`, { flag: 'wx' });
+  } catch { /* another sender created it first — that is exactly what `wx` is for */ }
+  fsImpl.appendFileSync(file, `${line}\n`, 'utf8');
   return file;
 }
 
-export function packetTemplate(o) {
-  return `# ${o.id} — ${o.title}
-from: ${o.from} · to: ${o.to} · sent: ${o.date} ${o.time} ${o.tz} · event: ${o.event ?? 'same'} · supersedes: ${o.supersedes ?? 'none'}
-
-## Ask / Decision
-${o.body}
-
-## Scope (files, branch/worktree, reviewed revision or content hash)
-(fill in)
-
-## Conditions (gates, ownership, budget, "no deploy/DB/flag changes" etc.)
-(fill in)
-
-## Evidence (paths, commits, measured numbers — reported vs verified vs pending)
-(fill in)
-
-## Next action (owner, by when)
-${o.needs ? `${o.to}: ${o.needs}${o.by ? ` by ${o.by}` : ''}` : '(fill in)'}
-
-## Received / acted (appended by the recipient: when read, what was done, RESULT id)
-`;
-}
-
-/** Never clobber a packet the recipient may already have written into. */
-export function writePacket(file, content, fsImpl = fs) {
-  if (fsImpl.existsSync(file)) return { path: file, written: false };
+/** Never clobber a packet the recipient may already have annotated, unless --force says so. */
+export function writePacket(file, content, { force = false, fsImpl = fs } = {}) {
+  const exists = fsImpl.existsSync(file);
+  if (exists && !force) return { path: file, written: false, skipped: true };
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   fsImpl.writeFileSync(file, content, 'utf8');
-  return { path: file, written: true };
+  return { path: file, written: true, overwrote: exists, skipped: false };
 }
 
 function readIfExists(file, fsImpl = fs) {
@@ -545,15 +340,19 @@ function readLedgerCorpus(dirs, fsImpl = fs) {
   return texts;
 }
 
+function readStdin() {
+  try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Argument parsing
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STRING_FLAGS = new Set([
   'from', 'to', 'kind', 'topic', 'text', 'n', 're', 'supersedes', 'goal', 'details',
-  'needs', 'by', 'recipient-repo', 'sender-repo', 'tz', 'orca', 'wait-max', 'id',
+  'needs', 'by', 'recipient-repo', 'sender-repo', 'packet-file', 'tz', 'orca', 'wait-max', 'id',
 ]);
-const BOOL_FLAGS = new Set(['dry-run', 'json', 'help']);
+const BOOL_FLAGS = new Set(['dry-run', 'json', 'force', 'help']);
 
 export function parseArgs(argv) {
   const out = {};
@@ -571,208 +370,12 @@ export function parseArgs(argv) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main
+// Delivery helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * @param {string[]} argv
- * @param {object} deps - { orca, fsImpl, git, now, home, env, sleep } — all injectable for tests.
- */
-export async function runNoteSend(argv, deps = {}) {
-  const args = parseArgs(argv);
-  const fsImpl = deps.fsImpl ?? fs;
-  const env = deps.env ?? process.env;
-  const home = toPosix(deps.home ?? os.homedir());
-  const nap = deps.sleep ?? sleep;
-  const git = deps.git ?? gitRunner;
-  const now = deps.now ? new Date(deps.now) : new Date();
-  const dryRun = Boolean(args['dry-run']);
-
-  const required = ['from', 'to', 'kind', 'topic', 'text'];
-  for (const r of required) {
-    if (!args[r]) throw new NoteError(1, `--${r} is required`);
-  }
-
-  const from = validateSlug('from', args.from);
-  const topic = validateSlug('topic', args.topic);
-  const kind = String(args.kind).toUpperCase();
-  const tz = args.tz ? String(args.tz) : DEFAULT_TZ_LABEL;
-  const { date, time, ymd } = timeParts(now, env.NOTE_SEND_ZONE || DEFAULT_ZONE);
-  const waitMaxMs = Math.max(0, Number(args['wait-max'] ?? 600) * 1000);
-  const toRaw = String(args.to);
-  const isBen = toRaw.toLowerCase() === RESERVED_RECIPIENT;
-  const senderHost = env.ORCA_SENDER_HOST || 'local';
-
-  // Step 1 of the contract: every check that does not need a pane runs BEFORE we touch orca,
-  // so a typo never costs a terminal round-trip and never half-resolves a recipient.
-  if (!isBen && !HANDLE_RE.test(toRaw)) validateSlug('to', toRaw);
-  validateKindNeeds(kind, args.needs);
-  if (args.details) validateDetails(args.details);
-  for (const [name, value] of [['text', args.text], ['goal', args.goal], ['by', args.by]]) {
-    assertFieldSafe(name, value);
-  }
-  if (args.re) validateId('re', args.re);
-  if (args.supersedes) validateId('supersedes', args.supersedes);
-
-  const senderRepoRaw = args['sender-repo'] ? mainCheckout(args['sender-repo'], git) : null;
-  const plan = { actions: [] };
-
-  // ── Reserved recipient: Ben. No pane exists; the note is a record + a print (H10).
-  if (isBen) {
-    const repo = senderRepoRaw ?? mainCheckout(process.cwd(), git);
-    if (!repo) throw new NoteError(1, '--to ben needs --sender-repo (or run inside a repo) so the note has a home');
-    return finishBen({ args, from, topic, kind, tz, date, time, ymd, repo, home, fsImpl, dryRun, plan, env });
-  }
-
-  // ── 2. Resolve the pane. In --dry-run we never touch orca at all.
-  let pane = null;
-  let orca = null;
-  if (!dryRun) {
-    orca = deps.orca ?? makeOrcaRunner(args.orca, env);
-    const listing = await orca(['terminal', 'list', '--json']);
-    pane = resolvePane(listing?.terminals, toRaw);
-  } else {
-    plan.actions.push(`resolve pane "${toRaw}" via \`terminal list --json\` (skipped: --dry-run)`);
-  }
-
-  // ── 3. Where the files go.
-  const crossHost = Boolean(pane && pane.executionHostId && pane.executionHostId !== senderHost);
-  if (crossHost && args['recipient-repo']) {
-    throw new NoteError(5, `pane ${pane.handle} runs on host "${pane.executionHostId}" but this session is on "${senderHost}" — a cross-host note keeps its packet in the SENDER's repo; drop --recipient-repo`);
-  }
-
-  let targetRepo;
-  if (crossHost) {
-    if (!senderRepoRaw) throw new NoteError(5, 'cross-host note needs --sender-repo (the packet cannot be written on the other host)');
-    targetRepo = senderRepoRaw;
-  } else if (args['recipient-repo']) {
-    targetRepo = mainCheckout(args['recipient-repo'], git);
-  } else if (pane) {
-    if (!pane.worktreePath) {
-      throw new NoteError(1, `pane ${pane.handle} ("${pane.title}") has no worktreePath (floating pane) — pass --recipient-repo`);
-    }
-    targetRepo = mainCheckout(pane.worktreePath, git);
-  } else {
-    throw new NoteError(1, '--dry-run without --recipient-repo cannot decide where the note would live; pass --recipient-repo');
-  }
-
-  // ── Details: repo-relative, or `<host>:<abs>` for a cross-host note.
-  let details = args.details ? validateDetails(args.details) : undefined;
-  let packetRelative = args.details ? String(args.details) : undefined;
-  if (crossHost && details && !details.includes(':')) {
-    const hostPrefix = (env.ORCA_SENDER_HOST || os.hostname()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    details = crossHostDetails(targetRepo, details, hostPrefix);
-  }
-
-  // ── Id.
-  const ledgerDirs = [
-    path.posix.join(toPosix(targetRepo), 'docs/ledger'),
-    senderRepoRaw ? path.posix.join(toPosix(senderRepoRaw), 'docs/ledger') : null,
-    path.posix.join(home, '.agents/notes'),
-  ].filter(Boolean);
-  const prefix = `${from}-${topic}`;
-  const n = args.n !== undefined ? Number(args.n) : nextCounter(readLedgerCorpus(ledgerDirs, fsImpl), prefix);
-  if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
-  const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
-
-  const envelope = buildEnvelope({
-    from, to: isBen ? RESERVED_RECIPIENT : normalizedRecipientSlug(pane, toRaw), date, time, tz, id,
-    re: args.re, supersedes: args.supersedes, kind, body: args.text, goal: args.goal, details,
-    needs: args.needs, by: args.by,
-  });
-
-  // ── 4. Ledger FIRST, so the record exists even if delivery defers or fails.
-  const ledgerTargets = uniq([
-    ledgerPath(targetRepo, ymd),
-    senderRepoRaw && senderRepoRaw !== targetRepo ? ledgerPath(senderRepoRaw, ymd) : null,
-    notesMirrorPath(home, ymd),
-  ].filter(Boolean));
-
-  const packetPath = packetRelative ? toPosix(path.posix.join(toPosix(targetRepo), packetRelative)) : null;
-
-  if (dryRun) {
-    for (const t of ledgerTargets) plan.actions.push(`append envelope to ${t}`);
-    if (packetPath) plan.actions.push(`write packet ${packetPath} (skipped if it already exists)`);
-    plan.actions.push(`classify pane via \`terminal show\` + \`terminal read\`; send only on agent-idle/agent-working`);
-    plan.actions.push(`two-phase: \`terminal send --text <envelope>\` (no --enter), re-read, then \`terminal send --enter\``);
-    return {
-      ok: true, exitCode: 0, envelope, id, to: toRaw, handle: null, classification: 'not-checked (--dry-run)',
-      delivered: false, deferred: false, notified: false, dryRun: true,
-      ledgers: ledgerTargets, packetPath, plan: plan.actions, error: null,
-    };
-  }
-
-  for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
-  let packetWritten = false;
-  if (packetPath) {
-    packetWritten = writePacket(packetPath, packetTemplate({
-      id, title: firstSentence(args.text), from, to: toRaw, date, time, tz,
-      supersedes: args.supersedes, body: args.text, needs: args.needs, by: args.by,
-    }), fsImpl).written;
-  }
-
-  const base = {
-    envelope, id, to: toRaw, handle: pane.handle, ledgers: ledgerTargets,
-    packetPath, packetWritten, notified: false,
-  };
-
-  // ── 5. Gate on pane state.
-  const deadline = Date.now() + waitMaxMs;
-  let classification = await classifyNow(orca, pane.handle, deps);
-  while (classification === 'permission' && Date.now() < deadline) {
-    await nap(10_000);
-    classification = await classifyNow(orca, pane.handle, deps);
-  }
-  if (!SENDABLE.has(classification)) {
-    throw new NoteError(3, deferMessage(classification, pane, envelope, ledgerTargets), { ...base, classification });
-  }
-
-  // Codex recipients: idle only, until the pilot proves Codex queues typed input mid-turn (M1).
-  if (pane.agentIdentity === 'codex' && classification !== 'agent-idle') {
-    const remaining = Math.max(0, deadline - Date.now());
-    if (remaining > 0) {
-      try {
-        await orca(['terminal', 'wait', '--terminal', pane.handle, '--for', 'tui-idle', '--timeout-ms', String(remaining), '--json']);
-      } catch { /* fall through to the re-check below */ }
-    }
-    classification = await classifyNow(orca, pane.handle, deps);
-    if (classification !== 'agent-idle') {
-      throw new NoteError(3, `codex pane ${pane.handle} is "${classification}", not idle — Codex mid-turn queuing is unproven, so the note was NOT typed. Ledger written: ${ledgerTargets[0]}. You own the retry.`, { ...base, classification });
-    }
-  }
-
-  // ── 6. Two-phase delivery. Text first, verify, only then Enter (C1).
-  await orca(['terminal', 'send', '--terminal', pane.handle, '--text', envelope, '--json']);
-  const after = await readPane(orca, pane.handle);
-  const visible = composerShows(after, id);
-  const recheck = classifyPane(await showPane(orca, pane.handle), after, { now: Date.now() });
-  if (!visible || recheck !== classification) {
-    throw new NoteError(
-      3,
-      `aborted before Enter: pane went "${classification}" → "${recheck}"${visible ? '' : ', and the typed line was not visible in the composer'}. The text may be sitting unsent in ${pane.handle}; the ledger already has the note. Retry or clear the pane by hand.`,
-      { ...base, classification: recheck },
-    );
-  }
-  await orca(['terminal', 'send', '--terminal', pane.handle, '--enter', '--json']);
-
-  return { ok: true, exitCode: 0, ...base, classification, delivered: true, deferred: false, error: null };
-}
-
-function normalizedRecipientSlug(pane, raw) {
-  if (!HANDLE_RE.test(raw)) return raw;
-  const n = normalizeTitle(pane?.title).replace(/[\s_]+/g, '-');
-  return SLUG_RE.test(n) && n ? n : 'peer';
-}
+const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function uniq(a) { return [...new Set(a)]; }
-
-function firstSentence(text) {
-  const s = String(text).trim();
-  const m = s.match(/^.{0,80}?[.!?](\s|$)/);
-  return (m ? m[0] : s.slice(0, 80)).trim().replace(/[.!?]$/, '');
-}
 
 async function showPane(orca, handle) {
   const r = await orca(['terminal', 'show', '--terminal', handle, '--json']);
@@ -786,14 +389,9 @@ async function readPane(orca, handle) {
 
 async function classifyNow(orca, handle, deps) {
   if (deps.classify) return deps.classify(handle);
-  const [show, read] = [await showPane(orca, handle), await readPane(orca, handle)];
+  const show = await showPane(orca, handle);
+  const read = await readPane(orca, handle);
   return classifyPane(show, read, { now: Date.now() });
-}
-
-/** Whitespace-insensitive check: the terminal wraps the composer, so only the `[id]` token is reliable. */
-export function composerShows(read, id) {
-  const tail = Array.isArray(read?.tail) ? read.tail.join('') : '';
-  return tail.replace(/\s+/g, '').includes(`[${id}`.replace(/\s+/g, ''));
 }
 
 function deferMessage(classification, pane, envelope, ledgers) {
@@ -806,40 +404,270 @@ function deferMessage(classification, pane, envelope, ledgers) {
   return `NOT delivered to ${pane.handle} ("${pane.title}"): ${why}. The note is in the ledger (${ledgers[0]}) — you own the retry. Defer twice → send ben a BLOCKED.\n${envelope}`;
 }
 
-function finishBen({ args, from, topic, kind, tz, date, time, ymd, repo, home, fsImpl, dryRun, plan, env }) {
-  const ledgerDirs = [path.posix.join(toPosix(repo), 'docs/ledger'), path.posix.join(home, '.agents/notes')];
+function recipientSlug(pane, raw) {
+  if (!HANDLE_RE.test(raw)) return raw;
+  const n = normalizeTitle(pane?.title).replace(/[\s_]+/g, '-');
+  return n && SLUG_RE.test(n) ? n : 'peer';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {string[]} argv
+ * @param {object} deps - { orca, fsImpl, git, now, home, env, sleep, stdin } — all injectable for tests.
+ */
+export async function runNoteSend(argv, deps = {}) {
+  const args = parseArgs(argv);
+  const fsImpl = deps.fsImpl ?? fs;
+  const env = deps.env ?? process.env;
+  const home = toPosix(deps.home ?? os.homedir());
+  const nap = deps.sleep ?? defaultSleep;
+  const git = deps.git ?? gitRunner;
+  const now = deps.now ? new Date(deps.now) : new Date();
+  const dryRun = Boolean(args['dry-run']);
+  const force = Boolean(args.force);
+
+  for (const r of ['from', 'to', 'kind', 'topic', 'text']) {
+    if (!args[r]) throw new NoteError(1, `--${r} is required`);
+  }
+
+  const from = validateSlug('from', args.from);
+  const topic = validateSlug('topic', args.topic);
+  const kind = String(args.kind).toUpperCase();
+  const tz = args.tz ? String(args.tz) : DEFAULT_TZ_LABEL;
+  const { date, time, ymd } = timeParts(now, env.NOTE_SEND_ZONE || DEFAULT_ZONE);
+  const toRaw = String(args.to);
+  const isBen = toRaw.toLowerCase() === RESERVED_RECIPIENT;
+  const senderHost = env.ORCA_SENDER_HOST || '';
+
+  // Step 1 of the contract: every check that does not need a pane runs BEFORE we touch orca,
+  // so a typo never costs a terminal round-trip and never half-resolves a recipient.
+  if (args['wait-max'] !== undefined && !/^\d+$/.test(String(args['wait-max']))) {
+    throw new NoteError(1, `--wait-max must be a whole number of seconds (got "${args['wait-max']}")`);
+  }
+  const waitMaxMs = Math.max(0, Number(args['wait-max'] ?? 600) * 1000);
+  if (args.n !== undefined && !/^\d+$/.test(String(args.n))) {
+    throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
+  }
+  if (!isBen && !HANDLE_RE.test(toRaw)) validateSlug('to', toRaw);
+  validateKindNeeds(kind, args.needs);
+  if (args.details) validateDetails(args.details);
+  for (const [name, value] of [['text', args.text], ['goal', args.goal], ['by', args.by]]) {
+    assertFieldSafe(name, value);
+  }
+  if (args.re) validateId('re', args.re);
+  if (args.supersedes) validateId('supersedes', args.supersedes);
+
+  const senderRepo = args['sender-repo'] ? mainCheckout(args['sender-repo'], git) : null;
+  const plan = [];
+  const warnings = [];
+
+  // ── 2. Resolve the pane. In --dry-run we never touch orca at all.
+  let pane = null;
+  let orca = null;
+  if (isBen) {
+    plan.push('"ben" is a reserved recipient: no pane is resolved; the line is recorded and printed');
+  } else if (dryRun) {
+    plan.push(`resolve pane "${toRaw}" via \`terminal list --json\` (skipped: --dry-run)`);
+  } else {
+    orca = deps.orca ?? makeOrcaRunner(args.orca, env);
+    pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw);
+  }
+
+  // ── 3. Where the files go. v3: the packet ALWAYS lives in the recipient's repo.
+  const local = isBen ? true : isLocalPane(pane, senderHost);
+  if (pane && !local && args['recipient-repo']) {
+    throw new NoteError(
+      5,
+      `pane ${pane.handle} runs on host "${pane.executionHostId}", not this runtime — --recipient-repo cannot reach it. ` +
+      `Send from that host instead: ssh <host> note-send --from ${from} --to ${toRaw} … --packet-file -`,
+    );
+  }
+
+  let targetRepo;
+  if (isBen) {
+    targetRepo = senderRepo ?? mainCheckout(process.cwd(), git);
+    if (!targetRepo) throw new NoteError(1, '--to ben needs --sender-repo (or run inside a repo) so the note has a home');
+  } else if (args['recipient-repo']) {
+    targetRepo = mainCheckout(args['recipient-repo'], git);
+  } else if (pane) {
+    if (!pane.worktreePath) {
+      throw new NoteError(1, `pane ${pane.handle} ("${pane.title}") has no worktreePath (floating pane) — pass --recipient-repo`);
+    }
+    targetRepo = mainCheckout(pane.worktreePath, git);
+  } else {
+    throw new NoteError(1, '--dry-run without --recipient-repo cannot decide where the note would live; pass --recipient-repo');
+  }
+
+  // A repo we cannot see is a repo we must not pretend to write to. For a pane on another host that is
+  // exactly the cross-host misuse the contract names; locally it is a bad --recipient-repo.
+  if (!dryRun && !fsImpl.existsSync(targetRepo)) {
+    if (!local) {
+      throw new NoteError(
+        5,
+        `pane ${pane.handle} works in "${targetRepo}" on host "${pane.executionHostId}", which does not exist here. ` +
+        `Run note-send on that host: ssh <host> note-send --from ${from} --to ${toRaw} … --packet-file -`,
+      );
+    }
+    throw new NoteError(1, `recipient repo "${targetRepo}" does not exist`);
+  }
+
+  const details = args.details ? validateDetails(args.details) : undefined;
+
+  // ── Id, derived from every ledger we can see.
+  const ledgerDirs = [
+    path.posix.join(toPosix(targetRepo), 'docs/ledger'),
+    senderRepo ? path.posix.join(toPosix(senderRepo), 'docs/ledger') : null,
+    path.posix.join(home, '.agents/notes'),
+  ].filter(Boolean);
   const prefix = `${from}-${topic}`;
   const n = args.n !== undefined ? Number(args.n) : nextCounter(readLedgerCorpus(ledgerDirs, fsImpl), prefix);
+  if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
   const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
-  const details = args.details ? validateDetails(args.details) : undefined;
+
   const envelope = buildEnvelope({
-    from, to: RESERVED_RECIPIENT, date, time, tz, id, re: args.re, supersedes: args.supersedes,
-    kind, body: args.text, goal: args.goal, details, needs: args.needs, by: args.by,
+    from, to: isBen ? RESERVED_RECIPIENT : recipientSlug(pane, toRaw), date, time, tz, id,
+    re: args.re, supersedes: args.supersedes, kind, body: args.text, goal: args.goal, details,
+    needs: args.needs, by: args.by,
   });
-  const ledgers = uniq([ledgerPath(repo, ymd), notesMirrorPath(home, ymd)]);
-  const packetPath = args.details ? toPosix(path.posix.join(toPosix(repo), String(args.details))) : null;
+
+  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id) : null;
+  const ledgerTargets = uniq([
+    ledgerPath(targetRepo, ymd),
+    senderRepo && senderRepo !== targetRepo ? ledgerPath(senderRepo, ymd) : null,
+    notesMirrorPath(home, ymd),
+  ].filter(Boolean));
+
+  if (details && !packetPath && !dryRun && !fsImpl.existsSync(path.posix.join(toPosix(targetRepo), details))) {
+    warnings.push(`Details points at ${details}, which does not exist in ${targetRepo} — write it, or pass --packet-file`);
+  }
 
   if (dryRun) {
-    for (const t of ledgers) plan.actions.push(`append envelope to ${t}`);
-    if (packetPath) plan.actions.push(`write packet ${packetPath} (skipped if it already exists)`);
-    plan.actions.push('no pane resolved: "ben" is a reserved recipient; the line is printed for Ben to read');
+    if (packetPath) {
+      plan.push(`write packet ${packetPath} from ${args['packet-file'] === '-' ? 'stdin' : args['packet-file']}${force ? ' (--force: overwrites an existing packet)' : ' (refuses to overwrite)'}`);
+    }
+    for (const t of ledgerTargets) plan.push(`append envelope to ${t}`);
+    if (!isBen) {
+      plan.push('classify pane via `terminal show` + `terminal read`; send only on agent-idle/agent-working');
+      plan.push('codex recipients: `terminal wait --for tui-idle` first, unconditionally');
+      plan.push('two-phase: baseline read, `terminal send --text <envelope>` (no --enter), re-read, then `terminal send --enter`');
+    }
     return {
-      ok: true, exitCode: 0, envelope, id, to: RESERVED_RECIPIENT, handle: null, classification: 'n/a (ben)',
-      delivered: false, deferred: false, notified: false, dryRun: true, ledgers, packetPath, plan: plan.actions, error: null,
+      ok: true, exitCode: 0, envelope, id, to: toRaw, handle: null,
+      classification: isBen ? 'n/a (ben)' : 'not-checked (--dry-run)',
+      delivered: false, deferred: false, notified: false, dryRun: true,
+      ledgers: ledgerTargets, packetPath, plan, warnings, error: null,
     };
   }
-  for (const t of ledgers) appendLine(t, envelope, fsImpl);
+
+  // ── 4. Packet BEFORE the ledger line; ledger BEFORE any delivery attempt.
+  let packetWritten = false;
   if (packetPath) {
-    writePacket(packetPath, packetTemplate({
-      id, title: firstSentence(args.text), from, to: RESERVED_RECIPIENT, date, time, tz,
-      supersedes: args.supersedes, body: args.text, needs: args.needs, by: args.by,
-    }), fsImpl);
+    const source = String(args['packet-file']);
+    const content = source === '-' ? (deps.stdin ?? readStdin()) : readIfExists(path.resolve(source), fsImpl);
+    if (!content.trim()) {
+      throw new NoteError(1, `--packet-file ${source} is empty or unreadable; a packet with no body is worse than none`);
+    }
+    const res = writePacket(packetPath, content, { force, fsImpl });
+    if (res.skipped) {
+      throw new NoteError(1, `packet ${packetPath} already exists; pass --force to overwrite it (the recipient may have annotated it)`);
+    }
+    packetWritten = res.written;
   }
-  return {
-    ok: true, exitCode: 0, envelope, id, to: RESERVED_RECIPIENT, handle: null, classification: 'n/a (ben)',
-    delivered: false, deferred: false, notified: true, ledgers, packetPath, error: null,
-    note: env.NOTE_SEND_NTFY_URL ? 'ntfy url set but push is not wired in this version' : undefined,
+
+  for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
+
+  const base = {
+    envelope, id, to: toRaw, handle: pane?.handle ?? null, ledgers: ledgerTargets,
+    packetPath, packetWritten, warnings,
   };
+
+  // ── `ben` stops here: recorded, printed, notified.
+  if (isBen) {
+    return {
+      ok: true, exitCode: 0, ...base, classification: 'n/a (ben)',
+      delivered: false, deferred: false, notified: true, error: null,
+    };
+  }
+
+  // ── 5. Gate on pane state.
+  const deadline = Date.now() + waitMaxMs;
+  let classification = await classifyNow(orca, pane.handle, deps);
+  while (classification === 'permission' && Date.now() < deadline) {
+    await nap(10_000);
+    classification = await classifyNow(orca, pane.handle, deps);
+  }
+  if (!SENDABLE.has(classification)) {
+    throw new NoteError(3, deferMessage(classification, pane, envelope, ledgerTargets), { ...base, classification, notified: false });
+  }
+
+  // Codex recipients go through Orca's own idle detector, ALWAYS, and fail closed when it cannot run.
+  // Our marker set cannot tell working from idle by itself — Claude Code randomises the spinner verb, so
+  // a mid-turn pane routinely classifies `agent-idle` (review C1). Only `tui-idle` is authoritative here.
+  if (String(pane.agentIdentity).toLowerCase() === 'codex') {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new NoteError(
+        3,
+        `codex pane ${pane.handle} needs a positive --wait-max: Codex mid-turn queuing is unproven, so a note is typed only after \`terminal wait --for tui-idle\` succeeds. Nothing was typed. Ledger: ${ledgerTargets[0]}`,
+        { ...base, classification, notified: false },
+      );
+    }
+    try {
+      await orca(['terminal', 'wait', '--terminal', pane.handle, '--for', 'tui-idle', '--timeout-ms', String(remaining), '--json']);
+    } catch (err) {
+      throw new NoteError(
+        3,
+        `codex pane ${pane.handle}: \`terminal wait --for tui-idle\` did not succeed (${err.message}) — nothing was typed. Ledger: ${ledgerTargets[0]}`,
+        { ...base, classification, notified: false },
+      );
+    }
+    classification = await classifyNow(orca, pane.handle, deps);
+    if (!SENDABLE.has(classification)) {
+      throw new NoteError(3, deferMessage(classification, pane, envelope, ledgerTargets), { ...base, classification, notified: false });
+    }
+  }
+
+  // ── 6. Two-phase delivery: baseline, text, verify, only then Enter (C1 / review H1).
+  const before = await readPane(orca, pane.handle);
+  if (composerShows(before, id)) {
+    throw new NoteError(
+      3,
+      `[${id}] is already on screen in ${pane.handle} — refusing to press Enter over whatever the composer holds. The ledger has the note; check the pane, then retry with a fresh --n.`,
+      { ...base, classification, notified: false },
+    );
+  }
+
+  try {
+    await orca(['terminal', 'send', '--terminal', pane.handle, '--text', envelope, '--json']);
+  } catch (err) {
+    throw new NoteError(4, `${err.message} — nothing was typed`, { ...base, classification, notified: false });
+  }
+
+  const after = await readPane(orca, pane.handle);
+  const visible = composerShows(after, id);
+  const recheck = classifyPane(await showPane(orca, pane.handle), after, { now: Date.now() });
+  if (!visible || recheck !== classification) {
+    throw new NoteError(
+      3,
+      `aborted before Enter: pane went "${classification}" → "${recheck}"${visible ? '' : ', and the typed line was not visible in the composer'}. The text may be sitting unsent in ${pane.handle}; the ledger already has the note. Retry or clear the pane by hand.`,
+      { ...base, classification: recheck, notified: false },
+    );
+  }
+
+  try {
+    await orca(['terminal', 'send', '--terminal', pane.handle, '--enter', '--json']);
+  } catch (err) {
+    throw new NoteError(
+      4,
+      `${err.message} — the envelope is sitting UNSENT in ${pane.handle}'s composer; clear it or press Enter by hand`,
+      { ...base, classification, notified: false },
+    );
+  }
+
+  return { ok: true, exitCode: 0, ...base, classification, delivered: true, deferred: false, notified: false, error: null };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -852,50 +680,61 @@ const USAGE = `note-send — one peer-note envelope, ledger-first, typed into a 
             --topic <slug> --text "<substance>"
             [--n <int>] [--re <parent-id>] [--supersedes <id>] [--goal "<why>"] [--details <repo/relative/path.md>]
             [--needs decision|review|ack|none] [--by "<time>"] [--recipient-repo <dir>] [--sender-repo <dir>]
-            [--tz NYC] [--orca <cmd>] [--wait-max <seconds>] [--dry-run] [--json]
+            [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>] [--dry-run] [--json]
+
+Cross-host: run note-send ON the recipient's host over ssh, e.g.
+  ssh ben@<host> note-send --from <you> --to <pane> --kind ASK --topic <t> --text "…" --packet-file -
 
 Exit: 0 delivered (or notified, for ben) · 1 bad arguments/envelope · 2 pane not found/ambiguous ·
       3 deferred or unsafe pane state (NOT delivered — you own the retry) · 4 orca CLI error · 5 cross-host misuse
 `;
+
+function emit(result, wantsJson) {
+  if (wantsJson) {
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  process.stdout.write(`${result.envelope}\n`);
+  if (result.dryRun) {
+    process.stdout.write('\n--dry-run — nothing was written or sent. Planned actions:\n');
+    for (const a of result.plan) process.stdout.write(`  - ${a}\n`);
+  } else if (result.delivered) {
+    process.stdout.write(`delivered to ${result.handle} (${result.classification}); ledger: ${result.ledgers.join(', ')}\n`);
+  } else {
+    process.stdout.write(`recorded, not delivered (to: ${result.to}); ledger: ${result.ledgers.join(', ')}\n`);
+  }
+  for (const w of result.warnings ?? []) process.stderr.write(`note-send: warning: ${w}\n`);
+}
 
 async function main() {
   const argv = process.argv.slice(2);
   const wantsJson = argv.includes('--json');
   if (argv.length === 0 || argv.includes('--help')) {
     process.stdout.write(USAGE);
-    process.exit(argv.length === 0 ? 1 : 0);
+    process.exitCode = argv.length === 0 ? 1 : 0;
+    return;
   }
   try {
     const result = await runNoteSend(argv);
-    if (wantsJson) {
-      process.stdout.write(`${JSON.stringify(result)}\n`);
-    } else {
-      process.stdout.write(`${result.envelope}\n`);
-      if (result.dryRun) {
-        process.stdout.write(`\n--dry-run — nothing was written or sent. Planned actions:\n`);
-        for (const a of result.plan) process.stdout.write(`  - ${a}\n`);
-      } else if (result.delivered) {
-        process.stdout.write(`delivered to ${result.handle} (${result.classification}); ledger: ${result.ledgers.join(', ')}\n`);
-      } else {
-        process.stdout.write(`recorded, not delivered (to: ${result.to}); ledger: ${result.ledgers.join(', ')}\n`);
-      }
-    }
-    process.exit(0);
+    emit(result, wantsJson);
+    process.exitCode = 0;
   } catch (err) {
     const exitCode = err instanceof NoteError ? err.exitCode : 1;
     if (wantsJson) {
+      // The packet and ledger are written before most failures; report them rather than an empty object (review M2).
       process.stdout.write(`${JSON.stringify({
         ok: false, exitCode, envelope: err.envelope ?? null, id: err.id ?? null, to: err.to ?? null,
         handle: err.handle ?? null, classification: err.classification ?? null, delivered: false,
-        deferred: exitCode === 3, notified: false, ledgers: err.ledgers ?? [], packetPath: err.packetPath ?? null,
-        error: err.message,
+        deferred: exitCode === 3, notified: Boolean(err.notified), ledgers: err.ledgers ?? [],
+        packetPath: err.packetPath ?? null, warnings: err.warnings ?? [], error: err.message,
       })}\n`);
     } else {
       process.stderr.write(`note-send: ${err.message}\n`);
+      if (err.ledgers?.length) process.stderr.write(`note-send: the note IS recorded in ${err.ledgers.join(', ')}\n`);
     }
-    process.exit(exitCode);
+    process.exitCode = exitCode;
   }
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) main();
+if (invokedDirectly) await main();

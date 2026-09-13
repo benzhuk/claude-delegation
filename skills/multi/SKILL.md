@@ -22,7 +22,7 @@ Three rules carry most of the value:
   Nothing in between. A peer that says nothing is working, not stuck.
 - **Never a hidden drop.** Every note is written to the ledger BEFORE delivery is attempted.
   If delivery defers or fails you are told, and you own the retry.
-- **Short beats complete.** Two sentences on the line; everything else in the packet.
+- **Short beats complete.** Two sentences on the line, everything else in the packet.
 
 ## The envelope
 
@@ -38,14 +38,18 @@ One example per kind (more in `references/examples.md`):
 ```
 taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please review PR #132, focus on the batch scheduler. Goal: land it before the corpus run. Details: docs/notes/taxonomy-pr132-review-1.md Needs: review by 15:00
 nucleus → taxonomy, 9.13.26 10:12 NYC [nucleus-pr132-review-1 re taxonomy-pr132-review-1] ACK: Taking it now, ETA 45 min. Needs: none
-nucleus → taxonomy, 9.13.26 10:58 NYC [nucleus-pr132-review-2] RESULT: Two blockers, four nits; the scheduler double-counts retries. Details: docs/notes/nucleus-pr132-review-2.md Needs: none
-astra → nucleus, 9.13.26 11:20 NYC [astra-corpus-run-3] BLOCKED: Corpus run cannot start; the batch key is unset on this box. Goal: unblock tonight's 413-film run. Needs: none
+nucleus → taxonomy, 9.13.26 10:58 NYC [nucleus-pr132-review-2] RESULT: Two blockers and four nits — the scheduler double-counts retries. Details: docs/notes/nucleus-pr132-review-2.md Needs: none
+astra → nucleus, 9.13.26 11:20 NYC [astra-corpus-run-3] BLOCKED: Corpus run cannot start, the batch key is unset on this box. Goal: unblock tonight's 413-film run. Needs: none
 taxonomy → n-astra, 9.13.26 12:02 NYC [taxonomy-corpus-run-1] FYI: Batch finished, 413 films, 0 failures.
 ```
 
 Ids are `<sender>-<topic>-<counter>`, lowercase. The sender prefix makes them collision-free
 with no central store. A reply keeps the topic, uses its own prefix, and names the parent
 with ` re <id>`. A correction adds ` supersedes <id>` inside the same brackets.
+
+A substance may not contain `` ` ``, `;`, `|`, `&&` or `$(`. A note that reached a shell pane
+by mistake must be inert, so the sender refuses to build one that could chain a command.
+Quotes and a bare `$` are fine — the transport passes argv arrays, never a shell string.
 
 ## Authority (verbatim — do not paraphrase)
 
@@ -79,40 +83,64 @@ smaller scope, or take it to Ben.
 
 ## How to send
 
+`note-send` is on PATH on every machine, installed by `scripts/mirror-shared-skills.mjs`:
+
 ```
-node <plugin>/skills/multi/scripts/note-send.mjs \
-  --from <your-slug> --to <peer-slug|term_handle|ben> --kind ASK \
+note-send --from <your-slug> --to <peer-slug|term_handle|ben> --kind ASK \
   --topic pr132-review --text "Please review PR #132, focus on the batch scheduler" \
   --goal "land it before the corpus run" --details docs/notes/taxonomy-pr132-review-1.md \
-  --needs review --by 15:00
+  --needs review --by 15:00 --packet-file -
 ```
 
-The script is the safety gate: it validates the envelope, writes the ledger first, classifies
-the recipient's pane, and only then types the line in two phases (text, verify, Enter). Add
-`--dry-run` to see the exact line and the planned writes without touching anything.
+`--packet-file <path|->` writes the detail packet to the recipient's
+`docs/notes/<id>.md` before the ledger line; `-` reads the body from stdin. An existing
+packet is never overwritten without `--force`, because the recipient may have annotated it.
+Add `--dry-run` to see the exact line and every planned write without touching anything.
 
-- **Orca CLI per machine** (`--orca`, else `$ORCA_CLI`, else `orca` on PATH):
-  Windows `node C:/Users/benzh/.local/share/orca-fork-cli/out/cli/index.js` ·
-  Hetzner `~/.local/bin/orca-native-fixed` · Mac/Netcup plain `orca`.
-- **`--to ben`** resolves no pane. The note is recorded and printed for Ben to read; exit 0
-  with `delivered:false, notified:true`. Use it for anything only Ben can decide.
-- **Never** use `orca orchestration dispatch/send/worker-*` for a peer note. That path has no
-  safety gate and its failures are silent.
+If PATH is not set up yet, call the script directly:
+
+- **Claude sessions**: `node <plugin>/skills/multi/scripts/note-send.mjs …`
+- **Codex sessions**: `node ~/.agents/skills/multi/scripts/note-send.mjs …` — the mirrored
+  copy is the only one a Codex peer has.
+
+**Orca CLI per machine** (`--orca`, else `$ORCA_CLI`, else `orca` on PATH): Windows
+`node C:/Users/benzh/.local/share/orca-fork-cli/out/cli/index.js` · Hetzner
+`~/.local/bin/orca-native-fixed` · Mac and Netcup plain `orca`.
+
+**A peer on another machine**: run note-send ON that machine over ssh. The packet and both
+ledger lines then land where the recipient actually works, and `Details:` stays
+repo-relative. There is no `<host>:` path form.
+
+```
+ssh ben@100.69.249.18 note-send --from taxonomy --to nucleus --kind ASK \
+  --topic ledger-schema --text "Does the accounts app already have a table for these rows?" \
+  --needs decision --by 17:00 --packet-file -   < packet.md
+```
+
+**`--to ben`** resolves no pane. The note is recorded and printed for Ben to read; exit 0
+with `delivered:false, notified:true`. Use it for anything only Ben can decide.
+
+**Never** use `orca orchestration dispatch/send/worker-*` for a peer note. That path has no
+safety gate and its failures are silent.
 
 ## When note-send does not exit 0
 
 | exit | meaning | what you do |
 |---|---|---|
-| 1 | bad arguments or envelope | read the message; it names the field and the fix |
+| 1 | bad arguments, envelope, or packet | read the message; it names the field and the fix |
 | 2 | pane not found or ambiguous | re-send with one of the listed `term_…` handles; never guess |
 | 3 | **deferred — NOT delivered** | you own the retry. The ledger already has the line. Retry when the pane clears; defer twice → send `ben` a BLOCKED |
-| 4 | orca CLI error | the CLI's own message is included; fix that, then retry |
-| 5 | cross-host misuse | drop `--recipient-repo`, pass `--sender-repo`; the packet stays on your host |
+| 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
+| 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
 
-Exit 3 covers a permission prompt, a shell pane, a hibernated pane, and an unreadable pane.
-All four mean the same thing: nothing was typed. **If a pane's state cannot be read, nothing
-is sent — a deferred note is cheap, an approved dialog is not.** Codex recipients are typed
-into only when idle, until the pilot proves Codex queues input mid-turn.
+Exit 3 covers a permission prompt, a shell pane, a hibernated pane, an unreadable pane, and
+a Codex pane that never reached idle. All of them mean the same thing: nothing was typed.
+**If a pane's state cannot be read, nothing is sent — a deferred note is cheap, an approved
+dialog is not.**
+
+Codex recipients are gated on Orca's own `terminal wait --for tui-idle`, always, and the
+send fails closed if that wait cannot run. Text-marker classification is not trusted for
+this: Claude Code randomises its spinner verb, so a mid-turn pane often looks idle.
 
 ## Where the files live
 
@@ -120,13 +148,13 @@ into only when idle, until the pilot proves Codex queues input mid-turn.
   recipient both append. Written to the repo's MAIN checkout, never a disposable worktree,
   and mirrored to `~/.agents/notes/YYYY-MM-DD.md`. Repos need
   `docs/ledger/*.md merge=union` in `.gitattributes` so concurrent appends never conflict.
-- **Packet** `<repo>/docs/notes/<id>.md` in the RECIPIENT's repo (the SENDER's repo for a
-  cross-host note, with `Details: <host>:<abs path>`). Template and section list:
-  `references/envelope.md`. note-send writes it for you and never overwrites an existing one.
+- **Packet** `<repo>/docs/notes/<id>.md`, always in the RECIPIENT's repo. Template and
+  section list: `references/envelope.md`.
 - Both are committed with your session's next normal commit. No per-note commits.
 
-A peer review you are asking for is worth a high-tier model (Claude Opus / GPT-6-Astra) on
-the other side; say so in the packet if it matters, but the peer decides how it runs.
+A peer review you are asking for is worth a high-tier model (Claude Opus / GPT-6-Astra for
+review, per `docs/model-tiers.md`). Say so in the packet if it matters, but the peer decides
+how it runs.
 
 ## For Ben
 
