@@ -114,17 +114,13 @@ note-send --from taxonomy --to nucleus --kind ASK --topic pr132-review --text "P
 
 ## Install (mirror for Codex)
 
-Codex reads shared skills and agent roles from its own paths, not from the Claude Code
-plugin cache. After installing the plugin, publish the shared skills and agent roles for
-Codex once (idempotent, safe to re-run; shipped with 0.2.0):
+Codex reads shared skills and agent roles from its own paths, not the Claude Code plugin cache. Publish once after installing the plugin (idempotent; also supports `--dry-run`, `--force`, `--uninstall`):
 
 ```bash
 node scripts/mirror-shared-skills.mjs
 ```
 
-This publishes shared skills to `~/.agents/skills` (Codex's native discovery path) and
-the builder/reviewer/integrator agent roles to `~/.codex/agents` as `.toml` files, with
-models picked from the tier table above.
+Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and a `note-send` PATH shim (`note-send.cmd` on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
 
 ## The philosophy, in four lines
 
