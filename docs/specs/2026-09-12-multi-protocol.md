@@ -189,3 +189,11 @@ V8. Out of scope: Codex's safety-dialog pause (astra 3.5 h overnight) — that i
 | T1 `multi-v4` (claude-delegation, branch `feat/multi-v4`) | `skills/multi/scripts/{note-inbox.mjs,note-flush.mjs,note-notify.mjs,note-send.mjs,envelope.mjs,*.test.mjs}`, `skills/multi/SKILL.md`, `skills/multi/references/*`, `hooks/hooks.json`, `hooks/multi-*.js`, `scripts/mirror-shared-skills.mjs` (ship the three new shims), `README.md` multi section, `.claude-plugin/*.json` → 0.3.0 |
 | T3 `dotfiles-v4` (chezmoi, branch `feat/multi-v4`) | `dot_codex/AGENTS.md`, `dot_claude/rules/20-tools.md` (peer sessions paragraph), timers/units + `run_onchange` for note-flush, `docs/2026-09-13-universal-skills.md` |
 | Orchestrator | Codex `notify` wiring on each machine, pane renames, install, live smoke to astra when idle, pilot restart |
+
+### ORCA env addendum (verified 2026-09-13 15:40 NYC on Netcup, from /proc/<pid>/environ of a Claude pane and a Codex pane)
+Every Orca pane exports `ORCA_TERMINAL_HANDLE=term_…` (plus `ORCA_PANE_KEY`, `ORCA_TAB_ID`, `ORCA_WORKTREE_ID=<id>::<worktreePath>`,
+`ORCA_USER_DATA_PATH`, `ORCA_CODEX_HOME` for Codex panes, and Orca's own `ORCA_AGENT_HOOK_*` endpoint vars — leave those alone).
+Slug resolution order for note-inbox / the hooks / note-notify: `--me` → `$NOTE_SLUG` → `orca terminal show --terminal
+$ORCA_TERMINAL_HANDLE --json` → title normalized exactly like note-send's resolver (strip glyphs, drop ` | <worktree>`, lowercase).
+No handle in the environment → the hook stays silent (exit 0, no output) and note-inbox requires `--me`. `ORCA_WORKTREE_ID`'s
+path part is the pane's worktree → main checkout via `git rev-parse --git-common-dir` for the repo ledger.
