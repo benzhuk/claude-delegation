@@ -135,3 +135,57 @@ attributable to a note, "does Codex queue typed input mid-turn?" answered yes/no
 7. File length: `note-send.mjs` is split in the fix round into `envelope.mjs` (grammar, validation, parse) +
    `note-send.mjs` (I/O, transport); both under `skills/multi/scripts/`, tests updated, interface unchanged.
 8. Test command: the README/SKILL docs use the glob form `node --test "skills/multi/scripts/*.test.mjs"`.
+
+## v4 — pilot findings (2026-09-13) and the redesign: the ledger IS the channel, the pane is a wake-up
+Evidence: taxonomy's own stall log (bto-workflows `docs/notes/taxonomy-stalls-1.md`), astra's two notes to ben, the
+forensics report `.claude/agent-reports/74ca276f-…/pilot-stall-forensics.md`. Facts: 57 notes exchanged 00:20–15:13 NYC;
+NOT ONE astra-bound note was delivered by typing after 10:13 — Codex (astra) was mid-turn for 50–210 min stretches, and
+when it WAS idle the classifier still said "state could not be read" (Codex's TUI repaints a braille shimmer every
+second, so output recency ≠ busy, and `orca terminal wait --for tui-idle` never resolves for Codex — verified: 8 s waits
+time out on both panes); senders sat inside note-send for 5–60 min waiting (rc 143/124 kills); 9 notes were rejected at
+the 500-char cap and one for `;`, silently when piped through `grep -c`; taxonomy sat 77 min at an unattended permission
+prompt so astra's notes deferred; astra was paused 3.5 h behind a Codex safety dialog overnight (outside the protocol).
+Delivery that DID work: every note into a Claude pane (queued mid-turn), and Codex reading the ledger at its own pauses.
+
+### Design (binding)
+V1. **The ledger is the channel of record and the inbox.** A recipient discovers notes by reading the ledger, not by
+    being typed at. Typing is a best-effort wake-up. Deferral is normal and cheap; waiting is the bug.
+V2. **`note-inbox --me <slug> [--ack] [--json]`** (new, `skills/multi/scripts/note-inbox.mjs`): lists ledger lines
+    addressed to `<slug>` (and to `ben` when `--me ben`) that appeared after this pane's cursor
+    (`~/.agents/notes/.cursor-<slug>`), scanning `~/.agents/notes/*.md` (last 3 days) plus `<repo>/docs/ledger/*.md` of
+    the current repo main checkout; prints envelope lines + whether each `Details:` packet exists; `--ack` advances the
+    cursor. Exit 0 always; "no new notes" when empty. Slug from `--me`, else `$NOTE_SLUG`, else the Orca pane env
+    (T1 verifies which `ORCA_*` variable a pane exports; if none, `--me` is required and the hook derives it from
+    `orca terminal show` for the current pane).
+V3. **Claude Code wake-up = plugin hooks** (`hooks/hooks.json`, plugin-wide): `UserPromptSubmit` → run note-inbox, add
+    `additionalContext` "N new peer notes for <slug>: <lines>" and ack; `Stop` → if note-inbox finds new notes, block
+    the stop with `reason` = the notes (honour `stop_hook_active` to avoid loops) and ack; `PostToolUse` → cheap cursor
+    check, `additionalContext` when new notes arrived mid-turn (only if the hooks report confirms PostToolUse can add
+    context; otherwise UserPromptSubmit + Stop only). Exact JSON shapes: `.claude/agent-reports/…/claude-hooks-capabilities.md`.
+V4. **Codex wake-up = `notify` on turn end.** Codex runs the `notify` command from `~/.codex/config.toml` when a turn
+    ends (Ben's config already uses it). The mirror ships `note-notify` (wrapper: runs `note-flush --to <slug>` then the
+    previous notify target if any, passing the payload through); the orchestrator wires it into each machine's
+    config.toml (machine-local file, not chezmoi-managed). AGENTS.md rule (T3): run `note-inbox --me <slug>` at the
+    start of every turn and after finishing a task. Codex hooks stay unverified.
+V5. **`note-flush [--to <slug>] [--json]`** (new): drains `~/.agents/notes/outbox/<id>.json` entries written by
+    note-send on deferral: re-classify the pane, two-phase type when sendable, delete on success, skip entries whose id
+    a later `supersedes` retired, append attempts to `~/.agents/notes/flush.log`. Runs from `note-notify` (Codex turn
+    end), from note-send itself at the start of every call (piggyback), and from a 2-minute timer as a safety net
+    (T3: `dot_config/systemd/user/note-flush.{service,timer}` on Linux, a launchd plist on macOS, a Task Scheduler
+    task via `run_onchange` on Windows — all only when `~/.local/bin/note-flush` exists).
+V6. **note-send changes (T1):** default `--wait-max 15` (a sender never blocks for minutes); on deferral write the
+    outbox entry and exit 3 as before; `--no-type` (ledger + outbox only); validation failures print the `ok:false`
+    JSON on STDOUT and a one-line message on stderr, exit 1 (never silent when piped); line cap 700 chars (still one
+    line; detail belongs in the packet); Codex state from the tail — "esc to interrupt", "Working", or a
+    braille-shimmer line = working; a `›` composer line with none of those = idle — and NO `terminal wait --for tui-idle`
+    for Codex (it never resolves); output recency is not evidence of working for Codex.
+V7. **Skill + AGENTS.md wording (T1/T3):** deferral is normal; never re-send the same id (the outbox retries; check
+    `note-inbox`/ledger first); never wait on a peer inside a turn; ack notes when you act; a BLOCKED to ben is also
+    appended to `~/.agents/notes/ben-inbox.md` (note-send does this) so Ben has one file to read; pane rename to slug is a
+    blocking pre-flight, not a note.
+V8. Out of scope: Codex's safety-dialog pause (astra 3.5 h overnight) — that is Codex approval policy, for Ben.
+
+### Territories v4
+| T1 `multi-v4` (claude-delegation, branch `feat/multi-v4`) | `skills/multi/scripts/{note-inbox.mjs,note-flush.mjs,note-notify.mjs,note-send.mjs,envelope.mjs,*.test.mjs}`, `skills/multi/SKILL.md`, `skills/multi/references/*`, `hooks/hooks.json`, `hooks/multi-*.js`, `scripts/mirror-shared-skills.mjs` (ship the three new shims), `README.md` multi section, `.claude-plugin/*.json` → 0.3.0 |
+| T3 `dotfiles-v4` (chezmoi, branch `feat/multi-v4`) | `dot_codex/AGENTS.md`, `dot_claude/rules/20-tools.md` (peer sessions paragraph), timers/units + `run_onchange` for note-flush, `docs/2026-09-13-universal-skills.md` |
+| Orchestrator | Codex `notify` wiring on each machine, pane renames, install, live smoke to astra when idle, pilot restart |
