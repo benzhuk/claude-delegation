@@ -116,3 +116,22 @@ Netcup, Hetzner, Mac (`~/.agents/skills/multi`, codex agent files); create `docs
 (bto-workflows, bto_nucleus); rename pilot panes to slugs; a documented rollback (remove the mirror, drop the rule
 line). Pilot exit criteria (2026-09-13 → 09-14): ≥10 notes delivered, 0 silent drops, 0 permission-prompt approvals
 attributable to a note, "does Codex queue typed input mid-turn?" answered yes/no in writing with evidence.
+
+## Orchestrator rulings on T1's contract flags (2026-09-13, binding for the T1 fix round)
+1. envelope.md example: trailing period removed (was a contract typo; the regex text was right).
+2. Cross-host notes (replaces H8's `<host>:<abs path>` form, which cannot express a Windows path): a note to a
+   pane on ANOTHER host is sent by running note-send ON THE RECIPIENT'S HOST over ssh
+   (`ssh ben@100.69.249.18 note-send --from <sender-slug> --to <pane> … --packet-file -` with the packet body on
+   stdin, or `--packet-file <path on that host>`). The packet and ledger therefore always land in the recipient's
+   repo; `Details:` stays repo-relative. note-send gains `--packet-file <path|->` (writes the packet to
+   `<repo>/docs/notes/<id>.md` before the ledger line; refuses to overwrite an existing packet unless `--force`).
+   Exit 5 remains for "`--recipient-repo` given while the resolved pane's `executionHostId` is not the local
+   runtime". The `<host>:` Details prefix is dropped from the grammar. envelope.md and the note-send header are
+   updated by the orchestrator after the T1 review; T1 implements in its fix round.
+3. Uppercase ids: reject with the lowercase suggestion (frozen wording stands).
+4. Quotes in substance: allowed (execFile argv); backticks and `$(` stay rejected. Header stands.
+5. `merge=union` for `docs/ledger/*.md`: pilot repos only, installed by the orchestrator at pilot setup.
+6. Sender host identity: `ORCA_SENDER_HOST` env, else `local`. With ruling 2 the value only matters for exit 5.
+7. File length: `note-send.mjs` is split in the fix round into `envelope.mjs` (grammar, validation, parse) +
+   `note-send.mjs` (I/O, transport); both under `skills/multi/scripts/`, tests updated, interface unchanged.
+8. Test command: the README/SKILL docs use the glob form `node --test "skills/multi/scripts/*.test.mjs"`.
