@@ -1,3 +1,5 @@
 # Everything here is deployed to macOS/Linux boxes too; a CRLF shebang breaks direct execution.
 * text=auto eol=lf
 *.png binary
+# Peer-note ledgers are appended concurrently by several sessions; union-merge them (multi skill).
+docs/ledger/*.md merge=union
