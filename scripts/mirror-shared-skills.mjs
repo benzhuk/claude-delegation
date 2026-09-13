@@ -6,9 +6,10 @@
  *   ~/.agents/skills/<name>    — Codex's native personal skill store (it scans this path itself)
  *   ~/.agents/skills/_docs/    — the shared docs the skills link to (seam review S1)
  *   ~/.codex/agents/*.toml     — Codex subagent role definitions
- *   ~/.local/bin/note-send     — a PATH shim (seam review S2). On Windows BOTH `note-send.cmd`
- *                                (cmd, PowerShell) and extensionless `note-send` (Git Bash, which
- *                                cannot resolve a bare name to a .cmd)
+ *   ~/.local/bin/note-{send,inbox,flush,notify}
+ *                              — PATH shims (seam review S2; v4 added the last three). On Windows BOTH
+ *                                `<name>.cmd` (cmd, PowerShell) and an extensionless `<name>` (Git
+ *                                Bash, which cannot resolve a bare name to a .cmd)
  *
  * It deliberately NEVER writes ~/.claude/skills. Claude Code already receives skills/* through the
  * plugin cache; a second copy there would mean two skills with the same name and undefined precedence,
@@ -55,17 +56,26 @@ const SHARED_DOC_FILES = [
 const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;
 const IS_WINDOWS = process.platform === 'win32';
 const MODE = IS_WINDOWS ? 'copy' : 'symlink';
-/** The shim runs the MIRRORED copy, which exists on every machine the mirror has touched. */
-const SHIM_TARGET = path.join(AGENTS_SKILLS, 'multi', 'scripts', 'note-send.mjs');
 /**
- * Windows needs TWO shims in the same directory. `note-send.cmd` serves cmd and PowerShell; Git Bash
- * cannot resolve a bare `note-send` to a `.cmd`, and Ben's Claude sessions on Windows run in Git Bash,
- * so an extensionless POSIX-sh shim goes beside it. `C:\\Users\\benzh\\.local\\bin` is already on both
- * PATHs, Windows' and Git Bash's `/c/Users/benzh/.local/bin`.
+ * The four commands the protocol puts on PATH. v4 added three: the ledger read (note-inbox), the
+ * outbox drain (note-flush) and the Codex turn-end wrapper (note-notify) — the last is named in
+ * `~/.codex/config.toml` on every machine, so it MUST exist at a stable path.
  */
-const SHIM_SPECS = IS_WINDOWS
-  ? [{ name: 'note-send.cmd', flavour: 'cmd' }, { name: 'note-send', flavour: 'sh' }]
-  : [{ name: 'note-send', flavour: 'sh' }];
+const SHIM_COMMANDS = ['note-send', 'note-inbox', 'note-flush', 'note-notify'];
+/** A shim runs the MIRRORED copy, which exists on every machine the mirror has touched. */
+function shimTarget(command) {
+  return path.join(AGENTS_SKILLS, 'multi', 'scripts', `${command}.mjs`);
+}
+/**
+ * Windows needs TWO shims per command in the same directory. `note-send.cmd` serves cmd and
+ * PowerShell; Git Bash cannot resolve a bare `note-send` to a `.cmd`, and Ben's Claude sessions on
+ * Windows run in Git Bash, so an extensionless POSIX-sh shim goes beside it.
+ * `C:\\Users\\benzh\\.local\\bin` is already on both PATHs, Windows' and Git Bash's
+ * `/c/Users/benzh/.local/bin`.
+ */
+const SHIM_SPECS = SHIM_COMMANDS.flatMap((command) => (IS_WINDOWS
+  ? [{ name: `${command}.cmd`, flavour: 'cmd', command }, { name: command, flavour: 'sh', command }]
+  : [{ name: command, flavour: 'sh', command }]));
 
 const opts = parseArgs(process.argv.slice(2));
 const log = [];
@@ -136,7 +146,10 @@ function collectSources() {
   }
   // S2: the PATH shims. Every doc tells Ben to run bare `note-send`; nothing installed it.
   for (const spec of SHIM_SPECS) {
-    out.push({ kind: 'shim', name: spec.name, flavour: spec.flavour, src: null, dest: path.join(LOCAL_BIN, spec.name) });
+    out.push({
+      kind: 'shim', name: spec.name, flavour: spec.flavour, command: spec.command,
+      src: null, dest: path.join(LOCAL_BIN, spec.name),
+    });
   }
   return out;
 }
@@ -147,26 +160,27 @@ function collectSources() {
  * commands and tmux, and a cross-host note is sent over exactly such a shell), or nvm4w's
  * `C:/nvm4w/nodejs/node.exe` on Windows, where fnm does not exist.
  */
-function shimContent(flavour) {
+function shimContent(flavour, command) {
+  const target = shimTarget(command);
   if (flavour === 'cmd') {
     // Each `exit /b %ERRORLEVEL%` must be its own line: cmd expands %VAR% when it parses a whole
     // compound statement, so `node … & exit /b %ERRORLEVEL%` would return the value from BEFORE node ran.
     return [
       '@echo off',
       'setlocal',
-      `set "NOTE_SEND=${SHIM_TARGET}"`,
+      `set "NOTE_SCRIPT=${target}"`,
       'where node >nul 2>&1 || goto :nonode',
-      'node "%NOTE_SEND%" %*',
+      'node "%NOTE_SCRIPT%" %*',
       'exit /b %ERRORLEVEL%',
       ':nonode',
-      'echo note-send: node not found on PATH 1>&2',
+      `echo ${command}: node not found on PATH 1>&2`,
       'exit /b 127',
       '',
     ].join('\r\n');
   }
   // POSIX sh, used on macOS/Linux AND by Git Bash on Windows. Forward slashes throughout: node on
   // Windows accepts them, and MSYS leaves them alone.
-  const target = SHIM_TARGET.split(path.sep).join('/');
+  const posixTarget = target.split(path.sep).join('/');
   const fallback = IS_WINDOWS
     ? `  for candidate in /c/nvm4w/nodejs/node.exe C:/nvm4w/nodejs/node.exe; do
     [ -x "$candidate" ] && node_bin="$candidate"
@@ -178,16 +192,16 @@ function shimContent(flavour) {
   return [
     '#!/bin/sh',
     '# installed by claude-delegation scripts/mirror-shared-skills.mjs — do not edit by hand',
-    `note_send="${target}"`,
+    `note_script="${posixTarget}"`,
     'node_bin="$(command -v node 2>/dev/null || true)"',
     'if [ -z "$node_bin" ]; then',
     fallback,
     'fi',
     'if [ -z "$node_bin" ]; then',
-    `  echo "note-send: node not found ${where}" >&2`,
+    `  echo "${command}: node not found ${where}" >&2`,
     '  exit 127',
     'fi',
-    'exec "$node_bin" "$note_send" "$@"',
+    'exec "$node_bin" "$note_script" "$@"',
     '',
   ].join('\n'); // LF always: this file is read by sh, never by cmd
 }
@@ -319,7 +333,7 @@ function publishFile(entry, prev) {
 
 /** The PATH shim is generated, not copied: its body names this machine's mirrored note-send. */
 function publishShim(entry, prev) {
-  const content = shimContent(entry.flavour);
+  const content = shimContent(entry.flavour, entry.command);
   const previous = prev.managed.find((e) => path.resolve(e.dest) === path.resolve(entry.dest));
   const st = lstat(entry.dest);
   if (st && !previous && !opts.force) {
@@ -334,7 +348,7 @@ function publishShim(entry, prev) {
     say('up to date', entry.dest);
     return { ...manifestEntry(entry), files: [path.basename(entry.dest)] };
   }
-  say('install PATH shim', `${entry.dest} -> ${SHIM_TARGET}`);
+  say('install PATH shim', `${entry.dest} -> ${shimTarget(entry.command)}`);
   if (!opts.dryRun) {
     fs.mkdirSync(path.dirname(entry.dest), { recursive: true });
     fs.writeFileSync(entry.dest, content, 'utf8');
@@ -349,7 +363,7 @@ function manifestEntry(entry) {
     name: entry.name,
     kind: entry.kind,
     mode,
-    source: entry.src ? entry.src.split(path.sep).join('/') : `generated (target ${SHIM_TARGET.split(path.sep).join('/')})`,
+    source: entry.src ? entry.src.split(path.sep).join('/') : `generated (target ${shimTarget(entry.command).split(path.sep).join('/')})`,
     dest: entry.dest.split(path.sep).join('/'),
   };
 }
@@ -433,6 +447,7 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
   --json       one JSON object instead of the human log
 
 Destinations: ~/.agents/skills/<name>, ~/.agents/skills/_docs/, ~/.codex/agents/, ~/.local/bin/.
+PATH shims: note-send, note-inbox, note-flush, note-notify (plus a .cmd for each on Windows).
 Never writes ~/.claude/skills: Claude Code gets these skills from the plugin cache.
 `;
 
@@ -478,6 +493,7 @@ function main() {
       agentsSkills: AGENTS_SKILLS.split(path.sep).join('/'), sharedDocs: SHARED_DOCS.split(path.sep).join('/'),
       codexAgents: CODEX_AGENTS.split(path.sep).join('/'),
       shims: SHIM_SPECS.map((s) => path.join(LOCAL_BIN, s.name).split(path.sep).join('/')),
+      shimCommands: SHIM_COMMANDS,
       actions: log, refusals,
     }, null, 2)}\n`);
   } else {
