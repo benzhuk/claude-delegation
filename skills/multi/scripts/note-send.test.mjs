@@ -15,6 +15,7 @@ import {
   mainCheckout, toPosix,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
+  findOnPath, orcaHint, ORCA_WINDOWS_FORK,
   runNoteSend,
 } from './note-send.mjs';
 
@@ -698,11 +699,97 @@ test('R5: --help prints usage and exits 0 on the direct path too', () => {
   assert.ok(noArgs.stdout.length > 200, 'even the no-argument path prints the usage');
 });
 
-test('the orca command resolves --orca > $ORCA_CLI > orca', () => {
-  assert.deepEqual(resolveOrcaCommand('node C:/x/index.js', {}), { exe: 'node', base: ['C:/x/index.js'] });
-  assert.deepEqual(resolveOrcaCommand(undefined, { ORCA_CLI: '/usr/local/bin/orca-native-fixed' }),
-    { exe: '/usr/local/bin/orca-native-fixed', base: [] });
-  assert.deepEqual(resolveOrcaCommand(undefined, {}), { exe: 'orca', base: [] });
+// ─────────────────────────────────────────────────────────────────────────────
+// R6 — orca CLI resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HOME = '/home/ben';
+/** existsSync mock: only the listed absolute paths exist, separator-insensitive. */
+const only = (...paths) => (p) => paths.includes(String(p).split(path.sep).join('/'));
+/** Same, but case-insensitive — Windows' real existsSync is, and PATHEXT is conventionally uppercase. */
+const onlyCI = (...paths) => {
+  const set = paths.map((s) => s.toLowerCase());
+  return (p) => set.includes(String(p).split(path.sep).join('/').toLowerCase());
+};
+const posixDeps = (exists) => ({ existsSync: exists, platform: 'linux', home: HOME });
+const winDeps = (exists) => ({ existsSync: exists, platform: 'win32', home: 'C:/Users/benzh' });
+
+test('R6: --orca beats everything, then $ORCA_CLI', () => {
+  const deps = posixDeps(only(`${HOME}/.local/bin/orca`));
+  const explicit = resolveOrcaCommand('node C:/x/index.js', { ORCA_CLI: '/nope' }, deps);
+  assert.equal(explicit.exe, 'node');
+  assert.deepEqual(explicit.base, ['C:/x/index.js']);
+  assert.equal(explicit.source, '--orca');
+
+  const fromEnv = resolveOrcaCommand(undefined, { ORCA_CLI: '/usr/local/bin/orca-native-fixed' }, deps);
+  assert.equal(fromEnv.exe, '/usr/local/bin/orca-native-fixed');
+  assert.deepEqual(fromEnv.base, []);
+  assert.equal(fromEnv.source, '$ORCA_CLI');
+});
+
+test('R6: PATH wins over the ~/.local/bin fallbacks', () => {
+  const deps = posixDeps(only('/usr/bin/orca', `${HOME}/.local/bin/orca-native-fixed`));
+  const r = resolveOrcaCommand(undefined, { PATH: '/usr/bin:/bin' }, deps);
+  assert.equal(r.exe, 'orca');
+  assert.equal(r.source, 'PATH');
+});
+
+test('R6: the Netcup case — nothing on PATH, orca-native-fixed found in ~/.local/bin', () => {
+  const deps = posixDeps(only(`${HOME}/.local/bin/orca-native-fixed`, `${HOME}/.local/bin/orca`));
+  const r = resolveOrcaCommand(undefined, { PATH: '/usr/bin:/bin' }, deps);
+  assert.equal(r.exe, `${HOME}/.local/bin/orca-native-fixed`, 'orca-native-fixed is tried before plain orca');
+  assert.match(r.source, /Hetzner/);
+});
+
+test('R6: plain ~/.local/bin/orca is the next fallback', () => {
+  const deps = posixDeps(only(`${HOME}/.local/bin/orca`));
+  const r = resolveOrcaCommand(undefined, { PATH: '/usr/bin' }, deps);
+  assert.equal(r.exe, `${HOME}/.local/bin/orca`);
+});
+
+test('R6: Windows falls back to the fork CLI through node', () => {
+  const fork = 'C:/Users/benzh/.local/share/orca-fork-cli/out/cli/index.js';
+  const r = resolveOrcaCommand(undefined, { PATH: 'C:/Windows', PATHEXT: '.EXE;.CMD' }, winDeps(onlyCI(fork)));
+  assert.equal(r.exe, 'node');
+  assert.deepEqual(r.base, [fork]);
+  assert.equal(r.source, 'orca-fork-cli');
+});
+
+test('R6: the fork CLI is NOT used on POSIX', () => {
+  const deps = posixDeps(only(`${HOME}/${ORCA_WINDOWS_FORK}`));
+  const r = resolveOrcaCommand(undefined, { PATH: '/usr/bin' }, deps);
+  assert.equal(r.source, 'not found');
+});
+
+test('R6: nothing found keeps the contract default and records where it looked', () => {
+  const r = resolveOrcaCommand(undefined, { PATH: '/usr/bin' }, posixDeps(() => false));
+  assert.equal(r.exe, 'orca', 'the default stays `orca`, so the spawn error is the CLI\'s own');
+  assert.equal(r.source, 'not found');
+  assert.deepEqual(r.tried, ['orca on PATH', `${HOME}/.local/bin/orca-native-fixed`, `${HOME}/.local/bin/orca`]);
+
+  const hint = orcaHint(r);
+  assert.match(hint, /no orca CLI found/);
+  assert.match(hint, /orca-native-fixed/);
+  assert.match(hint, /bash -lc/, 'the non-login shell fix is in the message');
+  assert.match(hint, /--orca <cmd> or set ORCA_CLI/);
+});
+
+test('R6: a successful resolution names itself in the hint', () => {
+  const r = resolveOrcaCommand('node /x/cli.js', {}, posixDeps(() => false));
+  assert.match(orcaHint(r), /orca resolved from --orca: node \/x\/cli\.js/);
+});
+
+test('R6: an empty --orca or ORCA_CLI is exit 1, naming which one', () => {
+  throwsWith(() => resolveOrcaCommand('   ', {}, posixDeps(() => false)), 1, /--orca resolved to an empty command/);
+  throwsWith(() => resolveOrcaCommand(undefined, { ORCA_CLI: '  ' }, posixDeps(() => false)), 1, /\$ORCA_CLI/);
+});
+
+test('R6: findOnPath honours PATHEXT on Windows and a bare name on POSIX', () => {
+  assert.equal(findOnPath('orca', { PATH: '/usr/bin:/bin' }, { existsSync: only('/bin/orca'), platform: 'linux' }),
+    path.join('/bin', 'orca'));
+  assert.equal(findOnPath('orca', { PATH: 'C:/a;C:/b', PATHEXT: '.EXE;.CMD' },
+    { existsSync: onlyCI('C:/b/orca.cmd'), platform: 'win32' }).toLowerCase(), path.join('C:/b', 'orca.cmd').toLowerCase());
+  assert.equal(findOnPath('orca', {}, { existsSync: () => false, platform: 'linux' }), null);
 });
 
 test('the envelope the sender types is the envelope the ledger records', async () => {

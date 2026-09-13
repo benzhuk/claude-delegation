@@ -261,23 +261,97 @@ export function mainCheckout(dir, runner) {
 // Orca runner
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function resolveOrcaCommand(explicit, env = process.env) {
-  const cmd = explicit || env.ORCA_CLI || 'orca';
-  const parts = String(cmd).trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) throw new NoteError(1, '--orca resolved to an empty command');
-  return { exe: parts[0], base: parts.slice(1) };
+/** Where an `orca` lives when PATH does not know about it, tried in this order after PATH. */
+export const ORCA_FALLBACKS = [
+  { rel: '.local/bin/orca-native-fixed', why: '~/.local/bin/orca-native-fixed (Hetzner)' },
+  { rel: '.local/bin/orca', why: '~/.local/bin/orca' },
+];
+/** Windows has no `orca` binary; the fork CLI is a script run through node. */
+export const ORCA_WINDOWS_FORK = '.local/share/orca-fork-cli/out/cli/index.js';
+
+/** `which`, without spawning one. Mockable, so the resolution order is unit-testable. */
+export function findOnPath(name, env = process.env, deps = {}) {
+  const existsSync = deps.existsSync ?? fs.existsSync;
+  const platform = deps.platform ?? process.platform;
+  const raw = env.PATH ?? env.Path ?? '';
+  const sep = platform === 'win32' ? ';' : ':';
+  const exts = platform === 'win32'
+    ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+    : [''];
+  for (const dir of String(raw).split(sep).filter(Boolean)) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, name + ext);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the orca CLI. Contract order is unchanged — `--orca` > `$ORCA_CLI` > `orca` on PATH — with
+ * explicit fallbacks after PATH, because a non-login ssh shell on the boxes has no `~/.local/bin` on
+ * PATH and the bare name then fails with a bare `spawn orca ENOENT`.
+ *
+ * Returns what it tried, so the exit-4 message can name it instead of leaving the user guessing.
+ */
+export function resolveOrcaCommand(explicit, env = process.env, deps = {}) {
+  const existsSync = deps.existsSync ?? fs.existsSync;
+  const platform = deps.platform ?? process.platform;
+  const home = toPosix(deps.home ?? os.homedir());
+  const tried = [];
+
+  const fromString = (cmd, source) => {
+    const parts = String(cmd).trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) throw new NoteError(1, `${source} resolved to an empty command`);
+    return { exe: parts[0], base: parts.slice(1), source, tried };
+  };
+
+  if (explicit) return fromString(explicit, '--orca');
+  if (env.ORCA_CLI) return fromString(env.ORCA_CLI, '$ORCA_CLI');
+
+  tried.push('orca on PATH');
+  if (findOnPath('orca', env, { existsSync, platform })) {
+    return { exe: 'orca', base: [], source: 'PATH', tried };
+  }
+
+  for (const f of ORCA_FALLBACKS) {
+    const candidate = path.posix.join(home, f.rel);
+    tried.push(candidate);
+    if (existsSync(candidate)) return { exe: candidate, base: [], source: f.why, tried };
+  }
+
+  if (platform === 'win32') {
+    const fork = path.posix.join(home, ORCA_WINDOWS_FORK);
+    tried.push(`node ${fork}`);
+    if (existsSync(fork)) return { exe: 'node', base: [fork], source: 'orca-fork-cli', tried };
+  }
+
+  // Nothing found. Keep the contract's default so the spawn failure is the CLI's own error, but carry
+  // the list so the message can say where we looked.
+  return { exe: 'orca', base: [], source: 'not found', tried };
+}
+
+/** Say which orca we used, or where we looked — an ENOENT with no context is a dead end for the reader. */
+export function orcaHint(resolved) {
+  if (resolved.source !== 'not found') {
+    return ` (orca resolved from ${resolved.source}: ${[resolved.exe, ...resolved.base].join(' ')})`;
+  }
+  return ` — no orca CLI found. Looked at: ${resolved.tried.join(', ')}. `
+    + 'Pass --orca <cmd> or set ORCA_CLI; from a non-login shell (ssh command, tmux) run '
+    + "`bash -lc 'note-send …'` so the profile that puts ~/.local/bin on PATH is sourced.";
 }
 
 /** execFile with an argv array — never a shell string, so a `$` or a quote in the substance is inert (M7). */
-export function makeOrcaRunner(explicit, env = process.env) {
-  const { exe, base } = resolveOrcaCommand(explicit, env);
+export function makeOrcaRunner(explicit, env = process.env, deps = {}) {
+  const resolved = resolveOrcaCommand(explicit, env, deps);
+  const { exe, base } = resolved;
   return async (args) => {
     let stdout;
     try {
       ({ stdout } = await execFileAsync(exe, [...base, ...args], { maxBuffer: 64 * 1024 * 1024, windowsHide: true }));
     } catch (err) {
       stdout = err?.stdout;
-      if (!stdout) throw new NoteError(4, `orca ${args.slice(0, 2).join(' ')} failed: ${err?.message ?? err}`);
+      if (!stdout) throw new NoteError(4, `orca ${args.slice(0, 2).join(' ')} failed: ${err?.message ?? err}${orcaHint(resolved)}`);
     }
     let json;
     try {

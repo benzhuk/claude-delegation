@@ -103,9 +103,12 @@ If PATH is not set up yet, call the script directly:
 - **Codex sessions**: `node ~/.agents/skills/multi/scripts/note-send.mjs …` — the mirrored
   copy is the only one a Codex peer has.
 
-**Orca CLI per machine** (`--orca`, else `$ORCA_CLI`, else `orca` on PATH): Windows
-`node C:/Users/benzh/.local/share/orca-fork-cli/out/cli/index.js` · Hetzner
-`~/.local/bin/orca-native-fixed` · Mac and Netcup plain `orca`.
+**Orca CLI per machine** (`--orca`, else `$ORCA_CLI`, else `orca` on PATH, else
+`~/.local/bin/orca-native-fixed`, `~/.local/bin/orca`, and on Windows the fork CLI through
+node): Windows `node C:/Users/benzh/.local/share/orca-fork-cli/out/cli/index.js` · Hetzner
+`~/.local/bin/orca-native-fixed` · Mac and Netcup plain `orca`. From a non-login shell (an
+ssh command, tmux) run `bash -lc 'note-send …'` or set `ORCA_CLI`, because nothing has put
+`~/.local/bin` on PATH there; exit 4 names every path it looked at.
 
 **A peer on another machine**: run note-send ON that machine over ssh. The packet and both
 ledger lines then land where the recipient actually works, and `Details:` stays
