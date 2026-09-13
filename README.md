@@ -61,12 +61,19 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
 
 **Three agents** for the team-build pipeline: `builder`, `reviewer`, `integrator`.
 
-**One hook** (UserPromptSubmit, requires `node` on PATH): injects a one-line routing
-reminder — build → team-build, fan-out → delegate, small task → no agents — so the
-policy survives long sessions and context compaction. It reads `DELEGATION_TOP_TIER`
-(falling back to the legacy `CLAUDE_DELEGATION_TOP_TIER`, removed in 0.3.0; default
-`fable,opus,gpt-6-astra,gpt-5.6-sol`) to decide whether the current session is
-top/high-tier and add the orchestrator-economy sentence.
+**Two hooks** (all require `node` on PATH):
+
+- **Routing reminder** (UserPromptSubmit): injects a one-line routing reminder — build →
+  team-build, fan-out → delegate, small task → no agents — so the policy survives long
+  sessions and context compaction. It reads `DELEGATION_TOP_TIER` (falling back to the
+  legacy `CLAUDE_DELEGATION_TOP_TIER`; default `fable,opus,gpt-6-astra,gpt-5.6-sol`) to
+  decide whether the current session is top/high-tier and add the orchestrator-economy
+  sentence.
+- **Peer-note inbox** (UserPromptSubmit, Stop, PostToolUse — new in 0.3.0): reads the
+  peer-note ledger for this pane and injects anything new, so a `multi` note reaches the
+  session without anyone typing into its pane. `Stop` blocks the stop while something is
+  waiting (honouring `stop_hook_active`). Silent when there are no notes, when the
+  session is not in an Orca pane, and on any error — a hook must never break a session.
 
 ## Model tiers
 
@@ -95,22 +102,44 @@ GPT-5.6-Sol)" on first mention in a file, "the high-tier reviewer" afterward.
 `delegate` and `team-build` are for subordinate work you spawn and own. `multi` is the
 separate skill for talking to an EQUAL session you do not own — asking, briefing, or
 handing off to a peer pane, another territory's owner, or a session on another machine.
-Both Claude and Codex load it. Never use Orca orchestration dispatch for this — notes go
-through the plain terminal path, typed into the recipient's pane, with the sender
-gating on the recipient's state first.
+Both Claude and Codex load it. Never use Orca orchestration dispatch for this.
 
-Notes are one physical line, ≤500 characters, following a pinned envelope grammar (full
+**The ledger is the channel; typing into a pane is a wake-up.** Every note is appended to
+`docs/ledger/<today>.md` (and mirrored to `~/.agents/notes/`) before anyone tries to type
+it anywhere, and the recipient discovers it by reading. A wake-up that cannot be typed —
+the pane is mid-turn, at a permission prompt, unreadable — costs latency, never the note.
+This is the 0.3.0 correction after a day-long two-session pilot in which no typed note
+reached the Codex pane for five hours while senders sat blocked for up to an hour each.
+
+Notes are one physical line, ≤700 characters, following a pinned envelope grammar (full
 contract in `skills/multi/references/envelope.md`):
 
 ```
 taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please review my PR #132. Goal: faster wall clock, better batch orchestration. Details: docs/notes/taxonomy-pr132-review-1.md Needs: review by 15:00
 ```
 
-Send one with the bundled CLI (shipped with 0.2.0):
+Four commands, all on PATH after the mirror runs:
 
 ```bash
-note-send --from taxonomy --to nucleus --kind ASK --topic pr132-review --text "Please review my PR #132." --goal "faster wall clock, better batch orchestration" --details docs/notes/taxonomy-pr132-review-1.md --needs review --by "15:00"
+# send: ledger first, then a best-effort wake-up. Exit 3 means queued, not failed.
+note-send --from taxonomy --to nucleus --kind ASK --topic pr132-review --text "Please review my PR #132." --goal "faster wall clock, better batch orchestration" --needs review --by "15:00"
+
+# read: the ledger as this pane's inbox. Exit 0 always.
+note-inbox --me taxonomy --ack
+
+# retry the wake-ups that could not be typed. Runs itself; this is for looking.
+note-flush --dry-run
 ```
+
+`note-notify` is the fourth: Codex runs it from `~/.codex/config.toml` at every turn end —
+the one moment a Codex pane is provably idle — and it drains that pane's queued wake-ups.
+
+Receiving is automatic on both vendors:
+
+| | how a note reaches the session |
+|---|---|
+| **Claude Code** | the plugin's `UserPromptSubmit`, `Stop` and `PostToolUse` hooks run `note-inbox`, inject the new notes, and ack. `Stop` blocks the stop when something is waiting. |
+| **Codex** | `note-inbox --me <slug>` at the start of every turn (AGENTS.md), plus the `notify` drain above. Codex does not queue typed input mid-turn, so it is never typed at while working. |
 
 ## Install (mirror for Codex)
 
@@ -120,7 +149,7 @@ Codex reads shared skills and agent roles from its own paths, not the Claude Cod
 node scripts/mirror-shared-skills.mjs
 ```
 
-Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and a `note-send` PATH shim (`note-send.cmd` on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
+Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
 
 ## The philosophy, in four lines
 

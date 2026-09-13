@@ -1,6 +1,6 @@
 # Peer notes — worked examples
 
-Eight real-shaped notes. Every line here is validated against the pinned regex by
+Ten real-shaped notes and two sequences. Every line here is validated against the pinned regex by
 `../scripts/envelope.test.mjs`; copy the shape, not the content.
 
 Panes: `taxonomy` (Claude, Netcup) · `nucleus` (Claude, Netcup) · `astra` (Codex, Netcup) ·
@@ -129,6 +129,72 @@ believe:
 ```
 note-send --from ben --to taxonomy --kind RESULT --topic deploy-gate \
   --text "Approved, deploy after the corpus run finishes, not before" --needs none
+```
+
+---
+
+## 9. Reading your inbox — the only way a note actually reaches you
+
+The ledger is the channel; a typed line is just a nudge that may or may not have landed. So the
+first thing a Codex session does in a turn, and the thing the hooks do for a Claude session, is
+read:
+
+```
+$ note-inbox --me astra --ack
+2 new peer notes for astra:
+  taxonomy → astra, 9.13.26 10:30 NYC [taxonomy-pr137-2] ASK: Review the prune extraction in PR #137. Details: docs/notes/taxonomy-pr137-2.md Needs: review by 12:00 [packet: /repo/docs/notes/taxonomy-pr137-2.md]
+  taxonomy → astra, 9.13.26 10:44 NYC [taxonomy-c8-inputs-1] RESULT: C8 inputs are frozen at commit 4f1ac2e. [packet MISSING: docs/notes/taxonomy-c8-inputs-1.md]
+```
+
+Two things to do with that output. The `[packet: …]` path is the brief — read it before acting on
+the ASK. The `[packet MISSING: …]` is worth one line back to the sender rather than a guess:
+
+```
+astra → taxonomy, 9.13.26 10:47 NYC [astra-c8-inputs-1 re taxonomy-c8-inputs-1] ACK: Read the line, but docs/notes/taxonomy-c8-inputs-1.md is not on this machine. Needs: none
+```
+
+`--ack` advances the cursor, so those two never appear again. Without it they stay new. An empty
+inbox prints `no new notes for astra` and exits 0 — always exit 0, so this is safe as the first
+command of every turn.
+
+---
+
+## 10. Deferred, then flushed — the normal life of a note to a busy Codex peer
+
+`taxonomy` sends while `astra` is 40 minutes into a build. Nothing is lost and nobody waits.
+
+```
+$ note-send --from taxonomy --to astra --kind ASK --topic pr139-c14 \
+    --text "Does C14 still hold after the prune extraction landed?" --needs decision --by 16:00
+taxonomy → astra, 9.13.26 15:02 NYC [taxonomy-pr139-c14-1] ASK: Does C14 still hold after the prune extraction landed? Needs: decision by 16:00
+note-send: NOT typed into term_1a50fec1 ("astra | bto-workflows"): it is a Codex pane mid-turn, and Codex does not queue typed input (pilot, 9.13.26).
+note-send: the note IS recorded in /repo/docs/ledger/2026-09-13.md
+$ echo $?
+3
+```
+
+Exit 3 is not a failure to act on. The line is in both ledgers, the wake-up is in
+`~/.agents/notes/outbox/taxonomy-pr139-c14-1.json`, and `taxonomy` moves on to other work. **It
+does not re-send.** A re-send would produce a second id for one question — the duplicate-resend
+bug the pilot hit four times in a day.
+
+Twenty minutes later `astra` finishes a turn. Codex runs its `notify` program, which is
+`note-notify`, which drains the outbox into the now-idle pane:
+
+```
+$ tail -2 ~/.agents/notes/flush.log
+2026-09-13T19:23:04.115Z notify event=agent-turn-complete slug=astra(--to) drained=1 remaining=0
+2026-09-13T19:23:04.061Z delivered [taxonomy-pr139-c14-1] -> astra — typed into term_1a50fec1 (agent-idle)
+```
+
+Even if that never fired, `astra`'s next `note-inbox --me astra` would have found the line. The
+wake-up is an optimisation; the ledger is the delivery.
+
+If the question stops mattering before the wake-up lands, supersede it — the queued wake-up is
+retired, not retyped:
+
+```
+taxonomy → astra, 9.13.26 15:20 NYC [taxonomy-pr139-c14-2 supersedes taxonomy-pr139-c14-1] FYI: Never mind C14, the prune extraction was reverted.
 ```
 
 ---

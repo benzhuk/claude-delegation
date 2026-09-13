@@ -1,6 +1,10 @@
-# Peer-note envelope — PINNED CONTRACT v3 (2026-09-13, after spec red-team + T1 rulings)
+# Peer-note envelope — PINNED CONTRACT v4 (2026-09-13, after the pilot)
 
-Exactly ONE physical line, ≤ 500 characters, in chat and in the ledger. Same for Claude and Codex
+The grammar is UNCHANGED from v3. One number moved: the line cap is now 700 characters, because the
+pilot rejected nine real notes at 500 and one of those rejections was swallowed by a pipe. Everything
+else that changed in v4 is transport, at the bottom of this file.
+
+Exactly ONE physical line, ≤ 700 characters, in chat and in the ledger. Same for Claude and Codex
 sessions. Fields in this order, separated by the reserved words shown; field text must not contain a
 reserved word, a newline, or a tab. No sentence period after the last field.
 
@@ -66,36 +70,74 @@ from: <pane> · to: <pane> · sent: <M.D.YY HH:MM TZ> · event: <time or "same">
 ```
 Tooling validates Details and the id BEFORE the regex (clear messages) and rejects any field containing `\n`, `\r`, `\t`, or a reserved word (` Goal: `, ` Details: `, ` Needs: `).
 
-## Transport (pinned)
+## Transport (pinned, v4)
 
-Notes are TYPED into the recipient pane through the plain terminal path — never `orca orchestration
-dispatch/send`. That path has no safety gate of its own, so the SENDER is the gate:
+**The ledger is the channel. Typing into a pane is a wake-up, not the delivery.** A recipient discovers
+notes by READING (`note-inbox`, or the hooks that run it for Claude sessions), so a wake-up that never
+lands costs latency, never the note. This is the v4 correction: in the pilot, not one note typed at the
+Codex pane landed after 10:13, senders sat inside note-send for 5–60 minutes waiting, and nothing was
+lost only because every line was already in the ledger.
+
+Three rules follow, and they are the whole design:
+
+- **Deferral is normal and cheap.** Waiting on a peer is the bug.
+- **Never re-send an id.** The outbox retries the wake-up; a second send makes a duplicate, which the
+  pilot produced four times.
+- **Never wait on a peer inside a turn.** `--wait-max` defaults to 15 seconds and exists only to ride
+  out a permission prompt.
+
+Notes are typed through the plain terminal path — never `orca orchestration dispatch/send`. That path
+has no safety gate of its own, so the SENDER is the gate:
 
 1. Resolve the pane by slug against `orca terminal list --json` titles with leading status glyphs and
    whitespace stripped, case-insensitive; also accept a raw handle. Ambiguous → refuse and list the
    candidates (exit 2); never pick one.
 2. Classify the pane from `orca terminal show --terminal <h> --json` (`agentIdentity`, `agentWait`,
    `connected`, `writable`, `preview`, `lastOutputAt`) and the last lines of `orca terminal read`:
-   `agent-idle` | `agent-working` | `permission` | `shell` | `hibernated` | `unknown`. Send ONLY on
-   `agent-idle` or `agent-working`. `permission` (non-null `agentWait`, or a permission/approval dialog
-   in the tail) → defer and retry; `shell` (no agent) / `hibernated` / `unknown` → do not send. If the
-   state cannot be read, DO NOT SEND — a deferred note is cheap; an approved dialog is not.
-3. Codex recipients (`agentIdentity: codex`): until the pilot proves Codex queues typed input mid-turn,
-   send only when `agent-idle` — wait with `orca terminal wait --for tui-idle` up to the deadline, else
-   defer (exit 3). Claude recipients accept notes mid-turn (Claude Code queues typed input).
+   `agent-idle` | `agent-working` | `permission` | `shell` | `hibernated` | `unknown`. `permission`
+   (non-null `agentWait`, or a permission/approval dialog in the tail) → defer and retry; `shell` (no
+   agent) / `hibernated` / `unknown` → do not send. If the state cannot be read, DO NOT SEND — a
+   deferred note is cheap; an approved dialog is not.
+3. **Vendor rule.** Claude recipients accept a note on `agent-idle` OR `agent-working` — Claude Code
+   queues typed input mid-turn ("Press up to edit queued messages"). **Codex recipients accept a note
+   ONLY on `agent-idle`**, because Codex does not queue and a mid-turn note is lost. Codex state comes
+   from the TAIL and nothing else: `esc to interrupt`, `Working`, or a braille-shimmer line means
+   working; a `›` composer line with none of those means idle. `lastOutputAt` is meaningless for Codex
+   (the TUI repaints a shimmer about once a second), and **`orca terminal wait --for tui-idle` is NEVER
+   used for a Codex pane — it does not resolve, even on an idle one** (verified: 8 s waits time out on
+   both pilot panes).
 4. Two-phase write: send the line WITHOUT Enter; re-read the pane; only if the line is visible in the
    composer and the state is unchanged, send Enter. If the state changed between reads, abort (exit 3).
 5. Ledger lines are written BEFORE the delivery attempt, so the record exists even when delivery is
-   deferred or fails. A deferred/failed note is reported to the sender (exit code + message). Nothing
-   is ever dropped silently.
+   deferred or fails. A refused wake-up is queued in `~/.agents/notes/outbox/<id>.json` and exits 3.
+   **`note-flush` retries it** — at the start of every note-send, at every Codex turn end (`note-notify`
+   from `~/.codex/config.toml`), and from a 2-minute timer. A superseded id is dropped, never retyped.
+   A validation failure prints its `ok:false` JSON on STDOUT as well as one line on stderr, so a
+   rejection is never silent in a pipe. Nothing is ever dropped silently.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,
-   notified:true` (optional ntfy). Ben sends with `note-send --from ben --to <pane>` from his shell.
+   notified:true`. A BLOCKED to ben, or a `Needs: decision` to ben, is also appended to
+   `~/.agents/notes/ben-inbox.md` — one file Ben reads. Ben sends with
+   `note-send --from ben --to <pane>` from his shell.
 7. Cross-host: a pane on another machine is reached by running note-send ON THAT MACHINE over ssh,
    e.g. `ssh ben@100.69.249.18 note-send --from taxonomy --to nucleus … --packet-file -` with the packet
    body on stdin. The packet and both ledger lines then land where the recipient works. Passing
    `--recipient-repo` for a pane whose `executionHostId` is not the local runtime is refused (exit 5).
-   `note-send` is on PATH on every machine (`~/.local/bin/note-send`, `note-send.cmd` on Windows),
-   installed by the mirror script.
+   All four commands are on PATH on every machine (`~/.local/bin/note-{send,inbox,flush,notify}`, plus a
+   `.cmd` for each on Windows), installed by the mirror script.
+
+## Reading (v4)
+
+`note-inbox --me <slug> [--ack] [--json]` lists every ledger line addressed to `<slug>` that this pane
+has not been shown, scanning `~/.agents/notes/*.md` (last 3 days) and the current repo's
+`docs/ledger/*.md` in its MAIN checkout. It reports whether each `Details:` packet is actually on disk.
+`--ack` advances `~/.agents/notes/.cursor-<slug>`. Exit 0 always.
+
+The slug is resolved in this order and **never guessed**: `--me`, then `$NOTE_SLUG`, then
+`orca terminal show --terminal $ORCA_TERMINAL_HANDLE` (every Orca pane exports that variable) with the
+title normalised the same way `--to` is. Nothing resolvable → a clear exit 2 telling you to pass `--me`.
+
+Claude sessions do not run it by hand: the plugin's `UserPromptSubmit`, `Stop` and `PostToolUse` hooks
+run it, inject the new notes, and ack. Codex sessions run it at the start of every turn (AGENTS.md).
 
 ## On receipt (verbatim in the skill)
 
