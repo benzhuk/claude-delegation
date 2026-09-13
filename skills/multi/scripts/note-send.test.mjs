@@ -875,3 +875,19 @@ test('the envelope the sender types is the envelope the ledger records', async (
   assert.ok(typed.length <= MAX_LINE);
   for (const l of res.ledgers) assert.ok(fs.readFileSync(l, 'utf8').includes(typed));
 });
+
+test('AR: a note to a pane Orca titled "Action Required" is recorded and queued, never typed', async () => {
+  const repo = tmp(); const home = tmp();
+  // Live shape, 2026-09-13 15:55 NYC: a bracketed status tag BEFORE the slug, worktree suffix after.
+  const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex', title: '[ . ] Action Required | nucleus | bto-workflows' });
+  const orca = mockOrca({ panes: [pane], reads: [readOf(['› '])] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home, git: () => '.git', now: NOW, sleep: async () => {} }),
+    3, /permission\/approval prompt/,
+  );
+  assert.equal(orca.sends().length, 0, 'nothing may be typed at a pane waiting on a human');
+  assert.equal(err.queued, true);
+  assert.ok(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')));
+  // The slug still resolved — the whole point. A decorated title used to be exit 2.
+  assert.match(err.envelope, /taxonomy → nucleus,/);
+});

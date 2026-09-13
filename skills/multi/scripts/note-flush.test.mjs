@@ -11,6 +11,7 @@ import { NoteError } from './envelope.mjs';
 import {
   toPosix, outboxPath, readOutbox, writeOutboxEntry, flushLogPath, supersededIds,
   classifyPane, isSendable, hasShimmerLine,
+  normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
 } from './transport.mjs';
 import { runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush } from './note-flush.mjs';
 import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-notify.mjs';
@@ -366,4 +367,60 @@ test('V4: an unresolvable slug still exits 0, logs, and drains nothing in partic
   assert.equal(res.exitCode, 0);
   assert.equal(res.slug, null);
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /slug=unknown/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Orca's "Action Required" title decoration (verified live 2026-09-13 15:55 NYC)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ACTION_REQUIRED = '[ . ] Action Required | astra | bto-workflows';
+
+test('AR: the slug still resolves out of an Action Required title', () => {
+  assert.equal(stripStatusTag(ACTION_REQUIRED), 'astra | bto-workflows');
+  assert.equal(normalizeTitle(ACTION_REQUIRED), 'astra');
+  assert.equal(titleToSlug(ACTION_REQUIRED), 'astra');
+  assert.equal(titleMatchesSlug(ACTION_REQUIRED, 'astra'), true);
+  // and the shapes that already worked must keep working
+  assert.equal(normalizeTitle('◑ taxonomy'), 'taxonomy');
+  assert.equal(normalizeTitle('⠇ astra | bto-workflows'), 'astra');
+  assert.equal(normalizeTitle('n-astra | bto_nucleus'), 'n-astra');
+  assert.equal(normalizeTitle('MINGW64:/c/Users/benzh/Code'), 'mingw64 c users benzh code');
+});
+
+test('AR: --to astra resolves the decorated pane instead of exit 2', () => {
+  const panes = [codexPane({ title: ACTION_REQUIRED }), claudePane({ title: 'taxonomy' })];
+  assert.equal(resolvePane(panes, 'astra').handle, 'term_bbb');
+  // the worktree half still never matches on its own
+  assert.throws(() => resolvePane(panes, 'bto-workflows'), (e) => e instanceof NoteError && e.exitCode === 2);
+});
+
+test('AR: a decorated title classifies permission on both vendors, whatever the tail says', () => {
+  assert.equal(classifyPane(codexPane({ title: ACTION_REQUIRED }), readOf(['› ']), { now: NOW }), 'permission');
+  assert.equal(classifyPane(claudePane({ title: '[ . ] Action Required | taxonomy' }), readOf(['? for shortcuts']), { now: NOW }), 'permission');
+  assert.equal(classifyPane(claudePane({ title: 'Action Required | taxonomy' }), readOf(['? for shortcuts']), { now: NOW }), 'permission');
+  assert.equal(titleSignalsPermission('astra | bto-workflows'), false);
+  assert.equal(titleSignalsPermission('◑ taxonomy'), false);
+  assert.equal(isSendable('permission', 'codex'), false);
+});
+
+test('AR: a queued wake-up is never typed into a pane Orca titled Action Required', async () => {
+  const home = tmp();
+  queue(home, { toSlug: 'astra', handle: 'term_bbb', agentIdentity: 'codex' });
+  const orca = mockOrca({ panes: [codexPane({ title: ACTION_REQUIRED })], reads: [readOf(['› '])] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.sends().length, 0);
+  assert.match(res.results[0].detail, /permission/);
+  assert.equal(readOutbox(home).length, 1, 'the wake-up stays queued for when the human answers');
+});
+
+test('AR: the Claude agents-list overlay captures Enter, so the pane is not sendable', () => {
+  // Verified live on the taxonomy pane: an overlay, not an approval — but our two-phase send would
+  // press Enter into it and select a row.
+  const overlay = readOf([
+    '  general-purpose   running  1h25m',
+    '  ↑/↓ to select · Enter to view · Esc to close',
+  ]);
+  assert.equal(classifyPane(claudePane({ preview: '' }), overlay, { now: NOW }), 'permission');
+  assert.equal(classifyPane(codexPane({ preview: '' }), overlay, { now: NOW }), 'permission');
 });

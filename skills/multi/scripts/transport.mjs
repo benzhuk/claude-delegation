@@ -51,7 +51,37 @@ export const PERMISSION_MARKERS = [
   'do you want to proceed?', 'do you want to make this edit', 'do you want to create',
   "yes, and don't ask again", 'no, and tell claude what to do differently', 'esc to cancel',
   'allow command', 'approve?', 'press enter to approve',
+  // C — modal overlays that are not approvals but CAPTURE ENTER, which is the whole danger. Verified
+  // live 2026-09-13: Claude Code's agents-list overlay on the `taxonomy` pane. Our two-phase send
+  // types text and then presses Enter; in an overlay that Enter selects a row.
+  '↑/↓ to select', 'enter to view',
 ];
+
+/**
+ * Orca decorates a pane's TITLE when the agent is waiting on a human:
+ * `[ . ] Action Required | astra | bto-workflows` (verified live 2026-09-13 15:55 NYC on the Codex
+ * pane). Two consequences, and both matter:
+ *
+ *   · the slug must still resolve out of that title, or `--to astra` is exit 2 exactly when the peer
+ *     most needs the note recorded (see stripStatusTag, used by normalizeTitle);
+ *   · the pane must classify `permission`, because the tag IS the evidence — it is set by Orca itself,
+ *     needs no screen scraping, and is visible even when the tail is unreadable.
+ *
+ * Any bracketed prefix counts, not just "Action Required". Pane titles are bare slugs by the protocol's
+ * own pre-flight rule, so a bracket at the front is Orca's, and failing closed on an unknown status tag
+ * costs a deferral — which is free, because the note is already in the ledger.
+ */
+export const TITLE_PERMISSION_MARKERS = [
+  'action required', 'approval required', 'needs approval', 'waiting for approval',
+];
+export const STATUS_TAG_RE = /^\s*\[[^\]]*\]/;
+
+export function titleSignalsPermission(title) {
+  const t = String(title ?? '');
+  if (STATUS_TAG_RE.test(t)) return true;
+  const lower = t.toLowerCase();
+  return TITLE_PERMISSION_MARKERS.some((m) => lower.includes(m));
+}
 
 /**
  * The agent is visibly mid-turn. This list is INCOMPLETE by nature: Claude Code randomises the spinner
@@ -131,6 +161,10 @@ export function classifyPane(show, read, opts = {}) {
   if (show.orphaned === true) return 'unknown';
   if (!show.agentIdentity) return 'shell';
 
+  // Orca's own title decoration, checked before anything vendor-specific: it is set by the runtime, it
+  // needs no screen scraping, and it is readable when the tail is not.
+  if (titleSignalsPermission(show.title)) return 'permission';
+
   if (String(show.agentIdentity).toLowerCase() === 'codex') return classifyCodexPane(show, read, opts);
 
   const screen = `${show.preview ?? ''}\n${liveLines(read).join('\n')}`;
@@ -184,18 +218,29 @@ export function composerShows(read, id, lines = LIVE_TAIL_LINES) {
  *                                                        — optional braille spinner, name, ` | worktree`
  *   shells  `MINGW64:/c/Users/benzh/Code/Zhuk Projects`, `nightrush-app`
  *
- * Order matters: the ` | ` separator has to be cut BEFORE the decoration pass, which would otherwise
- * flatten the pipe to a space and leave `astra bto-workflows` — the exit 2 that broke `--to astra` on
- * Netcup (review R7).
+ * Order matters twice over. The status tag has to go FIRST, before the glyph strip flattens `[ . ]` and
+ * leaves `Action Required | astra …` — which the pipe cut then reduces to `action required`, the exit 2
+ * the live Codex pane produced on 2026-09-13. And the ` | ` separator has to be cut BEFORE the
+ * decoration pass, which would otherwise leave `astra bto-workflows` (review R7).
  */
 export function normalizeTitle(title) {
-  return String(title ?? '')
+  return stripStatusTag(title)
     .replace(/^[^\p{L}\p{N}]+/u, '')   // leading status glyphs and whitespace
     .replace(/\s*\|.*$/su, '')         // Orca's ` | <worktree>` suffix on Codex panes
     .replace(/[^\p{L}\p{N}\s_-]+/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ')
     .toLowerCase();
+}
+
+/**
+ * Drop a leading `[<tag>] <words> |` segment — Orca's waiting-on-a-human decoration, e.g.
+ * `[ . ] Action Required | astra | bto-workflows` → `astra | bto-workflows`. The pane still classifies
+ * `permission` (titleSignalsPermission); this only keeps the slug resolvable, so the note reaches the
+ * ledger and the outbox instead of dying at exit 2.
+ */
+export function stripStatusTag(title) {
+  return String(title ?? '').replace(/^\s*\[[^\]]*\]\s*[^|]*\|\s*/, '');
 }
 
 /** The slug form of a pane title, or null when the title does not reduce to a legal slug. */

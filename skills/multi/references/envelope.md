@@ -91,13 +91,19 @@ has no safety gate of its own, so the SENDER is the gate:
 
 1. Resolve the pane by slug against `orca terminal list --json` titles with leading status glyphs and
    whitespace stripped, case-insensitive; also accept a raw handle. Ambiguous → refuse and list the
-   candidates (exit 2); never pick one.
+   candidates (exit 2); never pick one. Orca also decorates the title of a pane that is waiting on a
+   human — `[ . ] Action Required | astra | bto-workflows` — and that leading `[<tag>] <words> |`
+   segment is stripped too, so `--to astra` still resolves when the peer most needs the note recorded.
 2. Classify the pane from `orca terminal show --terminal <h> --json` (`agentIdentity`, `agentWait`,
    `connected`, `writable`, `preview`, `lastOutputAt`) and the last lines of `orca terminal read`:
-   `agent-idle` | `agent-working` | `permission` | `shell` | `hibernated` | `unknown`. `permission`
-   (non-null `agentWait`, or a permission/approval dialog in the tail) → defer and retry; `shell` (no
-   agent) / `hibernated` / `unknown` → do not send. If the state cannot be read, DO NOT SEND — a
-   deferred note is cheap; an approved dialog is not.
+   `agent-idle` | `agent-working` | `permission` | `shell` | `hibernated` | `unknown`. `permission` is
+   any of: a non-null `agentWait`; a permission/approval dialog in the tail; **a bracketed status tag on
+   the pane TITLE** (Orca's `[ . ] Action Required | …`, which is runtime-set and readable even when the
+   tail is not); or a modal overlay that captures Enter, such as Claude Code's agents list
+   (`↑/↓ to select · Enter to view`) — an overlay is not an approval, but the second phase of a send
+   presses Enter, which would select a row in it. `permission` → defer and retry; `shell` (no agent) /
+   `hibernated` / `unknown` → do not send. If the state cannot be read, DO NOT SEND — a deferred note is
+   cheap; an approved dialog is not.
 3. **Vendor rule.** Claude recipients accept a note on `agent-idle` OR `agent-working` — Claude Code
    queues typed input mid-turn ("Press up to edit queued messages"). **Codex recipients accept a note
    ONLY on `agent-idle`**, because Codex does not queue and a mid-turn note is lost. Codex state comes

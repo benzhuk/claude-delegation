@@ -188,10 +188,16 @@ Sending to a pane on Ben's **Windows** desktop is the same command with bare `no
 `C:\Users\benzh\.local\bin` is already on the Windows PATH, and `~` means nothing there.
 
 **Resolving a peer**: `--to <slug>` matches the pane title exactly, after Orca's decoration is
-stripped — a leading status glyph and the ` | <worktree>` suffix Codex panes carry. Both
-`◑ taxonomy` (Claude) and `⠇ astra | bto-workflows` (Codex) resolve to their slug; the
+stripped — a leading status glyph, a leading `[<tag>] <words> |` status segment, and the
+` | <worktree>` suffix Codex panes carry. All of `◑ taxonomy` (Claude), `⠇ astra | bto-workflows`
+(Codex) and `[ . ] Action Required | astra | bto-workflows` resolve to their slug; the
 worktree half never matches on its own. A raw `term_…` handle always works, and two panes
 reducing to the same slug is exit 2 with the raw titles listed, never a guess.
+
+That last shape is Orca saying the pane is waiting on a human. It resolves, so the note is recorded
+and queued — and it classifies `permission`, so nothing is typed at it. Both halves matter: before
+this, a peer stuck at an approval prompt was exit 2 ("no pane titled astra") at exactly the moment
+its ledger line mattered most.
 
 **`--to ben`** resolves no pane. The note is recorded and printed for Ben to read; exit 0
 with `delivered:false, notified:true`. A BLOCKED to ben, or a `Needs: decision` to ben, is also
