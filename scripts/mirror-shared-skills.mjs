@@ -2,9 +2,11 @@
 /**
  * mirror-shared-skills — publish the shared skills and the Codex agent roles.
  *
- * Publishes to TWO places and no others:
- *   ~/.agents/skills/<name>   — Codex's native personal skill store (it scans this path itself)
- *   ~/.codex/agents/*.toml    — Codex subagent role definitions
+ * Publishes to these places and no others:
+ *   ~/.agents/skills/<name>    — Codex's native personal skill store (it scans this path itself)
+ *   ~/.agents/skills/_docs/    — the shared docs the skills link to (seam review S1)
+ *   ~/.codex/agents/*.toml     — Codex subagent role definitions
+ *   ~/.local/bin/note-send     — a PATH shim, `note-send.cmd` on Windows (seam review S2)
  *
  * It deliberately NEVER writes ~/.claude/skills. Claude Code already receives skills/* through the
  * plugin cache; a second copy there would mean two skills with the same name and undefined precedence,
@@ -13,6 +15,7 @@
  * Sources:
  *   <repo>/skills/{multi,delegate,team-build}               — always
  *   ~/.claude/skills/{knowledge,triage,dev-server,learn}     — when present (chezmoi-managed)
+ *   <repo>/docs/{model-tiers,subagent-contract,…}.md         — always, to _docs/
  *   <repo>/codex/agents/*.toml                               — always
  *
  * macOS/Linux publish by symlink, Windows by copy (a junction needs admin or developer mode).
@@ -33,13 +36,26 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 const HOME = os.homedir();
 const AGENTS_SKILLS = path.join(HOME, '.agents', 'skills');
+const SHARED_DOCS = path.join(AGENTS_SKILLS, '_docs');
 const CODEX_AGENTS = path.join(HOME, '.codex', 'agents');
+const LOCAL_BIN = path.join(HOME, '.local', 'bin');
 const MANIFEST = path.join(AGENTS_SKILLS, '.mirror-manifest.json');
-const MANIFEST_VERSION = 1;
+const MANIFEST_VERSION = 2;
 
 const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build'];
 const CLAUDE_SKILLS = ['knowledge', 'triage', 'dev-server', 'learn'];
-const MODE = process.platform === 'win32' ? 'copy' : 'symlink';
+/** The docs every mirrored skill links to. Without these, `../_docs/model-tiers.md` dangles (S1). */
+const SHARED_DOC_FILES = [
+  'model-tiers.md', 'subagent-contract.md', 'concurrency-budget.md',
+  'agent-pacing.md', 'mandate-standards.md',
+];
+/** Never publish a skill's own test files into Codex's skill store (review M6). */
+const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;
+const IS_WINDOWS = process.platform === 'win32';
+const MODE = IS_WINDOWS ? 'copy' : 'symlink';
+const SHIM_NAME = IS_WINDOWS ? 'note-send.cmd' : 'note-send';
+/** The shim runs the MIRRORED copy, which exists on every machine the mirror has touched. */
+const SHIM_TARGET = path.join(AGENTS_SKILLS, 'multi', 'scripts', 'note-send.mjs');
 
 const opts = parseArgs(process.argv.slice(2));
 const log = [];
@@ -93,11 +109,59 @@ function collectSources() {
     const src = path.join(HOME, '.claude', 'skills', name);
     if (isSkillDir(src)) out.push({ kind: 'skill', name, src, dest: path.join(AGENTS_SKILLS, name) });
   }
+  // S1: the docs the mirrored skills link to. Without them `../_docs/model-tiers.md` dangles for
+  // every Codex session, while AGENTS.md calls that file the single source of truth.
+  for (const file of SHARED_DOC_FILES) {
+    const src = path.join(REPO, 'docs', file);
+    if (fs.existsSync(src)) out.push({ kind: 'doc', name: file, src, dest: path.join(SHARED_DOCS, file) });
+    else refuse(`missing shared doc ${src}`);
+  }
   const codexDir = path.join(REPO, 'codex', 'agents');
   for (const file of safeReaddir(codexDir).filter((f) => f.endsWith('.toml'))) {
     out.push({ kind: 'codex-agent', name: file, src: path.join(codexDir, file), dest: path.join(CODEX_AGENTS, file) });
   }
+  // S2: the PATH shim. Every doc tells Ben to run bare `note-send`; nothing installed it.
+  out.push({ kind: 'shim', name: SHIM_NAME, src: null, dest: path.join(LOCAL_BIN, SHIM_NAME) });
   return out;
+}
+
+/**
+ * A launcher that finds node the way the chezmoi hook does: PATH first, then fnm's installed
+ * versions — fnm is not sourced in non-login shells (ssh commands, tmux) on the Linux boxes, and
+ * a cross-host note is sent over exactly such a shell.
+ */
+function shimContent() {
+  if (IS_WINDOWS) {
+    // Each `exit /b %ERRORLEVEL%` must be its own line: cmd expands %VAR% when it parses a whole
+    // compound statement, so `node … & exit /b %ERRORLEVEL%` would return the value from BEFORE node ran.
+    return [
+      '@echo off',
+      'setlocal',
+      `set "NOTE_SEND=${SHIM_TARGET}"`,
+      'where node >nul 2>&1 || goto :nonode',
+      'node "%NOTE_SEND%" %*',
+      'exit /b %ERRORLEVEL%',
+      ':nonode',
+      'echo note-send: node not found on PATH 1>&2',
+      'exit /b 127',
+      '',
+    ].join('\r\n');
+  }
+  return `#!/bin/sh
+# installed by claude-delegation scripts/mirror-shared-skills.mjs — do not edit by hand
+note_send="${SHIM_TARGET}"
+node_bin="$(command -v node 2>/dev/null || true)"
+if [ -z "$node_bin" ]; then
+  for candidate in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node; do
+    [ -x "$candidate" ] && node_bin="$candidate"
+  done
+fi
+if [ -z "$node_bin" ]; then
+  echo "note-send: node not found on PATH or under ~/.local/share/fnm" >&2
+  exit 127
+fi
+exec "$node_bin" "$note_send" "$@"
+`;
 }
 
 function isSkillDir(dir) {
@@ -115,7 +179,7 @@ function listFiles(dir, base = dir) {
     let st;
     try { st = fs.lstatSync(full); } catch { continue; }
     if (st.isDirectory()) out.push(...listFiles(full, base));
-    else out.push(path.relative(base, full).split(path.sep).join('/'));
+    else if (!SKILL_FILE_EXCLUDE.test(entry)) out.push(path.relative(base, full).split(path.sep).join('/'));
   }
   return out;
 }
@@ -142,11 +206,17 @@ function publishSymlink(entry, prev) {
     return { ...manifestEntry(entry), files: null };
   }
   if (st) {
-    if (!isManaged(prev, entry.dest) && !opts.force) {
-      refuse(`${entry.dest} already exists and is not a symlink we created — refusing to overwrite. Move it aside, or re-run with --force.`);
+    // A real directory is never removed on manifest membership alone: a previous run recorded only
+    // that we published HERE, not which files inside are ours, so a recursive delete could take a
+    // sibling's work with it. Uninstall refuses the same case; install now matches it (review M1).
+    if (!opts.force) {
+      const why = isManaged(prev, entry.dest)
+        ? 'is a real directory, not the symlink our manifest expects — something replaced it'
+        : 'already exists and is not a symlink we created';
+      refuse(`${entry.dest} ${why} — refusing to delete it recursively. Move it aside, or re-run with --force.`);
       return null;
     }
-    say('remove existing path', entry.dest);
+    say('remove existing path (--force)', entry.dest);
     if (!opts.dryRun) fs.rmSync(entry.dest, { recursive: true, force: true });
   }
   say('symlink', `${entry.dest} -> ${entry.src}`);
@@ -219,12 +289,39 @@ function publishFile(entry, prev) {
   return { ...manifestEntry(entry), files: [path.basename(entry.dest)] };
 }
 
+/** The PATH shim is generated, not copied: its body names this machine's mirrored note-send. */
+function publishShim(entry, prev) {
+  const content = shimContent();
+  const previous = prev.managed.find((e) => path.resolve(e.dest) === path.resolve(entry.dest));
+  const st = lstat(entry.dest);
+  if (st && !previous && !opts.force) {
+    const current = (() => { try { return fs.readFileSync(entry.dest, 'utf8'); } catch { return null; } })();
+    if (current !== content) {
+      refuse(`${entry.dest} already exists and is not ours — refusing to overwrite a command already on PATH. Re-run with --force.`);
+      return null;
+    }
+  }
+  const current = (() => { try { return fs.readFileSync(entry.dest, 'utf8'); } catch { return null; } })();
+  if (current === content) {
+    say('up to date', entry.dest);
+    return { ...manifestEntry(entry), files: [path.basename(entry.dest)] };
+  }
+  say('install PATH shim', `${entry.dest} -> ${SHIM_TARGET}`);
+  if (!opts.dryRun) {
+    fs.mkdirSync(path.dirname(entry.dest), { recursive: true });
+    fs.writeFileSync(entry.dest, content, 'utf8');
+    if (!IS_WINDOWS) { try { fs.chmodSync(entry.dest, 0o755); } catch { /* best effort */ } }
+  }
+  return { ...manifestEntry(entry), files: [path.basename(entry.dest)] };
+}
+
 function manifestEntry(entry) {
+  const mode = entry.kind === 'skill' ? MODE : (entry.kind === 'shim' ? 'generated-file' : 'copy-file');
   return {
     name: entry.name,
     kind: entry.kind,
-    mode: entry.kind === 'codex-agent' ? 'copy-file' : MODE,
-    source: entry.src.split(path.sep).join('/'),
+    mode,
+    source: entry.src ? entry.src.split(path.sep).join('/') : `generated (target ${SHIM_TARGET.split(path.sep).join('/')})`,
     dest: entry.dest.split(path.sep).join('/'),
   };
 }
@@ -283,8 +380,10 @@ function uninstall(prev) {
   say('remove manifest', MANIFEST);
   if (!opts.dryRun) {
     try { fs.rmSync(MANIFEST, { force: true }); } catch { /* fine */ }
+    pruneIfEmpty(SHARED_DOCS);
     pruneIfEmpty(AGENTS_SKILLS);
     pruneIfEmpty(CODEX_AGENTS);
+    pruneIfEmpty(LOCAL_BIN);
   }
 }
 
@@ -296,7 +395,7 @@ function pruneIfEmpty(dir) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-const USAGE = `mirror-shared-skills — publish shared skills to ~/.agents/skills and Codex roles to ~/.codex/agents.
+const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex roles and the note-send shim.
 
   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json]
 
@@ -305,8 +404,15 @@ const USAGE = `mirror-shared-skills — publish shared skills to ~/.agents/skill
   --uninstall  remove exactly what the manifest says we created, then the manifest
   --json       one JSON object instead of the human log
 
+Destinations: ~/.agents/skills/<name>, ~/.agents/skills/_docs/, ~/.codex/agents/, ~/.local/bin/.
 Never writes ~/.claude/skills: Claude Code gets these skills from the plugin cache.
 `;
+
+function publish(entry, prev) {
+  if (entry.kind === 'shim') return publishShim(entry, prev);
+  if (entry.kind === 'codex-agent' || entry.kind === 'doc') return publishFile(entry, prev);
+  return MODE === 'symlink' ? publishSymlink(entry, prev) : publishCopy(entry, prev);
+}
 
 function main() {
   if (opts.help) { process.stdout.write(USAGE); return 0; }
@@ -318,13 +424,13 @@ function main() {
     const sources = collectSources();
     if (!opts.dryRun) {
       fs.mkdirSync(AGENTS_SKILLS, { recursive: true });
+      if (sources.some((s) => s.kind === 'doc')) fs.mkdirSync(SHARED_DOCS, { recursive: true });
       if (sources.some((s) => s.kind === 'codex-agent')) fs.mkdirSync(CODEX_AGENTS, { recursive: true });
+      if (sources.some((s) => s.kind === 'shim')) fs.mkdirSync(LOCAL_BIN, { recursive: true });
     }
     const managed = [];
     for (const entry of sources) {
-      const result = entry.kind === 'codex-agent'
-        ? publishFile(entry, prev)
-        : (MODE === 'symlink' ? publishSymlink(entry, prev) : publishCopy(entry, prev));
+      const result = publish(entry, prev);
       if (result) managed.push(result);
     }
     // Anything we managed before and no longer have a source for is stale: drop it.
@@ -341,7 +447,8 @@ function main() {
   if (opts.json) {
     process.stdout.write(`${JSON.stringify({
       ok: refusals.length === 0, platform: process.platform, mode: MODE, dryRun: opts.dryRun,
-      agentsSkills: AGENTS_SKILLS.split(path.sep).join('/'), codexAgents: CODEX_AGENTS.split(path.sep).join('/'),
+      agentsSkills: AGENTS_SKILLS.split(path.sep).join('/'), sharedDocs: SHARED_DOCS.split(path.sep).join('/'),
+      codexAgents: CODEX_AGENTS.split(path.sep).join('/'), shim: path.join(LOCAL_BIN, SHIM_NAME).split(path.sep).join('/'),
       actions: log, refusals,
     }, null, 2)}\n`);
   } else {
@@ -352,4 +459,6 @@ function main() {
   return refusals.length === 0 ? 0 : 1;
 }
 
-process.exit(main());
+// `process.exitCode` rather than `process.exit()`: a piped --json write can still be in flight,
+// and process.exit truncates it on Windows (review M5).
+process.exitCode = main();

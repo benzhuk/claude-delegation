@@ -26,7 +26,11 @@ read-only", which is the same guarantee by a different mechanism.
 `scripts/mirror-shared-skills.mjs` copies every `codex/agents/*.toml` to
 `~/.codex/agents/` and publishes `skills/{multi,delegate,team-build}` (plus the
 chezmoi-managed `~/.claude/skills/{knowledge,triage,dev-server,learn}` when present) to
-`~/.agents/skills/<name>`, which Codex scans natively.
+`~/.agents/skills/<name>`, which Codex scans natively. It also publishes the docs those
+skills link to into `~/.agents/skills/_docs/` — without them `../_docs/model-tiers.md`
+would dangle for every Codex session — and installs a `note-send` shim on PATH
+(`~/.local/bin/note-send`, `note-send.cmd` on Windows) so the bare command in the docs
+works. A skill's own `*.test.mjs` files are never published.
 
 ```
 node scripts/mirror-shared-skills.mjs --dry-run    # see every action first
