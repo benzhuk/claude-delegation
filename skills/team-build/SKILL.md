@@ -15,14 +15,10 @@ and the ship decision. Token efficiency comes from paying for context
 once (specs on disk, warm agents, reports by path); speed comes from ownership
 boundaries, not luck.
 
-Shared mechanics live in `../../docs/` — model-tiers, subagent-contract (reports,
-termination, recovery), concurrency-budget, agent-pacing, mandate-standards. This file
-is the build pipeline that uses them. Those `../../docs/<name>.md` paths are relative to
-this file inside the claude-delegation repo; if you're reading a mirrored copy without
-`docs/` alongside it (e.g. Codex's `~/.agents/skills/team-build/SKILL.md`), find the
-same files at the delegation plugin's install location instead — e.g.
-`~/.claude/plugins/cache/benzhuk/delegation/<version>/docs/<name>.md`, or
-`github.com/benzhuk/claude-delegation/blob/main/docs/<name>.md`.
+Shared mechanics — model-tiers, subagent-contract (reports, termination, recovery),
+concurrency-budget, agent-pacing, mandate-standards — are referenced by path in the
+sections below; this file is the build pipeline that uses them. Each doc's first
+mention says where to find it once mirrored.
 
 ## Setup — before spawning anything
 
@@ -47,7 +43,9 @@ same files at the delegation plugin's install location instead — e.g.
    small/low-risk builds): one high-tier agent adversarially reviews spec + contracts —
    missing cases, ambiguities, wrong decomposition. The highest-leverage high-tier spend
    in the pipeline.
-5. **Estimate ETAs and plan the timers** (`../../docs/agent-pacing.md`). Anchor
+5. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`, shipped next to this
+   skill as `../_docs/agent-pacing.md` when mirrored, and in the plugin repo's `docs/`
+   otherwise). Anchor
    estimates: pure-code territory ≈ 30–60 min; build + measurement harness ≈
    60–90 min; anything paying a prod build per iteration ≈ 2–3 h unless parallelized —
    that last shape gets its levers (parallel arms budget, cost-split iteration) granted
@@ -60,10 +58,13 @@ same files at the delegation plugin's install location instead — e.g.
   subtle migrations — on Claude Code, set `model: opus` on the `Agent` call, which
   overrides the agent file's frontmatter; on Codex, no pre-built high-tier builder role
   ships — copy `~/.codex/agents/builder.toml` to `builder-high.toml` and set
-  `model = "gpt-5.6-sol"` for that one territory — see `../../docs/model-tiers.md`'s
-  spawn-mechanics section): implements only its
+  `model = "gpt-5.6-sol"` for that one territory — see the spawn-mechanics section of
+  `docs/model-tiers.md` (shipped next to this skill as `../_docs/model-tiers.md` when
+  mirrored, and in the plugin repo's `docs/` otherwise)): implements only its
   territory. Gate before reporting: territory-scoped tests + typecheck via the shared
-  verification mutex (`../../docs/concurrency-budget.md`) — builders do NOT run
+  verification mutex (`docs/concurrency-budget.md`, shipped next to this skill as
+  `../_docs/concurrency-budget.md` when mirrored, and in the plugin repo's `docs/`
+  otherwise) — builders do NOT run
   repo-wide checks every fix round; the full graph belongs to the integrator's gate.
   Commits its territory early and often. If a cross-territory import doesn't exist yet,
   code against the contract and note it.
@@ -111,7 +112,7 @@ same files at the delegation plugin's install location instead — e.g.
 - More agents ≠ faster: parallelism is capped by genuinely disjoint territories.
   Splitting a territory that shares files trades token cost for serial merge-conflict
   resolution on your critical path — strictly worse. And mind the machine: agent count
-  is free, concurrent local processes are not (`../../docs/concurrency-budget.md`).
+  is free, concurrent local processes are not (`../_docs/concurrency-budget.md`).
 
 ## Iteration mechanics
 
@@ -122,11 +123,13 @@ same files at the delegation plugin's install location instead — e.g.
   intervene yourself.
 - **Batch scope changes** — never inject instructions into an agent mid-round; queue
   them for its next round. Mid-round addendums get missed and cost two round-trips.
-- Check in at ETA and use the slow-agent ladder (`../../docs/agent-pacing.md`); an
+- Check in at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); an
   agent killed mid-edit gets the standard recovery prompt
-  (`../../docs/subagent-contract.md`), not blind trust in its memory.
+  (`docs/subagent-contract.md`, shipped next to this skill as
+  `../_docs/subagent-contract.md` when mirrored, and in the plugin repo's `docs/`
+  otherwise), not blind trust in its memory.
 - Report protocol, termination formula, notification idempotence, and TaskStop hygiene:
-  `../../docs/subagent-contract.md`. Applies verbatim to every role here.
+  `../_docs/subagent-contract.md`. Applies verbatim to every role here.
 
 ## Ship
 
