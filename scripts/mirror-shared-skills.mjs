@@ -6,7 +6,9 @@
  *   ~/.agents/skills/<name>    — Codex's native personal skill store (it scans this path itself)
  *   ~/.agents/skills/_docs/    — the shared docs the skills link to (seam review S1)
  *   ~/.codex/agents/*.toml     — Codex subagent role definitions
- *   ~/.local/bin/note-send     — a PATH shim, `note-send.cmd` on Windows (seam review S2)
+ *   ~/.local/bin/note-send     — a PATH shim (seam review S2). On Windows BOTH `note-send.cmd`
+ *                                (cmd, PowerShell) and extensionless `note-send` (Git Bash, which
+ *                                cannot resolve a bare name to a .cmd)
  *
  * It deliberately NEVER writes ~/.claude/skills. Claude Code already receives skills/* through the
  * plugin cache; a second copy there would mean two skills with the same name and undefined precedence,
@@ -53,9 +55,17 @@ const SHARED_DOC_FILES = [
 const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;
 const IS_WINDOWS = process.platform === 'win32';
 const MODE = IS_WINDOWS ? 'copy' : 'symlink';
-const SHIM_NAME = IS_WINDOWS ? 'note-send.cmd' : 'note-send';
 /** The shim runs the MIRRORED copy, which exists on every machine the mirror has touched. */
 const SHIM_TARGET = path.join(AGENTS_SKILLS, 'multi', 'scripts', 'note-send.mjs');
+/**
+ * Windows needs TWO shims in the same directory. `note-send.cmd` serves cmd and PowerShell; Git Bash
+ * cannot resolve a bare `note-send` to a `.cmd`, and Ben's Claude sessions on Windows run in Git Bash,
+ * so an extensionless POSIX-sh shim goes beside it. `C:\\Users\\benzh\\.local\\bin` is already on both
+ * PATHs, Windows' and Git Bash's `/c/Users/benzh/.local/bin`.
+ */
+const SHIM_SPECS = IS_WINDOWS
+  ? [{ name: 'note-send.cmd', flavour: 'cmd' }, { name: 'note-send', flavour: 'sh' }]
+  : [{ name: 'note-send', flavour: 'sh' }];
 
 const opts = parseArgs(process.argv.slice(2));
 const log = [];
@@ -74,7 +84,11 @@ function parseArgs(argv) {
   return o;
 }
 
-function say(action, detail) { log.push(`${opts.dryRun ? 'would ' : ''}${action}: ${detail}`); }
+/** "would " prefixes an action we are NOT taking; a no-op reads the same either way. */
+const NO_OP = /^(up to date|already|nothing)/;
+function say(action, detail) {
+  log.push(`${opts.dryRun && !NO_OP.test(action) ? 'would ' : ''}${action}: ${detail}`);
+}
 function refuse(reason) { refusals.push(reason); }
 
 // ── manifest ─────────────────────────────────────────────────────────────────
@@ -120,18 +134,21 @@ function collectSources() {
   for (const file of safeReaddir(codexDir).filter((f) => f.endsWith('.toml'))) {
     out.push({ kind: 'codex-agent', name: file, src: path.join(codexDir, file), dest: path.join(CODEX_AGENTS, file) });
   }
-  // S2: the PATH shim. Every doc tells Ben to run bare `note-send`; nothing installed it.
-  out.push({ kind: 'shim', name: SHIM_NAME, src: null, dest: path.join(LOCAL_BIN, SHIM_NAME) });
+  // S2: the PATH shims. Every doc tells Ben to run bare `note-send`; nothing installed it.
+  for (const spec of SHIM_SPECS) {
+    out.push({ kind: 'shim', name: spec.name, flavour: spec.flavour, src: null, dest: path.join(LOCAL_BIN, spec.name) });
+  }
   return out;
 }
 
 /**
- * A launcher that finds node the way the chezmoi hook does: PATH first, then fnm's installed
- * versions — fnm is not sourced in non-login shells (ssh commands, tmux) on the Linux boxes, and
- * a cross-host note is sent over exactly such a shell.
+ * A launcher that finds node the way the chezmoi hook does: PATH first, then a platform fallback —
+ * fnm's installed versions on macOS/Linux (fnm is not sourced in non-login shells such as ssh
+ * commands and tmux, and a cross-host note is sent over exactly such a shell), or nvm4w's
+ * `C:/nvm4w/nodejs/node.exe` on Windows, where fnm does not exist.
  */
-function shimContent() {
-  if (IS_WINDOWS) {
+function shimContent(flavour) {
+  if (flavour === 'cmd') {
     // Each `exit /b %ERRORLEVEL%` must be its own line: cmd expands %VAR% when it parses a whole
     // compound statement, so `node … & exit /b %ERRORLEVEL%` would return the value from BEFORE node ran.
     return [
@@ -147,21 +164,32 @@ function shimContent() {
       '',
     ].join('\r\n');
   }
-  return `#!/bin/sh
-# installed by claude-delegation scripts/mirror-shared-skills.mjs — do not edit by hand
-note_send="${SHIM_TARGET}"
-node_bin="$(command -v node 2>/dev/null || true)"
-if [ -z "$node_bin" ]; then
-  for candidate in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node; do
+  // POSIX sh, used on macOS/Linux AND by Git Bash on Windows. Forward slashes throughout: node on
+  // Windows accepts them, and MSYS leaves them alone.
+  const target = SHIM_TARGET.split(path.sep).join('/');
+  const fallback = IS_WINDOWS
+    ? `  for candidate in /c/nvm4w/nodejs/node.exe C:/nvm4w/nodejs/node.exe; do
     [ -x "$candidate" ] && node_bin="$candidate"
-  done
-fi
-if [ -z "$node_bin" ]; then
-  echo "note-send: node not found on PATH or under ~/.local/share/fnm" >&2
-  exit 127
-fi
-exec "$node_bin" "$note_send" "$@"
-`;
+  done`
+    : `  for candidate in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node; do
+    [ -x "$candidate" ] && node_bin="$candidate"
+  done`;
+  const where = IS_WINDOWS ? 'on PATH or at C:/nvm4w/nodejs' : 'on PATH or under ~/.local/share/fnm';
+  return [
+    '#!/bin/sh',
+    '# installed by claude-delegation scripts/mirror-shared-skills.mjs — do not edit by hand',
+    `note_send="${target}"`,
+    'node_bin="$(command -v node 2>/dev/null || true)"',
+    'if [ -z "$node_bin" ]; then',
+    fallback,
+    'fi',
+    'if [ -z "$node_bin" ]; then',
+    `  echo "note-send: node not found ${where}" >&2`,
+    '  exit 127',
+    'fi',
+    'exec "$node_bin" "$note_send" "$@"',
+    '',
+  ].join('\n'); // LF always: this file is read by sh, never by cmd
 }
 
 function isSkillDir(dir) {
@@ -291,7 +319,7 @@ function publishFile(entry, prev) {
 
 /** The PATH shim is generated, not copied: its body names this machine's mirrored note-send. */
 function publishShim(entry, prev) {
-  const content = shimContent();
+  const content = shimContent(entry.flavour);
   const previous = prev.managed.find((e) => path.resolve(e.dest) === path.resolve(entry.dest));
   const st = lstat(entry.dest);
   if (st && !previous && !opts.force) {
@@ -448,7 +476,8 @@ function main() {
     process.stdout.write(`${JSON.stringify({
       ok: refusals.length === 0, platform: process.platform, mode: MODE, dryRun: opts.dryRun,
       agentsSkills: AGENTS_SKILLS.split(path.sep).join('/'), sharedDocs: SHARED_DOCS.split(path.sep).join('/'),
-      codexAgents: CODEX_AGENTS.split(path.sep).join('/'), shim: path.join(LOCAL_BIN, SHIM_NAME).split(path.sep).join('/'),
+      codexAgents: CODEX_AGENTS.split(path.sep).join('/'),
+      shims: SHIM_SPECS.map((s) => path.join(LOCAL_BIN, s.name).split(path.sep).join('/')),
       actions: log, refusals,
     }, null, 2)}\n`);
   } else {
