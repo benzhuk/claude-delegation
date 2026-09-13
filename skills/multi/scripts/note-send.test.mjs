@@ -121,6 +121,81 @@ test('L3: leading status glyphs and inner whitespace are stripped before matchin
   assert.ok(!titleMatchesSlug('nightrush-app', 'nucleus'));
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// R7 — the two real pane-title shapes
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('R7: Codex titles carry a " | <worktree>" suffix that must not defeat the match', () => {
+  // These are the live Netcup titles that made `--to astra` exit 2.
+  assert.equal(normalizeTitle('⠇ astra | bto-workflows'), 'astra');
+  assert.equal(normalizeTitle('n-astra | bto_nucleus'), 'n-astra');
+  assert.ok(titleMatchesSlug('⠇ astra | bto-workflows', 'astra'));
+  assert.ok(titleMatchesSlug('n-astra | bto_nucleus', 'n-astra'));
+  assert.ok(titleMatchesSlug('astra | bto-workflows', 'astra'), 'the spinner is optional');
+});
+
+test('R7: Claude titles are a glyph plus the name', () => {
+  assert.equal(normalizeTitle('◑ taxonomy'), 'taxonomy');
+  assert.equal(normalizeTitle('✳ nucleus'), 'nucleus');
+  assert.ok(titleMatchesSlug('◑ taxonomy', 'taxonomy'));
+  assert.ok(titleMatchesSlug('✳ nucleus', 'nucleus'));
+});
+
+test('R7: every spinner frame normalizes away', () => {
+  for (const glyph of ['⠇', '⠋', '⠙', '⠸', '◐', '◑', '◒', '◓', '✳', '✢', '·', '*']) {
+    assert.equal(normalizeTitle(`${glyph} astra`), 'astra', `glyph ${glyph}`);
+    assert.equal(normalizeTitle(`${glyph} astra | bto-workflows`), 'astra', `glyph ${glyph} with worktree`);
+  }
+});
+
+test('R7: the worktree half never matches on its own, and matching stays exact', () => {
+  assert.ok(!titleMatchesSlug('⠇ astra | bto-workflows', 'bto-workflows'));
+  assert.ok(!titleMatchesSlug('⠇ astra | bto-workflows', 'astr'), 'no prefix match');
+  assert.ok(!titleMatchesSlug('⠇ astra | bto-workflows', 'astra-bto-workflows'));
+  assert.ok(!titleMatchesSlug('n-astra | bto_nucleus', 'astra'), 'n-astra is not astra');
+});
+
+test('R7: matching is case-insensitive on both sides', () => {
+  assert.ok(titleMatchesSlug('⠇ ASTRA | bto-workflows', 'astra'));
+  assert.ok(titleMatchesSlug('◑ Taxonomy', 'taxonomy'));
+});
+
+test('R7: shell and plain titles are unaffected', () => {
+  assert.equal(normalizeTitle('MINGW64:/c/Users/benzh/Code/Zhuk Projects'), 'mingw64 c users benzh code zhuk projects');
+  assert.equal(normalizeTitle('nightrush-app'), 'nightrush-app');
+  assert.equal(normalizeTitle('benzh'), 'benzh');
+  assert.equal(normalizeTitle(''), '');
+  assert.equal(normalizeTitle(undefined), '');
+});
+
+test('R7: resolution works end to end on the live Netcup pane list, and exit 2 still shows raw titles', () => {
+  const panes = [
+    { handle: 'term_1', title: '⠇ astra | bto-workflows', agentIdentity: 'codex' },
+    { handle: 'term_2', title: 'n-astra | bto_nucleus', agentIdentity: 'codex' },
+    { handle: 'term_3', title: '◑ taxonomy', agentIdentity: 'claude' },
+    { handle: 'term_4', title: '✳ nucleus', agentIdentity: 'claude' },
+  ];
+  assert.equal(resolvePane(panes, 'astra').handle, 'term_1');
+  assert.equal(resolvePane(panes, 'n-astra').handle, 'term_2');
+  assert.equal(resolvePane(panes, 'taxonomy').handle, 'term_3');
+  assert.equal(resolvePane(panes, 'nucleus').handle, 'term_4');
+
+  // the candidate list keeps the RAW titles — that is what made this diagnosable
+  const err = throwsWith(() => resolvePane(panes, 'ghost'), 2, /no pane titled "ghost"/);
+  assert.match(err.message, /⠇ astra \| bto-workflows/);
+  assert.match(err.message, /n-astra \| bto_nucleus/);
+});
+
+test('R7: two panes reducing to the same slug is still exit 2, never a guess', () => {
+  const panes = [
+    { handle: 'term_1', title: '⠇ astra | bto-workflows' },
+    { handle: 'term_2', title: '◐ astra | bto_nucleus' },
+  ];
+  const err = throwsWith(() => resolvePane(panes, 'astra'), 2, /matches 2 panes/);
+  assert.match(err.message, /term_1/);
+  assert.match(err.message, /term_2/);
+});
+
 test('H9: an ambiguous title is exit 2 with every candidate listed, never a guess', () => {
   const panes = [
     { handle: 'term_1', title: 'nightrush-app' },

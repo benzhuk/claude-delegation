@@ -137,6 +137,12 @@ Three things that form gets right, each of which bites otherwise:
 Sending to a pane on Ben's **Windows** desktop is the same command with bare `note-send`:
 `C:\Users\benzh\.local\bin` is already on the Windows PATH, and `~` means nothing there.
 
+**Resolving a peer**: `--to <slug>` matches the pane title exactly, after Orca's decoration is
+stripped — a leading status glyph and the ` | <worktree>` suffix Codex panes carry. Both
+`◑ taxonomy` (Claude) and `⠇ astra | bto-workflows` (Codex) resolve to their slug; the
+worktree half never matches on its own. A raw `term_…` handle always works, and two panes
+reducing to the same slug is exit 2 with the raw titles listed, never a guess.
+
 **`--to ben`** resolves no pane. The note is recorded and printed for Ben to read; exit 0
 with `delivered:false, notified:true`. Use it for anything only Ben can decide.
 

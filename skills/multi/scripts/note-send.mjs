@@ -178,18 +178,34 @@ export function composerShows(read, id, lines = LIVE_TAIL_LINES) {
 // Pane resolution
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Strip Orca's status glyphs and collapse whitespace so a pane title can be compared to a slug (L3). */
+/**
+ * Reduce an Orca pane title to the slug it represents.
+ *
+ * Real shapes seen live:
+ *   Claude  `◑ taxonomy`, `✳ nucleus`, `◐ accounts`      — a status glyph, then the name
+ *   Codex   `⠇ astra | bto-workflows`, `n-astra | bto_nucleus`
+ *                                                        — optional braille spinner, name, ` | worktree`
+ *   shells  `MINGW64:/c/Users/benzh/Code/Zhuk Projects`, `nightrush-app`
+ *
+ * Order matters: the ` | ` separator has to be cut BEFORE the decoration pass, which would otherwise
+ * flatten the pipe to a space and leave `astra bto-workflows` — the exit 2 that broke `--to astra` on
+ * Netcup (review R7).
+ */
 export function normalizeTitle(title) {
   return String(title ?? '')
+    .replace(/^[^\p{L}\p{N}]+/u, '')   // leading status glyphs and whitespace
+    .replace(/\s*\|.*$/su, '')         // Orca's ` | <worktree>` suffix on Codex panes
     .replace(/[^\p{L}\p{N}\s_-]+/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ')
     .toLowerCase();
 }
 
+/** Exact match only, case-insensitive. Never a prefix or substring — two panes must never both match. */
 export function titleMatchesSlug(title, slug) {
   const n = normalizeTitle(title);
-  return n === slug || n.replace(/[\s_]+/g, '-') === slug;
+  const want = String(slug).toLowerCase();
+  return n === want || n.replace(/[\s_]+/g, '-') === want;
 }
 
 export function describePanes(list) {
