@@ -3,8 +3,9 @@
 // Pure. No filesystem, no child processes, no node builtins beyond Intl. `note-send.mjs` owns all I/O
 // and transport and imports everything here. Split out per the orchestrator's ruling 7 (2026-09-13).
 //
-// The contract this implements is `../references/envelope.md` v3. Two rules drive most of the code:
-// an envelope is exactly ONE physical line of at most 500 characters, and every field is validated
+// The contract this implements is `../references/envelope.md` v4. Two rules drive most of the code:
+// an envelope is exactly ONE physical line of at most 700 characters (v4 raised the cap from 500 after
+// the pilot rejected 9 notes at it), and every field is validated
 // with a clear message BEFORE the regex ever runs, so a bad field is never silently swallowed.
 
 export const KINDS = ['ASK', 'ACK', 'RESULT', 'BLOCKED', 'FYI'];
@@ -12,7 +13,7 @@ export const NEEDS = ['decision', 'review', 'ack', 'none'];
 /** Only ASK may carry a need other than `none` (envelope.md, Needs row; red-team M3). */
 export const ASK_ONLY_NEEDS = ['decision', 'review', 'ack'];
 export const RESERVED_WORDS = [' Goal: ', ' Details: ', ' Needs: '];
-export const MAX_LINE = 500;
+export const MAX_LINE = 700;
 export const ARROW = '→'; // →
 export const RESERVED_RECIPIENT = 'ben';
 export const DEFAULT_ZONE = 'America/New_York';
@@ -222,6 +223,38 @@ export function timeParts(now = new Date(), zone = DEFAULT_ZONE) {
     time: `${hour}:${parts.minute}`,
     ymd: `${parts.year}-${parts.month}-${parts.day}`,
   };
+}
+
+/**
+ * A wall-clock time in a named zone back to an absolute instant. Used by note-inbox to age a ledger
+ * line whose only timestamp is the `M.D.YY HH:MM TZ` it carries. Two-pass: read the candidate instant
+ * back out in the zone, and correct by the difference. Exact except in the one ambiguous hour of a
+ * DST fall-back, where it can be an hour off — harmless for "is this line newer than N hours".
+ */
+export function zonedWallToInstant({ year, month, day, hour, minute }, zone = DEFAULT_ZONE) {
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(new Date(guess)).map((p) => [p.type, p.value]),
+  );
+  const asIfUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    parts.hour === '24' ? 0 : Number(parts.hour), Number(parts.minute), Number(parts.second),
+  );
+  return guess - (asIfUtc - guess);
+}
+
+/** The instant a parsed envelope claims, from its own `M.D.YY` + `HH:MM` fields. */
+export function envelopeInstant(groups, zone = DEFAULT_ZONE) {
+  const d = /^(\d{1,2})\.(\d{1,2})\.(\d{2})$/.exec(String(groups?.date ?? ''));
+  const t = /^(\d{2}):(\d{2})$/.exec(String(groups?.time ?? ''));
+  if (!d || !t) return null;
+  return zonedWallToInstant({
+    year: 2000 + Number(d[3]), month: Number(d[1]), day: Number(d[2]),
+    hour: Number(t[1]), minute: Number(t[2]),
+  }, zone);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

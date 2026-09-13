@@ -172,8 +172,8 @@ test('H1: newlines, carriage returns and tabs are rejected in every field', () =
   }
 });
 
-test('H1: the 500-char cap is enforced with an actionable message', () => {
-  const err = throwsWith(() => build({ body: 'x'.repeat(600) }), 1, /over the 500 cap/);
+test('H1: the 700-char cap is enforced with an actionable message (v4 raised it from 500)', () => {
+  const err = throwsWith(() => build({ body: 'x'.repeat(800) }), 1, /over the 700 cap/);
   assert.match(err.message, /detail packet/);
   assert.ok(build({ body: 'x'.repeat(MAX_LINE - 80) }).length <= MAX_LINE);
 });
@@ -258,7 +258,7 @@ function envelopesIn(url) {
 
 test('every envelope printed in references/examples.md parses', () => {
   const lines = envelopesIn(new URL('../references/examples.md', import.meta.url));
-  assert.ok(lines.length >= 8, `expected at least 8 example envelopes, found ${lines.length}`);
+  assert.ok(lines.length >= 12, `expected at least 12 example envelopes, found ${lines.length}`);
   for (const line of lines) {
     const g = parseEnvelope(line);
     assert.ok(g, `does not match the pinned regex:\n${line}`);

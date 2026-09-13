@@ -429,7 +429,9 @@ test('a permission pane defers with exit 3 and nothing typed', async () => {
     runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, sleep: async () => {} }),
     3, /permission\/approval prompt/,
   );
-  assert.match(err.message, /you own the retry/i);
+  assert.match(err.message, /queued\s+in the outbox/i);
+  assert.match(err.message, /Do NOT re-send this id/);
+  assert.equal(err.queued, true, 'V5: a deferral writes the wake-up to the outbox');
   assert.equal(orca.sends().length, 0);
 });
 
@@ -445,52 +447,44 @@ test('a shell pane is never typed into', async () => {
 // The Codex gate — review C1 / H3
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('C1/H3: a Codex pane that FALSELY classifies idle still waits for tui-idle before anything is typed', async () => {
+test('V6: a Codex pane is never waited on — `terminal wait --for tui-idle` NEVER resolves for one', async () => {
   const repo = tmp();
   const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
-  // Classify, post-wait re-classify and the baseline all show the live false-idle tail: no working
-  // marker, composer chrome present. Only after the text send does the id appear.
-  const typed = readOf(['> … [taxonomy-ping-1] FYI: x', '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents']);
-  const orca = mockOrca({ panes: [pane], reads: [FALSE_IDLE_TAIL, FALSE_IDLE_TAIL, FALSE_IDLE_TAIL, typed] });
-  await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW });
-  const waits = orca.calls.filter((c) => c[1] === 'wait');
-  assert.equal(waits.length, 1, 'the tui-idle wait must run even when our classifier says idle');
-  assert.ok(waits[0].includes('tui-idle'));
-  // and it must run BEFORE the first send
-  assert.ok(orca.calls.indexOf(waits[0]) < orca.calls.indexOf(orca.sends()[0]));
+  const composer = readOf(['› ']);
+  const typed = readOf(['› taxonomy → nucleus … [taxonomy-ping-1] FYI: x']);
+  const orca = mockOrca({ panes: [pane], reads: [composer, composer, typed, typed] });
+  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW });
+  assert.equal(res.delivered, true);
+  assert.equal(orca.calls.filter((c) => c[1] === 'wait').length, 0, 'the v3 tui-idle wait is gone (pilot: it times out on idle Codex panes)');
 });
 
-test('C1: a Codex pane fails CLOSED when terminal wait cannot run', async () => {
+test('V6: a Codex pane mid-turn is deferred, not typed into — Codex does not queue input', async () => {
+  const repo = tmp(); const home = tmp();
+  const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
+  const orca = mockOrca({ panes: [pane], reads: [readOf(['› ', '• Working (42s • esc to interrupt)'])] });
+  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW }), 3, /does not queue typed input/);
+  assert.equal(orca.sends().length, 0);
+  assert.equal(err.queued, true);
+  assert.ok(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')));
+});
+
+test('V6: a Codex braille shimmer line reads as working, never as idle', async () => {
   const repo = tmp();
   const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
-  const orca = mockOrca({ panes: [pane], failWait: true, reads: [FALSE_IDLE_TAIL] });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /tui-idle.*did not succeed/s);
-  assert.match(err.message, /nothing was typed/);
+  // The shimmer the pilot found: output recency is meaningless, the FRAME is the evidence.
+  const orca = mockOrca({ panes: [pane], reads: [readOf(['⣻⣻⣻⠿ Thinking', '› '])] });
+  await rejectsWith(runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /Codex pane mid-turn/);
   assert.equal(orca.sends().length, 0);
 });
 
-test('M1: a Codex pane with no wait budget is deferred, never typed into', async () => {
+test('V6: a Codex pane at an approval prompt is deferred with the permission reason', async () => {
   const repo = tmp();
-  const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
-  const orca = mockOrca({ panes: [pane], reads: [readOf(['⏎ send'])] });
-  const err = await rejectsWith(
-    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW }),
-    3, /needs a positive --wait-max/,
+  const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex', agentWait: { reason: 'codex-interactive-prompt' } });
+  const orca = mockOrca({ panes: [pane], reads: [readOf(['Allow once'])] });
+  await rejectsWith(
+    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, sleep: async () => {} }),
+    3, /permission\/approval prompt/,
   );
-  assert.match(err.message, /Codex mid-turn queuing is unproven/);
-  assert.equal(orca.sends().length, 0);
-  assert.equal(orca.calls.filter((c) => c[1] === 'wait').length, 0);
-});
-
-test('M1: a Codex pane that goes unsendable after the wait is deferred', async () => {
-  const repo = tmp();
-  const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
-  const orca = mockOrca({
-    panes: [pane],
-    shows: [pane, { ...pane, agentWait: { reason: 'codex-interactive-prompt' } }],
-    reads: [readOf(['⏎ send']), readOf(['Allow once'])],
-  });
-  await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /permission\/approval prompt/);
   assert.equal(orca.sends().length, 0);
 });
 
@@ -518,7 +512,7 @@ test('M2: a failed Enter says the envelope is stranded in the composer', async (
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], failEnter: true, reads: DELIVERY_READS() });
   const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 4, /sitting UNSENT/);
-  assert.match(err.message, /press Enter by hand/);
+  assert.match(err.message, /Clear the pane by hand/);
   assert.equal(err.ledgers.length, 2);
 });
 
@@ -649,7 +643,8 @@ test('--dry-run touches neither orca nor the filesystem', async () => {
   const res = await runNoteSend(ARGS_OK(['--recipient-repo', repo, '--dry-run']), { orca, home, git: () => '.git', now: NOW });
   assert.equal(res.dryRun, true);
   assert.equal(orca.calls.length, 0);
-  assert.ok(res.plan.some((p) => /tui-idle/.test(p)), 'the plan names the Codex gate');
+  assert.ok(res.plan.some((p) => /Codex idle only/.test(p)), 'the plan names the Codex gate');
+  assert.ok(res.plan.some((p) => /outbox/.test(p)), 'the plan names the outbox fallback');
   assert.ok(!fs.existsSync(path.join(repo, 'docs')));
   assert.ok(!fs.existsSync(path.join(home, '.agents')));
 });
