@@ -1,43 +1,30 @@
-# Model tiers — who does what
+# Model tiers — the single source of truth (PINNED, 2026-09-12)
 
-The orchestrator (your main session, on the strongest model you run) buys exactly three
-things with its tokens: the spec/contracts, dispute adjudication, and the ship decision.
-Everything else is delegated. Tier by cost:
+Skills never name a bare model. They name a TIER and, in parentheses, the concrete model on each
+vendor, so any agent reads it once and knows what to call:
 
-- **Executor — Sonnet by default.** Writing code, mechanical edits, searches,
-  reading+summarizing, running commands, drafting docs. Run executors at FULL strength —
-  never lower effort to save tokens. A failed cheap agent costs a retry round plus
-  orchestrator attention, which is the expensive resource. Reserve low effort for
-  latency-gated mechanical steps only.
-- **Verifier — Opus, or at minimum a tier above the writer.** Reviews of executor
-  output, adjudicating conflicts, and implementation hard enough that executor retries
-  would cost more than doing it once (core algorithms, concurrency, data integrity).
-  Full strength here too — review depth is the last thing to economize.
-- **Bulk — Haiku.** Only genuinely mindless sweeps at volume (hundreds of binary
-  per-file checks). When in doubt, it's a Sonnet job.
-- **Never blanket-upgrade.** The strong tier is quota-bound; the fast tier effectively
-  is not. Spend the strong tier at the leverage points — spec red-team, hardest
-  territory, reviews, seam review — and nowhere else. A strong-tier integrator or a
-  strong-tier mechanical-UI builder buys nothing the fast tier already delivers.
-- **Orchestrator model — main loop only.** Never spawn it as an execution subagent.
+> "run this on a high-tier model (Claude Opus / GPT-5.6-Sol)"
 
-## The pattern that works, observed at scale
+| tier | job | Claude | OpenAI (Codex) |
+|------|-----|--------|----------------|
+| **top**  | orchestrate, judge, decide, synthesize — never bulk execution | Fable  | GPT-6-Astra |
+| **high** | verify, adjudicate, spec red-team, the hardest territories (algorithms, concurrency, data integrity) | Opus | GPT-5.6-Sol |
+| **mid**  | default executor — writes code, runs searches, mechanical edits, integration gates | Sonnet | GPT-5.6-Terra |
+| **fast** | mindless bulk sweeps only | Haiku | GPT-5.6-Luna, GPT-5.3-Codex-Spark |
 
-From a ~40-agent session (two large multi-agent builds, back to back):
+Rules of thumb (vendor-neutral):
+- Top-tier tokens buy judgment only. A top-tier session routes work; it does not grind through it.
+- Verify with a stronger tier than the writer: mid writes → high reviews; high writes → top adjudicates.
+- Fast tier never touches anything that computes a number someone will act on.
+- On Ben's plans the mid tier is effectively free: run executors at full strength, always.
 
-- **Sonnet writes, Opus verifies.** ~25 Sonnet invocations across mechanical
-  territories, UI, harness plumbing, and research digests — zero quality complaints.
-  Reversing the pattern wastes Opus on typing.
-- **Every first-pass Opus review returned NEEDS_FIXES, and the findings were not
-  nitpicks**: a release metric that was vacuously zero, a cache that froze transient
-  errors into permanent wrong answers, a train/holdout split that leaked. Reviews are
-  not optional for anything that computes a number someone will act on.
-- **The spec red-team is the highest-leverage Opus spend in the pipeline.** One
-  adversarial pass over the spec + contracts before any builder spawns; six blockers
-  caught there saved a fix round in every territory.
+Environment: `DELEGATION_TOP_TIER` — comma-separated model ids that count as top/high for the
+routing hook and the delegation gate (default `fable,opus,gpt-6-astra,gpt-5.6-sol`). The old
+`CLAUDE_DELEGATION_TOP_TIER` name is read as a fallback for one release, then removed.
 
-## When NOT to delegate
+Concrete ids (2026-09-12): Claude `claude-fable-5-1`, `claude-opus-5`, `claude-sonnet-5`,
+`claude-haiku-4-5-20251001`; OpenAI `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+`gpt-5.3-codex-spark`. When a vendor ships a new model, update this table only; every skill inherits it.
 
-Do it yourself when the task is smaller than the delegation overhead: single-file quick
-edits, one known lookup, conversational answers. Never split tightly-coupled design
-across agents — coupled work stays in one context.
+<!-- Builder T2 expands this file with the spawn mechanics per vendor (Claude: `model:` on the Agent call /
+agents/*.md frontmatter; Codex: `~/.codex/agents/*.toml` `model =` from the same row) — the table above is frozen. -->
