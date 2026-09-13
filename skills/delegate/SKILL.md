@@ -23,7 +23,7 @@ description: Use when a prompt decomposes into independent research, review, aud
    a single message so they run truly concurrently; staggering serializes for nothing.
 2. **Tier the models** (`../../docs/model-tiers.md`): the mid tier (Claude Sonnet /
    OpenAI GPT-5.6-Terra) executes at full strength, the high tier (Claude Opus /
-   OpenAI GPT-5.6-Sol) verifies and adjudicates, the fast tier (Claude Haiku / OpenAI
+   OpenAI GPT-6-Astra, Sol if cost forbids) verifies and adjudicates, the fast tier (Claude Haiku / OpenAI
    GPT-5.6-Luna, GPT-5.3-Codex-Spark) is only for mindless bulk sweeps. Verify with a
    stronger tier than the writer.
 3. **Check the concurrency budget** (`../../docs/concurrency-budget.md`): read-only

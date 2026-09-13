@@ -9,7 +9,7 @@ description: Use when building a substantial multi-file feature with an agent te
 > **delegate** skill instead.
 
 You are the orchestrator. Builders (mid tier: Claude Sonnet / OpenAI GPT-5.6-Terra)
-write; independent reviewers (high tier: Claude Opus / OpenAI GPT-5.6-Sol) verify
+write; independent reviewers (high tier: Claude Opus / OpenAI GPT-6-Astra) verify
 adversarially; an integrator runs the mechanical gates; you own the spec, adjudication,
 and the ship decision. Token efficiency comes from paying for context
 once (specs on disk, warm agents, reports by path); speed comes from ownership
@@ -38,7 +38,7 @@ is the build pipeline that uses them.
    a contract-mismatch round in every territory (proven: 4 builders compiled against a
    frozen `contracts.ts` simultaneously with zero mismatch rounds — one built its eval
    harness against an engine signature before that engine existed).
-4. **High-tier spec red-team** (Claude Opus / OpenAI GPT-5.6-Sol; skip only for
+4. **High-tier spec red-team** (skip only for
    small/low-risk builds): one high-tier agent adversarially reviews spec + contracts —
    missing cases, ambiguities, wrong decomposition. The highest-leverage high-tier spend
    in the pipeline.
@@ -54,7 +54,7 @@ is the build pipeline that uses them.
   hardest territory** — core algorithms, concurrency/state machines, data integrity,
   subtle migrations — on Claude Code, set `model: opus` on the `Agent` call, which
   overrides the agent file's frontmatter; on Codex, point that territory's role at the
-  `.codex/agents/*.toml` file with `model = "gpt-5.6-sol"` — see
+  `~/.codex/agents/*.toml` file with `model = "gpt-5.6-sol"` — see
   `../../docs/model-tiers.md`'s spawn-mechanics section): implements only its
   territory. Gate before reporting: territory-scoped tests + typecheck via the shared
   verification mutex (`../../docs/concurrency-budget.md`) — builders do NOT run
@@ -65,7 +65,7 @@ is the build pipeline that uses them.
   tests from the spec while builders build — converts contract compliance from a
   judgment call into a mechanical gate. Upgrade to the high tier when the contracts ARE
   the risk center: a wrong test is a false-green gate, worse than none.
-- **Reviewer** (high tier: Claude Opus / OpenAI GPT-5.6-Sol, fresh per phase, never the
+- **Reviewer** (high tier, fresh per phase, never the
   planner): read-only; spawns only after
   that builder's own gate is green. Its prompt is a **specific attack brief**, not
   "review this" — name the priorities, the explicit questions, and the attack surface

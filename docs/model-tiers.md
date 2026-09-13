@@ -65,7 +65,9 @@ model" becomes a concrete argument instead of a hope.
   `Agent` call `model:` param — Codex equivalent: unverified). Pick the id from the same
   tier row as the Claude counterpart, so a `builder.toml` sets `model = "gpt-5.6-terra"`
   (mid) to mirror `agents/builder.md`'s `model: sonnet`, and a `reviewer.toml` sets
-  `model = "gpt-5.6-sol"` (high) to mirror `agents/reviewer.md`'s `model: opus`.
+  `model = "gpt-6-astra"` to mirror `agents/reviewer.md`'s `model: opus` — per the
+  table's note a Codex REVIEW runs on GPT-6-Astra unless cost forbids, in which case
+  `gpt-5.6-sol` is the fallback.
 - Codex 0.154 ships three built-in roles (`default`, `worker`, `explorer`); custom roles
   in `.codex/agents/*.toml` extend that set. `[agents]` config controls `max_threads`
   (default 6) and `max_depth` (default 1) — the Codex-side equivalent of this plugin's
@@ -73,5 +75,5 @@ model" becomes a concrete argument instead of a hope.
   `concurrency-budget.md`'s per-task numbers as the intent and cap them at whatever
   `max_threads` allows.
 - Top-tier Codex spawns (adjudication, spec red-team) use `gpt-6-astra` by the same
-  reasoning as the table's note: OpenAI's one flagship covers both the "judge" and the
-  "hardest build territory" rows when cost allows `gpt-6-astra` for both.
+  reasoning as the table's note: OpenAI's one flagship covers the "judge" row, and the
+  "hardest build territory" row stays `gpt-5.6-sol` unless cost allows Astra there too.

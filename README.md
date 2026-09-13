@@ -24,7 +24,7 @@ claude plugin install delegation@benzhuk
 
 ## What you get
 
-**Two skills** (auto-suggested by task shape, or invoke directly):
+**Three skills** (auto-suggested by task shape, or invoke directly):
 
 - **`/delegation:delegate`** — parallel fan-out orchestration for independent
   research / review / audit lanes: decompose, tier the models, budget the concurrency,
@@ -33,9 +33,11 @@ claude plugin install delegation@benzhuk
   multi-file features: pinned contracts committed at t0, disjoint file territories,
   adversarial high-tier reviews with attack briefs, one integrator owning the expensive
   verification verbs, ship gate with the orchestrator.
+- **`/delegation:multi`** — peer-session notes: one-line envelopes to an EQUAL session
+  you don't own (see below).
 
-Neither skill is for talking to a session you don't own — see [`multi`](#multi-peer-sessions)
-below for that.
+Neither `delegate` nor `team-build` is for talking to a session you don't own — see
+[`multi`](#multi--peer-sessions) below for that.
 
 **Shared mechanics** (`docs/`, referenced by both skills):
 
@@ -75,6 +77,12 @@ vendor. The table (copied verbatim, single source of truth in that file):
 | **mid**  | default executor — writes code, runs searches, mechanical edits, integration gates | Sonnet | GPT-5.6-Terra |
 | **fast** | mindless bulk sweeps only | Haiku | GPT-5.6-Luna, GPT-5.3-Codex-Spark |
 
+Note on the OpenAI high row: OpenAI ships one flagship, so a Codex REVIEW or
+adjudication runs on GPT-6-Astra unless cost forbids (a genuinely stronger model than
+the writer); GPT-5.6-Sol is the high-tier choice for hard BUILD territories instead.
+Claude has two distinct models here (Fable above Opus), so its rows need no such
+caveat. Full rationale: `model-tiers.md`.
+
 Sentence pattern in every skill: "run this on a high-tier model (Claude Opus /
 GPT-5.6-Sol)" on first mention in a file, "the high-tier reviewer" afterward.
 
@@ -94,7 +102,7 @@ contract in `skills/multi/references/envelope.md`):
 taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please review my PR #132. Goal: faster wall clock, better batch orchestration. Details: docs/notes/taxonomy-pr132-review-1.md. Needs: review by 15:00
 ```
 
-Send one with the bundled CLI:
+Send one with the bundled CLI (shipped with 0.2.0):
 
 ```bash
 note-send --from taxonomy --to nucleus --kind ASK --topic pr132-review --text "Please review my PR #132." --goal "faster wall clock, better batch orchestration" --details docs/notes/taxonomy-pr132-review-1.md --needs review --by "15:00"
@@ -104,7 +112,7 @@ note-send --from taxonomy --to nucleus --kind ASK --topic pr132-review --text "P
 
 Codex reads shared skills and agent roles from its own paths, not from the Claude Code
 plugin cache. After installing the plugin, publish the shared skills and agent roles for
-Codex once (idempotent, safe to re-run):
+Codex once (idempotent, safe to re-run; shipped with 0.2.0):
 
 ```bash
 node scripts/mirror-shared-skills.mjs
