@@ -512,7 +512,7 @@ export function orcaHint(resolved) {
 /**
  * Every advertised budget in v4 is a lie unless the subprocess underneath it can be killed. A hung
  * `terminal read` is exactly the rc 143/124 failure the pilot already paid for, one layer down: it
- * would block a sender past its "never more than 15 seconds" promise, pin the 2-minute timer unit, and
+ * would block a sender past its "never more than 15 seconds" promise, pin the 1-minute timer unit, and
  * leave one stuck node process per Codex turn end. So every orca call is killed on expiry (review H4).
  */
 /**
@@ -955,7 +955,7 @@ export function killOutboxEntry(home, id, entry, fsImpl = fs) {
 }
 
 /**
- * Three drainers share the outbox — the 2-minute timer, note-notify at a Codex turn end, and every
+ * Three drainers share the outbox — the 1-minute timer, note-notify at a Codex turn end, and every
  * note-send piggyback — so "read, attempt, delete on success" races (review M2). Flusher B holding a
  * stale copy of an entry A just delivered would take the `composerShows` early return, record a
  * deferral, and RESURRECT the file; the nudge is retyped later and the note lands in the pane twice.

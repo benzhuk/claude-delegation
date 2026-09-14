@@ -8,7 +8,7 @@
 //
 //   · at the start of every note-send (piggyback, ~3 s budget)
 //   · from note-notify when a Codex turn ends (the moment a Codex pane is provably idle)
-//   · from a 2-minute timer as a safety net (T3 installs the unit/plist/scheduled task)
+//   · from a 1-minute timer as a safety net (T2 installs the unit/plist/scheduled task)
 //
 // USAGE
 //   note-flush [--to <slug>] [--json] [--max-ms 100000] [--max-attempts 20] [--max-age-hours 48]
@@ -17,6 +17,8 @@
 // RULES
 //   · Never blocks: one pass over the outbox inside --max-ms, then it stops and leaves the rest.
 //   · Never re-sends a note whose id a later `supersedes` retired — that entry is dropped, logged.
+//   · Never types a note the recipient has already READ: an id in `~/.agents/notes/.cursor-<slug>` is
+//     retired unattempted. The ledger delivered it; the wake-up has nothing left to do.
 //   · Never types into a pane that is not sendable for its vendor (Claude: idle or working; Codex:
 //     idle only — it does not queue typed input mid-turn).
 //   · Two-phase typing, exactly as note-send does it, through the same shared code. It NEVER starts
@@ -36,11 +38,11 @@ import {
   notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
   killOutboxEntry, deadOutboxPath, benInboxPath,
-  readBindings, pruneBindings, BINDING_GC_MS,
+  readBindings, pruneBindings, BINDING_GC_MS, readCursor,
 } from './transport.mjs';
 
 /**
- * The standalone drain runs from a 2-minute timer, so it can afford to be patient — and it has to be:
+ * The standalone drain runs from a 1-minute timer, so it can afford to be patient — and it has to be:
  * Netcup answers an orca call in 1–7 s under load, and the old 8 s ceiling meant a single entry never
  * got through a full classify-type-verify-Enter sequence (incident 2026-09-14).
  */
@@ -163,11 +165,37 @@ export async function runNoteFlush(argv, deps = {}) {
     .flatMap((text) => String(text).split('\n'))
     .map((l) => l.trim())
     .filter((l) => /^[a-z0-9-]+ → [a-z0-9-]+, \d/u.test(l));
+  /**
+   * D9: has the recipient already READ this note? `~/.agents/notes/.cursor-<slug>` is the pane's own
+   * record of what note-inbox has shown it, so an id in `seen` means the note arrived through the
+   * channel that matters and the wake-up has nothing left to wake anybody up for. Typing it then is a
+   * pure duplicate — on Netcup, 2026-09-14, `taxonomy-main-tip-8` sat in the outbox for 40 minutes
+   * while astra's cursor had already shown it read.
+   *
+   * One read per slug per drain, cached: a backlog is usually several notes for the same pane.
+   */
+  const cursors = new Map();
+  const alreadyRead = (slug, id) => {
+    if (!slug) return false;
+    if (!cursors.has(slug)) cursors.set(slug, readCursor(home, slug, fsImpl));
+    return Boolean(cursors.get(slug).seen?.[id]);
+  };
+
   const live = [];
   for (const entry of entries) {
     if (retired.has(entry.id)) {
       if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
       results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'superseded', log: log('superseded', entry, 'a later note supersedes this id') });
+      continue;
+    }
+    if (alreadyRead(entry.toSlug ?? entry.to, entry.id)) {
+      // Before the attempt and age checks: an entry the recipient has read is closed, not abandoned —
+      // it must never reach `gave-up`, which writes a BLOCKED line into the one file Ben reads.
+      if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
+      results.push({
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'retired',
+        log: log('retired', entry, 'already read (cursor)'),
+      });
       continue;
     }
     if (Number(entry.attempts ?? 0) >= maxAttempts) {
@@ -369,7 +397,7 @@ const USAGE = `note-flush — retry the wake-ups note-send could not type, and f
              [--orca <cmd>] [--dry-run]
 
 The notes themselves are already in the ledger; this only retries the typed nudge.
-Runs from note-send (piggyback), from note-notify at a Codex turn end, and from a 2-minute timer.
+Runs from note-send (piggyback), from note-notify at a Codex turn end, and from a 1-minute timer.
 Exit 0 always. Attempts are appended to ~/.agents/notes/flush.log.
 `;
 

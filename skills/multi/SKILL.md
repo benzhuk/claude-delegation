@@ -259,7 +259,9 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
   section list: `references/envelope.md`.
 - **Outbox** `~/.agents/notes/outbox/<id>.json` — wake-ups waiting to be retyped. Not notes: the
   notes are already in the ledger. `~/.agents/notes/flush.log` records every attempt, and a wake-up
-  nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`.
+  nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`. A wake-up whose
+  note the recipient has already read — its id is in that pane's cursor — is retired without being
+  typed, because the ledger already delivered it.
 - **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown.
 - **Bindings** `~/.agents/notes/panes.json` — `{"<handle>": {"slug","at","title"}}`, each written by the
   pane itself. A rebind and a 24-hour GC of dead handles are logged in `flush.log`.
