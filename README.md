@@ -163,3 +163,6 @@ Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agen
 ## License
 
 MIT
+
+## Changelog
+- 0.3.1 — flusher: composer/history split, zero-tolerance completion (never submits foreign text), per-call budgets ≥10 s / per-note ≥30 s, dead-letter + ben-inbox line on give-up.
