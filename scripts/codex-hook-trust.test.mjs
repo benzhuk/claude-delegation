@@ -80,15 +80,21 @@ test('the installed hooks.json wires four events, with Stop given the long-poll 
   const json = buildHooksJson('/x/hooks/multi-codex-hook.mjs');
   assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']);
   assert.equal(json.hooks.Stop[0].hooks[0].timeout, 1020);
-  assert.equal(json.hooks.Stop[0].hooks[0].command, 'node /x/hooks/multi-codex-hook.mjs');
+  assert.equal(json.hooks.Stop[0].hooks[0].command, `${process.execPath} /x/hooks/multi-codex-hook.mjs`);
   assert.equal(json.hooks.SessionStart[0].hooks[0].timeout, 30);
   assert.equal(json.hooks.Stop[0].matcher, undefined, 'no matcher: the hash treats absent and null alike');
 });
 
-test('a path with a space is quoted, and the hash covers the quoted form', () => {
-  assert.equal(nodeCommand('/x/my hooks/h.mjs'), 'node "/x/my hooks/h.mjs"');
-  const entries = trustEntriesFor('/home/x/hooks.json', '/x/my hooks/h.mjs');
-  const expected = codexHookHash({ command: 'node "/x/my hooks/h.mjs"', timeout: 1020 }, 'Stop', null);
+test('the node binary is absolute, and a path with a space is quoted', () => {
+  assert.equal(nodeCommand('/x/h.mjs', '/usr/bin/node'), '/usr/bin/node /x/h.mjs');
+  assert.equal(nodeCommand('/x/my hooks/h.mjs', '/usr/bin/node'), '/usr/bin/node "/x/my hooks/h.mjs"');
+  assert.equal(nodeCommand('/x/h.mjs', 'C:\Program Files\node.exe'), '"C:\Program Files\node.exe" /x/h.mjs');
+  // A bare `node` would be resolved from PATH, and a non-login ssh shell on the boxes has none.
+  assert.match(nodeCommand('/x/h.mjs'), /^\S*node(\.exe)?\s/);
+  assert.ok(path.isAbsolute(nodeCommand('/x/h.mjs').split(' ')[0].replace(/"/g, '')));
+
+  const entries = trustEntriesFor('/home/x/hooks.json', '/x/my hooks/h.mjs', undefined, '/usr/bin/node');
+  const expected = codexHookHash({ command: '/usr/bin/node "/x/my hooks/h.mjs"', timeout: 1020 }, 'Stop', null);
   assert.equal(entries['/home/x/hooks.json:stop:0:0'], expected);
 });
 
@@ -142,7 +148,7 @@ test('MERGE updates our own handler in place when the plugin path or timeout cha
   const second = mergeHooksJson(first.json, '/new/hooks/multi-codex-hook.mjs');
   assert.equal(second.changed, true);
   assert.equal(second.json.hooks.Stop.length, 1, 'no second copy of ours');
-  assert.equal(second.json.hooks.Stop[0].hooks[0].command, 'node /new/hooks/multi-codex-hook.mjs');
+  assert.equal(second.json.hooks.Stop[0].hooks[0].command, `${process.execPath} /new/hooks/multi-codex-hook.mjs`);
   assert.equal(second.json.hooks.SessionStart.length, 2, "and Orca's is still there");
 });
 

@@ -149,14 +149,20 @@ export const CODEX_EVENTS = [
   { event: 'Stop', timeout: 1020 },
 ];
 
-/** A command string Codex can run: `node <script>`, quoted only when it has to be. */
-export function nodeCommand(scriptPath) {
-  const p = String(scriptPath);
-  return /\s/.test(p) ? `node "${p}"` : `node ${p}`;
+/**
+ * A command string Codex can run. The node binary is ABSOLUTE, and that is not a nicety: Codex inherits
+ * whatever PATH its parent had, and a `codex exec` started from a non-login ssh shell on the boxes has
+ * no `node` at all (fnm is set up by the profile). A bare `node` there fails silently, which for a hook
+ * means it never runs and never says why. `process.execPath` is the node running the installer, so it
+ * is right per machine; the installer re-runs on every apply, so a node upgrade is repaired then.
+ */
+export function nodeCommand(scriptPath, nodeBin = process.execPath) {
+  const quote = (p) => (/\s/.test(p) ? `"${p}"` : p);
+  return `${quote(String(nodeBin))} ${quote(String(scriptPath))}`;
 }
 
-export function buildHooksJson(scriptPath, events = CODEX_EVENTS) {
-  const command = nodeCommand(scriptPath);
+export function buildHooksJson(scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath) {
+  const command = nodeCommand(scriptPath, nodeBin);
   const hooks = {};
   for (const { event, timeout } of events) {
     hooks[event] = [{ hooks: [{ type: 'command', command, timeout }] }];
@@ -186,8 +192,8 @@ function isOurHandler(handler) {
  *
  * @returns {{ json: object, changed: boolean, placements: {event: string, groupIndex: number, handlerIndex: number, command: string, timeout: number}[] }}
  */
-export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS) {
-  const command = nodeCommand(scriptPath);
+export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath) {
+  const command = nodeCommand(scriptPath, nodeBin);
   const base = existing && typeof existing === 'object' ? existing : {};
   const json = { ...base, hooks: { ...(base.hooks && typeof base.hooks === 'object' ? base.hooks : {}) } };
   const placements = [];
@@ -231,8 +237,8 @@ export function trustEntriesForPlacements(hooksJsonPath, placements) {
 }
 
 /** The trust entries for exactly that file: one per handler, keyed by its absolute path. */
-export function trustEntriesFor(hooksJsonPath, scriptPath, events = CODEX_EVENTS) {
-  const command = nodeCommand(scriptPath);
+export function trustEntriesFor(hooksJsonPath, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath) {
+  const command = nodeCommand(scriptPath, nodeBin);
   const out = {};
   for (const { event, timeout } of events) {
     out[trustKey(hooksJsonPath, event, 0, 0)] = codexHookHash({ command, timeout }, event, null);
