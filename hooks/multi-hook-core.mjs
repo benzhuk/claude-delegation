@@ -158,7 +158,14 @@ export function scannedDirs(result) {
   return [...new Set((result?.scanned ?? []).map((f) => path.posix.dirname(toPosix(f))))];
 }
 
-const sleepDefault = (ms) => new Promise((resolve) => { const t = setTimeout(resolve, ms); t.unref?.(); });
+/**
+ * Deliberately NOT unref'd. Everything else in this codebase unrefs its timers so a stray one cannot
+ * keep a process alive; here the timer is the ONLY thing holding the event loop open once stdin has
+ * ended, and unref'ing it made Node exit immediately — the hook wrote its marker, polled zero times and
+ * vanished, leaving the marker behind (caught by the live Netcup smoke, 2026-09-14; every unit test
+ * injects its own `sleep` and could not see it).
+ */
+const sleepDefault = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 /**
  * Wait for a peer to answer — but ONLY while this session has an ASK nobody has replied to. That is the
@@ -198,7 +205,10 @@ export async function longPoll(ctx, result) {
   const cleanup = () => removeListening(home, slug, fsImpl);
   const onSignal = () => { cleanup(); process.exit(0); };
   const listen = ctx.listenSignals !== false && typeof process.on === 'function';
-  if (listen) for (const sig of signals) process.on(sig, onSignal);
+  // `exit` too, synchronously: a marker that outlives its process silences the flusher for that slug
+  // until it expires, and "the process just ended" is not always a signal — an empty event loop or a
+  // `process.exit` elsewhere gets here and nowhere near the `finally` below.
+  if (listen) for (const sig of [...signals, 'exit']) process.on(sig, sig === 'exit' ? cleanup : onSignal);
 
   const sleep = ctx.sleep ?? sleepDefault;
   const clock = ctx.clock ?? (() => Date.now());
@@ -218,7 +228,10 @@ export async function longPoll(ctx, result) {
     return null;
   } finally {
     cleanup();
-    if (listen) for (const sig of signals) process.off?.(sig, onSignal);
+    if (listen) {
+      for (const sig of signals) process.off?.(sig, onSignal);
+      process.off?.('exit', cleanup);
+    }
   }
 }
 
