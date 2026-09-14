@@ -186,7 +186,7 @@ function shimContent(flavour, command) {
     ? `  for candidate in /c/nvm4w/nodejs/node.exe C:/nvm4w/nodejs/node.exe; do
     [ -x "$candidate" ] && node_bin="$candidate"
   done`
-    : `  for candidate in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node /opt/homebrew/bin/node /usr/local/bin/node; do
+    : `  for candidate in /usr/local/bin/node /opt/homebrew/bin/node "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node; do
     [ -x "$candidate" ] && node_bin="$candidate"
   done`;
   const where = IS_WINDOWS ? 'on PATH or at C:/nvm4w/nodejs' : 'on PATH, under ~/.local/share/fnm, or at /opt/homebrew/bin';
