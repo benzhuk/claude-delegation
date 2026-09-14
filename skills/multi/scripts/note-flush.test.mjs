@@ -859,3 +859,51 @@ test('addendum: a Codex composer splits on its own prompt', () => {
   assert.deepEqual(split.composer.map((l) => l.trim()), ['a thought in progress']);
   assert.deepEqual(split.history.map((l) => l.trim()), ['earlier codex output']);
 });
+
+test('F1: ZERO tolerance — the short words a human types are never submitted', () => {
+  // The reviewer's probe against 2d7ab85: a residue of three characters or fewer was tolerated, so
+  // `ok`, `y`, `no`, `yes`, `hmm`, `...` all rode along with our envelope when Enter was pressed.
+  for (const typed of ['ok', 'y', 'no', 'yes', 'hmm', 'k', '?']) {
+    const read = readOf(COMPOSER([ENVELOPE, typed]));
+    const { foreign } = composerResidue(read, [ENVELOPE]);
+    assert.ok(foreign, `"${typed}" was tolerated and would have been submitted`);
+    assert.ok(foreign.toLowerCase().includes(typed.toLowerCase()), `${typed} missing from residue ${foreign}`);
+  }
+});
+
+test('F1: a human word typed BEFORE our envelope is caught too', () => {
+  const read = readOf(COMPOSER(['wait', ENVELOPE]));
+  assert.match(composerResidue(read, [ENVELOPE]).foreign, /wait/);
+});
+
+test('F1: cursor glyphs and box chrome are still not text worth protecting', () => {
+  // The length threshold existed to absorb these; they belong in CHROME_RE instead, so the tolerance
+  // could go to zero without a deferral on every redraw.
+  const read = readOf(COMPOSER([ENVELOPE + ' ▌']));
+  assert.equal(composerResidue(read, [ENVELOPE]).foreign, null);
+});
+
+test('F1: an exact stack of envelopes is still completed, wrapping and all', () => {
+  const other = 'astra → taxonomy, 9.13.26 13:50 NYC [astra-pr138-1] FYI: And another one.';
+  const read = readOf(COMPOSER([other.slice(0, 30), other.slice(30), ENVELOPE.slice(0, 44), ENVELOPE.slice(44)]));
+  assert.equal(composerResidue(read, [ENVELOPE, other]).foreign, null);
+});
+
+test('F1: a human word between two envelopes is caught', () => {
+  const other = 'astra → taxonomy, 9.13.26 13:50 NYC [astra-pr138-1] FYI: And another one.';
+  const read = readOf(COMPOSER([other, 'no', ENVELOPE]));
+  assert.match(composerResidue(read, [ENVELOPE, other]).foreign, /no/);
+});
+
+test('F1: end to end — one human word means the drain refuses and requeues', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({
+    panes: [claudePane()],
+    reads: [readOf(['? for shortcuts']), readOf([...HISTORY(ENVELOPE), ...COMPOSER([ENVELOPE, 'ok'])])],
+  });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.enters().length, 0, "Ben's 'ok' must never be submitted");
+  assert.equal(readOutbox(home).length, 1);
+});

@@ -643,7 +643,7 @@ export async function twoPhaseSend(orca, pane, envelope, id, classification, opt
 }
 
 /** Screen furniture: never content, whoever typed it. */
-const CHROME_RE = /[\s│┃|>‹›⏵⏎⠀-⣿─━┌┐└┘├┤┬┴┼╭╮╯╰═║╔╗╚╝•·…✻✳✢◐◑◒◓⎿↑↓]/gu;
+const CHROME_RE = /[\s│┃|>‹›❯⏵⏎⠀-⣿─━┌┐└┘├┤┬┴┼╭╮╯╰═║╔╗╚╝•·…✻✳✢◐◑◒◓⎿↑↓▌▏█▁‸⎮]/gu;
 
 /**
  * What is in the composer that is NOT one of the envelopes we know about?
@@ -661,16 +661,9 @@ export function composerResidue(read, known, lines = LIVE_TAIL_LINES) {
   const stripped = region.join('').replace(/\s+/g, '');
   if (!stripped) return { foreign: null, residue: '' };
 
-  // Longest first: a superseding note contains its parent's id, so removing the short one first would
-  // leave the rest of the long one looking like residue.
-  let rest = stripped;
-  for (const env of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
-    const needle = String(env).replace(/\s+/g, '');
-    if (!needle) continue;
-    while (rest.includes(needle)) rest = rest.replace(needle, '');
-  }
+  let rest = stripped.replace(CHROME_RE, '');
   for (const marker of COMPOSER_MARKERS) {
-    const needle = marker.replace(/\s+/g, '').toLowerCase();
+    const needle = marker.replace(/\s+/g, '').replace(CHROME_RE, '').toLowerCase();
     if (!needle) continue;
     let i = rest.toLowerCase().indexOf(needle);
     while (i !== -1) {
@@ -678,9 +671,26 @@ export function composerResidue(read, known, lines = LIVE_TAIL_LINES) {
       i = rest.toLowerCase().indexOf(needle);
     }
   }
-  const residue = rest.replace(CHROME_RE, '');
-  // A couple of stray glyphs are cursor artefacts, not a message worth protecting.
-  return { foreign: residue.length > 3 ? residue : null, residue };
+
+  // Consume envelopes from the FRONT, longest first. Front-anchored is the strict reading of "every
+  // non-empty composer line is exactly an envelope": text typed before our line fails to match at the
+  // head, text typed after it survives to the end. Longest first because a superseding note contains
+  // its parent's id, so the short one must not win the prefix.
+  const needles = [...known].filter(Boolean)
+    .map((env) => String(env).replace(/\s+/g, '').replace(CHROME_RE, ''))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (let progress = true; rest && progress;) {
+    progress = false;
+    for (const needle of needles) {
+      if (rest.startsWith(needle)) { rest = rest.slice(needle.length); progress = true; break; }
+    }
+  }
+
+  // ZERO tolerance (review F1). The old "more than three characters" allowance submitted exactly the
+  // words a human types into an agent pane — `ok`, `y`, `no`, `yes`, `hmm` — along with our envelope.
+  // A stray glyph now costs one deferral, which is free. A submitted "no" is not.
+  return { foreign: rest.length > 0 ? rest : null, residue: rest };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
