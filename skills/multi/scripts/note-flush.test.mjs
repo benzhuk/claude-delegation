@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { NoteError } from './envelope.mjs';
 import {
-  toPosix, outboxPath, readOutbox, writeOutboxEntry, flushLogPath, supersededIds,
+  toPosix, outboxPath, readOutbox, writeOutboxEntry, flushLogPath, supersededIds, cursorPath,
   classifyPane, isSendable, hasShimmerLine,
   normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
   claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
@@ -136,6 +136,92 @@ test('V5: a superseded id is dropped, never typed', async () => {
   assert.equal(res.results[0].outcome, 'superseded');
   assert.equal(orca.sends().length, 0, 'a retired wake-up must never reach a pane');
   assert.ok(!fs.existsSync(outboxPath(home, 'astra-pr137-1')));
+});
+
+test('a recorded handle that is GONE falls back to the slug, and the log says so', async () => {
+  const home = tmp();
+  // The peer restarted: the handle note-send recorded no longer exists, but a pane titled `taxonomy`
+  // is sitting right there. Resolving the dead handle would burn all 20 attempts against nothing.
+  queue(home, { handle: 'term_dead' });
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 1);
+  assert.match(res.results[0].detail, /^handle gone, resolved by slug; typed into term_aaa/);
+  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /handle gone, resolved by slug/);
+});
+
+test('a LIVE recorded handle is still used verbatim, whatever the pane is called now', async () => {
+  const home = tmp();
+  // Handle term_aaa is alive but its title no longer matches the entry's slug. The handle is exact:
+  // that is the whole reason note-send records it.
+  queue(home, { handle: 'term_aaa', to: 'astra', toSlug: 'astra' });
+  const orca = mockOrca({ panes: [claudePane({ title: 'Continue' })], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 1);
+  assert.doesNotMatch(res.results[0].detail, /handle gone/);
+});
+
+test('a dead handle whose slug resolves nowhere reports no-pane, saying it fell back', async () => {
+  const home = tmp();
+  queue(home, { handle: 'term_dead' });
+  const orca = mockOrca({ panes: [claudePane({ title: 'someone-else' })] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.results[0].outcome, 'no-pane');
+  assert.match(res.results[0].detail, /handle gone, resolved by slug; no pane titled "taxonomy"/);
+  assert.equal(readOutbox(home)[0].attempts, 1, 'still just one more attempt, not a lost entry');
+});
+
+/** The recipient's own record of what note-inbox has already shown it. */
+function markRead(home, slug, id, ymd = '2026-09-13') {
+  const file = cursorPath(home, slug);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ version: 1, slug, updatedAt: new Date(NOW).toISOString(), seen: { [id]: ymd } })}
+`, 'utf8');
+  return file;
+}
+
+test('D9: a wake-up the recipient has already READ is retired unattempted', async () => {
+  const home = tmp();
+  queue(home);
+  markRead(home, 'taxonomy', 'astra-pr137-1');
+
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(res.results[0].outcome, 'retired');
+  assert.equal(orca.sends().length, 0, 'typing it would be a pure duplicate wake-up');
+  assert.ok(!fs.existsSync(outboxPath(home, 'astra-pr137-1')));
+  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /retired \[astra-pr137-1\] -> taxonomy — already read \(cursor\)/);
+});
+
+test('D9: ANOTHER pane having read the id changes nothing — the cursor is per recipient', async () => {
+  const home = tmp();
+  queue(home);
+  markRead(home, 'nucleus', 'astra-pr137-1');
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 1);
+  assert.equal(res.results[0].outcome, 'delivered');
+});
+
+test('D9: a read entry is retired even at max attempts — no BLOCKED line for Ben', async () => {
+  const home = tmp();
+  queue(home, { attempts: 20 });
+  markRead(home, 'taxonomy', 'astra-pr137-1');
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [claudePane()] }), now: NOW });
+  assert.equal(res.results[0].outcome, 'retired');
+  assert.ok(!fs.existsSync(benInboxPath(home)), 'a note that was read is closed, not abandoned');
+  assert.ok(!fs.existsSync(deadOutboxPath(home, 'astra-pr137-1')));
+});
+
+test('D9: --dry-run reports the retirement without deleting anything', async () => {
+  const home = tmp();
+  queue(home);
+  markRead(home, 'taxonomy', 'astra-pr137-1');
+  const res = await runNoteFlush(['--dry-run'], { home, orca: mockOrca({ panes: [claudePane()] }), now: NOW });
+  assert.equal(res.results[0].outcome, 'retired');
+  assert.equal(readOutbox(home).length, 1);
+  assert.equal(fs.existsSync(flushLogPath(home)), false);
 });
 
 test('supersededIds reads the bracket form, in either position', () => {

@@ -186,6 +186,11 @@ export async function runNoteNotify(argv, deps = {}) {
     }
   })(), identifyBudget, undefined);
 
+  // This deliberately does NOT bind (review BLOCKER 3). `--to` lives in `~/.codex/config.toml`, which
+  // is ONE line for the whole machine, so every Codex pane spawns this with the same slug; binding
+  // whatever handle happened to survive into the child would record another pane as that slug. A Codex
+  // pane binds itself every turn through `note-inbox --me`, which is first-hand.
+
   // ── 3. Drain, inside whatever budget is left.
   const budget = Math.max(0, maxMs - (clock() - started) - DRAIN_RESERVE_MS);
   const flush = deps.flush ?? drainQuietly;

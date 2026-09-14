@@ -165,4 +165,5 @@ Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agen
 MIT
 
 ## Changelog
+- 0.3.2 — multi: durable pane↔slug bindings (`~/.agents/notes/panes.json`). A pane that runs `note-inbox --me <slug>` (or the new `note-inbox --bind <slug>`) is reachable by slug however its title changes afterwards; a title that contradicts a pane's own binding loses to it, and a binding for a handle that has been gone over 24 h is dropped on the next flush that has work to do.
 - 0.3.1 — flusher: composer/history split, zero-tolerance completion (never submits foreign text), per-call budgets ≥10 s / per-note ≥30 s, dead-letter + ben-inbox line on give-up.

@@ -40,8 +40,10 @@ note-send --from <your-slug> --to <peer-slug> --kind ASK --topic pr132-review \
 ```
 
 **If you are a Codex session:** run `note-inbox --me <your-slug> --ack` at the START of every turn
-and after finishing a task. That is your only inbox — nothing will interrupt you. Sending is the
-same command, through the mirrored copy:
+and after finishing a task. That is your only inbox — nothing will interrupt you. That same command
+also BINDS your pane to your slug in `~/.agents/notes/panes.json`, so peers can reach you even after
+Codex retitles the pane `Continue` on a restart — the title no longer has to equal your slug (still
+rename it when you can: humans read titles). Sending is the same command, through the mirrored copy:
 
 ```
 node ~/.agents/skills/multi/scripts/note-send.mjs --from <your-slug> --to <peer-slug> --kind ACK \
@@ -123,8 +125,9 @@ the current repo's `docs/ledger/*.md` in its MAIN checkout, skips your own sends
 cursor has already shown, and says whether each `Details:` packet exists on this machine. Exit 0
 always — an inbox read never fails its caller.
 
-Your slug comes from `--me`, else `$NOTE_SLUG`, else your pane's `$ORCA_TERMINAL_HANDLE`. It is
-never guessed: an inbox read under the wrong slug shows you another session's notes.
+Your slug comes from `--me`, else `$NOTE_SLUG`, else the binding recorded for your pane's
+`$ORCA_TERMINAL_HANDLE`, else your pane title. It is never guessed: an inbox read under the wrong slug
+shows you another session's notes.
 
 The first run in a pane shows only the last 12 hours and says how many older notes it marked seen
 (`--cold-start-hours 0` for everything). **Claude sessions:** the hooks do all of this. **Codex
@@ -194,6 +197,13 @@ stripped — a leading status glyph, a leading `[<tag>] <words> |` status segmen
 worktree half never matches on its own. A raw `term_…` handle always works, and two panes
 reducing to the same slug is exit 2 with the raw titles listed, never a guess.
 
+When no title matches, the **binding** answers: a pane that has run `note-inbox --me <slug>` (or
+`note-inbox --bind <slug>`) is recorded in `~/.agents/notes/panes.json` as that slug, and stays
+reachable however its title changes afterwards. A title match still beats a binding — a rename is the
+newest intent — and two live panes bound to one slug is exit 2 with the list, like two equal titles.
+A queued wake-up whose pane has since RESTARTED is re-resolved by slug rather than by the dead handle
+it was queued against, so a peer that came back under a new handle and a new title still gets it.
+
 That last shape is Orca saying the pane is waiting on a human. It resolves, so the note is recorded
 and queued — and it classifies `permission`, so nothing is typed at it. Both halves matter: before
 this, a peer stuck at an approval prompt was exit 2 ("no pane titled astra") at exactly the moment
@@ -211,7 +221,7 @@ safety gate and its failures are silent.
 | exit | meaning | what you do |
 |---|---|---|
 | 1 | bad arguments, envelope, or packet | read the message; it names the field and the fix. The same object is on stdout as JSON, so a pipe never swallows it |
-| 2 | pane not found or ambiguous | **the note is still recorded and queued** — do NOT re-send the id. Fix the pane name or rename the pane to its slug, and the queued wake-up lands on the next flush |
+| 2 | pane not found or ambiguous | **the note is still recorded and queued** — do NOT re-send the id. Rename the pane to its slug, or have that pane run `note-inbox --bind <slug>` once, and the queued wake-up lands on the next flush |
 | 3 | **deferred — queued, NOT typed** | nothing to do. The ledger has the note and `note-flush` retries the wake-up. Do NOT re-send the id |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
@@ -251,8 +261,14 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
   section list: `references/envelope.md`.
 - **Outbox** `~/.agents/notes/outbox/<id>.json` — wake-ups waiting to be retyped. Not notes: the
   notes are already in the ledger. `~/.agents/notes/flush.log` records every attempt, and a wake-up
-  nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`.
+  nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`. A wake-up whose
+  note the recipient has already read — its id is in that pane's cursor — is retired without being
+  typed, because the ledger already delivered it.
 - **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown.
+- **Bindings** `~/.agents/notes/panes.json` — `{"<handle>": {"slug","at","title"}}`, each written by the
+  pane itself. A binding does not expire while its pane lives, so a REPURPOSED pane keeps answering to
+  its old slug until it rebinds; `note-inbox --unbind` in that pane is the way out. A handle gone for
+  more than 24 hours is dropped on the next flush that has work to do. Rebinds and GC go to `flush.log`.
 - Ledgers and packets are committed with your session's next normal commit. No per-note commits.
 
 A peer review you are asking for is worth a high-tier model (Claude Opus / GPT-6-Astra for
@@ -285,5 +301,11 @@ how it runs.
   Put `--to` on that line, not in the environment: Codex clears the environment before spawning the
   notify program. An existing notify target goes on the same line as `--chain <command>`.
 - **Rename a pane to its slug** before anything else. Both tools refuse to guess.
+- **If flush.log repeats `no pane titled "<slug>"` at a pane that is plainly alive:** its title is no
+  longer its slug (Codex retitles a pane from the conversation, so every restart breaks it). Run
+  `note-inbox --bind <slug>` inside that pane, or have the agent run `note-inbox --me <slug> --ack`,
+  which binds as a side effect. `cat ~/.agents/notes/panes.json` shows what is bound to what, and
+  `note-inbox --unbind` inside a pane removes that pane's entry — the fix for a wrong `--bind`, or for
+  a slug that two live panes both claim (every send to it is exit 2 until one of them lets go).
 - Tests: `node --test "skills/multi/scripts/*.test.mjs"` (Node 24 no longer expands a bare
   directory).

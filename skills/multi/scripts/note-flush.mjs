@@ -8,7 +8,7 @@
 //
 //   · at the start of every note-send (piggyback, ~3 s budget)
 //   · from note-notify when a Codex turn ends (the moment a Codex pane is provably idle)
-//   · from a 2-minute timer as a safety net (T3 installs the unit/plist/scheduled task)
+//   · from a 1-minute timer as a safety net (T2 installs the unit/plist/scheduled task)
 //
 // USAGE
 //   note-flush [--to <slug>] [--json] [--max-ms 100000] [--max-attempts 20] [--max-age-hours 48]
@@ -17,6 +17,8 @@
 // RULES
 //   · Never blocks: one pass over the outbox inside --max-ms, then it stops and leaves the rest.
 //   · Never re-sends a note whose id a later `supersedes` retired — that entry is dropped, logged.
+//   · Never types a note the recipient has already READ: an id in `~/.agents/notes/.cursor-<slug>` is
+//     retired unattempted. The ledger delivered it; the wake-up has nothing left to do.
 //   · Never types into a pane that is not sendable for its vendor (Claude: idle or working; Codex:
 //     idle only — it does not queue typed input mid-turn).
 //   · Two-phase typing, exactly as note-send does it, through the same shared code. It NEVER starts
@@ -31,15 +33,16 @@ import path from 'node:path';
 
 import { NoteError } from './envelope.mjs';
 import {
-  toPosix, makeOrcaRunner, resolvePane, showPane, readPane, classifyPane, isSendable,
+  toPosix, makeOrcaRunner, resolvePaneWithSource, showPane, readPane, classifyPane, isSendable,
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
   notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
   killOutboxEntry, deadOutboxPath, benInboxPath,
+  readBindings, pruneBindings, BINDING_GC_MS, readCursor,
 } from './transport.mjs';
 
 /**
- * The standalone drain runs from a 2-minute timer, so it can afford to be patient — and it has to be:
+ * The standalone drain runs from a 1-minute timer, so it can afford to be patient — and it has to be:
  * Netcup answers an orca call in 1–7 s under load, and the old 8 s ceiling meant a single entry never
  * got through a full classify-type-verify-Enter sequence (incident 2026-09-14).
  */
@@ -162,11 +165,43 @@ export async function runNoteFlush(argv, deps = {}) {
     .flatMap((text) => String(text).split('\n'))
     .map((l) => l.trim())
     .filter((l) => /^[a-z0-9-]+ → [a-z0-9-]+, \d/u.test(l));
+  /**
+   * D9: has the recipient already READ this note? `~/.agents/notes/.cursor-<slug>` is the pane's own
+   * record of what note-inbox has shown it, so an id in `seen` means the note arrived through the
+   * channel that matters and the wake-up has nothing left to wake anybody up for. Typing it then is a
+   * pure duplicate — on Netcup, 2026-09-14, `taxonomy-main-tip-8` sat in the outbox for 40 minutes
+   * while astra's cursor had already shown it read.
+   *
+   * One read per slug per drain, cached: a backlog is usually several notes for the same pane. An id
+   * the cold-start window suppressed is NOT read — see `cold` below.
+   */
+  const cursors = new Map();
+  const alreadyRead = (slug, id) => {
+    if (!slug) return false;
+    if (!cursors.has(slug)) cursors.set(slug, readCursor(home, slug, fsImpl));
+    const cursor = cursors.get(slug);
+    // `cold` ids were marked seen by the cold-start window WITHOUT being displayed. They are the one
+    // kind of "seen" that is not "read": retiring those would delete the wake-up for a note the agent
+    // was never shown, which is reachable exactly when a peer has been down longer than the window —
+    // the case the outbox's 48 hours exist for (review BLOCKER 2).
+    return Boolean(cursor.seen?.[id]) && !cursor.cold?.[id];
+  };
+
   const live = [];
   for (const entry of entries) {
     if (retired.has(entry.id)) {
       if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
       results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'superseded', log: log('superseded', entry, 'a later note supersedes this id') });
+      continue;
+    }
+    if (alreadyRead(entry.toSlug ?? entry.to, entry.id)) {
+      // Before the attempt and age checks: an entry the recipient has read is closed, not abandoned —
+      // it must never reach `gave-up`, which writes a BLOCKED line into the one file Ben reads.
+      if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
+      results.push({
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'retired',
+        log: log('retired', entry, 'already read (cursor)'),
+      });
       continue;
     }
     if (Number(entry.attempts ?? 0) >= maxAttempts) {
@@ -212,6 +247,22 @@ export async function runNoteFlush(argv, deps = {}) {
     return { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length, results, home, dryRun };
   }
 
+  // The durable pane↔slug bindings, read once for the whole drain (spec 2026-09-14 D3). This is what
+  // makes `--to astra` resolve when Codex has renamed the pane to `Continue`.
+  const bindings = readBindings(home, fsImpl);
+  // D6: a binding whose pane has been gone for a day is garbage. Dropped here, where `terminal list` is
+  // already in hand — an empty outbox never reaches this point, and never spends an orca call either.
+  if (!dryRun) {
+    for (const gone of pruneBindings(home, terminals, { fsImpl, now })) {
+      appendFlushLog(
+        home,
+        `${stamp} gc ${gone.handle} ${gone.slug} — no such pane and bound ${Math.round(gone.ageMs / 3_600_000)}h ago `
+        + `(> ${Math.round(BINDING_GC_MS / 3_600_000)}h); binding dropped`,
+        fsImpl,
+      );
+    }
+  }
+
   let drained = 0;
   let attempted = 0;
   let remaining = 0;
@@ -242,7 +293,14 @@ export async function runNoteFlush(argv, deps = {}) {
     }
 
     attempted += 1;
-    const target = entry.handle && HANDLE_RE.test(entry.handle) ? entry.handle : (entry.toSlug ?? entry.to);
+    // The handle recorded at send time is exact — while the pane it named still exists. A peer that
+    // restarted gets a NEW handle, and resolving the old one is a permanent `no pane with handle …`
+    // that burns all 20 attempts against a pane sitting right there under a different title. So the
+    // recorded handle is used only while it is live, and otherwise we go back to the slug, which the
+    // title or the binding can still answer.
+    const recorded = entry.handle && HANDLE_RE.test(entry.handle) ? entry.handle : null;
+    const handleGone = Boolean(recorded) && !terminals.some((t) => t.handle === recorded);
+    const target = recorded && !handleGone ? recorded : (entry.toSlug ?? entry.to);
     let outcome;
     let detail = '';
     try {
@@ -260,11 +318,11 @@ export async function runNoteFlush(argv, deps = {}) {
       const look = entryBudget <= phase2Reserve
         ? { outcome: 'skipped: insufficient budget', detail: `${Math.round(entryBudget)} ms for this entry, phase 2 alone needs ${phase2Reserve} ms` }
         : await withDeadline((async () => {
-          const pane = resolvePane(terminals, target);
+          const { pane, via } = resolvePaneWithSource(terminals, target, { bindings });
           const show = await showPane(orca, pane.handle);
           const read = await readPane(orca, pane.handle);
           const classification = classifyPane(show, read, { now: clock() });
-          return { pane, classification };
+          return { pane, via, classification };
         })(), lookBound, TIMED_OUT);
 
       if (look.outcome) {
@@ -284,9 +342,15 @@ export async function runNoteFlush(argv, deps = {}) {
           // `confirmed-from-screen`: the id was already in the pane's TRANSCRIPT, so the note arrived
           // on an earlier attempt and only the bookkeeping was left (addendum item 7).
           outcome = res.confirmed ? 'confirmed-from-screen' : 'delivered';
+          // Say WHY that pane: `binding` means the title no longer matches the slug and panes.json is
+          // the only reason this note reached anybody — the thing whose absence cost 35 minutes on
+          // 2026-09-14. The title comes from the live pane, so the log reads as what a human sees.
+          const how = look.via === 'binding'
+            ? `binding, title ${JSON.stringify(look.pane.title ?? '')}, ${look.classification}`
+            : look.classification;
           detail = res.confirmed
             ? `already in ${look.pane.handle}'s transcript — delivered earlier, entry closed`
-            : `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${look.classification})`;
+            : `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${how})`;
         } else {
           outcome = res.stranded ? 'stranded' : 'deferred';
           detail = res.reason ?? 'not delivered';
@@ -296,6 +360,10 @@ export async function runNoteFlush(argv, deps = {}) {
       outcome = err instanceof NoteError && err.exitCode === 2 ? 'no-pane' : 'error';
       detail = err?.message ?? String(err);
     }
+
+    // Say it once, for whatever happened: the entry pointed at a pane that is gone, so everything after
+    // this line is about a pane we found by name instead.
+    if (handleGone) detail = detail ? `handle gone, resolved by slug; ${detail}` : 'handle gone, resolved by slug';
 
     if (outcome === 'delivered' || outcome === 'confirmed-from-screen') {
       drained += 1;
@@ -346,7 +414,7 @@ const USAGE = `note-flush — retry the wake-ups note-send could not type, and f
              [--orca <cmd>] [--dry-run]
 
 The notes themselves are already in the ledger; this only retries the typed nudge.
-Runs from note-send (piggyback), from note-notify at a Codex turn end, and from a 2-minute timer.
+Runs from note-send (piggyback), from note-notify at a Codex turn end, and from a 1-minute timer.
 Exit 0 always. Attempts are appended to ~/.agents/notes/flush.log.
 `;
 

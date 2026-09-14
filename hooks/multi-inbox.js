@@ -78,9 +78,15 @@ function writeStamp(slug, value) {
 /**
  * The slug WITHOUT spending anything: the env var, or the pane-slug cache transport wrote the last
  * time something resolved this handle. Returns null rather than reaching for orca.
+ *
+ * `guess` says WHERE it came from, and it decides whether this read may write a binding. The env var
+ * is the pane's own statement; the cache is a title we once reduced, kept for 10 minutes on purpose.
+ * A binding has no expiry at all, so passing a cached title as `--me` would freeze a renamed pane's
+ * old slug forever — it would keep reading and ACKING another slug's inbox, which is exactly what the
+ * TTL below exists to prevent (review BLOCKER 1).
  */
 function cheapSlug() {
-  if (process.env.NOTE_SLUG) return process.env.NOTE_SLUG;
+  if (process.env.NOTE_SLUG) return { slug: process.env.NOTE_SLUG, guess: false };
   const handle = process.env.ORCA_TERMINAL_HANDLE;
   if (!handle) return null;
   try {
@@ -90,7 +96,7 @@ function cheapSlug() {
     // L1: honour the same 10-minute TTL resolveSlug uses. Without it, a renamed pane keeps reading —
     // and ACKING — the previous slug's inbox, which is the one thing rule 4 forbids.
     if (Date.now() - Number(hit.at || 0) >= PANE_SLUG_CACHE_MS) return null;
-    return hit.slug;
+    return { slug: hit.slug, guess: true };
   } catch {
     return null;
   }
@@ -183,11 +189,14 @@ async function handleStop(input, cwd) {
 
 async function handlePostToolUse(cwd) {
   // The cheap path: no git, no orca, no import unless the mirror actually changed.
-  const slug = cheapSlug();
-  if (!slug) return;
+  const me = cheapSlug();
+  if (!me) return;
+  const slug = me.slug;
   const newest = newestLedgerMtime();
   if (newest === 0 || newest <= readStamp(slug)) return;
-  const result = await inbox(["--me", slug, "--ack", "--no-repo"], cwd);
+  // `--no-bind` when the slug came from the title cache: a guess must never become a permanent binding.
+  const args = ["--me", slug, "--ack", "--no-repo", ...(me.guess ? ["--no-bind"] : [])];
+  const result = await inbox(args, cwd);
   // L2: the stamp moves only AFTER a successful read. Advancing it first meant any failure underneath
   // was never retried until some other write happened to touch the mirror again.
   writeStamp(slug, newest);

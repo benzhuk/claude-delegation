@@ -77,7 +77,7 @@ import {
 import {
   HANDLE_RE, toPosix, gitRunner, mainCheckout, makeOrcaRunner,
   classifyPane, isSendable, twoPhaseSend, showPane, readPane,
-  resolvePane, isLocalPane, titleToSlug,
+  resolvePane, isLocalPane, titleToSlug, readBindings,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
 } from './transport.mjs';
@@ -153,9 +153,16 @@ function deferMessage(classification, pane, envelope, ledgers, agentIdentity) {
     + envelope;
 }
 
-function recipientSlug(pane, raw) {
+/**
+ * What the LEDGER LINE says the recipient is. For `--to <slug>` that is the slug; for a raw handle it
+ * has to be derived, and the pane's binding is the only first-hand source — `titleToSlug` on a Codex
+ * pane titled `Continue | bto-workflows` files the note as addressed to `continue`, which no
+ * note-inbox ever reads (review MAJOR 2). Both ambiguity errors tell people to re-send with a handle,
+ * so this path is exactly where a retitled pane sends them.
+ */
+function recipientSlug(pane, raw, bindings = {}) {
   if (!HANDLE_RE.test(raw)) return raw;
-  return titleToSlug(pane?.title) ?? 'peer';
+  return bindings[pane?.handle]?.slug ?? titleToSlug(pane?.title) ?? 'peer';
 }
 
 /** Spec V7: one file Ben reads for everything waiting on him. */
@@ -234,6 +241,7 @@ export async function runNoteSend(argv, deps = {}) {
 
   // ── 2/3. Drain the backlog, then resolve the pane. In --dry-run we never touch orca at all.
   let pane = null;
+  let bindings = {};
   let orca = null;
   let drained = null;
   let paneError = null;
@@ -254,7 +262,11 @@ export async function runNoteSend(argv, deps = {}) {
     // and the outbox entry, already on disk. The pilot's real failures were exactly this shape: a pane
     // renamed mid-flight, an ambiguous title, Orca's status tag.
     try {
-      pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw);
+      // The bindings make `--to astra` work against a pane whose title is no longer its slug — a Codex
+      // pane retitled `Continue` by a restart. Resolution order is unchanged otherwise: handle, then
+      // exact title, then the binding (spec 2026-09-14 D3).
+      bindings = readBindings(home, fsImpl);
+      pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw, { bindings });
     } catch (err) {
       if (!(err instanceof NoteError) || err.exitCode !== 2) throw err;
       // A raw `term_…` handle that resolves to nothing is the one case we cannot record: without a pane
@@ -332,7 +344,7 @@ export async function runNoteSend(argv, deps = {}) {
   if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
   const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
 
-  const toSlug = isBen ? RESERVED_RECIPIENT : recipientSlug(pane, toRaw);
+  const toSlug = isBen ? RESERVED_RECIPIENT : recipientSlug(pane, toRaw, bindings);
   const envelope = buildEnvelope({
     from, to: toSlug, date, time, tz, id,
     re: args.re, supersedes: args.supersedes, kind, body: args.text, goal: args.goal, details,

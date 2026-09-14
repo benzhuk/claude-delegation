@@ -16,7 +16,7 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
-  runNoteSend,
+  runNoteSend, writeBinding,
 } from './note-send.mjs';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -394,6 +394,74 @@ test('happy path: ledger first, then text without Enter, then Enter', async () =
   const ledger = fs.readFileSync(ledgerPath(repo, timeParts(new Date(NOW)).ymd), 'utf8');
   assert.ok(ledger.includes(res.envelope));
   assert.ok(fs.existsSync(notesMirrorPath(home, timeParts(new Date(NOW)).ymd)), '~/.agents/notes mirror (H6)');
+});
+
+test('D3: a send resolves through the BINDING when the pane title is no longer the slug', async () => {
+  const repo = tmp(); const home = tmp();
+  // The pane Ben restarted: Codex retitled it from `nucleus` to whatever the conversation is called.
+  writeBinding(home, 'term_bbb', 'nucleus', { now: NOW });
+  const pane = idlePane({ handle: 'term_bbb', title: 'Continue | bto-workflows', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
+
+  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW });
+  assert.equal(res.delivered, true);
+  assert.equal(res.handle, 'term_bbb');
+  assert.equal(orca.enters().length, 1);
+  assert.equal(res.to, 'nucleus', 'the ledger line is addressed to the slug, not the title');
+});
+
+test('D3: an exact TITLE still wins over a binding that points elsewhere', async () => {
+  const repo = tmp(); const home = tmp();
+  writeBinding(home, 'term_bbb', 'nucleus', { now: NOW });
+  const titled = idlePane({ handle: 'term_aaa', title: 'nucleus', worktreePath: repo });
+  const bound = idlePane({ handle: 'term_bbb', title: 'Continue', worktreePath: repo });
+  const orca = mockOrca({ panes: [titled, bound], reads: DELIVERY_READS() });
+
+  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW });
+  assert.equal(res.handle, 'term_aaa', 'a rename is the newest intent');
+});
+
+test('MAJOR 2: --to <handle> files the note under the BINDING, not the conversation title', async () => {
+  const repo = tmp(); const home = tmp();
+  // Both ambiguity errors tell people to re-send with a handle, and Codex titles are no longer slugs.
+  // Deriving the recipient from `Continue | bto-workflows` files the line as addressed to `continue`,
+  // which no note-inbox anywhere ever reads — delivered to the pane, invisible in the ledger.
+  writeBinding(home, 'term_bbb', 'nucleus', { now: NOW });
+  const pane = idlePane({ handle: 'term_bbb', title: 'Continue | bto-workflows', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
+
+  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW });
+  assert.match(res.envelope, /^taxonomy → nucleus, /, 'the ledger line must name a slug note-inbox reads');
+  assert.equal(res.delivered, true);
+  assert.equal(res.handle, 'term_bbb');
+});
+
+test('MAJOR 2: with no binding it still falls back to the title, as it always did', async () => {
+  const repo = tmp(); const home = tmp();
+  const pane = idlePane({ handle: 'term_bbb', title: 'nucleus', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
+  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW });
+  assert.match(res.envelope, /^taxonomy → nucleus, /);
+});
+
+test('D3/H9: two LIVE panes bound to one slug is exit 2 — recorded and queued, never guessed', async () => {
+  const repo = tmp(); const home = tmp();
+  writeBinding(home, 'term_bbb', 'nucleus', { now: NOW });
+  writeBinding(home, 'term_ccc', 'nucleus', { now: NOW });
+  const orca = mockOrca({ panes: [
+    idlePane({ handle: 'term_bbb', title: 'Continue', worktreePath: repo }),
+    idlePane({ handle: 'term_ccc', title: 'switch-to-astra-model', worktreePath: repo }),
+  ] });
+
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /bound to 2 live panes/,
+  );
+  assert.equal(err.queued, true, 'H3: a pane-name problem costs latency, not the note');
+  assert.ok(err.ledgers.length > 0);
+  assert.equal(orca.sends().length, 0);
 });
 
 test('C1: a state change between the two phases aborts before Enter', async () => {
