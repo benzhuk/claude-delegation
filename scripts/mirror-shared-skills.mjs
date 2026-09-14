@@ -157,8 +157,9 @@ function collectSources() {
 /**
  * A launcher that finds node the way the chezmoi hook does: PATH first, then a platform fallback —
  * fnm's installed versions on macOS/Linux (fnm is not sourced in non-login shells such as ssh
- * commands and tmux, and a cross-host note is sent over exactly such a shell), or nvm4w's
- * `C:/nvm4w/nodejs/node.exe` on Windows, where fnm does not exist.
+ * commands and tmux, and a cross-host note is sent over exactly such a shell) and then Homebrew's
+ * node on macOS (launchd runs the 1-minute flusher with a bare /usr/bin:/bin PATH — exit 127 on the
+ * Mac, 2026-09-14), or nvm4w's `C:/nvm4w/nodejs/node.exe` on Windows, where fnm does not exist.
  */
 function shimContent(flavour, command) {
   const target = shimTarget(command);
@@ -185,10 +186,10 @@ function shimContent(flavour, command) {
     ? `  for candidate in /c/nvm4w/nodejs/node.exe C:/nvm4w/nodejs/node.exe; do
     [ -x "$candidate" ] && node_bin="$candidate"
   done`
-    : `  for candidate in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node; do
+    : `  for candidate in "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node /opt/homebrew/bin/node /usr/local/bin/node; do
     [ -x "$candidate" ] && node_bin="$candidate"
   done`;
-  const where = IS_WINDOWS ? 'on PATH or at C:/nvm4w/nodejs' : 'on PATH or under ~/.local/share/fnm';
+  const where = IS_WINDOWS ? 'on PATH or at C:/nvm4w/nodejs' : 'on PATH, under ~/.local/share/fnm, or at /opt/homebrew/bin';
   return [
     '#!/bin/sh',
     '# installed by claude-delegation scripts/mirror-shared-skills.mjs — do not edit by hand',
