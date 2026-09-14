@@ -19,6 +19,9 @@
 //   · Never re-sends a note whose id a later `supersedes` retired — that entry is dropped, logged.
 //   · Never types a note the recipient has already READ: an id in `~/.agents/notes/.cursor-<slug>` is
 //     retired unattempted. The ledger delivered it; the wake-up has nothing left to do.
+//   · Never types at a pane that is LISTENING: a fresh `.listening-<slug>.json` means that session is
+//     parked in its Stop hook and will pull the note into its own context. Typing would put the same
+//     note in Ben's composer for nothing. The entry waits, unattempted and un-aged.
 //   · Never types into a pane that is not sendable for its vendor (Claude: idle or working; Codex:
 //     idle only — it does not queue typed input mid-turn).
 //   · Two-phase typing, exactly as note-send does it, through the same shared code. It NEVER starts
@@ -38,7 +41,7 @@ import {
   notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
   killOutboxEntry, deadOutboxPath, benInboxPath,
-  readBindings, pruneBindings, BINDING_GC_MS, readCursor,
+  readBindings, pruneBindings, BINDING_GC_MS, readCursor, isListening,
 } from './transport.mjs';
 
 /**
@@ -175,6 +178,16 @@ export async function runNoteFlush(argv, deps = {}) {
    * One read per slug per drain, cached: a backlog is usually several notes for the same pane. An id
    * the cold-start window suppressed is NOT read — see `cold` below.
    */
+  // D5: who is parked in a Stop hook right now? One stat per slug per drain; a marker is only believed
+  // while it is unexpired AND (on this host) its process is alive.
+  const listeners = new Map();
+  const listening = (slug) => {
+    if (!slug) return null;
+    if (!listeners.has(slug)) listeners.set(slug, isListening(home, slug, { fsImpl, now }));
+    return listeners.get(slug);
+  };
+
+  let parked = 0;
   const cursors = new Map();
   const alreadyRead = (slug, id) => {
     if (!slug) return false;
@@ -192,6 +205,18 @@ export async function runNoteFlush(argv, deps = {}) {
     if (retired.has(entry.id)) {
       if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
       results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'superseded', log: log('superseded', entry, 'a later note supersedes this id') });
+      continue;
+    }
+    const marker = listening(entry.toSlug ?? entry.to);
+    if (marker) {
+      // Not a deferral: attempts are NOT incremented and the entry is left exactly as it is. A 15-minute
+      // long poll spans fifteen 1-minute drains, which would otherwise burn most of the 20-attempt
+      // budget for a wake-up nobody needed to type.
+      parked += 1;
+      results.push({
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'listening',
+        log: log('listening', entry, `that session is parked in a Stop hook until ${new Date(Number(marker.until)).toISOString()} and will read it there`),
+      });
       continue;
     }
     if (alreadyRead(entry.toSlug ?? entry.to, entry.id)) {
@@ -230,7 +255,7 @@ export async function runNoteFlush(argv, deps = {}) {
 
   if (live.length === 0 || dryRun) {
     return {
-      ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length,
+      ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length + parked,
       results: [...results, ...live.map((e) => ({ id: e.id, to: e.toSlug ?? e.to, outcome: dryRun ? 'would-retry' : 'pending' }))],
       home, dryRun,
     };
@@ -385,7 +410,7 @@ export async function runNoteFlush(argv, deps = {}) {
     });
   }
 
-  return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+  return { ok: true, exitCode: 0, drained, attempted, remaining: remaining + parked, results, home, dryRun };
 }
 
 /**

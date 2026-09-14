@@ -35,6 +35,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
+import { mergeHooksJson, trustEntriesForPlacements, upsertHooksState, codexHomes } from './codex-hook-trust.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 const HOME = os.homedir();
@@ -44,6 +46,14 @@ const CODEX_AGENTS = path.join(HOME, '.codex', 'agents');
 const LOCAL_BIN = path.join(HOME, '.local', 'bin');
 const MANIFEST = path.join(AGENTS_SKILLS, '.mirror-manifest.json');
 const MANIFEST_VERSION = 2;
+
+/**
+ * The Codex hook entry point, by its path IN THIS REPO — not the mirrored copy. The mirror publishes
+ * `skills/multi` and nothing else, and on POSIX it does so as a SYMLINK back to here, so the repo path
+ * is the one location that exists on every machine and always matches the code that wrote the trust
+ * hash. The installer re-runs on every `chezmoi apply`, so a plugin that moves is repaired next apply.
+ */
+const CODEX_HOOK_SCRIPT = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
 
 const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build'];
 const CLAUDE_SKILLS = ['knowledge', 'triage', 'dev-server', 'learn'];
@@ -82,9 +92,10 @@ const log = [];
 const refusals = [];
 
 function parseArgs(argv) {
-  const o = { dryRun: false, force: false, uninstall: false, json: false };
+  const o = { dryRun: false, force: false, uninstall: false, json: false, codexHooksOnly: false };
   for (const a of argv) {
     if (a === '--dry-run') o.dryRun = true;
+    else if (a === '--codex-hooks-only') o.codexHooksOnly = true;
     else if (a === '--force') o.force = true;
     else if (a === '--uninstall') o.uninstall = true;
     else if (a === '--json') o.json = true;
@@ -443,6 +454,8 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json]
 
   --dry-run    print every action without touching anything
+  --codex-hooks-only
+               only wire (and pre-trust) the Codex hooks in every Codex home; publish nothing
   --force      overwrite a destination that exists and is not in our manifest
   --uninstall  remove exactly what the manifest says we created, then the manifest
   --json       one JSON object instead of the human log
@@ -458,8 +471,86 @@ function publish(entry, prev) {
   return MODE === 'symlink' ? publishSymlink(entry, prev) : publishCopy(entry, prev);
 }
 
+/**
+ * D4 — wire the Codex hooks into every Codex home on this machine, and PRE-TRUST them.
+ *
+ * Codex silently skips an untrusted hook, so writing hooks.json alone installs nothing. Trust is per
+ * handler, keyed by the absolute path of the file, and the hash covers the normalized handler — all of
+ * it in `codex-hook-trust.mjs`, pinned to hashes the Codex TUI itself produced.
+ *
+ * Three rules, because these are LIVE homes Ben works in:
+ *   · never create a Codex home that does not exist;
+ *   · never delete anything, and never touch a key that is not ours (the `notify` line must survive);
+ *   · rewrite nothing when nothing changed, so an apply that changes no hooks leaves no mtimes moved.
+ */
+function installCodexHooks() {
+  const results = [];
+  if (!fs.existsSync(CODEX_HOOK_SCRIPT)) {
+    refuse(`missing Codex hook script ${CODEX_HOOK_SCRIPT}`);
+    return results;
+  }
+  for (const home of codexHomes()) {
+    if (!fs.existsSync(home)) continue; // an account home that is not on this machine
+    const hooksPath = path.join(home, 'hooks.json');
+    const configPath = path.join(home, 'config.toml');
+    const result = { home, hooksPath, wroteHooks: false, trust: { added: [], updated: [] } };
+
+    // MERGE, never overwrite. Orca installs its OWN hooks.json into every managed home
+    // (`.orca/agent-hooks/codex-hook.cmd` on SessionStart, UserPromptSubmit, PreToolUse,
+    // PermissionRequest…). Writing this file wholesale would delete Orca's agent integration — which is
+    // present in four of the five Codex homes on this machine, checked 2026-09-14.
+    let current = null;
+    try { current = fs.readFileSync(hooksPath, 'utf8'); } catch { current = null; }
+    let existing = {};
+    if (current !== null) {
+      try {
+        existing = JSON.parse(current);
+      } catch {
+        refuse(`${hooksPath} is not valid JSON — refusing to touch it. Fix or remove it, then re-run.`);
+        continue;
+      }
+    }
+
+    const merged = mergeHooksJson(existing, CODEX_HOOK_SCRIPT);
+    const desired = `${JSON.stringify(merged.json, null, 2)}\n`;
+    if (current !== desired) {
+      say(current === null ? 'write codex hooks.json' : 'add multi hooks to codex hooks.json', hooksPath);
+      if (!opts.dryRun) fs.writeFileSync(hooksPath, desired, 'utf8');
+      result.wroteHooks = true;
+    }
+    result.placements = merged.placements.map((pl) => `${pl.event}:${pl.groupIndex}:${pl.handlerIndex}`);
+
+    // The key Codex computes uses the path as IT prints it, so the trust entries are keyed by the
+    // native absolute path — backslashes and all on Windows — and by the indices our handler actually
+    // landed on after the merge, which is why mergeHooksJson hands back the placements.
+    const entries = trustEntriesForPlacements(path.resolve(hooksPath), merged.placements);
+    let toml = '';
+    try { toml = fs.readFileSync(configPath, 'utf8'); } catch { toml = ''; }
+    const upserted = upsertHooksState(toml, entries);
+    if (upserted.changed) {
+      say('trust codex hooks', `${configPath} (+${upserted.added.length} ~${upserted.updated.length})`);
+      if (!opts.dryRun) fs.writeFileSync(configPath, upserted.text, 'utf8');
+      result.trust = { added: upserted.added, updated: upserted.updated };
+    }
+    results.push(result);
+  }
+  return results;
+}
+
 function main() {
   if (opts.help) { process.stdout.write(USAGE); return 0; }
+  let codexHooks = [];
+
+  // Just the Codex wiring, publishing nothing: what the integrator runs against a scratch CODEX_HOME to
+  // prove a hook fires without the bypass flag, and the quickest repair when a home has drifted.
+  if (opts.codexHooksOnly) {
+    codexHooks = installCodexHooks();
+    const lines = [...log, ...refusals.map((r) => `REFUSED: ${r}`)];
+    if (opts.json) process.stdout.write(`${JSON.stringify({ ok: refusals.length === 0, codexHooks, actions: log, refusals }, null, 2)}\n`);
+    else process.stdout.write(`${lines.join('\n')}\n`);
+    return refusals.length === 0 ? 0 : 1;
+  }
+
   const prev = readManifest();
 
   if (opts.uninstall) {
@@ -486,6 +577,9 @@ function main() {
       if (!opts.dryRun && st.isSymbolicLink()) fs.unlinkSync(old.dest);
     }
     writeManifest(managed);
+    // Deliberately NOT in the manifest: `--uninstall` must never strip a Codex home's hooks.json or
+    // rewrite Ben's config.toml. Removing hooks is a decision, not a side effect of unmirroring.
+    codexHooks = installCodexHooks();
   }
 
   if (opts.json) {
@@ -495,6 +589,7 @@ function main() {
       codexAgents: CODEX_AGENTS.split(path.sep).join('/'),
       shims: SHIM_SPECS.map((s) => path.join(LOCAL_BIN, s.name).split(path.sep).join('/')),
       shimCommands: SHIM_COMMANDS,
+      codexHooks: codexHooks.map((c) => ({ ...c, home: c.home.split(path.sep).join('/') })),
       actions: log, refusals,
     }, null, 2)}\n`);
   } else {

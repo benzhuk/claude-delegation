@@ -165,5 +165,6 @@ Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agen
 MIT
 
 ## Changelog
+- 0.4.0 — multi: hook delivery for BOTH agents. Codex gets hooks (SessionStart/UserPromptSubmit/PostToolUse/Stop), installed and pre-trusted into every Codex home by the mirror; both agents share one hook core; every delivery carries a one-line `systemMessage` for the human, never a keystroke in the composer; a Stop hook long-polls up to 15 minutes, but only while that session has an ASK outstanding, and the flusher leaves a listening pane alone.
 - 0.3.2 — multi: durable pane↔slug bindings (`~/.agents/notes/panes.json`). A pane that runs `note-inbox --me <slug>` (or the new `note-inbox --bind <slug>`) is reachable by slug however its title changes afterwards; a title that contradicts a pane's own binding loses to it, and a binding for a handle that has been gone over 24 h is dropped on the next flush that has work to do.
 - 0.3.1 — flusher: composer/history split, zero-tolerance completion (never submits foreign text), per-call budgets ≥10 s / per-note ≥30 s, dead-letter + ben-inbox line on give-up.
