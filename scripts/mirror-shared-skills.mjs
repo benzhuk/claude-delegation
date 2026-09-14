@@ -92,11 +92,16 @@ const log = [];
 const refusals = [];
 
 function parseArgs(argv) {
-  const o = { dryRun: false, force: false, uninstall: false, json: false, codexHooksOnly: false };
-  for (const a of argv) {
+  const o = { dryRun: false, force: false, uninstall: false, json: false, codexHooksOnly: false, codexHome: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a === '--dry-run') o.dryRun = true;
     else if (a === '--codex-hooks-only') o.codexHooksOnly = true;
-    else if (a === '--force') o.force = true;
+    else if (a === '--codex-home') {
+      const value = argv[++i];
+      if (value === undefined) refusals.push('--codex-home needs a path');
+      else o.codexHome = value;
+    } else if (a === '--force') o.force = true;
     else if (a === '--uninstall') o.uninstall = true;
     else if (a === '--json') o.json = true;
     else if (a === '--help') o.help = true;
@@ -456,6 +461,8 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
   --dry-run    print every action without touching anything
   --codex-hooks-only
                only wire (and pre-trust) the Codex hooks in every Codex home; publish nothing
+  --codex-home <dir>
+               wire ONLY that Codex home (use this for a scratch home; CODEX_HOME merely adds one)
   --force      overwrite a destination that exists and is not in our manifest
   --uninstall  remove exactly what the manifest says we created, then the manifest
   --json       one JSON object instead of the human log
@@ -489,7 +496,12 @@ function installCodexHooks() {
     refuse(`missing Codex hook script ${CODEX_HOOK_SCRIPT}`);
     return results;
   }
-  for (const home of codexHomes()) {
+  // `--codex-home` restricts this to ONE home. Without it the installer covers every Codex home on the
+  // machine, `~/.codex` included — correct for a real apply, and exactly wrong for a smoke against a
+  // scratch home, which is how the real ~/.codex on Netcup got hooks it never asked for (2026-09-14,
+  // removed by hand the same hour). Setting CODEX_HOME is NOT enough: that only ADDS a home.
+  const homes = opts.codexHome ? [path.resolve(opts.codexHome)] : codexHomes();
+  for (const home of homes) {
     if (!fs.existsSync(home)) continue; // an account home that is not on this machine
     const hooksPath = path.join(home, 'hooks.json');
     const configPath = path.join(home, 'config.toml');
