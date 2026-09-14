@@ -287,7 +287,14 @@ export async function runNoteFlush(argv, deps = {}) {
     }
 
     attempted += 1;
-    const target = entry.handle && HANDLE_RE.test(entry.handle) ? entry.handle : (entry.toSlug ?? entry.to);
+    // The handle recorded at send time is exact — while the pane it named still exists. A peer that
+    // restarted gets a NEW handle, and resolving the old one is a permanent `no pane with handle …`
+    // that burns all 20 attempts against a pane sitting right there under a different title. So the
+    // recorded handle is used only while it is live, and otherwise we go back to the slug, which the
+    // title or the binding can still answer.
+    const recorded = entry.handle && HANDLE_RE.test(entry.handle) ? entry.handle : null;
+    const handleGone = Boolean(recorded) && !terminals.some((t) => t.handle === recorded);
+    const target = recorded && !handleGone ? recorded : (entry.toSlug ?? entry.to);
     let outcome;
     let detail = '';
     try {
@@ -347,6 +354,10 @@ export async function runNoteFlush(argv, deps = {}) {
       outcome = err instanceof NoteError && err.exitCode === 2 ? 'no-pane' : 'error';
       detail = err?.message ?? String(err);
     }
+
+    // Say it once, for whatever happened: the entry pointed at a pane that is gone, so everything after
+    // this line is about a pane we found by name instead.
+    if (handleGone) detail = detail ? `handle gone, resolved by slug; ${detail}` : 'handle gone, resolved by slug';
 
     if (outcome === 'delivered' || outcome === 'confirmed-from-screen') {
       drained += 1;

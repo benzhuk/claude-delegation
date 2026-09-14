@@ -403,6 +403,21 @@ test('with no binding the same drain reports no-pane and keeps the entry', async
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /no-pane \[taxonomy-main-tip-8\] -> astra/);
 });
 
+test('the restart case end to end: dead handle, new pane, title changed — the binding still lands it', async () => {
+  const home = tmp();
+  // Exactly the Netcup shape: the entry was queued against the OLD astra pane, Ben restarted it, and
+  // the new pane carries a conversation title. Neither the handle nor the title can resolve this.
+  queue(home, { handle: 'term_old' });
+  writeBinding(home, 'term_new', 'astra', { now: NOW - HOUR });
+  const orca = mockOrca({
+    panes: [claudePane({ handle: 'term_new', title: 'switch-to-astra-model' })],
+    reads: DELIVERY_READS('taxonomy-main-tip-8'),
+  });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 1);
+  assert.match(res.results[0].detail, /handle gone, resolved by slug; typed into term_new \(binding, title "switch-to-astra-model", agent-idle\)/);
+});
+
 test('D6: pruneBindings drops a handle gone for more than 24 h and keeps everything else', () => {
   const home = tmp();
   writeBinding(home, 'term_live', 'taxonomy', { now: NOW - 40 * HOUR });

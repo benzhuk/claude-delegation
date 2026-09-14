@@ -201,6 +201,8 @@ When no title matches, the **binding** answers: a pane that has run `note-inbox 
 `note-inbox --bind <slug>`) is recorded in `~/.agents/notes/panes.json` as that slug, and stays
 reachable however its title changes afterwards. A title match still beats a binding — a rename is the
 newest intent — and two live panes bound to one slug is exit 2 with the list, like two equal titles.
+A queued wake-up whose pane has since RESTARTED is re-resolved by slug rather than by the dead handle
+it was queued against, so a peer that came back under a new handle and a new title still gets it.
 
 That last shape is Orca saying the pane is waiting on a human. It resolves, so the note is recorded
 and queued — and it classifies `permission`, so nothing is typed at it. Both halves matter: before

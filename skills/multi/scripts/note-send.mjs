@@ -77,7 +77,7 @@ import {
 import {
   HANDLE_RE, toPosix, gitRunner, mainCheckout, makeOrcaRunner,
   classifyPane, isSendable, twoPhaseSend, showPane, readPane,
-  resolvePane, isLocalPane, titleToSlug,
+  resolvePane, isLocalPane, titleToSlug, readBindings,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
 } from './transport.mjs';
@@ -254,7 +254,14 @@ export async function runNoteSend(argv, deps = {}) {
     // and the outbox entry, already on disk. The pilot's real failures were exactly this shape: a pane
     // renamed mid-flight, an ambiguous title, Orca's status tag.
     try {
-      pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw);
+      // The bindings make `--to astra` work against a pane whose title is no longer its slug — a Codex
+      // pane retitled `Continue` by a restart. Resolution order is unchanged otherwise: handle, then
+      // exact title, then the binding (spec 2026-09-14 D3).
+      pane = resolvePane(
+        (await orca(['terminal', 'list', '--json']))?.terminals,
+        toRaw,
+        { bindings: readBindings(home, fsImpl) },
+      );
     } catch (err) {
       if (!(err instanceof NoteError) || err.exitCode !== 2) throw err;
       // A raw `term_…` handle that resolves to nothing is the one case we cannot record: without a pane
