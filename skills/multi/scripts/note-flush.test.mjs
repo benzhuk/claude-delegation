@@ -14,6 +14,7 @@ import {
   normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
   claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
   composerResidue, deadOutboxPath, benInboxPath, DEFAULT_ORCA_TIMEOUT_MS,
+  splitAtPrompt, locateId, composerShows,
 } from './transport.mjs';
 import {
   runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush,
@@ -566,6 +567,22 @@ test('H4: note-notify stays inside its budget when slug resolution hangs', async
 // taxonomy's composer while later notes stacked on top — so taxonomy got a pile of stale notes at once.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * A Claude composer exactly as it renders on Netcup (verified 2026-09-14): a box rule, the `❯`
+ * prompt carrying the first line, any wrapped continuation, a closing rule, then the hint lines that
+ * live BELOW the box and are not composer content.
+ */
+const RULE = '─'.repeat(60);
+const COMPOSER = (lines = []) => [
+  RULE,
+  `❯ ${lines[0] ?? ''}`,
+  ...lines.slice(1),
+  RULE,
+  '  ⏵⏵ bypass permissions on · 3 shells',
+  '  ● main',
+  '  ◯ general-purpose  Tailing replay-smoke.log for movie 175',
+];
+
 /** An orca whose `read` calls take `readMs`, so a phase-2 timeout can be reproduced deterministically. */
 function slowReadOrca(cfg = {}) {
   const calls = [];
@@ -639,7 +656,7 @@ test('incident (3): our own stranded line is completed, not refused forever', as
   const home = tmp();
   queue(home);
   // The composer already holds exactly the envelope a previous attempt typed.
-  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([`> ${ENVELOPE}`])] });
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(COMPOSER([ENVELOPE]))] });
   const res = await runNoteFlush([], { home, orca, now: NOW });
   assert.equal(res.drained, 1, JSON.stringify(res.results));
   assert.equal(orca.texts().length, 0, 'it must not be typed a second time');
@@ -656,7 +673,7 @@ test('incident (3): a composer holding a STACK of our notes is still completed',
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
   fs.writeFileSync(ledger, `${ENVELOPE}\n${other}\n`);
   // Exactly the incident's end state: several stranded envelopes, wrapped across lines by the terminal.
-  const wrapped = [`> ${other.slice(0, 40)}`, other.slice(40), ENVELOPE.slice(0, 50), ENVELOPE.slice(50), '  ? for shortcuts'];
+  const wrapped = COMPOSER([other.slice(0, 40), other.slice(40), ENVELOPE.slice(0, 50), ENVELOPE.slice(50)]);
   const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(wrapped)] });
   const res = await runNoteFlush([], { home, orca, now: NOW });
   assert.equal(res.drained, 1, JSON.stringify(res.results));
@@ -669,30 +686,30 @@ test('incident (3): foreign text in the composer is still never submitted', asyn
   queue(home);
   const orca = slowReadOrca({
     panes: [claudePane()],
-    reads: [readOf(['? for shortcuts']), readOf([`> ${ENVELOPE}`, 'and here is something Ben was typing'])],
+    reads: [readOf(['? for shortcuts']), readOf(COMPOSER([ENVELOPE, 'and here is something Ben was typing']))],
   });
   const res = await runNoteFlush([], { home, orca, now: NOW });
   assert.equal(res.drained, 0);
   assert.equal(orca.enters().length, 0, 'a human half-typed message must never be submitted');
-  assert.match(res.results[0].detail, /composer also holds text that is not a note/);
+  assert.match(res.results[0].detail, /composer but so is text that is not a note/);
   assert.match(res.results[0].detail, /somethingBenwastyping/i, 'the residue names what it refused to submit');
   assert.equal(readOutbox(home).length, 1);
 });
 
 test('incident (3): composerResidue tolerates wrapping and ignores chrome', () => {
   const env = 'astra → taxonomy, 9.13.26 13:45 NYC [astra-x-1] FYI: Hello there.';
-  const wrapped = readOf(['│ > astra → taxonomy, 9.13.26 13:45 NYC [astra-x-1] FYI: Hel', 'lo there.', '  ? for shortcuts']);
+  const wrapped = readOf(COMPOSER(['astra → taxonomy, 9.13.26 13:45 NYC [astra-x-1] FYI: Hel', 'lo there.']));
   assert.equal(composerResidue(wrapped, [env]).foreign, null);
-  const dirty = readOf(['> ' + env, 'rm -rf something']);
+  const dirty = readOf(COMPOSER([env, 'rm -rf something']));
   assert.match(composerResidue(dirty, [env]).foreign, /rm-rfsomething/);
   // an envelope we have never seen is foreign too — we only complete deliveries we can account for
-  assert.ok(composerResidue(readOf(['> ' + env]), []).foreign);
+  assert.ok(composerResidue(readOf(COMPOSER([env])), []).foreign);
 });
 
 test('incident (4): a completed delivery is not retyped, and the entry is gone', async () => {
   const home = tmp();
   queue(home);
-  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([`> ${ENVELOPE}`])] });
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(COMPOSER([ENVELOPE]))] });
   await runNoteFlush([], { home, orca, now: NOW });
   assert.equal(readOutbox(home).length, 0);
   // A second drain has nothing to do — the id is never typed again.
@@ -739,4 +756,106 @@ test('a pass that could never type logs one summary line, not one per entry', as
   const logText = fs.readFileSync(flushLogPath(home), 'utf8').trim().split('\n');
   assert.equal(logText.length, 1, 'the piggyback runs constantly; four lines per send would bury the log');
   assert.match(logText[0], /budget-only-pass 4 entries left untouched/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Addendum 2026-09-14: "on screen" must mean the COMPOSER, not the transcript.
+// taxonomy's composer was a bare ❯ while flush.log insisted the note was "already on screen" — the
+// check was matching the id in the scrollback of a note that had been delivered and submitted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The transcript above the input box: a note that ARRIVED, wrapped by the terminal as it really is. */
+const HISTORY = (env) => [
+  '✻ Waiting for 1 background agent to finish',
+  '  Ran 1 shell command',
+  `💬 ${env.slice(0, 60)}`,
+  `  ${env.slice(60)}`,
+];
+
+test('addendum (6): the tail splits at the last prompt marker, and hints below the box are not composer', () => {
+  const split = splitAtPrompt(readOf([...HISTORY(ENVELOPE), ...COMPOSER(['half a thought'])]));
+  assert.equal(split.found, true);
+  assert.deepEqual(split.composer.map((l) => l.trim()).filter(Boolean), ['half a thought']);
+  assert.ok(split.history.join(' ').includes('Waiting for 1 background agent'));
+  // the agents list and the status line live BELOW the box and must never read as typed text
+  assert.equal(split.composer.join(' ').includes('general-purpose'), false);
+  assert.equal(split.composer.join(' ').includes('bypass permissions'), false);
+});
+
+test('addendum (6): an empty composer is empty — the live taxonomy screen', () => {
+  // Exactly what `orca terminal read` returned for taxonomy at 2026-09-14: a bare ❯ between two rules,
+  // with the note in the transcript above.
+  const read = readOf([...HISTORY(ENVELOPE), ...COMPOSER([])]);
+  const where = locateId(read, 'astra-pr137-1');
+  assert.equal(where.found, true);
+  assert.equal(where.inComposer, false, 'the composer is EMPTY; this is the whole bug');
+  assert.equal(where.inHistory, true);
+  assert.equal(composerShows(read, 'astra-pr137-1'), false);
+});
+
+test('addendum (7): an id in the transcript means DELIVERED — entry closed, nothing typed', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([...HISTORY(ENVELOPE), ...COMPOSER([])])] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.results[0].outcome, 'confirmed-from-screen');
+  assert.equal(res.drained, 1);
+  assert.equal(orca.texts().length, 0, 'a note already in the transcript must never be retyped');
+  assert.equal(orca.enters().length, 0, 'and Enter must not be pressed into an empty composer');
+  assert.equal(readOutbox(home).length, 0, 'this is what stopped the outbox draining');
+  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /confirmed-from-screen \[astra-pr137-1\]/);
+});
+
+test('addendum (8): an id in the composer is completed with Enter, not retyped', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({
+    panes: [claudePane()],
+    reads: [readOf(['? for shortcuts']), readOf([...HISTORY('astra → taxonomy, 9.13.26 09:00 NYC [astra-old-9] FYI: Something else.'), ...COMPOSER([ENVELOPE])])],
+  });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.results[0].outcome, 'delivered');
+  assert.match(res.results[0].detail, /completed an interrupted delivery/);
+  assert.equal(orca.texts().length, 0);
+  assert.equal(orca.enters().length, 1);
+});
+
+test('addendum (9): foreign text in the composer defers and quotes what it refused', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({
+    panes: [claudePane()],
+    reads: [readOf(['? for shortcuts']), readOf([...HISTORY(ENVELOPE), ...COMPOSER([ENVELOPE, 'ben was midway through this'])])],
+  });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.enters().length, 0);
+  assert.match(res.results[0].detail, /benwasmidwaythroughthis/);
+  assert.equal(readOutbox(home).length, 1);
+});
+
+test('addendum: the transcript is never mistaken for foreign text', () => {
+  // The mirror image of the bug: scoping the residue check to the whole tail would call the entire
+  // transcript "text that is not a note" and refuse every delivery forever.
+  const read = readOf([...HISTORY(ENVELOPE), '  and a long line of ordinary agent output', ...COMPOSER([ENVELOPE])]);
+  assert.equal(composerResidue(read, [ENVELOPE]).foreign, null);
+});
+
+test('addendum: no prompt marker at all defers rather than guessing', async () => {
+  const home = tmp();
+  queue(home);
+  // A pane we cannot read the shape of: pressing Enter over unseen text is unsafe, and calling it
+  // delivered would drop the wake-up silently. Defer, and let max-attempts make it a visible dead letter.
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([`some screen with ${ENVELOPE} in it`])] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.enters().length, 0);
+  assert.match(res.results[0].detail, /no prompt marker/);
+});
+
+test('addendum: a Codex composer splits on its own prompt', () => {
+  const split = splitAtPrompt(readOf(['  earlier codex output', '› a thought in progress']));
+  assert.equal(split.found, true);
+  assert.deepEqual(split.composer.map((l) => l.trim()), ['a thought in progress']);
+  assert.deepEqual(split.history.map((l) => l.trim()), ['earlier codex output']);
 });

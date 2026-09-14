@@ -116,10 +116,20 @@ has no safety gate of its own, so the SENDER is the gate:
    composer and the state is unchanged, send Enter. If the state changed between reads, abort (exit 3).
    Once the text is typed, the rest of the sequence is never cut short by a caller's deadline — a
    timeout between typing and Enter is what strands an envelope in a peer's composer, and a stranded
-   envelope is how a stack of stale notes arrives at once. Finding OUR OWN line already in the composer
-   means an earlier attempt was interrupted: press Enter and finish it, but ONLY when everything else in
-   the composer is a note we can account for. Anything unrecognised could be a human's half-typed
-   message and is never submitted.
+   envelope is how a stack of stale notes arrives at once.
+
+   **"On screen" is not one place.** The pane tail is split at the last prompt marker (`❯` for Claude,
+   `›` for Codex): everything after it, up to the closing box rule, is the COMPOSER; everything before
+   is the TRANSCRIPT. The three cases are different answers:
+
+   | where `[<id>]` is | what it means | what happens |
+   |---|---|---|
+   | transcript only | the note was submitted earlier — it arrived | mark delivered, close the entry, log `confirmed-from-screen` |
+   | composer | an earlier attempt typed it and never pressed Enter | press Enter and finish it, if the composer holds nothing but notes we can account for |
+   | composer, with anything unrecognised beside it | possibly a human's half-typed message | defer, quoting what it refused to submit |
+
+   Conflating the first two is what kept the outbox from draining on 2026-09-14: taxonomy's composer was
+   a bare `❯`, the id was in its transcript, and every attempt reported "already on screen".
 5. Ledger lines are written BEFORE the delivery attempt AND before pane resolution can fail, so the
    record exists even when the pane cannot be found at all — a renamed pane, an ambiguous title or a
    status tag costs latency, never the note. (The single exception: a raw `term_…` handle that resolves

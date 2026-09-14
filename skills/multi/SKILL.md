@@ -276,6 +276,10 @@ how it runs.
   envelope typed but never submitted, with later ones stacking behind it. `grep 'stranded\|insufficient
   budget' ~/.agents/notes/flush.log` is the check. A drainer now refuses to start typing unless it can
   finish, and completes an interrupted delivery rather than leaving it in the composer.
+- **If the outbox never drains and the log says "already on screen" while the pane looks idle:** that
+  was the same day's second failure. A note already in the pane's TRANSCRIPT was being read as one stuck
+  in its composer. The tail is now split at the prompt (`❯`, or `›` on Codex); a note in the transcript
+  closes its entry as `confirmed-from-screen`. `grep confirmed-from-screen ~/.agents/notes/flush.log`.
 - **Wire a Codex pane:** add to that machine's `~/.codex/config.toml` (machine-local, not chezmoi):
   `notify = ["node", "<home>/.agents/skills/multi/scripts/note-notify.mjs", "--to", "<pane-slug>"]`.
   Put `--to` on that line, not in the environment: Codex clears the environment before spawning the

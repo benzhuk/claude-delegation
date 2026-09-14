@@ -330,11 +330,11 @@ test('H1: a composer holding our id AND foreign text is never submitted', async 
   // human's message, as far as we can tell. It is left alone.
   const orca = mockOrca({
     panes: [idlePane({ worktreePath: repo })],
-    reads: [readOf(['? for shortcuts']), readOf(['> … [taxonomy-ping-1] FYI: already here'])],
+    reads: [readOf(['? for shortcuts']), readOf(['─'.repeat(40), '❯ … [taxonomy-ping-1] FYI: already here', '─'.repeat(40)])],
   });
   const err = await rejectsWith(
     runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }),
-    3, /composer also holds text that is not a note/,
+    3, /composer but so is text that is not a note/,
   );
   assert.match(err.message, /refusing to press Enter/);
   assert.equal(orca.sends().length, 0, 'nothing is typed when the baseline is dirty');

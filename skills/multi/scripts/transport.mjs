@@ -197,11 +197,65 @@ export function isSendable(classification, agentIdentity) {
 }
 
 /**
+ * The prompt that starts the input box. Verified live 2026-09-14 on Netcup: taxonomy's composer is
+ * `U+276F` alone on its own line between two box rules, with the transcript above it. Codex uses `›`.
+ * Only these two — `>` appears in quoted text and `⏵⏵` is the hint line BELOW the box.
+ */
+export const PROMPT_MARKERS = ['❯', '›'];
+const RULE_LINE_RE = /^[\s─━═\-_]{3,}$/u;
+
+/**
+ * Split a pane read into what has already been SUBMITTED (history) and what is sitting in the composer.
+ *
+ * This is the fix for the incident's second half (2026-09-14): "is our note on screen?" was asked of
+ * the whole tail, so an id that had been delivered and scrolled into the transcript looked identical to
+ * one stranded in the composer. taxonomy's composer was empty — a bare `❯` — while flush.log insisted
+ * the note was "already on screen", and the outbox never drained.
+ *
+ * The composer runs from the prompt marker to the next box rule (or the hint line below it), so the
+ * agents list and the status line underneath are never mistaken for something a human typed.
+ */
+export function splitAtPrompt(read, lines = LIVE_TAIL_LINES) {
+  const window = liveLines(read, lines);
+  let idx = -1;
+  for (let i = window.length - 1; i >= 0; i--) {
+    const t = String(window[i] ?? '').trim();
+    if (PROMPT_MARKERS.some((m) => t.startsWith(m))) { idx = i; break; }
+  }
+  if (idx === -1) return { found: false, history: window, composer: [] };
+
+  const composer = [String(window[idx]).trim().slice(1)];
+  for (let i = idx + 1; i < window.length; i++) {
+    const t = String(window[i] ?? '').trim();
+    if (RULE_LINE_RE.test(t)) break;
+    if (containsAny(t, COMPOSER_MARKERS)) break;
+    composer.push(String(window[i]));
+  }
+  return { found: true, history: window.slice(0, idx), composer };
+}
+
+const stripAll = (parts) => parts.join('').replace(/\s+/g, '');
+
+/**
+ * Where is `[<id>]` on screen? `composer` means a delivery that was typed and never submitted;
+ * `history` means it was submitted and has scrolled into the transcript — i.e. it ARRIVED.
+ */
+export function locateId(read, id, lines = LIVE_TAIL_LINES) {
+  const { found, history, composer } = splitAtPrompt(read, lines);
+  const needle = `[${id}`;
+  const inComposer = stripAll(composer).includes(needle);
+  const inHistory = stripAll(history).includes(needle);
+  return { found, inComposer, inHistory, composer, history };
+}
+
+/**
  * Whitespace-insensitive check for the typed line in the composer. The terminal wraps, so only the
- * `[<id>` token is reliable. Restricted to the same live window the classifier trusts, so an id sitting
- * in old scrollback can never stand in for text that never reached the composer (review H1).
+ * `[<id>` token is reliable. Restricted to the composer region when it can be located, and otherwise to
+ * the same live window the classifier trusts (review H1).
  */
 export function composerShows(read, id, lines = LIVE_TAIL_LINES) {
+  const { found, inComposer } = locateId(read, id, lines);
+  if (found) return inComposer;
   const tail = Array.isArray(read?.tail) ? read.tail.slice(-lines).join('') : '';
   return tail.replace(/\s+/g, '').includes(`[${id}`);
 }
@@ -513,17 +567,30 @@ export async function twoPhaseSend(orca, pane, envelope, id, classification, opt
   const known = [envelope, ...(opts.knownEnvelopes ?? [])];
   const before = await readPane(orca, pane.handle);
 
-  // RECOVERY (incident 2026-09-14). Our own line already sitting in the composer means a previous
-  // attempt typed it and never reached Enter — a phase-2 timeout used to strand it there, and the
-  // blanket "refusing to press Enter" then held it hostage for 20 attempts while later notes piled on
-  // top. Finishing the interrupted delivery is the right move WHEN the composer holds nothing but
-  // envelopes; anything else in there could be a human's half-typed message, and that we never submit.
-  if (composerShows(before, id)) {
+  // RECOVERY (incident 2026-09-14). Where the id sits decides everything, and "on screen" is not
+  // precise enough: an id in the TRANSCRIPT was delivered and submitted, an id in the COMPOSER was
+  // typed and never submitted. Conflating them is why the outbox never drained against a pane whose
+  // composer was empty.
+  const where = locateId(before, id);
+
+  // Order matters: with no prompt marker there is no split, so `history` is the whole window and would
+  // claim every sighting as "already delivered". Rule that case out before trusting either bucket.
+  if (!where.found && (where.inComposer || where.inHistory)) {
+    return {
+      delivered: false, classification, stranded: true,
+      reason: `[${id}] is somewhere on ${pane.handle}'s screen but no prompt marker (${PROMPT_MARKERS.join(' or ')}) `
+        + 'was found, so the composer could not be told apart from the transcript',
+    };
+  }
+
+  if (where.found && where.inComposer) {
+    // Typed by an earlier attempt whose phase 2 was cut short. Finish it — but only when the composer
+    // holds nothing but notes we can account for. Anything else could be a human's half-typed message.
     const { foreign } = composerResidue(before, known);
     if (foreign) {
       return {
         delivered: false, classification, stranded: true,
-        reason: `[${id}] is on screen in ${pane.handle} but the composer also holds text that is not a note `
+        reason: `[${id}] is in ${pane.handle}'s composer but so is text that is not a note `
           + `(residue, whitespace stripped: ${JSON.stringify(foreign.slice(0, 60))}) — refusing to press Enter over it`,
       };
     }
@@ -536,6 +603,12 @@ export async function twoPhaseSend(orca, pane, envelope, id, classification, opt
       };
     }
     return { delivered: true, classification, stranded: false, recovered: true };
+  }
+
+  if (where.found && where.inHistory) {
+    // Already submitted: it is in the transcript, not the input box. The wake-up is done; retyping it
+    // is how a peer receives the same note twice.
+    return { delivered: true, classification, stranded: false, confirmed: true };
   }
 
   try {
@@ -581,8 +654,11 @@ const CHROME_RE = /[\s│┃|>‹›⏵⏎⠀-⣿─━┌┐└┘├┤┬┴�
  * comes back clean while a human's half-typed message does not.
  */
 export function composerResidue(read, known, lines = LIVE_TAIL_LINES) {
-  const tail = Array.isArray(read?.tail) ? read.tail.slice(-lines) : [];
-  const stripped = tail.join('').replace(/\s+/g, '');
+  // The composer region only. Run over the whole tail this would call the entire transcript "foreign"
+  // and refuse forever — the mirror image of the bug that called the transcript "the composer".
+  const { found, composer } = splitAtPrompt(read, lines);
+  const region = found ? composer : (Array.isArray(read?.tail) ? read.tail.slice(-lines) : []);
+  const stripped = region.join('').replace(/\s+/g, '');
   if (!stripped) return { foreign: null, residue: '' };
 
   // Longest first: a superseding note contains its parent's id, so removing the short one first would

@@ -281,8 +281,12 @@ export async function runNoteFlush(argv, deps = {}) {
         //    Enter that follows the text always gets its chance.
         const res = await twoPhaseSend(orca, look.pane, entry.envelope, entry.id, look.classification, { knownEnvelopes });
         if (res.delivered) {
-          outcome = 'delivered';
-          detail = `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${look.classification})`;
+          // `confirmed-from-screen`: the id was already in the pane's TRANSCRIPT, so the note arrived
+          // on an earlier attempt and only the bookkeeping was left (addendum item 7).
+          outcome = res.confirmed ? 'confirmed-from-screen' : 'delivered';
+          detail = res.confirmed
+            ? `already in ${look.pane.handle}'s transcript — delivered earlier, entry closed`
+            : `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${look.classification})`;
         } else {
           outcome = res.stranded ? 'stranded' : 'deferred';
           detail = res.reason ?? 'not delivered';
@@ -293,7 +297,7 @@ export async function runNoteFlush(argv, deps = {}) {
       detail = err?.message ?? String(err);
     }
 
-    if (outcome === 'delivered') {
+    if (outcome === 'delivered' || outcome === 'confirmed-from-screen') {
       drained += 1;
       releaseClaim(claim, fsImpl); // the claim IS the entry now; dropping it retires the wake-up
     } else {
