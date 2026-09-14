@@ -323,21 +323,62 @@ export function describePanes(list) {
   return list.map((t) => `  ${t.handle}  ${JSON.stringify(t.title ?? '')}  ${t.agentIdentity ?? 'no-agent'}`).join('\n');
 }
 
-/** Never guess between candidates: ambiguity is exit 2 with the list (red-team H9). */
-export function resolvePane(terminals, to) {
+/**
+ * Which pane is `to`, and HOW did we decide? (spec 2026-09-14, D3.)
+ *
+ * Order, and every step of it is load-bearing:
+ *   1. a raw `term_…` handle is exact, always.
+ *   2. an exact title match — the freshest intent there is, because a title is what Ben just renamed.
+ *   3. a BINDING: a pane that told us "I am <slug>" by running `note-inbox --me <slug>` in itself.
+ *      Codex derives a pane's title from the conversation (`Continue`, `switch-to-astra-model`), so
+ *      title == slug survives exactly until the next restart — which is the 2026-09-14 incident, 35
+ *      minutes of `no pane titled "astra"` against a pane that was reading astra's inbox all along.
+ *
+ * A title match BEATS a binding when they disagree: renaming a pane is a deliberate act, and the
+ * binding will be refreshed by that pane's next inbox read anyway. Bindings for handles that are not
+ * in `terminals` are ignored here and never deleted — GC is note-flush's job (D6).
+ *
+ * @returns {{ pane: object, via: 'handle'|'title'|'binding' }}
+ */
+export function resolvePaneWithSource(terminals, to, opts = {}) {
   const list = Array.isArray(terminals) ? terminals : [];
   if (HANDLE_RE.test(to)) {
     const exact = list.find((t) => t.handle === to);
-    if (exact) return exact;
+    if (exact) return { pane: exact, via: 'handle' };
     throw new NoteError(2, `no pane with handle ${to}\n${describePanes(list)}`);
   }
   const matches = list.filter((t) => titleMatchesSlug(t.title, to));
-  if (matches.length === 1) return matches[0];
-  if (matches.length === 0) throw new NoteError(2, `no pane titled "${to}"\n${describePanes(list)}`);
+  if (matches.length === 1) return { pane: matches[0], via: 'title' };
+  if (matches.length > 1) {
+    throw new NoteError(
+      2,
+      `"${to}" matches ${matches.length} panes — refusing to guess. Re-send with one of these handles:\n${describePanes(matches)}`,
+    );
+  }
+
+  const bindings = opts.bindings ?? {};
+  const want = String(to).toLowerCase();
+  const bound = list.filter((t) => String(bindings[t.handle]?.slug ?? '').toLowerCase() === want);
+  if (bound.length === 1) return { pane: bound[0], via: 'binding' };
+  if (bound.length > 1) {
+    // Two live panes both claiming the slug is the same refusal as two identical titles: never guessed,
+    // reported with the list so a human can pick a handle (red-team H9).
+    throw new NoteError(
+      2,
+      `"${to}" is bound to ${bound.length} live panes — refusing to guess. Re-send with one of these handles:\n${describePanes(bound)}`,
+    );
+  }
+
   throw new NoteError(
     2,
-    `"${to}" matches ${matches.length} panes — refusing to guess. Re-send with one of these handles:\n${describePanes(matches)}`,
+    `no pane titled "${to}" and no bound pane\n${describePanes(list)}\n`
+    + `  hint: run: note-inbox --bind ${to}   inside that pane (its title no longer has to equal its slug)`,
   );
+}
+
+/** Never guess between candidates: ambiguity is exit 2 with the list (red-team H9). */
+export function resolvePane(terminals, to, opts = {}) {
+  return resolvePaneWithSource(terminals, to, opts).pane;
 }
 
 /**
@@ -710,6 +751,13 @@ export function flushLogPath(home) { return toPosix(path.posix.join(notesDir(hom
 /** Spec V7: one file Ben can read for everything blocked on him. */
 export function benInboxPath(home) { return toPosix(path.posix.join(notesDir(home), 'ben-inbox.md')); }
 export function paneSlugCachePath(home) { return toPosix(path.posix.join(notesDir(home), '.pane-slug.json')); }
+/**
+ * Spec 2026-09-14 D1: the DURABLE pane↔slug binding, `{ "<handle>": { slug, at, title? } }`. Distinct
+ * from `.pane-slug.json`, which only caches what a title reduced to — a guess that expires. This file
+ * records a pane SAYING who it is, and it is the only thing that survives a Codex restart renaming the
+ * pane to `Continue`.
+ */
+export function bindingsPath(home) { return toPosix(path.posix.join(notesDir(home), 'panes.json')); }
 
 /**
  * Append one envelope line. The day header goes through the exclusive `wx` flag so two concurrent senders
@@ -1024,8 +1072,137 @@ function writePaneSlugCache(home, cache, fsImpl = fs) {
   } catch { /* a cache that cannot be written just means the next call asks orca again */ }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pane bindings (spec 2026-09-14) — "this pane IS <slug>", said by the pane itself
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A binding for a pane nobody has seen in this long is garbage-collected by note-flush (D6). */
+export const BINDING_GC_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Who am I? In order: `--me`, `$NOTE_SLUG`, then the pane's own handle.
+ * Which slug sources are allowed to WRITE a binding: only a pane stating its own identity. A slug
+ * derived from a title never does — that is what `.pane-slug.json` is for, and letting a guess
+ * overwrite a statement is how the pane titled `Continue` would claim to be `continue` forever (D4).
+ * `binding` is included so an already-bound pane refreshes its `at` on every inbox read, which is what
+ * keeps a LIVE pane out of the 24 h GC window.
+ */
+export const BINDING_SOURCES = new Set(['--me', '$NOTE_SLUG', 'binding']);
+
+/**
+ * Every binding on this machine, skipping anything malformed. A corrupt file is an empty map, never a
+ * throw: this is read from a per-prompt hook, and a hook that throws breaks Ben's session.
+ */
+export function readBindings(home, fsImpl = fs) {
+  let raw;
+  try { raw = JSON.parse(readIfExists(bindingsPath(home), fsImpl) || '{}'); } catch { return {}; }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [handle, rec] of Object.entries(raw)) {
+    if (!HANDLE_RE.test(handle) || !rec || typeof rec !== 'object') continue;
+    const slug = typeof rec.slug === 'string' && SLUG_RE.test(rec.slug) ? rec.slug : null;
+    if (!slug) continue;
+    out[handle] = {
+      slug,
+      at: Number.isFinite(Number(rec.at)) ? Number(rec.at) : 0,
+      ...(rec.title == null ? {} : { title: String(rec.title) }),
+    };
+  }
+  return out;
+}
+
+function writeBindingsFile(home, bindings, fsImpl) {
+  const file = bindingsPath(home);
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  // tmp + rename: three processes write this file (two hooks and a turn-end notify), and a reader that
+  // catches it half-written would silently lose every binding on the box.
+  const tmp = `${file}.${process.pid}.tmp`;
+  fsImpl.writeFileSync(tmp, `${JSON.stringify(bindings, null, 2)}\n`, 'utf8');
+  try {
+    fsImpl.renameSync(tmp, file);
+  } catch (err) {
+    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    throw err;
+  }
+  return file;
+}
+
+/**
+ * Record "handle X is slug Y". The pane is the AUTHORITY on who it is, so a handle already bound to a
+ * different slug is re-bound rather than refused — and the change is logged, because a silent rebind
+ * would be indistinguishable from the bug it fixes.
+ *
+ * Never throws: a binding that cannot be written costs a deferral, and the note is in the ledger.
+ *
+ * @returns {{ file: string|null, handle: string, slug: string, previous: string|null, rebound: boolean, error: string|null }}
+ */
+export function writeBinding(home, handle, slug, opts = {}) {
+  const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
+  const now = opts.now ?? Date.now();
+  const out = { file: null, handle, slug, previous: null, rebound: false, error: null };
+  if (!HANDLE_RE.test(String(handle))) {
+    out.error = `"${handle}" is not a pane handle`;
+    return out;
+  }
+  if (!SLUG_RE.test(String(slug))) {
+    out.error = `"${slug}" is not a legal slug`;
+    return out;
+  }
+  const bindings = readBindings(home, fsImpl);
+  out.previous = bindings[handle]?.slug ?? null;
+  out.rebound = Boolean(out.previous && out.previous !== slug);
+  bindings[handle] = {
+    slug: String(slug), at: now,
+    ...(opts.title == null ? {} : { title: String(opts.title) }),
+  };
+  try {
+    out.file = writeBindingsFile(home, bindings, fsImpl);
+  } catch (err) {
+    out.error = err?.message ?? String(err);
+    return out;
+  }
+  if (out.rebound) {
+    appendFlushLog(home, `${new Date(now).toISOString()} rebind ${handle} ${out.previous} -> ${slug}`, fsImpl);
+  }
+  return out;
+}
+
+/**
+ * Bind this pane if the environment names one and the slug came from the pane itself (BINDING_SOURCES).
+ * Returns null when there is nothing to do — no handle, or a slug we only guessed.
+ */
+export function maybeBindPane({ home, env = process.env, slug, source, title, fsImpl = fs, now = Date.now() } = {}) {
+  const handle = env?.ORCA_TERMINAL_HANDLE;
+  if (!slug || !handle || !HANDLE_RE.test(String(handle))) return null;
+  if (!BINDING_SOURCES.has(source)) return null;
+  return writeBinding(home, String(handle), String(slug), { fs: fsImpl, now, title });
+}
+
+/**
+ * D6: forget a binding whose pane has been gone from `terminals` for more than `maxAgeMs`. Handles that
+ * are still live are never touched, and a pane that is merely absent from ONE listing (a runtime blip)
+ * keeps its binding until the age threshold passes.
+ *
+ * @returns {{handle: string, slug: string, ageMs: number}[]} what was dropped
+ */
+export function pruneBindings(home, terminals, { fsImpl = fs, now = Date.now(), maxAgeMs = BINDING_GC_MS } = {}) {
+  const live = new Set((Array.isArray(terminals) ? terminals : []).map((t) => t?.handle));
+  const bindings = readBindings(home, fsImpl);
+  const dropped = [];
+  for (const [handle, rec] of Object.entries(bindings)) {
+    if (live.has(handle)) continue;
+    const ageMs = now - Number(rec.at ?? 0);
+    if (ageMs <= maxAgeMs) continue;
+    dropped.push({ handle, slug: rec.slug, ageMs });
+    delete bindings[handle];
+  }
+  if (dropped.length === 0) return dropped;
+  try { writeBindingsFile(home, bindings, fsImpl); } catch { return []; }
+  return dropped;
+}
+
+/**
+ * Who am I? In order: `--me`, `$NOTE_SLUG`, `panes.json[handle]` (the binding), the cached title, then
+ * the pane's live title.
  *
  * `ORCA_TERMINAL_HANDLE` is exported into every Orca pane's shell (verified live on Windows,
  * 2026-09-13: `term_d6dae247-…`), and `orca terminal show --terminal <handle>` turns it into the pane
@@ -1049,6 +1226,13 @@ export async function resolveSlug(opts = {}) {
   const orca = opts.orca ?? null;
 
   if (handle && HANDLE_RE.test(handle)) {
+    // D4/D5: a BINDING outranks everything title-derived and has no TTL. A pane that ran
+    // `note-inbox --me astra` is astra until it says otherwise — whatever Codex has renamed it to since.
+    // Without this, a pane titled `Continue` resolves to the slug `continue` and reads an empty inbox
+    // forever, which is the 2026-09-14 incident from the reader's side.
+    const bound = readBindings(home, fsImpl)[handle];
+    if (bound?.slug) return { slug: bound.slug, source: 'binding', handle };
+
     const cache = readPaneSlugCache(home, fsImpl);
     const hit = cache[handle];
     if (hit && hit.slug && now - Number(hit.at ?? 0) < (opts.cacheMs ?? PANE_SLUG_CACHE_MS)) {

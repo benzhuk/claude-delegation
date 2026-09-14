@@ -31,11 +31,12 @@ import path from 'node:path';
 
 import { NoteError } from './envelope.mjs';
 import {
-  toPosix, makeOrcaRunner, resolvePane, showPane, readPane, classifyPane, isSendable,
+  toPosix, makeOrcaRunner, resolvePaneWithSource, showPane, readPane, classifyPane, isSendable,
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
   notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
   killOutboxEntry, deadOutboxPath, benInboxPath,
+  readBindings, pruneBindings, BINDING_GC_MS,
 } from './transport.mjs';
 
 /**
@@ -212,6 +213,22 @@ export async function runNoteFlush(argv, deps = {}) {
     return { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length, results, home, dryRun };
   }
 
+  // The durable pane↔slug bindings, read once for the whole drain (spec 2026-09-14 D3). This is what
+  // makes `--to astra` resolve when Codex has renamed the pane to `Continue`.
+  const bindings = readBindings(home, fsImpl);
+  // D6: a binding whose pane has been gone for a day is garbage. Dropped here, where `terminal list` is
+  // already in hand — an empty outbox never reaches this point, and never spends an orca call either.
+  if (!dryRun) {
+    for (const gone of pruneBindings(home, terminals, { fsImpl, now })) {
+      appendFlushLog(
+        home,
+        `${stamp} gc ${gone.handle} ${gone.slug} — no such pane and bound ${Math.round(gone.ageMs / 3_600_000)}h ago `
+        + `(> ${Math.round(BINDING_GC_MS / 3_600_000)}h); binding dropped`,
+        fsImpl,
+      );
+    }
+  }
+
   let drained = 0;
   let attempted = 0;
   let remaining = 0;
@@ -260,11 +277,11 @@ export async function runNoteFlush(argv, deps = {}) {
       const look = entryBudget <= phase2Reserve
         ? { outcome: 'skipped: insufficient budget', detail: `${Math.round(entryBudget)} ms for this entry, phase 2 alone needs ${phase2Reserve} ms` }
         : await withDeadline((async () => {
-          const pane = resolvePane(terminals, target);
+          const { pane, via } = resolvePaneWithSource(terminals, target, { bindings });
           const show = await showPane(orca, pane.handle);
           const read = await readPane(orca, pane.handle);
           const classification = classifyPane(show, read, { now: clock() });
-          return { pane, classification };
+          return { pane, via, classification };
         })(), lookBound, TIMED_OUT);
 
       if (look.outcome) {
@@ -284,9 +301,15 @@ export async function runNoteFlush(argv, deps = {}) {
           // `confirmed-from-screen`: the id was already in the pane's TRANSCRIPT, so the note arrived
           // on an earlier attempt and only the bookkeeping was left (addendum item 7).
           outcome = res.confirmed ? 'confirmed-from-screen' : 'delivered';
+          // Say WHY that pane: `binding` means the title no longer matches the slug and panes.json is
+          // the only reason this note reached anybody — the thing whose absence cost 35 minutes on
+          // 2026-09-14. The title comes from the live pane, so the log reads as what a human sees.
+          const how = look.via === 'binding'
+            ? `binding, title ${JSON.stringify(look.pane.title ?? '')}, ${look.classification}`
+            : look.classification;
           detail = res.confirmed
             ? `already in ${look.pane.handle}'s transcript — delivered earlier, entry closed`
-            : `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${look.classification})`;
+            : `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${how})`;
         } else {
           outcome = res.stranded ? 'stranded' : 'deferred';
           detail = res.reason ?? 'not delivered';
