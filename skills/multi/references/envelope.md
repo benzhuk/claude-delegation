@@ -114,6 +114,12 @@ has no safety gate of its own, so the SENDER is the gate:
    both pilot panes).
 4. Two-phase write: send the line WITHOUT Enter; re-read the pane; only if the line is visible in the
    composer and the state is unchanged, send Enter. If the state changed between reads, abort (exit 3).
+   Once the text is typed, the rest of the sequence is never cut short by a caller's deadline — a
+   timeout between typing and Enter is what strands an envelope in a peer's composer, and a stranded
+   envelope is how a stack of stale notes arrives at once. Finding OUR OWN line already in the composer
+   means an earlier attempt was interrupted: press Enter and finish it, but ONLY when everything else in
+   the composer is a note we can account for. Anything unrecognised could be a human's half-typed
+   message and is never submitted.
 5. Ledger lines are written BEFORE the delivery attempt AND before pane resolution can fail, so the
    record exists even when the pane cannot be found at all — a renamed pane, an ambiguous title or a
    status tag costs latency, never the note. (The single exception: a raw `term_…` handle that resolves
@@ -125,6 +131,10 @@ has no safety gate of its own, so the SENDER is the gate:
    delivered entry can never be resurrected by a stale reader and typed twice. A superseded id is
    dropped, never retyped. Every orca call carries a hard timeout and is killed on expiry, and every
    advertised budget is enforced, so a wedged pane cannot hold a sender, a hook or a turn end open.
+   **A drainer never starts typing unless enough budget remains to press Enter afterwards**; if it
+   cannot, it skips the entry and says so. A wake-up nobody could deliver after 20 attempts moves to
+   `~/.agents/notes/outbox/dead/` and files one BLOCKED line in `ben-inbox.md` — it is never retried
+   forever and never disappears.
    A validation failure prints its `ok:false` JSON on STDOUT as well as one line on stderr, so a
    rejection is never silent in a pipe. Nothing is ever dropped silently.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,

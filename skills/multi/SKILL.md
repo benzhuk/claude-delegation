@@ -250,7 +250,8 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
 - **Packet** `<repo>/docs/notes/<id>.md`, always in the RECIPIENT's repo. Template and
   section list: `references/envelope.md`.
 - **Outbox** `~/.agents/notes/outbox/<id>.json` — wake-ups waiting to be retyped. Not notes: the
-  notes are already in the ledger. `~/.agents/notes/flush.log` records every attempt.
+  notes are already in the ledger. `~/.agents/notes/flush.log` records every attempt, and a wake-up
+  nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`.
 - **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown.
 - Ledgers and packets are committed with your session's next normal commit. No per-note commits.
 
@@ -268,7 +269,13 @@ how it runs.
 - **Read one repo's ledger:** `cat <repo>/docs/ledger/<date>.md`; follow a thread with
   `grep -rF '<topic>' <repo>/docs/ledger/`.
 - **What is stuck:** `note-flush --dry-run` lists the wake-ups still queued and why;
-  `tail ~/.agents/notes/flush.log` is the attempt history.
+  `tail ~/.agents/notes/flush.log` is the attempt history. A wake-up that was abandoned is in
+  `~/.agents/notes/outbox/dead/` and named in `ben-inbox.md` — the note itself is still in the ledger,
+  so nothing was lost; only the nudge failed.
+- **If a peer reports getting a pile of old notes at once:** that was the 2026-09-14 failure — an
+  envelope typed but never submitted, with later ones stacking behind it. `grep 'stranded\|insufficient
+  budget' ~/.agents/notes/flush.log` is the check. A drainer now refuses to start typing unless it can
+  finish, and completes an interrupted delivery rather than leaving it in the composer.
 - **Wire a Codex pane:** add to that machine's `~/.codex/config.toml` (machine-local, not chezmoi):
   `notify = ["node", "<home>/.agents/skills/multi/scripts/note-notify.mjs", "--to", "<pane-slug>"]`.
   Put `--to` on that line, not in the environment: Codex clears the environment before spawning the

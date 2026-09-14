@@ -324,13 +324,18 @@ test('H1: an id sitting in old scrollback does NOT count as a composer match', (
   assert.equal(LIVE_TAIL_LINES, 30);
 });
 
-test('H1: a note whose id is already on screen is refused before Enter', async () => {
+test('H1: a composer holding our id AND foreign text is never submitted', async () => {
   const repo = tmp();
+  // `FYI: already here` is not a well-formed envelope, so this is text nobody can account for — a
+  // human's message, as far as we can tell. It is left alone.
   const orca = mockOrca({
     panes: [idlePane({ worktreePath: repo })],
     reads: [readOf(['? for shortcuts']), readOf(['> … [taxonomy-ping-1] FYI: already here'])],
   });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /already on screen/);
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }),
+    3, /composer also holds text that is not a note/,
+  );
   assert.match(err.message, /refusing to press Enter/);
   assert.equal(orca.sends().length, 0, 'nothing is typed when the baseline is dirty');
 });

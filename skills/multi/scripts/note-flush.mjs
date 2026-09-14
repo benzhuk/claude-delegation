@@ -11,20 +11,23 @@
 //   · from a 2-minute timer as a safety net (T3 installs the unit/plist/scheduled task)
 //
 // USAGE
-//   note-flush [--to <slug>] [--json] [--max-ms 8000] [--max-attempts 20] [--max-age-hours 48]
-//              [--orca <cmd>] [--dry-run] [--home <dir>]
+//   note-flush [--to <slug>] [--json] [--max-ms 100000] [--max-attempts 20] [--max-age-hours 48]
+//              [--per-entry-ms 45000] [--phase2-reserve-ms 20000] [--orca <cmd>] [--dry-run] [--home <dir>]
 //
 // RULES
 //   · Never blocks: one pass over the outbox inside --max-ms, then it stops and leaves the rest.
 //   · Never re-sends a note whose id a later `supersedes` retired — that entry is dropped, logged.
 //   · Never types into a pane that is not sendable for its vendor (Claude: idle or working; Codex:
 //     idle only — it does not queue typed input mid-turn).
-//   · Two-phase typing, exactly as note-send does it, through the same shared code.
+//   · Two-phase typing, exactly as note-send does it, through the same shared code. It NEVER starts
+//     typing unless enough budget remains to press Enter afterwards: an envelope stranded in a peer's
+//     composer is how a stack of stale notes arrives at once (incident 2026-09-14).
 //   · Exit 0 always. A drain is background work; a non-zero exit would make a turn-end hook look broken.
 //   · Every attempt is appended to `~/.agents/notes/flush.log`.
 
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
 import { NoteError } from './envelope.mjs';
 import {
@@ -32,17 +35,29 @@ import {
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
   notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
+  killOutboxEntry, deadOutboxPath, benInboxPath,
 } from './transport.mjs';
 
-export const DEFAULT_MAX_MS = 8_000;
+/**
+ * The standalone drain runs from a 2-minute timer, so it can afford to be patient — and it has to be:
+ * Netcup answers an orca call in 1–7 s under load, and the old 8 s ceiling meant a single entry never
+ * got through a full classify-type-verify-Enter sequence (incident 2026-09-14).
+ */
+export const DEFAULT_MAX_MS = 100_000;
 /** A wake-up that has failed this often is not going to start working; the ledger still has the note. */
 export const DEFAULT_MAX_ATTEMPTS = 20;
 /** Older than this and the nudge is pointless — the recipient has read the ledger or moved on. */
 export const DEFAULT_MAX_AGE_HOURS = 48;
 /** One pane may not eat the whole drain: a single entry's attempt is bounded independently (H4). */
-export const DEFAULT_PER_ENTRY_MS = 6_000;
+export const DEFAULT_PER_ENTRY_MS = 45_000;
+/**
+ * What phase 2 needs: a `terminal read`, a `terminal show` and a `terminal send --enter`. We refuse to
+ * type at all unless this much budget remains, because a phase-2 timeout is what strands an envelope in
+ * someone's composer — the whole incident.
+ */
+export const DEFAULT_PHASE2_RESERVE_MS = 20_000;
 
-const STRING_FLAGS = new Set(['to', 'max-ms', 'max-attempts', 'max-age-hours', 'per-entry-ms', 'orca', 'home']);
+const STRING_FLAGS = new Set(['to', 'max-ms', 'max-attempts', 'max-age-hours', 'per-entry-ms', 'phase2-reserve-ms', 'orca', 'home']);
 const BOOL_FLAGS = new Set(['json', 'dry-run', 'help']);
 
 export function parseFlushArgs(argv) {
@@ -75,6 +90,30 @@ function hoursSince(iso, now) {
 }
 
 /**
+ * One BLOCKED line in `~/.agents/notes/ben-inbox.md` when a wake-up is abandoned. Not an envelope sent
+ * through note-send — that would need a pane, which is the thing that just failed — but the same file
+ * Ben already reads for everything waiting on him.
+ */
+export function appendBlockedToBen(home, entry, attempts, fsImpl = fs) {
+  const file = benInboxPath(home);
+  const to = entry.toSlug ?? entry.to;
+  try {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      fsImpl.writeFileSync(file, '# Ben\'s inbox — peer notes that need Ben\n\nAppended by note-send. Delete a line when it is handled.\n\n', { flag: 'wx' });
+    } catch { /* already there */ }
+    fsImpl.appendFileSync(
+      file,
+      `- note-flush → ben, ${new Date().toISOString()} BLOCKED: [${entry.id}] was never typed into ${to} after ${attempts} attempts`
+      + `${entry.lastError ? ` (last: ${String(entry.lastError).split('\n')[0].slice(0, 120)})` : ''}.`
+      + ` The note IS in the ledger; only the wake-up failed. Entry: ${deadOutboxPath(home, entry.id)}\n`,
+      'utf8',
+    );
+  } catch { /* never fail a drain because a convenience file could not be written */ }
+  return file;
+}
+
+/**
  * @param {string[]} argv
  * @param {object} deps - { fsImpl, home, env, orca, now } — all injectable for tests.
  */
@@ -92,6 +131,8 @@ export async function runNoteFlush(argv, deps = {}) {
   const maxAgeHours = args['max-age-hours'] !== undefined ? Number(args['max-age-hours']) : DEFAULT_MAX_AGE_HOURS;
   const perEntryMs = args['per-entry-ms'] !== undefined ? Number(args['per-entry-ms']) : DEFAULT_PER_ENTRY_MS;
   if (!Number.isFinite(perEntryMs) || perEntryMs < 0) throw new NoteError(1, `--per-entry-ms must be a non-negative number (got "${args['per-entry-ms']}")`);
+  const phase2Reserve = args['phase2-reserve-ms'] !== undefined ? Number(args['phase2-reserve-ms']) : DEFAULT_PHASE2_RESERVE_MS;
+  if (!Number.isFinite(phase2Reserve) || phase2Reserve < 0) throw new NoteError(1, `--phase2-reserve-ms must be a non-negative number (got "${args['phase2-reserve-ms']}")`);
 
   const started = clock();
   const deadline = started + maxMs;
@@ -113,7 +154,14 @@ export async function runNoteFlush(argv, deps = {}) {
 
   // Retirement pass first: a superseded wake-up must never be typed, and an ancient or hopeless one is
   // dropped rather than retried forever. Both are cheap and need no orca.
-  const retired = supersededIds(readLedgerCorpus([notesDir(home)], fsImpl));
+  const ledgerText = readLedgerCorpus([notesDir(home)], fsImpl);
+  const retired = supersededIds(ledgerText);
+  // Every envelope this machine has seen. twoPhaseSend uses it to tell "the composer holds a stack of
+  // our own stranded notes" (finish the delivery) from "someone typed something" (never touch it).
+  const knownEnvelopes = ledgerText
+    .flatMap((text) => String(text).split('\n'))
+    .map((l) => l.trim())
+    .filter((l) => /^[a-z0-9-]+ → [a-z0-9-]+, \d/u.test(l));
   const live = [];
   for (const entry of entries) {
     if (retired.has(entry.id)) {
@@ -122,8 +170,19 @@ export async function runNoteFlush(argv, deps = {}) {
       continue;
     }
     if (Number(entry.attempts ?? 0) >= maxAttempts) {
-      if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
-      results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'gave-up', log: log('gave-up', entry, `${entry.attempts} attempts; the ledger still has the note`) });
+      // A wake-up nobody could deliver used to be deleted silently after 20 attempts, so a note that
+      // never reached its pane left no trace anywhere Ben looks. Now it goes to `outbox/dead/` with one
+      // BLOCKED line in the one file he reads (incident 2026-09-14).
+      const to = entry.toSlug ?? entry.to;
+      let dead = null;
+      if (!dryRun) {
+        dead = killOutboxEntry(home, entry.id, entry, fsImpl);
+        appendBlockedToBen(home, entry, maxAttempts, fsImpl);
+      }
+      results.push({
+        id: entry.id, to, outcome: 'gave-up', dead,
+        log: log('gave-up', entry, `${entry.attempts} attempts; moved to outbox/dead/ and reported to ben — the ledger still has the note`),
+      });
       continue;
     }
     if (hoursSince(entry.createdAt, now) > maxAgeHours) {
@@ -157,6 +216,19 @@ export async function runNoteFlush(argv, deps = {}) {
   let attempted = 0;
   let remaining = 0;
 
+  // A caller whose whole budget is smaller than phase 2 can never type anything — note-send's 3 s
+  // piggyback, for instance. Say that ONCE rather than once per entry per send, which would bury the
+  // log this file exists to make readable.
+  const canType = Math.min(maxMs, perEntryMs) > phase2Reserve;
+  if (!canType && live.length > 0 && !dryRun) {
+    appendFlushLog(
+      home,
+      `${stamp} budget-only-pass ${live.length} entr${live.length === 1 ? 'y' : 'ies'} left untouched — `
+      + `${Math.round(Math.min(maxMs, perEntryMs))} ms budget, phase 2 alone needs ${phase2Reserve} ms`,
+      fsImpl,
+    );
+  }
+
   for (const entry of live) {
     const budget = deadline - clock();
     if (budget <= 0) { remaining += 1; continue; }
@@ -174,22 +246,48 @@ export async function runNoteFlush(argv, deps = {}) {
     let outcome;
     let detail = '';
     try {
-      // H4: a per-entry wall-clock bound, on top of the orca runner's own subprocess timeout. One hung
-      // pane must not eat the whole drain's budget and leave the rest queued for another two minutes.
-      const attempt = (async () => {
-        const pane = resolvePane(terminals, target);
-        const show = await showPane(orca, pane.handle);
-        const read = await readPane(orca, pane.handle);
-        const classification = classifyPane(show, read, { now: clock() });
-        if (!isSendable(classification, pane.agentIdentity)) {
-          return { outcome: 'deferred', detail: `pane is ${classification}` };
+      // The incident in one line: typing when there is no budget left to press Enter leaves the
+      // envelope sitting in someone's composer, where later notes stack on top of it and all of them
+      // arrive at once when anything finally submits. Never start what we cannot finish — checked
+      // BEFORE we spend anything, so a short-budget caller (note-send's 3 s piggyback) says so plainly
+      // instead of reporting a timeout it was always going to hit.
+      const entryBudget = Math.min(budget, perEntryMs);
+      const lookBound = entryBudget - phase2Reserve;
+
+      // ── Phase A: work out whether to type. THIS is the part a deadline may cut short, because
+      //    nothing has been typed yet, so being cut short costs only a retry.
+      const TIMED_OUT = { outcome: 'timed-out', detail: `no answer from orca within ${Math.round(lookBound)} ms` };
+      const look = entryBudget <= phase2Reserve
+        ? { outcome: 'skipped: insufficient budget', detail: `${Math.round(entryBudget)} ms for this entry, phase 2 alone needs ${phase2Reserve} ms` }
+        : await withDeadline((async () => {
+          const pane = resolvePane(terminals, target);
+          const show = await showPane(orca, pane.handle);
+          const read = await readPane(orca, pane.handle);
+          const classification = classifyPane(show, read, { now: clock() });
+          return { pane, classification };
+        })(), lookBound, TIMED_OUT);
+
+      if (look.outcome) {
+        ({ outcome, detail } = look);
+      } else if (!isSendable(look.classification, look.pane.agentIdentity)) {
+        outcome = 'deferred';
+        detail = `pane is ${look.classification}`;
+      } else if (clock() + phase2Reserve > deadline) {
+        // Belt and braces: the look overran its own share, so what is left will not cover phase 2.
+        outcome = 'skipped: insufficient budget';
+        detail = `${Math.round(deadline - clock())} ms left after looking, phase 2 needs ${phase2Reserve} ms`;
+      } else {
+        // ── Phase B: typed, therefore UNRACED. Only the orca per-call timeouts bound this, so the
+        //    Enter that follows the text always gets its chance.
+        const res = await twoPhaseSend(orca, look.pane, entry.envelope, entry.id, look.classification, { knownEnvelopes });
+        if (res.delivered) {
+          outcome = 'delivered';
+          detail = `${res.recovered ? 'completed an interrupted delivery in' : 'typed into'} ${look.pane.handle} (${look.classification})`;
+        } else {
+          outcome = res.stranded ? 'stranded' : 'deferred';
+          detail = res.reason ?? 'not delivered';
         }
-        const res = await twoPhaseSend(orca, pane, entry.envelope, entry.id, classification);
-        if (res.delivered) return { outcome: 'delivered', detail: `typed into ${pane.handle} (${classification})` };
-        return { outcome: res.stranded ? 'stranded' : 'deferred', detail: res.reason ?? 'not delivered' };
-      })();
-      const TIMED_OUT = { outcome: 'timed-out', detail: `no answer from orca within ${Math.round(budget)} ms` };
-      ({ outcome, detail } = await withDeadline(attempt, Math.min(budget, perEntryMs), TIMED_OUT));
+      }
     } catch (err) {
       outcome = err instanceof NoteError && err.exitCode === 2 ? 'no-pane' : 'error';
       detail = err?.message ?? String(err);
@@ -207,7 +305,12 @@ export async function runNoteFlush(argv, deps = {}) {
       releaseClaim(claim, fsImpl);
     }
     // The first line of the detail only: a CLI error can be a paragraph, and flush.log is a scan target.
-    results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome, detail, log: log(outcome, entry, detail.split('\n')[0]) });
+    // A skip on a pass that could never type is covered by the single summary line above.
+    const quiet = !canType && String(outcome).startsWith('skipped');
+    results.push({
+      id: entry.id, to: entry.toSlug ?? entry.to, outcome, detail,
+      log: quiet ? null : log(outcome, entry, detail.split('\n')[0]),
+    });
   }
 
   return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };

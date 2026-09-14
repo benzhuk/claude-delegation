@@ -28,7 +28,7 @@
 //     process. That is why `--to` and `--chain` exist as flags on the config line: put them there.
 //
 // USAGE
-//   note-notify [--to <slug>] [--chain <command>] [--max-ms 9000] [--orca <cmd>] [--json] [<payload-json>]
+//   note-notify [--to <slug>] [--chain <command>] [--max-ms 90000] [--orca <cmd>] [--json] [<payload-json>]
 //
 // BEHAVIOUR, in order
 //   1. Chain first, detached: if `--chain` (or $NOTE_NOTIFY_CHAIN) names a previous notify target, spawn
@@ -36,7 +36,9 @@
 //   2. Work out which pane this is: --to, else $NOTE_SLUG, else $ORCA_TERMINAL_HANDLE, else the unique
 //      Codex pane whose worktreePath is the payload's `cwd`. Never guessed past that.
 //   3. `note-flush --to <slug>` in-process, inside the remaining budget.
-//   4. Exit 0, always, within ~10 s. A notify wrapper that throws or hangs is a wrapper Ben rips out.
+//   4. Exit 0, always, inside --max-ms. Codex never waits for this process, so the budget is set by what
+//      one delivery needs on a loaded box, not by Codex — but it is still bounded, so turns cannot stack
+//      up detached drains forever.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -47,8 +49,13 @@ import {
 } from './transport.mjs';
 import { drainQuietly } from './note-flush.mjs';
 
-/** Codex does not wait for us, but a process that never exits piles up one per turn. */
-export const DEFAULT_MAX_MS = 9_000;
+/**
+ * 90 s, not 9 (incident 2026-09-14). Codex spawns this and never waits for it, so a longer budget costs
+ * nothing but a detached process — and 9 s could not cover one classify-type-verify-Enter sequence on a
+ * loaded box, which meant the turn end, the ONE moment a Codex pane is provably idle, never delivered
+ * anything. A drain that cannot finish a delivery is worse than no drain: it strands text in a composer.
+ */
+export const DEFAULT_MAX_MS = 90_000;
 /** Leave room for the drain to finish and the log line to be written. */
 const DRAIN_RESERVE_MS = 1_000;
 
@@ -212,7 +219,7 @@ const USAGE = `note-notify — Codex turn-end wake-up: drain the peer-note outbo
   --to <slug>      this pane's slug. PUT IT HERE: Codex clears the environment before spawning notify,
                    so $NOTE_SLUG may not reach this process.
   --chain <cmd>    a previous notify target to spawn with the same payload (else $NOTE_NOTIFY_CHAIN).
-  --max-ms <n>     total budget, default 9000.
+  --max-ms <n>     total budget, default 90000. Codex never waits for us; this only bounds the drain.
 
 Codex appends its event JSON as the final argument and discards our output; every run writes one line
 to ~/.agents/notes/flush.log. Exit 0 always.

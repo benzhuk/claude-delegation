@@ -13,8 +13,12 @@ import {
   classifyPane, isSendable, hasShimmerLine,
   normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
   claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
+  composerResidue, deadOutboxPath, benInboxPath, DEFAULT_ORCA_TIMEOUT_MS,
 } from './transport.mjs';
-import { runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush } from './note-flush.mjs';
+import {
+  runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush,
+  DEFAULT_MAX_MS, DEFAULT_PER_ENTRY_MS, DEFAULT_PHASE2_RESERVE_MS,
+} from './note-flush.mjs';
 import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-notify.mjs';
 
 function tmp() { return toPosix(fs.mkdtempSync(path.join(os.tmpdir(), 'note-flush-'))); }
@@ -528,7 +532,7 @@ test('H4: one wedged pane cannot eat the whole drain — the per-entry budget is
     return new Promise(() => {});     // every show/read hangs forever
   };
   const started = Date.now();
-  const res = await runNoteFlush(['--per-entry-ms', '60'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--per-entry-ms', '60', '--phase2-reserve-ms', '0'], { home, orca, now: NOW });
   assert.ok(Date.now() - started < 2000, 'the drain must not wait on a wedged pane');
   assert.equal(list, 1);
   assert.ok(res.results.some((r) => r.outcome === 'timed-out'), JSON.stringify(res.results));
@@ -542,7 +546,7 @@ test('H4: the whole drain still stops at --max-ms with entries left', async () =
     if (args[1] === 'list') return { terminals: [claudePane()] };
     return new Promise(() => {});
   };
-  const res = await runNoteFlush(['--max-ms', '120', '--per-entry-ms', '50'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--max-ms', '120', '--per-entry-ms', '50', '--phase2-reserve-ms', '0'], { home, orca, now: NOW });
   assert.ok(res.attempted < 4, 'attempted ' + res.attempted + ' of 4 — the budget was not enforced');
   assert.equal(res.drained, 0);
 });
@@ -555,4 +559,184 @@ test('H4: note-notify stays inside its budget when slug resolution hangs', async
   assert.ok(Date.now() - started < 2000, 'a Codex turn end must never leave a stuck process');
   assert.equal(res.exitCode, 0);
   assert.equal(res.slug, null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Incident 2026-09-14: the flusher typed phase 1, its phase-2 read timed out, and the envelope sat in
+// taxonomy's composer while later notes stacked on top — so taxonomy got a pile of stale notes at once.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** An orca whose `read` calls take `readMs`, so a phase-2 timeout can be reproduced deterministically. */
+function slowReadOrca(cfg = {}) {
+  const calls = [];
+  const reads = cfg.reads ? [...cfg.reads] : null;
+  const wait = (ms, value) => new Promise((r) => setTimeout(() => r(value), ms));
+  const run = async (args) => {
+    calls.push(args);
+    const verb = args[1];
+    if (verb === 'list') return { terminals: cfg.panes ?? [] };
+    if (verb === 'show') return wait(cfg.showMs ?? 0, { terminal: (cfg.panes ?? [])[0] });
+    if (verb === 'read') {
+      const value = { terminal: reads && reads.length ? reads.shift() : readOf(['? for shortcuts']) };
+      return wait(cfg.readMs ?? 0, value);
+    }
+    if (verb === 'send') return { ok: true };
+    throw new Error(`unexpected orca call ${args.join(' ')}`);
+  };
+  run.calls = calls;
+  run.sends = () => calls.filter((c) => c[1] === 'send');
+  run.enters = () => calls.filter((c) => c[1] === 'send' && c.includes('--enter'));
+  run.texts = () => calls.filter((c) => c[1] === 'send' && c.includes('--text'));
+  return run;
+}
+
+test('incident (1): the defaults give a real delivery room to finish', () => {
+  // The old numbers — 8 s per orca call, 6 s per entry — could not cover classify + type + verify +
+  // Enter on a box that answers in 1–7 s. That is what stranded the text.
+  assert.ok(DEFAULT_ORCA_TIMEOUT_MS >= 10_000, `orca timeout is ${DEFAULT_ORCA_TIMEOUT_MS} ms`);
+  assert.ok(DEFAULT_PER_ENTRY_MS >= 30_000, `per-entry budget is ${DEFAULT_PER_ENTRY_MS} ms`);
+  assert.ok(DEFAULT_MAX_MS > DEFAULT_PER_ENTRY_MS, 'a drain must fit at least one whole entry');
+  assert.ok(DEFAULT_PHASE2_RESERVE_MS > 0);
+});
+
+test('incident (2): a budget too small to press Enter means NOTHING is typed', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({ panes: [claudePane()] });
+  // Enough to look, nowhere near enough to finish: the old code typed anyway.
+  // The shape note-send's inline piggyback has: a 3 s budget, nowhere near a delivery.
+  const res = await runNoteFlush(['--max-ms', '3000'], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.texts().length, 0, 'phase 1 must not run when phase 2 cannot follow');
+  assert.equal(orca.enters().length, 0);
+  assert.match(res.results[0].outcome, /insufficient budget/);
+  assert.equal(readOutbox(home).length, 1, 'and the wake-up stays queued for a drain that has room');
+});
+
+test('incident (2): a slow read can no longer cut the delivery in half once typing has started', async () => {
+  const home = tmp();
+  queue(home);
+  // Reads take 120 ms each; the per-entry budget only covers the LOOK. Phase 2 is deliberately unraced,
+  // so the Enter still happens rather than the line being abandoned in the composer.
+  const orca = slowReadOrca({
+    panes: [claudePane()],
+    readMs: 120,
+    reads: [
+      readOf(['? for shortcuts']),
+      readOf(['? for shortcuts']),
+      readOf(['> … [astra-pr137-1] ASK: x']),
+      readOf(['> … [astra-pr137-1] ASK: x']),
+    ],
+  });
+  const res = await runNoteFlush(['--per-entry-ms', '900', '--phase2-reserve-ms', '300'], { home, orca, now: NOW });
+  assert.equal(res.drained, 1, JSON.stringify(res.results));
+  assert.equal(orca.texts().length, 1);
+  assert.equal(orca.enters().length, 1, 'the Enter that follows the text must always get its chance');
+  assert.equal(readOutbox(home).length, 0);
+});
+
+test('incident (3): our own stranded line is completed, not refused forever', async () => {
+  const home = tmp();
+  queue(home);
+  // The composer already holds exactly the envelope a previous attempt typed.
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([`> ${ENVELOPE}`])] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 1, JSON.stringify(res.results));
+  assert.equal(orca.texts().length, 0, 'it must not be typed a second time');
+  assert.equal(orca.enters().length, 1, 'pressing Enter is what completes the interrupted delivery');
+  assert.match(res.results[0].detail, /completed an interrupted delivery/);
+  assert.equal(readOutbox(home).length, 0);
+});
+
+test('incident (3): a composer holding a STACK of our notes is still completed', async () => {
+  const home = tmp();
+  queue(home);
+  const other = 'astra → taxonomy, 9.13.26 13:50 NYC [astra-pr138-1] FYI: And another one.';
+  const ledger = path.join(home, '.agents/notes/2026-09-13.md');
+  fs.mkdirSync(path.dirname(ledger), { recursive: true });
+  fs.writeFileSync(ledger, `${ENVELOPE}\n${other}\n`);
+  // Exactly the incident's end state: several stranded envelopes, wrapped across lines by the terminal.
+  const wrapped = [`> ${other.slice(0, 40)}`, other.slice(40), ENVELOPE.slice(0, 50), ENVELOPE.slice(50), '  ? for shortcuts'];
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(wrapped)] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 1, JSON.stringify(res.results));
+  assert.equal(orca.enters().length, 1);
+  assert.equal(orca.texts().length, 0);
+});
+
+test('incident (3): foreign text in the composer is still never submitted', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({
+    panes: [claudePane()],
+    reads: [readOf(['? for shortcuts']), readOf([`> ${ENVELOPE}`, 'and here is something Ben was typing'])],
+  });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  assert.equal(orca.enters().length, 0, 'a human half-typed message must never be submitted');
+  assert.match(res.results[0].detail, /composer also holds text that is not a note/);
+  assert.match(res.results[0].detail, /somethingBenwastyping/i, 'the residue names what it refused to submit');
+  assert.equal(readOutbox(home).length, 1);
+});
+
+test('incident (3): composerResidue tolerates wrapping and ignores chrome', () => {
+  const env = 'astra → taxonomy, 9.13.26 13:45 NYC [astra-x-1] FYI: Hello there.';
+  const wrapped = readOf(['│ > astra → taxonomy, 9.13.26 13:45 NYC [astra-x-1] FYI: Hel', 'lo there.', '  ? for shortcuts']);
+  assert.equal(composerResidue(wrapped, [env]).foreign, null);
+  const dirty = readOf(['> ' + env, 'rm -rf something']);
+  assert.match(composerResidue(dirty, [env]).foreign, /rm-rfsomething/);
+  // an envelope we have never seen is foreign too — we only complete deliveries we can account for
+  assert.ok(composerResidue(readOf(['> ' + env]), []).foreign);
+});
+
+test('incident (4): a completed delivery is not retyped, and the entry is gone', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([`> ${ENVELOPE}`])] });
+  await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(readOutbox(home).length, 0);
+  // A second drain has nothing to do — the id is never typed again.
+  const again = await runNoteFlush([], { home, orca: slowReadOrca({ panes: [claudePane()] }), now: NOW });
+  assert.equal(again.attempted, 0);
+});
+
+test('incident (5): gave-up files a BLOCKED line for Ben and keeps the entry in outbox/dead/', async () => {
+  const home = tmp();
+  queue(home, { attempts: 20, lastError: 'no answer from orca within 6979 ms' });
+  const orca = slowReadOrca({ panes: [claudePane()] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.results[0].outcome, 'gave-up');
+
+  const dead = deadOutboxPath(home, 'astra-pr137-1');
+  assert.ok(fs.existsSync(dead), 'the evidence of an undelivered wake-up must survive');
+  assert.equal(JSON.parse(fs.readFileSync(dead, 'utf8')).id, 'astra-pr137-1');
+  assert.equal(readOutbox(home).length, 0, 'and it is not retried forever');
+
+  const inbox = fs.readFileSync(benInboxPath(home), 'utf8');
+  assert.match(inbox, /BLOCKED: \[astra-pr137-1\] was never typed into taxonomy after 20 attempts/);
+  assert.match(inbox, /The note IS in the ledger/);
+  assert.match(inbox, /no answer from orca within 6979 ms/);
+});
+
+test('the flush log reports the budget it actually applied, not the drain remainder', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = slowReadOrca({ panes: [claudePane()], showMs: 5_000 });
+  const res = await runNoteFlush(['--max-ms', '5000', '--per-entry-ms', '400', '--phase2-reserve-ms', '100'], { home, orca, now: NOW });
+  assert.equal(res.results[0].outcome, 'timed-out');
+  // The old message printed the whole-drain remainder (`within 6979 ms`) while the real bound was the
+  // per-entry one — which made the live log actively misleading during the incident.
+  assert.match(res.results[0].detail, /within 300 ms/);
+});
+
+test('a pass that could never type logs one summary line, not one per entry', async () => {
+  const home = tmp();
+  for (let i = 0; i < 4; i++) queue(home, { id: 'astra-many' + i + '-1' });
+  const orca = slowReadOrca({ panes: [claudePane()] });
+  const res = await runNoteFlush(['--max-ms', '3000'], { home, orca, now: NOW });
+  assert.equal(res.results.length, 4);
+  assert.ok(res.results.every((r) => String(r.outcome).startsWith('skipped')));
+  const logText = fs.readFileSync(flushLogPath(home), 'utf8').trim().split('\n');
+  assert.equal(logText.length, 1, 'the piggyback runs constantly; four lines per send would bury the log');
+  assert.match(logText[0], /budget-only-pass 4 entries left untouched/);
 });

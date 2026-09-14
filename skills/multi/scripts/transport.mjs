@@ -420,7 +420,12 @@ export function orcaHint(resolved) {
  * would block a sender past its "never more than 15 seconds" promise, pin the 2-minute timer unit, and
  * leave one stuck node process per Codex turn end. So every orca call is killed on expiry (review H4).
  */
-export const DEFAULT_ORCA_TIMEOUT_MS = 8_000;
+/**
+ * 12 s, not 8 (incident 2026-09-14). Netcup under load answers a `terminal show`/`read` in 1–7 s, so
+ * an 8 s ceiling was timing out mid-delivery — and a timeout between "type the line" and "press Enter"
+ * is the one failure that strands text in someone's composer.
+ */
+export const DEFAULT_ORCA_TIMEOUT_MS = 12_000;
 
 export function orcaTimeoutMs(env = process.env) {
   const raw = Number(env.ORCA_TIMEOUT_MS);
@@ -504,13 +509,33 @@ export async function classifyNow(orca, handle, deps = {}) {
  *
  * @returns {Promise<{ delivered: boolean, reason?: string, classification: string, stranded?: boolean }>}
  */
-export async function twoPhaseSend(orca, pane, envelope, id, classification) {
+export async function twoPhaseSend(orca, pane, envelope, id, classification, opts = {}) {
+  const known = [envelope, ...(opts.knownEnvelopes ?? [])];
   const before = await readPane(orca, pane.handle);
+
+  // RECOVERY (incident 2026-09-14). Our own line already sitting in the composer means a previous
+  // attempt typed it and never reached Enter — a phase-2 timeout used to strand it there, and the
+  // blanket "refusing to press Enter" then held it hostage for 20 attempts while later notes piled on
+  // top. Finishing the interrupted delivery is the right move WHEN the composer holds nothing but
+  // envelopes; anything else in there could be a human's half-typed message, and that we never submit.
   if (composerShows(before, id)) {
-    return {
-      delivered: false, classification, stranded: false,
-      reason: `[${id}] is already on screen in ${pane.handle} — refusing to press Enter over whatever the composer holds`,
-    };
+    const { foreign } = composerResidue(before, known);
+    if (foreign) {
+      return {
+        delivered: false, classification, stranded: true,
+        reason: `[${id}] is on screen in ${pane.handle} but the composer also holds text that is not a note `
+          + `(residue, whitespace stripped: ${JSON.stringify(foreign.slice(0, 60))}) — refusing to press Enter over it`,
+      };
+    }
+    try {
+      await orca(['terminal', 'send', '--terminal', pane.handle, '--enter', '--json']);
+    } catch (err) {
+      return {
+        delivered: false, classification, stranded: true, cliError: err,
+        reason: `${err.message} — [${id}] is still sitting UNSENT in ${pane.handle}'s composer`,
+      };
+    }
+    return { delivered: true, classification, stranded: false, recovered: true };
   }
 
   try {
@@ -519,6 +544,8 @@ export async function twoPhaseSend(orca, pane, envelope, id, classification) {
     return { delivered: false, classification, stranded: false, cliError: err, reason: `${err.message} — nothing was typed` };
   }
 
+  // From here the text IS on screen. Everything below must run to completion — the caller must not
+  // race this half against a deadline, or a slow read leaves the line in the composer with no Enter.
   const after = await readPane(orca, pane.handle);
   const visible = composerShows(after, id);
   const recheck = classifyPane(await showPane(orca, pane.handle), after, { now: Date.now() });
@@ -540,6 +567,44 @@ export async function twoPhaseSend(orca, pane, envelope, id, classification) {
   }
 
   return { delivered: true, classification, stranded: false };
+}
+
+/** Screen furniture: never content, whoever typed it. */
+const CHROME_RE = /[\s│┃|>‹›⏵⏎⠀-⣿─━┌┐└┘├┤┬┴┼╭╮╯╰═║╔╗╚╝•·…✻✳✢◐◑◒◓⎿↑↓]/gu;
+
+/**
+ * What is in the composer that is NOT one of the envelopes we know about?
+ *
+ * Whitespace is stripped before matching because the terminal WRAPS a 700-character envelope across
+ * several lines — the same reason composerShows works on a stripped tail. `known` carries our own
+ * envelope plus every line the ledger has seen today, so a composer holding a stack of stranded notes
+ * comes back clean while a human's half-typed message does not.
+ */
+export function composerResidue(read, known, lines = LIVE_TAIL_LINES) {
+  const tail = Array.isArray(read?.tail) ? read.tail.slice(-lines) : [];
+  const stripped = tail.join('').replace(/\s+/g, '');
+  if (!stripped) return { foreign: null, residue: '' };
+
+  // Longest first: a superseding note contains its parent's id, so removing the short one first would
+  // leave the rest of the long one looking like residue.
+  let rest = stripped;
+  for (const env of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
+    const needle = String(env).replace(/\s+/g, '');
+    if (!needle) continue;
+    while (rest.includes(needle)) rest = rest.replace(needle, '');
+  }
+  for (const marker of COMPOSER_MARKERS) {
+    const needle = marker.replace(/\s+/g, '').toLowerCase();
+    if (!needle) continue;
+    let i = rest.toLowerCase().indexOf(needle);
+    while (i !== -1) {
+      rest = rest.slice(0, i) + rest.slice(i + needle.length);
+      i = rest.toLowerCase().indexOf(needle);
+    }
+  }
+  const residue = rest.replace(CHROME_RE, '');
+  // A couple of stray glyphs are cursor artefacts, not a message worth protecting.
+  return { foreign: residue.length > 3 ? residue : null, residue };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -735,6 +800,24 @@ export function readOutbox(home, fsImpl = fs) {
 
 export function removeOutboxEntry(home, id, fsImpl = fs) {
   try { fsImpl.rmSync(outboxPath(home, id), { force: true }); return true; } catch { return false; }
+}
+
+export function deadOutboxDir(home) { return toPosix(path.posix.join(outboxDir(home), 'dead')); }
+export function deadOutboxPath(home, id) { return toPosix(path.posix.join(deadOutboxDir(home), `${id}.json`)); }
+
+/**
+ * A wake-up nobody could deliver is retired to `outbox/dead/` rather than deleted or retried forever
+ * (incident 2026-09-14: entries churned for 20 attempts and then vanished). The note itself is still in
+ * the ledger; this keeps the evidence of what never got typed, and where.
+ */
+export function killOutboxEntry(home, id, entry, fsImpl = fs) {
+  const file = deadOutboxPath(home, id);
+  try {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    fsImpl.writeFileSync(file, `${JSON.stringify({ ...entry, diedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+  } catch { /* the removal below is what matters */ }
+  removeOutboxEntry(home, id, fsImpl);
+  return file;
 }
 
 /**
