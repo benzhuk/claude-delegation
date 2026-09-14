@@ -266,7 +266,9 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
   typed, because the ledger already delivered it.
 - **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown.
 - **Bindings** `~/.agents/notes/panes.json` — `{"<handle>": {"slug","at","title"}}`, each written by the
-  pane itself. A rebind and a 24-hour GC of dead handles are logged in `flush.log`.
+  pane itself. A binding does not expire while its pane lives, so a REPURPOSED pane keeps answering to
+  its old slug until it rebinds; `note-inbox --unbind` in that pane is the way out. A handle gone for
+  more than 24 hours is dropped on the next flush that has work to do. Rebinds and GC go to `flush.log`.
 - Ledgers and packets are committed with your session's next normal commit. No per-note commits.
 
 A peer review you are asking for is worth a high-tier model (Claude Opus / GPT-6-Astra for
@@ -302,6 +304,8 @@ how it runs.
 - **If flush.log repeats `no pane titled "<slug>"` at a pane that is plainly alive:** its title is no
   longer its slug (Codex retitles a pane from the conversation, so every restart breaks it). Run
   `note-inbox --bind <slug>` inside that pane, or have the agent run `note-inbox --me <slug> --ack`,
-  which binds as a side effect. `cat ~/.agents/notes/panes.json` shows what is bound to what.
+  which binds as a side effect. `cat ~/.agents/notes/panes.json` shows what is bound to what, and
+  `note-inbox --unbind` inside a pane removes that pane's entry — the fix for a wrong `--bind`, or for
+  a slug that two live panes both claim (every send to it is exit 2 until one of them lets go).
 - Tests: `node --test "skills/multi/scripts/*.test.mjs"` (Node 24 no longer expands a bare
   directory).

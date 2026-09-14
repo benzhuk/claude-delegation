@@ -347,7 +347,15 @@ export function resolvePaneWithSource(terminals, to, opts = {}) {
     if (exact) return { pane: exact, via: 'handle' };
     throw new NoteError(2, `no pane with handle ${to}\n${describePanes(list)}`);
   }
-  const matches = list.filter((t) => titleMatchesSlug(t.title, to));
+  // A title match beats a binding — a rename is deliberate — but never against a pane that has SAID it
+  // is somebody else. Codex generates titles from the conversation (`Continue`, `switch-to-astra-model`),
+  // so an unrelated pane's title can reduce to a slug another pane has bound; without this filter the
+  // note is typed into the session that calls itself something else (review MAJOR 1). A pane bound to
+  // the slug, or bound to nothing, still matches on its title as before.
+  const bindings = opts.bindings ?? {};
+  const want = String(to).toLowerCase();
+  const matches = list.filter((t) => titleMatchesSlug(t.title, to)
+    && String(bindings[t.handle]?.slug ?? want).toLowerCase() === want);
   if (matches.length === 1) return { pane: matches[0], via: 'title' };
   if (matches.length > 1) {
     throw new NoteError(
@@ -356,8 +364,6 @@ export function resolvePaneWithSource(terminals, to, opts = {}) {
     );
   }
 
-  const bindings = opts.bindings ?? {};
-  const want = String(to).toLowerCase();
   const bound = list.filter((t) => String(bindings[t.handle]?.slug ?? '').toLowerCase() === want);
   if (bound.length === 1) return { pane: bound[0], via: 'binding' };
   if (bound.length > 1) {
@@ -846,7 +852,13 @@ function parseCursor(raw, slug) {
   try {
     const c = JSON.parse(raw);
     if (c && typeof c.seen === 'object' && c.seen) {
-      return { version: CURSOR_VERSION, slug, updatedAt: c.updatedAt ?? null, seen: c.seen };
+      // `cold` is the subset of `seen` that was marked seen WITHOUT being displayed (the cold-start
+      // window). It has to stay distinguishable: note-flush treats a seen id as "the recipient read it"
+      // and retires the wake-up, which for a suppressed id retires a note nobody ever saw (BLOCKER 2).
+      return {
+        version: CURSOR_VERSION, slug, updatedAt: c.updatedAt ?? null, seen: c.seen,
+        cold: (c.cold && typeof c.cold === 'object') ? c.cold : {},
+      };
     }
   } catch { /* a corrupt cursor is a fresh cursor, never a crash */ }
   return null;
@@ -858,13 +870,13 @@ export function readCursor(home, slug, fsImpl = fs, deps = {}) {
   // The primary is missing or unreadable; a fallback cursor means a previous run could not write here
   // and parked its state in the temp dir. Using it is what keeps "emit once" from becoming "emit always".
   const fallback = parseCursor(readIfExists(cursorPath(fallbackCursorHome(home, deps.tmpDir), slug), fsImpl), slug);
-  return fallback ?? { version: CURSOR_VERSION, slug, updatedAt: null, seen: {} };
+  return fallback ?? { version: CURSOR_VERSION, slug, updatedAt: null, seen: {}, cold: {} };
 }
 
-function writeCursorTo(home, slug, seen, fsImpl) {
+function writeCursorTo(home, slug, seen, cold, fsImpl) {
   const file = cursorPath(home, slug);
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  fsImpl.writeFileSync(file, `${JSON.stringify({ version: CURSOR_VERSION, slug, updatedAt: new Date().toISOString(), seen }, null, 0)}\n`, 'utf8');
+  fsImpl.writeFileSync(file, `${JSON.stringify({ version: CURSOR_VERSION, slug, updatedAt: new Date().toISOString(), seen, cold }, null, 0)}\n`, 'utf8');
   return file;
 }
 
@@ -874,17 +886,24 @@ function writeCursorTo(home, slug, seen, fsImpl) {
  * going quiet.
  */
 export function writeCursor(home, slug, cursor, { fsImpl = fs, keepFrom = null, tmpDir = undefined } = {}) {
-  const seen = {};
-  for (const [id, ymd] of Object.entries(cursor.seen ?? {})) {
-    if (keepFrom && String(ymd) < keepFrom) continue;
-    seen[id] = ymd;
-  }
+  const prune = (map) => {
+    const out = {};
+    for (const [id, ymd] of Object.entries(map ?? {})) {
+      if (keepFrom && String(ymd) < keepFrom) continue;
+      out[id] = ymd;
+    }
+    return out;
+  };
+  const seen = prune(cursor.seen);
+  // The same window for `cold`, so an id pruned out of `seen` cannot linger here and make a reused id
+  // look suppressed forever.
+  const cold = prune(cursor.cold);
   try {
-    return { file: writeCursorTo(home, slug, seen, fsImpl), fallback: false, error: null };
+    return { file: writeCursorTo(home, slug, seen, cold, fsImpl), fallback: false, error: null };
   } catch (err) {
     const why = err?.message ?? String(err);
     try {
-      return { file: writeCursorTo(fallbackCursorHome(home, tmpDir), slug, seen, fsImpl), fallback: true, error: why };
+      return { file: writeCursorTo(fallbackCursorHome(home, tmpDir), slug, seen, cold, fsImpl), fallback: true, error: why };
     } catch (err2) {
       // Both paths are gone. Still not a throw: the caller must surface the notes, not disappear.
       return { file: null, fallback: false, error: `${why}; fallback also failed: ${err2?.message ?? err2}` };
@@ -1113,8 +1132,11 @@ export function readBindings(home, fsImpl = fs) {
 function writeBindingsFile(home, bindings, fsImpl) {
   const file = bindingsPath(home);
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  // tmp + rename: three processes write this file (two hooks and a turn-end notify), and a reader that
-  // catches it half-written would silently lose every binding on the box.
+  // tmp + rename: several processes write this file, and a reader that catches it half-written would
+  // silently lose every binding on the box. This makes each write atomic FOR READERS; it does not
+  // serialise two WRITERS — between one pane's read-modify-write another can land its own, and the
+  // loser's binding is dropped. Self-healing, because that pane rebinds on its next inbox read, which
+  // is why there is no lock here (review MINOR 2).
   const tmp = `${file}.${process.pid}.tmp`;
   fsImpl.writeFileSync(tmp, `${JSON.stringify(bindings, null, 2)}\n`, 'utf8');
   try {
@@ -1150,9 +1172,12 @@ export function writeBinding(home, handle, slug, opts = {}) {
   const bindings = readBindings(home, fsImpl);
   out.previous = bindings[handle]?.slug ?? null;
   out.rebound = Boolean(out.previous && out.previous !== slug);
+  // Keep a title an earlier `--bind --title` recorded: a plain `--me` read carries no title, and
+  // dropping the field on every read would make it write-only (review MINOR 5).
+  const keptTitle = opts.title == null ? bindings[handle]?.title : String(opts.title);
   bindings[handle] = {
     slug: String(slug), at: now,
-    ...(opts.title == null ? {} : { title: String(opts.title) }),
+    ...(keptTitle == null ? {} : { title: keptTitle }),
   };
   try {
     out.file = writeBindingsFile(home, bindings, fsImpl);
@@ -1175,6 +1200,29 @@ export function maybeBindPane({ home, env = process.env, slug, source, title, fs
   if (!slug || !handle || !HANDLE_RE.test(String(handle))) return null;
   if (!BINDING_SOURCES.has(source)) return null;
   return writeBinding(home, String(handle), String(slug), { fs: fsImpl, now, title });
+}
+
+/**
+ * Forget THIS pane's binding, by handle. The only other ways out of a binding are rebinding to another
+ * slug and 24 h of absence, which leaves a fat-fingered `--bind` (or two panes bound to one slug) with
+ * no fix but hand-editing the file (review MINOR 6).
+ *
+ * @returns {{ file: string|null, handle: string, removed: string|null, error: string|null }}
+ */
+export function removeBinding(home, handle, opts = {}) {
+  const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
+  const out = { file: null, handle, removed: null, error: null };
+  const bindings = readBindings(home, fsImpl);
+  if (!bindings[handle]) return out; // nothing bound here: not an error, there is just nothing to undo
+  out.removed = bindings[handle].slug;
+  delete bindings[handle];
+  try {
+    out.file = writeBindingsFile(home, bindings, fsImpl);
+  } catch (err) {
+    out.error = err?.message ?? String(err);
+    out.removed = null;
+  }
+  return out;
 }
 
 /**

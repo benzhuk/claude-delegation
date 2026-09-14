@@ -15,7 +15,7 @@ import { NoteError } from './envelope.mjs';
 import {
   toPosix, bindingsPath, readBindings, writeBinding, pruneBindings, maybeBindPane,
   resolvePane, resolvePaneWithSource, resolveSlug, flushLogPath, paneSlugCachePath,
-  writeOutboxEntry, BINDING_GC_MS, BINDING_SOURCES,
+  writeOutboxEntry, BINDING_GC_MS, BINDING_SOURCES, cursorPath, readCursor,
 } from './transport.mjs';
 import { runNoteInbox, formatInbox } from './note-inbox.mjs';
 import { runNoteFlush } from './note-flush.mjs';
@@ -188,12 +188,39 @@ test('D3: a handle beats everything, a title beats a binding', () => {
   assert.equal(resolvePaneWithSource(PANES, 'term_bbb', { bindings: BOUND }).via, 'handle');
   assert.equal(resolvePaneWithSource(PANES, 'taxonomy', { bindings: BOUND }).via, 'title');
 
-  // A pane freshly renamed to `nucleus` while panes.json still says `astra`: the rename is the newest
-  // intent, so the TITLE wins and the binding is not consulted for that slug.
-  const renamed = [claudePane({ handle: 'term_bbb', title: 'nucleus' })];
-  const stale = { term_bbb: { slug: 'astra', at: NOW - HOUR } };
-  assert.equal(resolvePaneWithSource(renamed, 'nucleus', { bindings: stale }).via, 'title');
-  assert.equal(resolvePaneWithSource(renamed, 'astra', { bindings: stale }).via, 'binding', 'the old name still reaches it');
+  // A pane renamed to `nucleus` and bound to nothing: the rename is the newest intent, title wins.
+  const renamed = [claudePane({ handle: 'term_ccc', title: 'nucleus' })];
+  assert.equal(resolvePaneWithSource(renamed, 'nucleus', { bindings: BOUND }).via, 'title');
+});
+
+test('MAJOR 1: a title NEVER wins for a pane that has said it is somebody else', () => {
+  // The real astra, retitled by a restart and bound to astra; and an unrelated pane whose conversation
+  // title happens to reduce to `astra` while it has bound itself to nucleus. Before the fix the title
+  // pass returned term_other and astra's note was typed into nucleus's live session.
+  const panes = [
+    claudePane({ handle: 'term_astra', title: 'Continue | bto-workflows', agentIdentity: 'codex' }),
+    claudePane({ handle: 'term_other', title: 'astra', agentIdentity: 'codex' }),
+  ];
+  const bindings = {
+    term_astra: { slug: 'astra', at: NOW },
+    term_other: { slug: 'nucleus', at: NOW },
+  };
+  const r = resolvePaneWithSource(panes, 'astra', { bindings });
+  assert.equal(r.pane.handle, 'term_astra');
+  assert.equal(r.via, 'binding');
+  // And nucleus is still reachable as itself, by its own binding.
+  assert.equal(resolvePaneWithSource(panes, 'nucleus', { bindings }).pane.handle, 'term_other');
+});
+
+test('MAJOR 1: an UNBOUND pane still matches on its title, even against a binding elsewhere', () => {
+  const panes = [
+    claudePane({ handle: 'term_bound', title: 'Continue' }),
+    claudePane({ handle: 'term_titled', title: 'astra' }),
+  ];
+  const bindings = { term_bound: { slug: 'astra', at: NOW } };
+  const r = resolvePaneWithSource(panes, 'astra', { bindings });
+  assert.equal(r.pane.handle, 'term_titled', 'a rename is deliberate; an unbound title is not a contradiction');
+  assert.equal(r.via, 'title');
 });
 
 test('D3: when title and binding agree, nothing changes — still `title`', () => {
@@ -344,17 +371,72 @@ test('`--bind` validates the slug like every other slug in the protocol', async 
   );
 });
 
+test('BLOCKER 1: --no-bind reads the inbox and records NOTHING — a guess must not become a statement', async () => {
+  const home = tmp();
+  const res = await runNoteInbox(['--me', 'astra', '--no-bind', '--no-repo'], inboxDeps(home, { ORCA_TERMINAL_HANDLE: 'term_bbb' }));
+  assert.equal(res.slug, 'astra');
+  assert.equal(res.binding, null);
+  assert.deepEqual(readBindings(home), {});
+  assert.equal(fs.existsSync(bindingsPath(home)), false);
+});
+
+test('BLOCKER 1: --no-bind does not disturb a binding that is already there', async () => {
+  const home = tmp();
+  writeBinding(home, 'term_bbb', 'astra', { now: NOW - HOUR });
+  await runNoteInbox(['--me', 'nucleus', '--no-bind', '--no-repo'], inboxDeps(home, { ORCA_TERMINAL_HANDLE: 'term_bbb' }));
+  assert.equal(readBindings(home).term_bbb.slug, 'astra', 'a guessed slug neither writes nor rebinds');
+  assert.equal(readBindings(home).term_bbb.at, NOW - HOUR);
+});
+
+test('MINOR 6: --unbind removes THIS pane entry and says what it removed', async () => {
+  const home = tmp();
+  writeBinding(home, 'term_bbb', 'astra', { now: NOW - HOUR });
+  writeBinding(home, 'term_ccc', 'nucleus', { now: NOW - HOUR });
+  const res = await runNoteInbox(['--unbind'], inboxDeps(home, { ORCA_TERMINAL_HANDLE: 'term_bbb' }));
+  assert.equal(res.mode, 'unbind');
+  assert.equal(res.slug, 'astra');
+  assert.deepEqual(Object.keys(readBindings(home)), ['term_ccc'], 'only this pane loses its binding');
+  assert.match(formatInbox(res), /unbound term_bbb \(was astra\) in .*panes\.json/);
+});
+
+test('MINOR 6: --unbind in an unbound pane is a no-op that says so, not an error', async () => {
+  const home = tmp();
+  const res = await runNoteInbox(['--unbind'], inboxDeps(home, { ORCA_TERMINAL_HANDLE: 'term_bbb' }));
+  assert.equal(res.ok, true);
+  assert.equal(res.slug, null);
+  assert.equal(formatInbox(res), 'term_bbb was not bound to anything');
+});
+
+test('MINOR 6: --unbind outside an Orca pane fails loud, like --bind', async () => {
+  const home = tmp();
+  await assert.rejects(
+    () => runNoteInbox(['--unbind'], inboxDeps(home, {})),
+    (e) => e instanceof NoteError && e.exitCode === 2 && /ORCA_TERMINAL_HANDLE is not set/.test(e.message),
+  );
+});
+
+test('MINOR 5: a --me read keeps a title an earlier --bind recorded', async () => {
+  const home = tmp();
+  await runNoteInbox(['--bind', 'astra', '--title', 'Continue | bto-workflows'], inboxDeps(home, { ORCA_TERMINAL_HANDLE: 'term_bbb' }));
+  await runNoteInbox(['--me', 'astra', '--no-repo'], inboxDeps(home, { ORCA_TERMINAL_HANDLE: 'term_bbb' }));
+  assert.equal(readBindings(home).term_bbb.title, 'Continue | bto-workflows');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // note-notify
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('D2: note-notify --to binds the pane when Codex left the handle in the environment', async () => {
+test('BLOCKER 3: note-notify NEVER binds — its --to is one line for the whole machine', async () => {
   const home = tmp();
+  // `notify = [... , "--to", "astra"]` lives in ~/.codex/config.toml, so EVERY Codex pane on the box
+  // spawns this with the same slug. Binding whatever handle survived into the child would record some
+  // other pane as astra, and `--to astra` would then wake the wrong live session.
   const res = await runNoteNotify(['--to', 'astra', '--no-chain'], {
     home, now: NOW, env: { ORCA_TERMINAL_HANDLE: 'term_bbb' }, orca: mockOrca(), flush: async () => ({ drained: 0, attempted: 0, remaining: 0, results: [] }),
   });
-  assert.equal(res.slug, 'astra');
-  assert.equal(readBindings(home).term_bbb.slug, 'astra');
+  assert.equal(res.slug, 'astra', 'it still knows which inbox to drain');
+  assert.deepEqual(readBindings(home), {});
+  assert.equal(fs.existsSync(bindingsPath(home)), false);
 });
 
 test('D4: a notify that resolved itself from the binding logs slug=<slug>(binding)', async () => {
@@ -416,6 +498,62 @@ test('the restart case end to end: dead handle, new pane, title changed — the 
   const res = await runNoteFlush([], { home, orca, now: NOW });
   assert.equal(res.drained, 1);
   assert.match(res.results[0].detail, /handle gone, resolved by slug; typed into term_new \(binding, title "switch-to-astra-model", agent-idle\)/);
+});
+
+/** The machine-wide mirror every sender appends to — what a cold-start read scans. */
+function mirror(home, ymd, lines) {
+  const file = path.join(home, '.agents/notes', `${ymd}.md`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [`# Peer-note ledger ${ymd}`, '', ...lines, ''].join('\n'), 'utf8');
+  return toPosix(file);
+}
+
+test('BLOCKER 2: a note the cold-start window SUPPRESSED is not "already read" — the wake-up still lands', async () => {
+  const home = tmp();
+  // A peer that was down for over 12 hours. The ask is 13 h old, so astra's first inbox read marks it
+  // seen WITHOUT showing it — and D9 must not read that as "the recipient has it" and bin the wake-up,
+  // or the note is lost to everybody. This is exactly what the outbox 48-hour window exists for.
+  const old = 'taxonomy → astra, 9.14.26 03:10 NYC [taxonomy-cold-1] ASK: Old ask. Needs: review by 17:00';
+  mirror(home, '2026-09-14', [old]);
+  writeOutboxEntry(home, {
+    id: 'taxonomy-cold-1', from: 'taxonomy', to: 'astra', toSlug: 'astra', handle: null,
+    agentIdentity: null, envelope: old, classification: 'permission', ledgers: [], packetPath: null,
+    createdAt: new Date(NOW - 13 * HOUR).toISOString(),
+  });
+
+  const read = await runNoteInbox(['--me', 'astra', '--no-repo'], inboxDeps(home, {}));
+  assert.equal(read.count, 0, 'never displayed');
+  assert.equal(read.suppressed, 1);
+  const cursor = readCursor(home, 'astra');
+  assert.equal(cursor.seen['taxonomy-cold-1'], '2026-09-14');
+  assert.equal(cursor.cold['taxonomy-cold-1'], '2026-09-14', 'suppressed ids stay distinguishable from shown ones');
+
+  const orca = mockOrca({
+    panes: [claudePane({ handle: 'term_aaa', title: 'astra' })],
+    reads: DELIVERY_READS('taxonomy-cold-1'),
+  });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.results[0].outcome, 'delivered');
+  assert.equal(res.drained, 1);
+});
+
+test('BLOCKER 2: a note that really WAS shown is still retired, cold or not', async () => {
+  const home = tmp();
+  const shown = 'taxonomy → astra, 9.14.26 16:00 NYC [taxonomy-shown-1] ASK: Recent ask. Needs: review by 17:00';
+  mirror(home, '2026-09-14', [shown]);
+  writeOutboxEntry(home, {
+    id: 'taxonomy-shown-1', from: 'taxonomy', to: 'astra', toSlug: 'astra', handle: null,
+    agentIdentity: null, envelope: shown, classification: 'permission', ledgers: [], packetPath: null,
+    createdAt: new Date(NOW - 10 * 60_000).toISOString(),
+  });
+
+  // Inside the cold-start window, so it IS displayed, and --ack marks it read for real.
+  const read = await runNoteInbox(['--me', 'astra', '--ack', '--no-repo'], inboxDeps(home, {}));
+  assert.equal(read.count, 1);
+  assert.equal(Object.keys(readCursor(home, 'astra').cold).length, 0);
+
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [claudePane({ title: 'astra' })] }), now: NOW });
+  assert.equal(res.results[0].outcome, 'retired');
 });
 
 test('D6: pruneBindings drops a handle gone for more than 24 h and keeps everything else', () => {

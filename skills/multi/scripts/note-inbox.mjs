@@ -9,6 +9,7 @@
 // USAGE
 //   note-inbox [--me <slug>] [--ack] [--json] [--days 3] [--cold-start-hours 12] [--orca <cmd>]
 //   note-inbox --bind <slug> [--title <text>]
+//   note-inbox --unbind
 //
 //   --me      the pane's slug. Otherwise $NOTE_SLUG, otherwise the binding recorded for
 //             $ORCA_TERMINAL_HANDLE, otherwise the pane title via `orca terminal show` (cached 10 min).
@@ -43,14 +44,14 @@ import { NoteError, parseEnvelope, envelopeInstant, timeParts, validateSlug, DEF
 import {
   toPosix, gitRunner, mainCheckout, makeOrcaRunner, resolveSlug, isMainModule,
   notesDir, ledgerDir, recentLedgerFiles, readIfExists, readCursor, writeCursor, cursorPath, worktreePathFromEnv,
-  HANDLE_RE, writeBinding, maybeBindPane, bindingsPath,
+  HANDLE_RE, writeBinding, removeBinding, maybeBindPane, bindingsPath,
 } from './transport.mjs';
 
 export const DEFAULT_DAYS = 3;
 export const DEFAULT_COLD_START_HOURS = 12;
 
 const STRING_FLAGS = new Set(['me', 'days', 'cold-start-hours', 'orca', 'repo', 'zone', 'home', 'bind', 'title']);
-const BOOL_FLAGS = new Set(['ack', 'json', 'help', 'no-repo', 'active-terminal']);
+const BOOL_FLAGS = new Set(['ack', 'json', 'help', 'no-repo', 'active-terminal', 'no-bind', 'unbind']);
 
 export function parseInboxArgs(argv) {
   const out = {};
@@ -120,6 +121,29 @@ export async function runNoteInbox(argv, deps = {}) {
   const now = deps.now ?? Date.now();
   const zone = args.zone || env.NOTE_SEND_ZONE || DEFAULT_ZONE;
 
+  // ── `--unbind`: forget THIS pane's binding. Rebinding and 24 h of absence were the only ways out,
+  //    which left a mistaken `--bind` — or two panes bound to one slug, which is exit 2 for every send
+  //    to that slug — with no fix but hand-editing panes.json (review MINOR 6).
+  if (args.unbind) {
+    const handle = env.ORCA_TERMINAL_HANDLE;
+    if (!handle || !HANDLE_RE.test(String(handle))) {
+      throw new NoteError(
+        2,
+        `cannot unbind: $ORCA_TERMINAL_HANDLE ${handle ? `is "${handle}", which is not a term_… handle` : 'is not set in this shell'}. `
+        + 'Run --unbind inside the pane whose binding you want removed, or delete its entry from '
+        + `${bindingsPath(home)} by hand.`,
+      );
+    }
+    const removal = removeBinding(home, String(handle), { fs: fsImpl });
+    return {
+      ok: !removal.error, exitCode: 0, mode: 'unbind', slug: removal.removed, slugSource: '--unbind',
+      handle: String(handle), binding: removal, file: removal.file ?? bindingsPath(home),
+      acked: false, cursor: null, cursorFallback: false, scanned: [], days: 0, coldStart: false,
+      suppressed: 0, count: 0, notes: [],
+      problems: removal.error ? [`binding not removed from ${bindingsPath(home)} (${removal.error})`] : [],
+    };
+  }
+
   // ── `--bind <slug>`: registration ONLY, no inbox read (spec 2026-09-14 D2). For Ben or a hook, in
   //    the pane itself. The agent in the pane is the authority on who it is, so this outranks the title
   //    from here on — which is what survives Codex renaming the pane to `Continue` on restart.
@@ -165,7 +189,11 @@ export async function runNoteInbox(argv, deps = {}) {
   // D2: a pane that names itself BINDS itself. `--me astra` (or NOTE_SLUG) run in a pane is the only
   // first-hand evidence of who that pane is; the title is a secondhand guess that a restart invalidates.
   // Cheap enough to redo on every read, and the refreshed `at` is what keeps a live pane out of the GC.
-  const binding = maybeBindPane({ home, env, slug, source: slugSource, fsImpl, now });
+  // `--no-bind` is for a caller that knows its slug is a GUESS. The Claude hook passes it when the slug
+  // came out of the title cache, which has a 10-minute TTL for a reason: a binding has none, so
+  // laundering a cached title through `--me` would freeze a renamed pane's old slug forever, and it
+  // would go on ACKing another slug's inbox (review BLOCKER 1).
+  const binding = args['no-bind'] ? null : maybeBindPane({ home, env, slug, source: slugSource, fsImpl, now });
   if (binding?.error) problems.push(`pane binding not written to ${bindingsPath(home)} (${binding.error})`);
 
   // ── Where to look.
@@ -204,7 +232,15 @@ export async function runNoteInbox(argv, deps = {}) {
     if (cursor.seen[e.id]) continue;
     if (coldCutoff !== null) {
       const at = envelopeInstant(e, zone);
-      if (at !== null && at < coldCutoff) { suppressed += 1; cursor.seen[e.id] = e.ymd; continue; }
+      if (at !== null && at < coldCutoff) {
+        suppressed += 1;
+        cursor.seen[e.id] = e.ymd;
+        // Marked seen but never DISPLAYED. note-flush must not read this as "the recipient has it" and
+        // retire the wake-up, or a peer that was down longer than the window loses the note entirely
+        // (review BLOCKER 2).
+        (cursor.cold ??= {})[e.id] = e.ymd;
+        continue;
+      }
     }
     const packet = e.details ? packetLocation(e, sources, fsImpl) : null;
     notes.push({
@@ -277,6 +313,14 @@ function packetLocation(entry, sources, fsImpl) {
 
 /** The compact form a hook injects and a human reads. One line per note, packet state appended. */
 export function formatInbox(result) {
+  if (result.mode === 'unbind') {
+    if (!result.ok) {
+      return [`${result.handle} was NOT unbound`, ...(result.problems ?? []).map((p) => `  ! ${p}`)].join('\n');
+    }
+    return result.slug
+      ? `unbound ${result.handle} (was ${result.slug}) in ${result.file}`
+      : `${result.handle} was not bound to anything`;
+  }
   if (result.mode === 'bind') {
     if (!result.ok) {
       return [`${result.handle} was NOT bound to ${result.slug}`, ...(result.problems ?? []).map((p) => `  ! ${p}`)].join('\n');
@@ -306,12 +350,15 @@ const USAGE = `note-inbox — the ledger, read as this pane's inbox.
 
   note-inbox [--me <slug>] [--ack] [--json] [--days 3] [--cold-start-hours 12] [--orca <cmd>]
   note-inbox --bind <slug> [--title <text>]
+  note-inbox --unbind
 
   --me     this pane's slug (else $NOTE_SLUG, else the binding for $ORCA_TERMINAL_HANDLE, else its title)
   --ack    mark everything printed as seen (advances ~/.agents/notes/.cursor-<slug>)
   --json   one JSON object instead of the human list
   --bind   record "this pane IS <slug>" in ~/.agents/notes/panes.json and stop. Run it INSIDE the pane.
            Every --me read binds too; --bind is for a pane that is not reading an inbox right now.
+  --unbind remove THIS pane's entry from panes.json and stop — the way out of a wrong --bind.
+  --no-bind read the inbox WITHOUT recording a binding, for a caller whose slug is only a guess.
 
 Scans ~/.agents/notes/*.md and this repo's docs/ledger/*.md for the last --days days.
 Exit 0 always — an inbox read never fails its caller.

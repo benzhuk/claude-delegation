@@ -421,6 +421,31 @@ test('D3: an exact TITLE still wins over a binding that points elsewhere', async
   assert.equal(res.handle, 'term_aaa', 'a rename is the newest intent');
 });
 
+test('MAJOR 2: --to <handle> files the note under the BINDING, not the conversation title', async () => {
+  const repo = tmp(); const home = tmp();
+  // Both ambiguity errors tell people to re-send with a handle, and Codex titles are no longer slugs.
+  // Deriving the recipient from `Continue | bto-workflows` files the line as addressed to `continue`,
+  // which no note-inbox anywhere ever reads — delivered to the pane, invisible in the ledger.
+  writeBinding(home, 'term_bbb', 'nucleus', { now: NOW });
+  const pane = idlePane({ handle: 'term_bbb', title: 'Continue | bto-workflows', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
+
+  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW });
+  assert.match(res.envelope, /^taxonomy → nucleus, /, 'the ledger line must name a slug note-inbox reads');
+  assert.equal(res.delivered, true);
+  assert.equal(res.handle, 'term_bbb');
+});
+
+test('MAJOR 2: with no binding it still falls back to the title, as it always did', async () => {
+  const repo = tmp(); const home = tmp();
+  const pane = idlePane({ handle: 'term_bbb', title: 'nucleus', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
+  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW });
+  assert.match(res.envelope, /^taxonomy → nucleus, /);
+});
+
 test('D3/H9: two LIVE panes bound to one slug is exit 2 — recorded and queued, never guessed', async () => {
   const repo = tmp(); const home = tmp();
   writeBinding(home, 'term_bbb', 'nucleus', { now: NOW });

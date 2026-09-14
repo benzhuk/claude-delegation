@@ -172,13 +172,19 @@ export async function runNoteFlush(argv, deps = {}) {
    * pure duplicate — on Netcup, 2026-09-14, `taxonomy-main-tip-8` sat in the outbox for 40 minutes
    * while astra's cursor had already shown it read.
    *
-   * One read per slug per drain, cached: a backlog is usually several notes for the same pane.
+   * One read per slug per drain, cached: a backlog is usually several notes for the same pane. An id
+   * the cold-start window suppressed is NOT read — see `cold` below.
    */
   const cursors = new Map();
   const alreadyRead = (slug, id) => {
     if (!slug) return false;
     if (!cursors.has(slug)) cursors.set(slug, readCursor(home, slug, fsImpl));
-    return Boolean(cursors.get(slug).seen?.[id]);
+    const cursor = cursors.get(slug);
+    // `cold` ids were marked seen by the cold-start window WITHOUT being displayed. They are the one
+    // kind of "seen" that is not "read": retiring those would delete the wake-up for a note the agent
+    // was never shown, which is reachable exactly when a peer has been down longer than the window —
+    // the case the outbox's 48 hours exist for (review BLOCKER 2).
+    return Boolean(cursor.seen?.[id]) && !cursor.cold?.[id];
   };
 
   const live = [];

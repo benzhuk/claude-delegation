@@ -46,7 +46,6 @@ import { spawn } from 'node:child_process';
 
 import {
   toPosix, makeOrcaRunner, resolveSlug, titleToSlug, appendFlushLog, isMainModule, withDeadline,
-  maybeBindPane,
 } from './transport.mjs';
 import { drainQuietly } from './note-flush.mjs';
 
@@ -187,10 +186,10 @@ export async function runNoteNotify(argv, deps = {}) {
     }
   })(), identifyBudget, undefined);
 
-  // D2: `--to astra` on the notify line is this pane stating its own identity, so record the binding —
-  // Codex clears the environment before spawning us, so ORCA_TERMINAL_HANDLE is often absent and this is
-  // a no-op; when it does survive, it is the one registration a Codex pane gets without reading an inbox.
-  const binding = maybeBindPane({ home, env, slug, source: slugSource, fsImpl, now });
+  // This deliberately does NOT bind (review BLOCKER 3). `--to` lives in `~/.codex/config.toml`, which
+  // is ONE line for the whole machine, so every Codex pane spawns this with the same slug; binding
+  // whatever handle happened to survive into the child would record another pane as that slug. A Codex
+  // pane binds itself every turn through `note-inbox --me`, which is first-hand.
 
   // ── 3. Drain, inside whatever budget is left.
   const budget = Math.max(0, maxMs - (clock() - started) - DRAIN_RESERVE_MS);
@@ -200,7 +199,7 @@ export async function runNoteNotify(argv, deps = {}) {
     : { drained: 0, attempted: 0, remaining: 0, results: [] };
 
   const result = {
-    ok: true, exitCode: 0, event, slug, slugSource, chained, binding: binding ?? null,
+    ok: true, exitCode: 0, event, slug, slugSource, chained,
     drained: drained.drained ?? 0, attempted: drained.attempted ?? 0, remaining: drained.remaining ?? 0,
     elapsedMs: clock() - started, dryRun,
   };
