@@ -529,7 +529,9 @@ export function isDurablePath(target, { tmpDir = os.tmpdir(), home = os.homedir(
     .filter(Boolean)
     .map((t) => String(t).toLowerCase().split('\\').join('/'));
   if (temps.some((t) => lower.startsWith(t))) return false;
-  return !/(^|\/)(scratchpad|worktrees?|wt-[^/]*)\//i.test(lower);
+  // A `tmp` segment anywhere is temporary too — `~/tmp/hookbuild` is exactly as disposable as `/tmp`,
+  // and it is where the Netcup smokes unpack the tree.
+  return !/(^|\/)(tmp|temp|scratchpad|worktrees?|wt-[^/]*)\//i.test(lower);
 }
 
 function installCodexHooks() {
@@ -682,6 +684,23 @@ function main() {
   return refusals.length === 0 ? 0 : 1;
 }
 
+/**
+ * Only when RUN, never when imported. Without this, `import`ing the module to reach one exported helper
+ * publishes every skill and rewrites the manifest — which is exactly what happened while sanity-checking
+ * `isDurablePath` on 2026-09-14. Realpaths on both sides, because the mirror publishes this tree as a
+ * symlink on macOS and Linux and a naive `url === argv[1]` comparison is false there.
+ */
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const canon = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const self = real(fileURLToPath(import.meta.url));
+  const argv1 = real(entry);
+  if (canon(self) === canon(argv1)) return true;
+  return path.basename(argv1).toLowerCase() === path.basename(self).toLowerCase();
+}
+
 // `process.exitCode` rather than `process.exit()`: a piped --json write can still be in flight,
 // and process.exit truncates it on Windows (review M5).
-process.exitCode = main();
+if (isMainModule()) process.exitCode = main();
