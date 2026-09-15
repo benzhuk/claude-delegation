@@ -1,41 +1,41 @@
 #!/usr/bin/env node
-// multi-inbox — the Claude Code half of the v4 wake-up (spec V3).
+// multi-inbox — the Claude Code half of hook delivery.
 //
-// Codex gets woken by its `notify` hook at turn end. Claude Code gets woken by these, so that a peer
-// note lands in the session's context without anyone having typed into the pane — the failure the
-// pilot spent 1–3.5 hours at a time inside.
+// Codex gets woken by `multi-codex-hook.mjs`; Claude Code gets woken by these, so a peer note lands in
+// the session's context without anyone typing into the pane — the failure the pilot spent 1–3.5 hours at
+// a time inside.
 //
 //   UserPromptSubmit  → additionalContext with the new notes, then ack (cursor advances).
-//   Stop              → block the stop with the notes as the reason, then ack. Honours
+//   Stop              → block the stop with the notes as the reason; if there is nothing but this
+//                       session has an ASK outstanding, park in the long poll (core, D2). Honours
 //                       stop_hook_active, so it can never loop.
-//   PostToolUse       → additionalContext for notes that arrived mid-turn. Confirmed supported:
-//                       `hookSpecificOutput.additionalContext` on PostToolUse reaches the model
-//                       (.claude/agent-reports/…/claude-hooks-capabilities.md §3).
+//   PostToolUse       → additionalContext for notes that arrived mid-turn, behind an mtime gate.
 //
-// FOUR RULES, all of them load-bearing:
-//   1. NEVER THROW. A hook that fails is Ben's session broken. Every path is wrapped, the whole run is
-//      bounded by a timer, and the fallback is always "print nothing, exit 0".
-//   2. SILENT WHEN THERE IS NOTHING. No notes, no slug, no Orca pane: no output at all.
-//   3. FAST. PostToolUse fires on every tool call, so it short-circuits on a directory mtime check and
-//      never shells out to git or orca. UserPromptSubmit and Stop may resolve a slug through orca, but
-//      only once per 10 minutes (transport caches it).
-//   4. NEVER GUESS THE SLUG. `$NOTE_SLUG`, else the pane's `$ORCA_TERMINAL_HANDLE`. A hook that reads
-//      the wrong pane's inbox shows one session another session's notes.
+// EVERY decision about what a note looks like lives in `multi-hook-core.mjs`, shared with Codex. What is
+// left here is the Claude-specific part: the argv/stdin contract, the cheap slug (with its 10-minute TTL
+// and the `--no-bind` rule that keeps a guess from becoming a binding), the mtime stamp, and the budget.
+//
+// FOUR RULES, all load-bearing:
+//   1. NEVER THROW. A hook that fails is Ben's session broken. Every path is wrapped; the fallback is
+//      always "print nothing, exit 0".
+//   2. SILENT WHEN THERE IS NOTHING.
+//   3. FAST — except the Stop long-poll, where waiting IS the feature and the handler timeout allows it.
+//   4. NEVER GUESS THE SLUG.
 
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { pathToFileURL } = require("url");
 
-/** Hard ceiling on the whole hook, whatever happens underneath. */
+/** Hard ceiling on the cheap events. Stop is exempt: the long poll is allowed to wait (core D2). */
 const BUDGET_MS = 2500;
 /** PostToolUse runs on every tool call; it gets a much tighter budget and no git/orca. */
 const POST_TOOL_BUDGET_MS = 700;
 const NOTES_DIR = path.join(os.homedir(), ".agents", "notes");
-const SKILL_SCRIPTS = path.join(
-  process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, ".."),
-  "skills", "multi", "scripts",
-);
+const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
+const SKILL_SCRIPTS = path.join(PLUGIN_ROOT, "skills", "multi", "scripts");
+const CORE = path.join(__dirname, "multi-hook-core.mjs");
+const PANE_SLUG_CACHE_MS = 10 * 60 * 1000;
 
 function stampPath(slug) {
   return path.join(NOTES_DIR, `.poll-${slug}`);
@@ -102,8 +102,6 @@ function cheapSlug() {
   }
 }
 
-const PANE_SLUG_CACHE_MS = 10 * 60 * 1000;
-
 /**
  * M1: a config error (an unwritable cursor, `NOTE_SLUG=Taxonomy` with a capital) used to make this hook
  * permanently silent — runNoteInbox threw, the catch swallowed it, zero bytes, forever. Now it is said
@@ -127,86 +125,112 @@ function couldBeInAPane() {
   return Boolean(process.env.NOTE_SLUG || process.env.ORCA_TERMINAL_HANDLE);
 }
 
-async function inbox(argv, cwd) {
+async function loadInbox() {
   const mod = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "note-inbox.mjs")).href);
-  return mod.runNoteInbox(argv, { cwd });
+  return mod.runNoteInbox;
 }
 
 /**
- * Keep an injection small: hooks' output is concatenated into the context on every prompt, and the
- * practical guidance is ~500 tokens per injection. `maxChars` truncates each envelope line — the full
- * line is always in the ledger, and the id is at the front (L3).
+ * Write and WAIT for the flush. On Windows stdout to a pipe is asynchronous, and `process.exit` does not
+ * flush it — a Stop reason of 1-2 KB can be truncated and the whole delivery lost (review MAJOR 4).
  */
-function summarise(result, limit = 12, maxChars = 0) {
-  const shown = result.notes.slice(0, limit);
-  const lines = shown.map((n) => {
-    const packet = n.details ? (n.packetExists ? ` (packet: ${n.packetPath})` : ` (packet MISSING: ${n.details})`) : "";
-    const text = `${n.line}${packet}`;
-    return `  ${maxChars > 0 && text.length > maxChars ? `${text.slice(0, maxChars)}…` : text}`;
-  });
-  const more = result.notes.length - shown.length;
-  return [
-    `${result.count} new peer note${result.count === 1 ? "" : "s"} for ${result.slug} (the multi skill; the ledger is the channel):`,
-    ...lines,
-    more > 0 ? `  …and ${more} more in ~/.agents/notes/ — read them with \`note-inbox --me ${result.slug}\`` : null,
-    // M3: problems are the packet that never arrived, the cursor that cannot be written. They reached
-    // note-inbox's stderr and nowhere else, and hook stderr on exit 0 does not reach the model.
-    ...(result.problems || []).map((p) => `  ! ${p}`),
-    "Read the packet before acting. ACK an ASK you take, or send BLOCKED with the reason. "
-    + "Never re-send an id someone else sent, and never wait on a peer inside this turn.",
-  ].filter(Boolean).join("\n");
-}
-
 function emit(object) {
-  process.stdout.write(JSON.stringify(object));
-}
-
-async function handleUserPromptSubmit(cwd) {
-  const result = await inbox(["--ack"], cwd);
-  if (!result || result.count === 0) return;
-  writeStamp(result.slug, newestLedgerMtime());
-  emit({
-    suppressOutput: true,
-    hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: summarise(result) },
+  return new Promise((resolve) => {
+    try {
+      process.stdout.write(JSON.stringify(object), () => resolve(true));
+    } catch {
+      resolve(false);
+    }
   });
 }
 
-async function handleStop(input, cwd) {
-  // The loop guard. Without this a blocked stop that keeps finding notes would never let the session
-  // end. We also ack below, so a second fire has nothing to find anyway — belt and braces.
-  if (input.stop_hook_active) return;
-  const result = await inbox(["--ack"], cwd);
-  if (!result || result.count === 0) return;
-  writeStamp(result.slug, newestLedgerMtime());
-  emit({
-    // L3: a Stop reason is read in full by the model at the worst moment for a wall of text. Six notes,
-    // each truncated; the rest are one `note-inbox` away and are already in the ledger.
-    decision: "block",
-    reason: `${summarise(result, 6, 220)}\n\nHandle these before you stop: ACK what you are taking, answer what you can, `
-      + "or send BLOCKED with the reason. If none of it is for you, say so in one line and stop.",
-  });
-}
+async function main() {
+  if (!couldBeInAPane()) return;
+  const input = await readInput();
+  const event = input.hook_event_name || process.argv[2] || "";
+  const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
-async function handlePostToolUse(cwd) {
-  // The cheap path: no git, no orca, no import unless the mirror actually changed.
-  const me = cheapSlug();
-  if (!me) return;
-  const slug = me.slug;
-  const newest = newestLedgerMtime();
-  if (newest === 0 || newest <= readStamp(slug)) return;
-  // `--no-bind` when the slug came from the title cache: a guess must never become a permanent binding.
-  const args = ["--me", slug, "--ack", "--no-repo", ...(me.guess ? ["--no-bind"] : [])];
-  const result = await inbox(args, cwd);
-  // L2: the stamp moves only AFTER a successful read. Advancing it first meant any failure underneath
-  // was never retried until some other write happened to touch the mirror again.
-  writeStamp(slug, newest);
-  if (!result || result.count === 0) return;
-  emit({
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: `${summarise(result, 6, 220)}\nThis arrived mid-turn. Finish the current atomic step first — a note never interrupts an in-flight edit.`,
-    },
-  });
+  // PostToolUse is the hot path: it fires on every tool call, so it decides whether there is anything
+  // to do from a stamp and a directory mtime, before importing anything.
+  let extraArgs = [];
+  if (event === "PostToolUse") {
+    const me = cheapSlug();
+    if (!me) return;
+    const newest = newestLedgerMtime();
+    if (newest === 0 || newest <= readStamp(me.slug)) return;
+    // `--no-bind` when the slug came from the title cache: a guess must never become a permanent binding.
+    extraArgs = ["--me", me.slug, "--no-repo", ...(me.guess ? ["--no-bind"] : [])];
+  }
+
+  let delivered = null;
+
+  const work = (async () => {
+    try {
+      // Inside the try on purpose: a broken CLAUDE_PLUGIN_ROOT makes this import throw, and M1 says a
+      // config error must SAY SO once rather than making the hook permanently silent.
+      const core = await import(pathToFileURL(CORE).href);
+      const runNoteInbox = await loadInbox();
+      const inbox = (argv) => runNoteInbox([...extraArgs, ...argv], { cwd });
+      const result = await core.runHookEvent({
+        event,
+        input,
+        cwd,
+        home: os.homedir(),
+        env: process.env,
+        now: Date.now(),
+        inbox,
+        // L2: the stamp moves only AFTER a successful read. Advancing it first meant any failure
+        // underneath was never retried until some other write happened to touch the mirror again.
+        onRead: (r) => writeStamp(r.slug, newestLedgerMtime()),
+      });
+      if (result?.output) delivered = { ...result, inbox };
+      return undefined;
+    } catch (err) {
+      // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
+      // tool call) and never on Stop (a broken hook must not block a stop).
+      if (event !== "UserPromptSubmit" && event !== "") return undefined;
+      const once = warnOnce(`multi-inbox: peer notes are not being read — ${err && err.message ? err.message : String(err)}`);
+      if (once) {
+        delivered = {
+          output: {
+            suppressOutput: true,
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `${once}
+Peer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <your-slug>\`.`,
+            },
+          },
+          ackIds: [],
+        };
+      }
+      return undefined;
+    }
+  })();
+
+  // Stop may park for up to MULTI_LONGPOLL_MAX_MIN minutes by design, so it is NOT raced against a
+  // timer here; its ceiling is the handler `timeout` in hooks.json (1020 s).
+  if (event === "Stop") {
+    await work;
+  } else {
+    const budget = event === "PostToolUse" ? POST_TOOL_BUDGET_MS : BUDGET_MS;
+    let timer;
+    await Promise.race([
+      work,
+      new Promise((resolve) => { timer = setTimeout(resolve, budget); timer.unref?.(); }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  if (!delivered) return;
+  // Emit, wait for the flush, and only THEN ack exactly what was printed. A process killed in between
+  // (Esc on a running hook, the budget above, a closed pane) then repeats a note instead of losing it —
+  // the cursor is what note-flush reads to decide a wake-up is no longer needed (review MAJOR 3).
+  await emit(delivered.output);
+  if (delivered.ackIds && delivered.ackIds.length && delivered.inbox) {
+    try {
+      await delivered.inbox(["--ack-ids", delivered.ackIds.join(",")]);
+    } catch { /* delivered; it will simply repeat */ }
+  }
 }
 
 function readInput() {
@@ -221,45 +245,12 @@ function readInput() {
   });
 }
 
-async function main() {
-  if (!couldBeInAPane()) return;
-  const input = await readInput();
-  const event = input.hook_event_name || process.argv[2] || "";
-  const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
-
-  const work = (async () => {
-    try {
-      if (event === "Stop") return await handleStop(input, cwd);
-      if (event === "PostToolUse") return await handlePostToolUse(cwd);
-      if (event === "UserPromptSubmit" || event === "") return await handleUserPromptSubmit(cwd);
-      return undefined;
-    } catch (err) {
-      // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
-      // tool call) and never on Stop (a broken hook must not block a stop).
-      if (event !== "UserPromptSubmit" && event !== "") return undefined;
-      const once = warnOnce(`multi-inbox: peer notes are not being read — ${err && err.message ? err.message : String(err)}`);
-      if (once) {
-        emit({
-          suppressOutput: true,
-          hookSpecificOutput: {
-            hookEventName: "UserPromptSubmit",
-            additionalContext: `${once}\nPeer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <your-slug>\`.`,
-          },
-        });
-      }
-      return undefined;
-    }
-  })();
-
-  const budget = event === "PostToolUse" ? POST_TOOL_BUDGET_MS : BUDGET_MS;
-  let timer;
-  await Promise.race([
-    work,
-    new Promise((resolve) => { timer = setTimeout(resolve, budget); timer.unref?.(); }),
-  ]);
-  clearTimeout(timer);
-}
-
 main()
   .catch(() => { /* rule 1: a hook failure must never be visible to Ben's session */ })
-  .finally(() => { process.exit(0); });
+  .finally(() => {
+    // The exit stays — a hook that lingers is a turn that will not end, and the suite hung the moment
+    // it was removed. What changed is WHEN we get here: `emit` awaits the stdout callback and the ack
+    // is awaited after it, so by now the pipe has taken the whole object. Exiting BEFORE that flush is
+    // what truncates a long Stop reason on Windows (review MAJOR 4).
+    process.exit(0);
+  });

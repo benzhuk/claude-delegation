@@ -39,11 +39,17 @@ note-send --from <your-slug> --to <peer-slug> --kind ASK --topic pr132-review \
   --goal "land it before the corpus run" --needs review --by 15:00 --packet-file -
 ```
 
-**If you are a Codex session:** run `note-inbox --me <your-slug> --ack` at the START of every turn
-and after finishing a task. That is your only inbox — nothing will interrupt you. That same command
-also BINDS your pane to your slug in `~/.agents/notes/panes.json`, so peers can reach you even after
-Codex retitles the pane `Continue` on a restart — the title no longer has to equal your slug (still
-rename it when you can: humans read titles). Sending is the same command, through the mirrored copy:
+**If you are a Codex session:** you probably do nothing to receive either. Codex 0.154 has hooks, and
+the plugin installs them into every Codex home, so notes arrive in your context at SessionStart, at
+every prompt, after tool calls and when you try to stop — the same way Claude gets them. Check with
+`ls $CODEX_HOME/hooks.json`; if it is there and `codex exec "hi"` prints `hook: UserPromptSubmit`,
+they are live.
+
+If hooks are NOT installed, the fallback is unchanged: run `note-inbox --me <your-slug> --ack` at the
+START of every turn and after finishing a task. Run it anyway when you want to be sure. That command
+also BINDS your pane to your slug in `~/.agents/notes/panes.json`, so peers reach you even after Codex
+retitles the pane `Continue` on a restart — the title no longer has to equal your slug (still rename it
+when you can: humans read titles). Sending is the same command, through the mirrored copy:
 
 ```
 node ~/.agents/skills/multi/scripts/note-send.mjs --from <your-slug> --to <peer-slug> --kind ACK \
@@ -53,6 +59,45 @@ node ~/.agents/skills/multi/scripts/note-send.mjs --from <your-slug> --to <peer-
 **Pre-flight, blocking, before any of this:** the pane must be TITLED its slug. `note-send` refuses
 to guess between two panes with the same title, and `note-inbox` refuses to guess which pane it is.
 Renaming is a step Ben or the orchestrator performs; it is not something you send a note about.
+
+## For Ben: installing and checking the Codex hooks
+
+Hook installation is OPT-IN, because it edits live Codex homes that Orca also writes to:
+
+```
+node <plugin>/scripts/mirror-shared-skills.mjs --codex-hooks            # publish AND wire the hooks
+node <plugin>/scripts/mirror-shared-skills.mjs --codex-hooks-only       # wire only
+grep -c hooks.state $CODEX_HOME/config.toml                             # 4 per home when it worked
+```
+
+A plain run never touches a Codex home, and the installer refuses to wire live homes at all when it is
+running from a temporary checkout — a worktree or an unpacked archive, whose path is about to vanish.
+Point a scratch run at a scratch home with `--codex-home <dir>`.
+
+Two things silently untrust every hook, and both are repaired by re-running the installer: a node
+upgrade, because the recorded command is an absolute `node` path, and Orca adding or removing a hook
+group, because the trust key carries the group index. If Codex stops delivering notes, that `grep` is
+the first check; hooks it does not trust are skipped without a word.
+
+## Why your turn sometimes does not end
+
+When you try to stop, the Stop hook checks the ledger. If nothing is waiting AND you have no ASK of
+your own outstanding, it exits immediately — that is the normal case and you will never notice it.
+
+If you DO have an unanswered ASK (yours, sent in the last 24 h, `Needs:` other than `none`, with no
+RESULT or BLOCKED back from the recipient), the hook parks for up to 15 minutes waiting for the reply,
+and hands it to you the moment it lands. You are waiting because YOU asked. Two things follow:
+
+- **A prompt Ben types while you are parked is not lost.** Claude Code holds it in the composer until
+  the hook ends; Codex queues it and runs it after. Ben can also press Esc, which cancels the wait.
+- **Do not add a wait of your own on top.** Never poll, never sleep, never re-send the id. If the reply
+  does not come, the hook gives up silently and your turn ends — the note is in the ledger either way.
+
+`MULTI_LONGPOLL_MAX_MIN=0` in a pane's environment turns the waiting off entirely.
+
+While you are parked, `~/.agents/notes/.listening-<slug>.json` tells `note-flush` not to type at your
+pane: the hook is going to deliver that note into your context, so nothing needs to land in Ben's
+composer. That file is removed the moment the wait ends, however it ends.
 
 ## The envelope
 
@@ -264,7 +309,11 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
   nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`. A wake-up whose
   note the recipient has already read — its id is in that pane's cursor — is retired without being
   typed, because the ledger already delivered it.
-- **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown.
+- **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown. `cold` inside it
+  is the subset that was marked seen by the cold-start window WITHOUT being displayed, which is why
+  those wake-ups are still typed.
+- **Listening marker** `~/.agents/notes/.listening-<slug>.json` — that session is parked in its Stop
+  hook until `until`, so the flusher leaves its pane alone.
 - **Bindings** `~/.agents/notes/panes.json` — `{"<handle>": {"slug","at","title"}}`, each written by the
   pane itself. A binding does not expire while its pane lives, so a REPURPOSED pane keeps answering to
   its old slug until it rebinds; `note-inbox --unbind` in that pane is the way out. A handle gone for
@@ -307,5 +356,9 @@ how it runs.
   which binds as a side effect. `cat ~/.agents/notes/panes.json` shows what is bound to what, and
   `note-inbox --unbind` inside a pane removes that pane's entry — the fix for a wrong `--bind`, or for
   a slug that two live panes both claim (every send to it is exit 2 until one of them lets go).
-- Tests: `node --test "skills/multi/scripts/*.test.mjs"` (Node 24 no longer expands a bare
-  directory).
+- **What Ben sees:** every delivery also emits a one-line `systemMessage` per note
+  (`📨 astra → taxonomy ASK: …`, three at most). Claude Code shows it as `⎿  Stop says: …`, Codex as
+  `Hook  …`. It goes OUTSIDE the conversation and never into the composer, so it cannot collide with
+  what you are typing.
+- Tests: `node --test "skills/multi/scripts/*.test.mjs" "hooks/*.test.mjs" "scripts/*.test.mjs"`
+  (Node 24 no longer expands a bare directory).
