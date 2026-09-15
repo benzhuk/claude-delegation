@@ -89,9 +89,11 @@ const SHIM_SPECS = SHIM_COMMANDS.flatMap((command) => (IS_WINDOWS
   ? [{ name: `${command}.cmd`, flavour: 'cmd', command }, { name: command, flavour: 'sh', command }]
   : [{ name: command, flavour: 'sh', command }]));
 
-const opts = parseArgs(process.argv.slice(2));
+// `log` and `refusals` before parseArgs: refuse() pushes into them, and an unknown flag or a
+// `--codex-home` with no value must be a refusal, not a ReferenceError (review, 2026-09-14).
 const log = [];
 const refusals = [];
+const opts = parseArgs(process.argv.slice(2));
 
 function parseArgs(argv) {
   const o = {
