@@ -35,7 +35,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { mergeHooksJson, trustEntriesForPlacements, upsertHooksState, codexHomes } from './codex-hook-trust.mjs';
+import {
+  mergeHooksJson, trustEntriesForPlacements, upsertHooksState, pruneOurHooksState, codexHomes,
+} from './codex-hook-trust.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -92,11 +94,15 @@ const log = [];
 const refusals = [];
 
 function parseArgs(argv) {
-  const o = { dryRun: false, force: false, uninstall: false, json: false, codexHooksOnly: false, codexHome: null };
+  const o = {
+    dryRun: false, force: false, uninstall: false, json: false,
+    codexHooksOnly: false, codexHooks: false, codexHome: null,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') o.dryRun = true;
     else if (a === '--codex-hooks-only') o.codexHooksOnly = true;
+    else if (a === '--codex-hooks') o.codexHooks = true;
     else if (a === '--codex-home') {
       const value = argv[++i];
       if (value === undefined) refusals.push('--codex-home needs a path');
@@ -459,10 +465,13 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json]
 
   --dry-run    print every action without touching anything
+  --codex-hooks
+               ALSO wire (and pre-trust) the Codex hooks. OFF by default: it edits live Codex homes
   --codex-hooks-only
-               only wire (and pre-trust) the Codex hooks in every Codex home; publish nothing
+               only wire the Codex hooks; publish nothing
   --codex-home <dir>
-               wire ONLY that Codex home (use this for a scratch home; CODEX_HOME merely adds one)
+               wire ONLY that Codex home (use this for a scratch home; CODEX_HOME merely adds one).
+               Required when running from a temporary checkout — live homes need a durable path
   --force      overwrite a destination that exists and is not in our manifest
   --uninstall  remove exactly what the manifest says we created, then the manifest
   --json       one JSON object instead of the human log
@@ -490,6 +499,39 @@ function publish(entry, prev) {
  *   · never delete anything, and never touch a key that is not ours (the `notify` line must survive);
  *   · rewrite nothing when nothing changed, so an apply that changes no hooks leaves no mtimes moved.
  */
+/**
+ * Write through a temp file and rename. A Codex home's `config.toml` carries `notify`, `model` and
+ * every project trust entry; a plain writeFileSync truncates first, so an apply interrupted at the
+ * wrong instant (Ctrl-C, a closed terminal, a sleeping laptop) leaves a Codex that will not start, for
+ * a file nobody backs up (review BLOCKER 2). The transport already writes `panes.json` this way.
+ */
+function writeFileAtomic(file, text) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text, 'utf8');
+  try {
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* the throw below is what matters */ }
+    throw err;
+  }
+}
+
+/**
+ * Is the hook script somewhere that will still exist tomorrow? `REPO` is whatever checkout this script
+ * runs from, INCLUDING a disposable worktree or an unpacked archive. Wiring live Codex homes from one
+ * of those repoints Ben's accounts at a directory that is about to be deleted — not a hypothetical: it
+ * happened twice on 2026-09-14, on Netcup and on Windows, both times from a gate run (review BLOCKER 1).
+ */
+export function isDurablePath(target, { tmpDir = os.tmpdir(), home = os.homedir() } = {}) {
+  const raw = String(target);
+  const lower = raw.toLowerCase().split('\\').join('/');
+  const temps = [tmpDir, path.join(home, 'AppData', 'Local', 'Temp'), '/tmp', '/var/folders']
+    .filter(Boolean)
+    .map((t) => String(t).toLowerCase().split('\\').join('/'));
+  if (temps.some((t) => lower.startsWith(t))) return false;
+  return !/(^|\/)(scratchpad|worktrees?|wt-[^/]*)\//i.test(lower);
+}
+
 function installCodexHooks() {
   const results = [];
   if (!fs.existsSync(CODEX_HOOK_SCRIPT)) {
@@ -497,12 +539,25 @@ function installCodexHooks() {
     return results;
   }
   // `--codex-home` restricts this to ONE home. Without it the installer covers every Codex home on the
-  // machine, `~/.codex` included — correct for a real apply, and exactly wrong for a smoke against a
-  // scratch home, which is how the real ~/.codex on Netcup got hooks it never asked for (2026-09-14,
-  // removed by hand the same hour). Setting CODEX_HOME is NOT enough: that only ADDS a home.
+  // machine, `~/.codex` included — correct for a real apply, and exactly wrong for a smoke or a test,
+  // which is how real homes on Netcup AND on Windows got hooks nobody asked for (2026-09-14, repaired
+  // by hand). Setting CODEX_HOME is NOT enough: that only ADDS a home.
   const homes = opts.codexHome ? [path.resolve(opts.codexHome)] : codexHomes();
+
+  // Live homes are only ever wired from a durable checkout. A scratch checkout may still target a
+  // scratch home, which is what every smoke and every test must do.
+  if (!opts.codexHome && !isDurablePath(CODEX_HOOK_SCRIPT)) {
+    refuse(`refusing to wire live Codex homes from a temporary checkout (${CODEX_HOOK_SCRIPT}) — `
+      + 'run the installer from the installed plugin, or pass --codex-home <scratch dir>');
+    return results;
+  }
+
   for (const home of homes) {
-    if (!fs.existsSync(home)) continue; // an account home that is not on this machine
+    if (!fs.existsSync(home)) {
+      // A home the user NAMED is a typo, not an absence; a home we discovered is simply not here.
+      if (opts.codexHome) refuse(`--codex-home ${home} does not exist`);
+      continue;
+    }
     const hooksPath = path.join(home, 'hooks.json');
     const configPath = path.join(home, 'config.toml');
     const result = { home, hooksPath, wroteHooks: false, trust: { added: [], updated: [] } };
@@ -527,7 +582,7 @@ function installCodexHooks() {
     const desired = `${JSON.stringify(merged.json, null, 2)}\n`;
     if (current !== desired) {
       say(current === null ? 'write codex hooks.json' : 'add multi hooks to codex hooks.json', hooksPath);
-      if (!opts.dryRun) fs.writeFileSync(hooksPath, desired, 'utf8');
+      if (!opts.dryRun) writeFileAtomic(hooksPath, desired);
       result.wroteHooks = true;
     }
     result.placements = merged.placements.map((pl) => `${pl.event}:${pl.groupIndex}:${pl.handlerIndex}`);
@@ -538,11 +593,23 @@ function installCodexHooks() {
     const entries = trustEntriesForPlacements(path.resolve(hooksPath), merged.placements);
     let toml = '';
     try { toml = fs.readFileSync(configPath, 'utf8'); } catch { toml = ''; }
-    const upserted = upsertHooksState(toml, entries);
-    if (upserted.changed) {
-      say('trust codex hooks', `${configPath} (+${upserted.added.length} ~${upserted.updated.length})`);
-      if (!opts.dryRun) fs.writeFileSync(configPath, upserted.text, 'utf8');
-      result.trust = { added: upserted.added, updated: upserted.updated };
+    // Drop OUR entries at indices we no longer occupy — what is left behind when Orca adds or removes a
+    // group and our handler moves. Only our own hashes, only this file (review MINOR 3).
+    const pruned = pruneOurHooksState(toml, path.resolve(hooksPath), Object.values(entries), Object.keys(entries));
+    const upserted = upsertHooksState(pruned.text, entries);
+    if (upserted.changed || pruned.removed.length > 0) {
+      say('trust codex hooks',
+        `${configPath} (+${upserted.added.length} ~${upserted.updated.length} -${pruned.removed.length})`);
+      if (!opts.dryRun) {
+        // One backup, the first time we ever touch this file. Nobody else backs it up, and the blast
+        // radius of getting it wrong is a Codex that will not start.
+        const backup = `${configPath}.bak-multi-first-touch`;
+        if (toml && !fs.existsSync(backup)) {
+          try { fs.copyFileSync(configPath, backup); say('back up config.toml', backup); } catch { /* best effort */ }
+        }
+        writeFileAtomic(configPath, upserted.text);
+      }
+      result.trust = { added: upserted.added, updated: upserted.updated, removed: pruned.removed };
     }
     results.push(result);
   }
@@ -589,9 +656,12 @@ function main() {
       if (!opts.dryRun && st.isSymbolicLink()) fs.unlinkSync(old.dest);
     }
     writeManifest(managed);
-    // Deliberately NOT in the manifest: `--uninstall` must never strip a Codex home's hooks.json or
-    // rewrite Ben's config.toml. Removing hooks is a decision, not a side effect of unmirroring.
-    codexHooks = installCodexHooks();
+    // OPT-IN (review BLOCKER 1). A plain run publishes skills and shims and touches no Codex home at
+    // all: the installer edits live files Orca also owns, and a default that reached them turned every
+    // gate run into a live-config edit — twice, on two machines, in one afternoon. `--codex-hooks` asks
+    // for it explicitly. Deliberately NOT in the manifest either: `--uninstall` must never strip a
+    // Codex home's hooks.json or rewrite Ben's config.toml.
+    if (opts.codexHooks) codexHooks = installCodexHooks();
   }
 
   if (opts.json) {

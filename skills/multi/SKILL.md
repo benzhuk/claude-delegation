@@ -60,6 +60,25 @@ node ~/.agents/skills/multi/scripts/note-send.mjs --from <your-slug> --to <peer-
 to guess between two panes with the same title, and `note-inbox` refuses to guess which pane it is.
 Renaming is a step Ben or the orchestrator performs; it is not something you send a note about.
 
+## For Ben: installing and checking the Codex hooks
+
+Hook installation is OPT-IN, because it edits live Codex homes that Orca also writes to:
+
+```
+node <plugin>/scripts/mirror-shared-skills.mjs --codex-hooks            # publish AND wire the hooks
+node <plugin>/scripts/mirror-shared-skills.mjs --codex-hooks-only       # wire only
+grep -c hooks.state $CODEX_HOME/config.toml                             # 4 per home when it worked
+```
+
+A plain run never touches a Codex home, and the installer refuses to wire live homes at all when it is
+running from a temporary checkout — a worktree or an unpacked archive, whose path is about to vanish.
+Point a scratch run at a scratch home with `--codex-home <dir>`.
+
+Two things silently untrust every hook, and both are repaired by re-running the installer: a node
+upgrade, because the recorded command is an absolute `node` path, and Orca adding or removing a hook
+group, because the trust key carries the group index. If Codex stops delivering notes, that `grep` is
+the first check; hooks it does not trust are skipped without a word.
+
 ## Why your turn sometimes does not end
 
 When you try to stop, the Stop hook checks the ledger. If nothing is waiting AND you have no ASK of

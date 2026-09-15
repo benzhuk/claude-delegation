@@ -11,7 +11,7 @@ import {
 } from '../skills/multi/scripts/transport.mjs';
 import {
   summarise, humanLine, humanSummary, contextOutput, blockOutput, longPoll, runHookEvent,
-  ledgerPulse, scannedDirs, longPollMaxMin, STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE,
+  ledgerPulse, scannedDirs, longPollMaxMin, STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
 } from './multi-hook-core.mjs';
 import { codexSlug, runCodexHook } from './multi-codex-hook.mjs';
 
@@ -81,6 +81,38 @@ test('D2: an ASK older than the window is not worth waiting for', () => {
   const texts = [line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Ancient', ' Needs: review by 17:00')];
   assert.deepEqual(outstandingAsks(texts, 'taxonomy', { now: NOW + 25 * HOUR }), []);
   assert.equal(outstandingAsks(texts, 'taxonomy', { now: NOW + 23 * HOUR }).length, 1);
+});
+
+test('MAJOR 2: an ASK to BEN never parks the session — he answers by typing, not by ledger line', () => {
+  const texts = [line('taxonomy', 'ben', 'taxonomy-decide-1', 'ASK', 'Which account should deploy this', ' Needs: decision by 17:00')];
+  assert.deepEqual(outstandingAsks(texts, 'taxonomy', { now: NOW }), [],
+    'otherwise every turn for a day ends in a 15-minute park that looks like a hang');
+});
+
+test('MINOR 1: a superseded ASK is not worth waiting for either', () => {
+  const ask = line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1', ' Needs: review by 17:00');
+  const sup = 'taxonomy → astra, 9.14.26 16:05 NYC [taxonomy-pr1-2 supersedes taxonomy-pr1-1] ASK: Scrap that, review PR 2. Needs: review by 17:00';
+  const ids = outstandingAsks([`${ask}
+${sup}`], 'taxonomy', { now: NOW }).map((a) => a.id);
+  assert.deepEqual(ids, ['taxonomy-pr1-2'], 'the replacement is outstanding; the one it replaced is not');
+});
+
+test('a line that is not an envelope is ignored, and the undated guard is there anyway', () => {
+  // The envelope grammar makes an unparseable DATE unreachable — a line with one fails the regex and is
+  // never an entry at all. The `at === null` guard in outstandingAsks is belt and braces for a future
+  // grammar, and this is the reachable half of it.
+  const notALine = 'taxonomy asked astra to review PR 1 at some point';
+  assert.deepEqual(outstandingAsks([notALine], 'taxonomy', { now: NOW }), []);
+});
+
+test('MINOR 11: the ask window honours the zone the ledger was written in', () => {
+  const texts = [line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review', ' Needs: review by 17:00')];
+  // 16:00 "NYC" read as UTC is four hours earlier, which is exactly the kind of drift that makes a
+  // 24-hour window fire an hour late.
+  const nyc = outstandingAsks(texts, 'taxonomy', { now: NOW, zone: 'America/New_York' });
+  const utc = outstandingAsks(texts, 'taxonomy', { now: NOW + 23 * HOUR + 59 * 60_000, zone: 'UTC' });
+  assert.equal(nyc.length, 1);
+  assert.equal(utc.length, 0, 'read as UTC the same line is already outside the window');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,30 +270,37 @@ const stubCtx = (over = {}) => ({
 
 test('UserPromptSubmit with notes returns additionalContext, with nothing returns silence', async () => {
   const notes = resultOf([line('astra', 'taxonomy', 'astra-pr1-1', 'ASK', 'Review PR 1')]);
-  const out = await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox: async () => notes }));
-  assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-  assert.equal(out.suppressOutput, true);
+  const seen = [];
+  const res = await runHookEvent(stubCtx({
+    event: 'UserPromptSubmit', inbox: async (argv) => { seen.push(argv); return notes; },
+  }));
+  assert.equal(res.output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.equal(res.output.suppressOutput, true);
+  // MAJOR 3: the READ does not ack. The ids come back so the adapter can ack them after it has printed.
+  assert.deepEqual(seen, [[]], 'no --ack in the read');
+  assert.deepEqual(res.ackIds, ['astra-pr1-1']);
   assert.equal(await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox: async () => resultOf([]) })), null);
 });
 
 test('PostToolUse says the note arrived mid-turn', async () => {
   const notes = resultOf([line('astra', 'taxonomy', 'astra-pr1-1', 'ASK', 'Review PR 1')]);
-  const out = await runHookEvent(stubCtx({ event: 'PostToolUse', inbox: async () => notes }));
-  assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUse');
-  assert.match(out.hookSpecificOutput.additionalContext, new RegExp(MID_TURN_NOTE.slice(0, 40)));
+  const res = await runHookEvent(stubCtx({ event: 'PostToolUse', inbox: async () => notes }));
+  assert.equal(res.output.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.match(res.output.hookSpecificOutput.additionalContext, new RegExp(MID_TURN_NOTE.slice(0, 40)));
 });
 
 test('SessionStart delivers whatever is pending, as context', async () => {
   const notes = resultOf([line('astra', 'taxonomy', 'astra-pr1-1', 'ASK', 'Review PR 1')]);
-  const out = await runHookEvent(stubCtx({ event: 'SessionStart', inbox: async () => notes }));
-  assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
-  assert.match(out.systemMessage, /^📨/);
+  const res = await runHookEvent(stubCtx({ event: 'SessionStart', inbox: async () => notes }));
+  assert.equal(res.output.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(res.output.systemMessage, /^📨/);
 });
 
 test('Stop with notes blocks; a re-fire never reads and never blocks', async () => {
   const notes = resultOf([line('astra', 'taxonomy', 'astra-pr1-1', 'ASK', 'Review PR 1')]);
-  const out = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
-  assert.equal(out.decision, 'block');
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block');
+  assert.deepEqual(res.ackIds, ['astra-pr1-1']);
 
   let read = 0;
   const again = await runHookEvent(stubCtx({
@@ -309,6 +348,44 @@ test('removeListening is safe to call twice and readListening survives garbage',
   assert.equal(readListening(home, 'astra'), null);
 });
 
+test('MINOR 6: a control character in a body never reaches the line Ben sees', () => {
+  const esc = String.fromCharCode(27);
+  const note = noteOf(line('astra', 'taxonomy', 'astra-x-1', 'FYI', `hi${esc}[2J there`));
+  const out = humanLine(note);
+  assert.ok(!out.includes(esc), 'an ANSI escape would garble the terminal it is printed into');
+  assert.match(out, /hi \[2J there/, 'the escape becomes a space; the harmless text stays readable');
+});
+
+test('MINOR 7: a marker is only removed by the session that wrote it', () => {
+  const home = tmp();
+  const mine = { pid: 111, host: 'box-a' };
+  writeListening(home, 'astra', { ...mine, slug: 'astra', until: NOW + HOUR, asks: [] });
+  assert.equal(removeListening(home, 'astra', fs, { pid: 222, host: 'box-a' }), false, 'not mine');
+  assert.ok(readListening(home, 'astra'), 'so it is still there for whoever is parked');
+  assert.equal(removeListening(home, 'astra', fs, mine), true);
+  assert.equal(readListening(home, 'astra'), null);
+});
+
+test('MINOR 9: the poll watches the mirror even when the inbox scanned nothing', () => {
+  const home = tmp();
+  assert.deepEqual(scannedDirs({ scanned: [] }, home), [`${home}/.agents/notes`]);
+  assert.deepEqual(scannedDirs({ scanned: [] }), [], 'and without a home it is still just the scan');
+});
+
+test('MAJOR 4: writeJson resolves only once the stream has taken it', async () => {
+  const chunks = [];
+  let released = null;
+  const stream = { write: (text, cb) => { chunks.push(text); released = cb; return false; } };
+  let done = false;
+  const p = writeJson({ a: 1 }, stream).then(() => { done = true; });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(done, false, 'a pending pipe write must not be reported as written');
+  released();
+  await p;
+  assert.equal(done, true);
+  assert.equal(chunks[0], `{"a":1}\n`);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The Codex adapter
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,9 +421,12 @@ test('D3: the adapter passes --me so every turn re-states who this pane is', asy
     { hook_event_name: 'UserPromptSubmit', cwd: '/repo' },
     { home, env: { NOTE_SLUG: 'astra' }, inbox: async (argv) => { seen.push(argv); return notes; } },
   );
-  assert.deepEqual(seen, [['--me', 'astra', '--ack']]);
-  assert.match(out.hookSpecificOutput.additionalContext, /\[taxonomy-pr1-1\]/);
-  assert.match(out.systemMessage, /^📨 taxonomy → astra ASK/);
+  assert.deepEqual(seen, [['--me', 'astra']], 'no --ack in the read (MAJOR 3)');
+  assert.match(out.output.hookSpecificOutput.additionalContext, /\[taxonomy-pr1-1\]/);
+  assert.match(out.output.systemMessage, /^📨 taxonomy → astra ASK/);
+  // …and the ack the adapter runs afterwards names exactly what was printed.
+  await out.ack(out.ackIds);
+  assert.deepEqual(seen[1], ['--me', 'astra', '--ack-ids', 'taxonomy-pr1-1']);
 });
 
 test('D3: Stop maps to the same block contract Claude gets', async () => {
@@ -356,8 +436,27 @@ test('D3: Stop maps to the same block contract Claude gets', async () => {
     { hook_event_name: 'Stop', cwd: '/repo', stop_hook_active: false },
     { home, env: { NOTE_SLUG: 'astra' }, inbox: async () => notes },
   );
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /Handle these before you stop/);
+  assert.equal(out.output.decision, 'block');
+  assert.match(out.output.reason, /Handle these before you stop/);
+});
+
+test('MINOR 5: an unparseable payload is silence — never a read, an ack, or a mislabelled output', async () => {
+  const home = tmp();
+  let called = 0;
+  const out = await runCodexHook({}, { home, env: { NOTE_SLUG: 'astra' }, inbox: async () => { called += 1; return resultOf([]); } });
+  assert.equal(out, null);
+  assert.equal(called, 0, 'a PermissionRequest we failed to parse must not be read as a prompt');
+});
+
+test('MINOR 8: PostToolUse skips the repo scan, so the hot path never runs git', async () => {
+  const home = tmp();
+  const seen = [];
+  const notes = resultOf([line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1')], 'astra');
+  await runCodexHook(
+    { hook_event_name: 'PostToolUse', cwd: '/repo' },
+    { home, env: { NOTE_SLUG: 'astra' }, inbox: async (argv) => { seen.push(argv); return notes; } },
+  );
+  assert.deepEqual(seen, [['--me', 'astra', '--no-repo']]);
 });
 
 test('D3: an unknown event is silence, not a crash', async () => {

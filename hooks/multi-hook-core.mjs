@@ -23,8 +23,9 @@ import path from 'node:path';
 
 import { parseEnvelope } from '../skills/multi/scripts/envelope.mjs';
 import {
-  outstandingAsks, writeListening, removeListening, readIfExists, safeReaddir, toPosix,
+  outstandingAsks, writeListening, removeListening, readIfExists, safeReaddir, toPosix, notesDir,
 } from '../skills/multi/scripts/transport.mjs';
+import { DEFAULT_ZONE } from '../skills/multi/scripts/envelope.mjs';
 
 /** Whole-hook ceiling for the cheap events. The Stop long-poll has its own, much longer, budget. */
 export const BUDGET_MS = 2500;
@@ -75,10 +76,18 @@ export function summarise(result, limit = 12, maxChars = 0) {
 export const HUMAN_BODY_MAX = 80;
 export const HUMAN_MAX_LINES = 3;
 
+/**
+ * Control characters, including ANSI escapes. A note body cannot carry a newline or a shell
+ * metacharacter (the envelope grammar and `assertFieldSafe` see to that) but it CAN carry ``, and
+ * this string is printed into Ben's terminal by both agents. Nothing here reaches a shell — the hook
+ * spawns nothing — so this is about garbling, not execution (review MINOR 6).
+ */
+const CONTROL_RE = new RegExp(`[\u0000-\u001f\u007f-\u009f]`, "g");
+
 /** One note, as a human glances at it: who, to whom, what kind, and the gist. */
 export function humanLine(note) {
   const parsed = parseEnvelope(String(note.line ?? '')) ?? {};
-  const body = String(parsed.body ?? '').trim();
+  const body = String(parsed.body ?? '').replace(CONTROL_RE, ' ').trim();
   const gist = body.length > HUMAN_BODY_MAX ? `${body.slice(0, HUMAN_BODY_MAX - 1)}…` : body;
   return `📨 ${note.from} → ${note.to} ${note.kind}${gist ? `: ${gist}` : ''}`;
 }
@@ -134,6 +143,24 @@ export const STOP_REASON = 'Handle these before you stop: ACK what you are takin
 export const MID_TURN_NOTE = 'This arrived mid-turn. Finish the current atomic step first — a note never '
   + 'interrupts an in-flight edit.';
 
+/**
+ * Write one JSON object to stdout and RESOLVE WHEN IT IS FLUSHED. On Windows a pipe write is
+ * asynchronous, and `process.exit` does not flush it — a Stop reason is 1-2 KB, more than a pipe takes
+ * in one go, so exiting straight after the write can hand the agent truncated JSON and lose the whole
+ * delivery (review MAJOR 4). Ben's primary box is the Windows one; the smoke that proved this path ran
+ * on Linux, where the same write is synchronous.
+ */
+export function writeJson(object, stream = process.stdout) {
+  return new Promise((resolve) => {
+    try {
+      stream.write(`${JSON.stringify(object)}
+`, () => resolve(true));
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The long poll (D2)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,9 +180,15 @@ export function ledgerPulse(dirs, fsImpl = fs) {
   return newest;
 }
 
-/** The directories the inbox actually scanned, which is exactly where a new note can appear. */
-export function scannedDirs(result) {
-  return [...new Set((result?.scanned ?? []).map((f) => path.posix.dirname(toPosix(f))))];
+/**
+ * The directories the inbox actually scanned, plus the mirror itself. The mirror has to be in the list
+ * even when it is empty: on a fresh machine `~/.agents/notes` holds no `*.md` yet, so the scanned list
+ * comes back empty and the poll would watch nothing at all for fifteen minutes (review MINOR 9).
+ */
+export function scannedDirs(result, home = null) {
+  const dirs = (result?.scanned ?? []).map((f) => path.posix.dirname(toPosix(f)));
+  if (home) dirs.push(notesDir(home));
+  return [...new Set(dirs)];
 }
 
 /**
@@ -185,10 +218,12 @@ export async function longPoll(ctx, result) {
   if (!slug || maxMin <= 0) return null;
 
   const texts = (result.scanned ?? []).map((f) => readIfExists(f, fsImpl));
-  const asks = outstandingAsks(texts, slug, { now });
+  // The same zone note-inbox used to date these lines, or the 24-hour window is off by the offset
+  // wherever NOTE_SEND_ZONE is set (review MINOR 11).
+  const asks = outstandingAsks(texts, slug, { now, zone: env.NOTE_SEND_ZONE || DEFAULT_ZONE });
   if (asks.length === 0) return null;
 
-  const dirs = scannedDirs(result);
+  const dirs = scannedDirs(result, home);
   const until = now + maxMin * 60_000;
   const marker = {
     pid: ctx.pid ?? process.pid,
@@ -202,7 +237,9 @@ export async function longPoll(ctx, result) {
   writeListening(home, slug, marker, fsImpl);
 
   const signals = ['SIGTERM', 'SIGINT', 'SIGHUP'];
-  const cleanup = () => removeListening(home, slug, fsImpl);
+  // Only ever remove OUR marker: another session on the same slug may be parked right now, and deleting
+  // its marker would put the flusher back to typing at a pane that is still waiting (review MINOR 7).
+  const cleanup = () => removeListening(home, slug, fsImpl, { pid: marker.pid, host: marker.host });
   const onSignal = () => { cleanup(); process.exit(0); };
   const listen = ctx.listenSignals !== false && typeof process.on === 'function';
   // `exit` too, synchronously: a marker that outlives its process silences the flusher for that slug
@@ -222,7 +259,10 @@ export async function longPoll(ctx, result) {
       pulse = next;
       // Something was appended. Only a real read can say whether it is FOR US and unseen — the mirror
       // carries every session's traffic.
-      const found = await inbox(['--ack']);
+      // No `--ack` here. The notes are acked by the ADAPTER, after it has written them out: a poll that
+      // acked on the spot would retire a note the model never sees if anything kills this process in the
+      // window — and Esc cancels a running hook, at exactly the moment Ben is impatient (review MAJOR 3).
+      const found = await inbox([]);
       if (found && found.count > 0) return found;
     }
     return null;
@@ -243,6 +283,18 @@ export async function longPoll(ctx, result) {
  * One event, one output object (or null for silence). `ctx.inbox(argv)` is the adapter's — it decides
  * the flags, because only the adapter knows how its slug was obtained (`--no-bind` for a guess).
  */
+/**
+ * One event in, one `{ output, ackIds }` out (or null for silence).
+ *
+ * The two halves are separate ON PURPOSE (review MAJOR 3). The read no longer acks; the ADAPTER writes
+ * the output, waits for the write to flush, and only then acks exactly the ids it printed. Anything
+ * that kills the process in between — Esc on a running hook, a budget timer, a closed pane — then costs
+ * a repeat, not a note. Acking inside the read meant the cursor advanced for notes nobody ever saw, and
+ * the flusher's retire-on-read dropped the wake-up behind them.
+ *
+ * `ctx.inbox(argv)` is the adapter's: it decides the flags, because only the adapter knows how its slug
+ * was obtained (`--no-bind` for a guess, `--no-repo` on the hot path).
+ */
 export async function runHookEvent(ctx) {
   const event = ctx.event;
   if (event === 'Stop') return handleStop(ctx);
@@ -251,26 +303,34 @@ export async function runHookEvent(ctx) {
   return null;
 }
 
+/** Everything this output showed, so the adapter can ack precisely that and nothing else. */
+function shown(result) {
+  return (result.notes ?? []).map((n) => n.id).filter(Boolean);
+}
+
 async function handleContextEvent(ctx, event) {
-  const result = await ctx.inbox(['--ack']);
+  const result = await ctx.inbox([]);
   if (!result || result.count === 0) return null;
   ctx.onRead?.(result);
-  return contextOutput(event, result);
+  return { output: contextOutput(event, result), ackIds: shown(result) };
 }
 
 async function handlePostToolUse(ctx) {
-  const result = await ctx.inbox(['--ack']);
+  const result = await ctx.inbox([]);
   if (!result || result.count === 0) return null;
   ctx.onRead?.(result);
-  return contextOutput('PostToolUse', result, { note: MID_TURN_NOTE, limit: 6, maxChars: 220 });
+  return {
+    output: contextOutput('PostToolUse', result, { note: MID_TURN_NOTE, limit: 6, maxChars: 220 }),
+    ackIds: shown(result),
+  };
 }
 
 /**
  * Stop is where the design lives.
  *
  *   · `stop_hook_active` → NEVER wait. This is the re-fire of a stop we already blocked; waiting here is
- *     how a session never ends. Surface anything new and get out.
- *   · notes already waiting → block, exactly as before.
+ *     how a session never ends.
+ *   · notes already waiting → block.
  *   · nothing waiting, but an ASK of mine is unanswered → park for up to 15 minutes, delivering the
  *     answer into the context the moment it lands. Ben can type meanwhile: Claude Code holds the line in
  *     the composer until the hook ends, Codex queues it.
@@ -278,21 +338,21 @@ async function handlePostToolUse(ctx) {
  */
 async function handleStop(ctx) {
   // The loop guard, and it comes BEFORE the read. This is the re-fire of a stop we already blocked and
-  // already acked, so there is nothing of ours left to find — and reading here would `--ack` anything
-  // that arrived in the last second while the model is on its way out, retiring notes it never saw.
-  // Silence costs one turn; a swallowed note costs the note. Deviation from D2's "surface anything new",
-  // for that reason: the next UserPromptSubmit shows it, in the one channel the model actually reads.
+  // already acked, so there is nothing of ours left to find — and reading here would ack anything that
+  // arrived in the last second while the model is on its way out, retiring notes it never saw. Silence
+  // costs one turn; a swallowed note costs the note. Deviation from D2's "surface anything new", for
+  // that reason: the next UserPromptSubmit shows it, in the one channel the model actually reads.
   if (ctx.input?.stop_hook_active) return null;
 
-  const result = await ctx.inbox(['--ack']);
+  const result = await ctx.inbox([]);
   if (result && result.count > 0) {
     ctx.onRead?.(result);
-    return blockOutput(result, STOP_REASON);
+    return { output: blockOutput(result, STOP_REASON), ackIds: shown(result) };
   }
   if (!result) return null;
 
   const found = await longPoll(ctx, result);
   if (!found || found.count === 0) return null;
   ctx.onRead?.(found);
-  return blockOutput(found, STOP_REASON);
+  return { output: blockOutput(found, STOP_REASON), ackIds: shown(found) };
 }

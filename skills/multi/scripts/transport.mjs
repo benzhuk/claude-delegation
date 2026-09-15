@@ -18,7 +18,9 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { NoteError, SLUG_RE, validateSlug, parseEnvelope, envelopeInstant, DEFAULT_ZONE } from './envelope.mjs';
+import {
+  NoteError, SLUG_RE, validateSlug, parseEnvelope, envelopeInstant, DEFAULT_ZONE, RESERVED_RECIPIENT,
+} from './envelope.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -864,6 +866,29 @@ function parseCursor(raw, slug) {
   return null;
 }
 
+/**
+ * Why this pane's cursor could not be written, WITHOUT writing anything — the reads that only display
+ * notes no longer persist a cursor (the ack is a separate call now), so a broken cursor would otherwise
+ * be discovered only after the output had already gone out, and the hook would repeat the same notes
+ * forever with no explanation (review MAJOR 3 gave the reads this shape; M1 demands the explanation).
+ *
+ * @returns {string|null} the reason, or null when there is nothing wrong
+ */
+export function cursorProblem(home, slug, fsImpl = fs) {
+  const file = cursorPath(home, slug);
+  try {
+    if (fsImpl.statSync(file).isDirectory()) return 'the path is a directory';
+    return null; // it is a file: the write itself is the only real test, and it reports for itself
+  } catch { /* missing is the normal case */ }
+  if (typeof fsImpl.accessSync !== 'function') return null;
+  try {
+    fsImpl.accessSync(path.dirname(file), fs.constants.W_OK);
+    return null;
+  } catch (err) {
+    return err?.message ?? 'not writable';
+  }
+}
+
 export function readCursor(home, slug, fsImpl = fs, deps = {}) {
   const primary = parseCursor(readIfExists(cursorPath(home, slug), fsImpl), slug);
   if (primary) return primary;
@@ -1086,14 +1111,25 @@ export function outstandingAsks(texts, slug, { now = Date.now(), zone = DEFAULT_
     }
   }
 
+  // A later `supersedes` retires an ask exactly as it retires its wake-up: the question was replaced,
+  // so waiting for an answer to the old one would park the session on something nobody will answer.
+  const retired = supersededIds(texts);
+
   const seen = new Set();
   const out = [];
   for (const e of entries) {
     if (e.kind !== 'ASK' || String(e.from).toLowerCase() !== me) continue;
     if (!e.needs || e.needs === 'none') continue;
-    if (answered.has(e.id) || seen.has(e.id)) continue;
+    // BEN IS NOT A PANE. He reads ben-inbox.md and answers by typing, so no RESULT line ever appears
+    // for an ask addressed to him — and without this, one `--to ben` ASK parks the session for the full
+    // 15 minutes at the end of EVERY turn for a day, which to Ben looks like the agent hanging on him
+    // (review MAJOR 2).
+    if (String(e.to).toLowerCase() === RESERVED_RECIPIENT) continue;
+    if (answered.has(e.id) || retired.has(e.id) || seen.has(e.id)) continue;
     const at = envelopeInstant(e, zone);
-    if (at !== null && now - at > windowMs) continue;
+    // A line whose date will not parse has no age, so it can never leave the window: treat it as too
+    // old to wait for rather than as outstanding forever.
+    if (at === null || now - at > windowMs) continue;
     seen.add(e.id);
     out.push({ id: e.id, to: e.to, needs: e.needs });
   }
@@ -1125,7 +1161,17 @@ export function readListening(home, slug, fsImpl = fs) {
   } catch { return null; }
 }
 
-export function removeListening(home, slug, fsImpl = fs) {
+/**
+ * Remove the marker — but only if it is OURS. Two sessions can share a slug (a Claude pane and a Codex
+ * pane both bound to it, or a pane that restarted), and whichever finished first used to delete the
+ * survivor's marker, putting the flusher back to typing at a pane that is still parked (review MINOR 7).
+ * Called with no owner it removes unconditionally, which is what a repair or a test wants.
+ */
+export function removeListening(home, slug, fsImpl = fs, owner = null) {
+  if (owner) {
+    const marker = readListening(home, slug, fsImpl);
+    if (marker && (marker.pid !== owner.pid || marker.host !== owner.host)) return false;
+  }
   try { fsImpl.rmSync(listeningPath(home, slug), { force: true }); return true; } catch { return false; }
 }
 

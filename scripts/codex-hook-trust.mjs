@@ -81,6 +81,16 @@ export function trustKey(hooksJsonPath, eventName, groupIndex = 0, handlerIndex 
   return `${hooksJsonPath}:${hookEventLabel(eventName)}:${groupIndex}:${handlerIndex}`;
 }
 
+/** The inverse of `tomlBasicString` for the two escapes we ever write: a Windows key round-trips. */
+export function unescapeTomlBasic(text) {
+  return String(text).replace(/\\(["\\])/g, (_m, ch) => ch);
+}
+
+/** Escape a literal for use inside a RegExp — the key is a path, and a path is full of metacharacters. */
+export function escapeRe(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, (m) => `\\${m}`);
+}
+
 /** A TOML basic string: only `\` and `"` need escaping for the paths and keys we write. */
 export function tomlBasicString(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -101,7 +111,10 @@ export function upsertHooksState(toml, entries) {
 
   for (const [key, hash] of Object.entries(entries)) {
     const header = `[hooks.state.${tomlBasicString(key)}]`;
-    const at = text.indexOf(header);
+    // Anchored to a line start: an unanchored search matches a COMMENTED-OUT header first
+    // (`# [hooks.state."k"]`), writes the new hash into the comment region and leaves the real section
+    // on its old hash — trusted for a command we no longer run (review MINOR 2).
+    const at = text.search(new RegExp(`^${escapeRe(header)}`, 'm'));
     if (at === -1) {
       const block = `${header}\ntrusted_hash = ${tomlBasicString(hash)}\n`;
       const sep = text === '' || text.endsWith('\n\n') ? '' : (text.endsWith('\n') ? '\n' : '\n\n');
@@ -131,6 +144,39 @@ export function upsertHooksState(toml, entries) {
   }
 
   return { text, changed: added.length > 0 || updated.length > 0, added, updated };
+}
+
+/**
+ * Drop `hooks.state` entries that are OURS but at an index we no longer occupy — what is left behind
+ * when Orca adds or removes a group and our handler moves. Only entries whose key names THIS hooks.json
+ * and whose hash is one of ours are touched, so a foreign handler's trust can never be removed by this,
+ * and a key we are about to write is kept (review MINOR 3).
+ *
+ * @returns {{ text: string, removed: string[] }}
+ */
+export function pruneOurHooksState(toml, hooksJsonPath, ourHashes, keepKeys = []) {
+  const keep = new Set(keepKeys);
+  const mine = new Set(ourHashes);
+  const lines = String(toml ?? '').split('\n');
+  const out = [];
+  const removed = [];
+  for (let i = 0; i < lines.length; i++) {
+    const header = /^\[hooks\.state\."(.+)"\]$/.exec(lines[i]);
+    const key = header ? unescapeTomlBasic(header[1]) : null;
+    const samePath = key ? key.slice(0, key.lastIndexOf(':', key.lastIndexOf(':', key.lastIndexOf(':') - 1) - 1)) === hooksJsonPath : false;
+    if (key && samePath && !keep.has(key)) {
+      const m = /trusted_hash\s*=\s*"([^"]+)"/.exec(lines[i + 1] ?? '');
+      if (m && mine.has(m[1])) {
+        removed.push(key);
+        i += 1;                                            // the trusted_hash line
+        if ((lines[i + 1] ?? '').trim() === '') i += 1;     // and the blank that follows it
+        if (out.length && out[out.length - 1].trim() === '') out.pop();
+        continue;
+      }
+    }
+    out.push(lines[i]);
+  }
+  return { text: out.join('\n'), removed };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -220,7 +266,15 @@ export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, node
     }
 
     json.hooks[event] = groups;
-    placements.push({ event, groupIndex, handlerIndex, command, timeout, matcher: groups[groupIndex].matcher ?? null });
+    // The handler we ACTUALLY wrote, not the one we asked for: an update spreads the existing object, so
+    // an `async: true` or a `statusMessage` already in the file survives into it — and Codex hashes what
+    // is in the file. Hashing our idea of it would record a trust nobody can match, and an untrusted
+    // hook is silently skipped (review MAJOR 1).
+    placements.push({
+      event, groupIndex, handlerIndex, command, timeout,
+      matcher: groups[groupIndex].matcher ?? null,
+      handler: groups[groupIndex].hooks[handlerIndex],
+    });
   }
 
   return { json, changed, placements };
@@ -231,7 +285,7 @@ export function trustEntriesForPlacements(hooksJsonPath, placements) {
   const out = {};
   for (const p of placements) {
     out[trustKey(hooksJsonPath, p.event, p.groupIndex, p.handlerIndex)] =
-      codexHookHash({ command: p.command, timeout: p.timeout }, p.event, p.matcher ?? null);
+      codexHookHash(p.handler ?? { command: p.command, timeout: p.timeout }, p.event, p.matcher ?? null);
   }
   return out;
 }
@@ -271,5 +325,12 @@ export function codexHomes({ home = os.homedir(), platform = process.platform, f
     const candidate = path.join(managedRoot, name, 'home');
     try { if (fsImpl.statSync(candidate).isDirectory()) push(candidate); } catch { /* not a home */ }
   }
+
+  // Orca's own runtime home, a sibling of codex-accounts. It is a live Codex home with Orca's handlers
+  // in it, and before this it was only ever reached because `$CODEX_HOME` happens to point at it inside
+  // an Orca pane — an apply from a plain terminal skipped it entirely (review MINOR 4).
+  const runtime = path.join(path.dirname(managedRoot), 'codex-runtime-home', 'home');
+  try { if (fsImpl.statSync(runtime).isDirectory()) push(runtime); } catch { /* not on this machine */ }
+
   return homes;
 }

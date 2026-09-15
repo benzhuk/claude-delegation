@@ -130,8 +130,18 @@ async function loadInbox() {
   return mod.runNoteInbox;
 }
 
+/**
+ * Write and WAIT for the flush. On Windows stdout to a pipe is asynchronous, and `process.exit` does not
+ * flush it — a Stop reason of 1-2 KB can be truncated and the whole delivery lost (review MAJOR 4).
+ */
 function emit(object) {
-  process.stdout.write(JSON.stringify(object));
+  return new Promise((resolve) => {
+    try {
+      process.stdout.write(JSON.stringify(object), () => resolve(true));
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 async function main() {
@@ -152,25 +162,28 @@ async function main() {
     extraArgs = ["--me", me.slug, "--no-repo", ...(me.guess ? ["--no-bind"] : [])];
   }
 
+  let delivered = null;
+
   const work = (async () => {
     try {
       // Inside the try on purpose: a broken CLAUDE_PLUGIN_ROOT makes this import throw, and M1 says a
       // config error must SAY SO once rather than making the hook permanently silent.
       const core = await import(pathToFileURL(CORE).href);
       const runNoteInbox = await loadInbox();
-      const output = await core.runHookEvent({
+      const inbox = (argv) => runNoteInbox([...extraArgs, ...argv], { cwd });
+      const result = await core.runHookEvent({
         event,
         input,
         cwd,
         home: os.homedir(),
         env: process.env,
         now: Date.now(),
-        inbox: (argv) => runNoteInbox([...extraArgs, ...argv], { cwd }),
+        inbox,
         // L2: the stamp moves only AFTER a successful read. Advancing it first meant any failure
         // underneath was never retried until some other write happened to touch the mirror again.
-        onRead: (result) => writeStamp(result.slug, newestLedgerMtime()),
+        onRead: (r) => writeStamp(r.slug, newestLedgerMtime()),
       });
-      if (output) emit(output);
+      if (result?.output) delivered = { ...result, inbox };
       return undefined;
     } catch (err) {
       // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
@@ -178,13 +191,17 @@ async function main() {
       if (event !== "UserPromptSubmit" && event !== "") return undefined;
       const once = warnOnce(`multi-inbox: peer notes are not being read — ${err && err.message ? err.message : String(err)}`);
       if (once) {
-        emit({
-          suppressOutput: true,
-          hookSpecificOutput: {
-            hookEventName: "UserPromptSubmit",
-            additionalContext: `${once}\nPeer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <your-slug>\`.`,
+        delivered = {
+          output: {
+            suppressOutput: true,
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `${once}
+Peer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <your-slug>\`.`,
+            },
           },
-        });
+          ackIds: [],
+        };
       }
       return undefined;
     }
@@ -194,15 +211,26 @@ async function main() {
   // timer here; its ceiling is the handler `timeout` in hooks.json (1020 s).
   if (event === "Stop") {
     await work;
-    return;
+  } else {
+    const budget = event === "PostToolUse" ? POST_TOOL_BUDGET_MS : BUDGET_MS;
+    let timer;
+    await Promise.race([
+      work,
+      new Promise((resolve) => { timer = setTimeout(resolve, budget); timer.unref?.(); }),
+    ]);
+    clearTimeout(timer);
   }
-  const budget = event === "PostToolUse" ? POST_TOOL_BUDGET_MS : BUDGET_MS;
-  let timer;
-  await Promise.race([
-    work,
-    new Promise((resolve) => { timer = setTimeout(resolve, budget); timer.unref?.(); }),
-  ]);
-  clearTimeout(timer);
+
+  if (!delivered) return;
+  // Emit, wait for the flush, and only THEN ack exactly what was printed. A process killed in between
+  // (Esc on a running hook, the budget above, a closed pane) then repeats a note instead of losing it —
+  // the cursor is what note-flush reads to decide a wake-up is no longer needed (review MAJOR 3).
+  await emit(delivered.output);
+  if (delivered.ackIds && delivered.ackIds.length && delivered.inbox) {
+    try {
+      await delivered.inbox(["--ack-ids", delivered.ackIds.join(",")]);
+    } catch { /* delivered; it will simply repeat */ }
+  }
 }
 
 function readInput() {
@@ -219,4 +247,10 @@ function readInput() {
 
 main()
   .catch(() => { /* rule 1: a hook failure must never be visible to Ben's session */ })
-  .finally(() => { process.exit(0); });
+  .finally(() => {
+    // The exit stays — a hook that lingers is a turn that will not end, and the suite hung the moment
+    // it was removed. What changed is WHEN we get here: `emit` awaits the stdout callback and the ack
+    // is awaited after it, so by now the pipe has taken the whole object. Exiting BEFORE that flush is
+    // what truncates a long Stop reason on Windows (review MAJOR 4).
+    process.exit(0);
+  });

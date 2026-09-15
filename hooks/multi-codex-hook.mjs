@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 
 import { HANDLE_RE, readBindings, isMainModule, toPosix } from '../skills/multi/scripts/transport.mjs';
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
-import { runHookEvent } from './multi-hook-core.mjs';
+import { runHookEvent, writeJson, BUDGET_MS, POST_TOOL_BUDGET_MS } from './multi-hook-core.mjs';
 
 /**
  * Which pane is this? `$NOTE_SLUG` is the session stating its own identity; the binding is the same
@@ -69,10 +69,19 @@ export async function runCodexHook(input = {}, deps = {}) {
   if (!me) return null; // not a peer session: no identity, nothing to read, nothing to say
 
   const event = String(input.hook_event_name ?? '');
+  // Codex names the event on stdin and nowhere else, so no event means we could not parse the payload.
+  // Treating that as UserPromptSubmit would read, ack and emit under the wrong label for an event we do
+  // not handle at all, like PermissionRequest (review MINOR 5).
+  if (!event) return null;
+
   const cwd = input.cwd ?? process.cwd();
   const run = deps.inbox ?? ((argv) => runNoteInbox(argv, { cwd, env, home }));
+  // PostToolUse fires on every tool call: no repo scan, and therefore no git, on the hot path. The
+  // Claude adapter has always done this; the Codex one was paying for it every call (review MINOR 8).
+  const hot = event === 'PostToolUse' ? ['--no-repo'] : [];
+  const me9 = ['--me', me.slug];
 
-  return runHookEvent({
+  const result = await runHookEvent({
     event,
     input,
     cwd,
@@ -82,20 +91,44 @@ export async function runCodexHook(input = {}, deps = {}) {
     now: deps.now ?? Date.now(),
     // `--me` is what binds this handle to this slug, so every turn re-states the identity that makes
     // the pane reachable by `--to <slug>` however Codex has retitled it.
-    inbox: (argv) => run(['--me', me.slug, ...argv]),
+    inbox: (argv) => run([...me9, ...hot, ...argv]),
   });
+  if (!result) return null;
+  // The ack the caller runs AFTER the output is on the wire, never before it (review MAJOR 3).
+  return { ...result, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
 }
 
 async function main() {
   const input = await readStdin();
-  let output = null;
+  const event = String(input?.hook_event_name ?? '');
+  let result = null;
   try {
-    output = await runCodexHook(input);
+    // Every event but Stop is bounded; Stop is allowed to park, and its handler timeout (1020 s) is
+    // what bounds it. Before this the Codex adapter had no ceiling at all (review MINOR 8).
+    const work = runCodexHook(input);
+    result = event === 'Stop'
+      ? await work
+      : await withBudget(work, event === 'PostToolUse' ? POST_TOOL_BUDGET_MS : BUDGET_MS);
   } catch {
-    output = null; // rule 1: a broken hook must never be a broken session
+    result = null; // rule 1: a broken hook must never be a broken session
   }
-  if (output) process.stdout.write(`${JSON.stringify(output)}\n`);
+  if (!result?.output) return 0;
+
+  // Emit FIRST and wait for the write to reach the pipe, THEN ack exactly what was printed. Either half
+  // failing costs a repeated note, never a lost one (review MAJOR 3, MAJOR 4).
+  await writeJson(result.output);
+  if (result.ackIds?.length && result.ack) {
+    try { await result.ack(result.ackIds); } catch { /* delivered; it will simply repeat */ }
+  }
   return 0;
+}
+
+function withBudget(work, ms) {
+  let timer;
+  return Promise.race([
+    work,
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); timer.unref?.(); }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 // Symlink-tolerant entry check: the mirror publishes this tree as a symlink on macOS and Linux, and a
@@ -103,7 +136,13 @@ async function main() {
 if (isMainModule(import.meta.url)) {
   main()
     .catch(() => { /* never a non-zero exit, never a stack trace on stdout */ })
-    .finally(() => { process.exit(0); });
+    .finally(() => {
+      // The exit stays — a hook that lingers is a turn that will not end. What changed is WHEN we reach
+      // it: `writeJson` resolves on the stdout callback and the ack is awaited after it, so the pipe has
+      // taken the whole object by now. Exiting BEFORE the flush is what truncates a 1-2 KB Stop reason
+      // on Windows (review MAJOR 4).
+      process.exit(0);
+    });
 }
 
 export const SELF = fileURLToPath(import.meta.url);

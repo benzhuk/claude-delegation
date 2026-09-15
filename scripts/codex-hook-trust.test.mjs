@@ -13,7 +13,7 @@ import path from 'node:path';
 import {
   hookEventLabel, normalizeTimeout, canonicalJson, codexHookHash, trustKey, tomlBasicString,
   upsertHooksState, buildHooksJson, trustEntriesFor, nodeCommand, codexHomes, CODEX_EVENTS,
-  mergeHooksJson, trustEntriesForPlacements, HOOK_MARKER,
+  mergeHooksJson, trustEntriesForPlacements, HOOK_MARKER, pruneOurHooksState, unescapeTomlBasic,
 } from './codex-hook-trust.mjs';
 
 const FIXTURE_HOOKS_JSON = '/home/ben/tmp/hooktrust/home/hooks.json';
@@ -230,6 +230,70 @@ test('upsert into an empty file produces a valid, self-contained section', () =>
   assert.equal(res.text, '[hooks.state."k:stop:0:0"]\ntrusted_hash = "sha256:eee"\n');
 });
 
+test('MAJOR 1: the hash covers the handler ACTUALLY placed, extra keys and all', () => {
+  // A file whose handler carries `async: true` — the merge spreads it, so the written handler keeps it.
+  const existing = {
+    hooks: {
+      Stop: [{ hooks: [{ type: 'command', command: 'node /old/multi-codex-hook.mjs', timeout: 5, async: true }] }],
+    },
+  };
+  const { json, placements } = mergeHooksJson(existing, '/x/h/multi-codex-hook.mjs', undefined, '/usr/bin/node');
+  const written = json.hooks.Stop[0].hooks[0];
+  assert.equal(written.async, true, 'the merge preserves it, so the hash must account for it');
+
+  const entries = trustEntriesForPlacements('/home/h/hooks.json', placements);
+  assert.equal(entries['/home/h/hooks.json:stop:0:0'], codexHookHash(written, 'Stop', null));
+  assert.notEqual(entries['/home/h/hooks.json:stop:0:0'],
+    codexHookHash({ command: written.command, timeout: written.timeout }, 'Stop', null),
+    'hashing our idea of the handler instead would record a trust Codex can never match');
+});
+
+test('MINOR 2: a commented-out header cannot hijack the edit', () => {
+  const toml = [
+    '# [hooks.state."k1:stop:0:0"]',
+    '# trusted_hash = "sha256:old"',
+    '',
+    '[hooks.state."k1:stop:0:0"]',
+    'trusted_hash = "sha256:old"',
+    '',
+  ].join('\n');
+  const res = upsertHooksState(toml, { 'k1:stop:0:0': 'sha256:new' });
+  assert.match(res.text, /^\[hooks\.state\."k1:stop:0:0"\]\ntrusted_hash = "sha256:new"/m);
+  assert.match(res.text, /# trusted_hash = "sha256:old"/, 'the comment is left exactly as it was');
+  assert.deepEqual(res.updated, ['k1:stop:0:0']);
+});
+
+test('MINOR 3: our stale entries are pruned, and nobody else\'s are touched', () => {
+  const toml = [
+    '[hooks.state."/h/hooks.json:stop:0:0"]',        // ours, stale index
+    'trusted_hash = "sha256:mine"',
+    '',
+    '[hooks.state."/h/hooks.json:stop:1:0"]',        // ours, current index
+    'trusted_hash = "sha256:mine"',
+    '',
+    '[hooks.state."/h/hooks.json:session_start:0:0"]', // Orca's, same file
+    'trusted_hash = "sha256:theirs"',
+    '',
+    '[hooks.state."/other/hooks.json:stop:0:0"]',    // another file entirely
+    'trusted_hash = "sha256:mine"',
+    '',
+  ].join('\n');
+  const res = pruneOurHooksState(toml, '/h/hooks.json', ['sha256:mine'], ['/h/hooks.json:stop:1:0']);
+  assert.deepEqual(res.removed, ['/h/hooks.json:stop:0:0']);
+  assert.match(res.text, /session_start:0:0/, "Orca's entry for the same file survives: the hash is not ours");
+  assert.match(res.text, /\/other\/hooks\.json:stop:0:0/, 'another file is none of our business');
+  assert.match(res.text, /stop:1:0/, 'the index we are about to write is kept');
+});
+
+test('MINOR 3: a Windows key round-trips through the prune', () => {
+  const hooksJson = ['C:', 'Users', 'x', 'hooks.json'].join('\\');
+  const key = `${hooksJson}:stop:0:0`;
+  const toml = `[hooks.state.${tomlBasicString(key)}]\ntrusted_hash = "sha256:mine"\n`;
+  assert.equal(unescapeTomlBasic(tomlBasicString(key).slice(1, -1)), key);
+  const res = pruneOurHooksState(toml, hooksJson, ['sha256:mine']);
+  assert.deepEqual(res.removed, [key]);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Discovery
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +314,20 @@ test('codexHomes finds ~/.codex plus every Orca-managed account home, per platfo
     path.join('/home/ben', '.codex'),
     path.join(root, 'acct-a', 'home'),
     path.join(root, 'acct-b', 'home'),
+    // MINOR 4: Orca's runtime home is a live Codex home too, and an apply from a plain terminal used to
+    // skip it — it was only ever reached because $CODEX_HOME points at it inside an Orca pane.
+    path.join(path.dirname(root), 'codex-runtime-home', 'home'),
   ]);
+});
+
+test('MINOR 4: a machine without a runtime home is not given one', () => {
+  const root = path.join('/home/ben', '.config', 'orca', 'codex-accounts');
+  const runtime = path.join(path.dirname(root), 'codex-runtime-home', 'home');
+  const fsImpl = {
+    readdirSync: () => { throw new Error('ENOENT'); },
+    statSync: (p) => { if (String(p) === runtime) throw new Error('ENOENT'); return { isDirectory: () => true }; },
+  };
+  assert.deepEqual(codexHomes({ home: '/home/ben', platform: 'linux', fsImpl, env: {} }), [path.join('/home/ben', '.codex')]);
 });
 
 test('codexHomes never returns a duplicate when CODEX_HOME is already ~/.codex', () => {

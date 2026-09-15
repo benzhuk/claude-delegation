@@ -44,13 +44,15 @@ import { NoteError, parseEnvelope, envelopeInstant, timeParts, validateSlug, DEF
 import {
   toPosix, gitRunner, mainCheckout, makeOrcaRunner, resolveSlug, isMainModule,
   notesDir, ledgerDir, recentLedgerFiles, readIfExists, readCursor, writeCursor, cursorPath, worktreePathFromEnv,
-  HANDLE_RE, writeBinding, removeBinding, maybeBindPane, bindingsPath,
+  HANDLE_RE, writeBinding, removeBinding, maybeBindPane, bindingsPath, cursorProblem,
 } from './transport.mjs';
 
 export const DEFAULT_DAYS = 3;
 export const DEFAULT_COLD_START_HOURS = 12;
 
-const STRING_FLAGS = new Set(['me', 'days', 'cold-start-hours', 'orca', 'repo', 'zone', 'home', 'bind', 'title']);
+const STRING_FLAGS = new Set([
+  'me', 'days', 'cold-start-hours', 'orca', 'repo', 'zone', 'home', 'bind', 'title', 'ack-ids',
+]);
 const BOOL_FLAGS = new Set(['ack', 'json', 'help', 'no-repo', 'active-terminal', 'no-bind', 'unbind']);
 
 export function parseInboxArgs(argv) {
@@ -280,18 +282,36 @@ export async function runNoteInbox(argv, deps = {}) {
     }
   };
 
-  if (args.ack) {
-    for (const n of notes) cursor.seen[n.id] = n.ymd;
+  if (args.ack || args['ack-ids'] !== undefined) {
+    // `--ack-ids a,b` marks EXACTLY those, and is how a hook acks after it has emitted: the read that
+    // produced the output does not advance the cursor, so a process killed between reading and printing
+    // cannot retire a note the model never saw (review MAJOR 3).
+    const only = args['ack-ids'] === undefined
+      ? null
+      : new Set(String(args['ack-ids']).split(',').map((id) => id.trim()).filter(Boolean));
+    for (const n of notes) {
+      if (only && !only.has(n.id)) continue;
+      cursor.seen[n.id] = n.ymd;
+    }
     persist(files.map((f) => f.ymd).sort()[0] ?? null);
   } else if (suppressed > 0) {
     // The cold-start suppression must persist even without --ack, or every run re-suppresses and the
     // "N older notes" banner never stops.
     persist(null);
+  } else if (notes.length > 0) {
+    // A read that shows notes but writes nothing still has to SAY when the cursor is broken: the ack is
+    // a separate call now, so without this the first sign of trouble would be the same notes arriving
+    // again, with no reason given (M1).
+    const why = cursorProblem(home, slug, fsImpl);
+    if (why) {
+      problems.push(`cursor not writable at ${cursorPath(home, slug)} (${why}) — the temp-dir fallback will be used, `
+        + 'so these notes are not repeated forever, but fix the path');
+    }
   }
 
   return {
     ok: true, exitCode: 0, slug, slugSource, binding: binding ?? null,
-    acked: Boolean(args.ack), cursor: cursorFile, cursorFallback,
+    acked: Boolean(args.ack || args['ack-ids'] !== undefined), cursor: cursorFile, cursorFallback,
     scanned: files.map((f) => f.file), days, coldStart, suppressed,
     count: notes.length, notes, problems,
   };
@@ -354,6 +374,8 @@ const USAGE = `note-inbox — the ledger, read as this pane's inbox.
 
   --me     this pane's slug (else $NOTE_SLUG, else the binding for $ORCA_TERMINAL_HANDLE, else its title)
   --ack    mark everything printed as seen (advances ~/.agents/notes/.cursor-<slug>)
+  --ack-ids <a,b>
+           mark exactly those ids seen — what a hook runs AFTER it has emitted them
   --json   one JSON object instead of the human list
   --bind   record "this pane IS <slug>" in ~/.agents/notes/panes.json and stop. Run it INSIDE the pane.
            Every --me read binds too; --bind is for a pane that is not reading an inbox right now.
