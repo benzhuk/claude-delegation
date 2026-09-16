@@ -10,6 +10,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
+import { STOP_TIMEOUT_S } from '../hooks/multi-hook-core.mjs';
+
 import {
   hookEventLabel, normalizeTimeout, canonicalJson, codexHookHash, trustKey, tomlBasicString,
   upsertHooksState, buildHooksJson, trustEntriesFor, nodeCommand, codexHomes, CODEX_EVENTS,
@@ -85,7 +87,9 @@ test('hookEventLabel handles every event we install', () => {
 test('the installed hooks.json wires four events, none of them allowed to park', () => {
   const json = buildHooksJson('/x/hooks/multi-codex-hook.mjs');
   assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']);
-  assert.equal(STOP_TIMEOUT, 60, 'the 1020 s of 0.4.0 existed for a long poll that no longer runs');
+  // Pinned to the Claude side's constant, not to a literal: raising one and not the other is exactly
+  // the drift this release exists to close, and it would otherwise leave both suites green (MINOR 1).
+  assert.equal(STOP_TIMEOUT, STOP_TIMEOUT_S, 'both adapters bound Stop the same way');
   assert.equal(json.hooks.Stop[0].hooks[0].timeout, STOP_TIMEOUT);
   assert.equal(json.hooks.Stop[0].hooks[0].command, `${process.execPath} /x/hooks/multi-codex-hook.mjs`);
   assert.equal(json.hooks.SessionStart[0].hooks[0].timeout, 30);

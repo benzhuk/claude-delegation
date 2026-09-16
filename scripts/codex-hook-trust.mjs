@@ -193,6 +193,9 @@ export const CODEX_EVENTS = [
   { event: 'SessionStart', timeout: 30 },
   { event: 'UserPromptSubmit', timeout: 30 },
   { event: 'PostToolUse', timeout: 30 },
+  // Must equal `STOP_TIMEOUT_S` in hooks/multi-hook-core.mjs — the two adapters bound Stop the same
+  // way, and codex-hook-trust.test.mjs asserts it so they cannot drift apart (review MINOR 1). The
+  // constant is not imported: this installer has no other reason to pull in the hook core.
   { event: 'Stop', timeout: 60 },
 ];
 
