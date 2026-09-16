@@ -582,13 +582,14 @@ function installCodexHooks() {
       }
     }
 
+    // BOTH FILES ARE DECIDED BEFORE EITHER IS WRITTEN (review MAJOR 1).
+    //
+    // hooks.json and config.toml are one unit: a handler Codex does not trust is skipped without a word,
+    // so a home that gets a new hooks.json whose hash never reached config.toml is a home that silently
+    // stops delivering. Writing hooks.json first and refusing the trust afterwards did exactly that. So
+    // everything below computes, and nothing writes until the trust text is known to be safe.
     const merged = mergeHooksJson(existing, CODEX_HOOK_SCRIPT);
     const desired = `${JSON.stringify(merged.json, null, 2)}\n`;
-    if (current !== desired) {
-      say(current === null ? 'write codex hooks.json' : 'add multi hooks to codex hooks.json', hooksPath);
-      if (!opts.dryRun) writeFileAtomic(hooksPath, desired);
-      result.wroteHooks = true;
-    }
     result.placements = merged.placements.map((pl) => `${pl.event}:${pl.groupIndex}:${pl.handlerIndex}`);
 
     // The key Codex computes uses the path as IT prints it, so the trust entries are keyed by the
@@ -605,9 +606,26 @@ function installCodexHooks() {
       toml, path.resolve(hooksPath), ourTrustHashes(merged.placements), Object.keys(entries),
     );
     const upserted = upsertHooksState(pruned.text, entries);
+    // A config.toml that does not parse is a Codex that will not start, so a result that would still
+    // declare a table twice is never written — it means somebody else's duplicate is in the file, and
+    // only a human can decide what to keep (incident 2026-09-16). NEITHER file is touched: leaving the
+    // home exactly as it was keeps whatever trust it already had working.
+    if (upserted.refused.length > 0) {
+      refuse(`${configPath} would still contain duplicate tables — neither it nor hooks.json was written, `
+        + `so this home keeps the hooks and the trust it already had. ${upserted.refused.join('; ')}`);
+      results.push(result);
+      continue;
+    }
+
+    if (current !== desired) {
+      say(current === null ? 'write codex hooks.json' : 'add multi hooks to codex hooks.json', hooksPath);
+      if (!opts.dryRun) writeFileAtomic(hooksPath, desired);
+      result.wroteHooks = true;
+    }
     if (upserted.changed || pruned.removed.length > 0) {
       say('trust codex hooks',
-        `${configPath} (+${upserted.added.length} ~${upserted.updated.length} -${pruned.removed.length})`);
+        `${configPath} (+${upserted.added.length} ~${upserted.updated.length} =${upserted.deduped.length} -${pruned.removed.length})`);
+      for (const key of upserted.deduped) say('dedupe trust entry', key);
       if (!opts.dryRun) {
         // One backup, the first time we ever touch this file. Nobody else backs it up, and the blast
         // radius of getting it wrong is a Codex that will not start.
@@ -617,7 +635,9 @@ function installCodexHooks() {
         }
         writeFileAtomic(configPath, upserted.text);
       }
-      result.trust = { added: upserted.added, updated: upserted.updated, removed: pruned.removed };
+      result.trust = {
+        added: upserted.added, updated: upserted.updated, deduped: upserted.deduped, removed: pruned.removed,
+      };
     }
     results.push(result);
   }

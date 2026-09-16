@@ -14,6 +14,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { codexHookHash, trustKey } from '../../../scripts/codex-hook-trust.mjs';
+
 const MIRROR = fileURLToPath(new URL('../../../scripts/mirror-shared-skills.mjs', import.meta.url));
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -84,6 +86,85 @@ test('BLOCKER 1: --codex-hooks from a temporary checkout refuses rather than wir
     stdout = String(err.stdout ?? '');
   }
   assert.match(stdout, /does not exist/, 'a named home that is missing is a typo, not a silent success');
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// hooks.json and config.toml are one unit (review MAJOR 1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Run the installer and keep the output whether it exits 0 or refuses with 1. */
+function runMirror(args, home) {
+  try {
+    return { stdout: execFileSync(process.execPath, [MIRROR, ...args], { encoding: 'utf8', env: fakeEnv(home) }), code: 0 };
+  } catch (err) {
+    return { stdout: String(err.stdout ?? ''), code: err.status ?? 1 };
+  }
+}
+
+/**
+ * A scratch Codex home that is CORRECTLY TRUSTED and slightly out of date — a real 0.4.1 home. The
+ * installer converges it once, then the Stop timeout is put back to 1020 and its trust hash recomputed
+ * to match, so the home genuinely delivers notes before anything below runs.
+ */
+function trustedButStaleHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-order-'));
+  const codex = path.join(home, 'scratch-codex');
+  fs.mkdirSync(codex, { recursive: true });
+  const hooksPath = path.join(codex, 'hooks.json');
+  const configPath = path.join(codex, 'config.toml');
+
+  const first = runMirror(['--codex-hooks-only', '--codex-home', codex], home);
+  assert.equal(first.code, 0, first.stdout);
+
+  const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+  const group = hooks.hooks.Stop.findIndex((g) => g.hooks.some((h) => h.command.includes('multi-codex-hook.mjs')));
+  const handler = hooks.hooks.Stop[group].hooks[0];
+  handler.timeout = 1020;
+  fs.writeFileSync(hooksPath, `${JSON.stringify(hooks, null, 2)}\n`, 'utf8');
+
+  // Re-trust THAT handler, so the home is internally consistent: hooks.json and config.toml agree.
+  const key = trustKey(path.resolve(hooksPath), 'Stop', group, 0);
+  const wanted = codexHookHash(handler, 'Stop', null);
+  const lines = fs.readFileSync(configPath, 'utf8').split('\n');
+  const at = lines.findIndex((l) => l.startsWith('[hooks.state.') && l.includes(key));
+  assert.ok(at !== -1, 'the first run must have written a trust entry for Stop');
+  lines[at + 1] = `trusted_hash = "${wanted}"`;
+  fs.writeFileSync(configPath, lines.join('\n'), 'utf8');
+
+  return { home, codex, hooksPath, configPath, staleHash: wanted };
+}
+
+test('MAJOR 1: the installer WOULD update such a home — the control for the test below', () => {
+  const { home, codex, hooksPath, configPath, staleHash } = trustedButStaleHome();
+  const res = runMirror(['--codex-hooks-only', '--codex-home', codex], home);
+
+  assert.equal(res.code, 0, res.stdout);
+  assert.equal(JSON.parse(fs.readFileSync(hooksPath, 'utf8')).hooks.Stop.at(-1).hooks[0].timeout, 60,
+    'hooks.json is brought up to date');
+  assert.ok(!fs.readFileSync(configPath, 'utf8').includes(staleHash),
+    'and the trust follows it, so the hook stays trusted');
+});
+
+test('MAJOR 1: one foreign duplicate and NEITHER file is written', () => {
+  const { home, codex, hooksPath, configPath } = trustedButStaleHome();
+  // A duplicate that is nothing to do with us: two spellings of one table, which TOML refuses outright
+  // and we have no business resolving.
+  fs.appendFileSync(configPath,
+    '\n[projects."/a/b"]\ntrust_level = "trusted"\n\n[projects.\'/a/b\']\ntrust_level = "trusted"\n', 'utf8');
+
+  const beforeHooks = fs.readFileSync(hooksPath, 'utf8');
+  const beforeConfig = fs.readFileSync(configPath, 'utf8');
+
+  const res = runMirror(['--codex-hooks-only', '--codex-home', codex], home);
+
+  assert.equal(res.code, 1, 'a refusal is a non-zero exit');
+  assert.match(res.stdout, /REFUSED/);
+  assert.match(res.stdout, /neither it nor hooks\.json was written/);
+  assert.equal(fs.readFileSync(hooksPath, 'utf8'), beforeHooks,
+    'hooks.json must NOT be rewritten: its new hash would be absent from config.toml and Codex would '
+    + 'silently skip the hook');
+  assert.equal(fs.readFileSync(configPath, 'utf8'), beforeConfig, 'and config.toml is untouched, as promised');
 });
 
 /** v4: four commands on PATH, not one. note-notify is named in ~/.codex/config.toml on every machine. */

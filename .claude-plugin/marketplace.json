@@ -7,7 +7,7 @@
       "name": "delegation",
       "source": "./",
       "description": "Multi-agent orchestration: delegate (parallel fan-out), team-build (builder/reviewer pipeline), and multi (ledger-backed peer-session notes) skills, vendor-neutral model tiers, shared subagent mechanics, and a prompt-routing hook.",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "author": { "name": "Ben Zhuk" }
     }
   ]
