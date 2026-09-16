@@ -100,11 +100,25 @@ export function humanSummary(notes, max = HUMAN_MAX_LINES) {
 const CONTEXT_EVENTS = new Set(['UserPromptSubmit', 'PostToolUse', 'SessionStart']);
 
 /**
+ * How many notes each event RENDERS — and therefore how many it may ack (review MINOR 4).
+ *
+ * The two numbers have to be the same one. `summarise` prints the first N lines and then "…and M more
+ * — read them with `note-inbox --me <slug>`", but the ack advances the CURSOR, and note-inbox has no
+ * flag that ignores it: a note acked without being printed is unreachable by the very command that
+ * sentence recommends, and note-flush then retires its wake-up as "already read". The lines survive in
+ * the ledger files, so it degrades a read rather than losing a note — but a backlog of seven at one
+ * Stop was enough to trigger it. Now the remainder stays unseen and arrives on the next event.
+ */
+export const CONTEXT_LIMIT = 12;
+export const STOP_LIMIT = 6;
+export const POST_TOOL_LIMIT = 6;
+
+/**
  * The hook output object for an event that carries notes. Both agents accept the same three keys:
  * `hookSpecificOutput.additionalContext` for the model, `decision`/`reason` to keep a turn alive, and
  * `systemMessage` for the human (verified live on Claude Code 2.1.271 and Codex 0.154.0).
  */
-export function contextOutput(event, result, { note = null, limit = 12, maxChars = 0 } = {}) {
+export function contextOutput(event, result, { note = null, limit = CONTEXT_LIMIT, maxChars = 0 } = {}) {
   const text = summarise(result, limit, maxChars);
   return {
     suppressOutput: true,
@@ -116,10 +130,10 @@ export function contextOutput(event, result, { note = null, limit = 12, maxChars
   };
 }
 
-export function blockOutput(result, reason) {
+export function blockOutput(result, reason, limit = STOP_LIMIT) {
   return {
     decision: 'block',
-    reason: `${summarise(result, 6, 220)}\n\n${reason}`,
+    reason: `${summarise(result, limit, 220)}\n\n${reason}`,
     systemMessage: humanSummary(result.notes),
   };
 }
@@ -176,16 +190,20 @@ export async function runHookEvent(ctx) {
   return null;
 }
 
-/** Everything this output showed, so the adapter can ack precisely that and nothing else. */
-function shown(result) {
-  return (result.notes ?? []).map((n) => n.id).filter(Boolean);
+/**
+ * The ids this output actually PRINTED — the same slice `summarise` took — so the adapter acks those
+ * and nothing else. `limit` is never defaulted here on purpose: every caller states the number it
+ * rendered with, so the pair cannot drift apart silently.
+ */
+function shown(result, limit) {
+  return (result.notes ?? []).slice(0, limit).map((n) => n.id).filter(Boolean);
 }
 
 async function handleContextEvent(ctx, event) {
   const result = await ctx.inbox([]);
   if (!result || result.count === 0) return null;
   ctx.onRead?.(result);
-  return { output: contextOutput(event, result), ackIds: shown(result) };
+  return { output: contextOutput(event, result, { limit: CONTEXT_LIMIT }), ackIds: shown(result, CONTEXT_LIMIT) };
 }
 
 async function handlePostToolUse(ctx) {
@@ -193,8 +211,8 @@ async function handlePostToolUse(ctx) {
   if (!result || result.count === 0) return null;
   ctx.onRead?.(result);
   return {
-    output: contextOutput('PostToolUse', result, { note: MID_TURN_NOTE, limit: 6, maxChars: 220 }),
-    ackIds: shown(result),
+    output: contextOutput('PostToolUse', result, { note: MID_TURN_NOTE, limit: POST_TOOL_LIMIT, maxChars: 220 }),
+    ackIds: shown(result, POST_TOOL_LIMIT),
   };
 }
 
@@ -223,5 +241,5 @@ async function handleStop(ctx) {
   const result = await ctx.inbox([]);
   if (!result || result.count === 0) return null;
   ctx.onRead?.(result);
-  return { output: blockOutput(result, STOP_REASON), ackIds: shown(result) };
+  return { output: blockOutput(result, STOP_REASON, STOP_LIMIT), ackIds: shown(result, STOP_LIMIT) };
 }

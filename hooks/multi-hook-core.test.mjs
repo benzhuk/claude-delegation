@@ -10,6 +10,7 @@ import { toPosix } from '../skills/multi/scripts/transport.mjs';
 import {
   summarise, humanLine, humanSummary, contextOutput, blockOutput, runHookEvent,
   STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
+  CONTEXT_LIMIT, STOP_LIMIT, POST_TOOL_LIMIT,
 } from './multi-hook-core.mjs';
 import { codexSlug, runCodexHook } from './multi-codex-hook.mjs';
 
@@ -174,6 +175,69 @@ test('Stop with nothing waiting is silent', async () => {
   const file = mirror(home, [line('astra', 'taxonomy', 'astra-x-1', 'FYI', 'unrelated')]);
   const out = await runHookEvent(stubCtx({ event: 'Stop', home, inbox: async () => resultOf([], 'taxonomy', [file]) }));
   assert.equal(out, null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ack exactly what was rendered (review MINOR 4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `n` unseen FYIs, in order, as the inbox would hand them over. */
+const backlog = (n, prefix) => Array.from({ length: n }, (_, i) =>
+  line('astra', 'taxonomy', `${prefix}-${i + 1}`, 'FYI', `note ${i + 1}`));
+
+/**
+ * An inbox with a real cursor: ids that have been acked stop coming back. This is what makes the
+ * "…and the seventh arrives next time" half of the test meaningful rather than assumed.
+ */
+function stubInbox(lines) {
+  const acked = new Set();
+  return async (argv) => {
+    const at = argv.indexOf('--ack-ids');
+    if (at !== -1) {
+      for (const id of String(argv[at + 1]).split(',')) acked.add(id);
+      return resultOf([]);
+    }
+    return resultOf(lines.filter((l) => !acked.has(noteOf(l).id)));
+  };
+}
+
+test('MINOR 4: Stop renders six of seven, acks those six, and the seventh arrives next time', async () => {
+  const lines = backlog(7, 'astra-x');
+  const ids = lines.map((l) => noteOf(l).id);
+  const inbox = stubInbox(lines);
+
+  const first = await runHookEvent(stubCtx({ event: 'Stop', inbox }));
+  const printed = ids.filter((id) => first.output.reason.includes(id));
+
+  assert.equal(printed.length, STOP_LIMIT, 'six lines printed');
+  assert.deepEqual(first.ackIds, ids.slice(0, STOP_LIMIT), 'and exactly those six acked');
+  assert.match(first.output.reason, /…and 1 more/, 'the model is told one is being held back');
+
+  // The adapter acks what it printed, then the next event runs. Before this fix the seventh was acked
+  // unprinted, the cursor moved past it, and `note-inbox --me <slug>` — the command the line above
+  // recommends — returned nothing at all.
+  await inbox(['--ack-ids', first.ackIds.join(',')]);
+  const second = await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox }));
+  assert.deepEqual(second.ackIds, [ids[6]], 'the seventh was never marked seen');
+  assert.match(second.output.hookSpecificOutput.additionalContext, new RegExp(ids[6]));
+});
+
+test('MINOR 4: PostToolUse and UserPromptSubmit ack only what they print either', async () => {
+  const hot = backlog(POST_TOOL_LIMIT + 1, 'astra-y');
+  const post = await runHookEvent(stubCtx({ event: 'PostToolUse', inbox: stubInbox(hot) }));
+  assert.deepEqual(post.ackIds, hot.slice(0, POST_TOOL_LIMIT).map((l) => noteOf(l).id));
+
+  const many = backlog(CONTEXT_LIMIT + 1, 'astra-z');
+  const prompt = await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox: stubInbox(many) }));
+  assert.deepEqual(prompt.ackIds, many.slice(0, CONTEXT_LIMIT).map((l) => noteOf(l).id));
+  assert.equal(prompt.ackIds.length, CONTEXT_LIMIT, 'twelve, not thirteen');
+});
+
+test('MINOR 4: a backlog inside the limit is still acked in full', async () => {
+  const lines = backlog(STOP_LIMIT, 'astra-w');
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: stubInbox(lines) }));
+  assert.deepEqual(res.ackIds, lines.map((l) => noteOf(l).id), 'nothing is held back when nothing was cut');
+  assert.doesNotMatch(res.output.reason, /…and \d+ more/);
 });
 
 test('MINOR 6: a control character in a body never reaches the line Ben sees', () => {
