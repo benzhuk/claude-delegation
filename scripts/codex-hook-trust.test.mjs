@@ -14,6 +14,7 @@ import {
   hookEventLabel, normalizeTimeout, canonicalJson, codexHookHash, trustKey, tomlBasicString,
   upsertHooksState, buildHooksJson, trustEntriesFor, nodeCommand, codexHomes, CODEX_EVENTS,
   mergeHooksJson, trustEntriesForPlacements, HOOK_MARKER, pruneOurHooksState, unescapeTomlBasic,
+  ourTrustHashes,
 } from './codex-hook-trust.mjs';
 
 const FIXTURE_HOOKS_JSON = '/home/ben/tmp/hooktrust/home/hooks.json';
@@ -25,8 +26,13 @@ const REAL = [
   { event: 'PostToolUse', timeout: 30, hash: 'sha256:88f082d788c54d2e5cde03433d904155b38693f6624b40c994ca43b12bff6dd0' },
   { event: 'SessionStart', timeout: 30, hash: 'sha256:2f7a86594657d3e70a5df01286a75da3bc767de1c6bc95d93e5b6a30a4fca739' },
   { event: 'UserPromptSubmit', timeout: 30, hash: 'sha256:a5ef9a9923d289c746405ec61eb789be1a2c679bd8ffa698bf854c00c61fcd79' },
+  // 1020 s is what 0.4.0 installed for Stop. We install 60 now, so this line doubles as the fixture
+  // for the historic hash the prune has to keep recognising — see the `ourTrustHashes` test below.
   { event: 'Stop', timeout: 1020, hash: 'sha256:e73bf488d4b74c09aabb35ca2903ec6ecf9742d67d5e72b85c680ffcf2622859' },
 ];
+
+/** What we install for Stop today, taken from the table rather than restated and left to drift. */
+const STOP_TIMEOUT = CODEX_EVENTS.find((e) => e.event === 'Stop').timeout;
 
 test('FIXTURE: our hash equals what the Codex TUI wrote, for all four events', () => {
   for (const { event, timeout, hash } of REAL) {
@@ -76,10 +82,11 @@ test('hookEventLabel handles every event we install', () => {
 // hooks.json
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('the installed hooks.json wires four events, with Stop given the long-poll budget', () => {
+test('the installed hooks.json wires four events, none of them allowed to park', () => {
   const json = buildHooksJson('/x/hooks/multi-codex-hook.mjs');
   assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']);
-  assert.equal(json.hooks.Stop[0].hooks[0].timeout, 1020);
+  assert.equal(STOP_TIMEOUT, 60, 'the 1020 s of 0.4.0 existed for a long poll that no longer runs');
+  assert.equal(json.hooks.Stop[0].hooks[0].timeout, STOP_TIMEOUT);
   assert.equal(json.hooks.Stop[0].hooks[0].command, `${process.execPath} /x/hooks/multi-codex-hook.mjs`);
   assert.equal(json.hooks.SessionStart[0].hooks[0].timeout, 30);
   assert.equal(json.hooks.Stop[0].matcher, undefined, 'no matcher: the hash treats absent and null alike');
@@ -94,7 +101,7 @@ test('the node binary is absolute, and a path with a space is quoted', () => {
   assert.ok(path.isAbsolute(nodeCommand('/x/h.mjs').split(' ')[0].replace(/"/g, '')));
 
   const entries = trustEntriesFor('/home/x/hooks.json', '/x/my hooks/h.mjs', undefined, '/usr/bin/node');
-  const expected = codexHookHash({ command: '/usr/bin/node "/x/my hooks/h.mjs"', timeout: 1020 }, 'Stop', null);
+  const expected = codexHookHash({ command: '/usr/bin/node "/x/my hooks/h.mjs"', timeout: STOP_TIMEOUT }, 'Stop', null);
   assert.equal(entries['/home/x/hooks.json:stop:0:0'], expected);
 });
 
@@ -283,6 +290,26 @@ test('MINOR 3: our stale entries are pruned, and nobody else\'s are touched', ()
   assert.match(res.text, /session_start:0:0/, "Orca's entry for the same file survives: the hash is not ours");
   assert.match(res.text, /\/other\/hooks\.json:stop:0:0/, 'another file is none of our business');
   assert.match(res.text, /stop:1:0/, 'the index we are about to write is kept');
+});
+
+test('2026-09-16: the prune still recognises an entry written with the OLD Stop timeout', () => {
+  const placements = [{
+    event: 'Stop', groupIndex: 1, handlerIndex: 0, command: fixtureCommand('Stop'), timeout: STOP_TIMEOUT, matcher: null,
+  }];
+  const hashes = ourTrustHashes(placements);
+  const historic = REAL.find((r) => r.event === 'Stop').hash;
+
+  assert.ok(hashes.includes(codexHookHash({ command: fixtureCommand('Stop'), timeout: STOP_TIMEOUT }, 'Stop', null)),
+    'what we are about to write');
+  assert.ok(hashes.includes(historic), 'and what 0.4.0 wrote for the same handler');
+
+  // The case that matters: our handler has moved group, and the entry it left behind carries the old
+  // timeout's hash. Without the historic hash it is not recognised as ours and stays in config.toml
+  // for good, trusting a position nothing occupies.
+  const stale = `${FIXTURE_HOOKS_JSON}:stop:0:0`;
+  const toml = `[hooks.state."${stale}"]\ntrusted_hash = "${historic}"\n`;
+  const res = pruneOurHooksState(toml, FIXTURE_HOOKS_JSON, hashes, [`${FIXTURE_HOOKS_JSON}:stop:1:0`]);
+  assert.deepEqual(res.removed, [stale]);
 });
 
 test('MINOR 3: a Windows key round-trips through the prune', () => {

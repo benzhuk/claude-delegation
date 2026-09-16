@@ -36,7 +36,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import {
-  mergeHooksJson, trustEntriesForPlacements, upsertHooksState, pruneOurHooksState, codexHomes,
+  mergeHooksJson, trustEntriesForPlacements, upsertHooksState, pruneOurHooksState, ourTrustHashes, codexHomes,
 } from './codex-hook-trust.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -598,8 +598,12 @@ function installCodexHooks() {
     let toml = '';
     try { toml = fs.readFileSync(configPath, 'utf8'); } catch { toml = ''; }
     // Drop OUR entries at indices we no longer occupy — what is left behind when Orca adds or removes a
-    // group and our handler moves. Only our own hashes, only this file (review MINOR 3).
-    const pruned = pruneOurHooksState(toml, path.resolve(hooksPath), Object.values(entries), Object.keys(entries));
+    // group and our handler moves. Only our own hashes, only this file (review MINOR 3). "Ours" includes
+    // the hashes earlier versions wrote for the same handler, or a leftover from the 0.4.0 Stop timeout
+    // would go unrecognised and stay in the file for good.
+    const pruned = pruneOurHooksState(
+      toml, path.resolve(hooksPath), ourTrustHashes(merged.placements), Object.keys(entries),
+    );
     const upserted = upsertHooksState(pruned.text, entries);
     if (upserted.changed || pruned.removed.length > 0) {
       say('trust codex hooks',

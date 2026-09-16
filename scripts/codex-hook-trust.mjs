@@ -184,16 +184,47 @@ export function pruneOurHooksState(toml, hooksJsonPath, ourHashes, keepKeys = []
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Stop gets the long-poll budget (15 min + 2), the rest are quick. SessionStart is included because a
- * Codex session that starts with notes waiting should say so before its first turn, and it is
- * idempotent — the spike showed SessionStart fires again on every `exec resume`.
+ * Every event is quick now. Stop had 1020 s in 0.4.0 for a long poll it no longer runs (2026-09-16
+ * ruling: no parking), and 60 s is a generous ceiling on the one inbox read that is left. SessionStart
+ * is included because a Codex session that starts with notes waiting should say so before its first
+ * turn, and it is idempotent — the spike showed SessionStart fires again on every `exec resume`.
  */
 export const CODEX_EVENTS = [
   { event: 'SessionStart', timeout: 30 },
   { event: 'UserPromptSubmit', timeout: 30 },
   { event: 'PostToolUse', timeout: 30 },
-  { event: 'Stop', timeout: 1020 },
+  { event: 'Stop', timeout: 60 },
 ];
+
+/**
+ * Timeouts our handler has shipped with and no longer writes, per event.
+ *
+ * The trust hash covers the timeout, so an entry written by 0.4.0 carries the 1020-second hash. That
+ * matters for exactly one thing: `pruneOurHooksState` recognises OUR leftovers by their hash, and an
+ * entry at an index we have since vacated would not be recognised — it would sit in config.toml
+ * forever, trusting a handler at a position nothing occupies. Hashes computed from this list are what
+ * the prune is given, so a version bump cleans up after the version before it.
+ */
+export const HISTORIC_TIMEOUTS = { Stop: [1020] };
+
+/**
+ * Every hash that could identify one of OUR entries for these placements: what we are about to write,
+ * plus what each earlier version would have written for the same handler.
+ *
+ * @returns {string[]}
+ */
+export function ourTrustHashes(placements) {
+  const out = new Set();
+  for (const p of placements) {
+    const handler = p.handler ?? { command: p.command, timeout: p.timeout };
+    const matcher = p.matcher ?? null;
+    out.add(codexHookHash(handler, p.event, matcher));
+    for (const timeout of HISTORIC_TIMEOUTS[p.event] ?? []) {
+      out.add(codexHookHash({ ...handler, timeout }, p.event, matcher));
+    }
+  }
+  return [...out];
+}
 
 /**
  * A command string Codex can run. The node binary is ABSOLUTE, and that is not a nicety: Codex inherits
