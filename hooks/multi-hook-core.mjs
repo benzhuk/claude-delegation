@@ -13,37 +13,24 @@
 //   1. NEVER THROW. A hook that fails is Ben's session broken. Every path is wrapped; the fallback is
 //      always "print nothing, exit 0".
 //   2. SILENT WHEN THERE IS NOTHING. No notes, no slug, no pane: no output at all.
-//   3. FAST, except when waiting is the point. PostToolUse short-circuits on an mtime check. The Stop
-//      long-poll is the one place that waits, and only while this session has an ASK outstanding.
+//   3. FAST, ALWAYS. PostToolUse short-circuits on an mtime check, and no event ever waits for a peer.
+//      A hook that parks is a turn that will not end (the 2026-09-16 ruling; see the spec).
 //   4. NEVER GUESS THE SLUG. An inbox read under the wrong slug shows one session another's notes.
 
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
 import { parseEnvelope } from '../skills/multi/scripts/envelope.mjs';
-import {
-  outstandingAsks, writeListening, removeListening, readIfExists, safeReaddir, toPosix, notesDir,
-} from '../skills/multi/scripts/transport.mjs';
-import { DEFAULT_ZONE } from '../skills/multi/scripts/envelope.mjs';
 
-/** Whole-hook ceiling for the cheap events. The Stop long-poll has its own, much longer, budget. */
+/** Whole-hook ceiling for the cheap events. */
 export const BUDGET_MS = 2500;
 /** PostToolUse fires on every tool call: tighter, and no git or orca underneath it. */
 export const POST_TOOL_BUDGET_MS = 700;
-/** Ben's ruling: adaptive long-poll, cap 15 minutes. `MULTI_LONGPOLL_MAX_MIN=0` disables it entirely. */
-export const LONGPOLL_MAX_MIN = 15;
-/** Cheap: a readdir and a stat per ledger directory. Nothing spawns, nothing talks to orca. */
-export const POLL_INTERVAL_MS = 3_000;
-/** What the Stop handler's own timeout must be, in seconds: the cap plus room to finish. */
-export const STOP_TIMEOUT_S = (LONGPOLL_MAX_MIN + 2) * 60;
-
-export function longPollMaxMin(env = process.env) {
-  const raw = env.MULTI_LONGPOLL_MAX_MIN;
-  if (raw === undefined || raw === '') return LONGPOLL_MAX_MIN;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : LONGPOLL_MAX_MIN;
-}
+/**
+ * The Stop handler's own timeout, in seconds, and what `hooks.json` must say for Stop.
+ *
+ * 0.4.0 set this to 1020 because the handler was allowed to park for fifteen minutes. It is one inbox
+ * read now, so a minute is generous — and a ceiling that high is itself a hazard: a hook that CAN run
+ * for seventeen minutes will eventually do it, and to whoever is watching the pane that is a hang.
+ */
+export const STOP_TIMEOUT_S = 60;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // What the model reads, and what Ben reads
@@ -162,120 +149,6 @@ export function writeJson(object, stream = process.stdout) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The long poll (D2)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Newest mtime over the `*.md` ledgers in these directories. The poll's whole cost. */
-export function ledgerPulse(dirs, fsImpl = fs) {
-  let newest = 0;
-  for (const dir of new Set(dirs.filter(Boolean))) {
-    for (const name of safeReaddir(dir, fsImpl)) {
-      if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(name)) continue;
-      try {
-        const m = fsImpl.statSync(path.posix.join(toPosix(dir), name)).mtimeMs;
-        if (m > newest) newest = m;
-      } catch { /* raced with a writer; the next tick sees it */ }
-    }
-  }
-  return newest;
-}
-
-/**
- * The directories the inbox actually scanned, plus the mirror itself. The mirror has to be in the list
- * even when it is empty: on a fresh machine `~/.agents/notes` holds no `*.md` yet, so the scanned list
- * comes back empty and the poll would watch nothing at all for fifteen minutes (review MINOR 9).
- */
-export function scannedDirs(result, home = null) {
-  const dirs = (result?.scanned ?? []).map((f) => path.posix.dirname(toPosix(f)));
-  if (home) dirs.push(notesDir(home));
-  return [...new Set(dirs)];
-}
-
-/**
- * Deliberately NOT unref'd. Everything else in this codebase unrefs its timers so a stray one cannot
- * keep a process alive; here the timer is the ONLY thing holding the event loop open once stdin has
- * ended, and unref'ing it made Node exit immediately — the hook wrote its marker, polled zero times and
- * vanished, leaving the marker behind (caught by the live Netcup smoke, 2026-09-14; every unit test
- * injects its own `sleep` and could not see it).
- */
-const sleepDefault = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
-
-/**
- * Wait for a peer to answer — but ONLY while this session has an ASK nobody has replied to. That is the
- * whole of Ben's ruling: a session that is owed something may park; a session that is owed nothing goes
- * idle at once, because a Stop hook that always waited would make every turn end feel broken.
- *
- * The marker on disk is what stops the flusher typing into this pane while we wait (D5), so it is
- * removed on EVERY exit path — return, throw, or a signal. A marker left behind would silence the
- * wake-ups for this slug until it expired.
- *
- * @returns {Promise<object|null>} the inbox result that ended the wait, or null on timeout
- */
-export async function longPoll(ctx, result) {
-  const { home, env = process.env, now = Date.now(), fsImpl = fs, inbox } = ctx;
-  const slug = result.slug;
-  const maxMin = ctx.maxMin ?? longPollMaxMin(env);
-  if (!slug || maxMin <= 0) return null;
-
-  const texts = (result.scanned ?? []).map((f) => readIfExists(f, fsImpl));
-  // The same zone note-inbox used to date these lines, or the 24-hour window is off by the offset
-  // wherever NOTE_SEND_ZONE is set (review MINOR 11).
-  const asks = outstandingAsks(texts, slug, { now, zone: env.NOTE_SEND_ZONE || DEFAULT_ZONE });
-  if (asks.length === 0) return null;
-
-  const dirs = scannedDirs(result, home);
-  const until = now + maxMin * 60_000;
-  const marker = {
-    pid: ctx.pid ?? process.pid,
-    host: ctx.host ?? os.hostname(),
-    handle: env.ORCA_TERMINAL_HANDLE ?? null,
-    slug,
-    since: new Date(now).toISOString(),
-    until,
-    asks: asks.map((a) => a.id),
-  };
-  writeListening(home, slug, marker, fsImpl);
-
-  const signals = ['SIGTERM', 'SIGINT', 'SIGHUP'];
-  // Only ever remove OUR marker: another session on the same slug may be parked right now, and deleting
-  // its marker would put the flusher back to typing at a pane that is still waiting (review MINOR 7).
-  const cleanup = () => removeListening(home, slug, fsImpl, { pid: marker.pid, host: marker.host });
-  const onSignal = () => { cleanup(); process.exit(0); };
-  const listen = ctx.listenSignals !== false && typeof process.on === 'function';
-  // `exit` too, synchronously: a marker that outlives its process silences the flusher for that slug
-  // until it expires, and "the process just ended" is not always a signal — an empty event loop or a
-  // `process.exit` elsewhere gets here and nowhere near the `finally` below.
-  if (listen) for (const sig of [...signals, 'exit']) process.on(sig, sig === 'exit' ? cleanup : onSignal);
-
-  const sleep = ctx.sleep ?? sleepDefault;
-  const clock = ctx.clock ?? (() => Date.now());
-  const interval = ctx.pollMs ?? POLL_INTERVAL_MS;
-  try {
-    let pulse = ledgerPulse(dirs, fsImpl);
-    while (clock() < until) {
-      await sleep(interval);
-      const next = ledgerPulse(dirs, fsImpl);
-      if (next <= pulse) continue;
-      pulse = next;
-      // Something was appended. Only a real read can say whether it is FOR US and unseen — the mirror
-      // carries every session's traffic.
-      // No `--ack` here. The notes are acked by the ADAPTER, after it has written them out: a poll that
-      // acked on the spot would retire a note the model never sees if anything kills this process in the
-      // window — and Esc cancels a running hook, at exactly the moment Ben is impatient (review MAJOR 3).
-      const found = await inbox([]);
-      if (found && found.count > 0) return found;
-    }
-    return null;
-  } finally {
-    cleanup();
-    if (listen) {
-      for (const sig of signals) process.off?.(sig, onSignal);
-      process.off?.('exit', cleanup);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Events
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -326,15 +199,18 @@ async function handlePostToolUse(ctx) {
 }
 
 /**
- * Stop is where the design lives.
+ * Stop, after the 2026-09-16 ruling: surface what is already there, then get out of the way.
  *
- *   · `stop_hook_active` → NEVER wait. This is the re-fire of a stop we already blocked; waiting here is
- *     how a session never ends.
- *   · notes already waiting → block.
- *   · nothing waiting, but an ASK of mine is unanswered → park for up to 15 minutes, delivering the
- *     answer into the context the moment it lands. Ben can type meanwhile: Claude Code holds the line in
- *     the composer until the hook ends, Codex queues it.
- *   · nothing waiting and nothing owed → exit 0, silently, at once.
+ *   · `stop_hook_active` → silent. This is the re-fire of a stop we already blocked.
+ *   · notes already waiting → block, so they are handled before the turn ends.
+ *   · nothing waiting → exit 0, silently, at once. ALWAYS, whatever this session is owed.
+ *
+ * 0.4.0 parked here for up to fifteen minutes while this session had an unanswered ASK, and it was the
+ * wrong architecture. The live failure: `infra` asked a peer something; the peer ACKed and later sent
+ * its RESULT under a NEW id rather than ` re <id>`, so nothing ever closed the ask — and infra then
+ * parked fifteen minutes at the end of EVERY turn for a day, including the turns Ben was driving. The
+ * delivery path that works needs no waiting at all: hooks surface notes during a turn, and an idle pane
+ * is nudged by note-flush's typing path within a minute.
  */
 async function handleStop(ctx) {
   // The loop guard, and it comes BEFORE the read. This is the re-fire of a stop we already blocked and
@@ -345,14 +221,7 @@ async function handleStop(ctx) {
   if (ctx.input?.stop_hook_active) return null;
 
   const result = await ctx.inbox([]);
-  if (result && result.count > 0) {
-    ctx.onRead?.(result);
-    return { output: blockOutput(result, STOP_REASON), ackIds: shown(result) };
-  }
-  if (!result) return null;
-
-  const found = await longPoll(ctx, result);
-  if (!found || found.count === 0) return null;
-  ctx.onRead?.(found);
-  return { output: blockOutput(found, STOP_REASON), ackIds: shown(found) };
+  if (!result || result.count === 0) return null;
+  ctx.onRead?.(result);
+  return { output: blockOutput(result, STOP_REASON), ackIds: shown(result) };
 }

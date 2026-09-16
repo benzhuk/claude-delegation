@@ -22,7 +22,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js\" Stop",
-            "timeout": 1020
+            "timeout": 60
           }
         ]
       }

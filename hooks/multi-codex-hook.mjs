@@ -103,8 +103,9 @@ async function main() {
   const event = String(input?.hook_event_name ?? '');
   let result = null;
   try {
-    // Every event but Stop is bounded; Stop is allowed to park, and its handler timeout (1020 s) is
-    // what bounds it. Before this the Codex adapter had no ceiling at all (review MINOR 8).
+    // Every event but Stop is bounded here; Stop is bounded by its handler timeout (60 s) instead, so
+    // a slow inbox read cannot lose a delivery the model was about to be blocked on. It does not park
+    // (2026-09-16 ruling). Before this the Codex adapter had no ceiling at all (review MINOR 8).
     const work = runCodexHook(input);
     result = event === 'Stop'
       ? await work
