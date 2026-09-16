@@ -605,9 +605,18 @@ function installCodexHooks() {
       toml, path.resolve(hooksPath), ourTrustHashes(merged.placements), Object.keys(entries),
     );
     const upserted = upsertHooksState(pruned.text, entries);
+    // A config.toml that does not parse is a Codex that will not start, so a result that would still
+    // declare a table twice is never written — it means somebody else's duplicate is in the file, and
+    // only a human can decide what to keep (incident 2026-09-16).
+    if (upserted.refused.length > 0) {
+      refuse(`${configPath} would still contain duplicate tables — not written. ${upserted.refused.join('; ')}`);
+      results.push(result);
+      continue;
+    }
     if (upserted.changed || pruned.removed.length > 0) {
       say('trust codex hooks',
-        `${configPath} (+${upserted.added.length} ~${upserted.updated.length} -${pruned.removed.length})`);
+        `${configPath} (+${upserted.added.length} ~${upserted.updated.length} =${upserted.deduped.length} -${pruned.removed.length})`);
+      for (const key of upserted.deduped) say('dedupe trust entry', key);
       if (!opts.dryRun) {
         // One backup, the first time we ever touch this file. Nobody else backs it up, and the blast
         // radius of getting it wrong is a Codex that will not start.
@@ -617,7 +626,9 @@ function installCodexHooks() {
         }
         writeFileAtomic(configPath, upserted.text);
       }
-      result.trust = { added: upserted.added, updated: upserted.updated, removed: pruned.removed };
+      result.trust = {
+        added: upserted.added, updated: upserted.updated, deduped: upserted.deduped, removed: pruned.removed,
+      };
     }
     results.push(result);
   }

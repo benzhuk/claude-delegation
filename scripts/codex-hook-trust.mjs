@@ -76,19 +76,53 @@ export function codexHookHash(handler, eventName, matcher = null) {
   return `sha256:${createHash('sha256').update(canonicalJson(identity), 'utf8').digest('hex')}`;
 }
 
+/**
+ * The path spelled the way Codex spells it on this platform, and the ONLY spelling we ever write.
+ *
+ * The incident (Windows, 2026-09-16): three spellings of the same key ended up in one config.toml —
+ * Orca's `'C:\Users\…\hooks.json:stop:0:0'`, a 0.4.0 run's `'C:/Users/…/hooks.json:stop:1:0'`, and
+ * 0.4.1's `"C:\\Users\\…\\hooks.json:stop:1:0"`. TOML unescapes the first and third to the SAME key, so
+ * the file stopped parsing ("Cannot declare … twice") and every Codex home on the box was broken. The
+ * second is a different key to TOML and simply trusted nothing.
+ *
+ * So: resolve, then force the platform separator. Windows is case- and slash-insensitive about paths,
+ * POSIX is neither, which is why `logicalKey` below only folds on win32.
+ */
+export function canonicalTrustPath(hooksJsonPath, platform = process.platform) {
+  const raw = String(hooksJsonPath);
+  if (platform === 'win32') return path.win32.resolve(raw).replace(/\//g, '\\');
+  return path.posix.resolve(raw);
+}
+
 /** `<abs hooks.json path>:<event label>:<group index>:<handler index>`, the path exactly as Codex prints it. */
-export function trustKey(hooksJsonPath, eventName, groupIndex = 0, handlerIndex = 0) {
-  return `${hooksJsonPath}:${hookEventLabel(eventName)}:${groupIndex}:${handlerIndex}`;
+export function trustKey(hooksJsonPath, eventName, groupIndex = 0, handlerIndex = 0, platform = process.platform) {
+  return `${canonicalTrustPath(hooksJsonPath, platform)}:${hookEventLabel(eventName)}:${groupIndex}:${handlerIndex}`;
+}
+
+/** The path half of a trust key: everything before `:<event>:<group>:<handler>`. */
+export function trustKeyPath(key) {
+  const s = String(key);
+  let at = s.length;
+  for (let n = 0; n < 3; n += 1) {
+    at = s.lastIndexOf(':', at - 1);
+    if (at === -1) return s;
+  }
+  return s.slice(0, at);
+}
+
+/**
+ * Two keys that mean the same entry, reduced to one string. On Windows a path is case-insensitive and
+ * either separator works, so `C:/x` and `c:\X` are one key and must never become two tables. On POSIX
+ * they are genuinely different paths and nothing is folded.
+ */
+export function logicalKey(key, platform = process.platform) {
+  const s = String(key ?? '');
+  return platform === 'win32' ? s.replace(/\\/g, '/').toLowerCase() : s;
 }
 
 /** The inverse of `tomlBasicString` for the two escapes we ever write: a Windows key round-trips. */
 export function unescapeTomlBasic(text) {
   return String(text).replace(/\\(["\\])/g, (_m, ch) => ch);
-}
-
-/** Escape a literal for use inside a RegExp — the key is a path, and a path is full of metacharacters. */
-export function escapeRe(text) {
-  return String(text).replace(/[.*+?^${}()|[\]\\]/g, (m) => `\\${m}`);
 }
 
 /** A TOML basic string: only `\` and `"` need escaping for the paths and keys we write. */
@@ -97,53 +131,158 @@ export function tomlBasicString(value) {
 }
 
 /**
- * Upsert `[hooks.state."<key>"] trusted_hash = …` into an existing config.toml, PRESERVING everything
- * else — a Codex home's config.toml carries `notify`, `model`, project trust and whatever Ben has put
- * there, and this runs on every `chezmoi apply`. Nothing is ever deleted; an entry whose hash already
- * matches is left untouched, so the file's mtime does not move on a no-op run.
- *
- * @returns {{ text: string, changed: boolean, added: string[], updated: string[] }}
+ * A TOML key the way Codex and Orca write one: a LITERAL string, where a Windows path needs no escaping
+ * at all and cannot be mis-escaped. Only a key containing a `'` or a newline — which a path on either
+ * platform will not have — falls back to a basic string.
  */
-export function upsertHooksState(toml, entries) {
-  let text = String(toml ?? '');
+export function tomlKeyString(value) {
+  const s = String(value);
+  return /['\n\r]/.test(s) ? tomlBasicString(s) : `'${s}'`;
+}
+
+/**
+ * The key a `[hooks.state.<key>]` header declares, unquoted, or null for any other line.
+ *
+ * Both quote styles are understood, because all three writers in play use different ones and an
+ * installer that recognises only its own spelling appends a second table instead of updating the first.
+ * That is the whole incident.
+ */
+export function hooksStateKey(header) {
+  const m = /^\s*\[hooks\.state\.(.+)\]\s*$/.exec(String(header ?? ''));
+  if (!m) return null;
+  const raw = m[1].trim();
+  if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
+  if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) return unescapeTomlBasic(raw.slice(1, -1));
+  return raw; // a bare key: no path can be one, but never lose a section over it
+}
+
+/**
+ * Split a config.toml into its table sections — the lines before the first header, then one section per
+ * `[header]` line with the lines that belong to it. Joining them back is byte-exact.
+ *
+ * Section-shaped rather than line-shaped because every operation here is "this table, entirely": update
+ * one, delete a duplicate, append a new one. The old line-surgery version also ate the blank line before
+ * the section that followed a removal.
+ */
+export function splitTomlSections(text) {
+  const sections = [{ header: null, body: [] }];
+  // An empty (or whitespace-only) file has no lines worth preserving. Keeping its single empty line
+  // would push every appended table down one and give the file a leading blank on its first write.
+  const raw = String(text ?? '');
+  if (raw.trim() === '') return sections;
+  for (const line of raw.split('\n')) {
+    if (/^\s*\[/.test(line)) sections.push({ header: line, body: [] });
+    else sections[sections.length - 1].body.push(line);
+  }
+  return sections;
+}
+
+export function joinTomlSections(sections) {
+  const lines = [];
+  for (const s of sections) {
+    if (s.header !== null) lines.push(s.header);
+    lines.push(...s.body);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Every problem that would make this file refuse to parse, or parse into something other than what we
+ * meant. A `[[array of tables]]` header is legally repeatable and is never counted.
+ *
+ * @returns {string[]} empty when the text is safe to write
+ */
+export function validateTomlTables(text, platform = process.platform) {
+  const problems = [];
+  const seen = new Set();
+  for (const section of splitTomlSections(text)) {
+    if (section.header === null) continue;
+    const raw = section.header.trim();
+    if (raw.startsWith('[[')) continue;
+    const key = hooksStateKey(section.header);
+    const id = key === null ? `table ${raw}` : `hooks.state ${logicalKey(key, platform)}`;
+    if (seen.has(id)) problems.push(`${key === null ? raw : `[hooks.state] ${key}`} is declared twice`);
+    else seen.add(id);
+  }
+  return problems;
+}
+
+function withTrustedHash(section, key, hash) {
+  const body = [...section.body];
+  const at = body.findIndex((l) => /^[ \t]*trusted_hash[ \t]*=/.test(l));
+  const line = `trusted_hash = ${tomlBasicString(hash)}`;
+  if (at === -1) body.unshift(line);
+  else body[at] = line;
+  return { header: `[hooks.state.${tomlKeyString(key)}]`, body };
+}
+
+const sameSection = (a, b) => a.header === b.header && a.body.length === b.body.length
+  && a.body.every((line, i) => line === b.body[i]);
+
+/**
+ * Upsert `[hooks.state."<key>"] trusted_hash = …`, PRESERVING everything else — a Codex home's
+ * config.toml carries `notify`, `model`, project trust and whatever Ben has put there, and this runs on
+ * every `chezmoi apply`.
+ *
+ * Three rules, all bought with a broken box:
+ *   · a key is matched LOGICALLY, so an entry written in any spelling is updated in place rather than
+ *     appended next to;
+ *   · a pre-existing duplicate of one of our keys is collapsed to a single table carrying the current
+ *     hash, reported in `deduped`;
+ *   · the result is VALIDATED before it is handed back. If it would still declare a table twice —
+ *     because somebody else's duplicate is in there — nothing is written and `refused` says why. A
+ *     config.toml that does not parse is a Codex that does not start.
+ *
+ * `changed` is a byte comparison against the input, so a no-op run cannot move the file's mtime.
+ *
+ * @returns {{ text: string, changed: boolean, added: string[], updated: string[], deduped: string[], refused: string[] }}
+ */
+export function upsertHooksState(toml, entries, { platform = process.platform } = {}) {
+  const before = String(toml ?? '');
+  const want = new Map();
+  for (const [key, hash] of Object.entries(entries)) want.set(logicalKey(key, platform), { key, hash });
+
   const added = [];
   const updated = [];
+  const deduped = [];
+  const placed = new Set();
+  const out = [];
 
-  for (const [key, hash] of Object.entries(entries)) {
-    const header = `[hooks.state.${tomlBasicString(key)}]`;
-    // Anchored to a line start: an unanchored search matches a COMMENTED-OUT header first
-    // (`# [hooks.state."k"]`), writes the new hash into the comment region and leaves the real section
-    // on its old hash — trusted for a command we no longer run (review MINOR 2).
-    const at = text.search(new RegExp(`^${escapeRe(header)}`, 'm'));
-    if (at === -1) {
-      const block = `${header}\ntrusted_hash = ${tomlBasicString(hash)}\n`;
-      const sep = text === '' || text.endsWith('\n\n') ? '' : (text.endsWith('\n') ? '\n' : '\n\n');
-      text = `${text}${sep}${block}`;
-      added.push(key);
+  for (const section of splitTomlSections(before)) {
+    const key = section.header === null ? null : hooksStateKey(section.header);
+    const logical = key === null ? null : logicalKey(key, platform);
+    const target = logical === null ? undefined : want.get(logical);
+    if (!target) { out.push(section); continue; }
+    if (placed.has(logical)) {
+      // A second table for a key we are writing: the duplicate that broke the file. Its body is dropped
+      // whole, so the blank line that separated it goes too.
+      deduped.push(key);
       continue;
     }
-    // The section runs to the next table header at the start of a line, or to the end of the file.
-    const bodyStart = at + header.length;
-    const rest = text.slice(bodyStart);
-    const nextHeader = rest.search(/\n\[/);
-    const end = nextHeader === -1 ? text.length : bodyStart + nextHeader;
-    const body = text.slice(bodyStart, end);
-    const line = /^[ \t]*trusted_hash[ \t]*=.*$/m.exec(body);
-    if (!line) {
-      // A section with no hash: give it one rather than a second section with the same key, which
-      // would make the file invalid TOML.
-      text = `${text.slice(0, bodyStart)}\ntrusted_hash = ${tomlBasicString(hash)}${text.slice(bodyStart)}`;
-      added.push(key);
-      continue;
-    }
-    if (line[0].includes(hash)) continue; // already trusted, byte for byte: leave the file alone
-    const replacement = `trusted_hash = ${tomlBasicString(hash)}`;
-    const lineStart = bodyStart + line.index;
-    text = `${text.slice(0, lineStart)}${replacement}${text.slice(lineStart + line[0].length)}`;
-    updated.push(key);
+    placed.add(logical);
+    const rewritten = withTrustedHash(section, target.key, target.hash);
+    if (!sameSection(section, rewritten)) updated.push(target.key);
+    out.push(rewritten);
   }
 
-  return { text, changed: added.length > 0 || updated.length > 0, added, updated };
+  for (const [logical, target] of want) {
+    if (placed.has(logical)) continue;
+    // Keep the file's shape: one blank line before the new table, unless there is nothing to separate
+    // from (an empty file) or the separator is already there.
+    const tail = out[out.length - 1];
+    const hasContent = tail && (tail.header !== null || tail.body.length > 0);
+    const endsBlank = tail && tail.body.length > 0 && tail.body[tail.body.length - 1].trim() === '';
+    if (hasContent && !endsBlank) tail.body.push('');
+    out.push({ header: `[hooks.state.${tomlKeyString(target.key)}]`, body: [`trusted_hash = ${tomlBasicString(target.hash)}`, ''] });
+    added.push(target.key);
+  }
+
+  const text = joinTomlSections(out);
+  const refused = validateTomlTables(text, platform);
+  if (refused.length > 0) {
+    return { text: before, changed: false, added: [], updated: [], deduped: [], refused };
+  }
+  return { text, changed: text !== before, added, updated, deduped, refused };
 }
 
 /**
@@ -152,31 +291,29 @@ export function upsertHooksState(toml, entries) {
  * and whose hash is one of ours are touched, so a foreign handler's trust can never be removed by this,
  * and a key we are about to write is kept (review MINOR 3).
  *
+ * Headers are matched logically here too: a leftover written in a different spelling is still ours, and
+ * the old basic-string-only regex walked straight past Orca-style literal keys.
+ *
  * @returns {{ text: string, removed: string[] }}
  */
-export function pruneOurHooksState(toml, hooksJsonPath, ourHashes, keepKeys = []) {
-  const keep = new Set(keepKeys);
+export function pruneOurHooksState(toml, hooksJsonPath, ourHashes, keepKeys = [], { platform = process.platform } = {}) {
+  const keep = new Set(keepKeys.map((k) => logicalKey(k, platform)));
   const mine = new Set(ourHashes);
-  const lines = String(toml ?? '').split('\n');
+  const ourPath = logicalKey(canonicalTrustPath(hooksJsonPath, platform), platform);
   const out = [];
   const removed = [];
-  for (let i = 0; i < lines.length; i++) {
-    const header = /^\[hooks\.state\."(.+)"\]$/.exec(lines[i]);
-    const key = header ? unescapeTomlBasic(header[1]) : null;
-    const samePath = key ? key.slice(0, key.lastIndexOf(':', key.lastIndexOf(':', key.lastIndexOf(':') - 1) - 1)) === hooksJsonPath : false;
-    if (key && samePath && !keep.has(key)) {
-      const m = /trusted_hash\s*=\s*"([^"]+)"/.exec(lines[i + 1] ?? '');
-      if (m && mine.has(m[1])) {
-        removed.push(key);
-        i += 1;                                            // the trusted_hash line
-        if ((lines[i + 1] ?? '').trim() === '') i += 1;     // and the blank that follows it
-        if (out.length && out[out.length - 1].trim() === '') out.pop();
-        continue;
-      }
+
+  for (const section of splitTomlSections(toml)) {
+    const key = section.header === null ? null : hooksStateKey(section.header);
+    const logical = key === null ? null : logicalKey(key, platform);
+    if (logical !== null && !keep.has(logical) && logicalKey(trustKeyPath(key), platform) === ourPath) {
+      const line = section.body.find((l) => /trusted_hash\s*=/.test(l));
+      const m = line && /trusted_hash\s*=\s*"([^"]+)"/.exec(line);
+      if (m && mine.has(m[1])) { removed.push(key); continue; }
     }
-    out.push(lines[i]);
+    out.push(section);
   }
-  return { text: out.join('\n'), removed };
+  return { text: joinTomlSections(out), removed };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,21 +452,21 @@ export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, node
 }
 
 /** Trust entries for exactly the handlers we placed, at the indices they actually landed on. */
-export function trustEntriesForPlacements(hooksJsonPath, placements) {
+export function trustEntriesForPlacements(hooksJsonPath, placements, platform = process.platform) {
   const out = {};
   for (const p of placements) {
-    out[trustKey(hooksJsonPath, p.event, p.groupIndex, p.handlerIndex)] =
+    out[trustKey(hooksJsonPath, p.event, p.groupIndex, p.handlerIndex, platform)] =
       codexHookHash(p.handler ?? { command: p.command, timeout: p.timeout }, p.event, p.matcher ?? null);
   }
   return out;
 }
 
 /** The trust entries for exactly that file: one per handler, keyed by its absolute path. */
-export function trustEntriesFor(hooksJsonPath, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath) {
+export function trustEntriesFor(hooksJsonPath, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath, platform = process.platform) {
   const command = nodeCommand(scriptPath, nodeBin);
   const out = {};
   for (const { event, timeout } of events) {
-    out[trustKey(hooksJsonPath, event, 0, 0)] = codexHookHash({ command, timeout }, event, null);
+    out[trustKey(hooksJsonPath, event, 0, 0, platform)] = codexHookHash({ command, timeout }, event, null);
   }
   return out;
 }

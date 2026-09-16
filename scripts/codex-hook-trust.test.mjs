@@ -16,7 +16,8 @@ import {
   hookEventLabel, normalizeTimeout, canonicalJson, codexHookHash, trustKey, tomlBasicString,
   upsertHooksState, buildHooksJson, trustEntriesFor, nodeCommand, codexHomes, CODEX_EVENTS,
   mergeHooksJson, trustEntriesForPlacements, HOOK_MARKER, pruneOurHooksState, unescapeTomlBasic,
-  ourTrustHashes,
+  ourTrustHashes, canonicalTrustPath, logicalKey, tomlKeyString, hooksStateKey, trustKeyPath,
+  validateTomlTables,
 } from './codex-hook-trust.mjs';
 
 const FIXTURE_HOOKS_JSON = '/home/ben/tmp/hooktrust/home/hooks.json';
@@ -43,11 +44,14 @@ test('FIXTURE: our hash equals what the Codex TUI wrote, for all four events', (
 });
 
 test('FIXTURE: the trust keys match the TUI, snake_case label and all', () => {
-  assert.equal(trustKey(FIXTURE_HOOKS_JSON, 'PostToolUse'), `${FIXTURE_HOOKS_JSON}:post_tool_use:0:0`);
-  assert.equal(trustKey(FIXTURE_HOOKS_JSON, 'SessionStart'), `${FIXTURE_HOOKS_JSON}:session_start:0:0`);
-  assert.equal(trustKey(FIXTURE_HOOKS_JSON, 'UserPromptSubmit'), `${FIXTURE_HOOKS_JSON}:user_prompt_submit:0:0`);
-  assert.equal(trustKey(FIXTURE_HOOKS_JSON, 'Stop'), `${FIXTURE_HOOKS_JSON}:stop:0:0`);
-  assert.equal(trustKey(FIXTURE_HOOKS_JSON, 'Stop', 1, 2), `${FIXTURE_HOOKS_JSON}:stop:1:2`);
+  // The fixture was captured on Linux, so the platform is stated: `trustKey` spells the path the way
+  // the RUNNING platform does, and a Windows run would otherwise resolve /home/… to C:\home\….
+  const key = (event, g = 0, h = 0) => trustKey(FIXTURE_HOOKS_JSON, event, g, h, 'linux');
+  assert.equal(key('PostToolUse'), `${FIXTURE_HOOKS_JSON}:post_tool_use:0:0`);
+  assert.equal(key('SessionStart'), `${FIXTURE_HOOKS_JSON}:session_start:0:0`);
+  assert.equal(key('UserPromptSubmit'), `${FIXTURE_HOOKS_JSON}:user_prompt_submit:0:0`);
+  assert.equal(key('Stop'), `${FIXTURE_HOOKS_JSON}:stop:0:0`);
+  assert.equal(key('Stop', 1, 2), `${FIXTURE_HOOKS_JSON}:stop:1:2`);
 });
 
 test('the hashed identity is key-sorted, compact, and carries async even when false', () => {
@@ -104,13 +108,13 @@ test('the node binary is absolute, and a path with a space is quoted', () => {
   assert.match(nodeCommand('/x/h.mjs'), /^\S*node(\.exe)?\s/);
   assert.ok(path.isAbsolute(nodeCommand('/x/h.mjs').split(' ')[0].replace(/"/g, '')));
 
-  const entries = trustEntriesFor('/home/x/hooks.json', '/x/my hooks/h.mjs', undefined, '/usr/bin/node');
+  const entries = trustEntriesFor('/home/x/hooks.json', '/x/my hooks/h.mjs', undefined, '/usr/bin/node', 'linux');
   const expected = codexHookHash({ command: '/usr/bin/node "/x/my hooks/h.mjs"', timeout: STOP_TIMEOUT }, 'Stop', null);
   assert.equal(entries['/home/x/hooks.json:stop:0:0'], expected);
 });
 
 test('trustEntriesFor covers every handler in the file it names', () => {
-  const entries = trustEntriesFor(FIXTURE_HOOKS_JSON, '/x/h.mjs');
+  const entries = trustEntriesFor(FIXTURE_HOOKS_JSON, '/x/h.mjs', undefined, undefined, 'linux');
   assert.deepEqual(Object.keys(entries).sort(), [
     `${FIXTURE_HOOKS_JSON}:post_tool_use:0:0`,
     `${FIXTURE_HOOKS_JSON}:session_start:0:0`,
@@ -176,7 +180,7 @@ test('MERGE keeps unknown top-level keys in the file', () => {
 
 test('placement trust keys use the real indices, not 0:0', () => {
   const { placements } = mergeHooksJson(ORCA_HOOKS, '/x/h/multi-codex-hook.mjs');
-  const entries = trustEntriesForPlacements('/home/h/hooks.json', placements);
+  const entries = trustEntriesForPlacements('/home/h/hooks.json', placements, 'linux');
   assert.ok(entries['/home/h/hooks.json:session_start:1:0'], 'ours sits in group 1 for SessionStart');
   assert.ok(entries['/home/h/hooks.json:stop:0:0']);
   assert.equal(entries['/home/h/hooks.json:session_start:0:0'], undefined, "Orca's handler is not ours to trust");
@@ -198,7 +202,7 @@ test('upsert adds a trust section without touching anything already there', () =
   assert.equal(changed, true);
   assert.deepEqual(added, ['k1:stop:0:0']);
   assert.ok(text.startsWith(EXISTING), 'every existing line survives, in order');
-  assert.match(text, /\[hooks\.state\."k1:stop:0:0"\]\ntrusted_hash = "sha256:aaa"/);
+  assert.match(text, /\[hooks\.state\.'k1:stop:0:0'\]\ntrusted_hash = "sha256:aaa"/);
   assert.match(text, /notify = \["node"/, 'the notify line stays — it is how Codex drains the outbox today');
 });
 
@@ -213,7 +217,7 @@ test('a changed hash replaces the value in place, never appending a second secti
   const once = upsertHooksState(EXISTING, { 'k1:stop:0:0': 'sha256:aaa' }).text;
   const res = upsertHooksState(once, { 'k1:stop:0:0': 'sha256:bbb' });
   assert.deepEqual(res.updated, ['k1:stop:0:0']);
-  assert.equal(res.text.match(/\[hooks\.state\."k1:stop:0:0"\]/g).length, 1);
+  assert.equal(res.text.match(/\[hooks\.state\.'k1:stop:0:0'\]/g).length, 1);
   assert.match(res.text, /trusted_hash = "sha256:bbb"/);
   assert.ok(!res.text.includes('sha256:aaa'));
 });
@@ -221,24 +225,27 @@ test('a changed hash replaces the value in place, never appending a second secti
 test('a section that exists with no trusted_hash gets one, rather than a duplicate table', () => {
   const toml = `[hooks.state."k1:stop:0:0"]\nenabled = true\n`;
   const res = upsertHooksState(toml, { 'k1:stop:0:0': 'sha256:ccc' });
-  assert.equal(res.text.match(/\[hooks\.state\."k1:stop:0:0"\]/g).length, 1);
+  assert.equal(res.text.match(/\[hooks\.state\.'k1:stop:0:0'\]/g).length, 1);
   assert.match(res.text, /trusted_hash = "sha256:ccc"/);
   assert.match(res.text, /enabled = true/, 'and whatever else was in the section survives');
 });
 
-test('a Windows key is escaped so the file stays valid TOML', () => {
+test('a Windows key is written as a literal string, exactly as Orca and Codex write one', () => {
   const key = 'C:\\Users\\benzh\\.codex\\hooks.json:stop:0:0';
-  assert.equal(tomlBasicString(key), '"C:\\\\Users\\\\benzh\\\\.codex\\\\hooks.json:stop:0:0"');
-  const res = upsertHooksState('', { [key]: 'sha256:ddd' });
-  assert.match(res.text, /\[hooks\.state\."C:\\\\Users/);
+  // A literal string needs no escaping at all, which is the point: the escaped basic form is what
+  // collided with Orca's spelling of the same path and made the file declare one table twice.
+  assert.equal(tomlKeyString(key), "'C:\\Users\\benzh\\.codex\\hooks.json:stop:0:0'");
+  const res = upsertHooksState('', { [key]: 'sha256:ddd' }, { platform: 'win32' });
+  assert.equal(res.text, `[hooks.state.'${key}']\ntrusted_hash = "sha256:ddd"\n`);
   // …and finding it again must work, or every apply would append another copy.
-  const again = upsertHooksState(res.text, { [key]: 'sha256:ddd' });
+  const again = upsertHooksState(res.text, { [key]: 'sha256:ddd' }, { platform: 'win32' });
   assert.equal(again.changed, false);
+  assert.deepEqual(validateTomlTables(res.text, 'win32'), []);
 });
 
 test('upsert into an empty file produces a valid, self-contained section', () => {
   const res = upsertHooksState('', { 'k:stop:0:0': 'sha256:eee' });
-  assert.equal(res.text, '[hooks.state."k:stop:0:0"]\ntrusted_hash = "sha256:eee"\n');
+  assert.equal(res.text, "[hooks.state.'k:stop:0:0']\ntrusted_hash = \"sha256:eee\"\n");
 });
 
 test('MAJOR 1: the hash covers the handler ACTUALLY placed, extra keys and all', () => {
@@ -252,7 +259,7 @@ test('MAJOR 1: the hash covers the handler ACTUALLY placed, extra keys and all',
   const written = json.hooks.Stop[0].hooks[0];
   assert.equal(written.async, true, 'the merge preserves it, so the hash must account for it');
 
-  const entries = trustEntriesForPlacements('/home/h/hooks.json', placements);
+  const entries = trustEntriesForPlacements('/home/h/hooks.json', placements, 'linux');
   assert.equal(entries['/home/h/hooks.json:stop:0:0'], codexHookHash(written, 'Stop', null));
   assert.notEqual(entries['/home/h/hooks.json:stop:0:0'],
     codexHookHash({ command: written.command, timeout: written.timeout }, 'Stop', null),
@@ -269,7 +276,7 @@ test('MINOR 2: a commented-out header cannot hijack the edit', () => {
     '',
   ].join('\n');
   const res = upsertHooksState(toml, { 'k1:stop:0:0': 'sha256:new' });
-  assert.match(res.text, /^\[hooks\.state\."k1:stop:0:0"\]\ntrusted_hash = "sha256:new"/m);
+  assert.match(res.text, /^\[hooks\.state\.'k1:stop:0:0'\]\ntrusted_hash = "sha256:new"/m);
   assert.match(res.text, /# trusted_hash = "sha256:old"/, 'the comment is left exactly as it was');
   assert.deepEqual(res.updated, ['k1:stop:0:0']);
 });
@@ -289,7 +296,7 @@ test('MINOR 3: our stale entries are pruned, and nobody else\'s are touched', ()
     'trusted_hash = "sha256:mine"',
     '',
   ].join('\n');
-  const res = pruneOurHooksState(toml, '/h/hooks.json', ['sha256:mine'], ['/h/hooks.json:stop:1:0']);
+  const res = pruneOurHooksState(toml, '/h/hooks.json', ['sha256:mine'], ['/h/hooks.json:stop:1:0'], { platform: 'linux' });
   assert.deepEqual(res.removed, ['/h/hooks.json:stop:0:0']);
   assert.match(res.text, /session_start:0:0/, "Orca's entry for the same file survives: the hash is not ours");
   assert.match(res.text, /\/other\/hooks\.json:stop:0:0/, 'another file is none of our business');
@@ -312,7 +319,7 @@ test('2026-09-16: the prune still recognises an entry written with the OLD Stop 
   // for good, trusting a position nothing occupies.
   const stale = `${FIXTURE_HOOKS_JSON}:stop:0:0`;
   const toml = `[hooks.state."${stale}"]\ntrusted_hash = "${historic}"\n`;
-  const res = pruneOurHooksState(toml, FIXTURE_HOOKS_JSON, hashes, [`${FIXTURE_HOOKS_JSON}:stop:1:0`]);
+  const res = pruneOurHooksState(toml, FIXTURE_HOOKS_JSON, hashes, [`${FIXTURE_HOOKS_JSON}:stop:1:0`], { platform: 'linux' });
   assert.deepEqual(res.removed, [stale]);
 });
 
@@ -321,8 +328,147 @@ test('MINOR 3: a Windows key round-trips through the prune', () => {
   const key = `${hooksJson}:stop:0:0`;
   const toml = `[hooks.state.${tomlBasicString(key)}]\ntrusted_hash = "sha256:mine"\n`;
   assert.equal(unescapeTomlBasic(tomlBasicString(key).slice(1, -1)), key);
-  const res = pruneOurHooksState(toml, hooksJson, ['sha256:mine']);
+  const res = pruneOurHooksState(toml, hooksJson, ['sha256:mine'], [], { platform: 'win32' });
   assert.deepEqual(res.removed, [key]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One key, one spelling (incident 2026-09-16)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WIN_HOOKS = 'C:\\Users\\benzh\\.codex\\hooks.json';
+const WIN_STOP = `${WIN_HOOKS}:stop:0:0`;
+
+/** The three spellings that ended up in one live config.toml, in the order they were written. */
+const THREE_SPELLINGS = [
+  'model = "gpt-5.6"',
+  '',
+  // Orca's, and Codex's own: a TOML literal string, single backslashes.
+  `[hooks.state.'${WIN_STOP}']`,
+  'trusted_hash = "sha256:orca-spelling"',
+  '',
+  // 0.4.0's: forward slashes. A different key to TOML, so it trusted nothing at all.
+  `[hooks.state.'${WIN_STOP.replace(/\\/g, '/')}']`,
+  'trusted_hash = "sha256:forward-slashes"',
+  '',
+  // 0.4.1's: a basic string with escapes. Unescapes to the SAME key as the first — "declared twice".
+  `[hooks.state.${tomlBasicString(WIN_STOP)}]`,
+  'trusted_hash = "sha256:escaped-basic"',
+  '',
+  // Somebody else's entry for a different key in the same file: must survive untouched.
+  `[hooks.state.'${WIN_HOOKS}:session_start:0:0']`,
+  'trusted_hash = "sha256:theirs"',
+  '',
+].join('\n');
+
+test('WINDOWS: three spellings of one key collapse to a single table with the current hash', () => {
+  // TOML itself chokes on one pair of these — the literal and the escaped-basic spelling unescape to
+  // the same key. Our Windows view folds the separator too, so all three are one entry and two of them
+  // are duplicates. Either way the seed is the file that stopped parsing on Ben's box.
+  assert.equal(validateTomlTables(THREE_SPELLINGS, 'win32').length, 2, 'the seed really is the broken file');
+
+  const res = upsertHooksState(THREE_SPELLINGS, { [WIN_STOP]: 'sha256:new' }, { platform: 'win32' });
+
+  assert.deepEqual(res.refused, [], 'our own duplicates are fixable, so it is written');
+  const headers = res.text.split('\n').filter((l) => /^\[hooks\.state\./.test(l));
+  const stops = headers.filter((h) => /stop:0:0/.test(h));
+  assert.equal(stops.length, 1, 'exactly one table for the key, whatever it was spelled as before');
+  assert.equal(stops[0], `[hooks.state.'${WIN_STOP}']`, 'and it is spelled the way Codex spells it');
+  assert.equal(res.deduped.length, 2, 'the other two are reported, not silently dropped');
+
+  assert.match(res.text, /trusted_hash = "sha256:new"/);
+  for (const stale of ['sha256:orca-spelling', 'sha256:forward-slashes', 'sha256:escaped-basic']) {
+    assert.ok(!res.text.includes(stale), `${stale} is gone`);
+  }
+
+  // Everything that is not ours is exactly as it was.
+  assert.match(res.text, /^model = "gpt-5\.6"$/m);
+  assert.match(res.text, /session_start:0:0/);
+  assert.match(res.text, /trusted_hash = "sha256:theirs"/);
+  assert.deepEqual(validateTomlTables(res.text, 'win32'), [], 'and the file parses again');
+});
+
+test('WINDOWS: a second run changes nothing at all, byte for byte', () => {
+  const once = upsertHooksState(THREE_SPELLINGS, { [WIN_STOP]: 'sha256:new' }, { platform: 'win32' });
+  const again = upsertHooksState(once.text, { [WIN_STOP]: 'sha256:new' }, { platform: 'win32' });
+  assert.equal(again.changed, false, 'a no-op apply must not move the file mtime');
+  assert.equal(again.text, once.text);
+  assert.deepEqual(again.deduped, []);
+});
+
+test('WINDOWS: case and separator do not make a second entry', () => {
+  const seeded = [
+    `[hooks.state.'c:/users/benzh/.codex/hooks.json:stop:0:0']`,
+    'trusted_hash = "sha256:lower"',
+    '',
+  ].join('\n');
+  const res = upsertHooksState(seeded, { [WIN_STOP]: 'sha256:new' }, { platform: 'win32' });
+  assert.deepEqual(res.added, [], 'it is the same entry, so nothing is appended');
+  assert.deepEqual(res.updated, [WIN_STOP]);
+  assert.equal(res.text.match(/stop:0:0/g).length, 1);
+});
+
+test('POSIX: the two quote styles are one key, and case is NOT folded', () => {
+  const key = '/home/ben/.codex/hooks.json:stop:0:0';
+  const seeded = [
+    `[hooks.state.'${key}']`,
+    'trusted_hash = "sha256:literal"',
+    '',
+    `[hooks.state."${key}"]`,
+    'trusted_hash = "sha256:basic"',
+    '',
+    '[hooks.state."/home/Ben/.codex/hooks.json:stop:0:0"]',
+    'trusted_hash = "sha256:different-path"',
+    '',
+  ].join('\n');
+  const res = upsertHooksState(seeded, { [key]: 'sha256:new' }, { platform: 'linux' });
+
+  assert.deepEqual(res.refused, []);
+  assert.equal(res.deduped.length, 1, 'the basic-string copy of the same key');
+  assert.equal(res.text.match(/\[hooks\.state/g).length, 2, 'ours, plus the one with a capital B');
+  assert.match(res.text, /trusted_hash = "sha256:different-path"/,
+    '/home/Ben is a different directory on POSIX and must never be merged into /home/ben');
+});
+
+test('a duplicate that is NOT ours is refused, never written over', () => {
+  const seeded = [
+    "[hooks.state.'/h/hooks.json:session_start:0:0']",
+    'trusted_hash = "sha256:theirs"',
+    '',
+    '[hooks.state."/h/hooks.json:session_start:0:0"]',
+    'trusted_hash = "sha256:theirs-again"',
+    '',
+  ].join('\n');
+  const res = upsertHooksState(seeded, { '/h/hooks.json:stop:0:0': 'sha256:ours' }, { platform: 'linux' });
+
+  assert.equal(res.refused.length, 1, 'we cannot fix somebody else\'s duplicate, so we do not guess');
+  assert.match(res.refused[0], /declared twice/);
+  assert.equal(res.changed, false);
+  assert.equal(res.text, seeded, 'the file comes back untouched — a half-written config.toml is worse');
+});
+
+test('an [[array of tables]] header may repeat and is never called a duplicate', () => {
+  const toml = '[[profiles]]\nname = "a"\n\n[[profiles]]\nname = "b"\n';
+  assert.deepEqual(validateTomlTables(toml, 'linux'), []);
+});
+
+test('the key helpers: canonical spelling, logical identity, quoting, parsing', () => {
+  assert.equal(canonicalTrustPath('C:/Users/benzh/.codex/hooks.json', 'win32'), WIN_HOOKS);
+  assert.equal(canonicalTrustPath('/home/ben/.codex/hooks.json', 'linux'), '/home/ben/.codex/hooks.json');
+
+  assert.equal(logicalKey(WIN_STOP, 'win32'), 'c:/users/benzh/.codex/hooks.json:stop:0:0');
+  assert.notEqual(logicalKey('/a/X', 'linux'), logicalKey('/a/x', 'linux'), 'POSIX paths are case-sensitive');
+
+  assert.equal(tomlKeyString(WIN_STOP), `'${WIN_STOP}'`, 'a literal string: no escaping to get wrong');
+  assert.equal(tomlKeyString("it's"), '"it\'s"', "…unless the key itself carries a ', which no path does");
+
+  assert.equal(hooksStateKey(`[hooks.state.'${WIN_STOP}']`), WIN_STOP);
+  assert.equal(hooksStateKey(`[hooks.state.${tomlBasicString(WIN_STOP)}]`), WIN_STOP, 'both styles unquote alike');
+  assert.equal(hooksStateKey('[hooks]'), null);
+  assert.equal(hooksStateKey('# [hooks.state."k"]'), null, 'a comment declares nothing');
+
+  assert.equal(trustKeyPath(WIN_STOP), WIN_HOOKS);
+  assert.equal(trustKeyPath('/h/hooks.json:post_tool_use:1:2'), '/h/hooks.json');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
