@@ -141,19 +141,61 @@ export function tomlKeyString(value) {
 }
 
 /**
- * The key a `[hooks.state.<key>]` header declares, unquoted, or null for any other line.
- *
- * Both quote styles are understood, because all three writers in play use different ones and an
- * installer that recognises only its own spelling appends a second table instead of updating the first.
- * That is the whole incident.
+ * One dotted key segment, unquoted: `'a.b'` and `"a.b"` both mean the key `a.b`, and a bare segment
+ * means itself. Null for a segment that is not a legal key, so the caller can fall back to the raw text
+ * rather than inventing an identity for something it did not understand.
  */
+export function unquoteTomlKeyPart(part) {
+  const s = String(part ?? '').trim();
+  if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) return s.slice(1, -1);
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) return unescapeTomlBasic(s.slice(1, -1));
+  if (s === '' || /["'\s.]/.test(s)) return null;
+  return s;
+}
+
+/**
+ * A table header, parsed the way TOML reads one: `[a.b."c.d"]` is the three-segment path
+ * `['a', 'b', 'c.d']`, and the dot inside the quotes is part of the key, not a separator.
+ *
+ * Whitespace inside the brackets is legal and is tolerated here, because a header we fail to recognise
+ * is a table we would append a SECOND copy of — the incident, in miniature (review MINOR 3).
+ *
+ * @returns {{ parts: string[], array: boolean }|null} null when it is not a header we can read
+ */
+export function parseTomlKeyPath(header) {
+  const raw = String(header ?? '').trim();
+  const array = raw.startsWith('[[') && raw.endsWith(']]');
+  if (!array && !(raw.startsWith('[') && raw.endsWith(']'))) return null;
+  const inner = array ? raw.slice(2, -2) : raw.slice(1, -1);
+
+  const segments = [];
+  let current = '';
+  let quote = null;
+  for (let i = 0; i < inner.length; i += 1) {
+    const ch = inner[i];
+    if (quote) {
+      // Only a basic string has escapes; inside a literal string a backslash is just a backslash.
+      if (quote === '"' && ch === '\\') { current += ch + (inner[i + 1] ?? ''); i += 1; continue; }
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; current += ch; continue; }
+    if (ch === '.') { segments.push(current); current = ''; continue; }
+    current += ch;
+  }
+  if (quote) return null; // an unterminated quote: not something we can claim to understand
+  segments.push(current);
+
+  const parts = segments.map(unquoteTomlKeyPart);
+  return parts.some((p) => p === null) ? null : { parts, array };
+}
+
+/** The key a `[hooks.state.<key>]` header declares, unquoted, or null for any other line. */
 export function hooksStateKey(header) {
-  const m = /^\s*\[hooks\.state\.(.+)\]\s*$/.exec(String(header ?? ''));
-  if (!m) return null;
-  const raw = m[1].trim();
-  if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
-  if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) return unescapeTomlBasic(raw.slice(1, -1));
-  return raw; // a bare key: no path can be one, but never lose a section over it
+  const parsed = parseTomlKeyPath(header);
+  if (!parsed || parsed.array || parsed.parts.length !== 3) return null;
+  return parsed.parts[0] === 'hooks' && parsed.parts[1] === 'state' ? parsed.parts[2] : null;
 }
 
 /**
@@ -187,22 +229,32 @@ export function joinTomlSections(sections) {
 }
 
 /**
- * Every problem that would make this file refuse to parse, or parse into something other than what we
- * meant. A `[[array of tables]]` header is legally repeatable and is never counted.
+ * Every table this file declares twice — the thing that stops Codex parsing it at all.
+ *
+ * Judged by TOML's OWN rules and nothing else: two headers collide when their unquoted key paths are
+ * equal, so quoting style does not matter and case and separators are never folded. That last part is
+ * the correction (review MINOR 2): a Windows path is case-insensitive, but a TOML KEY is not, so
+ * `'C:\x'` and `'C:/x'` are two perfectly legal tables and refusing them would leave a home stuck
+ * refusing on every apply. Folding belongs in `logicalKey`, where it decides what is OUR entry.
+ *
+ * Every table is checked, not just `hooks.state` — `[projects."/a/b"]` and `[projects.'/a/b']` are the
+ * same table declared twice, and that is the dangerous direction (review MINOR 3). A header we cannot
+ * parse is identified by its own text, so an unreadable line is never silently treated as unique.
+ * `[[array of tables]]` headers are legally repeatable and are never counted.
  *
  * @returns {string[]} empty when the text is safe to write
  */
-export function validateTomlTables(text, platform = process.platform) {
+export function validateTomlTables(text) {
   const problems = [];
   const seen = new Set();
   for (const section of splitTomlSections(text)) {
     if (section.header === null) continue;
-    const raw = section.header.trim();
-    if (raw.startsWith('[[')) continue;
-    const key = hooksStateKey(section.header);
-    const id = key === null ? `table ${raw}` : `hooks.state ${logicalKey(key, platform)}`;
-    if (seen.has(id)) problems.push(`${key === null ? raw : `[hooks.state] ${key}`} is declared twice`);
-    else seen.add(id);
+    const parsed = parseTomlKeyPath(section.header);
+    if (parsed?.array) continue;
+    const id = parsed ? `key ${JSON.stringify(parsed.parts)}` : `raw ${section.header.trim()}`;
+    if (!seen.has(id)) { seen.add(id); continue; }
+    const key = parsed ? hooksStateKey(section.header) : null;
+    problems.push(`${key === null ? section.header.trim() : `[hooks.state] ${key}`} is declared twice`);
   }
   return problems;
 }
@@ -278,7 +330,7 @@ export function upsertHooksState(toml, entries, { platform = process.platform } 
   }
 
   const text = joinTomlSections(out);
-  const refused = validateTomlTables(text, platform);
+  const refused = validateTomlTables(text);
   if (refused.length > 0) {
     return { text: before, changed: false, added: [], updated: [], deduped: [], refused };
   }

@@ -17,7 +17,7 @@ import {
   upsertHooksState, buildHooksJson, trustEntriesFor, nodeCommand, codexHomes, CODEX_EVENTS,
   mergeHooksJson, trustEntriesForPlacements, HOOK_MARKER, pruneOurHooksState, unescapeTomlBasic,
   ourTrustHashes, canonicalTrustPath, logicalKey, tomlKeyString, hooksStateKey, trustKeyPath,
-  validateTomlTables,
+  validateTomlTables, parseTomlKeyPath,
 } from './codex-hook-trust.mjs';
 
 const FIXTURE_HOOKS_JSON = '/home/ben/tmp/hooktrust/home/hooks.json';
@@ -240,7 +240,7 @@ test('a Windows key is written as a literal string, exactly as Orca and Codex wr
   // …and finding it again must work, or every apply would append another copy.
   const again = upsertHooksState(res.text, { [key]: 'sha256:ddd' }, { platform: 'win32' });
   assert.equal(again.changed, false);
-  assert.deepEqual(validateTomlTables(res.text, 'win32'), []);
+  assert.deepEqual(validateTomlTables(res.text), []);
 });
 
 test('upsert into an empty file produces a valid, self-contained section', () => {
@@ -362,10 +362,11 @@ const THREE_SPELLINGS = [
 ].join('\n');
 
 test('WINDOWS: three spellings of one key collapse to a single table with the current hash', () => {
-  // TOML itself chokes on one pair of these — the literal and the escaped-basic spelling unescape to
-  // the same key. Our Windows view folds the separator too, so all three are one entry and two of them
-  // are duplicates. Either way the seed is the file that stopped parsing on Ben's box.
-  assert.equal(validateTomlTables(THREE_SPELLINGS, 'win32').length, 2, 'the seed really is the broken file');
+  // One duplicate, judged by TOML's rules: the literal and the escaped-basic spelling unquote to the
+  // same key, which is the "Cannot declare … twice" Codex saw. The forward-slash spelling is a legal
+  // third table that simply trusted nothing — our dedupe collapses all three anyway, because on Windows
+  // they name one file.
+  assert.equal(validateTomlTables(THREE_SPELLINGS).length, 1, 'the seed really is the broken file');
 
   const res = upsertHooksState(THREE_SPELLINGS, { [WIN_STOP]: 'sha256:new' }, { platform: 'win32' });
 
@@ -385,7 +386,7 @@ test('WINDOWS: three spellings of one key collapse to a single table with the cu
   assert.match(res.text, /^model = "gpt-5\.6"$/m);
   assert.match(res.text, /session_start:0:0/);
   assert.match(res.text, /trusted_hash = "sha256:theirs"/);
-  assert.deepEqual(validateTomlTables(res.text, 'win32'), [], 'and the file parses again');
+  assert.deepEqual(validateTomlTables(res.text), [], 'and the file parses again');
 });
 
 test('WINDOWS: a second run changes nothing at all, byte for byte', () => {
@@ -449,7 +450,77 @@ test('a duplicate that is NOT ours is refused, never written over', () => {
 
 test('an [[array of tables]] header may repeat and is never called a duplicate', () => {
   const toml = '[[profiles]]\nname = "a"\n\n[[profiles]]\nname = "b"\n';
-  assert.deepEqual(validateTomlTables(toml, 'linux'), []);
+  assert.deepEqual(validateTomlTables(toml), []);
+});
+test('MINOR 2: the validator judges by TOML rules, so Windows case and slashes are NOT folded', () => {
+  // Two Orca entries for the same file, spelled differently. TOML reads two distinct keys and parses
+  // the file happily; a folded check would call this a duplicate and refuse on every apply forever.
+  const seeded = [
+    "[hooks.state.'C:\\Users\\benzh\\.codex\\hooks.json:stop:0:0']",
+    'trusted_hash = "sha256:orca-a"',
+    '',
+    "[hooks.state.'c:/users/benzh/.codex/hooks.json:stop:0:0']",
+    'trusted_hash = "sha256:orca-b"',
+    '',
+  ].join('\n');
+  assert.deepEqual(validateTomlTables(seeded), [], 'TOML accepts it, so we must too');
+
+  // …and writing our own unrelated key into that file still goes through.
+  const res = upsertHooksState(seeded, { 'C:\\x\\hooks.json:stop:1:0': 'sha256:ours' }, { platform: 'win32' });
+  assert.deepEqual(res.refused, []);
+  assert.equal(res.changed, true);
+
+  // The quoting difference IS a duplicate, because both unquote to one key. That is the incident.
+  const sameKey = [
+    "[hooks.state.'C:\\x\\hooks.json:stop:0:0']",
+    'trusted_hash = "sha256:a"',
+    '',
+    '[hooks.state."C:\\\\x\\\\hooks.json:stop:0:0"]',
+    'trusted_hash = "sha256:b"',
+    '',
+  ].join('\n');
+  assert.equal(validateTomlTables(sameKey).length, 1);
+});
+
+test('MINOR 3: a table declared twice OUTSIDE hooks.state is caught too', () => {
+  const seeded = [
+    '[projects."/a/b"]',
+    'trust_level = "trusted"',
+    '',
+    "[projects.'/a/b']",
+    'trust_level = "untrusted"',
+    '',
+  ].join('\n');
+  const problems = validateTomlTables(seeded);
+  assert.equal(problems.length, 1, 'same table, two spellings — TOML refuses the file');
+  assert.match(problems[0], /declared twice/);
+
+  // And the installer will not write into it, even though the duplicate is nothing to do with us.
+  const res = upsertHooksState(seeded, { '/h/hooks.json:stop:0:0': 'sha256:ours' }, { platform: 'linux' });
+  assert.equal(res.refused.length, 1);
+  assert.equal(res.text, seeded);
+});
+
+test('MINOR 3: a header with spaces inside the brackets is still recognised as ours', () => {
+  // Neither Codex nor Orca writes this, but failing to read it would append a SECOND table for a key
+  // that is already there — which is the incident in miniature.
+  assert.equal(hooksStateKey("[ hooks.state.'k:stop:0:0' ]"), 'k:stop:0:0');
+  const res = upsertHooksState("[ hooks.state.'k:stop:0:0' ]\ntrusted_hash = \"sha256:old\"\n",
+    { 'k:stop:0:0': 'sha256:new' }, { platform: 'linux' });
+  assert.deepEqual(res.added, [], 'found, not appended');
+  assert.deepEqual(res.updated, ['k:stop:0:0']);
+  assert.equal(res.text.match(/hooks\.state/g).length, 1);
+});
+
+test('the TOML key-path parser reads a dotted header the way TOML does', () => {
+  assert.deepEqual(parseTomlKeyPath('[hooks.state."a.b"]'), { parts: ['hooks', 'state', 'a.b'], array: false });
+  assert.deepEqual(parseTomlKeyPath("[projects.'/a/b']"), { parts: ['projects', '/a/b'], array: false });
+  assert.deepEqual(parseTomlKeyPath('[[profiles]]'), { parts: ['profiles'], array: true });
+  assert.deepEqual(parseTomlKeyPath('[ a . b ]'), { parts: ['a', 'b'], array: false });
+  assert.equal(parseTomlKeyPath("[hooks.state.'unterminated]"), null, 'never guess at a broken header');
+  assert.equal(parseTomlKeyPath('not a header'), null);
+  // A dot inside quotes is part of the key, not a separator — the whole reason for a parser.
+  assert.equal(parseTomlKeyPath('[hooks.state."a.b"]').parts.length, 3);
 });
 
 test('the key helpers: canonical spelling, logical identity, quoting, parsing', () => {
