@@ -274,7 +274,11 @@ test('V2: a shell pane never claims an inbox, even though its title reduces to a
 
 test('the CLI exits 0 and prints JSON against a fixture ledger, even when it cannot find a slug', () => {
   const home = tmp();
-  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-pr137-1', 'ASK', 'Review PR 137')]);
+  // The only test here that SPAWNS the CLI, so the only one reading the real clock: the ledger has to
+  // be dated today or it falls out of the three-day scan window and this goes red on a calendar change,
+  // not on a code change. Every other test injects its own clock.
+  const realToday = new Date().toISOString().slice(0, 10);
+  mirror(home, realToday, [line('astra', 'taxonomy', 'astra-pr137-1', 'ASK', 'Review PR 137')]);
   // --orca names a command that does not exist, so the slug fallbacks cannot reach a real runtime and
   // the test is the same on every machine.
   const run = (args) => execFileSync(
