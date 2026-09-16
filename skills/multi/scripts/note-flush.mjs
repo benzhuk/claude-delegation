@@ -19,9 +19,9 @@
 //   · Never re-sends a note whose id a later `supersedes` retired — that entry is dropped, logged.
 //   · Never types a note the recipient has already READ: an id in `~/.agents/notes/.cursor-<slug>` is
 //     retired unattempted. The ledger delivered it; the wake-up has nothing left to do.
-//   · Never types at a pane that is LISTENING: a fresh `.listening-<slug>.json` means that session is
-//     parked in its Stop hook and will pull the note into its own context. Typing would put the same
-//     note in Ben's composer for nothing. The entry waits, unattempted and un-aged.
+//   · Types at an IDLE pane without waiting for permission from anyone. 0.4.0 stood aside for a pane
+//     whose `.listening-<slug>.json` said it was parked in a Stop hook; nothing parks now, so nothing
+//     writes one, and any left on disk are swept on the way in (cleanupListeningMarkers).
 //   · Never types into a pane that is not sendable for its vendor (Claude: idle or working; Codex:
 //     idle only — it does not queue typed input mid-turn).
 //   · Two-phase typing, exactly as note-send does it, through the same shared code. It NEVER starts
@@ -38,10 +38,10 @@ import { NoteError } from './envelope.mjs';
 import {
   toPosix, makeOrcaRunner, resolvePaneWithSource, showPane, readPane, classifyPane, isSendable,
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
-  notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE,
+  notesDir, readLedgerCorpus, supersededIds, isMainModule, HANDLE_RE, safeReaddir,
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
   killOutboxEntry, deadOutboxPath, benInboxPath,
-  readBindings, pruneBindings, BINDING_GC_MS, readCursor, isListening,
+  readBindings, pruneBindings, BINDING_GC_MS, readCursor,
 } from './transport.mjs';
 
 /**
@@ -62,6 +62,36 @@ export const DEFAULT_PER_ENTRY_MS = 45_000;
  * someone's composer — the whole incident.
  */
 export const DEFAULT_PHASE2_RESERVE_MS = 20_000;
+
+/** What 0.4.0 wrote while a Stop hook was parked. Nothing writes these now, so every one is garbage. */
+export const LISTENING_MARKER_RE = /^\.listening-.+\.json$/;
+
+/**
+ * Sweep `~/.agents/notes/.listening-*.json`.
+ *
+ * 0.4.0's Stop hook parked while this session had an unanswered ASK and dropped one of these to tell
+ * the flusher not to type at its pane. The parking is gone (2026-09-16 ruling) and nothing writes them
+ * any more — but a marker whose hook was killed before it could clean up carries an `until` hours in
+ * the future, and a flusher that still read them would go on refusing to nudge that pane for exactly
+ * as long. So they are deleted on every run, whether or not there is anything in the outbox.
+ *
+ * Never throws: a sweep that cannot delete costs nothing, because nothing reads these files.
+ *
+ * @returns {string[]} the files removed, oldest-listed first
+ */
+export function cleanupListeningMarkers(home, { fsImpl = fs, dryRun = false } = {}) {
+  const dir = notesDir(home);
+  const removed = [];
+  for (const name of safeReaddir(dir, fsImpl)) {
+    if (!LISTENING_MARKER_RE.test(name)) continue;
+    const marker = toPosix(path.posix.join(dir, name));
+    if (!dryRun) {
+      try { fsImpl.rmSync(marker, { force: true }); } catch { continue; }
+    }
+    removed.push(marker);
+  }
+  return removed;
+}
 
 const STRING_FLAGS = new Set(['to', 'max-ms', 'max-attempts', 'max-age-hours', 'per-entry-ms', 'phase2-reserve-ms', 'orca', 'home']);
 const BOOL_FLAGS = new Set(['json', 'dry-run', 'help']);
@@ -150,6 +180,12 @@ export async function runNoteFlush(argv, deps = {}) {
     return text;
   };
 
+  // Before any early return: a 0.4.0 marker left on disk must not outlive the version that read it,
+  // and an empty outbox is exactly when there is nothing else to do about it.
+  for (const marker of cleanupListeningMarkers(home, { fsImpl, dryRun })) {
+    if (!dryRun) appendFlushLog(home, `${stamp} cleanup ${marker}`, fsImpl);
+  }
+
   // A flusher killed mid-attempt leaves a claim behind; return anything long abandoned to the outbox
   // before reading it, or that entry is invisible forever (review M2).
   if (!dryRun) reclaimStaleClaims(home, { fsImpl, now });
@@ -178,16 +214,6 @@ export async function runNoteFlush(argv, deps = {}) {
    * One read per slug per drain, cached: a backlog is usually several notes for the same pane. An id
    * the cold-start window suppressed is NOT read — see `cold` below.
    */
-  // D5: who is parked in a Stop hook right now? One stat per slug per drain; a marker is only believed
-  // while it is unexpired AND (on this host) its process is alive.
-  const listeners = new Map();
-  const listening = (slug) => {
-    if (!slug) return null;
-    if (!listeners.has(slug)) listeners.set(slug, isListening(home, slug, { fsImpl, now }));
-    return listeners.get(slug);
-  };
-
-  let parked = 0;
   const cursors = new Map();
   const alreadyRead = (slug, id) => {
     if (!slug) return false;
@@ -205,18 +231,6 @@ export async function runNoteFlush(argv, deps = {}) {
     if (retired.has(entry.id)) {
       if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
       results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'superseded', log: log('superseded', entry, 'a later note supersedes this id') });
-      continue;
-    }
-    const marker = listening(entry.toSlug ?? entry.to);
-    if (marker) {
-      // Not a deferral: attempts are NOT incremented and the entry is left exactly as it is. A 15-minute
-      // long poll spans fifteen 1-minute drains, which would otherwise burn most of the 20-attempt
-      // budget for a wake-up nobody needed to type.
-      parked += 1;
-      results.push({
-        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'listening',
-        log: log('listening', entry, `that session is parked in a Stop hook until ${new Date(Number(marker.until)).toISOString()} and will read it there`),
-      });
       continue;
     }
     if (alreadyRead(entry.toSlug ?? entry.to, entry.id)) {
@@ -255,7 +269,7 @@ export async function runNoteFlush(argv, deps = {}) {
 
   if (live.length === 0 || dryRun) {
     return {
-      ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length + parked,
+      ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length,
       results: [...results, ...live.map((e) => ({ id: e.id, to: e.toSlug ?? e.to, outcome: dryRun ? 'would-retry' : 'pending' }))],
       home, dryRun,
     };
@@ -410,7 +424,7 @@ export async function runNoteFlush(argv, deps = {}) {
     });
   }
 
-  return { ok: true, exitCode: 0, drained, attempted, remaining: remaining + parked, results, home, dryRun };
+  return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
 }
 
 /**
