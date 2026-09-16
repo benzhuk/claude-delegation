@@ -5,6 +5,7 @@ Ben: "could we drop a short for-human summary into the context when the models p
 typing it into the prompt where I type? my prompts frequently collide with theirs." Ruling (Ben, multiple
 choice): **adaptive long-poll, cap 15 min** — an agent waits for a peer note after a turn ONLY while it has an
 ASK outstanding; otherwise it goes idle at once.
+**[SUPERSEDED 2026-09-16 — see "no parking" at the end of this file]** The waiting was removed two days later, in 0.4.1. Nothing waits for a peer now.
 
 ## Verified facts (2026-09-14, all live)
 Claude Code v2.1.271 (Netcup):
@@ -46,7 +47,8 @@ D1. **Shared hook core** `hooks/multi-hook-core.mjs` (ESM, imported by both adap
     loop guard) — move, don't duplicate. Every output that carries notes also carries
     `systemMessage: "📨 <from> → <to> <KIND>: <body ≤ 80 chars>"` (one line per note, max 3 lines, then
     "+N more in the ledger"). This is Ben's for-human line; it never goes into the composer.
-D2. **Long-poll in Stop** (both agents). If `outstandingAsks(slug)` is non-empty and `stop_hook_active` is
+D2. [SUPERSEDED 2026-09-16 — see "no parking" at the end of this file]
+    **Long-poll in Stop** (both agents). If `outstandingAsks(slug)` is non-empty and `stop_hook_active` is
     false: write `~/.agents/notes/.listening-<slug>.json` `{pid, handle?, until, asks:[ids]}`; poll every 3 s
     (stat the mirror ledger `~/.agents/notes/<today>.md` + the repo ledger dirs; no orca calls) until a note for
     this slug is unseen or `until` (now + `MULTI_LONGPOLL_MAX_MIN`, default 15, `0` disables) passes; remove
@@ -74,7 +76,8 @@ D4. **Installer** in `scripts/mirror-shared-skills.mjs` (runs on every `chezmoi 
     `scripts/codex-hook-trust.mjs` with a fixture test whose expected value is taken from a REAL
     `currentHash` (the integrator captures one on Netcup via the app-server `hooks/list`, or from a config.toml
     the TUI trusted on Linux). Idempotent: no rewrite when content is unchanged. Never delete anything.
-D5. **Flusher becomes last resort**: `note-flush` skips typing to a slug whose `.listening-<slug>.json` is fresh
+D5. [SUPERSEDED 2026-09-16 — see "no parking" at the end of this file]
+    **Flusher becomes last resort**: `note-flush` skips typing to a slug whose `.listening-<slug>.json` is fresh
     (`until` in the future and pid alive when local) — the hook will deliver; log `listening [<id>] -> <slug>`.
     Everything else unchanged (claims, retire-on-read, bindings).
 D6. **Claude adapter** `hooks/multi-inbox.js` → thin wrapper over the core (keep the file name; hooks.json
