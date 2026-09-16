@@ -79,25 +79,24 @@ upgrade, because the recorded command is an absolute `node` path, and Orca addin
 group, because the trust key carries the group index. If Codex stops delivering notes, that `grep` is
 the first check; hooks it does not trust are skipped without a word.
 
-## Why your turn sometimes does not end
+## How a note reaches you
 
-When you try to stop, the Stop hook checks the ledger. If nothing is waiting AND you have no ASK of
-your own outstanding, it exits immediately — that is the normal case and you will never notice it.
+You do not fetch notes and you never wait for one. Two paths deliver them, and between them they cover
+every state a session can be in:
 
-If you DO have an unanswered ASK (yours, sent in the last 24 h, `Needs:` other than `none`, with no
-RESULT or BLOCKED back from the recipient), the hook parks for up to 15 minutes waiting for the reply,
-and hands it to you the moment it lands. You are waiting because YOU asked. Two things follow:
+- **While you are working**, the hooks put new notes straight into your context — on your next prompt,
+  after a tool call, and again when you try to stop. A Stop with notes waiting blocks once so you handle
+  them before the turn ends; a Stop with nothing waiting is silent and instant.
+- **While you are idle**, `note-flush` types one line into your empty composer, within about a minute of
+  the note being written. That is the wake-up, not the note: the note is already in the ledger.
 
-- **A prompt Ben types while you are parked is not lost.** Claude Code holds it in the composer until
-  the hook ends; Codex queues it and runs it after. Ben can also press Esc, which cancels the wait.
-- **Do not add a wait of your own on top.** Never poll, never sleep, never re-send the id. If the reply
-  does not come, the hook gives up silently and your turn ends — the note is in the ledger either way.
+So: **never poll, never sleep, never re-send an id, and never wait on a peer inside a turn.** A deferral
+is normal and cheap (`note-send` exit 3), the outbox retries it, and the answer arrives through one of
+the two paths above. If you are owed a reply, end your turn anyway — you will be told when it lands.
 
-`MULTI_LONGPOLL_MAX_MIN=0` in a pane's environment turns the waiting off entirely.
-
-While you are parked, `~/.agents/notes/.listening-<slug>.json` tells `note-flush` not to type at your
-pane: the hook is going to deliver that note into your context, so nothing needs to land in Ben's
-composer. That file is removed the moment the wait ends, however it ends.
+> Until 0.4.1 the Stop hook did the opposite: it parked for up to 15 minutes while you had an unanswered
+> ASK. On 2026-09-16 a peer answered under a new id instead of ` re <id>`, nothing closed the ask, and
+> the session sat for 15 minutes at the end of every turn for a day. Ben's ruling: no parking at all.
 
 ## The envelope
 
@@ -312,8 +311,6 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
 - **Cursor** `~/.agents/notes/.cursor-<slug>` — what this pane has already been shown. `cold` inside it
   is the subset that was marked seen by the cold-start window WITHOUT being displayed, which is why
   those wake-ups are still typed.
-- **Listening marker** `~/.agents/notes/.listening-<slug>.json` — that session is parked in its Stop
-  hook until `until`, so the flusher leaves its pane alone.
 - **Bindings** `~/.agents/notes/panes.json` — `{"<handle>": {"slug","at","title"}}`, each written by the
   pane itself. A binding does not expire while its pane lives, so a REPURPOSED pane keeps answering to
   its old slug until it rebinds; `note-inbox --unbind` in that pane is the way out. A handle gone for
