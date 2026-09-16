@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { NoteError } from './envelope.mjs';
 import {
-  toPosix, outboxPath, readOutbox, writeOutboxEntry, flushLogPath, supersededIds, cursorPath, writeListening,
+  toPosix, outboxPath, readOutbox, writeOutboxEntry, flushLogPath, supersededIds, cursorPath,
   classifyPane, isSendable, hasShimmerLine,
   normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
   claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
@@ -171,56 +171,44 @@ test('a dead handle whose slug resolves nowhere reports no-pane, saying it fell 
   assert.equal(readOutbox(home)[0].attempts, 1, 'still just one more attempt, not a lost entry');
 });
 
-test('D5: a pane parked in its Stop hook is NOT typed at — the hook will deliver it', async () => {
-  const home = tmp();
-  queue(home);
-  // taxonomy is long-polling: it asked a peer something and is waiting for the answer. Typing the
-  // wake-up would put text in Ben's composer for a note the hook is about to pull in itself.
-  writeListening(home, 'taxonomy', {
-    pid: process.pid, host: os.hostname(), slug: 'taxonomy', until: NOW + 10 * 60_000, asks: ['taxonomy-x-1'],
-  });
-  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+/** A 0.4.0 marker: `until` well in the future, owned by a process that is demonstrably alive. */
+function staleMarker(home, slug = 'taxonomy') {
+  const file = path.join(home, '.agents/notes', `.listening-${slug}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    pid: process.pid, host: os.hostname(), slug, until: NOW + 10 * 60_000, asks: [],
+  }), 'utf8');
+  return file;
+}
 
-  assert.equal(res.results[0].outcome, 'listening');
-  assert.equal(orca.calls.length, 0, 'it never even asks orca for the pane list');
+test('2026-09-16: a 0.4.0 listening marker is swept, even when the outbox is empty', async () => {
+  const home = tmp();
+  const marker = staleMarker(home);
+
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+
   assert.equal(res.drained, 0);
-  assert.equal(res.remaining, 1, 'the wake-up is still queued, in case the wait times out');
-  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /listening \[astra-pr137-1\] -> taxonomy/);
+  assert.equal(fs.existsSync(marker), false, 'nothing writes these now, so every one left is garbage');
+  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /cleanup .*\.listening-taxonomy\.json/);
 });
 
-test('D5: a parked entry does not AGE — its attempts are untouched', async () => {
-  const home = tmp();
-  queue(home, { attempts: 3 });
-  writeListening(home, 'taxonomy', {
-    pid: process.pid, host: os.hostname(), slug: 'taxonomy', until: NOW + 10 * 60_000, asks: [],
-  });
-  await runNoteFlush([], { home, orca: mockOrca({ panes: [claudePane()] }), now: NOW });
-  const [entry] = readOutbox(home);
-  assert.equal(entry.attempts, 3, 'a 15-minute poll spans 15 drains; counting them would burn the budget');
-  assert.equal(entry.lastOutcome, undefined, 'and the entry is not rewritten at all');
-});
-
-test('D5: an EXPIRED marker is ignored and the wake-up is typed as usual', async () => {
+test('2026-09-16: a marker no longer stops the wake-up being typed', async () => {
   const home = tmp();
   queue(home);
-  writeListening(home, 'taxonomy', {
-    pid: process.pid, host: os.hostname(), slug: 'taxonomy', until: NOW - 1, asks: [],
-  });
+  const marker = staleMarker(home);
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+
   const res = await runNoteFlush([], { home, orca, now: NOW });
-  assert.equal(res.drained, 1);
+
+  assert.equal(res.drained, 1, 'the marker is swept on the way in, not obeyed');
+  assert.equal(fs.existsSync(marker), false);
 });
 
-test('D5: a marker left by a DEAD process on this host cannot silence a slug forever', async () => {
+test('2026-09-16: --dry-run reports on the outbox without deleting a marker', async () => {
   const home = tmp();
-  queue(home);
-  writeListening(home, 'taxonomy', {
-    pid: 999999, host: os.hostname(), slug: 'taxonomy', until: NOW + 10 * 60_000, asks: [],
-  });
-  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
-  assert.equal(res.drained, 1, 'pid 999999 is not running, so the marker is stale');
+  const marker = staleMarker(home);
+  await runNoteFlush(['--dry-run'], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.ok(fs.existsSync(marker), 'a dry run changes nothing on disk, this file included');
 });
 
 /** The recipient's own record of what note-inbox has already shown it. */

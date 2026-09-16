@@ -1,24 +1,22 @@
 // node --test "hooks/*.test.mjs"
-// The shared hook core: what a note looks like when it lands, and when a session is allowed to wait.
+// The shared hook core: what a note looks like when it lands, and why no event ever waits for a peer.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { toPosix } from '../skills/multi/scripts/transport.mjs';
 import {
-  toPosix, outstandingAsks, listeningPath, writeListening, readListening, removeListening, isListening,
-} from '../skills/multi/scripts/transport.mjs';
-import {
-  summarise, humanLine, humanSummary, contextOutput, blockOutput, longPoll, runHookEvent,
-  ledgerPulse, scannedDirs, longPollMaxMin, STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
+  summarise, humanLine, humanSummary, contextOutput, blockOutput, runHookEvent,
+  STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
+  CONTEXT_LIMIT, STOP_LIMIT, POST_TOOL_LIMIT,
 } from './multi-hook-core.mjs';
 import { codexSlug, runCodexHook } from './multi-codex-hook.mjs';
 
 function tmp() { return toPosix(fs.mkdtempSync(path.join(os.tmpdir(), 'hook-core-'))); }
 
 const NOW = Date.UTC(2026, 8, 14, 20, 10); // 16:10 NYC
-const HOUR = 3_600_000;
 
 const line = (from, to, id, kind, body, extra = '') =>
   `${from} → ${to}, 9.14.26 16:00 NYC [${id}] ${kind}: ${body}.${extra}`;
@@ -39,81 +37,6 @@ function mirror(home, lines, ymd = '2026-09-14') {
   fs.writeFileSync(file, [`# Peer-note ledger ${ymd}`, '', ...lines, ''].join('\n'), 'utf8');
   return toPosix(file);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// outstandingAsks — the only reason a session may wait
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('D2: my unanswered ASK is outstanding; my FYI and somebody else\'s ASK are not', () => {
-  const texts = [[
-    line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1', ' Needs: review by 17:00'),
-    line('taxonomy', 'astra', 'taxonomy-pr1-9', 'FYI', 'Just so you know'),
-    line('nucleus', 'astra', 'nucleus-pr1-1', 'ASK', 'Not mine', ' Needs: review by 17:00'),
-  ].join('\n')];
-  assert.deepEqual(outstandingAsks(texts, 'taxonomy', { now: NOW }).map((a) => a.id), ['taxonomy-pr1-1']);
-});
-
-test('D2: an ASK with Needs: none asks for nothing, so it is never outstanding', () => {
-  const texts = [line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'No reply needed', ' Needs: none')];
-  assert.deepEqual(outstandingAsks(texts, 'taxonomy', { now: NOW }), []);
-});
-
-test('D2: a RESULT or BLOCKED from the RECIPIENT closes it; a third party cannot', () => {
-  const ask = line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1', ' Needs: review by 17:00');
-  const byPeer = `astra → taxonomy, 9.14.26 16:05 NYC [astra-pr1-1 re taxonomy-pr1-1] RESULT: Two blockers.`;
-  const byOther = `nucleus → taxonomy, 9.14.26 16:05 NYC [nucleus-pr1-1 re taxonomy-pr1-1] RESULT: I looked instead.`;
-  assert.deepEqual(outstandingAsks([`${ask}\n${byPeer}`], 'taxonomy', { now: NOW }), []);
-  assert.deepEqual(outstandingAsks([`${ask}\n${byOther}`], 'taxonomy', { now: NOW }).map((a) => a.id), ['taxonomy-pr1-1']);
-  const blocked = `astra → taxonomy, 9.14.26 16:05 NYC [astra-pr1-2 re taxonomy-pr1-1] BLOCKED: No key on this box.`;
-  assert.deepEqual(outstandingAsks([`${ask}\n${blocked}`], 'taxonomy', { now: NOW }), []);
-});
-
-test('D2: an ACK closes a Needs: ack, but NOT a Needs: review — that one is still owed', () => {
-  const askAck = line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Confirm you got it', ' Needs: ack');
-  const askReview = line('taxonomy', 'astra', 'taxonomy-pr1-2', 'ASK', 'Review it', ' Needs: review by 17:00');
-  const ack1 = `astra → taxonomy, 9.14.26 16:05 NYC [astra-pr1-1 re taxonomy-pr1-1] ACK: Got it.`;
-  const ack2 = `astra → taxonomy, 9.14.26 16:05 NYC [astra-pr1-2 re taxonomy-pr1-2] ACK: Taking it, ETA 45 min.`;
-  const ids = outstandingAsks([`${askAck}\n${askReview}\n${ack1}\n${ack2}`], 'taxonomy', { now: NOW }).map((a) => a.id);
-  assert.deepEqual(ids, ['taxonomy-pr1-2'], 'an ACK to a review request is "taking it", not the review');
-});
-
-test('D2: an ASK older than the window is not worth waiting for', () => {
-  const texts = [line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Ancient', ' Needs: review by 17:00')];
-  assert.deepEqual(outstandingAsks(texts, 'taxonomy', { now: NOW + 25 * HOUR }), []);
-  assert.equal(outstandingAsks(texts, 'taxonomy', { now: NOW + 23 * HOUR }).length, 1);
-});
-
-test('MAJOR 2: an ASK to BEN never parks the session — he answers by typing, not by ledger line', () => {
-  const texts = [line('taxonomy', 'ben', 'taxonomy-decide-1', 'ASK', 'Which account should deploy this', ' Needs: decision by 17:00')];
-  assert.deepEqual(outstandingAsks(texts, 'taxonomy', { now: NOW }), [],
-    'otherwise every turn for a day ends in a 15-minute park that looks like a hang');
-});
-
-test('MINOR 1: a superseded ASK is not worth waiting for either', () => {
-  const ask = line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1', ' Needs: review by 17:00');
-  const sup = 'taxonomy → astra, 9.14.26 16:05 NYC [taxonomy-pr1-2 supersedes taxonomy-pr1-1] ASK: Scrap that, review PR 2. Needs: review by 17:00';
-  const ids = outstandingAsks([`${ask}
-${sup}`], 'taxonomy', { now: NOW }).map((a) => a.id);
-  assert.deepEqual(ids, ['taxonomy-pr1-2'], 'the replacement is outstanding; the one it replaced is not');
-});
-
-test('a line that is not an envelope is ignored, and the undated guard is there anyway', () => {
-  // The envelope grammar makes an unparseable DATE unreachable — a line with one fails the regex and is
-  // never an entry at all. The `at === null` guard in outstandingAsks is belt and braces for a future
-  // grammar, and this is the reachable half of it.
-  const notALine = 'taxonomy asked astra to review PR 1 at some point';
-  assert.deepEqual(outstandingAsks([notALine], 'taxonomy', { now: NOW }), []);
-});
-
-test('MINOR 11: the ask window honours the zone the ledger was written in', () => {
-  const texts = [line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review', ' Needs: review by 17:00')];
-  // 16:00 "NYC" read as UTC is four hours earlier, which is exactly the kind of drift that makes a
-  // 24-hour window fire an hour late.
-  const nyc = outstandingAsks(texts, 'taxonomy', { now: NOW, zone: 'America/New_York' });
-  const utc = outstandingAsks(texts, 'taxonomy', { now: NOW + 23 * HOUR + 59 * 60_000, zone: 'UTC' });
-  assert.equal(nyc.length, 1);
-  assert.equal(utc.length, 0, 'read as UTC the same line is already outside the window');
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // What Ben sees
@@ -164,99 +87,37 @@ test('summarise still carries the id, the packet state and the problems', () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The long poll
+// No parking (the 2026-09-16 ruling)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** An ASK of ours that nobody has answered — under 0.4.0 this alone parked the turn for 15 minutes. */
 const ASK = line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1', ' Needs: review by 17:00');
-const REPLY = 'astra → taxonomy, 9.14.26 16:08 NYC [astra-pr1-1 re taxonomy-pr1-1] RESULT: Two blockers.';
 
-test('D2: nothing outstanding means no wait and no marker — the common case is instant', async () => {
-  const home = tmp();
-  const file = mirror(home, [line('astra', 'taxonomy', 'astra-x-1', 'FYI', 'unrelated')]);
-  let called = 0;
-  const found = await longPoll(
-    { home, now: NOW, inbox: async () => { called += 1; return resultOf([]); }, sleep: async () => {}, listenSignals: false },
-    resultOf([], 'taxonomy', [file]),
-  );
-  assert.equal(found, null);
-  assert.equal(called, 0, 'it must not even read: there is nothing we are owed');
-  assert.equal(fs.existsSync(listeningPath(home, 'taxonomy')), false);
-});
-
-test('D2: with an ASK outstanding it parks, marks itself listening, and delivers the reply', async () => {
+test('Stop never waits, however much this session is owed', async () => {
   const home = tmp();
   const file = mirror(home, [ASK]);
-  const result = resultOf([], 'taxonomy', [file]);
+  let reads = 0;
+  const started = Date.now();
+  const out = await runHookEvent(stubCtx({
+    event: 'Stop',
+    home,
+    inbox: async () => { reads += 1; return resultOf([], 'taxonomy', [file]); },
+  }));
 
-  // The clock is ours, so the test does not depend on what the wall clock says relative to the
-  // fixture's timestamps.
-  let clockNow = NOW;
-  let markerDuringWait = null;
-  const sleep = async () => {
-    clockNow += 3_000;
-    // The peer answers while we are parked.
-    markerDuringWait = readListening(home, 'taxonomy');
-    fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}${REPLY}\n`, 'utf8');
-    const later = new Date(Date.now() + 5_000);
-    fs.utimesSync(file, later, later);
-  };
-  const found = await longPoll(
-    {
-      home, now: NOW, sleep, listenSignals: false, clock: () => clockNow,
-      inbox: async () => resultOf([REPLY], 'taxonomy', [file]),
-    },
-    result,
+  assert.equal(out, null, 'nothing is waiting for us, so there is nothing to say');
+  assert.equal(reads, 1, 'one read, not a poll');
+  assert.ok(Date.now() - started < 1_000, 'and it came back at once');
+  assert.deepEqual(
+    fs.readdirSync(path.join(home, '.agents/notes')).filter((n) => n.startsWith('.listening-')), [],
+    'and left no marker: nothing tells the flusher to stand aside any more',
   );
-
-  assert.equal(found.count, 1);
-  assert.equal(markerDuringWait.slug, 'taxonomy');
-  assert.deepEqual(markerDuringWait.asks, ['taxonomy-pr1-1']);
-  assert.ok(markerDuringWait.until > NOW);
-  assert.equal(fs.existsSync(listeningPath(home, 'taxonomy')), false, 'the marker is gone the moment we stop waiting');
 });
 
-test('D2: the marker is removed even when the wait times out', async () => {
-  const home = tmp();
-  const file = mirror(home, [ASK]);
-  let clockNow = NOW;
-  const found = await longPoll(
-    {
-      home, now: NOW, listenSignals: false,
-      clock: () => clockNow,
-      sleep: async () => { clockNow += 60_000; },
-      inbox: async () => { throw new Error('must not read: nothing changed on disk'); },
-    },
-    resultOf([], 'taxonomy', [file]),
-  );
-  assert.equal(found, null);
-  assert.equal(fs.existsSync(listeningPath(home, 'taxonomy')), false);
-});
-
-test('D2: MULTI_LONGPOLL_MAX_MIN=0 disables waiting entirely', async () => {
-  const home = tmp();
-  const file = mirror(home, [ASK]);
-  assert.equal(longPollMaxMin({ MULTI_LONGPOLL_MAX_MIN: '0' }), 0);
-  assert.equal(longPollMaxMin({}), 15);
-  assert.equal(longPollMaxMin({ MULTI_LONGPOLL_MAX_MIN: 'nonsense' }), 15);
-  const found = await longPoll(
-    { home, now: NOW, env: { MULTI_LONGPOLL_MAX_MIN: '0' }, listenSignals: false, sleep: async () => {}, inbox: async () => resultOf([REPLY]) },
-    resultOf([], 'taxonomy', [file]),
-  );
-  assert.equal(found, null);
-  assert.equal(fs.existsSync(listeningPath(home, 'taxonomy')), false);
-});
-
-test('the Stop handler timeout must cover the cap with room to finish', () => {
-  assert.equal(STOP_TIMEOUT_S, 1020);
-});
-
-test('ledgerPulse and scannedDirs look exactly where the inbox looked', () => {
-  const home = tmp();
-  const file = mirror(home, [ASK]);
-  const result = resultOf([], 'taxonomy', [file]);
-  assert.deepEqual(scannedDirs(result), [path.posix.dirname(toPosix(file))]);
-  assert.ok(ledgerPulse(scannedDirs(result)) > 0);
-  assert.equal(ledgerPulse(['/no/such/dir']), 0);
+test('the Stop timeout is a minute, and hooks.json says the same', () => {
+  assert.equal(STOP_TIMEOUT_S, 60);
+  // The constant and the config must never drift: 0.4.0's 1020 s outlived the poll it was sized for.
+  const json = JSON.parse(fs.readFileSync(new URL('./hooks.json', import.meta.url), 'utf8'));
+  assert.equal(json.hooks.Stop[0].hooks[0].timeout, STOP_TIMEOUT_S);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,8 +125,7 @@ test('ledgerPulse and scannedDirs look exactly where the inbox looked', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const stubCtx = (over = {}) => ({
-  home: over.home ?? tmp(), env: {}, now: NOW, listenSignals: false, sleep: async () => {},
-  input: {}, cwd: '/repo', ...over,
+  home: over.home ?? tmp(), env: {}, now: NOW, input: {}, cwd: '/repo', ...over,
 });
 
 test('UserPromptSubmit with notes returns additionalContext, with nothing returns silence', async () => {
@@ -310,42 +170,74 @@ test('Stop with notes blocks; a re-fire never reads and never blocks', async () 
   assert.equal(read, 0, 'a re-fire must not --ack notes the model is never shown');
 });
 
-test('Stop with nothing owed is silent and leaves no marker', async () => {
+test('Stop with nothing waiting is silent', async () => {
   const home = tmp();
   const file = mirror(home, [line('astra', 'taxonomy', 'astra-x-1', 'FYI', 'unrelated')]);
   const out = await runHookEvent(stubCtx({ event: 'Stop', home, inbox: async () => resultOf([], 'taxonomy', [file]) }));
   assert.equal(out, null);
-  assert.equal(fs.existsSync(listeningPath(home, 'taxonomy')), false);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The listening marker (D5's half of the contract)
+// Ack exactly what was rendered (review MINOR 4)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a marker is believed while it is fresh and its process is alive', () => {
-  const home = tmp();
-  writeListening(home, 'astra', { pid: process.pid, host: os.hostname(), until: NOW + HOUR, slug: 'astra', asks: [] });
-  assert.ok(isListening(home, 'astra', { now: NOW }));
-  assert.equal(isListening(home, 'astra', { now: NOW + 2 * HOUR }), null, 'expired');
+/** `n` unseen FYIs, in order, as the inbox would hand them over. */
+const backlog = (n, prefix) => Array.from({ length: n }, (_, i) =>
+  line('astra', 'taxonomy', `${prefix}-${i + 1}`, 'FYI', `note ${i + 1}`));
+
+/**
+ * An inbox with a real cursor: ids that have been acked stop coming back. This is what makes the
+ * "…and the seventh arrives next time" half of the test meaningful rather than assumed.
+ */
+function stubInbox(lines) {
+  const acked = new Set();
+  return async (argv) => {
+    const at = argv.indexOf('--ack-ids');
+    if (at !== -1) {
+      for (const id of String(argv[at + 1]).split(',')) acked.add(id);
+      return resultOf([]);
+    }
+    return resultOf(lines.filter((l) => !acked.has(noteOf(l).id)));
+  };
+}
+
+test('MINOR 4: Stop renders six of seven, acks those six, and the seventh arrives next time', async () => {
+  const lines = backlog(7, 'astra-x');
+  const ids = lines.map((l) => noteOf(l).id);
+  const inbox = stubInbox(lines);
+
+  const first = await runHookEvent(stubCtx({ event: 'Stop', inbox }));
+  const printed = ids.filter((id) => first.output.reason.includes(id));
+
+  assert.equal(printed.length, STOP_LIMIT, 'six lines printed');
+  assert.deepEqual(first.ackIds, ids.slice(0, STOP_LIMIT), 'and exactly those six acked');
+  assert.match(first.output.reason, /…and 1 more/, 'the model is told one is being held back');
+
+  // The adapter acks what it printed, then the next event runs. Before this fix the seventh was acked
+  // unprinted, the cursor moved past it, and `note-inbox --me <slug>` — the command the line above
+  // recommends — returned nothing at all.
+  await inbox(['--ack-ids', first.ackIds.join(',')]);
+  const second = await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox }));
+  assert.deepEqual(second.ackIds, [ids[6]], 'the seventh was never marked seen');
+  assert.match(second.output.hookSpecificOutput.additionalContext, new RegExp(ids[6]));
 });
 
-test('a marker from a DEAD process on this host is ignored, not obeyed forever', () => {
-  const home = tmp();
-  writeListening(home, 'astra', { pid: 999999, host: os.hostname(), until: NOW + HOUR, slug: 'astra', asks: [] });
-  assert.equal(isListening(home, 'astra', { now: NOW, alive: () => false }), null);
-  // …but a marker written on ANOTHER machine is trusted until it expires: its pids mean nothing here.
-  writeListening(home, 'nucleus', { pid: 999999, host: 'some-other-box', until: NOW + HOUR, slug: 'nucleus', asks: [] });
-  assert.ok(isListening(home, 'nucleus', { now: NOW, host: os.hostname(), alive: () => false }));
+test('MINOR 4: PostToolUse and UserPromptSubmit ack only what they print either', async () => {
+  const hot = backlog(POST_TOOL_LIMIT + 1, 'astra-y');
+  const post = await runHookEvent(stubCtx({ event: 'PostToolUse', inbox: stubInbox(hot) }));
+  assert.deepEqual(post.ackIds, hot.slice(0, POST_TOOL_LIMIT).map((l) => noteOf(l).id));
+
+  const many = backlog(CONTEXT_LIMIT + 1, 'astra-z');
+  const prompt = await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox: stubInbox(many) }));
+  assert.deepEqual(prompt.ackIds, many.slice(0, CONTEXT_LIMIT).map((l) => noteOf(l).id));
+  assert.equal(prompt.ackIds.length, CONTEXT_LIMIT, 'twelve, not thirteen');
 });
 
-test('removeListening is safe to call twice and readListening survives garbage', () => {
-  const home = tmp();
-  writeListening(home, 'astra', { until: NOW + HOUR });
-  assert.equal(removeListening(home, 'astra'), true);
-  assert.equal(readListening(home, 'astra'), null);
-  fs.mkdirSync(path.dirname(listeningPath(home, 'astra')), { recursive: true });
-  fs.writeFileSync(listeningPath(home, 'astra'), 'not json', 'utf8');
-  assert.equal(readListening(home, 'astra'), null);
+test('MINOR 4: a backlog inside the limit is still acked in full', async () => {
+  const lines = backlog(STOP_LIMIT, 'astra-w');
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: stubInbox(lines) }));
+  assert.deepEqual(res.ackIds, lines.map((l) => noteOf(l).id), 'nothing is held back when nothing was cut');
+  assert.doesNotMatch(res.output.reason, /…and \d+ more/);
 });
 
 test('MINOR 6: a control character in a body never reaches the line Ben sees', () => {
@@ -354,22 +246,6 @@ test('MINOR 6: a control character in a body never reaches the line Ben sees', (
   const out = humanLine(note);
   assert.ok(!out.includes(esc), 'an ANSI escape would garble the terminal it is printed into');
   assert.match(out, /hi \[2J there/, 'the escape becomes a space; the harmless text stays readable');
-});
-
-test('MINOR 7: a marker is only removed by the session that wrote it', () => {
-  const home = tmp();
-  const mine = { pid: 111, host: 'box-a' };
-  writeListening(home, 'astra', { ...mine, slug: 'astra', until: NOW + HOUR, asks: [] });
-  assert.equal(removeListening(home, 'astra', fs, { pid: 222, host: 'box-a' }), false, 'not mine');
-  assert.ok(readListening(home, 'astra'), 'so it is still there for whoever is parked');
-  assert.equal(removeListening(home, 'astra', fs, mine), true);
-  assert.equal(readListening(home, 'astra'), null);
-});
-
-test('MINOR 9: the poll watches the mirror even when the inbox scanned nothing', () => {
-  const home = tmp();
-  assert.deepEqual(scannedDirs({ scanned: [] }, home), [`${home}/.agents/notes`]);
-  assert.deepEqual(scannedDirs({ scanned: [] }), [], 'and without a home it is still just the scan');
 });
 
 test('MAJOR 4: writeJson resolves only once the stream has taken it', async () => {

@@ -5,6 +5,7 @@ Ben: "could we drop a short for-human summary into the context when the models p
 typing it into the prompt where I type? my prompts frequently collide with theirs." Ruling (Ben, multiple
 choice): **adaptive long-poll, cap 15 min** — an agent waits for a peer note after a turn ONLY while it has an
 ASK outstanding; otherwise it goes idle at once.
+**[SUPERSEDED 2026-09-16 — see "no parking" at the end of this file]** The waiting was removed two days later, in 0.4.1. Nothing waits for a peer now.
 
 ## Verified facts (2026-09-14, all live)
 Claude Code v2.1.271 (Netcup):
@@ -46,7 +47,8 @@ D1. **Shared hook core** `hooks/multi-hook-core.mjs` (ESM, imported by both adap
     loop guard) — move, don't duplicate. Every output that carries notes also carries
     `systemMessage: "📨 <from> → <to> <KIND>: <body ≤ 80 chars>"` (one line per note, max 3 lines, then
     "+N more in the ledger"). This is Ben's for-human line; it never goes into the composer.
-D2. **Long-poll in Stop** (both agents). If `outstandingAsks(slug)` is non-empty and `stop_hook_active` is
+D2. [SUPERSEDED 2026-09-16 — see "no parking" at the end of this file]
+    **Long-poll in Stop** (both agents). If `outstandingAsks(slug)` is non-empty and `stop_hook_active` is
     false: write `~/.agents/notes/.listening-<slug>.json` `{pid, handle?, until, asks:[ids]}`; poll every 3 s
     (stat the mirror ledger `~/.agents/notes/<today>.md` + the repo ledger dirs; no orca calls) until a note for
     this slug is unseen or `until` (now + `MULTI_LONGPOLL_MAX_MIN`, default 15, `0` disables) passes; remove
@@ -74,7 +76,8 @@ D4. **Installer** in `scripts/mirror-shared-skills.mjs` (runs on every `chezmoi 
     `scripts/codex-hook-trust.mjs` with a fixture test whose expected value is taken from a REAL
     `currentHash` (the integrator captures one on Netcup via the app-server `hooks/list`, or from a config.toml
     the TUI trusted on Linux). Idempotent: no rewrite when content is unchanged. Never delete anything.
-D5. **Flusher becomes last resort**: `note-flush` skips typing to a slug whose `.listening-<slug>.json` is fresh
+D5. [SUPERSEDED 2026-09-16 — see "no parking" at the end of this file]
+    **Flusher becomes last resort**: `note-flush` skips typing to a slug whose `.listening-<slug>.json` is fresh
     (`until` in the future and pid alive when local) — the hook will deliver; log `listening [<id>] -> <slug>`.
     Everything else unchanged (claims, retire-on-read, bindings).
 D6. **Claude adapter** `hooks/multi-inbox.js` → thin wrapper over the core (keep the file name; hooks.json
@@ -129,3 +132,45 @@ that dumps `pwd`, `env` and stdin to a file, wired for SessionStart/UserPromptSu
 Rules: configured git identity only; conventional commits; LF; `String.replace` with a function replacement
 whenever the text comes from data; ESM main guards via realpath; never type into a pane you have not read;
 never edit a live managed Codex home by hand (the installer does it, idempotently, and never deletes). No push.
+
+## 2026-09-16 ruling: no parking
+
+**D2 and D5 are reverted. Nothing waits.** Shipped as 0.4.1.
+
+### What happened
+
+The `infra` session sent an ASK. The peer ACKed it, and later sent its RESULT — but under a NEW id
+rather than ` re <ask-id>`, so nothing in the ledger ever closed the ask. `outstandingAsks` therefore
+kept returning it for the full 24-hour window, and D2's Stop hook did exactly what it was designed to
+do: park for 15 minutes at the end of EVERY turn, for a day. Including the turns Ben was driving, where
+it reads as the agent hanging on him.
+
+### Why the fix is not a better close rule
+
+Tightening the close detection (accept any later line from the recipient, shorten the window, cap the
+parks per hour) would have made this instance rarer without changing the shape of the failure: a Stop
+hook that CAN wait minutes will eventually wait minutes for the wrong reason, and the cost lands on the
+human watching the pane, who has no way to tell a park from a hang. The waiting also bought very little.
+Notes already reach a working session through UserPromptSubmit and PostToolUse, and an idle pane is
+nudged by the flusher within a minute — the poll only shortened the gap between "the peer answered" and
+"the session noticed" in the one case where the session was about to go idle anyway.
+
+### What changed
+
+- **Stop surfaces what is already in the ledger and exits.** It keeps emit-first-then-ack and the
+  `stop_hook_active` guard. Nothing else about hook delivery changes.
+- **Removed**: the poll loop and its ledger-mtime pulse, `MULTI_LONGPOLL_MAX_MIN`, the
+  `.listening-<slug>.json` marker with everything that wrote or read it, and `outstandingAsks` in
+  `transport.mjs`, which had no other caller. Their tests went with them.
+- **Stop timeout is 60 s again**, in `hooks/hooks.json` and in the Codex installer's template. The
+  timeout is part of the Codex trust hash, so the installer also hands `pruneOurHooksState` the hashes
+  earlier versions wrote — otherwise a 0.4.0 entry at an index our handler has since vacated is never
+  recognised as ours and stays in `config.toml` for good.
+- **note-flush deletes every `.listening-*.json` it finds**, on every run, logging `cleanup <file>`.
+  A marker from a 0.4.0 hook that was killed before cleaning up would otherwise silence that slug's
+  wake-ups until its `until` passed.
+
+### The rule that replaces D2
+
+Hooks deliver during your turns; when you are idle the flusher nudges you within a minute. No session
+ever waits for a peer — not in a hook, not in a turn.

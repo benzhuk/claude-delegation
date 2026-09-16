@@ -18,9 +18,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import {
-  NoteError, SLUG_RE, validateSlug, parseEnvelope, envelopeInstant, DEFAULT_ZONE, RESERVED_RECIPIENT,
-} from './envelope.mjs';
+import { NoteError, SLUG_RE, validateSlug } from './envelope.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -1061,137 +1059,8 @@ export function appendFlushLog(home, text, fsImpl = fs) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Outstanding asks, and the long-poll marker (spec 2026-09-14 hooks, D2)
+// Superseded ids
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** How far back an unanswered ASK still counts as outstanding. */
-export const ASK_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Every line in `texts`, parsed, in order. A ledger corpus is a handful of small files; parsing it is
- * cheaper than the stat that decided to call us.
- */
-function parseCorpus(texts) {
-  const out = [];
-  for (const text of texts) {
-    for (const raw of String(text ?? '').split('\n')) {
-      const g = parseEnvelope(raw.trimEnd());
-      if (g) out.push(g);
-    }
-  }
-  return out;
-}
-
-/**
- * The ASKs I have sent that nobody has answered — the ONLY reason a session is allowed to wait after a
- * turn (Ben's ruling: adaptive long-poll, and only while something is outstanding).
- *
- * Mine, in the last 24 h, that asked for something (`Needs:` other than `none`), minus the ones the
- * RECIPIENT has since replied to: a later line naming the ask in ` re <id>` whose kind is RESULT or
- * BLOCKED — or ACK, but only when the ask asked for exactly that. An ACK to a `Needs: review` is "I am
- * taking it", not the review, so that ask is still outstanding and the session may keep waiting.
- *
- * @returns {{id: string, to: string, needs: string}[]}
- */
-export function outstandingAsks(texts, slug, { now = Date.now(), zone = DEFAULT_ZONE, windowMs = ASK_WINDOW_MS } = {}) {
-  const entries = parseCorpus(texts);
-  const me = String(slug ?? '').toLowerCase();
-  if (!me) return [];
-
-  const answered = new Set();
-  for (const e of entries) {
-    if (!e.re) continue;
-    const parent = entries.find((p) => p.id === e.re);
-    if (!parent || String(parent.from).toLowerCase() !== me) continue;
-    // Only the pane the ask was addressed to can close it. A third session saying RESULT about it does
-    // not mean the recipient has answered.
-    if (String(e.from).toLowerCase() !== String(parent.to).toLowerCase()) continue;
-    if (e.kind === 'RESULT' || e.kind === 'BLOCKED' || (e.kind === 'ACK' && parent.needs === 'ack')) {
-      answered.add(e.re);
-    }
-  }
-
-  // A later `supersedes` retires an ask exactly as it retires its wake-up: the question was replaced,
-  // so waiting for an answer to the old one would park the session on something nobody will answer.
-  const retired = supersededIds(texts);
-
-  const seen = new Set();
-  const out = [];
-  for (const e of entries) {
-    if (e.kind !== 'ASK' || String(e.from).toLowerCase() !== me) continue;
-    if (!e.needs || e.needs === 'none') continue;
-    // BEN IS NOT A PANE. He reads ben-inbox.md and answers by typing, so no RESULT line ever appears
-    // for an ask addressed to him — and without this, one `--to ben` ASK parks the session for the full
-    // 15 minutes at the end of EVERY turn for a day, which to Ben looks like the agent hanging on him
-    // (review MAJOR 2).
-    if (String(e.to).toLowerCase() === RESERVED_RECIPIENT) continue;
-    if (answered.has(e.id) || retired.has(e.id) || seen.has(e.id)) continue;
-    const at = envelopeInstant(e, zone);
-    // A line whose date will not parse has no age, so it can never leave the window: treat it as too
-    // old to wait for rather than as outstanding forever.
-    if (at === null || now - at > windowMs) continue;
-    seen.add(e.id);
-    out.push({ id: e.id, to: e.to, needs: e.needs });
-  }
-  return out;
-}
-
-/**
- * `~/.agents/notes/.listening-<slug>.json` — "this pane is parked in a Stop hook waiting for a reply".
- * The flusher reads it and does NOT type at that pane (D5): the hook will deliver the note into the
- * context itself, which is the whole point of the exercise — no text in Ben's composer.
- */
-export function listeningPath(home, slug) { return toPosix(path.posix.join(notesDir(home), `.listening-${slug}.json`)); }
-
-export function writeListening(home, slug, marker, fsImpl = fs) {
-  const file = listeningPath(home, slug);
-  try {
-    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-    fsImpl.writeFileSync(file, `${JSON.stringify(marker, null, 0)}\n`, 'utf8');
-    return file;
-  } catch {
-    return null; // a marker we cannot write costs us a typed wake-up, never the note
-  }
-}
-
-export function readListening(home, slug, fsImpl = fs) {
-  try {
-    const m = JSON.parse(readIfExists(listeningPath(home, slug), fsImpl) || 'null');
-    return m && typeof m === 'object' ? m : null;
-  } catch { return null; }
-}
-
-/**
- * Remove the marker — but only if it is OURS. Two sessions can share a slug (a Claude pane and a Codex
- * pane both bound to it, or a pane that restarted), and whichever finished first used to delete the
- * survivor's marker, putting the flusher back to typing at a pane that is still parked (review MINOR 7).
- * Called with no owner it removes unconditionally, which is what a repair or a test wants.
- */
-export function removeListening(home, slug, fsImpl = fs, owner = null) {
-  if (owner) {
-    const marker = readListening(home, slug, fsImpl);
-    if (marker && (marker.pid !== owner.pid || marker.host !== owner.host)) return false;
-  }
-  try { fsImpl.rmSync(listeningPath(home, slug), { force: true }); return true; } catch { return false; }
-}
-
-/**
- * Is somebody listening for this slug RIGHT NOW? Expired markers do not count, and neither does one left
- * behind by a process that has died — a stale marker would silence the flusher for that slug forever.
- * The pid is only checked when the marker was written on this host; a marker from another machine is
- * trusted until it expires, because its pids mean nothing here.
- */
-export function isListening(home, slug, { fsImpl = fs, now = Date.now(), host = os.hostname(), alive = defaultAlive } = {}) {
-  const marker = readListening(home, slug, fsImpl);
-  if (!marker) return null;
-  if (!(Number(marker.until) > now)) return null;
-  if (marker.host && marker.host === host && marker.pid && !alive(Number(marker.pid))) return null;
-  return marker;
-}
-
-function defaultAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (err) { return err?.code === 'EPERM'; }
-}
 
 /** Ids retired by a later `supersedes` anywhere in the ledgers we can see (spec V5). */
 export function supersededIds(texts) {

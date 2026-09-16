@@ -6,9 +6,9 @@
 // a time inside.
 //
 //   UserPromptSubmit  → additionalContext with the new notes, then ack (cursor advances).
-//   Stop              → block the stop with the notes as the reason; if there is nothing but this
-//                       session has an ASK outstanding, park in the long poll (core, D2). Honours
-//                       stop_hook_active, so it can never loop.
+//   Stop              → block the stop with the notes as the reason. Nothing waiting means exit 0 at
+//                       once — it never waits for a peer (2026-09-16 ruling). Honours stop_hook_active,
+//                       so it can never loop.
 //   PostToolUse       → additionalContext for notes that arrived mid-turn, behind an mtime gate.
 //
 // EVERY decision about what a note looks like lives in `multi-hook-core.mjs`, shared with Codex. What is
@@ -19,7 +19,7 @@
 //   1. NEVER THROW. A hook that fails is Ben's session broken. Every path is wrapped; the fallback is
 //      always "print nothing, exit 0".
 //   2. SILENT WHEN THERE IS NOTHING.
-//   3. FAST — except the Stop long-poll, where waiting IS the feature and the handler timeout allows it.
+//   3. FAST. No event waits for a peer; the ceiling on Stop is one inbox read.
 //   4. NEVER GUESS THE SLUG.
 
 const fs = require("fs");
@@ -27,7 +27,7 @@ const path = require("path");
 const os = require("os");
 const { pathToFileURL } = require("url");
 
-/** Hard ceiling on the cheap events. Stop is exempt: the long poll is allowed to wait (core D2). */
+/** Hard ceiling on the cheap events. Stop is bounded by its handler timeout instead — see below. */
 const BUDGET_MS = 2500;
 /** PostToolUse runs on every tool call; it gets a much tighter budget and no git/orca. */
 const POST_TOOL_BUDGET_MS = 700;
@@ -207,8 +207,9 @@ Peer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <y
     }
   })();
 
-  // Stop may park for up to MULTI_LONGPOLL_MAX_MIN minutes by design, so it is NOT raced against a
-  // timer here; its ceiling is the handler `timeout` in hooks.json (1020 s).
+  // Stop is not raced against a timer: it is one inbox read, and losing that race would drop a
+  // delivery the model was about to be blocked on. Its ceiling is the handler `timeout` in hooks.json,
+  // now 60 s — it no longer parks (2026-09-16 ruling).
   if (event === "Stop") {
     await work;
   } else {
