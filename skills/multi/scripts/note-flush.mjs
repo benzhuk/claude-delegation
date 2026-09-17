@@ -116,7 +116,12 @@ export function cleanupListeningMarkers(home, { fsImpl = fs, dryRun = false } = 
   return removed;
 }
 
-const STRING_FLAGS = new Set(['to', 'max-ms', 'max-attempts', 'max-age-hours', 'per-entry-ms', 'phase2-reserve-ms', 'orca', 'home']);
+const STRING_FLAGS = new Set([
+  'to', 'max-ms', 'max-attempts', 'max-age-hours', 'per-entry-ms', 'phase2-reserve-ms', 'orca', 'home',
+  // `--codex` is to the Codex queue client what `--orca` is to the pane path: the way to name the
+  // binary when a non-login shell's PATH cannot find it. $CODEX_CLI does the same thing.
+  'codex',
+]);
 const BOOL_FLAGS = new Set(['json', 'dry-run', 'help']);
 
 export function parseFlushArgs(argv) {
@@ -582,7 +587,7 @@ export async function drainQuietly(deps = {}, opts = {}) {
 const USAGE = `note-flush — deliver the wake-ups note-send deferred, and forget the ones that no longer matter.
 
   note-flush [--to <slug>] [--json] [--max-ms 100000] [--max-attempts 20] [--max-age-hours 48]
-             [--orca <cmd>] [--dry-run]
+             [--codex <cmd>] [--orca <cmd>] [--dry-run]
 
 Delivery goes to the recipient's OWN INBOX — a Claude session's socket, a Codex session's queue — which
 its own hook registered in ~/.agents/notes/inboxes.json. Nothing is typed into anybody's composer.

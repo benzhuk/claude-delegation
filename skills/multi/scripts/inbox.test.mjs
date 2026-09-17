@@ -697,3 +697,22 @@ test('D3: --no-type still records and queues without delivering anything', async
   assert.equal(res.queued, true);
   assert.equal(res.delivered, false);
 });
+
+test('D3: --codex names the binary when a non-login PATH cannot find it (as --orca does for panes)', async () => {
+  const home = tmp();
+  queued(home, { to: 'astra', toSlug: 'astra' });
+  writeInbox(home, 'astra', codexRecord(), { now: NOW });
+  const seen = [];
+  const res = await runNoteFlush(['--codex', '/custom/bin/codex'], {
+    home, now: NOW, env: {}, orca: forbiddenOrca(),
+    deliverToInbox: async (h, slug, envelope, record, opts) => {
+      seen.push(opts.codex);
+      return deliverToInbox(h, slug, envelope, record, {
+        ...opts, existsSync: () => false,
+        execFile: async (exe) => { seen.push(exe); return { stdout: 'Queued message x for thread y.' }; },
+      });
+    },
+  });
+  assert.equal(res.drained, 1);
+  assert.deepEqual(seen, ['/custom/bin/codex', '/custom/bin/codex']);
+});
