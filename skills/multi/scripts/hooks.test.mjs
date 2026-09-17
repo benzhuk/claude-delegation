@@ -50,7 +50,13 @@ function runHook(event, home, input = {}, extraEnv = {}) {
     encoding: 'utf8',
     env: {
       ...process.env, HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_ROOT: REPO,
-      NOTE_SLUG: 'taxonomy', ORCA_TERMINAL_HANDLE: '', ...extraEnv,
+      NOTE_SLUG: 'taxonomy', ORCA_TERMINAL_HANDLE: '',
+      // Sealed, not inherited: the session RUNNING this suite has its own messaging socket and its own
+      // token in the environment, and a child that inherited them would register the real session under
+      // a fixture slug and write a real token into a temp directory (caught on 2026-09-17 by the test
+      // below, which expected nothing and found this session's inbox).
+      CLAUDE_CODE_MESSAGING_SOCKET: '', CLAUDE_CODE_MESSAGING_TOKEN: '',
+      ...extraEnv,
     },
   });
   return stdout.trim() ? JSON.parse(stdout) : null;
@@ -274,4 +280,68 @@ test('H4: PostToolUse never pays for orca at all, wedged or not', () => {
   // No cached slug, so there is nothing to do — and it must reach that conclusion without an orca call.
   assert.ok(Date.now() - started < 2000);
   assert.equal(stdout.trim(), '');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D2 (spec 2026-09-17) — the hook registers this session's inbox, so nobody has to type
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SOCKET = '/tmp/cc-socks/4242.sock';
+const TOKEN = 'tok3n-that-must-never-be-printed';
+const messagingEnv = (over = {}) => ({
+  CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN, ...over,
+});
+
+function inboxes(home) {
+  const file = path.join(home, '.agents/notes/inboxes.json');
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).inboxes : null;
+}
+
+test('D2: a session with a messaging socket registers its inbox, and prints no token', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  const out = runHook('UserPromptSubmit', home, {}, messagingEnv());
+  const reg = inboxes(home);
+  assert.equal(reg.taxonomy.kind, 'claude-socket');
+  assert.equal(reg.taxonomy.socket, SOCKET);
+  assert.equal(reg.taxonomy.token, TOKEN, 'the token is in THIS FILE and nowhere else');
+  assert.ok(reg.taxonomy.pid > 0, "the Claude process, for a human reading the file");
+  assert.equal(JSON.stringify(out).includes(TOKEN), false, 'never on stdout, where the model would read it');
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(path.join(home, '.agents/notes/inboxes.json')).mode & 0o777, 0o600);
+  }
+});
+
+test('D2: a session with NOTHING waiting still registers — being reachable is the point', () => {
+  const home = tmp();
+  assert.equal(runHook('UserPromptSubmit', home, {}, messagingEnv()), null, 'silent, as always');
+  assert.equal(inboxes(home).taxonomy.socket, SOCKET);
+});
+
+test('D2: Stop registers too, and a session without the env vars registers nothing', () => {
+  const home = tmp();
+  runHook('Stop', home, {}, messagingEnv());
+  assert.equal(inboxes(home).taxonomy.socket, SOCKET);
+  const bare = tmp();
+  runHook('UserPromptSubmit', bare, {}, {});
+  assert.equal(inboxes(bare), null, 'no socket in the environment, nothing to register');
+});
+
+test('D2: a GUESSED slug never registers — that would send another session its notes', () => {
+  const home = tmp();
+  mirror(home, [note('astra-pr137-1')]);
+  const cache = path.join(home, '.agents/notes/.pane-slug.json');
+  fs.mkdirSync(path.dirname(cache), { recursive: true });
+  fs.writeFileSync(cache, JSON.stringify({ term_abc: { slug: 'taxonomy', at: Date.now() } }));
+  const guessing = messagingEnv({ NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: 'term_abc' });
+  runHook('PostToolUse', home, {}, guessing);
+  assert.equal(inboxes(home), null, 'a title-derived slug is not this session stating its identity');
+
+  // A BINDING is that statement, written down — so it does register.
+  fs.writeFileSync(
+    path.join(home, '.agents/notes/panes.json'),
+    JSON.stringify({ term_abc: { slug: 'taxonomy', at: Date.now() } }),
+  );
+  runHook('UserPromptSubmit', home, {}, guessing);
+  assert.equal(inboxes(home).taxonomy.socket, SOCKET);
 });

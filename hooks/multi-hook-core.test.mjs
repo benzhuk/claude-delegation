@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { toPosix } from '../skills/multi/scripts/transport.mjs';
+import { toPosix, readInboxes } from '../skills/multi/scripts/transport.mjs';
 import {
   summarise, humanLine, humanSummary, contextOutput, blockOutput, runHookEvent,
   STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
@@ -342,4 +342,51 @@ test('D3: an unknown event is silence, not a crash', async () => {
     { home, env: { NOTE_SLUG: 'astra' }, inbox: async () => resultOf([]) },
   );
   assert.equal(out, null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D2 (spec 2026-09-17) — the Codex adapter registers its queue as this slug's inbox
+// ─────────────────────────────────────────────────────────────────────────────
+
+const THREAD = '01a0b193-d533-7360-be08-b82b41f19b3d';
+
+test('D2: the payload session_id becomes the thread id the queue is addressed by', async () => {
+  const home = tmp();
+  await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', cwd: '/repo', session_id: THREAD },
+    { home, env: { NOTE_SLUG: 'astra', CODEX_HOME: '/orca/home-a' }, inbox: async () => resultOf([]), now: NOW },
+  );
+  const reg = readInboxes(home);
+  assert.deepEqual(reg.astra, {
+    kind: 'codex-queue', at: NOW, pid: reg.astra.pid, cwd: '/repo',
+    codexHome: '/orca/home-a', threadId: THREAD,
+  });
+});
+
+test('D2: no CODEX_HOME in the environment falls back to ~/.codex, as codex itself does', async () => {
+  const home = tmp();
+  await runCodexHook(
+    { hook_event_name: 'Stop', cwd: '/repo', session_id: THREAD },
+    { home, env: { NOTE_SLUG: 'astra' }, inbox: async () => resultOf([]), now: NOW },
+  );
+  assert.equal(readInboxes(home).astra.codexHome, `${home}/.codex`);
+});
+
+test('D2: a payload with no session_id registers nothing, and the hook still works', async () => {
+  const home = tmp();
+  const out = await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', cwd: '/repo' },
+    { home, env: { NOTE_SLUG: 'astra' }, inbox: async () => resultOf([line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1')], 'astra'), now: NOW },
+  );
+  assert.deepEqual(readInboxes(home), {}, 'no thread id, nothing to deliver to');
+  assert.ok(out.output.hookSpecificOutput.additionalContext.includes('taxonomy-pr1-1'), 'and the note still lands');
+});
+
+test('D2: a session with no identity registers nothing — a guess would divert other notes', async () => {
+  const home = tmp();
+  await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', cwd: '/repo', session_id: THREAD },
+    { home, env: {}, inbox: async () => resultOf([]), now: NOW },
+  );
+  assert.deepEqual(readInboxes(home), {});
 });

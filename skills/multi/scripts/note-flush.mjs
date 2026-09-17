@@ -1,10 +1,26 @@
 #!/usr/bin/env node
-// note-flush — drain the outbox of deferred wake-ups (spec V5).
+// note-flush — drain the outbox of deferred wake-ups (spec V5; inbox delivery 2026-09-17).
 //
-// note-send writes the envelope to the ledger BEFORE it tries to type, so a deferral loses nothing:
-// the note is already where the recipient reads. What is left over is the WAKE-UP — the typed nudge
-// that would have made the peer look sooner. Those live in `~/.agents/notes/outbox/<id>.json`, and
-// this drains them whenever a pane might be idle:
+// DELIVERY ORDER, since 0.5.0 (spec 2026-09-17 D3). A wake-up goes to the recipient's own INBOX, never
+// to its keyboard:
+//   1. an inbox registered for that slug on THIS machine (`~/.agents/notes/inboxes.json`) → post there.
+//      Claude Code: its per-session socket. Codex: its on-disk queue. Neither touches the composer.
+//   2. nothing registered → the entry stays queued and one `no-inbox` line goes to flush.log. The
+//      ledger already holds the note and the recipient's own hooks read it on its next event, so this
+//      is a missing NUDGE, not a missing note — and it is not counted as a delivery attempt, because
+//      nothing was attempted.
+//   3. typing survives only as an explicit last resort: `MULTI_ALLOW_TYPING=1`, AND no inbox
+//      registered, AND the composer pre-check passes. Default: no typing, ever. `~/.agents/notes/
+//      no-type` remains a hard off switch on top of that.
+//
+// Why: on 2026-09-17 the typed path put a peer note into the middle of a sentence Ben was writing and
+// submitted it. `classifyPane` cannot see whether the input box is EMPTY, so a half-typed human prompt
+// looks exactly like an idle agent. An inbox has no such failure mode — it is not a keyboard.
+//
+// note-send writes the envelope to the ledger BEFORE it tries to deliver, so a deferral loses nothing:
+// the note is already where the recipient reads. What is left over is the WAKE-UP — the nudge that
+// makes the peer look sooner. Those live in `~/.agents/notes/outbox/<id>.json`, and this drains them
+// whenever a recipient might be reachable:
 //
 //   · at the start of every note-send (piggyback, ~3 s budget)
 //   · from note-notify when a Codex turn ends (the moment a Codex pane is provably idle)
@@ -24,6 +40,10 @@
 //     writes one, and any left on disk are swept on the way in (cleanupListeningMarkers).
 //   · Never types into a pane that is not sendable for its vendor (Claude: idle or working; Codex:
 //     idle only — it does not queue typed input mid-turn).
+//   · Everything below about typing is now the LAST RESORT path described above, reachable only with
+//     MULTI_ALLOW_TYPING=1. It is kept, and kept tested, because a machine whose sessions predate the
+//     registering hooks has nothing else; a later version deletes it once inbox delivery has run for a
+//     while (spec D6).
 //   · Two-phase typing, exactly as note-send does it, through the same shared code. It NEVER starts
 //     typing unless enough budget remains to press Enter afterwards: an envelope stranded in a peer's
 //     composer is how a stack of stale notes arrives at once (incident 2026-09-14).
@@ -42,7 +62,10 @@ import {
   claimOutboxEntry, releaseClaim, reclaimStaleClaims, withDeadline,
   killOutboxEntry, deadOutboxPath, benInboxPath,
   readBindings, pruneBindings, BINDING_GC_MS, readCursor,
+  readInboxes, pruneInboxes, INBOX_GC_MS,
 } from './transport.mjs';
+import { deliverToSlug as postToClaude, DEFAULT_POST_TIMEOUT_MS } from './inbox-claude.mjs';
+import { deliverToSlug as queueToCodex, DEFAULT_QUEUE_TIMEOUT_MS } from './inbox-codex.mjs';
 
 /**
  * The standalone drain runs from a 1-minute timer, so it can afford to be patient — and it has to be:
@@ -150,8 +173,28 @@ export function appendBlockedToBen(home, entry, attempts, fsImpl = fs) {
 }
 
 /**
+ * One inbox delivery, dispatched on the registration's KIND, with the per-entry budget as the ceiling.
+ *
+ * The two clients have very different natural timeouts — a socket write is milliseconds, `codex queue`
+ * spins up an app-server and opens SQLite — so each gets its own default, clamped by whatever the drain
+ * has left. Never throws: both clients resolve with a verdict, and the verdict is token-free.
+ *
+ * @returns {Promise<{ok: boolean, delivered: boolean, reason: string, detail?: string}>}
+ */
+export async function deliverToInbox(home, slug, envelope, record, opts = {}) {
+  const budgetMs = Number(opts.budgetMs);
+  const cap = (fallback, floor) => (Number.isFinite(budgetMs) ? Math.max(floor, Math.min(fallback, budgetMs)) : fallback);
+  // `opts` is passed through whole rather than cherry-picked: `fsImpl`, `env`, `inboxes` and `codex`
+  // all matter to one client or the other, and the only thing this function decides is the ceiling.
+  if (record.kind === 'claude-socket') {
+    return postToClaude(home, slug, envelope, { ...opts, timeoutMs: cap(DEFAULT_POST_TIMEOUT_MS, 250) });
+  }
+  return queueToCodex(home, slug, envelope, { ...opts, timeoutMs: cap(DEFAULT_QUEUE_TIMEOUT_MS, 1_000) });
+}
+
+/**
  * @param {string[]} argv
- * @param {object} deps - { fsImpl, home, env, orca, now } — all injectable for tests.
+ * @param {object} deps - { fsImpl, home, env, orca, now, inboxes, deliverToInbox } — injectable for tests.
  */
 export async function runNoteFlush(argv, deps = {}) {
   const args = parseFlushArgs(argv);
@@ -275,15 +318,108 @@ export async function runNoteFlush(argv, deps = {}) {
     };
   }
 
-  // ── The typing pass. One `terminal list` for the whole drain.
+  let drained = 0;
+  let attempted = 0;
+  let remaining = 0;
+
+  // ── The inbox pass (D3(1)). No orca, no pane, no keystroke: every recipient that has registered an
+  //    inbox on this machine gets the envelope posted into it. Everything the composer path needed —
+  //    `terminal list`, the classification, two-phase typing — is skipped entirely for those entries,
+  //    which is why the common drain now spends no orca calls at all.
+  if (!dryRun) {
+    for (const gone of pruneInboxes(home, { fsImpl, now })) {
+      appendFlushLog(
+        home,
+        `${stamp} gc-inbox ${gone.slug} ${gone.kind} — registered ${Math.round(gone.ageMs / 3_600_000)}h ago `
+        + `(> ${Math.round(INBOX_GC_MS / 3_600_000)}h); registration dropped`,
+        fsImpl,
+      );
+    }
+  }
+  const inboxes = deps.inboxes ?? readInboxes(home, fsImpl);
+  const deliverInbox = deps.deliverToInbox ?? deliverToInbox;
+  /** D3(3): typing is off unless this machine asks for it explicitly. */
+  const allowTyping = String(env.MULTI_ALLOW_TYPING ?? '') === '1';
+  const needTyping = [];
+
+  for (const entry of live) {
+    const slug = entry.toSlug ?? entry.to;
+    const record = inboxes[slug];
+    if (!record) { needTyping.push(entry); continue; }
+
+    const budget = deadline - clock();
+    if (budget <= 0) { remaining += 1; continue; }
+
+    // Claimed for the same reason the typed path claims: two drainers must not both deliver one
+    // wake-up. A duplicate post is a duplicate TURN in the recipient's session.
+    const claim = claimOutboxEntry(home, entry.id, fsImpl);
+    if (!claim) {
+      results.push({ id: entry.id, to: slug, outcome: 'claimed-elsewhere' });
+      continue;
+    }
+    attempted += 1;
+
+    let verdict;
+    try {
+      verdict = await deliverInbox(home, slug, entry.envelope, record, {
+        fsImpl, env, inboxes, codex: args.codex, budgetMs: Math.min(budget, perEntryMs),
+      });
+    } catch (err) {
+      // Defensive: both clients resolve rather than reject, so this is a bug-catcher, not a path.
+      verdict = { ok: false, delivered: false, reason: 'inbox-error', detail: err?.message ?? String(err) };
+    }
+
+    const outcome = verdict.delivered ? 'delivered' : String(verdict.reason ?? 'inbox-error');
+    // The detail names the TRANSPORT, never the registration: a record carries a token and must never
+    // reach a log line, a result or an error (the secret rule, spec D1).
+    const detail = verdict.delivered
+      ? `inbox (${record.kind})`
+      : `inbox (${record.kind}): ${String(verdict.detail ?? verdict.reason ?? 'not delivered').split('\n')[0]}`;
+
+    if (verdict.delivered) {
+      drained += 1;
+      releaseClaim(claim, fsImpl); // the claim IS the entry now; dropping it retires the wake-up
+    } else {
+      remaining += 1;
+      writeOutboxEntry(home, {
+        ...entry, attempts: Number(entry.attempts ?? 0) + 1,
+        lastAttemptAt: new Date(now).toISOString(), lastOutcome: outcome, lastError: detail,
+      }, fsImpl);
+      releaseClaim(claim, fsImpl);
+    }
+    results.push({ id: entry.id, to: slug, outcome, detail, log: log(outcome, entry, detail) });
+  }
+
+  // ── D3(2): nothing registered, and typing is not allowed. The entry stays queued and says so once.
+  //    NOT counted as an attempt: nothing was tried, so it must never walk an entry toward `gave-up`
+  //    and a BLOCKED line in the one file Ben reads. It ages out at --max-age-hours like anything else.
+  if (!allowTyping) {
+    for (const entry of needTyping) {
+      remaining += 1;
+      results.push({
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-inbox',
+        detail: 'no inbox registered on this machine; the ledger has the note and its own hooks will read it',
+        log: log('no-inbox', entry, 'no inbox registered on this machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)'),
+      });
+    }
+    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+  }
+
+  // ── The typing pass: the last resort, MULTI_ALLOW_TYPING=1 only. One `terminal list` for the rest.
+  if (needTyping.length === 0) {
+    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+  }
   let orca;
   let terminals;
   try {
     orca = deps.orca ?? makeOrcaRunner(args.orca, env);
     terminals = (await orca(['terminal', 'list', '--json']))?.terminals ?? [];
   } catch (err) {
-    for (const entry of live) results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-orca', log: log('no-orca', entry, err?.message ?? String(err)) });
-    return { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length, results, home, dryRun };
+    for (const entry of needTyping) {
+      remaining += 1;
+      results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-orca', log: log('no-orca', entry, err?.message ?? String(err)) });
+    }
+    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
   }
 
   // The durable pane↔slug bindings, read once for the whole drain (spec 2026-09-14 D3). This is what
@@ -302,24 +438,20 @@ export async function runNoteFlush(argv, deps = {}) {
     }
   }
 
-  let drained = 0;
-  let attempted = 0;
-  let remaining = 0;
-
   // A caller whose whole budget is smaller than phase 2 can never type anything — note-send's 3 s
   // piggyback, for instance. Say that ONCE rather than once per entry per send, which would bury the
   // log this file exists to make readable.
   const canType = Math.min(maxMs, perEntryMs) > phase2Reserve;
-  if (!canType && live.length > 0 && !dryRun) {
+  if (!canType && needTyping.length > 0 && !dryRun) {
     appendFlushLog(
       home,
-      `${stamp} budget-only-pass ${live.length} entr${live.length === 1 ? 'y' : 'ies'} left untouched — `
+      `${stamp} budget-only-pass ${needTyping.length} entr${needTyping.length === 1 ? 'y' : 'ies'} left untouched — `
       + `${Math.round(Math.min(maxMs, perEntryMs))} ms budget, phase 2 alone needs ${phase2Reserve} ms`,
       fsImpl,
     );
   }
 
-  for (const entry of live) {
+  for (const entry of needTyping) {
     const budget = deadline - clock();
     if (budget <= 0) { remaining += 1; continue; }
 
@@ -447,14 +579,19 @@ export async function drainQuietly(deps = {}, opts = {}) {
 // CLI
 // ─────────────────────────────────────────────────────────────────────────────
 
-const USAGE = `note-flush — retry the wake-ups note-send could not type, and forget the ones that no longer matter.
+const USAGE = `note-flush — deliver the wake-ups note-send deferred, and forget the ones that no longer matter.
 
-  note-flush [--to <slug>] [--json] [--max-ms 8000] [--max-attempts 20] [--max-age-hours 48]
+  note-flush [--to <slug>] [--json] [--max-ms 100000] [--max-attempts 20] [--max-age-hours 48]
              [--orca <cmd>] [--dry-run]
 
-The notes themselves are already in the ledger; this only retries the typed nudge.
+Delivery goes to the recipient's OWN INBOX — a Claude session's socket, a Codex session's queue — which
+its own hook registered in ~/.agents/notes/inboxes.json. Nothing is typed into anybody's composer.
+A recipient with no registered inbox leaves its entry queued and one \`no-inbox\` line in the log; the
+note itself is already in the ledger, which is the channel. Typing is the last resort and off by
+default: MULTI_ALLOW_TYPING=1 turns it back on, and ~/.agents/notes/no-type kills it outright.
+
 Runs from note-send (piggyback), from note-notify at a Codex turn end, and from a 1-minute timer.
-Exit 0 always. Attempts are appended to ~/.agents/notes/flush.log.
+Exit 0 always. Every attempt is appended to ~/.agents/notes/flush.log.
 `;
 
 export function formatFlush(result) {
