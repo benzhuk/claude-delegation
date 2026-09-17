@@ -39,6 +39,14 @@
 //      when --sender-repo differs, in the sender repo; always also to ~/.agents/notes/<YYYY-MM-DD>.md. Then
 //      classify the pane from `terminal show` + the tail of `terminal read` into
 //      agent-idle | agent-working | permission | shell | hibernated | unknown.
+//   5b. INBOX FIRST (spec 2026-09-17). If the recipient has registered an inbox on this machine
+//      (`~/.agents/notes/inboxes.json`), the envelope is posted straight into it — a Claude session's
+//      messaging socket, a Codex session's queue — and no pane is touched at all. That is exit 0,
+//      delivered, with no keystroke anywhere near anybody's composer.
+//   5c. NO INBOX → deferred (exit 3, queued) — because TYPING IS OFF unless `MULTI_ALLOW_TYPING=1`.
+//      Steps 6 and 7 below are that last resort, kept for machines whose peers predate the
+//      registering hooks. Default: nothing is ever typed. (On 2026-09-17 the typed path landed a note
+//      inside a sentence Ben was mid-way through writing and submitted it.)
 //   6. Gate: Claude panes send on agent-idle or agent-working (Claude Code queues typed input mid-turn).
 //      CODEX PANES SEND ON agent-idle ONLY — the pilot proved Codex does not queue, and that
 //      `terminal wait --for tui-idle` never resolves for a Codex pane, so that wait is GONE. `permission` →
@@ -80,9 +88,10 @@ import {
   resolvePane, isLocalPane, titleToSlug, readBindings,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
+  readInboxes,
 } from './transport.mjs';
 
-import { drainQuietly } from './note-flush.mjs';
+import { drainQuietly, deliverToInbox } from './note-flush.mjs';
 
 export * from './envelope.mjs';
 export * from './transport.mjs';
@@ -421,6 +430,38 @@ export async function runNoteSend(argv, deps = {}) {
     };
   }
 
+  // ── Inbox delivery (spec 2026-09-17, D3). The recipient's OWN inbox, if it registered one on this
+  //    machine: a Claude session's messaging socket or a Codex session's queue. No pane, no keystroke,
+  //    no composer to collide with. Deliberately BEFORE the exit 2 below — a registered inbox makes the
+  //    pane's name irrelevant, so a peer Orca has retitled is still reached.
+  //    `--no-type` means "record it, deliver nothing now", so it skips this too.
+  const inboxRecord = noType ? null : readInboxes(home, fsImpl)[toSlug];
+  if (inboxRecord) {
+    const post = deps.deliverToInbox ?? deliverToInbox;
+    let verdict;
+    try {
+      verdict = await post(home, toSlug, envelope, inboxRecord, { fsImpl, env });
+    } catch (err) {
+      verdict = { ok: false, delivered: false, reason: 'inbox-error', detail: err?.message ?? String(err) };
+    }
+    const how = `inbox (${inboxRecord.kind})`;
+    if (verdict.delivered) {
+      return {
+        ok: true, exitCode: 0, ...base, classification: how,
+        delivered: true, deferred: false, queued: false, notified: false, outbox: null, error: null,
+      };
+    }
+    // Not delivered: the ledger already has the note, so this is a latency cost. The detail is
+    // token-free by construction — the clients never put a record in a verdict.
+    const outbox = queue(how);
+    throw new NoteError(
+      3,
+      `${verdict.reason}${verdict.detail ? ` — ${verdict.detail}` : ''}. The ledger has the note (${ledgerTargets.join(', ')}); `
+      + 'the wake-up is queued for note-flush. Do NOT re-send this id.',
+      { ...base, classification: how, notified: false, queued: true, outbox },
+    );
+  }
+
   // ── H3: the pane did not resolve, but the note now EXISTS. Queue the wake-up keyed on the raw --to
   //       (note-flush re-resolves on every drain, so a pane that comes back still gets nudged) and only
   //       then report the exit 2, with the ledger paths in the message and in the JSON.
@@ -442,6 +483,21 @@ export async function runNoteSend(argv, deps = {}) {
       ok: true, exitCode: 0, ...base, classification: 'not-checked (--no-type)',
       delivered: false, deferred: false, queued: true, notified: false, outbox, error: null,
     };
+  }
+
+  // ── Typing is the LAST RESORT (spec 2026-09-17, D3(3)). Nothing below runs unless this machine asks
+  //    for it: the recipient registered no inbox, the note is in the ledger, and its own hooks read it
+  //    on its next event. A composer is never touched by default, whatever `no-type` says.
+  if (String(env.MULTI_ALLOW_TYPING ?? '') !== '1') {
+    const outbox = queue('no-inbox');
+    throw new NoteError(
+      3,
+      `${toSlug} has registered no inbox on this machine, and typing into a pane is off `
+      + '(set MULTI_ALLOW_TYPING=1 to allow the keystroke path). The ledger has the note '
+      + `(${ledgerTargets.join(', ')}) and the recipient's own hooks read it on its next event; note-flush `
+      + 'retries the wake-up once that session registers. Do NOT re-send this id.',
+      { ...base, classification: 'no-inbox', notified: false, queued: true, outbox },
+    );
   }
 
   // ── 6. Gate on pane state. No `terminal wait` anywhere: the pilot proved `--for tui-idle` never

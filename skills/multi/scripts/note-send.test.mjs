@@ -54,6 +54,14 @@ const idlePane = (over = {}) => ({
   worktreePath: '/repo', executionHostId: 'local', ...over,
 });
 const readOf = (lines, status = 'running') => ({ handle: 'term_aaa', status, tail: lines });
+/**
+ * Typing is the LAST RESORT since 0.5.0 (spec 2026-09-17, D3): note-send posts into the recipient's own
+ * inbox, and only reaches for a composer when `MULTI_ALLOW_TYPING=1` says it may. Every test below that
+ * asserts a KEYSTROKE therefore opts in explicitly — which is also how this suite documents that a
+ * default send types nothing at all.
+ */
+const TYPING = { MULTI_ALLOW_TYPING: '1' };
+
 const NOW = 1_000_000 + 5_000;
 
 /** The live evidence for review C1: Claude Code randomises the spinner verb, so a mid-turn pane
@@ -333,7 +341,7 @@ test('H1: a composer holding our id AND foreign text is never submitted', async 
     reads: [readOf(['? for shortcuts']), readOf(['─'.repeat(40), '❯ … [taxonomy-ping-1] FYI: already here', '─'.repeat(40)])],
   });
   const err = await rejectsWith(
-    runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }),
+    runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }),
     3, /composer but so is text that is not a note/,
   );
   assert.match(err.message, /refusing to press Enter/);
@@ -361,14 +369,14 @@ test('a non-repo directory falls back to itself instead of throwing', () => {
 test('H9: an empty worktreePath means --recipient-repo is required', async () => {
   const orca = mockOrca({ panes: [idlePane({ worktreePath: '' })] });
   await rejectsWith(
-    runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }),
+    runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }),
     1, /no worktreePath \(floating pane\).*--recipient-repo/s,
   );
 });
 
 test('a recipient repo that does not exist locally is exit 1, not a phantom write', async () => {
   const orca = mockOrca({ panes: [idlePane({ worktreePath: '/definitely/not/here' })] });
-  await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 1, /does not exist/);
+  await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 1, /does not exist/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,7 +386,7 @@ test('a recipient repo that does not exist locally is exit 1, not a phantom writ
 test('happy path: ledger first, then text without Enter, then Enter', async () => {
   const repo = tmp(); const home = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: TYPING });
 
   assert.equal(res.delivered, true);
   assert.equal(res.classification, 'agent-idle');
@@ -403,7 +411,7 @@ test('D3: a send resolves through the BINDING when the pane title is no longer t
   const pane = idlePane({ handle: 'term_bbb', title: 'Continue | bto-workflows', worktreePath: repo });
   const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
 
-  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.delivered, true);
   assert.equal(res.handle, 'term_bbb');
   assert.equal(orca.enters().length, 1);
@@ -417,7 +425,7 @@ test('D3: an exact TITLE still wins over a binding that points elsewhere', async
   const bound = idlePane({ handle: 'term_bbb', title: 'Continue', worktreePath: repo });
   const orca = mockOrca({ panes: [titled, bound], reads: DELIVERY_READS() });
 
-  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.handle, 'term_aaa', 'a rename is the newest intent');
 });
 
@@ -431,7 +439,7 @@ test('MAJOR 2: --to <handle> files the note under the BINDING, not the conversat
   const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
 
   const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
-  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.match(res.envelope, /^taxonomy → nucleus, /, 'the ledger line must name a slug note-inbox reads');
   assert.equal(res.delivered, true);
   assert.equal(res.handle, 'term_bbb');
@@ -442,7 +450,7 @@ test('MAJOR 2: with no binding it still falls back to the title, as it always di
   const pane = idlePane({ handle: 'term_bbb', title: 'nucleus', worktreePath: repo });
   const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
   const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
-  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.match(res.envelope, /^taxonomy → nucleus, /);
 });
 
@@ -477,7 +485,7 @@ test('C1: a state change between the two phases aborts before Enter', async () =
       readOf(['Do you want to proceed?', '❯ 1. Yes']),
     ],
   });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /aborted before Enter/);
+  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 3, /aborted before Enter/);
   assert.match(err.message, /agent-idle" → "permission/);
   assert.equal(orca.enters().length, 0, 'Enter must never be sent');
   assert.ok(fs.readFileSync(ledgerPath(repo, timeParts(new Date(NOW)).ymd), 'utf8').includes('[taxonomy-ping-1]'),
@@ -490,7 +498,7 @@ test('C1: the typed line not appearing in the composer also aborts before Enter'
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: [
     readOf(['? for shortcuts']), readOf(['? for shortcuts']), readOf(['? for shortcuts']), readOf(['? for shortcuts']),
   ] });
-  await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /not visible in the composer/);
+  await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 3, /not visible in the composer/);
   assert.equal(orca.enters().length, 0);
 });
 
@@ -499,7 +507,7 @@ test('a permission pane defers with exit 3 and nothing typed', async () => {
   const pane = idlePane({ worktreePath: repo, agentWait: { reason: 'agent-approval-prompt' } });
   const orca = mockOrca({ panes: [pane] });
   const err = await rejectsWith(
-    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, sleep: async () => {} }),
+    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, sleep: async () => {}, env: TYPING }),
     3, /permission\/approval prompt/,
   );
   assert.match(err.message, /queued\s+in the outbox/i);
@@ -512,7 +520,7 @@ test('a shell pane is never typed into', async () => {
   const repo = tmp();
   const pane = idlePane({ worktreePath: repo, agentIdentity: undefined, title: 'nucleus' });
   const orca = mockOrca({ panes: [pane], reads: [readOf(['$'])] });
-  await rejectsWith(runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /would EXECUTE/);
+  await rejectsWith(runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 3, /would EXECUTE/);
   assert.equal(orca.sends().length, 0);
 });
 
@@ -526,7 +534,7 @@ test('V6: a Codex pane is never waited on — `terminal wait --for tui-idle` NEV
   const composer = readOf(['› ']);
   const typed = readOf(['› taxonomy → nucleus … [taxonomy-ping-1] FYI: x']);
   const orca = mockOrca({ panes: [pane], reads: [composer, composer, typed, typed] });
-  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.delivered, true);
   assert.equal(orca.calls.filter((c) => c[1] === 'wait').length, 0, 'the v3 tui-idle wait is gone (pilot: it times out on idle Codex panes)');
 });
@@ -535,7 +543,7 @@ test('V6: a Codex pane mid-turn is deferred, not typed into — Codex does not q
   const repo = tmp(); const home = tmp();
   const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
   const orca = mockOrca({ panes: [pane], reads: [readOf(['› ', '• Working (42s • esc to interrupt)'])] });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW }), 3, /does not queue typed input/);
+  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: TYPING }), 3, /does not queue typed input/);
   assert.equal(orca.sends().length, 0);
   assert.equal(err.queued, true);
   assert.ok(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')));
@@ -546,7 +554,7 @@ test('V6: a Codex braille shimmer line reads as working, never as idle', async (
   const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex' });
   // The shimmer the pilot found: output recency is meaningless, the FRAME is the evidence.
   const orca = mockOrca({ panes: [pane], reads: [readOf(['⣻⣻⣻⠿ Thinking', '› '])] });
-  await rejectsWith(runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW }), 3, /Codex pane mid-turn/);
+  await rejectsWith(runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 3, /Codex pane mid-turn/);
   assert.equal(orca.sends().length, 0);
 });
 
@@ -555,7 +563,7 @@ test('V6: a Codex pane at an approval prompt is deferred with the permission rea
   const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex', agentWait: { reason: 'codex-interactive-prompt' } });
   const orca = mockOrca({ panes: [pane], reads: [readOf(['Allow once'])] });
   await rejectsWith(
-    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, sleep: async () => {} }),
+    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home: tmp(), git: () => '.git', now: NOW, sleep: async () => {}, env: TYPING }),
     3, /permission\/approval prompt/,
   );
   assert.equal(orca.sends().length, 0);
@@ -564,7 +572,7 @@ test('V6: a Codex pane at an approval prompt is deferred with the permission rea
 test('a Claude pane never calls terminal wait — it queues typed input mid-turn', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW });
+  await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
   assert.equal(orca.calls.filter((c) => c[1] === 'wait').length, 0);
 });
 
@@ -575,7 +583,7 @@ test('a Claude pane never calls terminal wait — it queues typed input mid-turn
 test('M2: a failed first send is exit 4 and says nothing was typed, with the ledger paths', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], failSend: true, reads: [readOf(['? for shortcuts']), readOf(['? for shortcuts'])] });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 4, /pty_not_writable/);
+  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 4, /pty_not_writable/);
   assert.match(err.message, /nothing was typed/);
   assert.equal(err.ledgers.length, 2);
   assert.ok(err.envelope.includes('[taxonomy-ping-1]'));
@@ -584,7 +592,7 @@ test('M2: a failed first send is exit 4 and says nothing was typed, with the led
 test('M2: a failed Enter says the envelope is stranded in the composer', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], failEnter: true, reads: DELIVERY_READS() });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 4, /sitting UNSENT/);
+  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 4, /sitting UNSENT/);
   assert.match(err.message, /Clear the pane by hand/);
   assert.equal(err.ledgers.length, 2);
 });
@@ -596,7 +604,7 @@ test('M2: a failed Enter says the envelope is stranded in the composer', async (
 test('v3: --recipient-repo on a non-local pane is exit 5 and names the ssh form', async () => {
   const orca = mockOrca({ panes: [idlePane({ executionHostId: 'netcup' })] });
   const err = await rejectsWith(
-    runNoteSend(ARGS_OK(['--recipient-repo', tmp()]), { orca, home: tmp(), git: () => '.git', now: NOW }),
+    runNoteSend(ARGS_OK(['--recipient-repo', tmp()]), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }),
     5, /--recipient-repo cannot reach it/,
   );
   // R4: the suggested command must be the robust one — absolute path, single-quoted as one argument.
@@ -605,7 +613,7 @@ test('v3: --recipient-repo on a non-local pane is exit 5 and names the ssh form'
 
 test('v3: a non-local pane whose repo is not here is exit 5 pointing at ssh', async () => {
   const orca = mockOrca({ panes: [idlePane({ executionHostId: 'netcup', worktreePath: '/home/ben/code/bto_nucleus' })] });
-  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW }), 5, /does not exist here/);
+  const err = await rejectsWith(runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 5, /does not exist here/);
   assert.match(err.message, /Run note-send on that host/);
   assert.match(err.message, /ssh <host> '~\/\.local\/bin\/note-send .* --packet-file -'/);
 });
@@ -613,7 +621,7 @@ test('v3: a non-local pane whose repo is not here is exit 5 pointing at ssh', as
 test('v3: run on the recipient host, the same note is an ordinary local send', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ executionHostId: 'local', worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.delivered, true);
   assert.ok(res.ledgers[0].startsWith(repo), 'the ledger lands in the recipient repo');
 });
@@ -627,7 +635,7 @@ test('v3: --packet-file writes docs/notes/<id>.md before the ledger line', async
   const src = path.join(tmp(), 'packet.md');
   fs.writeFileSync(src, '# taxonomy-ping-1 — the packet body\n');
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.packetPath, packetPathFor(repo, 'taxonomy-ping-1'));
   assert.equal(res.packetWritten, true);
   assert.match(fs.readFileSync(res.packetPath, 'utf8'), /the packet body/);
@@ -637,7 +645,7 @@ test('v3: --packet-file - reads the body from stdin (the ssh form)', async () =>
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
   const res = await runNoteSend(ARGS_OK(['--packet-file', '-']), {
-    orca, home: tmp(), git: () => '.git', now: NOW, stdin: '# from stdin\n\n## Ask\nreview it\n',
+    orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING, stdin: '# from stdin\n\n## Ask\nreview it\n',
   });
   assert.match(fs.readFileSync(res.packetPath, 'utf8'), /from stdin/);
 });
@@ -651,12 +659,12 @@ test('v3: an existing packet is never overwritten without --force', async () => 
   fs.writeFileSync(src, 'new body\n');
 
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home: tmp(), git: () => '.git', now: NOW }), 1, /already exists.*--force/s);
+  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 1, /already exists.*--force/s);
   assert.match(fs.readFileSync(existing, 'utf8'), /recipient annotations/, 'the existing packet is untouched');
   assert.equal(orca.sends().length, 0, 'nothing is sent when the packet write is refused');
 
   const orca2 = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(['--packet-file', src, '--force']), { orca: orca2, home: tmp(), git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(['--packet-file', src, '--force']), { orca: orca2, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.delivered, true);
   assert.match(fs.readFileSync(existing, 'utf8'), /new body/);
 });
@@ -664,13 +672,13 @@ test('v3: an existing packet is never overwritten without --force', async () => 
 test('v3: an empty or unreadable --packet-file is exit 1', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', path.join(tmp(), 'missing.md')]), { orca, home: tmp(), git: () => '.git', now: NOW }), 1, /empty or unreadable/);
+  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', path.join(tmp(), 'missing.md')]), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 1, /empty or unreadable/);
 });
 
 test('a Details path with no file behind it warns but still delivers', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(['--details', 'docs/notes/taxonomy-ping-1.md']), { orca, home: tmp(), git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(['--details', 'docs/notes/taxonomy-ping-1.md']), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.delivered, true);
   assert.equal(res.warnings.length, 1);
   assert.match(res.warnings[0], /does not exist/);
@@ -713,7 +721,7 @@ test('H10: a note to ben can carry a packet too', async () => {
 test('--dry-run touches neither orca nor the filesystem', async () => {
   const repo = tmp(); const home = tmp();
   const orca = mockOrca({ panes: [] });
-  const res = await runNoteSend(ARGS_OK(['--recipient-repo', repo, '--dry-run']), { orca, home, git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(['--recipient-repo', repo, '--dry-run']), { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.dryRun, true);
   assert.equal(orca.calls.length, 0);
   assert.ok(res.plan.some((p) => /Codex idle only/.test(p)), 'the plan names the Codex gate');
@@ -724,7 +732,7 @@ test('--dry-run touches neither orca nor the filesystem', async () => {
 
 test('--dry-run without --recipient-repo says why it cannot plan', async () => {
   await rejectsWith(
-    runNoteSend(ARGS_OK(['--dry-run']), { orca: mockOrca({ panes: [] }), home: tmp(), git: () => '.git', now: NOW }),
+    runNoteSend(ARGS_OK(['--dry-run']), { orca: mockOrca({ panes: [] }), home: tmp(), git: () => '.git', now: NOW, env: TYPING }),
     1, /--dry-run without --recipient-repo/,
   );
 });
@@ -779,7 +787,7 @@ test('argument parsing rejects unknown flags and missing values', () => {
 });
 
 test('missing required arguments are named', async () => {
-  await rejectsWith(runNoteSend(['--from', 'a'], { orca: mockOrca({}), home: tmp() }), 1, /--to is required/);
+  await rejectsWith(runNoteSend(['--from', 'a'], { orca: mockOrca({}), home: tmp(), env: TYPING }), 1, /--to is required/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -942,7 +950,7 @@ test('R6: findOnPath honours PATHEXT on Windows and a bare name on POSIX', () =>
 test('the envelope the sender types is the envelope the ledger records', async () => {
   const repo = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW });
+  const res = await runNoteSend(ARGS_OK(), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
   const typed = orca.sends()[0][orca.sends()[0].indexOf('--text') + 1];
   assert.equal(typed, res.envelope);
   assert.ok(typed.length <= MAX_LINE);
@@ -955,7 +963,7 @@ test('AR: a note to a pane Orca titled "Action Required" is recorded and queued,
   const pane = idlePane({ worktreePath: repo, agentIdentity: 'codex', title: '[ . ] Action Required | nucleus | bto-workflows' });
   const orca = mockOrca({ panes: [pane], reads: [readOf(['› '])] });
   const err = await rejectsWith(
-    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home, git: () => '.git', now: NOW, sleep: async () => {} }),
+    runNoteSend(ARGS_OK(['--wait-max', '0']), { orca, home, git: () => '.git', now: NOW, sleep: async () => {}, env: TYPING }),
     3, /permission\/approval prompt/,
   );
   assert.equal(orca.sends().length, 0, 'nothing may be typed at a pane waiting on a human');
@@ -1021,7 +1029,7 @@ test('H3: a raw handle that resolves to nothing records NOTHING, and says why', 
   const home = tmp();
   const orca = mockOrca({ panes: [] });
   const err = await rejectsWith(
-    runNoteSend(ARGS_OK(['--to', 'term_gone']), { orca, home, git: () => '.git', now: NOW }),
+    runNoteSend(ARGS_OK(['--to', 'term_gone']), { orca, home, git: () => '.git', now: NOW, env: TYPING }),
     2, /Nothing was recorded/,
   );
   // A handle names no slug, so a ledger line would be addressed to nobody and no note-inbox would see it.

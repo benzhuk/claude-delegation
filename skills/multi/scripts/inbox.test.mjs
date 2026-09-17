@@ -29,6 +29,8 @@ import {
   resolveCodexCommand, queueToCodexInbox, deliverToSlug as queueToCodex, NO_THREAD_RE,
 } from './inbox-codex.mjs';
 import { runNoteFlush, deliverToInbox, formatFlush } from './note-flush.mjs';
+import { runNoteSend } from './note-send.mjs';
+import { NoteError } from './envelope.mjs';
 
 function tmp() { return toPosix(fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-'))); }
 
@@ -586,4 +588,112 @@ test('D3: a real end-to-end drain posts the envelope onto a real socket, with no
   } finally {
     await server.close();
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D3 — note-send takes the same route: inbox first, then queue, and never a keystroke by default
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEND_ARGS = ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+/** A real directory, because note-send refuses to write a ledger into a recipient repo that is not there. */
+const sendArgsIn = (repo, over = []) => [...SEND_ARGS, '--recipient-repo', repo, ...over];
+const nucleusPane = (over = {}) => ({
+  handle: 'term_aaa', title: 'nucleus', connected: true, writable: true, orphaned: false,
+  agentIdentity: 'claude', agentWait: null, lastOutputAt: 1_000_000,
+  preview: '⏵⏵ bypass permissions on (shift+tab to cycle)', worktreePath: '/repo', executionHostId: 'local', ...over,
+});
+
+/** A pane list, and a hard failure on anything that would put characters on a screen. */
+function sendOrca(panes = [nucleusPane()]) {
+  const run = async (args) => {
+    if (args[1] === 'list') return { terminals: panes };
+    if (args[1] === 'show') return { terminal: panes[0] };
+    if (args[1] === 'read') return { terminal: { handle: 'term_aaa', status: 'running', tail: ['? for shortcuts'] } };
+    throw new Error(`nothing may be typed: orca ${args.join(' ')}`);
+  };
+  run.calls = [];
+  return run;
+}
+
+async function rejectsWith(promise, exitCode, re) {
+  try { await promise; } catch (err) {
+    assert.ok(err instanceof NoteError, `expected NoteError, got ${err}`);
+    assert.equal(err.exitCode, exitCode, err.message);
+    if (re) assert.match(err.message, re);
+    return err;
+  }
+  return assert.fail('expected a rejection');
+}
+
+test('D3: note-send posts into a registered inbox and is exit 0 delivered, with nothing typed', async () => {
+  const home = tmp();
+  writeInbox(home, 'nucleus', claudeRecord(), { now: NOW });
+  const posts = [];
+  const res = await runNoteSend(sendArgsIn(home), {
+    home, git: () => '.git', now: NOW, env: {}, orca: sendOrca(),
+    deliverToInbox: async (_h, slug, envelope, record) => {
+      posts.push({ slug, envelope, kind: record.kind });
+      return { ok: true, delivered: true, reason: 'delivered' };
+    },
+  });
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.delivered, true);
+  assert.equal(res.queued, false);
+  assert.equal(res.classification, 'inbox (claude-socket)');
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].slug, 'nucleus');
+  assert.match(posts[0].envelope, /\[taxonomy-ping-1\] FYI: Batch finished, 413 films/);
+  assert.ok(res.ledgers.length >= 1, 'ledger first, as always');
+  noToken(res, JSON.stringify(res));
+});
+
+test('D3: a recipient with no inbox is a deferral, not a keystroke — MULTI_ALLOW_TYPING is the only way in', async () => {
+  const home = tmp();
+  const err = await rejectsWith(
+    runNoteSend(sendArgsIn(home), { home, git: () => '.git', now: NOW, env: {}, orca: sendOrca() }),
+    3,
+    /has registered no inbox on this machine, and typing into a pane is off/,
+  );
+  assert.equal(err.queued, true);
+  assert.equal(err.classification, 'no-inbox');
+  assert.match(err.message, /Do NOT re-send this id/);
+  assert.equal(readOutbox(home).length, 1, 'the wake-up is queued for note-flush');
+});
+
+test('D3: a failed inbox post queues the wake-up and says so, token-free', async () => {
+  const home = tmp();
+  writeInbox(home, 'nucleus', claudeRecord(), { now: NOW });
+  const err = await rejectsWith(
+    runNoteSend(sendArgsIn(home), {
+      home, git: () => '.git', now: NOW, env: {}, orca: sendOrca(),
+      deliverToInbox: async () => ({ ok: false, delivered: false, reason: 'inbox-stale', detail: 'ENOENT connect ENOENT /tmp/cc-socks/4242.sock' }),
+    }),
+    3,
+    /inbox-stale/,
+  );
+  assert.equal(err.queued, true);
+  noToken(err.message, err);
+});
+
+test('D3: a registered inbox is used even when no pane resolves — the name stops mattering', async () => {
+  const home = tmp();
+  writeInbox(home, 'nucleus', claudeRecord(), { now: NOW });
+  const res = await runNoteSend(sendArgsIn(home), {
+    home, git: () => '.git', now: NOW, env: {}, orca: sendOrca([]), // no panes at all
+    deliverToInbox: async () => ({ ok: true, delivered: true, reason: 'delivered' }),
+  });
+  assert.equal(res.delivered, true, 'exit 2 "no pane titled nucleus" is not reachable for a registered peer');
+});
+
+test('D3: --no-type still records and queues without delivering anything', async () => {
+  const home = tmp();
+  writeInbox(home, 'nucleus', claudeRecord(), { now: NOW });
+  let posted = 0;
+  const res = await runNoteSend(sendArgsIn(home, ['--no-type']), {
+    home, git: () => '.git', now: NOW, env: {}, orca: sendOrca(),
+    deliverToInbox: async () => { posted += 1; return { ok: true, delivered: true, reason: 'delivered' }; },
+  });
+  assert.equal(posted, 0);
+  assert.equal(res.queued, true);
+  assert.equal(res.delivered, false);
 });
