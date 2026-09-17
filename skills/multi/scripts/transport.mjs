@@ -658,6 +658,33 @@ export async function twoPhaseSend(orca, pane, envelope, id, classification, opt
     return { delivered: true, classification, stranded: false, confirmed: true };
   }
 
+  // 2026-09-17 incident (Ben): the flusher typed a note into a composer Ben was MID-WORD in, then
+  // pressed Enter — mangling his prompt and submitting the fragment. `classifyPane` says nothing about
+  // whether the input box is EMPTY: a half-typed human prompt looks exactly like an idle agent. The
+  // residue check existed, but only on the recovery path. It belongs here, before the first keystroke.
+  // MULTI_NO_TYPE=1 disables typing altogether (the ledger and the hooks still deliver).
+  // Kill switch, deliberately a FILE as well as an env var: `touch ~/.agents/notes/no-type` pauses
+  // typing on one machine with no scheduler edit and no deploy, and `rm` resumes it.
+  const noTypeFlag = opts.noTypeFlagPath
+    ?? toPosix(path.posix.join(notesDir(toPosix(opts.home ?? os.homedir())), 'no-type'));
+  const fsForFlag = opts.fsImpl ?? fs;
+  let noTypeFile = false;
+  try { noTypeFile = fsForFlag.existsSync(noTypeFlag); } catch { noTypeFile = false; }
+  if (noTypeFile || String(opts.env?.MULTI_NO_TYPE ?? process.env.MULTI_NO_TYPE ?? '') === '1') {
+    return {
+      delivered: false, classification, stranded: false,
+      reason: `typing is paused (${noTypeFile ? noTypeFlag : 'MULTI_NO_TYPE=1'}) — [${id}] stays queued; the ledger already has it`,
+    };
+  }
+  const { foreign: preForeign } = composerResidue(before, known);
+  if (preForeign) {
+    return {
+      delivered: false, classification, stranded: false,
+      reason: `${pane.handle}'s composer is not empty (${JSON.stringify(preForeign.slice(0, 60))}) — `
+        + 'someone is typing there; refusing to type [' + id + '] into it',
+    };
+  }
+
   try {
     await orca(['terminal', 'send', '--terminal', pane.handle, '--text', envelope, '--json']);
   } catch (err) {
