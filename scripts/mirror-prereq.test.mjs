@@ -49,3 +49,22 @@ test('C14: the check only READS - an installer must never make a permissions dec
   checkCrossSessionInbound({ home });
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
+
+test('N6: settings.local.json counts, and wins - warning at a correctly configured machine is worse than silence', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-prereq-'));
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'settings.local.json'), '{"crossSessionInbound":"accept"}');
+  const onlyLocal = checkCrossSessionInbound({ home });
+  assert.equal(onlyLocal.ok, true);
+  assert.match(onlyLocal.path, /settings\.local\.json$/);
+
+  // Local wins over the shared file, as it does for Claude Code itself.
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{"crossSessionInbound":"hold"}');
+  assert.equal(checkCrossSessionInbound({ home }).ok, true);
+
+  // And a local file that says nothing falls through to the shared one rather than masking it.
+  fs.writeFileSync(path.join(home, '.claude', 'settings.local.json'), '{"theme":"dark"}');
+  const fellThrough = checkCrossSessionInbound({ home });
+  assert.equal(fellThrough.value, 'hold');
+  assert.match(fellThrough.path, /[^.]settings\.json$/);
+});

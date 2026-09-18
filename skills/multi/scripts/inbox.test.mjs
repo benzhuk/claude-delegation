@@ -21,6 +21,7 @@ import {
   toPosix, inboxesPath, readInboxes, writeInbox, removeInbox, pruneInboxes, registerInbox,
   describeInbox, claudeInboxRecord, codexInboxRecord, sameInbox, writeOutboxEntry, readOutbox,
   flushLogPath, benInboxPath, INBOX_MODE, INBOX_GC_MS, INBOX_REFRESH_MS,
+  claimOutboxEntry, releaseClaim,
 } from './transport.mjs';
 import {
   inboxFrames, postToClaudeInbox, deliverToSlug as postToClaude, DEFAULT_POST_TIMEOUT_MS, STALE_CODES,
@@ -858,22 +859,66 @@ test('C7: a registration from another machine is refused and dropped, by both cl
   assert.deepEqual(readInboxes(home), {}, 'a path that means something else here is not an inbox');
 });
 
-test('C8: two sessions claiming one slug leave a line in the file Ben greps', () => {
+/** A record whose endpoint is provably THERE: a real file for the socket, and this process's own pid. */
+function liveRecord(dir, name, over = {}) {
+  const socket = path.join(dir, name);
+  fs.writeFileSync(socket, '');
+  return claudeRecord({ socket, pid: process.pid, ...over });
+}
+
+test('C8: two LIVE sessions claiming one slug leave a line in the file Ben greps', () => {
   const home = tmp();
-  writeInbox(home, 'astra', claudeRecord({ sessionId: 'sess-A', socket: '/tmp/cc-socks/1.sock' }), { now: NOW });
-  const second = writeInbox(home, 'astra', claudeRecord({ sessionId: 'sess-B', socket: '/tmp/cc-socks/2.sock' }), { now: NOW + 5_000 });
+  const dir = tmp();
+  writeInbox(home, 'astra', liveRecord(dir, 'a.sock', { sessionId: 'sess-A' }), { now: NOW });
+  const second = writeInbox(home, 'astra', liveRecord(dir, 'b.sock', { sessionId: 'sess-B' }), { now: NOW + 5_000 });
   assert.equal(second.conflict, true);
   const log = fs.readFileSync(flushLogPath(home), 'utf8');
-  assert.match(log, /inbox-conflict astra - replaced a claude-socket registration written 5s ago/);
+  assert.match(log, /inbox-conflict astra - replaced a claude-socket registration written 5s ago whose session is still there/);
   assert.match(log, /Give one of them its own slug/);
   noToken(log, second);
 
   // The same session refreshing itself is not a conflict, and neither is a restart an hour later.
-  const refresh = writeInbox(home, 'astra', claudeRecord({ sessionId: 'sess-B', socket: '/tmp/cc-socks/2.sock' }), { now: NOW + 6_000 });
+  const refresh = writeInbox(home, 'astra', liveRecord(dir, 'b.sock', { sessionId: 'sess-B' }), { now: NOW + 6_000 });
   assert.equal(refresh.conflict, undefined);
-  const restart = writeInbox(home, 'astra', claudeRecord({ sessionId: 'sess-C', socket: '/tmp/cc-socks/3.sock' }), { now: NOW + 3_600_000 });
+  const restart = writeInbox(home, 'astra', liveRecord(dir, 'c.sock', { sessionId: 'sess-C' }), { now: NOW + 3_600_000 });
   assert.equal(restart.conflict, undefined);
   assert.equal(fs.readFileSync(flushLogPath(home), 'utf8').split('\n').filter((l) => l.includes('inbox-conflict')).length, 1);
+});
+
+test('N3: a RESTART inside the refresh window is not a conflict - there is nobody to conflict with', () => {
+  const home = tmp();
+  const dir = tmp();
+  const gone = claudeRecord({ socket: path.join(dir, 'exited.sock'), sessionId: 'sess-old', pid: 2 ** 30 });
+  writeInbox(home, 'astra', gone, { now: NOW });
+  // The pane restarts 5 s later: same slug, new session, and the old socket file is not there because
+  // the old session took it with it when it exited.
+  const after = writeInbox(home, 'astra', liveRecord(dir, 'new.sock', { sessionId: 'sess-new' }), { now: NOW + 5_000 });
+  assert.equal(after.conflict, undefined, 'one session under a new id is not two sessions');
+  assert.equal(fs.existsSync(flushLogPath(home)), false, 'and nothing is said about it at all');
+});
+
+test('N3: a real split says it once a minute, not once a hook event', () => {
+  const home = tmp();
+  const dir = tmp();
+  const a = () => liveRecord(dir, 'a.sock', { sessionId: 'sess-A' });
+  const b = () => liveRecord(dir, 'b.sock', { sessionId: 'sess-B' });
+  writeInbox(home, 'astra', a(), { now: NOW });
+  // Both sessions keep registering, every prompt and every stop, for a hundred seconds.
+  const flapping = [];
+  for (let i = 1; i <= 20; i += 1) {
+    flapping.push(writeInbox(home, 'astra', i % 2 ? b() : a(), { now: NOW + i * 5_000 }));
+  }
+  const lines = fs.readFileSync(flushLogPath(home), 'utf8').split('\n').filter((l) => l.includes('inbox-conflict'));
+  assert.equal(lines.length, 2, 'twenty swaps over 100 s: one line per refresh window, not one per event');
+  assert.ok(flapping.every((r) => r.conflict), 'the caller is still told every time');
+  assert.ok(flapping.some((r) => r.quiet), 'and is told when the line was suppressed');
+});
+
+test('N3: a codex-queue registration has no endpoint to test, so a fresh replacement still speaks', () => {
+  const home = tmp();
+  writeInbox(home, 'astra', codexRecord({ threadId: 'thread-A' }), { now: NOW });
+  const second = writeInbox(home, 'astra', codexRecord({ threadId: 'thread-B' }), { now: NOW + 5_000 });
+  assert.equal(second.conflict, true, 'a queue store outlives its session, so we cannot rule the first one out');
 });
 
 test('C12: a dead session is dialled ONCE, however many notes are queued for it', async () => {
@@ -988,4 +1033,124 @@ test('C11: an interactive send bounds its own inbox post', async () => {
   });
   assert.equal(budget, SEND_INBOX_BUDGET_MS);
   assert.ok(budget < 15_000, 'note-send advertises 15 s for the whole call; the client default is 20 s');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Final round (delta review, 2026-09-17)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('N1: a drain never recreates an entry id it did not claim', async () => {
+  // THE INVARIANT, not the symptom. `writeOutboxEntry` RECREATES the file, so any write outside a claim
+  // can resurrect an entry another drainer has delivered and retired - and the next drain delivers it
+  // again, which is a duplicate turn in a peer's session. The trigger is the deploy-day one: a peer
+  // registers while a note for it is queued, so two overlapping drains see different worlds.
+  const home = tmp();
+  queued(home);                       // taxonomy has no inbox yet: this drain will take the no-inbox path
+  const ids = () => readOutbox(home).map((e) => e.id);
+
+  // Drain B reads the outbox, and WHILE it is mid-pass drain A delivers the same entry and retires it.
+  // `deliverToInbox` is where B is awaiting a post for some other entry; we use it as the seam.
+  writeInbox(home, 'other', claudeRecord(), { now: NOW });
+  queued(home, { id: 'astra-inbox-9', to: 'other', toSlug: 'other' });
+  const res = await runNoteFlush([], {
+    home, now: NOW, env: {}, orca: forbiddenOrca(),
+    deliverToInbox: async () => {
+      // A wins the race for the queued taxonomy entry: delivered, claimed, retired, file gone.
+      const claim = claimOutboxEntry(home, 'astra-inbox-1', fs);
+      assert.ok(claim, 'A could claim it');
+      releaseClaim(claim, fs);
+      assert.deepEqual(ids(), [], 'A has retired it, and B holds the other one under a claim');
+      return { ok: true, delivered: true, reason: 'delivered' };
+    },
+  });
+  assert.equal(res.drained, 1);
+  assert.deepEqual(ids(), [], 'B must not put astra-inbox-1 back: it never held it');
+  assert.ok(
+    res.results.some((r) => r.id === 'astra-inbox-1' && r.outcome === 'claimed-elsewhere'),
+    `B should report it as claimed elsewhere, got ${JSON.stringify(res.results)}`,
+  );
+});
+
+test('N1: the state write still happens when the entry IS ours', async () => {
+  const home = tmp();
+  queued(home);
+  const res = await runNoteFlush([], { home, now: NOW, env: {}, orca: forbiddenOrca() });
+  assert.equal(res.results[0].outcome, 'no-inbox');
+  assert.equal(readOutbox(home)[0].lastOutcome, 'no-inbox', 'the entry is still here, and remembers');
+  assert.equal(readOutbox(home)[0].attempts ?? 0, 0);
+  // And the claim is released, not left behind to be reclaimed five minutes later.
+  assert.deepEqual(
+    fs.readdirSync(path.join(home, '.agents/notes/outbox')).filter((n) => n.includes('.claim')), [],
+  );
+});
+
+test('N4: --dry-run describes inbox delivery, not the keystroke path', async () => {
+  const home = tmp();
+  writeInbox(home, 'nucleus', claudeRecord({ cwd: home }), { now: NOW });
+  const withInbox = await runNoteSend([...SEND_ARGS, '--dry-run'], {
+    home, git: () => '.git', now: NOW, env: {}, orca: forbiddenOrca(),
+  });
+  const plan = withInbox.plan.join(' | ');
+  assert.match(plan, /registered inbox \(claude-socket\)/);
+  assert.match(plan, /no pane is resolved/);
+  assert.equal(/two-phase/.test(plan), false, 'the typed path is not what a real send would do here');
+
+  const noInbox = await runNoteSend([...SEND_ARGS, '--dry-run', '--recipient-repo', home], {
+    home: tmp(), git: () => '.git', now: NOW, env: {}, orca: forbiddenOrca(),
+  });
+  assert.match(noInbox.plan.join(' | '), /no registered inbox on this machine.*exit 3/s);
+});
+
+test('N5: a recipient cwd we cannot reach warns instead of quietly using the sender repo', async () => {
+  const home = tmp();
+  const removed = `${tmp()}/a-worktree-that-has-since-been-removed`;
+  // The recipient registered a cwd that is not here any more. The note must still land - that is the
+  // whole point of C9 - and the fallback must SAY where it went, which is what the old paneError branch
+  // was careful to do and what this path quietly stopped doing.
+  writeInbox(home, 'nucleus', claudeRecord({ cwd: removed }), { now: NOW });
+  // ORCA_WORKTREE_ID is what the fallback reaches for first, so the ledger lands in a fixture rather
+  // than in this checkout - a test must never write into the repo it is testing.
+  const senderTree = tmp();
+  const res = await runNoteSend(SEND_ARGS, {
+    home, now: NOW, env: { ORCA_WORKTREE_ID: `wt::${senderTree}` }, git: () => '.git', orca: forbiddenOrca(),
+    deliverToInbox: async () => ({ ok: true, delivered: true, reason: 'delivered' }),
+  });
+  assert.equal(res.delivered, true, 'the note still goes through');
+  assert.equal(res.warnings.length, 1, `expected one warning, got ${JSON.stringify(res.warnings)}`);
+  assert.match(res.warnings[0], /does not exist here/);
+  assert.match(res.warnings[0], /this session's repo/);
+  assert.match(res.warnings[0], /--recipient-repo/);
+  assert.ok(res.ledgers.some((l) => l.startsWith(senderTree)), `ledgers: ${res.ledgers.join(', ')}`);
+});
+
+test('N5: a recipient that registered a real cwd is not warned about', async () => {
+  const home = tmp();
+  writeInbox(home, 'nucleus', claudeRecord({ cwd: home }), { now: NOW });
+  const res = await runNoteSend(SEND_ARGS, {
+    home, now: NOW, env: {}, git: () => '.git', orca: forbiddenOrca(),
+    deliverToInbox: async () => ({ ok: true, delivered: true, reason: 'delivered' }),
+  });
+  assert.deepEqual(res.warnings, []);
+  assert.ok(res.ledgers.some((l) => l.startsWith(home)));
+});
+
+test('N6: the budget line quotes the SMALLEST budget, not the first entry', async () => {
+  const quotedFor = async (count) => {
+    const home = tmp();
+    writeInbox(home, 'astra', codexRecord(), { now: NOW });
+    for (let i = 1; i <= count; i += 1) queued(home, { id: `astra-inbox-${i}`, to: 'astra', toSlug: 'astra' });
+    let t = 0;
+    await runNoteFlush(['--max-ms', '3000'], {
+      home, now: NOW, env: {}, orca: forbiddenOrca(), clock: () => { t += 400; return t; },
+    });
+    const line = fs.readFileSync(flushLogPath(home), 'utf8').split('\n').find((l) => l.includes('budget-only-pass'));
+    return Number(/ (\d+) ms left/.exec(line ?? '')?.[1]);
+  };
+  const one = await quotedFor(1);
+  const three = await quotedFor(3);
+  assert.ok(Number.isFinite(one) && Number.isFinite(three), `one=${one} three=${three}`);
+  assert.ok(
+    three < one,
+    `with the clock running down, three entries must quote the tightest budget (${three}), not the first (${one})`,
+  );
 });

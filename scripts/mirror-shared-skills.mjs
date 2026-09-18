@@ -139,14 +139,23 @@ function refuse(reason) { refusals.push(reason); }
  * @returns {{path: string, value: string|null, ok: boolean}|null} null when there is nothing to say
  */
 export function checkCrossSessionInbound({ home = HOME, fsImpl = fs } = {}) {
-  const file = path.join(home, '.claude', 'settings.json');
-  let value = null;
-  try {
-    value = JSON.parse(fsImpl.readFileSync(file, 'utf8')).crossSessionInbound ?? null;
-  } catch {
-    value = null; // no settings file, or not JSON: report it as "not set", never as a failure
+  // N6: `settings.local.json` is a real place for this, and a machine that sets it there is CORRECTLY
+  // configured - warning at it would be worse than saying nothing, because a false warning is what
+  // teaches people to ignore the true one. Local wins, as it does for Claude Code itself.
+  const files = [
+    path.join(home, '.claude', 'settings.local.json'),
+    path.join(home, '.claude', 'settings.json'),
+  ];
+  for (const file of files) {
+    let value = null;
+    try {
+      value = JSON.parse(fsImpl.readFileSync(file, 'utf8')).crossSessionInbound ?? null;
+    } catch {
+      continue; // absent, or not JSON: not a claim either way, so try the next layer
+    }
+    if (value !== null) return { path: file.split(path.sep).join('/'), value, ok: value === 'accept' };
   }
-  return { path: file.split(path.sep).join('/'), value, ok: value === 'accept' };
+  return { path: files[1].split(path.sep).join('/'), value: null, ok: false };
 }
 
 function warnCrossSessionInbound() {

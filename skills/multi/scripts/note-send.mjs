@@ -268,7 +268,10 @@ export async function runNoteSend(argv, deps = {}) {
   // keeps the pane path, where "the right pane under a wrong label" is the worst case; posting a guessed
   // slug into whatever OTHER session registered it would start a turn in the wrong conversation.
   const slugWasGiven = !isBen && !HANDLE_RE.test(toRaw);
-  const inboxRecord = (!isBen && !dryRun && !noType && slugWasGiven)
+  // N4: `--dry-run` reads it too. It is a read, and a preview that cannot see the inbox describes the
+  // 0.4.2 world - a pane classification and a two-phase keystroke sequence - for a send that would in
+  // fact post into a socket and touch no pane at all.
+  const inboxRecord = (!isBen && !noType && slugWasGiven)
     ? (readInboxes(home, fsImpl)[toRaw] ?? null)
     : null;
 
@@ -281,7 +284,11 @@ export async function runNoteSend(argv, deps = {}) {
   if (isBen) {
     plan.push('"ben" is a reserved recipient: no pane is resolved; the line is recorded and printed');
   } else if (dryRun) {
-    plan.push(`resolve pane "${toRaw}" via \`terminal list --json\` (skipped: --dry-run)`);
+    plan.push(inboxRecord
+      ? `post the envelope into "${toRaw}"'s registered inbox (${inboxRecord.kind}): no pane is resolved, `
+        + 'nothing is typed, and no orca call is made (skipped: --dry-run)'
+      : `"${toRaw}" has no registered inbox on this machine, so this would record the note, queue the `
+        + 'wake-up and exit 3 - typing is off unless MULTI_ALLOW_TYPING=1 (skipped: --dry-run)');
   } else if (noType) {
     plan.push('--no-type: the envelope is recorded and queued; nothing is typed and no pane is resolved');
   } else if (inboxRecord) {
@@ -347,15 +354,26 @@ export async function runNoteSend(argv, deps = {}) {
     // The registering session recorded its own cwd, which IS the recipient's working tree - a better
     // answer than this session's repo, and available without resolving a pane. Fall back the same way
     // the paneError branch does when it is missing or not a checkout.
-    targetRepo = mainCheckout(inboxRecord.cwd ?? worktreePathFromEnv(env) ?? process.cwd(), git)
-      ?? mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
+    // N5: the fallback must never be silent. `mainCheckout` returns null for a cwd that is not a
+    // checkout at all - a session started in a scratch directory, a worktree since removed - and the
+    // note then goes to the SENDER's repo, which is exactly what the old paneError branch was careful
+    // to say out loud. So the warning keys on what we actually used, not on whether a cwd was recorded.
+    // `mainCheckout` answers "write where you were told" for a directory that is not a checkout, and
+    // only a path that does not EXIST here is a real dead end - a worktree the recipient has since
+    // removed, or a cwd from another machine. Both are the fallback; neither may be silent.
+    const recipientRepo = inboxRecord.cwd && fsImpl.existsSync(inboxRecord.cwd)
+      ? mainCheckout(inboxRecord.cwd, git)
+      : null;
+    targetRepo = recipientRepo ?? mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
     if (!targetRepo) {
       throw new NoteError(1, `"${toRaw}" has a registered inbox but no repo could be resolved to record the note in - pass --recipient-repo`);
     }
-    if (!inboxRecord.cwd) {
+    if (!recipientRepo) {
       warnings.push(
-        `"${toRaw}" registered no cwd, so the ledger line went to ${targetRepo} (this session's repo), `
-        + "not the recipient's. The ~/.agents/notes mirror is what note-inbox reads.",
+        `"${toRaw}" registered ${inboxRecord.cwd ? `cwd ${inboxRecord.cwd}, which does not exist here` : 'no cwd'}, `
+        + `so the ledger line went to ${targetRepo} (this session's repo), not the recipient's. The `
+        + '~/.agents/notes mirror is what note-inbox reads, so the note still arrives; pass '
+        + '--recipient-repo to put the repo copy where you want it.',
       );
     }
   } else if (paneError) {
@@ -427,11 +445,17 @@ export async function runNoteSend(argv, deps = {}) {
       plan.push(`write packet ${packetPath} from ${args['packet-file'] === '-' ? 'stdin' : args['packet-file']}${force ? ' (--force: overwrites an existing packet)' : ' (refuses to overwrite)'}`);
     }
     for (const t of ledgerTargets) plan.push(`append envelope to ${t}`);
-    if (!isBen) {
+    if (!isBen && inboxRecord) {
+      // N4: this is what a real send would do, so it is what the preview says.
       plan.push('drain ~/.agents/notes/outbox first (3 s budget)');
-      plan.push('classify pane via `terminal show` + `terminal read`; Claude sends idle or working, Codex idle only');
-      plan.push('two-phase: baseline read, `terminal send --text <envelope>` (no --enter), re-read, then `terminal send --enter`');
-      plan.push('on any refusal: write ~/.agents/notes/outbox/<id>.json and exit 3; note-flush retries the wake-up');
+      plan.push(`post the envelope into ${toRaw}'s inbox and exit 0 - no terminal list, show, read or send`);
+    } else if (!isBen) {
+      plan.push('drain ~/.agents/notes/outbox first (3 s budget)');
+      plan.push('no registered inbox: record the note, queue the wake-up, exit 3');
+      plan.push('classify pane via `terminal show` + `terminal read` (the LAST-RESORT typed path, reachable '
+        + 'only with MULTI_ALLOW_TYPING=1); Claude sends idle or working, Codex idle only');
+      plan.push('two-phase: baseline read, `terminal send --text <envelope>` (no --enter), re-read, then '
+        + '`terminal send --enter` - last resort only; a recipient with a registered inbox is posted to instead');
     }
     return {
       ok: true, exitCode: 0, envelope, id, to: toRaw, handle: null,

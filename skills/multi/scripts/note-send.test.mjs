@@ -8,6 +8,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { childEnv, scratchHome } from './test-child-env.mjs';
+
 import {
   NoteError, MAX_LINE,
   normalizeTitle, titleMatchesSlug, resolvePane, isLocalPane,
@@ -808,9 +810,17 @@ function linkedScriptsDir() {
   }
 }
 
-function runScript(script, args) {
+/**
+ * N2: a fixture HOME and the sealed messaging vars, through the one helper. This ran with no `env` at
+ * all, so the child inherited Ben's real `~/.agents/notes` AND this session's inbox credential. Nothing
+ * it runs today registers or posts - `--help`, a `--dry-run`, an exit-1 rejection - but the next test
+ * anybody adds here would be a real send, reading the real registry and able to post into a live
+ * session. The rule is the class, not today's luck.
+ */
+function runScript(script, args, home = scratchHome(fs, 'note-send-cli-')) {
+  const options = { encoding: 'utf8', env: childEnv(home) };
   try {
-    return { code: 0, stdout: execFileSync(process.execPath, [script, ...args], { encoding: 'utf8' }) };
+    return { code: 0, stdout: execFileSync(process.execPath, [script, ...args], options) };
   } catch (err) {
     return { code: err.status, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
   }

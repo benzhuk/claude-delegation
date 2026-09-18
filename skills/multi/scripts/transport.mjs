@@ -1207,6 +1207,8 @@ function normalizeInboxRecord(rec) {
   const common = {
     kind: rec.kind,
     at: Number.isFinite(Number(rec.at)) ? Number(rec.at) : 0,
+    // N3: when this slug last had a conflict reported, so the line is throttled without a second file.
+    ...(Number.isFinite(Number(rec.conflictAt)) ? { conflictAt: Number(rec.conflictAt) } : {}),
     ...(Number.isFinite(Number(rec.pid)) ? { pid: Number(rec.pid) } : {}),
     ...(str(rec.host) ? { host: String(rec.host) } : {}),
     ...(str(rec.cwd) ? { cwd: String(rec.cwd) } : {}),
@@ -1272,6 +1274,28 @@ export function describeInbox(record) {
   return out;
 }
 
+/**
+ * Is the endpoint a record names still there? (N3.)
+ *
+ * For a Claude session the socket file IS the session: it is created at bind and removed on exit, so a
+ * missing path is a session that is gone and cannot be in conflict with anything. On native Windows the
+ * endpoint is a named pipe, which `existsSync` cannot answer for, so we fall back to the pid - and when
+ * we cannot tell at all we answer "still there", because the conservative direction here is to SAY
+ * something rather than to swallow a real split.
+ *
+ * Codex has no endpoint to test: its queue is a SQLite store that outlives the session, so a
+ * `codex-queue` record is always treated as live.
+ */
+export function inboxEndpointExists(record, fsImpl = fs, platform = process.platform) {
+  if (!record) return false;
+  if (record.kind !== 'claude-socket') return true;
+  if (platform === 'win32' || String(record.socket ?? '').startsWith('\\\\')) {
+    if (!Number.isFinite(Number(record.pid))) return true;
+    try { process.kill(Number(record.pid), 0); return true; } catch (err) { return err?.code === 'EPERM'; }
+  }
+  try { return fsImpl.existsSync(record.socket); } catch { return true; }
+}
+
 /** tmp + chmod + rename: atomic FOR READERS, and owner-only whether the file is new or replaced. */
 function writeInboxesFile(home, inboxes, fsImpl) {
   const file = inboxesPath(home);
@@ -1331,16 +1355,37 @@ export function writeInbox(home, slug, record, opts = {}) {
   // notes then go to whichever wrote last. The registry cannot REFUSE the ambiguity the way the pane
   // path did - a session is the authority on its own inbox, and a restart legitimately replaces the
   // entry - but replacing a FRESH, DIFFERENT record is the signature of a split, and that gets one line
-  // in the file Ben greps. Token-free: only `describeInbox` output is ever written.
+  // in the file Ben greps. Token-free: only fields `describeInbox` would emit are ever written.
+  //
+  // N3 put two qualifiers on it, because the first version cried wolf and then never stopped:
+  //   · a pane RESTARTED within the refresh window is the same single session under a new id, not a
+  //     split. If the previous record's endpoint is provably gone, there is nobody to be in conflict
+  //     WITH, and the line is wrong.
+  //   · a genuine split writes on every hook event of both sessions, which is the steady-state noise C3
+  //     had just removed from `no-inbox`. So it is said at most once per refresh window per slug.
   if (previous && !sameInbox(previous, norm) && now - Number(previous.at ?? 0) < INBOX_REFRESH_MS) {
-    out.conflict = true;
-    appendFlushLog(
-      home,
-      `${new Date(now).toISOString()} inbox-conflict ${slug} - replaced a ${previous.kind} registration `
-      + `written ${Math.round((now - Number(previous.at ?? 0)) / 1000)}s ago. Two live sessions are claiming `
-      + 'this slug; notes go to whichever registered last. Give one of them its own slug.',
-      fsImpl,
-    );
+    const previousStillThere = inboxEndpointExists(previous, fsImpl);
+    const lastSaid = Number(previous.conflictAt ?? 0);
+    const quiet = now - lastSaid < INBOX_REFRESH_MS;
+    if (previousStillThere && !quiet) {
+      out.conflict = true;
+      inboxes[String(slug)] = { ...norm, conflictAt: now };
+      try { writeInboxesFile(home, inboxes, fsImpl); } catch { /* the entry is written; the stamp is a nicety */ }
+      appendFlushLog(
+        home,
+        `${new Date(now).toISOString()} inbox-conflict ${slug} - replaced a ${previous.kind} registration `
+        + `written ${Math.round((now - Number(previous.at ?? 0)) / 1000)}s ago whose session is still there. `
+        + 'Two live sessions are claiming this slug; notes go to whichever registered last. Give one of '
+        + 'them its own slug. (Said at most once a minute.)',
+        fsImpl,
+      );
+    } else if (previousStillThere && quiet) {
+      // Still split, already reported: carry the stamp forward so the throttle holds across the swaps.
+      out.conflict = true;
+      out.quiet = true;
+      inboxes[String(slug)] = { ...norm, conflictAt: lastSaid };
+      try { writeInboxesFile(home, inboxes, fsImpl); } catch { /* best effort */ }
+    }
   }
   out.inbox = describeInbox(norm);
   return out;

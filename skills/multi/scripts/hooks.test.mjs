@@ -10,6 +10,9 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { toPosix, cursorPath, readCursor } from './transport.mjs';
+// S1/S2, then N2: ONE sealing helper for the whole suite, so the rule is a property of the suite and
+// not of this file. `no test file inherits the runner environment` below is what keeps it that way.
+import { childEnv, SEALED } from './test-child-env.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'multi-inbox.js');
@@ -47,28 +50,6 @@ const note = (id, kind = 'ASK', body = 'Please review PR 137') =>
  * Run the hook exactly as Claude Code does: JSON on stdin, the event name in argv, and a HOME that
  * points at the fixture. HOME/USERPROFILE both set — os.homedir() reads USERPROFILE on Windows.
  */
-/**
- * The ONLY way this file builds a child environment (review S1/S2).
- *
- * This suite runs INSIDE a Claude Code session, which exports its own inbox socket and its own
- * per-session token to every child it spawns. A hook child that inherited them registers the RUNNING
- * session under a fixture slug and writes a REAL token into a `%TEMP%` directory nobody cleans up —
- * which is exactly what happened on 2026-09-17, silently, while the test passed.
- *
- * Sealing it at one site is the point: the three sites that were safe before were safe only because
- * they pointed `CLAUDE_PLUGIN_ROOT` at a directory that does not exist, so the registration threw and
- * was swallowed. That is a property of what those tests happen to be about, not a decision. Every
- * spawn goes through here, and `D2: no child can register anything the fixture did not give it` fails
- * if anybody adds a site that does not.
- */
-function childEnv(home, over = {}) {
-  return {
-    ...process.env, HOME: home, USERPROFILE: home,
-    CLAUDE_CODE_MESSAGING_SOCKET: '', CLAUDE_CODE_MESSAGING_TOKEN: '',
-    ...over,
-  };
-}
-
 function runHook(event, home, input = {}, extraEnv = {}) {
   const stdout = execFileSync(process.execPath, [HOOK, event], {
     input: JSON.stringify({ hook_event_name: event, cwd: home, session_id: SESSION_ID, ...input }),
@@ -423,4 +404,32 @@ test('S1: no hook child can register anything the fixture did not give it', () =
     assert.equal(seen.includes(SENTINEL_TOKEN), false, `sentinel token reached ${home}`);
     assert.equal(seen.includes('SENTINEL'), false, `sentinel socket reached ${home}`);
   }
+});
+
+test('N2: no test file in this suite inherits the runner environment on its own', () => {
+  // The rule, enforced rather than remembered: every child environment is built by `childEnv`, so no
+  // test file spreads `process.env` itself. A new spawn site that forgets the seal fails HERE, at the
+  // class, instead of quietly writing this session's token into a fixture the way the 2026-09-17 one
+  // did. (`test-child-env.mjs` is the one place that spread lives, and it is not a .test.mjs.)
+  const roots = [
+    path.join(REPO, 'skills', 'multi', 'scripts'),
+    path.join(REPO, 'hooks'),
+    path.join(REPO, 'scripts'),
+  ];
+  const offenders = [];
+  for (const dir of roots) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.test.mjs')) continue;
+      const text = fs.readFileSync(path.join(dir, name), 'utf8');
+      // Built, never written: a literal here would make this test its own first offender.
+      const needle = ['...', 'process', '.', 'env'].join('');
+      for (const [i, line] of text.split('\n').entries()) {
+        if (line.includes(needle)) offenders.push(`${name}:${i + 1}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `these spawn sites build their own env instead of using childEnv(): ${offenders.join(', ')}`);
+  assert.deepEqual(Object.keys(SEALED).sort(), ['CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN']);
+  assert.equal(childEnv('/fixture').CLAUDE_CODE_MESSAGING_TOKEN, '', 'and the helper really does blank them');
+  assert.equal(childEnv('/fixture').HOME, '/fixture');
 });

@@ -8,6 +8,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { childEnv } from './test-child-env.mjs';
+
 import { NoteError } from './envelope.mjs';
 import { toPosix, cursorPath, readCursor, recentLedgerFiles } from './transport.mjs';
 import {
@@ -283,7 +285,9 @@ test('the CLI exits 0 and prints JSON against a fixture ledger, even when it can
   // the test is the same on every machine.
   const run = (args) => execFileSync(
     process.execPath, [SCRIPT, '--home', home, '--orca', 'not-a-real-orca-binary-xyz', ...args],
-    { encoding: 'utf8', env: { ...process.env, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' } },
+    // N2: through the one helper, so this child cannot see the running session's inbox or real home
+    // even though `--home` already points it at the fixture.
+    { encoding: 'utf8', env: childEnv(home, { NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' }) },
   );
 
   const out = JSON.parse(run(['--me', 'taxonomy', '--json', '--cold-start-hours', '0', '--no-repo']));

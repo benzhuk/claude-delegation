@@ -109,6 +109,9 @@ export const INBOX_FLOOR_MS = { 'claude-socket': 750, 'codex-queue': 5_000 };
  */
 export const NOT_AN_ATTEMPT = new Set(['codex-no-thread', 'no-inbox']);
 
+/** What a `no-inbox` result says, in one place: it is reported per entry and read by note-send. */
+export const NO_INBOX_DETAIL = 'no inbox registered on this machine; the ledger has the note and its own hooks will read it';
+
 /** What 0.4.0 wrote while a Stop hook was parked. Nothing writes these now, so every one is garbage. */
 export const LISTENING_MARKER_RE = /^\.listening-.+\.json$/;
 
@@ -455,7 +458,8 @@ export async function runNoteFlush(argv, deps = {}) {
 
   // C1: one line for the whole pass, the way the typed path reports a budget that could never type.
   if (shortBudget.length > 0 && !dryRun) {
-    const worst = shortBudget[0];
+    // N6: the smallest, not the first - the line quotes a number, so it had better be the real one.
+    const worst = shortBudget.reduce((a, b) => (b.budget < a.budget ? b : a));
     appendFlushLog(
       home,
       `${stamp} budget-only-pass ${shortBudget.length} inbox entr${shortBudget.length === 1 ? 'y' : 'ies'} `
@@ -470,25 +474,39 @@ export async function runNoteFlush(argv, deps = {}) {
   //    and a BLOCKED line in the one file Ben reads. It ages out at --max-age-hours like anything else.
   if (!allowTyping) {
     for (const entry of needTyping) {
-      remaining += 1;
       // C3: at one drain a minute plus one per note-send, logging this unconditionally writes on the
       // order of 2 880 identical lines before the entry expires - into the file SKILL.md tells Ben to
       // grep. The entry remembers the state, so the line goes in on a CHANGE of state and never again
       // while nothing changes. `attempts` is untouched: nothing was attempted.
       const changed = entry.lastOutcome !== 'no-inbox';
-      if (changed && !dryRun) {
-        writeOutboxEntry(
-          home,
-          { ...entry, lastOutcome: 'no-inbox', lastError: 'no inbox registered on this machine' },
-          fsImpl,
-        );
+      if (!changed || dryRun) {
+        remaining += 1;
+        results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-inbox', detail: NO_INBOX_DETAIL, log: null });
+        continue;
       }
+
+      // N1: take the claim, like EVERY other writer in this file. `writeOutboxEntry` RECREATES the
+      // file, so writing an entry we do not hold RESURRECTS one another drainer has just delivered and
+      // retired - and the next drain delivers it again, which is a duplicate turn in a peer's session.
+      // The window is not theoretical: this drain can spend seconds awaiting posts for other entries
+      // (5 s a socket, 20 s a Codex queue) while the recipient registers and a second drainer delivers
+      // this one. Losing the claim means there is nothing of ours left to record, which is the right
+      // answer rather than a problem.
+      const claim = claimOutboxEntry(home, entry.id, fsImpl);
+      if (!claim) {
+        results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'claimed-elsewhere' });
+        continue;
+      }
+      remaining += 1;
+      writeOutboxEntry(
+        home,
+        { ...entry, lastOutcome: 'no-inbox', lastError: 'no inbox registered on this machine' },
+        fsImpl,
+      );
+      releaseClaim(claim, fsImpl);
       results.push({
-        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-inbox',
-        detail: 'no inbox registered on this machine; the ledger has the note and its own hooks will read it',
-        log: changed
-          ? log('no-inbox', entry, 'no inbox registered on this machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)')
-          : null,
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-inbox', detail: NO_INBOX_DETAIL,
+        log: log('no-inbox', entry, 'no inbox registered on this machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)'),
       });
     }
     return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
