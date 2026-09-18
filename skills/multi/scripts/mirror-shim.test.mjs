@@ -14,6 +14,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { childEnv } from './test-child-env.mjs';
+
 import { codexHookHash, trustKey } from '../../../scripts/codex-hook-trust.mjs';
 
 const MIRROR = fileURLToPath(new URL('../../../scripts/mirror-shared-skills.mjs', import.meta.url));
@@ -25,7 +27,8 @@ const IS_WINDOWS = process.platform === 'win32';
  * Windows. CODEX_HOME is cleared for the same reason.
  */
 function fakeEnv(home) {
-  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  // N2: `childEnv` adds the messaging seal to the home seal this already had.
+  const env = childEnv(home);
   env.APPDATA = path.join(home, 'AppData', 'Roaming');
   env.LOCALAPPDATA = path.join(home, 'AppData', 'Local');
   delete env.CODEX_HOME;

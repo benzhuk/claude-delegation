@@ -1146,6 +1146,376 @@ function writePaneSlugCache(home, cache, fsImpl = fs) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Inbox registry (spec 2026-09-17) — "notes for <slug> land HERE, without a keystroke"
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `~/.agents/notes/inboxes.json`, mode 600 — one entry per slug, written by that session's OWN hook.
+ *
+ * This is the file that replaces typing. Claude Code binds a per-session inbox socket and exports its
+ * path and a per-session token to its own hooks; Codex watches an on-disk queue keyed by thread id. A
+ * session that records its coordinates here can be woken by any process on the machine WITHOUT a
+ * synthesised keystroke — which is the whole point: on 2026-09-17 the flusher typed a peer note into
+ * the middle of a sentence Ben was writing and submitted it.
+ *
+ * MODE 600 IS NOT COSMETIC. A `claude-socket` entry holds `CLAUDE_CODE_MESSAGING_TOKEN`, which is the
+ * credential that lets a non-child process post into that session. It is KEY MATERIAL: it is never
+ * logged, never printed, never put in an error message, never included in a `--json` result, and never
+ * written anywhere but this file. `describeInbox` exists so everything that DOES get printed goes
+ * through one token-free projection.
+ */
+export function inboxesPath(home) { return toPosix(path.posix.join(notesDir(home), 'inboxes.json')); }
+
+export const INBOX_VERSION = 1;
+/** The two transports that exist. Anything else in the file is ignored, not guessed at. */
+export const INBOX_KINDS = new Set(['claude-socket', 'codex-queue']);
+/** Owner-only, on create AND on every rewrite. */
+export const INBOX_MODE = 0o600;
+/**
+ * A registration this old is dropped on the next drain. Deliberately long: a live session refreshes its
+ * entry on every prompt and every turn end, and the real staleness signal is the socket itself
+ * disappearing (ENOENT → `removeInbox`), not the clock. A short GC here would only un-register sessions
+ * that are alive but quiet, and cost a `no-inbox` for every note to them until their next turn.
+ */
+export const INBOX_GC_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How stale an identical entry may be before a hook rewrites it. The hooks run on every prompt, every
+ * turn end and (behind an mtime gate) every tool call; rewriting an unchanged record each time would
+ * make one file the hottest thing in the protocol for no gain.
+ */
+export const INBOX_REFRESH_MS = 60 * 1000;
+
+/** Same session, same coordinates? The `at` stamp and the cosmetic fields are ignored. */
+export function sameInbox(a, b) {
+  if (!a || !b || a.kind !== b.kind) return false;
+  // `host` and `sessionId` are NOT cosmetic (review C6/C7): a recycled pid re-creates the exact same
+  // socket path for a DIFFERENT session, and an entry matched only on the path would keep pointing at it.
+  if ((a.host ?? null) !== (b.host ?? null)) return false;
+  if (a.kind === 'claude-socket') return a.socket === b.socket && a.token === b.token && a.sessionId === b.sessionId;
+  return a.codexHome === b.codexHome && a.threadId === b.threadId;
+}
+
+/**
+ * One entry, or null when it is not something we could deliver to. Validation is per kind, and a record
+ * that fails it is DROPPED rather than half-kept: a `claude-socket` without a token cannot be posted to
+ * on Windows at all, and a `codex-queue` without a thread id is a `codex queue` call that would fail.
+ */
+function normalizeInboxRecord(rec) {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  if (!INBOX_KINDS.has(rec.kind)) return null;
+  const str = (v) => (typeof v === 'string' && v.length > 0 ? v : null);
+  const common = {
+    kind: rec.kind,
+    at: Number.isFinite(Number(rec.at)) ? Number(rec.at) : 0,
+    // N3: when this slug last had a conflict reported, so the line is throttled without a second file.
+    ...(Number.isFinite(Number(rec.conflictAt)) ? { conflictAt: Number(rec.conflictAt) } : {}),
+    ...(Number.isFinite(Number(rec.pid)) ? { pid: Number(rec.pid) } : {}),
+    ...(str(rec.host) ? { host: String(rec.host) } : {}),
+    ...(str(rec.cwd) ? { cwd: String(rec.cwd) } : {}),
+  };
+  if (rec.kind === 'claude-socket') {
+    const socket = str(rec.socket);
+    const token = str(rec.token);
+    // REQUIRED (review C6). It is what makes a misdelivery impossible rather than merely unlikely: the
+    // socket path is `/tmp/cc-socks/<pid>.sock`, a pid IS reused sooner or later, and the receiver drops
+    // any frame whose `session_id` is not its own. A record written before this fix has none, so it is
+    // dropped here and that session re-registers on its next hook event - one nudge lost, never a note.
+    const sessionId = str(rec.sessionId);
+    if (!socket || !token || !sessionId) return null;
+    return { ...common, socket, token, sessionId };
+  }
+  const codexHome = str(rec.codexHome);
+  const threadId = str(rec.threadId);
+  if (!codexHome || !threadId) return null;
+  return { ...common, codexHome, threadId };
+}
+
+/**
+ * Every inbox on this machine, skipping anything malformed. A corrupt file is an empty map, never a
+ * throw: this is read from a per-prompt hook, and a hook that throws is Ben's session broken.
+ *
+ * The records carry the token, because `inbox-claude.mjs` needs it to open the connection. NOTHING may
+ * put a record straight into a log line, an error, or a returned result — use `describeInbox`.
+ */
+export function readInboxes(home, fsImpl = fs) {
+  let raw;
+  try { raw = JSON.parse(readIfExists(inboxesPath(home), fsImpl) || '{}'); } catch { return {}; }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const source = raw.inboxes && typeof raw.inboxes === 'object' && !Array.isArray(raw.inboxes) ? raw.inboxes : raw;
+  const out = {};
+  for (const [slug, rec] of Object.entries(source)) {
+    if (!SLUG_RE.test(slug)) continue;
+    const norm = normalizeInboxRecord(rec);
+    if (norm) out[slug] = norm;
+  }
+  return out;
+}
+
+/**
+ * A token-free view of an entry: what a log line, an error message or a `--json` result may contain.
+ * The socket PATH and the Codex home are not secrets (they are visible in any process listing), but the
+ * token is, so this projection simply never carries it.
+ */
+export function describeInbox(record) {
+  if (!record || typeof record !== 'object') return null;
+  const out = { kind: record.kind, at: Number(record.at ?? 0) };
+  if (record.pid !== undefined) out.pid = Number(record.pid);
+  if (record.host !== undefined) out.host = String(record.host);
+  if (record.kind === 'claude-socket') {
+    out.socket = String(record.socket ?? '');
+    // Not a secret: it is the id the RECEIVER checks each frame against, and it is what tells two
+    // registrations behind one recycled pid apart in a log line.
+    out.sessionId = String(record.sessionId ?? '');
+  }
+  if (record.kind === 'codex-queue') {
+    out.codexHome = String(record.codexHome ?? '');
+    out.threadId = String(record.threadId ?? '');
+  }
+  return out;
+}
+
+/**
+ * Is the endpoint a record names still there? (N3.)
+ *
+ * For a Claude session the socket file IS the session: it is created at bind and removed on exit, so a
+ * missing path is a session that is gone and cannot be in conflict with anything. On native Windows the
+ * endpoint is a named pipe, which `existsSync` cannot answer for, so we fall back to the pid - and when
+ * we cannot tell at all we answer "still there", because the conservative direction here is to SAY
+ * something rather than to swallow a real split.
+ *
+ * Codex has no endpoint to test: its queue is a SQLite store that outlives the session, so a
+ * `codex-queue` record is always treated as live.
+ */
+export function inboxEndpointExists(record, fsImpl = fs, platform = process.platform) {
+  if (!record) return false;
+  if (record.kind !== 'claude-socket') return true;
+  if (platform === 'win32' || String(record.socket ?? '').startsWith('\\\\')) {
+    if (!Number.isFinite(Number(record.pid))) return true;
+    try { process.kill(Number(record.pid), 0); return true; } catch (err) { return err?.code === 'EPERM'; }
+  }
+  try { return fsImpl.existsSync(record.socket); } catch { return true; }
+}
+
+/** tmp + chmod + rename: atomic FOR READERS, and owner-only whether the file is new or replaced. */
+function writeInboxesFile(home, inboxes, fsImpl) {
+  const file = inboxesPath(home);
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  // Unlink first (review C12): `mode` on writeFileSync applies only when the file is CREATED, so a
+  // leftover tmp from an earlier process with this pid would be written into at whatever mode it
+  // already had, and token bytes would exist at that mode until the chmod below. Removing it first
+  // means the file is always created here. The chmod then covers what a create mode cannot: umask can
+  // only NARROW a create mode, never widen one, so the risk was never umask - it was the leftover.
+  try { fsImpl.rmSync(tmp, { force: true }); } catch { /* it will be created, or the write says why */ }
+  fsImpl.writeFileSync(tmp, `${JSON.stringify({ version: INBOX_VERSION, inboxes }, null, 2)}\n`, { encoding: 'utf8', mode: INBOX_MODE });
+  try { fsImpl.chmodSync(tmp, INBOX_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
+  try {
+    fsImpl.renameSync(tmp, file);
+  } catch (err) {
+    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    throw err;
+  }
+  return file;
+}
+
+/**
+ * Record "notes for <slug> can be delivered HERE". Same shape of promise as `writeBinding`: the session
+ * is the authority on its own inbox, so an existing entry for the slug is replaced.
+ *
+ * Never throws, and the RETURN IS TOKEN-FREE — `inbox` is a `describeInbox` projection, so a caller
+ * that logs or JSON-prints the result cannot leak the token by accident.
+ *
+ * @returns {{ file: string|null, slug: string, inbox: object|null, error: string|null }}
+ */
+export function writeInbox(home, slug, record, opts = {}) {
+  const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
+  const now = opts.now ?? Date.now();
+  const out = { file: null, slug: String(slug), inbox: null, error: null };
+  if (!SLUG_RE.test(String(slug))) {
+    out.error = `"${slug}" is not a legal slug`;
+    return out;
+  }
+  const norm = normalizeInboxRecord({ ...record, at: record?.at ?? now });
+  if (!norm) {
+    // Deliberately says only WHICH kind was unusable: the rejected record may be a claude-socket whose
+    // token is the only field present, and this string ends up in a hook's warn stamp.
+    out.error = `not a usable inbox record (kind: ${record?.kind ?? 'missing'})`;
+    return out;
+  }
+  const inboxes = readInboxes(home, fsImpl);
+  const previous = inboxes[String(slug)] ?? null;
+  inboxes[String(slug)] = norm;
+  try {
+    out.file = writeInboxesFile(home, inboxes, fsImpl);
+  } catch (err) {
+    out.error = err?.message ?? String(err);
+    return out;
+  }
+  // C8: two live sessions exporting the same NOTE_SLUG overwrite each other on every hook event, and
+  // notes then go to whichever wrote last. The registry cannot REFUSE the ambiguity the way the pane
+  // path did - a session is the authority on its own inbox, and a restart legitimately replaces the
+  // entry - but replacing a FRESH, DIFFERENT record is the signature of a split, and that gets one line
+  // in the file Ben greps. Token-free: only fields `describeInbox` would emit are ever written.
+  //
+  // N3 put two qualifiers on it, because the first version cried wolf and then never stopped:
+  //   · a pane RESTARTED within the refresh window is the same single session under a new id, not a
+  //     split. If the previous record's endpoint is provably gone, there is nobody to be in conflict
+  //     WITH, and the line is wrong.
+  //   · a genuine split writes on every hook event of both sessions, which is the steady-state noise C3
+  //     had just removed from `no-inbox`. So it is said at most once per refresh window per slug.
+  if (previous && !sameInbox(previous, norm) && now - Number(previous.at ?? 0) < INBOX_REFRESH_MS) {
+    const previousStillThere = inboxEndpointExists(previous, fsImpl);
+    const lastSaid = Number(previous.conflictAt ?? 0);
+    const quiet = now - lastSaid < INBOX_REFRESH_MS;
+    if (previousStillThere && !quiet) {
+      out.conflict = true;
+      inboxes[String(slug)] = { ...norm, conflictAt: now };
+      try { writeInboxesFile(home, inboxes, fsImpl); } catch { /* the entry is written; the stamp is a nicety */ }
+      appendFlushLog(
+        home,
+        `${new Date(now).toISOString()} inbox-conflict ${slug} - replaced a ${previous.kind} registration `
+        + `written ${Math.round((now - Number(previous.at ?? 0)) / 1000)}s ago whose session is still there. `
+        + 'Two live sessions are claiming this slug; notes go to whichever registered last. Give one of '
+        + 'them its own slug. (Said at most once a minute.)',
+        fsImpl,
+      );
+    } else if (previousStillThere && quiet) {
+      // Still split, already reported: carry the stamp forward so the throttle holds across the swaps.
+      out.conflict = true;
+      out.quiet = true;
+      inboxes[String(slug)] = { ...norm, conflictAt: lastSaid };
+      try { writeInboxesFile(home, inboxes, fsImpl); } catch { /* best effort */ }
+    }
+  }
+  out.inbox = describeInbox(norm);
+  return out;
+}
+
+/**
+ * Forget one slug's inbox — what the flusher does the moment a socket answers ENOENT/ECONNREFUSED, so
+ * the next drain does not spend another connection on a session that has exited.
+ *
+ * @returns {{ file: string|null, slug: string, removed: object|null, error: string|null }}
+ */
+export function removeInbox(home, slug, opts = {}) {
+  const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
+  const out = { file: null, slug: String(slug), removed: null, error: null };
+  const inboxes = readInboxes(home, fsImpl);
+  if (!inboxes[String(slug)]) return out; // nothing registered: not an error, there is nothing to undo
+  const removed = describeInbox(inboxes[String(slug)]);
+  delete inboxes[String(slug)];
+  try {
+    out.file = writeInboxesFile(home, inboxes, fsImpl);
+    out.removed = removed;
+  } catch (err) {
+    out.error = err?.message ?? String(err);
+  }
+  return out;
+}
+
+/**
+ * Drop registrations older than `maxAgeMs`. Returned entries are token-free projections.
+ *
+ * @returns {{slug: string, kind: string, ageMs: number}[]} what was dropped
+ */
+export function pruneInboxes(home, { fsImpl = fs, now = Date.now(), maxAgeMs = INBOX_GC_MS } = {}) {
+  const inboxes = readInboxes(home, fsImpl);
+  const dropped = [];
+  for (const [slug, rec] of Object.entries(inboxes)) {
+    const ageMs = now - Number(rec.at ?? 0);
+    if (ageMs <= maxAgeMs) continue;
+    dropped.push({ slug, kind: rec.kind, ageMs });
+    delete inboxes[slug];
+  }
+  if (dropped.length === 0) return dropped;
+  try { writeInboxesFile(home, inboxes, fsImpl); } catch { return []; }
+  return dropped;
+}
+
+/**
+ * This Claude session's inbox coordinates, or null when the session has none.
+ *
+ * Both env vars are exported to a session's own hooks before anything else runs, including SessionStart
+ * (verified live on 2.1.275, Netcup, 2026-09-17). `pid` is the Claude process — `process.ppid` inside a
+ * hook — and it is recorded for a human reading the file, never used for delivery.
+ */
+export function claudeInboxRecord(env = process.env, { sessionId, pid = undefined, cwd = undefined, host = undefined } = {}) {
+  const socket = env?.CLAUDE_CODE_MESSAGING_SOCKET;
+  const token = env?.CLAUDE_CODE_MESSAGING_TOKEN;
+  // No session id, no registration (review C6). The id comes from the hook payload Claude Code writes
+  // to this hook's stdin, so it is first-hand; without it the post could not be pinned to the session
+  // that registered, and a recycled pid would silently redirect somebody's note into another session.
+  if (!socket || !token || !sessionId) return null;
+  return {
+    kind: 'claude-socket',
+    socket: String(socket),
+    token: String(token),
+    sessionId: String(sessionId),
+    host: String(host ?? os.hostname()),
+    ...(Number.isFinite(Number(pid)) ? { pid: Number(pid) } : {}),
+    ...(cwd ? { cwd: toPosix(cwd) } : {}),
+  };
+}
+
+/**
+ * This Codex session's inbox coordinates. The thread id IS the hook payload's `session_id` — spiked on
+ * 2026-09-17: `codex queue --thread <that id>` accepts it verbatim and the idle TUI turns on it. The
+ * home must be the SAME `CODEX_HOME` as the target, because the queue is a SQLite store inside it; a
+ * session whose env does not name one falls back to `~/.codex`, which is what `codex` itself does.
+ */
+export function codexInboxRecord(env = process.env, { threadId, cwd = undefined, pid = undefined, home = undefined, host = undefined } = {}) {
+  if (!threadId) return null;
+  const codexHome = env?.CODEX_HOME || path.posix.join(toPosix(home ?? os.homedir()), '.codex');
+  return {
+    kind: 'codex-queue',
+    codexHome: toPosix(codexHome),
+    threadId: String(threadId),
+    // C7: `~/.agents/notes` is per-machine today, but a restored backup or a synced profile would make
+    // one machine's registry describe another's sessions. Both clients refuse a record stamped with
+    // somebody else's hostname rather than dialling a path that means something different here.
+    host: String(host ?? os.hostname()),
+    ...(Number.isFinite(Number(pid)) ? { pid: Number(pid) } : {}),
+    ...(cwd ? { cwd: toPosix(cwd) } : {}),
+  };
+}
+
+/**
+ * Register this session's inbox from a hook — throttled and silent.
+ *
+ * Skipped entirely when an identical record was written less than `refreshMs` ago, so the hot path
+ * costs one small JSON read. NEVER throws and never returns a token; a registration that cannot be
+ * written costs one `no-inbox` deferral, and the note is already in the ledger.
+ *
+ * @returns {{ written: boolean, reason: string, slug: string, inbox: object|null, error: string|null }}
+ */
+export function registerInbox(home, slug, record, opts = {}) {
+  const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
+  const now = opts.now ?? Date.now();
+  const refreshMs = opts.refreshMs ?? INBOX_REFRESH_MS;
+  const out = { written: false, reason: 'skipped', slug: String(slug ?? ''), inbox: null, error: null };
+  try {
+    if (!record) { out.reason = 'no-inbox-in-env'; return out; }
+    if (!SLUG_RE.test(String(slug))) { out.reason = 'no-slug'; return out; }
+    const existing = readInboxes(home, fsImpl)[String(slug)];
+    if (existing && sameInbox(existing, record) && now - Number(existing.at ?? 0) < refreshMs) {
+      out.reason = 'fresh';
+      out.inbox = describeInbox(existing);
+      return out;
+    }
+    const res = writeInbox(home, slug, record, { fs: fsImpl, now });
+    out.error = res.error;
+    out.inbox = res.inbox;
+    out.written = Boolean(res.file);
+    out.reason = res.file ? 'written' : 'error';
+    return out;
+  } catch (err) {
+    out.reason = 'error';
+    out.error = err?.message ?? String(err);
+    return out;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pane bindings (spec 2026-09-14) — "this pane IS <slug>", said by the pane itself
 // ─────────────────────────────────────────────────────────────────────────────
 

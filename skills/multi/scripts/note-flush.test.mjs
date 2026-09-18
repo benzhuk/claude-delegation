@@ -24,6 +24,15 @@ import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-
 
 function tmp() { return toPosix(fs.mkdtempSync(path.join(os.tmpdir(), 'note-flush-'))); }
 
+/**
+ * Typing is the LAST RESORT since 0.5.0 (spec 2026-09-17, D3): note-flush delivers to a recipient's own
+ * inbox, and only reaches for the composer when `MULTI_ALLOW_TYPING=1` says it may. Every test below
+ * that asserts a KEYSTROKE therefore opts in explicitly — which is also how this suite documents that a
+ * plain drain types nothing.
+ */
+const TYPING = { MULTI_ALLOW_TYPING: '1' };
+
+
 const NOW = Date.UTC(2026, 8, 13, 18, 0);
 const ENVELOPE = 'astra → taxonomy, 9.13.26 13:45 NYC [astra-pr137-1] ASK: Please review PR 137. Needs: review by 15:00';
 
@@ -90,7 +99,7 @@ const DELIVERY_READS = (id = 'astra-pr137-1') => [
 test('an empty outbox is a silent no-op that never touches orca', async () => {
   const home = tmp();
   const orca = mockOrca({ panes: [claudePane()] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.calls.length, 0);
   assert.equal(formatFlush(res), 'note-flush: outbox empty');
@@ -100,7 +109,7 @@ test('V5: an idle pane gets the queued wake-up typed, two-phase, and the entry i
   const home = tmp();
   queue(home);
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.equal(res.remaining, 0);
   assert.equal(orca.sends().length, 2, 'text first, Enter second — never one combined send');
@@ -113,7 +122,7 @@ test('V5: a pane still at a permission prompt is left queued, with the attempt c
   const home = tmp();
   queue(home);
   const orca = mockOrca({ panes: [claudePane({ agentWait: { reason: 'agent-approval-prompt' } })] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(res.remaining, 1);
   assert.equal(orca.sends().length, 0);
@@ -131,7 +140,7 @@ test('V5: a superseded id is dropped, never typed', async () => {
   fs.writeFileSync(ledger, `${ENVELOPE}\nastra → taxonomy, 9.13.26 14:00 NYC [astra-pr137-2 supersedes astra-pr137-1] ASK: Scrap that.\n`);
 
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(res.results[0].outcome, 'superseded');
   assert.equal(orca.sends().length, 0, 'a retired wake-up must never reach a pane');
@@ -144,7 +153,7 @@ test('a recorded handle that is GONE falls back to the slug, and the log says so
   // is sitting right there. Resolving the dead handle would burn all 20 attempts against nothing.
   queue(home, { handle: 'term_dead' });
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.match(res.results[0].detail, /^handle gone, resolved by slug; typed into term_aaa/);
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /handle gone, resolved by slug/);
@@ -156,7 +165,7 @@ test('a LIVE recorded handle is still used verbatim, whatever the pane is called
   // that is the whole reason note-send records it.
   queue(home, { handle: 'term_aaa', to: 'astra', toSlug: 'astra' });
   const orca = mockOrca({ panes: [claudePane({ title: 'Continue' })], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.doesNotMatch(res.results[0].detail, /handle gone/);
 });
@@ -165,7 +174,7 @@ test('a dead handle whose slug resolves nowhere reports no-pane, saying it fell 
   const home = tmp();
   queue(home, { handle: 'term_dead' });
   const orca = mockOrca({ panes: [claudePane({ title: 'someone-else' })] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'no-pane');
   assert.match(res.results[0].detail, /handle gone, resolved by slug; no pane titled "taxonomy"/);
   assert.equal(readOutbox(home)[0].attempts, 1, 'still just one more attempt, not a lost entry');
@@ -198,7 +207,7 @@ test('2026-09-16: a marker no longer stops the wake-up being typed', async () =>
   const marker = staleMarker(home);
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
 
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
 
   assert.equal(res.drained, 1, 'the marker is swept on the way in, not obeyed');
   assert.equal(fs.existsSync(marker), false);
@@ -226,7 +235,7 @@ test('D9: a wake-up the recipient has already READ is retired unattempted', asyn
   markRead(home, 'taxonomy', 'astra-pr137-1');
 
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(res.results[0].outcome, 'retired');
   assert.equal(orca.sends().length, 0, 'typing it would be a pure duplicate wake-up');
@@ -239,7 +248,7 @@ test('D9: ANOTHER pane having read the id changes nothing — the cursor is per 
   queue(home);
   markRead(home, 'nucleus', 'astra-pr137-1');
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.equal(res.results[0].outcome, 'delivered');
 });
@@ -276,7 +285,7 @@ test('V5: a Codex pane mid-turn keeps its wake-up queued; the same pane idle get
   const home = tmp();
   queue(home, { toSlug: 'astra', handle: 'term_bbb', agentIdentity: 'codex' });
   const busy = mockOrca({ panes: [codexPane()], reads: [readOf(['• Working (42s • esc to interrupt)', '› '])] });
-  const first = await runNoteFlush([], { home, orca: busy, now: NOW });
+  const first = await runNoteFlush([], { home, orca: busy, now: NOW, env: TYPING });
   assert.equal(first.drained, 0);
   assert.equal(busy.sends().length, 0);
 
@@ -284,7 +293,7 @@ test('V5: a Codex pane mid-turn keeps its wake-up queued; the same pane idle get
     panes: [codexPane()],
     reads: [readOf(['› ']), readOf(['› ']), readOf(['› … [astra-pr137-1] ASK: x']), readOf(['› … [astra-pr137-1] ASK: x'])],
   });
-  const second = await runNoteFlush([], { home, orca: idle, now: NOW });
+  const second = await runNoteFlush([], { home, orca: idle, now: NOW, env: TYPING });
   assert.equal(second.drained, 1);
   assert.equal(idle.enters().length, 1);
 });
@@ -294,7 +303,7 @@ test('V5: --to filters the drain to one pane', async () => {
   queue(home);
   queue(home, { id: 'astra-other-1', toSlug: 'nucleus', handle: 'term_zzz' });
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush(['--to', 'taxonomy'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--to', 'taxonomy'], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.ok(fs.existsSync(outboxPath(home, 'astra-other-1')), 'another pane\'s entry is untouched');
 });
@@ -311,7 +320,7 @@ test('V5: an entry whose pane is gone is counted, logged and kept — never cras
   const home = tmp();
   queue(home, { handle: null });
   const orca = mockOrca({ panes: [] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'no-pane');
   assert.equal(res.remaining, 1);
   assert.equal(readOutbox(home)[0].attempts, 1);
@@ -321,7 +330,7 @@ test('V5: a run with no orca at all is exit 0 and leaves everything queued', asy
   const home = tmp();
   queue(home);
   const orca = mockOrca({ failList: true });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.exitCode, 0);
   assert.equal(res.results[0].outcome, 'no-orca');
   assert.equal(readOutbox(home).length, 1);
@@ -332,7 +341,7 @@ test('V5: a hopeless entry is given up on, and an ancient one expires — the le
   queue(home, { id: 'astra-tired-1', attempts: 20 });
   queue(home, { id: 'astra-ancient-1', createdAt: new Date(NOW - 72 * 3_600_000).toISOString() });
   const orca = mockOrca({ panes: [claudePane()] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   const outcomes = Object.fromEntries(res.results.map((r) => [r.id, r.outcome]));
   assert.equal(outcomes['astra-tired-1'], 'gave-up');
   assert.equal(outcomes['astra-ancient-1'], 'expired');
@@ -344,7 +353,7 @@ test('V5: --max-ms 0 attempts nothing and leaves the queue intact', async () => 
   const home = tmp();
   queue(home);
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush(['--max-ms', '0'], { home, orca, now: NOW, clock: () => 0 });
+  const res = await runNoteFlush(['--max-ms', '0'], { home, orca, now: NOW, clock: () => 0, env: TYPING });
   assert.equal(res.attempted, 0);
   assert.equal(res.remaining, 1);
   assert.equal(orca.sends().length, 0);
@@ -354,7 +363,7 @@ test('--dry-run reports what it would retry and writes nothing', async () => {
   const home = tmp();
   queue(home);
   const orca = mockOrca({ panes: [claudePane()] });
-  const res = await runNoteFlush(['--dry-run'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--dry-run'], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'would-retry');
   assert.equal(orca.calls.length, 0);
   assert.ok(!fs.existsSync(flushLogPath(home)));
@@ -432,7 +441,7 @@ test('V4: --to drives the drain, and the drain is scoped to that pane', async ()
     panes: [codexPane()],
     reads: [readOf(['› ']), readOf(['› ']), readOf(['› … [astra-pr137-1] ASK: x']), readOf(['› … [astra-pr137-1] ASK: x'])],
   });
-  const res = await runNoteNotify(['--to', 'astra', JSON.stringify(PAYLOAD)], { home, orca, now: NOW, env: {} });
+  const res = await runNoteNotify(['--to', 'astra', JSON.stringify(PAYLOAD)], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.slug, 'astra');
   assert.equal(res.drained, 1);
   assert.equal(res.event, 'agent-turn-complete');
@@ -443,7 +452,7 @@ test('V4: --to drives the drain, and the drain is scoped to that pane', async ()
 test('V4: with no --to and a cleared environment, the unique Codex pane in the payload cwd is used', async () => {
   const home = tmp();
   const orca = mockOrca({ panes: [codexPane({ worktreePath: '/repo' }), claudePane({ worktreePath: '/other' })] });
-  const res = await runNoteNotify([JSON.stringify(PAYLOAD)], { home, orca, now: NOW, env: {} });
+  const res = await runNoteNotify([JSON.stringify(PAYLOAD)], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.slug, 'astra');
   assert.match(res.slugSource, /payload cwd/);
 });
@@ -462,7 +471,7 @@ test('V4: the previous notify target is chained FIRST, with the same payload, an
   const spawnImpl = (cmd, args, opts) => { spawned.push({ cmd, args, opts }); return { unref() {} }; };
   const res = await runNoteNotify(
     ['--to', 'astra', '--chain', 'C:/tools/ding.exe --loud', JSON.stringify(PAYLOAD)],
-    { home, orca: mockOrca({ panes: [codexPane()] }), now: NOW, env: {}, spawnImpl },
+    { home, orca: mockOrca({ panes: [codexPane()] }), now: NOW, env: TYPING, spawnImpl },
   );
   assert.equal(spawned.length, 1);
   assert.equal(spawned[0].cmd, 'C:/tools/ding.exe');
@@ -480,7 +489,7 @@ test('V4: a chain that cannot be spawned is recorded, and the drain still runs',
     panes: [codexPane()],
     reads: [readOf(['› ']), readOf(['› ']), readOf(['› … [astra-pr137-1] ASK: x']), readOf(['› … [astra-pr137-1] ASK: x'])],
   });
-  const res = await runNoteNotify(['--to', 'astra', '--chain', 'nope.exe'], { home, orca, now: NOW, env: {}, spawnImpl });
+  const res = await runNoteNotify(['--to', 'astra', '--chain', 'nope.exe'], { home, orca, now: NOW, env: TYPING, spawnImpl });
   assert.equal(res.chained.ok, false);
   assert.equal(res.drained, 1, 'a broken chain must not stop the wake-up');
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /chain=FAILED/);
@@ -495,7 +504,7 @@ test('parseChain takes a JSON argv array or a plain string', () => {
 
 test('V4: an unresolvable slug still exits 0, logs, and drains nothing in particular', async () => {
   const home = tmp();
-  const res = await runNoteNotify([], { home, orca: mockOrca({ panes: [] }), now: NOW, env: {} });
+  const res = await runNoteNotify([], { home, orca: mockOrca({ panes: [] }), now: NOW, env: TYPING });
   assert.equal(res.exitCode, 0);
   assert.equal(res.slug, null);
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /slug=unknown/);
@@ -539,7 +548,7 @@ test('AR: a queued wake-up is never typed into a pane Orca titled Action Require
   const home = tmp();
   queue(home, { toSlug: 'astra', handle: 'term_bbb', agentIdentity: 'codex' });
   const orca = mockOrca({ panes: [codexPane({ title: ACTION_REQUIRED })], reads: [readOf(['› '])] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.sends().length, 0);
   assert.match(res.results[0].detail, /permission/);
@@ -591,7 +600,7 @@ test('M2: a claimed entry is invisible to a second flusher — no double-typing'
   const claim = claimOutboxEntry(home, 'astra-pr137-1');
   assert.ok(claim, 'the first claim must win');
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.sends().length, 0, 'a claimed wake-up must never be typed twice');
 });
@@ -600,7 +609,7 @@ test('M2: a delivered entry cannot be resurrected by a stale reader', async () =
   const home = tmp();
   queue(home);
   const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
-  await runNoteFlush([], { home, orca, now: NOW });
+  await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(readOutbox(home).length, 0);
   assert.equal(fs.existsSync(outboxPath(home, 'astra-pr137-1')), false);
   assert.equal(fs.existsSync(outboxPath(home, 'astra-pr137-1') + '.' + process.pid + '.claim'), false, 'the claim goes with the entry');
@@ -659,7 +668,7 @@ test('H4: one wedged pane cannot eat the whole drain — the per-entry budget is
     return new Promise(() => {});     // every show/read hangs forever
   };
   const started = Date.now();
-  const res = await runNoteFlush(['--per-entry-ms', '60', '--phase2-reserve-ms', '0'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--per-entry-ms', '60', '--phase2-reserve-ms', '0'], { home, orca, now: NOW, env: TYPING });
   assert.ok(Date.now() - started < 2000, 'the drain must not wait on a wedged pane');
   assert.equal(list, 1);
   assert.ok(res.results.some((r) => r.outcome === 'timed-out'), JSON.stringify(res.results));
@@ -673,7 +682,7 @@ test('H4: the whole drain still stops at --max-ms with entries left', async () =
     if (args[1] === 'list') return { terminals: [claudePane()] };
     return new Promise(() => {});
   };
-  const res = await runNoteFlush(['--max-ms', '120', '--per-entry-ms', '50', '--phase2-reserve-ms', '0'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--max-ms', '120', '--per-entry-ms', '50', '--phase2-reserve-ms', '0'], { home, orca, now: NOW, env: TYPING });
   assert.ok(res.attempted < 4, 'attempted ' + res.attempted + ' of 4 — the budget was not enforced');
   assert.equal(res.drained, 0);
 });
@@ -682,7 +691,7 @@ test('H4: note-notify stays inside its budget when slug resolution hangs', async
   const home = tmp();
   const orca = async () => new Promise(() => {});
   const started = Date.now();
-  const res = await runNoteNotify(['--max-ms', '150'], { home, orca, now: NOW, env: { ORCA_TERMINAL_HANDLE: 'term_bbb' } });
+  const res = await runNoteNotify(['--max-ms', '150'], { home, orca, now: NOW, env: { ...TYPING, ORCA_TERMINAL_HANDLE: 'term_bbb' } });
   assert.ok(Date.now() - started < 2000, 'a Codex turn end must never leave a stuck process');
   assert.equal(res.exitCode, 0);
   assert.equal(res.slug, null);
@@ -748,7 +757,7 @@ test('incident (2): a budget too small to press Enter means NOTHING is typed', a
   const orca = slowReadOrca({ panes: [claudePane()] });
   // Enough to look, nowhere near enough to finish: the old code typed anyway.
   // The shape note-send's inline piggyback has: a 3 s budget, nowhere near a delivery.
-  const res = await runNoteFlush(['--max-ms', '3000'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--max-ms', '3000'], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.texts().length, 0, 'phase 1 must not run when phase 2 cannot follow');
   assert.equal(orca.enters().length, 0);
@@ -771,7 +780,7 @@ test('incident (2): a slow read can no longer cut the delivery in half once typi
       readOf(['> … [astra-pr137-1] ASK: x']),
     ],
   });
-  const res = await runNoteFlush(['--per-entry-ms', '900', '--phase2-reserve-ms', '300'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--per-entry-ms', '900', '--phase2-reserve-ms', '300'], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1, JSON.stringify(res.results));
   assert.equal(orca.texts().length, 1);
   assert.equal(orca.enters().length, 1, 'the Enter that follows the text must always get its chance');
@@ -783,7 +792,7 @@ test('incident (3): our own stranded line is completed, not refused forever', as
   queue(home);
   // The composer already holds exactly the envelope a previous attempt typed.
   const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(COMPOSER([ENVELOPE]))] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1, JSON.stringify(res.results));
   assert.equal(orca.texts().length, 0, 'it must not be typed a second time');
   assert.equal(orca.enters().length, 1, 'pressing Enter is what completes the interrupted delivery');
@@ -801,7 +810,7 @@ test('incident (3): a composer holding a STACK of our notes is still completed',
   // Exactly the incident's end state: several stranded envelopes, wrapped across lines by the terminal.
   const wrapped = COMPOSER([other.slice(0, 40), other.slice(40), ENVELOPE.slice(0, 50), ENVELOPE.slice(50)]);
   const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(wrapped)] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1, JSON.stringify(res.results));
   assert.equal(orca.enters().length, 1);
   assert.equal(orca.texts().length, 0);
@@ -814,7 +823,7 @@ test('incident (3): foreign text in the composer is still never submitted', asyn
     panes: [claudePane()],
     reads: [readOf(['? for shortcuts']), readOf(COMPOSER([ENVELOPE, 'and here is something Ben was typing']))],
   });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.enters().length, 0, 'a human half-typed message must never be submitted');
   assert.match(res.results[0].detail, /composer but so is text that is not a note/);
@@ -836,7 +845,7 @@ test('incident (4): a completed delivery is not retyped, and the entry is gone',
   const home = tmp();
   queue(home);
   const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf(COMPOSER([ENVELOPE]))] });
-  await runNoteFlush([], { home, orca, now: NOW });
+  await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(readOutbox(home).length, 0);
   // A second drain has nothing to do — the id is never typed again.
   const again = await runNoteFlush([], { home, orca: slowReadOrca({ panes: [claudePane()] }), now: NOW });
@@ -847,7 +856,7 @@ test('incident (5): gave-up files a BLOCKED line for Ben and keeps the entry in 
   const home = tmp();
   queue(home, { attempts: 20, lastError: 'no answer from orca within 6979 ms' });
   const orca = slowReadOrca({ panes: [claudePane()] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'gave-up');
 
   const dead = deadOutboxPath(home, 'astra-pr137-1');
@@ -865,7 +874,7 @@ test('the flush log reports the budget it actually applied, not the drain remain
   const home = tmp();
   queue(home);
   const orca = slowReadOrca({ panes: [claudePane()], showMs: 5_000 });
-  const res = await runNoteFlush(['--max-ms', '5000', '--per-entry-ms', '400', '--phase2-reserve-ms', '100'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--max-ms', '5000', '--per-entry-ms', '400', '--phase2-reserve-ms', '100'], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'timed-out');
   // The old message printed the whole-drain remainder (`within 6979 ms`) while the real bound was the
   // per-entry one — which made the live log actively misleading during the incident.
@@ -876,7 +885,7 @@ test('a pass that could never type logs one summary line, not one per entry', as
   const home = tmp();
   for (let i = 0; i < 4; i++) queue(home, { id: 'astra-many' + i + '-1' });
   const orca = slowReadOrca({ panes: [claudePane()] });
-  const res = await runNoteFlush(['--max-ms', '3000'], { home, orca, now: NOW });
+  const res = await runNoteFlush(['--max-ms', '3000'], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results.length, 4);
   assert.ok(res.results.every((r) => String(r.outcome).startsWith('skipped')));
   const logText = fs.readFileSync(flushLogPath(home), 'utf8').trim().split('\n');
@@ -923,7 +932,7 @@ test('addendum (7): an id in the transcript means DELIVERED — entry closed, no
   const home = tmp();
   queue(home);
   const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([...HISTORY(ENVELOPE), ...COMPOSER([])])] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'confirmed-from-screen');
   assert.equal(res.drained, 1);
   assert.equal(orca.texts().length, 0, 'a note already in the transcript must never be retyped');
@@ -939,7 +948,7 @@ test('addendum (8): an id in the composer is completed with Enter, not retyped',
     panes: [claudePane()],
     reads: [readOf(['? for shortcuts']), readOf([...HISTORY('astra → taxonomy, 9.13.26 09:00 NYC [astra-old-9] FYI: Something else.'), ...COMPOSER([ENVELOPE])])],
   });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'delivered');
   assert.match(res.results[0].detail, /completed an interrupted delivery/);
   assert.equal(orca.texts().length, 0);
@@ -953,7 +962,7 @@ test('addendum (9): foreign text in the composer defers and quotes what it refus
     panes: [claudePane()],
     reads: [readOf(['? for shortcuts']), readOf([...HISTORY(ENVELOPE), ...COMPOSER([ENVELOPE, 'ben was midway through this'])])],
   });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.enters().length, 0);
   assert.match(res.results[0].detail, /benwasmidwaythroughthis/);
@@ -973,7 +982,7 @@ test('addendum: no prompt marker at all defers rather than guessing', async () =
   // A pane we cannot read the shape of: pressing Enter over unseen text is unsafe, and calling it
   // delivered would drop the wake-up silently. Defer, and let max-attempts make it a visible dead letter.
   const orca = slowReadOrca({ panes: [claudePane()], reads: [readOf(['? for shortcuts']), readOf([`some screen with ${ENVELOPE} in it`])] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.enters().length, 0);
   assert.match(res.results[0].detail, /no prompt marker/);
@@ -1028,7 +1037,7 @@ test('F1: end to end — one human word means the drain refuses and requeues', a
     panes: [claudePane()],
     reads: [readOf(['? for shortcuts']), readOf([...HISTORY(ENVELOPE), ...COMPOSER([ENVELOPE, 'ok'])])],
   });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(orca.enters().length, 0, "Ben's 'ok' must never be submitted");
   assert.equal(readOutbox(home).length, 1);

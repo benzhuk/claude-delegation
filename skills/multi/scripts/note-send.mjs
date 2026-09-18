@@ -39,6 +39,14 @@
 //      when --sender-repo differs, in the sender repo; always also to ~/.agents/notes/<YYYY-MM-DD>.md. Then
 //      classify the pane from `terminal show` + the tail of `terminal read` into
 //      agent-idle | agent-working | permission | shell | hibernated | unknown.
+//   5b. INBOX FIRST (spec 2026-09-17). If the recipient has registered an inbox on this machine
+//      (`~/.agents/notes/inboxes.json`), the envelope is posted straight into it — a Claude session's
+//      messaging socket, a Codex session's queue — and no pane is touched at all. That is exit 0,
+//      delivered, with no keystroke anywhere near anybody's composer.
+//   5c. NO INBOX → deferred (exit 3, queued) — because TYPING IS OFF unless `MULTI_ALLOW_TYPING=1`.
+//      Steps 6 and 7 below are that last resort, kept for machines whose peers predate the
+//      registering hooks. Default: nothing is ever typed. (On 2026-09-17 the typed path landed a note
+//      inside a sentence Ben was mid-way through writing and submitted it.)
 //   6. Gate: Claude panes send on agent-idle or agent-working (Claude Code queues typed input mid-turn).
 //      CODEX PANES SEND ON agent-idle ONLY — the pilot proved Codex does not queue, and that
 //      `terminal wait --for tui-idle` never resolves for a Codex pane, so that wait is GONE. `permission` →
@@ -80,9 +88,10 @@ import {
   resolvePane, isLocalPane, titleToSlug, readBindings,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
+  readInboxes,
 } from './transport.mjs';
 
-import { drainQuietly } from './note-flush.mjs';
+import { drainQuietly, deliverToInbox } from './note-flush.mjs';
 
 export * from './envelope.mjs';
 export * from './transport.mjs';
@@ -91,6 +100,14 @@ export * from './transport.mjs';
 export const DEFAULT_WAIT_MAX_SECONDS = 15;
 /** The piggyback drain at the start of a send. Bounded hard: this is someone else's backlog. */
 export const DRAIN_BUDGET_MS = 3_000;
+/**
+ * C11: how long an interactive send may spend posting into a recipient's inbox.
+ *
+ * A socket write is milliseconds; `codex queue` spins up an app-server and can take seconds, and its
+ * own default ceiling is 20 s - longer than the 15 s note-send advertises for the whole call. This is
+ * the ceiling that keeps the promise. Below the drain's per-transport floor nothing is even started.
+ */
+export const SEND_INBOX_BUDGET_MS = 8_000;
 const PERMISSION_POLL_MS = 5_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +256,25 @@ export async function runNoteSend(argv, deps = {}) {
   const plan = [];
   const warnings = [];
 
+  // C9: the registry is one small JSON read and a registered inbox makes the pane irrelevant, so it is
+  // read BEFORE the pane is resolved. That removes the `terminal list` call from the happy path and,
+  // more importantly, removes three ways a note could fail for a reason that no longer matters: a pane
+  // that resolves to another host (exit 5), a pane with no worktreePath (exit 1), and a pane whose name
+  // nobody updated (exit 2).
+  //
+  // C5: only a slug we were GIVEN may address an inbox. `--to <term_handle>` reduces to a slug by
+  // GUESSING at the pane's title, and the 0.4.0 rule says a guess must never pick a recipient - on the
+  // write side that rule was already enforced, and this is the read side. A handle target therefore
+  // keeps the pane path, where "the right pane under a wrong label" is the worst case; posting a guessed
+  // slug into whatever OTHER session registered it would start a turn in the wrong conversation.
+  const slugWasGiven = !isBen && !HANDLE_RE.test(toRaw);
+  // N4: `--dry-run` reads it too. It is a read, and a preview that cannot see the inbox describes the
+  // 0.4.2 world - a pane classification and a two-phase keystroke sequence - for a send that would in
+  // fact post into a socket and touch no pane at all.
+  const inboxRecord = (!isBen && !noType && slugWasGiven)
+    ? (readInboxes(home, fsImpl)[toRaw] ?? null)
+    : null;
+
   // ── 2/3. Drain the backlog, then resolve the pane. In --dry-run we never touch orca at all.
   let pane = null;
   let bindings = {};
@@ -248,9 +284,22 @@ export async function runNoteSend(argv, deps = {}) {
   if (isBen) {
     plan.push('"ben" is a reserved recipient: no pane is resolved; the line is recorded and printed');
   } else if (dryRun) {
-    plan.push(`resolve pane "${toRaw}" via \`terminal list --json\` (skipped: --dry-run)`);
+    plan.push(inboxRecord
+      ? `post the envelope into "${toRaw}"'s registered inbox (${inboxRecord.kind}): no pane is resolved, `
+        + 'nothing is typed, and no orca call is made (skipped: --dry-run)'
+      : `"${toRaw}" has no registered inbox on this machine, so this would record the note, queue the `
+        + 'wake-up and exit 3 - typing is off unless MULTI_ALLOW_TYPING=1 (skipped: --dry-run)');
   } else if (noType) {
     plan.push('--no-type: the envelope is recorded and queued; nothing is typed and no pane is resolved');
+  } else if (inboxRecord) {
+    // C9: a registered inbox needs no pane, no title match and no orca call. The piggyback drain still
+    // runs - it delivers other people's backlog through their inboxes too, and it spawns nothing when
+    // every recipient has one.
+    plan.push(`"${toRaw}" has a registered inbox (${inboxRecord.kind}): no pane is resolved and nothing is typed`);
+    if (!args['no-drain']) {
+      const flush = deps.flush ?? drainQuietly;
+      drained = await flush({ fsImpl, home, env, now: now.getTime() }, { maxMs: DRAIN_BUDGET_MS });
+    }
   } else {
     orca = deps.orca ?? makeOrcaRunner(args.orca, env);
     if (!args['no-drain']) {
@@ -301,6 +350,32 @@ export async function runNoteSend(argv, deps = {}) {
       throw new NoteError(1, `pane ${pane.handle} ("${pane.title}") has no worktreePath (floating pane) — pass --recipient-repo`);
     }
     targetRepo = mainCheckout(pane.worktreePath, git);
+  } else if (inboxRecord) {
+    // The registering session recorded its own cwd, which IS the recipient's working tree - a better
+    // answer than this session's repo, and available without resolving a pane. Fall back the same way
+    // the paneError branch does when it is missing or not a checkout.
+    // N5: the fallback must never be silent. `mainCheckout` returns null for a cwd that is not a
+    // checkout at all - a session started in a scratch directory, a worktree since removed - and the
+    // note then goes to the SENDER's repo, which is exactly what the old paneError branch was careful
+    // to say out loud. So the warning keys on what we actually used, not on whether a cwd was recorded.
+    // `mainCheckout` answers "write where you were told" for a directory that is not a checkout, and
+    // only a path that does not EXIST here is a real dead end - a worktree the recipient has since
+    // removed, or a cwd from another machine. Both are the fallback; neither may be silent.
+    const recipientRepo = inboxRecord.cwd && fsImpl.existsSync(inboxRecord.cwd)
+      ? mainCheckout(inboxRecord.cwd, git)
+      : null;
+    targetRepo = recipientRepo ?? mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
+    if (!targetRepo) {
+      throw new NoteError(1, `"${toRaw}" has a registered inbox but no repo could be resolved to record the note in - pass --recipient-repo`);
+    }
+    if (!recipientRepo) {
+      warnings.push(
+        `"${toRaw}" registered ${inboxRecord.cwd ? `cwd ${inboxRecord.cwd}, which does not exist here` : 'no cwd'}, `
+        + `so the ledger line went to ${targetRepo} (this session's repo), not the recipient's. The `
+        + '~/.agents/notes mirror is what note-inbox reads, so the note still arrives; pass '
+        + '--recipient-repo to put the repo copy where you want it.',
+      );
+    }
   } else if (paneError) {
     // H3, orchestrator ruling: no pane, so no recipient repo — fall back to this pane's own worktree
     // (ORCA_WORKTREE_ID), then the cwd's main checkout. The `~/.agents/notes` mirror is the record that
@@ -370,11 +445,17 @@ export async function runNoteSend(argv, deps = {}) {
       plan.push(`write packet ${packetPath} from ${args['packet-file'] === '-' ? 'stdin' : args['packet-file']}${force ? ' (--force: overwrites an existing packet)' : ' (refuses to overwrite)'}`);
     }
     for (const t of ledgerTargets) plan.push(`append envelope to ${t}`);
-    if (!isBen) {
+    if (!isBen && inboxRecord) {
+      // N4: this is what a real send would do, so it is what the preview says.
       plan.push('drain ~/.agents/notes/outbox first (3 s budget)');
-      plan.push('classify pane via `terminal show` + `terminal read`; Claude sends idle or working, Codex idle only');
-      plan.push('two-phase: baseline read, `terminal send --text <envelope>` (no --enter), re-read, then `terminal send --enter`');
-      plan.push('on any refusal: write ~/.agents/notes/outbox/<id>.json and exit 3; note-flush retries the wake-up');
+      plan.push(`post the envelope into ${toRaw}'s inbox and exit 0 - no terminal list, show, read or send`);
+    } else if (!isBen) {
+      plan.push('drain ~/.agents/notes/outbox first (3 s budget)');
+      plan.push('no registered inbox: record the note, queue the wake-up, exit 3');
+      plan.push('classify pane via `terminal show` + `terminal read` (the LAST-RESORT typed path, reachable '
+        + 'only with MULTI_ALLOW_TYPING=1); Claude sends idle or working, Codex idle only');
+      plan.push('two-phase: baseline read, `terminal send --text <envelope>` (no --enter), re-read, then '
+        + '`terminal send --enter` - last resort only; a recipient with a registered inbox is posted to instead');
     }
     return {
       ok: true, exitCode: 0, envelope, id, to: toRaw, handle: null,
@@ -421,6 +502,39 @@ export async function runNoteSend(argv, deps = {}) {
     };
   }
 
+  // ── Inbox delivery (spec 2026-09-17, D3). The recipient's OWN inbox, if it registered one on this
+  //    machine: a Claude session's messaging socket or a Codex session's queue. No pane, no keystroke,
+  //    no composer to collide with. Deliberately BEFORE the exit 2 below — a registered inbox makes the
+  //    pane's name irrelevant, so a peer Orca has retitled is still reached.
+  //    `--no-type` means "record it, deliver nothing now", so it skips this too.
+  if (inboxRecord) {
+    const post = deps.deliverToInbox ?? deliverToInbox;
+    let verdict;
+    try {
+      // C11: note-send advertises a 15 s ceiling, and the Codex client's own default is 20 s. The
+      // drain's per-entry floor (INBOX_FLOOR_MS) still decides whether this is enough to start.
+      verdict = await post(home, toSlug, envelope, inboxRecord, { fsImpl, env, budgetMs: SEND_INBOX_BUDGET_MS });
+    } catch (err) {
+      verdict = { ok: false, delivered: false, reason: 'inbox-error', detail: err?.message ?? String(err) };
+    }
+    const how = `inbox (${inboxRecord.kind})`;
+    if (verdict.delivered) {
+      return {
+        ok: true, exitCode: 0, ...base, classification: how,
+        delivered: true, deferred: false, queued: false, notified: false, outbox: null, error: null,
+      };
+    }
+    // Not delivered: the ledger already has the note, so this is a latency cost. The detail is
+    // token-free by construction — the clients never put a record in a verdict.
+    const outbox = queue(how);
+    throw new NoteError(
+      3,
+      `${verdict.reason}${verdict.detail ? ` — ${verdict.detail}` : ''}. The ledger has the note (${ledgerTargets.join(', ')}); `
+      + 'the wake-up is queued for note-flush. Do NOT re-send this id.',
+      { ...base, classification: how, notified: false, queued: true, outbox },
+    );
+  }
+
   // ── H3: the pane did not resolve, but the note now EXISTS. Queue the wake-up keyed on the raw --to
   //       (note-flush re-resolves on every drain, so a pane that comes back still gets nudged) and only
   //       then report the exit 2, with the ledger paths in the message and in the JSON.
@@ -442,6 +556,21 @@ export async function runNoteSend(argv, deps = {}) {
       ok: true, exitCode: 0, ...base, classification: 'not-checked (--no-type)',
       delivered: false, deferred: false, queued: true, notified: false, outbox, error: null,
     };
+  }
+
+  // ── Typing is the LAST RESORT (spec 2026-09-17, D3(3)). Nothing below runs unless this machine asks
+  //    for it: the recipient registered no inbox, the note is in the ledger, and its own hooks read it
+  //    on its next event. A composer is never touched by default, whatever `no-type` says.
+  if (String(env.MULTI_ALLOW_TYPING ?? '') !== '1') {
+    const outbox = queue('no-inbox');
+    throw new NoteError(
+      3,
+      `${toSlug} has registered no inbox on this machine, and typing into a pane is off `
+      + '(set MULTI_ALLOW_TYPING=1 to allow the keystroke path). The ledger has the note '
+      + `(${ledgerTargets.join(', ')}) and the recipient's own hooks read it on its next event; note-flush `
+      + 'retries the wake-up once that session registers. Do NOT re-send this id.',
+      { ...base, classification: 'no-inbox', notified: false, queued: true, outbox },
+    );
   }
 
   // ── 6. Gate on pane state. No `terminal wait` anywhere: the pilot proved `--for tui-idle` never

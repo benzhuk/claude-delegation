@@ -26,7 +26,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { HANDLE_RE, readBindings, isMainModule, toPosix } from '../skills/multi/scripts/transport.mjs';
+import {
+  HANDLE_RE, readBindings, isMainModule, toPosix, codexInboxRecord, registerInbox,
+} from '../skills/multi/scripts/transport.mjs';
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
 import { runHookEvent, writeJson, BUDGET_MS, POST_TOOL_BUDGET_MS } from './multi-hook-core.mjs';
 
@@ -75,6 +77,18 @@ export async function runCodexHook(input = {}, deps = {}) {
   if (!event) return null;
 
   const cwd = input.cwd ?? process.cwd();
+
+  // D2 (spec 2026-09-17): register this session's inbox — the on-disk queue Codex itself watches.
+  // `session_id` from this payload IS the thread id `codex queue --thread` accepts (spiked live on
+  // 2026-09-17), so nothing new has to be plumbed through. Best-effort and silent: `registerInbox`
+  // never throws, and a registration that fails costs one deferred nudge, never a note.
+  registerInbox(
+    home,
+    me.slug,
+    codexInboxRecord(env, { threadId: input.session_id, cwd, pid: deps.pid ?? process.ppid, home }),
+    { fs: fsImpl, now: deps.now ?? Date.now() },
+  );
+
   const run = deps.inbox ?? ((argv) => runNoteInbox(argv, { cwd, env, home }));
   // PostToolUse fires on every tool call: no repo scan, and therefore no git, on the hot path. The
   // Claude adapter has always done this; the Codex one was paying for it every call (review MINOR 8).

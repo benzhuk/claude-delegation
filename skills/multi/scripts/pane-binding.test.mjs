@@ -23,6 +23,9 @@ import { runNoteNotify } from './note-notify.mjs';
 
 function tmp() { return toPosix(fs.mkdtempSync(path.join(os.tmpdir(), 'pane-binding-'))); }
 
+/** Typing is opt-in since 0.5.0 (spec 2026-09-17, D3) — see the same constant in note-flush.test.mjs. */
+const TYPING = { MULTI_ALLOW_TYPING: '1' };
+
 const NOW = Date.UTC(2026, 8, 14, 20, 10);
 const HOUR = 3_600_000;
 const ENVELOPE = 'taxonomy → astra, 9.14.26 16:10 NYC [taxonomy-main-tip-8] ASK: Pick up the tip. Needs: review by 17:00';
@@ -432,7 +435,7 @@ test('BLOCKER 3: note-notify NEVER binds — its --to is one line for the whole 
   // spawns this with the same slug. Binding whatever handle survived into the child would record some
   // other pane as astra, and `--to astra` would then wake the wrong live session.
   const res = await runNoteNotify(['--to', 'astra', '--no-chain'], {
-    home, now: NOW, env: { ORCA_TERMINAL_HANDLE: 'term_bbb' }, orca: mockOrca(), flush: async () => ({ drained: 0, attempted: 0, remaining: 0, results: [] }),
+    home, now: NOW, env: { ...TYPING, ORCA_TERMINAL_HANDLE: 'term_bbb' }, orca: mockOrca(), flush: async () => ({ drained: 0, attempted: 0, remaining: 0, results: [] }),
   });
   assert.equal(res.slug, 'astra', 'it still knows which inbox to drain');
   assert.deepEqual(readBindings(home), {});
@@ -443,7 +446,7 @@ test('D4: a notify that resolved itself from the binding logs slug=<slug>(bindin
   const home = tmp();
   writeBinding(home, 'term_bbb', 'astra', { now: NOW - HOUR });
   const res = await runNoteNotify(['--no-chain'], {
-    home, now: NOW, env: { ORCA_TERMINAL_HANDLE: 'term_bbb' }, orca: mockOrca(), flush: async () => ({ drained: 0, attempted: 0, remaining: 0, results: [] }),
+    home, now: NOW, env: { ...TYPING, ORCA_TERMINAL_HANDLE: 'term_bbb' }, orca: mockOrca(), flush: async () => ({ drained: 0, attempted: 0, remaining: 0, results: [] }),
   });
   assert.equal(res.slugSource, 'binding');
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /notify event=none slug=astra\(binding\)/);
@@ -468,7 +471,7 @@ test('D3 end to end: the wake-up that logged `no pane titled "astra"` for 35 min
   writeBinding(home, 'term_bbb', 'astra', { now: NOW - HOUR });
   const pane = claudePane({ handle: 'term_bbb', title: 'Continue | bto-workflows' });
   const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS('taxonomy-main-tip-8') });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.equal(res.results[0].outcome, 'delivered');
   const log = fs.readFileSync(flushLogPath(home), 'utf8');
@@ -479,7 +482,7 @@ test('with no binding the same drain reports no-pane and keeps the entry', async
   const home = tmp();
   queue(home);
   const orca = mockOrca({ panes: [claudePane({ handle: 'term_bbb', title: 'Continue | bto-workflows' })] });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 0);
   assert.equal(res.results[0].outcome, 'no-pane');
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /no-pane \[taxonomy-main-tip-8\] -> astra/);
@@ -495,7 +498,7 @@ test('the restart case end to end: dead handle, new pane, title changed — the 
     panes: [claudePane({ handle: 'term_new', title: 'switch-to-astra-model' })],
     reads: DELIVERY_READS('taxonomy-main-tip-8'),
   });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.drained, 1);
   assert.match(res.results[0].detail, /handle gone, resolved by slug; typed into term_new \(binding, title "switch-to-astra-model", agent-idle\)/);
 });
@@ -532,7 +535,7 @@ test('BLOCKER 2: a note the cold-start window SUPPRESSED is not "already read" �
     panes: [claudePane({ handle: 'term_aaa', title: 'astra' })],
     reads: DELIVERY_READS('taxonomy-cold-1'),
   });
-  const res = await runNoteFlush([], { home, orca, now: NOW });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.equal(res.results[0].outcome, 'delivered');
   assert.equal(res.drained, 1);
 });
@@ -576,7 +579,7 @@ test('D6: note-flush runs the GC while it has the terminal list, and logs it', a
     panes: [claudePane({ handle: 'term_bbb', title: 'Continue' })],
     reads: DELIVERY_READS('taxonomy-main-tip-8'),
   });
-  await runNoteFlush([], { home, orca, now: NOW });
+  await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   assert.deepEqual(Object.keys(readBindings(home)), ['term_bbb']);
   assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /gc term_gone n-astra — no such pane and bound 30h ago/);
 });

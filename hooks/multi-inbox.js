@@ -11,6 +11,11 @@
 //                       so it can never loop.
 //   PostToolUse       → additionalContext for notes that arrived mid-turn, behind an mtime gate.
 //
+// Every event also REGISTERS this session's inbox (spec 2026-09-17): Claude Code exports this session's
+// messaging socket and its per-session token to its own hooks, and `registerMyInbox` writes them into
+// `~/.agents/notes/inboxes.json` so the flusher can post a note into this session directly. That file
+// is what replaced typing into the composer.
+//
 // EVERY decision about what a note looks like lives in `multi-hook-core.mjs`, shared with Codex. What is
 // left here is the Claude-specific part: the argv/stdin contract, the cheap slug (with its 10-minute TTL
 // and the `--no-bind` rule that keeps a guess from becoming a binding), the mtime stamp, and the budget.
@@ -125,6 +130,47 @@ function couldBeInAPane() {
   return Boolean(process.env.NOTE_SLUG || process.env.ORCA_TERMINAL_HANDLE);
 }
 
+/**
+ * D2 (spec 2026-09-17): tell the machine where to deliver notes for this session WITHOUT typing.
+ *
+ * Claude Code exports `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN` to its own
+ * hooks before any of them run, so this hook — and only this hook — can write down coordinates that
+ * let the flusher post a note straight into this session's inbox. The alternative was typing into the
+ * composer, which on 2026-09-17 landed inside a sentence Ben was writing and submitted it.
+ *
+ * The slug must be FIRST-HAND (the 0.4.0 rule): `$NOTE_SLUG` is this session stating its own identity,
+ * and `panes.json` is the same statement written down earlier. A title-derived guess is never used —
+ * registering under a guessed slug would send another session's notes here.
+ *
+ * Best-effort and silent: a registration that cannot be written costs one deferred nudge, and the note
+ * is already in the ledger.
+ */
+async function registerMyInbox(cwd, sessionId) {
+  try {
+    const transport = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "transport.mjs")).href);
+    const home = os.homedir();
+    let slug = process.env.NOTE_SLUG || null;
+    if (!slug) {
+      const handle = process.env.ORCA_TERMINAL_HANDLE;
+      if (handle && transport.HANDLE_RE.test(handle)) {
+        const bound = transport.readBindings(transport.toPosix(home))[handle];
+        slug = bound && bound.slug ? bound.slug : null;
+      }
+    }
+    if (!slug) return null;
+    // `sessionId` comes from the payload Claude Code writes to this hook's stdin, so it is first-hand
+    // — and it is REQUIRED (review C6): it is sent with every post, the receiver drops a frame whose
+    // session id is not its own, and that is what stops a recycled pid from redirecting somebody's note
+    // into a different session behind the same `/tmp/cc-socks/<pid>.sock` path.
+    // `process.ppid` is recorded for a human reading the file; delivery never uses it.
+    const record = transport.claudeInboxRecord(process.env, { sessionId, pid: process.ppid, cwd });
+    if (!record) return null;
+    return transport.registerInbox(transport.toPosix(home), slug, record);
+  } catch {
+    return null; // rule 1: never throw out of a hook
+  }
+}
+
 async function loadInbox() {
   const mod = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "note-inbox.mjs")).href);
   return mod.runNoteInbox;
@@ -149,6 +195,18 @@ async function main() {
   const input = await readInput();
   const event = input.hook_event_name || process.argv[2] || "";
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const sessionId = input.session_id;
+
+  // C4: SessionStart REGISTERS and stops there — no inbox read, no output, nothing in the context.
+  // A pane Ben opens and walks away from used to register nothing at all (the adapter only gets here on
+  // a prompt, a stop, or a tool call past the mtime gate), which made the one case this whole feature
+  // exists for — an idle session — the one case it could not reach. Registration only, because a
+  // session that has just started has not asked for anything, and its first UserPromptSubmit will
+  // surface whatever is waiting a moment later anyway.
+  if (event === "SessionStart") {
+    await registerMyInbox(cwd, sessionId);
+    return;
+  }
 
   // PostToolUse is the hot path: it fires on every tool call, so it decides whether there is anything
   // to do from a stamp and a directory mtime, before importing anything.
@@ -165,6 +223,9 @@ async function main() {
   let delivered = null;
 
   const work = (async () => {
+    // D2: register this session's inbox first, so a session that has nothing to read is still
+    // REACHABLE. Its own try/catch, because a failed registration must not stop the note read.
+    await registerMyInbox(cwd, sessionId);
     try {
       // Inside the try on purpose: a broken CLAUDE_PLUGIN_ROOT makes this import throw, and M1 says a
       // config error must SAY SO once rather than making the hook permanently silent.

@@ -22,6 +22,14 @@ claude plugin marketplace add benzhuk/claude-delegation
 claude plugin install delegation@benzhuk
 ```
 
+> **One prerequisite for peer notes (multi 0.5.0).** Each machine's Claude user settings
+> (`~/.claude/settings.json`) need `"crossSessionInbound": "accept"`. Peer notes are delivered into a
+> session's own inbox socket; without that setting a session which bypasses permission prompts HOLDS an
+> arriving note behind a modal approval dialog in its pane instead of delivering it, which is worse than
+> not delivering at all — and the sender cannot tell, because a held post looks delivered on the wire.
+> `mirror-shared-skills.mjs` warns when it is missing and never edits settings itself.
+
+
 ## What you get
 
 **Three skills** (auto-suggested by task shape, or invoke directly):
@@ -165,6 +173,7 @@ Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agen
 MIT
 
 ## Changelog
+- 0.5.0 — multi: delivery goes to your peer's INBOX, not your peer's keyboard. On 2026-09-17 the flusher typed a peer note into the middle of a sentence Ben was writing and submitted it; `classifyPane` judges idleness from the transcript and can say nothing about whether the input box is empty. Every session now registers its own inbox from the hook that already runs in it — Claude Code's per-session messaging socket, Codex's on-disk queue — in `~/.agents/notes/inboxes.json` (mode 600; the socket entry holds a per-session token, which is key material and is never logged, printed or returned). note-flush posts there: no orca call, no keystroke, and a composer somebody is using stays exactly as they left it. A recipient with no registered inbox leaves its entry queued with one `no-inbox` line and no attempt counted — the note is in the ledger, which is the channel. Typing survives only as an explicit last resort behind `MULTI_ALLOW_TYPING=1`, with `~/.agents/notes/no-type` still a hard off switch on top of it; the pane classification, `panes.json` and the two-phase send stay in the tree and stay tested, and a later version removes them once inbox delivery has run for a while. Two prerequisites, both verified live: the receiving Claude session needs `crossSessionInbound: "accept"` (without it a bypass-permissions session HOLDS the message behind a modal dialog), and a Codex thread needs one persisted turn before its queue accepts anything. And no, Orca has no non-keystroke wake path at all — every route into a running pane ends in a PTY write, and `orchestration.send` is a mailbox the recipient must poll, so do not propose it again.
 - 0.4.2 — codex hooks: one canonical trust key. A Windows `config.toml` could end up with the same trust entry under three spellings — Orca's literal `'C:\Users\…'`, 0.4.0's forward slashes, and 0.4.1's escaped `"C:\\Users\\…"` — and since TOML unescapes the first and third to the same key, every Codex home on the box stopped parsing ("Cannot declare … twice"). The installer now writes one spelling (the path as Codex spells it, as a TOML literal string), matches existing headers logically across both quote styles and, on Windows, across separator and case, collapses duplicates of its own keys with a `dedupe` line, and validates the result before writing — a file that would still declare a table twice is REFUSED and left untouched. The prune reads headers the same way, so a leftover written in any spelling is recognised.
 - 0.4.1 — multi: no parking. The Stop hook no longer long-polls while an ASK is outstanding — it surfaces the notes already in the ledger and exits, because a peer that answered under a new id left one session parked 15 minutes at the end of every turn for a day. Hooks deliver during a turn; an idle pane is nudged by the flusher within a minute. The `.listening-<slug>.json` marker is gone and any left behind are swept by note-flush; Stop's handler timeout is 60 s again, and the Codex installer prunes the trust entries the old timeout left.
 - 0.4.0 — multi: hook delivery for BOTH agents. Codex gets hooks (SessionStart/UserPromptSubmit/PostToolUse/Stop), installed and pre-trusted into every Codex home by the mirror; both agents share one hook core; every delivery carries a one-line `systemMessage` for the human, never a keystroke in the composer; a Stop hook long-polls up to 15 minutes, but only while that session has an ASK outstanding, and the flusher leaves a listening pane alone.

@@ -10,11 +10,17 @@ description: Use when talking to an EQUAL agent session you do not own — askin
 
 ## The one idea
 
-**The ledger is the channel. Typing into a peer's pane is a wake-up, not the delivery.**
+**The ledger is the channel. The wake-up goes to your peer's INBOX, never to your peer's keyboard.**
 
-Every note is written to `docs/ledger/<today>.md` before anyone tries to type it anywhere. The
-recipient finds it by READING. A wake-up that cannot be typed — the pane is mid-turn, at a
-permission prompt, unreadable — costs latency and nothing else, and a retry runs on its own.
+Every note is written to `docs/ledger/<today>.md` before anyone tries to deliver it anywhere. The
+recipient finds it by READING. A wake-up that cannot be delivered — nothing registered on this
+machine, a session that has exited — costs latency and nothing else, and a retry runs on its own.
+
+Since 0.5.0 the wake-up is not a keystroke. Every session records its own inbox — a Claude session's
+per-session messaging socket, a Codex session's on-disk queue — and `note-flush` posts the line
+straight into it. Nothing lands in anybody's composer, so a half-typed human prompt cannot be
+mangled. (Before 0.5.0 it could, and on 2026-09-17 it was: the flusher typed a note into the middle
+of a sentence Ben was writing and pressed Enter.)
 
 Five rules carry the whole protocol:
 
@@ -87,8 +93,59 @@ every state a session can be in:
 - **While you are working**, the hooks put new notes straight into your context — on your next prompt,
   after a tool call, and again when you try to stop. A Stop with notes waiting blocks once so you handle
   them before the turn ends; a Stop with nothing waiting is silent and instant.
-- **While you are idle**, `note-flush` types one line into your empty composer, within about a minute of
-  the note being written. That is the wake-up, not the note: the note is already in the ledger.
+- **While you are idle**, `note-flush` posts one line into YOUR INBOX, within about a minute of the note
+  being written — a Claude session's messaging socket, a Codex session's queue. Claude Code starts a new
+  turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in
+  the ledger.
+
+### What you have to do to be reachable: nothing
+
+Your own hook registers you. Every event it handles writes `{your slug → your inbox}` into
+`~/.agents/notes/inboxes.json` (mode 600), provided it knows your slug FIRST-HAND — from `--me`,
+`$NOTE_SLUG`, or the `panes.json` binding your pane wrote itself. A slug guessed from a pane title is
+never registered, because registering under a guess would divert another session's notes to you.
+
+That file is the one thing to look at when delivery is not happening:
+
+```bash
+ls -l ~/.agents/notes/inboxes.json                        # there? recently modified?
+grep 'inbox' ~/.agents/notes/flush.log | tail             # what the flusher did, per note
+```
+
+On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
+cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
+nothing is wrong: the file is protected by the profile's ACL, like everything else under `C:\Users\benzh`.
+Check the timestamp on Windows, not the mode.
+
+`delivered … — inbox (claude-socket)` or `inbox (codex-queue)` in `flush.log` is a note that arrived
+without a keystroke. Two failure lines mean something specific:
+
+| line | what it means | what fixes it |
+|---|---|---|
+| `no-inbox [<id>] -> <slug>` | that slug has registered no inbox on this machine — the session predates 0.5.0, never stated its slug first-hand, or is not running here | nothing to do: the note is in the ledger and that session's own hooks read it on its next event. To get the nudge, have that pane run `note-inbox --me <slug>` once |
+| `inbox-stale [<id>] -> <slug>` | the socket answered `ENOENT`/`ECONNREFUSED`: that session has exited. The registration is dropped on the spot | nothing — the next drain says `no-inbox`, and the session re-registers when it comes back |
+| `codex-no-thread [<id>] -> <slug>` | that Codex session has not run its first turn yet, so its queue has nothing to attach to | nothing, give it one turn. It is not counted as a delivery attempt |
+| `inbox-conflict <slug>` | two sessions that are BOTH still alive are exporting the same `NOTE_SLUG`, and each hook event overwrites the other's registration | give one of them its own slug; until then notes go to whichever registered last. Said at most once a minute, and never for a plain restart (the old session's socket is gone, so there is nobody to be in conflict with) |
+| `budget-only-pass N inbox entries left untouched` | the drain that ran was a short piggyback (3 s) and a Codex post needs 5 s to even start | nothing, the one-minute timer drain has the budget |
+
+One prerequisite on the Claude side, and it is not optional: the receiving session needs
+`crossSessionInbound: "accept"`. Without it, a session that bypasses permission prompts HOLDS an
+arriving note behind a modal approval dialog in its own pane, which is worse than no delivery. On the
+Codex side a thread must have run at least one turn before its queue accepts anything; until then the
+log says `codex-no-thread` and the note waits.
+
+**Typing is retired, not deleted.** The composer path still exists, and `MULTI_ALLOW_TYPING=1` is the
+only way to reach it — and then only for a recipient with no registered inbox, and only into a composer
+that is provably empty. `touch ~/.agents/notes/no-type` remains a hard off switch on top of that. A
+later version deletes the path once inbox delivery has run for a while.
+
+**And no, Orca cannot do this for us.** Every route into a running Orca pane's turn ends in
+`runtime.sendTerminal` — a PTY write, i.e. synthesised keystrokes. `orchestration.send` only writes a
+federation-relay row the recipient must poll with `orchestration.check`; there is no queue the runtime
+drains when an agent goes idle, and the only non-keystroke injection is launch-time `--prefill`, which
+needs a fresh process. Per-pane human-input time exists inside Orca (`lastInputAtByPty`) but is exposed
+over no RPC. That was read out of the fork's own source on 2026-09-17: do not propose `orchestration
+send` as a wake-up again.
 
 So: **never poll, never sleep, never re-send an id, and never wait on a peer inside a turn.** A deferral
 is normal and cheap (`note-send` exit 3), the outbox retries it, and the answer arrives through one of
@@ -266,14 +323,16 @@ safety gate and its failures are silent.
 |---|---|---|
 | 1 | bad arguments, envelope, or packet | read the message; it names the field and the fix. The same object is on stdout as JSON, so a pipe never swallows it |
 | 2 | pane not found or ambiguous | **the note is still recorded and queued** — do NOT re-send the id. Rename the pane to its slug, or have that pane run `note-inbox --bind <slug>` once, and the queued wake-up lands on the next flush |
-| 3 | **deferred — queued, NOT typed** | nothing to do. The ledger has the note and `note-flush` retries the wake-up. Do NOT re-send the id |
+| 3 | **deferred — queued, nothing delivered yet** | nothing to do. The ledger has the note and `note-flush` retries. Do NOT re-send the id. Since 0.5.0 this is also what a recipient with no registered inbox looks like |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
 
-Exit 3 covers a permission prompt, a shell pane, a hibernated pane, an unreadable pane, and a
-Codex pane mid-turn. All of them mean the same thing: nothing was typed, the note is recorded,
-the retry is automatic. **If a pane's state cannot be read, nothing is sent — a deferred note is
-cheap, an approved dialog is not.**
+Exit 3 is the ordinary outcome now, not a problem. It covers **a recipient with no registered
+inbox on this machine** (the common one since 0.5.0 — the message says exactly that), an inbox post
+that failed, and, when typing is switched on, a permission prompt, a shell pane, a hibernated pane,
+an unreadable pane or a Codex pane mid-turn. All of them mean the same thing: nothing was delivered
+yet, the note IS recorded, the retry is automatic, and the recipient's own hooks read the ledger on
+its next event. **Do not re-send the id, and do not go looking for a pane.**
 
 **A pane-NAME problem costs latency, not the note.** Exit 2 writes the ledger and queues the wake-up
 before it reports, so a pane renamed mid-flight, an ambiguous title or Orca's status tag can no
@@ -287,9 +346,13 @@ NOT queued for retry, because retyping it is how the same note arrives twice. Cl
 ## Codex peers are different, and it matters
 
 - A **Claude** pane takes a note mid-turn; Claude Code queues typed input.
-- A **Codex** pane does not. A note is typed at it only when it is idle; otherwise it waits in the
-  outbox. `note-flush` drains that outbox when Codex's `notify` fires at the end of a turn, which is
-  the one moment a Codex pane is provably idle.
+- A **Codex** pane does not — which stopped mattering in 0.5.0. A note for a Codex peer is QUEUED in
+  the session's own store (`codex queue --thread <its session id>`), and the TUI starts it as a real
+  turn the moment it next goes idle. A busy Codex peer is no longer a deferral at all, and the note
+  cannot collide with anyone's keystrokes because none are sent. What still defers is a thread that
+  has not run its first turn yet (`codex-no-thread` in the flush log) and a Codex home we cannot see.
+- The typed path, when it is switched on, is still idle-only for Codex, and `note-flush` still drains
+  at Codex's `notify` — the one moment a Codex pane is provably idle.
 - `orca terminal wait --for tui-idle` is never used against a Codex pane: it does not resolve, even
   on an idle one. Codex state is read from the tail — `esc to interrupt`, `Working`, or a braille
   shimmer means working; a `›` composer line with none of those means idle.
