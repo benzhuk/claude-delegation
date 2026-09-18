@@ -125,6 +125,42 @@ function say(action, detail) {
 }
 function refuse(reason) { refusals.push(reason); }
 
+/**
+ * C14: peer notes are delivered into a Claude session's own inbox socket (multi 0.5.0), and a session
+ * that bypasses permission prompts HOLDS an arriving note behind a modal approval dialog unless its
+ * settings say `crossSessionInbound: "accept"`. That failure mode is worse than no delivery - the pane
+ * stops until somebody answers a dialog - and it is invisible from the sending side, because a held
+ * post looks exactly like a delivered one on the wire.
+ *
+ * So the installer SAYS SO on the machine that is missing it, and changes nothing: settings are Ben's,
+ * and an installer that edited them would be making a permissions decision on his behalf. Reading is
+ * best-effort; a missing or unparseable settings file is simply not a claim either way.
+ *
+ * @returns {{path: string, value: string|null, ok: boolean}|null} null when there is nothing to say
+ */
+export function checkCrossSessionInbound({ home = HOME, fsImpl = fs } = {}) {
+  const file = path.join(home, '.claude', 'settings.json');
+  let value = null;
+  try {
+    value = JSON.parse(fsImpl.readFileSync(file, 'utf8')).crossSessionInbound ?? null;
+  } catch {
+    value = null; // no settings file, or not JSON: report it as "not set", never as a failure
+  }
+  return { path: file.split(path.sep).join('/'), value, ok: value === 'accept' };
+}
+
+function warnCrossSessionInbound() {
+  const state = checkCrossSessionInbound();
+  if (!state || state.ok) return state;
+  say(
+    'WARNING: crossSessionInbound is not "accept"',
+    `${state.path} says ${state.value === null ? 'nothing' : JSON.stringify(state.value)}. Peer notes posted `
+    + 'into this machine\'s Claude sessions will be HELD behind an approval dialog in the recipient\'s pane '
+    + 'instead of delivered (multi 0.5.0). Set it yourself - this installer never edits your settings.',
+  );
+  return state;
+}
+
 // ── manifest ─────────────────────────────────────────────────────────────────
 
 function readManifest() {
@@ -684,6 +720,8 @@ function main() {
       if (!opts.dryRun && st.isSymbolicLink()) fs.unlinkSync(old.dest);
     }
     writeManifest(managed);
+    // C14: said on the way past, because this is the command a fourth machine is provisioned with.
+    warnCrossSessionInbound();
     // OPT-IN (review BLOCKER 1). A plain run publishes skills and shims and touches no Codex home at
     // all: the installer edits live files Orca also owns, and a default that reached them turned every
     // gate run into a live-config edit — twice, on two machines, in one afternoon. `--codex-hooks` asks

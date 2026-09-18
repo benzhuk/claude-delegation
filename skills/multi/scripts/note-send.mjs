@@ -100,6 +100,14 @@ export * from './transport.mjs';
 export const DEFAULT_WAIT_MAX_SECONDS = 15;
 /** The piggyback drain at the start of a send. Bounded hard: this is someone else's backlog. */
 export const DRAIN_BUDGET_MS = 3_000;
+/**
+ * C11: how long an interactive send may spend posting into a recipient's inbox.
+ *
+ * A socket write is milliseconds; `codex queue` spins up an app-server and can take seconds, and its
+ * own default ceiling is 20 s - longer than the 15 s note-send advertises for the whole call. This is
+ * the ceiling that keeps the promise. Below the drain's per-transport floor nothing is even started.
+ */
+export const SEND_INBOX_BUDGET_MS = 8_000;
 const PERMISSION_POLL_MS = 5_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,6 +256,22 @@ export async function runNoteSend(argv, deps = {}) {
   const plan = [];
   const warnings = [];
 
+  // C9: the registry is one small JSON read and a registered inbox makes the pane irrelevant, so it is
+  // read BEFORE the pane is resolved. That removes the `terminal list` call from the happy path and,
+  // more importantly, removes three ways a note could fail for a reason that no longer matters: a pane
+  // that resolves to another host (exit 5), a pane with no worktreePath (exit 1), and a pane whose name
+  // nobody updated (exit 2).
+  //
+  // C5: only a slug we were GIVEN may address an inbox. `--to <term_handle>` reduces to a slug by
+  // GUESSING at the pane's title, and the 0.4.0 rule says a guess must never pick a recipient - on the
+  // write side that rule was already enforced, and this is the read side. A handle target therefore
+  // keeps the pane path, where "the right pane under a wrong label" is the worst case; posting a guessed
+  // slug into whatever OTHER session registered it would start a turn in the wrong conversation.
+  const slugWasGiven = !isBen && !HANDLE_RE.test(toRaw);
+  const inboxRecord = (!isBen && !dryRun && !noType && slugWasGiven)
+    ? (readInboxes(home, fsImpl)[toRaw] ?? null)
+    : null;
+
   // ── 2/3. Drain the backlog, then resolve the pane. In --dry-run we never touch orca at all.
   let pane = null;
   let bindings = {};
@@ -260,6 +284,15 @@ export async function runNoteSend(argv, deps = {}) {
     plan.push(`resolve pane "${toRaw}" via \`terminal list --json\` (skipped: --dry-run)`);
   } else if (noType) {
     plan.push('--no-type: the envelope is recorded and queued; nothing is typed and no pane is resolved');
+  } else if (inboxRecord) {
+    // C9: a registered inbox needs no pane, no title match and no orca call. The piggyback drain still
+    // runs - it delivers other people's backlog through their inboxes too, and it spawns nothing when
+    // every recipient has one.
+    plan.push(`"${toRaw}" has a registered inbox (${inboxRecord.kind}): no pane is resolved and nothing is typed`);
+    if (!args['no-drain']) {
+      const flush = deps.flush ?? drainQuietly;
+      drained = await flush({ fsImpl, home, env, now: now.getTime() }, { maxMs: DRAIN_BUDGET_MS });
+    }
   } else {
     orca = deps.orca ?? makeOrcaRunner(args.orca, env);
     if (!args['no-drain']) {
@@ -310,6 +343,21 @@ export async function runNoteSend(argv, deps = {}) {
       throw new NoteError(1, `pane ${pane.handle} ("${pane.title}") has no worktreePath (floating pane) — pass --recipient-repo`);
     }
     targetRepo = mainCheckout(pane.worktreePath, git);
+  } else if (inboxRecord) {
+    // The registering session recorded its own cwd, which IS the recipient's working tree - a better
+    // answer than this session's repo, and available without resolving a pane. Fall back the same way
+    // the paneError branch does when it is missing or not a checkout.
+    targetRepo = mainCheckout(inboxRecord.cwd ?? worktreePathFromEnv(env) ?? process.cwd(), git)
+      ?? mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
+    if (!targetRepo) {
+      throw new NoteError(1, `"${toRaw}" has a registered inbox but no repo could be resolved to record the note in - pass --recipient-repo`);
+    }
+    if (!inboxRecord.cwd) {
+      warnings.push(
+        `"${toRaw}" registered no cwd, so the ledger line went to ${targetRepo} (this session's repo), `
+        + "not the recipient's. The ~/.agents/notes mirror is what note-inbox reads.",
+      );
+    }
   } else if (paneError) {
     // H3, orchestrator ruling: no pane, so no recipient repo — fall back to this pane's own worktree
     // (ORCA_WORKTREE_ID), then the cwd's main checkout. The `~/.agents/notes` mirror is the record that
@@ -435,12 +483,13 @@ export async function runNoteSend(argv, deps = {}) {
   //    no composer to collide with. Deliberately BEFORE the exit 2 below — a registered inbox makes the
   //    pane's name irrelevant, so a peer Orca has retitled is still reached.
   //    `--no-type` means "record it, deliver nothing now", so it skips this too.
-  const inboxRecord = noType ? null : readInboxes(home, fsImpl)[toSlug];
   if (inboxRecord) {
     const post = deps.deliverToInbox ?? deliverToInbox;
     let verdict;
     try {
-      verdict = await post(home, toSlug, envelope, inboxRecord, { fsImpl, env });
+      // C11: note-send advertises a 15 s ceiling, and the Codex client's own default is 20 s. The
+      // drain's per-entry floor (INBOX_FLOOR_MS) still decides whether this is enough to start.
+      verdict = await post(home, toSlug, envelope, inboxRecord, { fsImpl, env, budgetMs: SEND_INBOX_BUDGET_MS });
     } catch (err) {
       verdict = { ok: false, delivered: false, reason: 'inbox-error', detail: err?.message ?? String(err) };
     }

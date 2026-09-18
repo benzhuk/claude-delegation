@@ -31,7 +31,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { NoteError } from './envelope.mjs';
-import { readInboxes, findOnPath, isMainModule, toPosix, appendFlushLog } from './transport.mjs';
+import { readInboxes, removeInbox, findOnPath, isMainModule, toPosix, appendFlushLog } from './transport.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -109,7 +109,7 @@ export async function queueToCodexInbox(record, text, opts = {}) {
     // into the CHILD's environment only — this process's own env is never mutated, because a flusher
     // that changed its own CODEX_HOME would poison every later entry in the same drain.
     const { stdout } = await run(resolved.exe, args, {
-      env: { ...env, CODEX_HOME: String(record.codexHome) },
+      env: codexChildEnv(env, record.codexHome),
       timeout, killSignal: 'SIGKILL', windowsHide: true, maxBuffer: 4 * 1024 * 1024,
     });
     return { ok: true, delivered: true, reason: 'delivered', detail: firstLine(stdout) };
@@ -117,7 +117,11 @@ export async function queueToCodexInbox(record, text, opts = {}) {
     if (err?.killed === true) {
       return { ok: false, delivered: false, reason: 'codex-timeout', detail: `codex queue timed out after ${timeout} ms and was killed` };
     }
-    const detail = firstLine(err?.stderr) || firstLine(err?.stdout) || firstLine(err?.message) || 'codex queue failed';
+    // C10: node's execFile error message is `Command failed: <exe> queue --thread <id> --message <the
+    // whole envelope>`, so falling back to it puts the NOTE BODY in flush.log and in `--json`, in a file
+    // whose retention is nobody's job. When both streams are empty we say only that it exited.
+    const detail = firstLine(err?.stderr) || firstLine(err?.stdout)
+      || (err?.message ? `codex queue exited ${err.code ?? '?'}` : '') || 'codex queue failed';
     if (NO_THREAD_RE.test(String(err?.stderr ?? '')) || NO_THREAD_RE.test(String(err?.stdout ?? '')) || NO_THREAD_RE.test(detail)) {
       return { ok: false, delivered: false, reason: 'codex-no-thread', detail };
     }
@@ -129,6 +133,23 @@ export async function queueToCodexInbox(record, text, opts = {}) {
     }
     return { ok: false, delivered: false, reason: 'codex-error', detail };
   }
+}
+
+/**
+ * The child's environment: ours, plus the target's CODEX_HOME, MINUS this session's inbox credential
+ * (review S3).
+ *
+ * note-flush runs as a piggyback inside a Claude Code session in the normal case, so `env` carries
+ * `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN` - the credential that lets any
+ * holder start a turn in THIS session. `codex queue` needs neither, and what it does need it is given
+ * explicitly. Handing another vendor's CLI a secret it never asked for, which then writes rollouts,
+ * logs and crash reports inside a CODEX_HOME, is a leak waiting for somebody to paste a bug report.
+ */
+export function codexChildEnv(env, codexHome) {
+  const child = { ...env, CODEX_HOME: String(codexHome) };
+  delete child.CLAUDE_CODE_MESSAGING_SOCKET;
+  delete child.CLAUDE_CODE_MESSAGING_TOKEN;
+  return child;
 }
 
 /** First line, trimmed and bounded — flush.log is a scan target, and a CLI error can be a paragraph. */
@@ -147,6 +168,17 @@ export async function deliverToSlug(home, slug, text, opts = {}) {
   if (!record) return { ok: false, delivered: false, reason: 'no-inbox', detail: `nothing registered for ${slug}` };
   if (record.kind !== 'codex-queue') {
     return { ok: false, delivered: false, reason: 'codex-error', detail: `${slug} is registered as ${record.kind}, not codex-queue` };
+  }
+  // C7: a CODEX_HOME recorded on another machine names a queue store that is not this one. Refuse and
+  // drop it rather than writing a row into whatever happens to live at that path here.
+  const host = opts.hostname ?? os.hostname();
+  if (record.host && record.host !== host) {
+    removeInbox(home, slug, { fs: fsImpl });
+    if (opts.inboxes) delete opts.inboxes[String(slug)];
+    return {
+      ok: false, delivered: false, reason: 'no-inbox',
+      detail: `${slug} is registered on "${record.host}", not "${host}" - registration dropped`,
+    };
   }
   const verdict = await queueToCodexInbox(record, text, opts);
   return { ...verdict, kind: 'codex-queue' };

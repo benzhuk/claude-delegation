@@ -1188,7 +1188,10 @@ export const INBOX_REFRESH_MS = 60 * 1000;
 /** Same session, same coordinates? The `at` stamp and the cosmetic fields are ignored. */
 export function sameInbox(a, b) {
   if (!a || !b || a.kind !== b.kind) return false;
-  if (a.kind === 'claude-socket') return a.socket === b.socket && a.token === b.token;
+  // `host` and `sessionId` are NOT cosmetic (review C6/C7): a recycled pid re-creates the exact same
+  // socket path for a DIFFERENT session, and an entry matched only on the path would keep pointing at it.
+  if ((a.host ?? null) !== (b.host ?? null)) return false;
+  if (a.kind === 'claude-socket') return a.socket === b.socket && a.token === b.token && a.sessionId === b.sessionId;
   return a.codexHome === b.codexHome && a.threadId === b.threadId;
 }
 
@@ -1211,8 +1214,13 @@ function normalizeInboxRecord(rec) {
   if (rec.kind === 'claude-socket') {
     const socket = str(rec.socket);
     const token = str(rec.token);
-    if (!socket || !token) return null;
-    return { ...common, socket, token };
+    // REQUIRED (review C6). It is what makes a misdelivery impossible rather than merely unlikely: the
+    // socket path is `/tmp/cc-socks/<pid>.sock`, a pid IS reused sooner or later, and the receiver drops
+    // any frame whose `session_id` is not its own. A record written before this fix has none, so it is
+    // dropped here and that session re-registers on its next hook event - one nudge lost, never a note.
+    const sessionId = str(rec.sessionId);
+    if (!socket || !token || !sessionId) return null;
+    return { ...common, socket, token, sessionId };
   }
   const codexHome = str(rec.codexHome);
   const threadId = str(rec.threadId);
@@ -1250,7 +1258,13 @@ export function describeInbox(record) {
   if (!record || typeof record !== 'object') return null;
   const out = { kind: record.kind, at: Number(record.at ?? 0) };
   if (record.pid !== undefined) out.pid = Number(record.pid);
-  if (record.kind === 'claude-socket') out.socket = String(record.socket ?? '');
+  if (record.host !== undefined) out.host = String(record.host);
+  if (record.kind === 'claude-socket') {
+    out.socket = String(record.socket ?? '');
+    // Not a secret: it is the id the RECEIVER checks each frame against, and it is what tells two
+    // registrations behind one recycled pid apart in a log line.
+    out.sessionId = String(record.sessionId ?? '');
+  }
   if (record.kind === 'codex-queue') {
     out.codexHome = String(record.codexHome ?? '');
     out.threadId = String(record.threadId ?? '');
@@ -1263,8 +1277,12 @@ function writeInboxesFile(home, inboxes, fsImpl) {
   const file = inboxesPath(home);
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  // `mode` on writeFileSync only applies when the file is created, and umask still narrows it — so the
-  // chmod is what actually guarantees 600, and the rename carries that mode onto the target.
+  // Unlink first (review C12): `mode` on writeFileSync applies only when the file is CREATED, so a
+  // leftover tmp from an earlier process with this pid would be written into at whatever mode it
+  // already had, and token bytes would exist at that mode until the chmod below. Removing it first
+  // means the file is always created here. The chmod then covers what a create mode cannot: umask can
+  // only NARROW a create mode, never widen one, so the risk was never umask - it was the leftover.
+  try { fsImpl.rmSync(tmp, { force: true }); } catch { /* it will be created, or the write says why */ }
   fsImpl.writeFileSync(tmp, `${JSON.stringify({ version: INBOX_VERSION, inboxes }, null, 2)}\n`, { encoding: 'utf8', mode: INBOX_MODE });
   try { fsImpl.chmodSync(tmp, INBOX_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
   try {
@@ -1301,12 +1319,28 @@ export function writeInbox(home, slug, record, opts = {}) {
     return out;
   }
   const inboxes = readInboxes(home, fsImpl);
+  const previous = inboxes[String(slug)] ?? null;
   inboxes[String(slug)] = norm;
   try {
     out.file = writeInboxesFile(home, inboxes, fsImpl);
   } catch (err) {
     out.error = err?.message ?? String(err);
     return out;
+  }
+  // C8: two live sessions exporting the same NOTE_SLUG overwrite each other on every hook event, and
+  // notes then go to whichever wrote last. The registry cannot REFUSE the ambiguity the way the pane
+  // path did - a session is the authority on its own inbox, and a restart legitimately replaces the
+  // entry - but replacing a FRESH, DIFFERENT record is the signature of a split, and that gets one line
+  // in the file Ben greps. Token-free: only `describeInbox` output is ever written.
+  if (previous && !sameInbox(previous, norm) && now - Number(previous.at ?? 0) < INBOX_REFRESH_MS) {
+    out.conflict = true;
+    appendFlushLog(
+      home,
+      `${new Date(now).toISOString()} inbox-conflict ${slug} - replaced a ${previous.kind} registration `
+      + `written ${Math.round((now - Number(previous.at ?? 0)) / 1000)}s ago. Two live sessions are claiming `
+      + 'this slug; notes go to whichever registered last. Give one of them its own slug.',
+      fsImpl,
+    );
   }
   out.inbox = describeInbox(norm);
   return out;
@@ -1360,17 +1394,21 @@ export function pruneInboxes(home, { fsImpl = fs, now = Date.now(), maxAgeMs = I
  * (verified live on 2.1.275, Netcup, 2026-09-17). `pid` is the Claude process — `process.ppid` inside a
  * hook — and it is recorded for a human reading the file, never used for delivery.
  */
-export function claudeInboxRecord(env = process.env, { pid = undefined, cwd = undefined, host = undefined } = {}) {
+export function claudeInboxRecord(env = process.env, { sessionId, pid = undefined, cwd = undefined, host = undefined } = {}) {
   const socket = env?.CLAUDE_CODE_MESSAGING_SOCKET;
   const token = env?.CLAUDE_CODE_MESSAGING_TOKEN;
-  if (!socket || !token) return null;
+  // No session id, no registration (review C6). The id comes from the hook payload Claude Code writes
+  // to this hook's stdin, so it is first-hand; without it the post could not be pinned to the session
+  // that registered, and a recycled pid would silently redirect somebody's note into another session.
+  if (!socket || !token || !sessionId) return null;
   return {
     kind: 'claude-socket',
     socket: String(socket),
     token: String(token),
+    sessionId: String(sessionId),
+    host: String(host ?? os.hostname()),
     ...(Number.isFinite(Number(pid)) ? { pid: Number(pid) } : {}),
     ...(cwd ? { cwd: toPosix(cwd) } : {}),
-    ...(host ? { host: String(host) } : {}),
   };
 }
 
@@ -1380,13 +1418,17 @@ export function claudeInboxRecord(env = process.env, { pid = undefined, cwd = un
  * home must be the SAME `CODEX_HOME` as the target, because the queue is a SQLite store inside it; a
  * session whose env does not name one falls back to `~/.codex`, which is what `codex` itself does.
  */
-export function codexInboxRecord(env = process.env, { threadId, cwd = undefined, pid = undefined, home = undefined } = {}) {
+export function codexInboxRecord(env = process.env, { threadId, cwd = undefined, pid = undefined, home = undefined, host = undefined } = {}) {
   if (!threadId) return null;
   const codexHome = env?.CODEX_HOME || path.posix.join(toPosix(home ?? os.homedir()), '.codex');
   return {
     kind: 'codex-queue',
     codexHome: toPosix(codexHome),
     threadId: String(threadId),
+    // C7: `~/.agents/notes` is per-machine today, but a restored backup or a synced profile would make
+    // one machine's registry describe another's sessions. Both clients refuse a record stamped with
+    // somebody else's hostname rather than dialling a path that means something different here.
+    host: String(host ?? os.hostname()),
     ...(Number.isFinite(Number(pid)) ? { pid: Number(pid) } : {}),
     ...(cwd ? { cwd: toPosix(cwd) } : {}),
   };

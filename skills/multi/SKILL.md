@@ -108,9 +108,14 @@ never registered, because registering under a guess would divert another session
 That file is the one thing to look at when delivery is not happening:
 
 ```bash
-ls -l ~/.agents/notes/inboxes.json          # exists? mode 600? recently modified?
-grep 'inbox\|no-inbox' ~/.agents/notes/flush.log | tail   # what the flusher did, per note
+ls -l ~/.agents/notes/inboxes.json                        # there? recently modified?
+grep 'inbox' ~/.agents/notes/flush.log | tail             # what the flusher did, per note
 ```
+
+On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
+cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
+nothing is wrong: the file is protected by the profile's ACL, like everything else under `C:\Users\benzh`.
+Check the timestamp on Windows, not the mode.
 
 `delivered … — inbox (claude-socket)` or `inbox (codex-queue)` in `flush.log` is a note that arrived
 without a keystroke. Two failure lines mean something specific:
@@ -119,6 +124,9 @@ without a keystroke. Two failure lines mean something specific:
 |---|---|---|
 | `no-inbox [<id>] -> <slug>` | that slug has registered no inbox on this machine — the session predates 0.5.0, never stated its slug first-hand, or is not running here | nothing to do: the note is in the ledger and that session's own hooks read it on its next event. To get the nudge, have that pane run `note-inbox --me <slug>` once |
 | `inbox-stale [<id>] -> <slug>` | the socket answered `ENOENT`/`ECONNREFUSED`: that session has exited. The registration is dropped on the spot | nothing — the next drain says `no-inbox`, and the session re-registers when it comes back |
+| `codex-no-thread [<id>] -> <slug>` | that Codex session has not run its first turn yet, so its queue has nothing to attach to | nothing, give it one turn. It is not counted as a delivery attempt |
+| `inbox-conflict <slug>` | two live sessions are exporting the same `NOTE_SLUG`, and each hook event overwrites the other's registration | give one of them its own slug; until then notes go to whichever registered last |
+| `budget-only-pass N inbox entries left untouched` | the drain that ran was a short piggyback (3 s) and a Codex post needs 5 s to even start | nothing, the one-minute timer drain has the budget |
 
 One prerequisite on the Claude side, and it is not optional: the receiving session needs
 `crossSessionInbound: "accept"`. Without it, a session that bypasses permission prompts HOLDS an

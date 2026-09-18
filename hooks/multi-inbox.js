@@ -145,7 +145,7 @@ function couldBeInAPane() {
  * Best-effort and silent: a registration that cannot be written costs one deferred nudge, and the note
  * is already in the ledger.
  */
-async function registerMyInbox(cwd) {
+async function registerMyInbox(cwd, sessionId) {
   try {
     const transport = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "transport.mjs")).href);
     const home = os.homedir();
@@ -158,9 +158,12 @@ async function registerMyInbox(cwd) {
       }
     }
     if (!slug) return null;
-    // `process.ppid` is the Claude process that spawned this hook. Recorded for a human reading the
-    // file; delivery uses the socket, never the pid.
-    const record = transport.claudeInboxRecord(process.env, { pid: process.ppid, cwd });
+    // `sessionId` comes from the payload Claude Code writes to this hook's stdin, so it is first-hand
+    // — and it is REQUIRED (review C6): it is sent with every post, the receiver drops a frame whose
+    // session id is not its own, and that is what stops a recycled pid from redirecting somebody's note
+    // into a different session behind the same `/tmp/cc-socks/<pid>.sock` path.
+    // `process.ppid` is recorded for a human reading the file; delivery never uses it.
+    const record = transport.claudeInboxRecord(process.env, { sessionId, pid: process.ppid, cwd });
     if (!record) return null;
     return transport.registerInbox(transport.toPosix(home), slug, record);
   } catch {
@@ -192,6 +195,18 @@ async function main() {
   const input = await readInput();
   const event = input.hook_event_name || process.argv[2] || "";
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const sessionId = input.session_id;
+
+  // C4: SessionStart REGISTERS and stops there — no inbox read, no output, nothing in the context.
+  // A pane Ben opens and walks away from used to register nothing at all (the adapter only gets here on
+  // a prompt, a stop, or a tool call past the mtime gate), which made the one case this whole feature
+  // exists for — an idle session — the one case it could not reach. Registration only, because a
+  // session that has just started has not asked for anything, and its first UserPromptSubmit will
+  // surface whatever is waiting a moment later anyway.
+  if (event === "SessionStart") {
+    await registerMyInbox(cwd, sessionId);
+    return;
+  }
 
   // PostToolUse is the hot path: it fires on every tool call, so it decides whether there is anything
   // to do from a stamp and a directory mtime, before importing anything.
@@ -210,7 +225,7 @@ async function main() {
   const work = (async () => {
     // D2: register this session's inbox first, so a session that has nothing to read is still
     // REACHABLE. Its own try/catch, because a failed registration must not stop the note read.
-    await registerMyInbox(cwd);
+    await registerMyInbox(cwd, sessionId);
     try {
       // Inside the try on purpose: a broken CLAUDE_PLUGIN_ROOT makes this import throw, and M1 says a
       // config error must SAY SO once rather than making the hook permanently silent.

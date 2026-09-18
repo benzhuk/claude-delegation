@@ -22,6 +22,14 @@ claude plugin marketplace add benzhuk/claude-delegation
 claude plugin install delegation@benzhuk
 ```
 
+> **One prerequisite for peer notes (multi 0.5.0).** Each machine's Claude user settings
+> (`~/.claude/settings.json`) need `"crossSessionInbound": "accept"`. Peer notes are delivered into a
+> session's own inbox socket; without that setting a session which bypasses permission prompts HOLDS an
+> arriving note behind a modal approval dialog in its pane instead of delivering it, which is worse than
+> not delivering at all — and the sender cannot tell, because a held post looks delivered on the wire.
+> `mirror-shared-skills.mjs` warns when it is missing and never edits settings itself.
+
+
 ## What you get
 
 **Three skills** (auto-suggested by task shape, or invoke directly):

@@ -19,8 +19,11 @@
 //   · the message frame's type is `user`, and the text lives at `message.content`. A frame with a
 //     missing or non-string `message.content` is dropped with a warning in the receiver's debug log.
 //   · the auth line is OPTIONAL on macOS/Linux and REQUIRED on native Windows. We always send it.
-//   · `session_id` is deliberately NOT sent: the receiver drops any frame whose `session_id` does not
-//     equal its own, and we key the registry by slug, not by session id.
+//   · `session_id` IS sent, and it is load-bearing (review C6). The receiver drops any frame whose
+//     `session_id` is not its own, so sending the id the registering session wrote down turns the one
+//     misdelivery this design allows — a recycled pid re-creating `/tmp/cc-socks/<pid>.sock` for a
+//     different session — into a silent drop instead of a turn started in the wrong session. The
+//     registry is still keyed by slug; the id is the proof that the slug still means this session.
 //   · nothing is written back. The connection is fire-and-forget and the only completion signal is the
 //     write callback, which is why `timeoutMs` below is a write/connect bound, not a reply bound.
 //   · the receiver closes a connection that has not sent a complete line within 30 s, so we open only
@@ -65,10 +68,19 @@ export const STALE_CODES = new Set(['ENOENT', 'ECONNREFUSED', 'ENOTSOCK', 'ECONN
  * newline (the envelope grammar forbids it), and anything else it can contain is escaped by the
  * serialiser rather than pasted into a shell or a terminal.
  */
-export function inboxFrames(token, text, from = DEFAULT_FROM) {
+export function inboxFrames(token, text, from = DEFAULT_FROM, sessionId = undefined) {
   return [
     JSON.stringify({ type: 'auth', token: String(token) }),
-    JSON.stringify({ type: 'user', from: String(from), message: { content: String(text) } }),
+    JSON.stringify({
+      type: 'user',
+      from: String(from),
+      // C6: the receiver DROPS a frame whose `session_id` is not its own, which turns the one
+      // misdelivery this design allows - a recycled pid behind a socket path recorded for a session that
+      // has since exited - from "another session is interrupted with somebody else's note" into a silent
+      // no-op the ledger already covers. Sent exactly when the registration carries one.
+      ...(sessionId ? { session_id: String(sessionId) } : {}),
+      message: { content: String(text) },
+    }),
   ];
 }
 
@@ -125,7 +137,7 @@ export function postToClaudeInbox(record, text, opts = {}) {
     const write = () => {
       // Both lines in one write: verified live, and it means the receiver's 30-second first-line
       // deadline can never be a factor — the complete auth line is in the same buffer as the message.
-      const payload = `${inboxFrames(record.token, text, from).join('\n')}\n`;
+      const payload = `${inboxFrames(record.token, text, from, record.sessionId).join('\n')}\n`;
       socket.write(payload, (err) => {
         if (err) {
           finish({ ok: false, delivered: false, stale: STALE_CODES.has(String(err?.code ?? '')), reason: 'inbox-error', detail: errorDetail(err) });
@@ -163,9 +175,30 @@ export async function deliverToSlug(home, slug, text, opts = {}) {
   if (record.kind !== 'claude-socket') {
     return { ok: false, delivered: false, reason: 'inbox-error', detail: `${slug} is registered as ${record.kind}, not claude-socket` };
   }
+  // C7: a registration stamped with another machine's hostname describes a socket path that means
+  // something DIFFERENT here - the honest answer for a restored backup or a synced profile is that this
+  // machine has no inbox for that slug, and the entry goes rather than being dialled.
+  const host = opts.hostname ?? os.hostname();
+  if (record.host && record.host !== host) {
+    forget(home, slug, opts, fsImpl);
+    return {
+      ok: false, delivered: false, reason: 'no-inbox',
+      detail: `${slug} is registered on "${record.host}", not "${host}" - registration dropped`,
+    };
+  }
   const verdict = await postToClaudeInbox(record, text, opts);
-  if (verdict.stale && !opts.keepStale) removeInbox(home, slug, { fs: fsImpl });
+  if (verdict.stale && !opts.keepStale) forget(home, slug, opts, fsImpl);
   return { ...verdict, kind: 'claude-socket' };
+}
+
+/**
+ * Drop a registration from the file AND from the caller's in-memory map (review C12). Without the
+ * second half a drain holding N notes for one dead session pays a connect and rewrites the registry N
+ * times, having already learnt on the first that there is nothing there.
+ */
+function forget(home, slug, opts, fsImpl) {
+  removeInbox(home, slug, { fs: fsImpl });
+  if (opts.inboxes) delete opts.inboxes[String(slug)];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -86,6 +86,29 @@ export const DEFAULT_PER_ENTRY_MS = 45_000;
  */
 export const DEFAULT_PHASE2_RESERVE_MS = 20_000;
 
+/**
+ * C1: the least budget an inbox delivery may be STARTED with, per transport.
+ *
+ * `drainQuietly` gives a piggyback drain 3 000 ms, and `codex queue` spins up an in-process app-server
+ * and opens SQLite - a little over a second on an idle box, more on a loaded one. Starting it with two
+ * seconds left means SIGKILL, `codex-timeout`, and an attempt burnt; every note-send on the machine
+ * triggers a piggyback, so the 20-attempt budget could be spent in minutes by drains that were never
+ * going to succeed, ending in `outbox/dead/` and a BLOCKED line for a note the one-minute timer drain
+ * would have delivered. The typed path has had exactly this guard since the 2026-09-14 incident
+ * (`phase2Reserve`); this is its inbox equivalent.
+ */
+export const INBOX_FLOOR_MS = { 'claude-socket': 750, 'codex-queue': 5_000 };
+
+/**
+ * C2: outcomes that are NOT delivery attempts and must never move the attempt counter.
+ *
+ * `codex-no-thread` is "this Codex thread has not run its first turn yet" - the normal state of a pane
+ * that was just launched, not a failure. `no-inbox` is "there was nothing to deliver to". Counting
+ * either walks the entry toward `gave-up`, which dead-letters the note and writes a BLOCKED line into
+ * the one file Ben reads, for a wake-up that was never tried.
+ */
+export const NOT_AN_ATTEMPT = new Set(['codex-no-thread', 'no-inbox']);
+
 /** What 0.4.0 wrote while a Stop hook was parked. Nothing writes these now, so every one is garbage. */
 export const LISTENING_MARKER_RE = /^\.listening-.+\.json$/;
 
@@ -158,9 +181,16 @@ function hoursSince(iso, now) {
  * through note-send — that would need a pane, which is the thing that just failed — but the same file
  * Ben already reads for everything waiting on him.
  */
-export function appendBlockedToBen(home, entry, attempts, fsImpl = fs) {
+export function appendBlockedToBen(home, entry, attempts, fsImpl = fs, reason = 'attempts') {
   const file = benInboxPath(home);
   const to = entry.toSlug ?? entry.to;
+  // C3: an entry whose only outcome was ever `no-inbox` never reaches the 20-attempt give-up (nothing
+  // was ever attempted), so without this it would expire at 48 h with a bare `expired` line and Ben
+  // would lose a signal 0.4.2 gave him. "Nobody was reachable for two days" is worth exactly one line
+  // in the file he reads.
+  const body = reason === 'no-inbox'
+    ? `never had an inbox on this machine to deliver to, for ${Math.round(Number(attempts) || 0)}h`
+    : `was never typed into ${to} after ${attempts} attempts`;
   try {
     fsImpl.mkdirSync(path.dirname(file), { recursive: true });
     try {
@@ -168,7 +198,7 @@ export function appendBlockedToBen(home, entry, attempts, fsImpl = fs) {
     } catch { /* already there */ }
     fsImpl.appendFileSync(
       file,
-      `- note-flush → ben, ${new Date().toISOString()} BLOCKED: [${entry.id}] was never typed into ${to} after ${attempts} attempts`
+      `- note-flush -> ben, ${new Date().toISOString()} BLOCKED: [${entry.id}] ${body}`
       + `${entry.lastError ? ` (last: ${String(entry.lastError).split('\n')[0].slice(0, 120)})` : ''}.`
       + ` The note IS in the ledger; only the wake-up failed. Entry: ${deadOutboxPath(home, entry.id)}\n`,
       'utf8',
@@ -308,8 +338,19 @@ export async function runNoteFlush(argv, deps = {}) {
       continue;
     }
     if (hoursSince(entry.createdAt, now) > maxAgeHours) {
-      if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
-      results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'expired', log: log('expired', entry, `older than ${maxAgeHours}h; the ledger still has the note`) });
+      // C3: an entry that only ever said `no-inbox` was never attempted, so it cannot have reached the
+      // 20-attempt give-up that reports to Ben. Expiring it silently would drop a signal 0.4.2 had.
+      const neverReachable = entry.lastOutcome === 'no-inbox';
+      if (!dryRun) {
+        removeOutboxEntry(home, entry.id, fsImpl);
+        if (neverReachable) appendBlockedToBen(home, entry, maxAgeHours, fsImpl, 'no-inbox');
+      }
+      results.push({
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'expired',
+        log: log('expired', entry, neverReachable
+          ? `older than ${maxAgeHours}h and never had an inbox to deliver to; reported to ben. The ledger still has the note`
+          : `older than ${maxAgeHours}h; the ledger still has the note`),
+      });
       continue;
     }
     live.push(entry);
@@ -346,14 +387,23 @@ export async function runNoteFlush(argv, deps = {}) {
   /** D3(3): typing is off unless this machine asks for it explicitly. */
   const allowTyping = String(env.MULTI_ALLOW_TYPING ?? '') === '1';
   const needTyping = [];
+  /** C1: entries this pass could not START, summarised in one line rather than one attempt each. */
+  const shortBudget = [];
 
   for (const entry of live) {
     const slug = entry.toSlug ?? entry.to;
     const record = inboxes[slug];
     if (!record) { needTyping.push(entry); continue; }
 
-    const budget = deadline - clock();
-    if (budget <= 0) { remaining += 1; continue; }
+    // C1: never START what this budget cannot finish. A skip here is not an attempt and is not logged
+    // per entry - the one summary line below says it once for the whole pass.
+    const budget = Math.min(deadline - clock(), perEntryMs);
+    const floor = INBOX_FLOOR_MS[record.kind] ?? 750;
+    if (budget < floor) {
+      remaining += 1;
+      shortBudget.push({ id: entry.id, kind: record.kind, floor, budget: Math.max(0, Math.round(budget)) });
+      continue;
+    }
 
     // Claimed for the same reason the typed path claims: two drainers must not both deliver one
     // wake-up. A duplicate post is a duplicate TURN in the recipient's session.
@@ -367,7 +417,7 @@ export async function runNoteFlush(argv, deps = {}) {
     let verdict;
     try {
       verdict = await deliverInbox(home, slug, entry.envelope, record, {
-        fsImpl, env, inboxes, codex: args.codex, budgetMs: Math.min(budget, perEntryMs),
+        fsImpl, env, inboxes, codex: args.codex, budgetMs: budget,
       });
     } catch (err) {
       // Defensive: both clients resolve rather than reject, so this is a bug-catcher, not a path.
@@ -386,13 +436,33 @@ export async function runNoteFlush(argv, deps = {}) {
       releaseClaim(claim, fsImpl); // the claim IS the entry now; dropping it retires the wake-up
     } else {
       remaining += 1;
+      // C2: `codex-no-thread` and `no-inbox` are states, not failures - the entry is rewritten so the
+      // log can go quiet on a repeat, but `attempts` does not move, so neither can ever dead-letter a
+      // note nobody tried to deliver.
+      const counted = !NOT_AN_ATTEMPT.has(outcome);
+      if (!counted) attempted -= 1;
       writeOutboxEntry(home, {
-        ...entry, attempts: Number(entry.attempts ?? 0) + 1,
+        ...entry, attempts: Number(entry.attempts ?? 0) + (counted ? 1 : 0),
         lastAttemptAt: new Date(now).toISOString(), lastOutcome: outcome, lastError: detail,
       }, fsImpl);
       releaseClaim(claim, fsImpl);
     }
-    results.push({ id: entry.id, to: slug, outcome, detail, log: log(outcome, entry, detail) });
+    // C3: a state that repeats every minute for 48 hours says nothing after the first time. The entry
+    // remembers its last outcome, so this is "log on change", not "log once and forget".
+    const repeat = !verdict.delivered && NOT_AN_ATTEMPT.has(outcome) && entry.lastOutcome === outcome;
+    results.push({ id: entry.id, to: slug, outcome, detail, log: repeat ? null : log(outcome, entry, detail) });
+  }
+
+  // C1: one line for the whole pass, the way the typed path reports a budget that could never type.
+  if (shortBudget.length > 0 && !dryRun) {
+    const worst = shortBudget[0];
+    appendFlushLog(
+      home,
+      `${stamp} budget-only-pass ${shortBudget.length} inbox entr${shortBudget.length === 1 ? 'y' : 'ies'} `
+      + `left untouched - ${worst.budget} ms left and a ${worst.kind} delivery needs ${worst.floor} ms to `
+      + 'start. Nothing was attempted, so nothing was counted.',
+      fsImpl,
+    );
   }
 
   // ── D3(2): nothing registered, and typing is not allowed. The entry stays queued and says so once.
@@ -401,10 +471,24 @@ export async function runNoteFlush(argv, deps = {}) {
   if (!allowTyping) {
     for (const entry of needTyping) {
       remaining += 1;
+      // C3: at one drain a minute plus one per note-send, logging this unconditionally writes on the
+      // order of 2 880 identical lines before the entry expires - into the file SKILL.md tells Ben to
+      // grep. The entry remembers the state, so the line goes in on a CHANGE of state and never again
+      // while nothing changes. `attempts` is untouched: nothing was attempted.
+      const changed = entry.lastOutcome !== 'no-inbox';
+      if (changed && !dryRun) {
+        writeOutboxEntry(
+          home,
+          { ...entry, lastOutcome: 'no-inbox', lastError: 'no inbox registered on this machine' },
+          fsImpl,
+        );
+      }
       results.push({
         id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-inbox',
         detail: 'no inbox registered on this machine; the ledger has the note and its own hooks will read it',
-        log: log('no-inbox', entry, 'no inbox registered on this machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)'),
+        log: changed
+          ? log('no-inbox', entry, 'no inbox registered on this machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)')
+          : null,
       });
     }
     return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };

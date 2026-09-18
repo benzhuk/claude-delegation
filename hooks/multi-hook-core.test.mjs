@@ -358,7 +358,7 @@ test('D2: the payload session_id becomes the thread id the queue is addressed by
   );
   const reg = readInboxes(home);
   assert.deepEqual(reg.astra, {
-    kind: 'codex-queue', at: NOW, pid: reg.astra.pid, cwd: '/repo',
+    kind: 'codex-queue', at: NOW, pid: reg.astra.pid, cwd: '/repo', host: os.hostname(),
     codexHome: '/orca/home-a', threadId: THREAD,
   });
 });
