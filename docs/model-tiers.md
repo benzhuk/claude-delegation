@@ -19,6 +19,12 @@ distinct models here (Fable above Opus), so its rows need no such caveat.
 
 Rules of thumb (vendor-neutral):
 - Top-tier tokens buy judgment only. A top-tier session routes work; it does not grind through it.
+- Data pulls, censuses, log crunching and mechanical diffs are fast- or mid-tier work (Haiku for
+  mindless bulk, Sonnet otherwise), reporting to disk; the orchestrator never runs a comparison in
+  its own loop (Ben, 2026-09-18).
+- A QUALITY verdict (better or worse against a gold, an advisor note or a baseline) is high tier
+  (Opus) at minimum, with the source in hand; a light agent's score is never trusted for that
+  (Ben, 2026-09-18).
 - Verify with a stronger tier than the writer: mid writes → high reviews; high writes → top adjudicates.
 - Fast tier never touches anything that computes a number someone will act on.
 - On Ben's plans the mid tier is effectively free: run executors at full strength, always.
