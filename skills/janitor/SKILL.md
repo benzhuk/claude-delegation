@@ -8,50 +8,70 @@ description: Use when a build, worktree, or run has finished and something needs
 Cleanup is nobody's job by default, so it doesn't happen. This skill makes it a
 five-second check: run `janitor.mjs`, read two short tables and five numbers, done.
 
+## janitor never deletes a file
+
+This is the load-bearing fact, stated plainly because two rounds of adversarial review
+found working ways to make an earlier version delete the wrong one (a symlinked parent
+directory that walked straight through a root-containment check; a registry line that
+only had to claim `created_by_tool: true` to get a git-tracked file removed). Rather
+than harden that check a third time, the capability was cut. janitor has exactly two
+destructive actions, both delegated straight to git, on a whole worktree or a whole
+branch ref, never on an individual file:
+- `git worktree remove` (no force flag) - removes a worktree DIRECTORY, via git's own
+  bookkeeping, not by walking the filesystem itself
+- `git branch -d` (never `-D`) - deletes a branch REF
+
+A tool with no unlink code path cannot delete the wrong file. Registry entries are
+report-only: an overdue one appears in the JUDGMENT table so a person can look at it and
+remove it themselves - by hand, or with `rm`, or however they choose - never by janitor.
+
 ## The two classes
 
 **SAFE**: a human would agree without looking.
 - a git worktree that is not locked, not the main working tree, not the one janitor is
-  running from, whose branch is fully merged into main AND (when an `origin/<main>` ref
-  exists) confirmed on origin, has no submodules, and is fully clean including ignored
-  files (`git status --porcelain --ignored`, not just tracked changes)
-- a local branch merged into main, not a protected name (`main`, `master`, `develop`,
-  `release`, `release/*`, `hotfix/*`, ...), never the current branch, never main
-- a registry entry the tool itself created, past its end condition, whose `ref`
-  resolves strictly inside the project root
+  running from, whose branch is fully merged into main AND confirmed on origin (an
+  `origin/<main>` ref must exist AND contain the branch's tip - with no origin remote at
+  all, NOTHING is ever confirmed and NO worktree is ever SAFE; see "no remote" below),
+  has no submodules, and is fully clean including ignored files (`git status
+  --porcelain --ignored`, not just tracked changes)
+- a local branch merged into main AND confirmed on origin the same way, not a protected
+  name (`main`, `master`, `develop`, `release`, `release/*`, `hotfix/*`, ...), never the
+  current branch, never main
 
 **JUDGMENT**: the tool cannot prove it, a person has to look.
 - a dirty worktree, including one that is clean by `git status` but holds ignored
   files with real content (build output, local config): both count
 - a locked worktree (its lock reason is shown), or one with submodules
-- a merged worktree whose branch has no confirmed `origin/<main>` copy
+- a worktree OR a branch that is merged locally but not confirmed on `origin/<main>`
+  (no remote, remote never fetched, or the tip simply isn't there yet)
 - an unmerged branch with no commit in 14 days
 - a branch that is merged but carries a protected name (a bookmark IS an ancestor of
   main by construction; the name is the only signal it has one)
-- a registry entry past its end condition that the tool did not create, or whose `ref`
-  resolves outside the project root even if it claims `created_by_tool`
+- a registry entry past its end condition, of ANY kind and whatever it claims about who
+  created it - registry entries never leave JUDGMENT, because nothing ever acts on one
 - an untracked file matching the project's scratch patterns
+
+**No remote configured at all** is a real, common project shape (a fresh repo, a purely
+local one), and under it the worktree class - and now the branch class too - is
+permanently empty: nothing is ever confirmed as pushed, so nothing is ever SAFE. Read an
+empty SAFE table as "nothing provably safe today," never as "nothing to clean."
 
 The dry run (no flags) always prints both tables plus five drift numbers: disk used by
 the project root, worktree count, open local branch count, untracked file count, and
 registry entries past their end condition (plus a count of unreadable/malformed
-registry lines, when there are any). `--apply` acts on SAFE only, and a registry-line
-`--apply` UNLINKS the file at that entry's `ref` from disk, not just the registry line
-- read that as a real deletion before appending a line with `created_by_tool: true`.
-`--json` emits the same safe/judgment/drift shape as machine-readable JSON instead of
-the printed tables, for a caller that wants to parse the result. JUDGMENT is never
-executed automatically, by this tool or by an agent reading its output. It is one
-batched question to the owner, not N separate ones. Collect everything dispatchable
-first, then ask JUDGMENT as ONE multiple-choice pass: "these N things look stale, keep
-or remove each?" Never surface JUDGMENT items one at a time as they're found; never act
-on one without asking.
+registry lines, when there are any). `--apply` acts on SAFE only. `--json` emits the
+same safe/judgment/drift shape as machine-readable JSON instead of the printed tables,
+for a caller that wants to parse the result. JUDGMENT is never executed automatically,
+by this tool or by an agent reading its output. It is one batched question to the
+owner, not N separate ones. Collect everything dispatchable first, then ask JUDGMENT as
+ONE multiple-choice pass: "these N things look stale, keep or remove each?" Never
+surface JUDGMENT items one at a time as they're found; never act on one without asking.
 
 ## What janitor will never do
 
-No forced removal, no wiping of uncommitted changes, no resetting a tree, no touching a
-work-in-progress shelf, no recursive delete of a path it did not create, no unlinking a
-path that resolves outside the project root or through a symlink. If it isn't sure, it
-reports and stops.
+No unlinking a file, ever - see above. No forced removal, no wiping of uncommitted
+changes, no resetting a tree, no touching a work-in-progress shelf, no recursive delete
+of a path it did not create. If it isn't sure, it reports and stops.
 
 Reading state and destroying state follow different rules. While only reading, a crash,
 a timeout, or state it can't parse is silent and exits clean (0), never a false claim of
@@ -72,19 +92,23 @@ what turns it into something janitor (or the next builder) can act on.
 
 ## Cleanup is never chained onto productive work
 
-Gated, permission-requiring cleanup (removing a worktree, deleting a branch, unlinking
-a file) runs as its own standalone step, never appended to a command that's doing real
-work. A build that ends "...and also let me clean up" turns one permission prompt into
-a blocker for everything before it. Run the build, report it, then run janitor
-separately, or leave the cleanup named and unresolved for the next pass.
+Gated, permission-requiring cleanup (removing a worktree, deleting a branch, or a hand
+`rm` on something janitor only ever reports) runs as its own standalone step, never
+appended to a command that's doing real work. A build that ends "...and also let me
+clean up" turns one permission prompt into a blocker for everything before it. Run the
+build, report it, then run janitor separately, or leave the cleanup named and
+unresolved for the next pass.
 
 ## Registry
 
-Anything janitor should later be able to reason about (a scratch file, a packet, a
-worktree it didn't create through git directly) gets one line appended to the artifact
-registry: `ref`, `kind`, `owner`, `purpose`, `end_condition`, `created`, and
-`created_by_tool` if the tool itself made it. No line, no lifecycle: an unregistered
-file matching no scratch pattern is invisible to janitor and stays forever.
+Anything worth surfacing later (a scratch file, a packet, a worktree janitor didn't
+create through git directly) gets one line appended to the artifact registry: `ref`,
+`kind`, `owner`, `purpose`, `end_condition`, `created`, and `created_by_tool` if a tool
+made it. An overdue line shows up in the JUDGMENT table for a person to look at and, if
+they agree, remove by hand - janitor itself never reads `created_by_tool` as
+permission to act; the field is provenance for the human, not a lock this tool checks.
+No line, no lifecycle: an unregistered file matching no scratch pattern is invisible to
+janitor and stays forever.
 
 ## commit-check
 
