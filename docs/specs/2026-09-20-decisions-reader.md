@@ -29,8 +29,8 @@ arrives as plain `**`.
 3. An OWNER COMMENT is a line whose text, after leading whitespace and after an
    optional list or checkbox marker (`- `, `- [ ] `, `- [x] `), starts with the
    escaped form `\*\*`. A line starting with unescaped `**` is agent-written and is
-   NOT a comment. Real example of an owner comment line: `\t\t- [ ] \*\* what are the
-   tradeoffs here? option 2 sounds…`. Such a line is a comment, NOT an option, even
+   NOT a comment. Example of the shape an owner comment arrives in: `\t\t- [ ] \*\* which
+   of these is cheaper to undo?`. Such a line is a comment, NOT an option, even
    though it carries a checkbox marker; it never counts as an option or as a tick.
 4. A DECISION is a title with at least one option (a checkbox line that is not an
    owner comment) attached to it. Titles with no options are grouping sections and
