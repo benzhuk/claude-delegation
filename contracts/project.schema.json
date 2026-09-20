@@ -1,7 +1,1 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"project config (.agents/project.json)","type":"object",
-"additionalProperties":false,"required":["name","vcs"],
-"properties":{"name":{"type":"string"},"vcs":{"enum":["git","none"]},"main_branch":{"type":"string","default":"main"},
-"gate_command":{"type":["string","null"]},"decisions_url":{"type":["string","null"]},
-"scratch_patterns":{"type":"array","items":{"type":"string"},"default":["scripts/_tmp-*","tmp-*.md"]},
-"artifact_registry":{"type":"string","default":".agents/artifacts.jsonl"},
-"extra_artifact_kinds":{"type":"array","items":{"type":"string"}}}}
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"project config (.agents/project.json)","type":"object","additionalProperties":false,"required":["name","vcs"],"properties":{"name":{"type":"string"},"vcs":{"enum":["git","none"]},"main_branch":{"type":"string","default":"main"},"gate_command":{"type":["string","null"]},"decisions_url":{"type":["string","null"]},"scratch_patterns":{"type":"array","items":{"type":"string"},"default":["scripts/_tmp-*","tmp-*.md"]},"artifact_registry":{"type":"string","default":".agents/artifacts.jsonl"},"extra_artifact_kinds":{"type":"array","items":{"type":"string"}},"goal_card":{"type":"string","default":"docs/goals/card.md"}}}

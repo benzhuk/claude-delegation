@@ -1,5 +1,6 @@
 # Switches and exit codes (pinned)
-- Master switch: file `~/.agents/ws-off`. Per feature: `~/.agents/ws-off-<name>` with name in: footer, janitor, commit-check.
+- Master switch: file `~/.agents/ws-off`. Per feature: `~/.agents/ws-off-<name>` with name in: footer, janitor, commit-check, goalcard.
+  The master switch means a feature performs NO side effect at all (no state write, no sweep, no delete), not merely that it prints nothing.
   A present file means the feature does nothing and exits 0 silently. Files, not env vars: a session started from a GUI
   may never source the env file, and the switch must work exactly when a hook is misbehaving.
 - Exit codes: 0 ok · 1 finding · 3 blind (could not read what it needed). NEVER 2 (hook protocol reads 2 as BLOCK).

@@ -34,6 +34,6 @@ export function loadProjectConfig(start = process.cwd()) {
 }
 
 export function switchedOff(name) {
-  const base = join(homedir(), ".agents");
+  const base = process.env.AGENTS_HOME || join(homedir(), ".agents");
   return existsSync(join(base, "ws-off")) || (name ? existsSync(join(base, `ws-off-${name}`)) : false);
 }

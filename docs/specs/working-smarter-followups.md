@@ -22,3 +22,12 @@ Each line: source review, file, what, why it was not a blocker.
 ## Process
 - The usage limit cut three agents off mid-work on 2026-09-20. Mandates now say: write the report incrementally, verdict
   line first, and commit early and often.
+
+## Goal card (review-d-delta, builder-d integration lines, 2026-09-20)
+- Codex gets no goal card yet: `hooks/multi-codex-hook.mjs` should append `goalCardContext(cwd)` to its SessionStart
+  context. No new handler, no new trust entry. The batch counter stays off Codex.
+- `scripts/goal-card.mjs` carries its own agentsHome/switchedOff/activeSwitch; `scripts/project-config.mjs` now honours
+  AGENTS_HOME too, so fold them into one implementation with `activeSwitch()`.
+- PostToolBatch costs one node spawn per tool batch (about 6 ms over bare node on the hot path, roughly a minute of wall
+  time per 2,000 batches). Watch it in the one-week trial.
+- The reviewer's six small follow-ups are listed at the end of review-d-delta.md (orchestrator scratchpad ws-build/).
