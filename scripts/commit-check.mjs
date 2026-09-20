@@ -16,9 +16,10 @@ import { matchesScratchPattern } from "./janitor.mjs";
 
 export function stagedPaths(cwd) {
   try {
-    return execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8" })
-      .split("\n")
-      .map((s) => s.trim())
+    // -z: NUL-separated and NEVER C-quoted. Without it a path with a space or a non-ASCII byte
+    // comes back quoted (e.g. "tmp-caf\303\251.md") and silently matches no scratch pattern.
+    return execFileSync("git", ["diff", "--cached", "--name-only", "-z"], { cwd, encoding: "utf8" })
+      .split("\0")
       .filter(Boolean);
   } catch {
     return null; // blind
@@ -29,15 +30,30 @@ export function findScratchMatches(paths, scratchPatterns) {
   return paths.filter((p) => matchesScratchPattern(p, scratchPatterns));
 }
 
+/** Splits argv into flags and path arguments. A literal `--` ends flag parsing: everything after
+ * it is a path, even one that starts with `-`. Without a `--`, anything starting with `--` is a
+ * flag (this script has no path-looking flag names, so this stays unambiguous in practice). */
+export function splitArgv(argv) {
+  const dashIndex = argv.indexOf("--");
+  if (dashIndex === -1) {
+    return { flags: argv.filter((a) => a.startsWith("--")), paths: argv.filter((a) => !a.startsWith("--")) };
+  }
+  return { flags: argv.slice(0, dashIndex).filter((a) => a.startsWith("--")), paths: argv.slice(dashIndex + 1) };
+}
+
 export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
   try {
     if (switchedOff("commit-check")) return 0;
 
-    const { root, config } = loadProjectConfig(cwd);
+    const { root, config, source } = loadProjectConfig(cwd);
+    if (source === "unreadable") {
+      process.stderr.write("commit-check: .agents/project.json is unreadable\n");
+      return 3;
+    }
     if (config.vcs === "none") return 0;
     if (!root) return 0;
 
-    const cliPaths = argv.filter((a) => !a.startsWith("--"));
+    const { paths: cliPaths } = splitArgv(argv);
     const paths = cliPaths.length > 0 ? cliPaths : stagedPaths(root);
     if (paths === null) {
       process.stderr.write("commit-check: could not read staged paths\n");

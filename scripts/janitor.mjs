@@ -2,30 +2,51 @@
 // janitor — dry-run by default, prints a SAFE table, a JUDGMENT table, and five drift numbers for
 // the current project (per contracts/project.schema.json, read only through project-config.mjs).
 //
-// SAFE  = git worktrees whose branch is merged into main AND whose tree is clean; local branches
-//         merged into main (never the current branch, never main); registry entries this tool
-//         created (created_by_tool:true) whose end_condition is met.
-// JUDGMENT = dirty worktrees; unmerged branches with no commit in 14 days; registry entries past
-//         their end_condition that this tool did NOT create; untracked files matching the
-//         project's scratch_patterns.
+// SAFE (a human would agree without looking) = a git worktree that is: not locked, not the main
+//   working tree, not the worktree we are standing in, its branch fully merged into main AND (when
+//   an origin/<main> ref exists) the branch tip present on origin/<main>, `git status --porcelain
+//   --ignored` fully empty (untracked AND ignored content both count), no submodules; OR a local
+//   branch merged into main that is not a protected name, not the current branch, not main; OR a
+//   registry entry this tool itself created (created_by_tool:true) whose end_condition is met AND
+//   whose ref resolves strictly inside the project root.
+// JUDGMENT = everything that fails one of the above proofs but still looks stale: a dirty/ignored/
+//   locked/submoduled worktree, an unmerged branch with no commit in 14 days, a protected-name
+//   branch that happens to be merged, a registry entry past its end_condition this tool did NOT
+//   create (or whose ref resolves outside the project root even if it claims created_by_tool), an
+//   untracked file matching the project's scratch_patterns.
 //
 // `--apply` acts on SAFE only: a plain, unforced worktree removal, a worktree prune, a lower-case
 // branch delete (the non-forcing form only - never its capital-letter sibling), and unlinking
-// registry-created SINGLE FILES (fs.unlinkSync only, never a directory, never recursive). JUDGMENT
-// is reported and never executed. This script never wipes uncommitted work, never resets a tree,
-// never touches a work-in-progress shelf, never forces anything, and never recursively deletes a
-// path it did not create.
+// registry-created SINGLE FILES whose `ref` resolves (lexically, against the project root - never
+// against process.cwd(), so a line means the same file no matter where janitor runs from) strictly
+// inside the project root, and whose FINAL path component is not itself a symlink (fs.unlinkSync
+// only, never a directory, never recursive). This does not chase a symlinked intermediate
+// directory back out of the root - that residual gap is unresolved, same as the reviewer's own
+// mechanical fix. JUDGMENT is reported and never executed. This script never wipes uncommitted
+// work, never resets a tree, never touches a work-in-progress shelf, never forces anything, and
+// never recursively deletes a path it did not create.
 //
-// Exit codes: 0 ok (no findings, or --apply cleared everything), 1 findings remain, 3 blind
-// (couldn't read git state at all). NEVER 2. Fail open on any unexpected crash: exit 0, silent.
+// Fail-open applies to READING state, never to a run that has already started deleting something.
+// Once --apply has taken even one destructive action, a later failure is never silent: whatever was
+// already done is printed, and the exit code is 1 or 3, never 0.
+//
+// Exit codes: 0 ok (no findings, or --apply cleared everything with nothing left over), 1 findings
+// remain (or an apply action failed), 3 blind (couldn't read project config, the registry, or git
+// state at all — this is NOT the same as clean). NEVER 2. The only silent-0 paths are the switch
+// file and `vcs: "none"`; every other blind or crash condition says so on stderr before returning 3
+// (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
+// no destructive action has been taken yet).
 
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, unlinkSync } from "node:fs";
+import { resolve as resolvePath, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 import { listArtifacts, closeArtifact, endConditionMet, resolveRegistryPath } from "./artifact-registry.mjs";
 
 const UNMERGED_STALE_DAYS = 14;
+const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
+const PROTECTED_BRANCH_PREFIXES = ["release/", "hotfix/"];
 
 // ---------- git wrappers (each catches its own failure; callers decide safe/blind) ----------
 
@@ -49,7 +70,7 @@ export function currentBranch(root) {
   }
 }
 
-/** Parses `git worktree list --porcelain` into [{ path, branch, bare, detached }]. */
+/** Parses `git worktree list --porcelain` into [{ path, branch, bare, detached, locked, lockReason, prunable, main }]. */
 export function listWorktrees(root) {
   let out;
   try {
@@ -59,10 +80,23 @@ export function listWorktrees(root) {
   }
   const worktrees = [];
   let cur = null;
+  const push = () => {
+    if (cur) worktrees.push(cur);
+  };
   for (const line of out.split("\n")) {
     if (line.startsWith("worktree ")) {
-      if (cur) worktrees.push(cur);
-      cur = { path: line.slice("worktree ".length).trim(), branch: null, bare: false, detached: false };
+      push();
+      cur = {
+        path: line.slice("worktree ".length).trim(),
+        branch: null,
+        bare: false,
+        detached: false,
+        locked: false,
+        lockReason: null,
+        prunable: false,
+        // `git worktree list --porcelain` always lists the main working tree first.
+        main: worktrees.length === 0,
+      };
     } else if (cur && line.startsWith("branch ")) {
       const ref = line.slice("branch ".length).trim();
       cur.branch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
@@ -70,15 +104,23 @@ export function listWorktrees(root) {
       cur.bare = true;
     } else if (cur && line === "detached") {
       cur.detached = true;
+    } else if (cur && (line === "locked" || line.startsWith("locked "))) {
+      cur.locked = true;
+      cur.lockReason = line === "locked" ? "" : line.slice("locked ".length).trim();
+    } else if (cur && (line === "prunable" || line.startsWith("prunable "))) {
+      cur.prunable = true;
     }
   }
-  if (cur) worktrees.push(cur);
+  push();
   return worktrees;
 }
 
 export function isTreeClean(worktreePath) {
   try {
-    return git(["status", "--porcelain"], worktreePath).trim() === "";
+    // --ignored=matching is not optional: `git worktree remove` deletes the whole directory,
+    // ignored files included, and an ignored file with content (local config, build output) is
+    // work this tool did not create. Any output at all - untracked or ignored - means NOT clean.
+    return git(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], worktreePath).trim() === "";
   } catch {
     return false;
   }
@@ -89,6 +131,35 @@ export function isBranchMerged(root, branch, mainBranch) {
   try {
     git(["merge-base", "--is-ancestor", branch, mainBranch], root);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "the branch tip is on origin's main": true only if an `origin/<mainBranch>` remote-tracking ref
+ * exists AND `branch`'s tip is an ancestor of it. No `origin/<mainBranch>` ref at all (no remote
+ * configured, or never fetched) is UNVERIFIABLE, not true - a locally-merged, never-pushed branch
+ * is exactly the case this guards: deleting it would be the only copy of that work.
+ */
+export function isBranchOnOrigin(root, branch, mainBranch) {
+  try {
+    git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${mainBranch}`], root);
+  } catch {
+    return false;
+  }
+  try {
+    git(["merge-base", "--is-ancestor", branch, `origin/${mainBranch}`], root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Any local `.gitmodules` file in the worktree means "has submodules" - present is enough, clean or not. */
+export function hasSubmodules(worktreePath) {
+  try {
+    return existsSync(`${worktreePath}/.gitmodules`);
   } catch {
     return false;
   }
@@ -115,12 +186,14 @@ export function daysSinceLastCommit(root, branch, now = new Date()) {
   }
 }
 
+/** -z: NUL-separated and NEVER C-quoted. Without it a path with a space or non-ASCII byte comes
+ * back quoted (e.g. "tmp-caf\303\251.md") and silently matches no scratch pattern. */
 export function listUntrackedFiles(root) {
   try {
-    return git(["status", "--porcelain", "--untracked-files=all"], root)
-      .split("\n")
+    return git(["status", "--porcelain", "--untracked-files=all", "-z"], root)
+      .split("\0")
       .filter((l) => l.startsWith("?? "))
-      .map((l) => l.slice(3).trim());
+      .map((l) => l.slice(3));
   } catch {
     return [];
   }
@@ -139,7 +212,10 @@ export function diskUsageKB(root) {
 // ---------- simple glob for scratch_patterns (no "/" => matches basename only) ----------
 
 function globToRegExp(pattern) {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  // Escape every regex metacharacter INCLUDING "?" (this glob has no single-char wildcard, so a
+  // literal "?" in a pattern must stay literal, not become a regex quantifier). "*" -> "[^/]*":
+  // never crosses a path separator, in either a basename-only or a slash-bearing pattern.
+  const escaped = pattern.replace(/[.+^${}()|[\]\\?]/g, "\\$&").replace(/\*/g, "[^/]*");
   return new RegExp(`^${escaped}$`);
 }
 
@@ -157,7 +233,16 @@ export function matchesScratchPattern(relPath, patterns) {
  * Builds the SAFE/JUDGMENT classes and the five drift numbers from already-gathered git + registry
  * state. Pure (no I/O) so it can be unit tested directly, separate from the git-shelling-out layer.
  */
-export function classify({ root, mainBranch, worktrees, branches, untrackedFiles, registryEntries, now = new Date(), scratchPatterns = [] }) {
+export function classify({
+  root,
+  mainBranch,
+  worktrees,
+  branches,
+  untrackedFiles,
+  registryEntries,
+  now = new Date(),
+  scratchPatterns = [],
+}) {
   const safe = { worktrees: [], branches: [], registryEntries: [] };
   const judgment = { worktrees: [], branches: [], registryEntries: [], untrackedFiles: [] };
 
@@ -165,18 +250,40 @@ export function classify({ root, mainBranch, worktrees, branches, untrackedFiles
 
   for (const w of worktrees) {
     if (w.bare) continue;
+    if (w.main) continue; // the main working tree is never a cleanup candidate, from anywhere
     if (samePath(w.path, root)) continue; // never the worktree we are standing in
-    const merged = w.branch ? isMergedFlag(w) : false;
-    if (w.clean && merged) {
-      safe.worktrees.push({ ref: w.path, branch: w.branch, reason: "branch merged into main, tree clean" });
-    } else if (!w.clean) {
-      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "tree is dirty" });
+    if (w.locked) {
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `locked${w.lockReason ? `: ${w.lockReason}` : ""}` });
+      continue;
     }
+    if (w.hasSubmodules) {
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "has submodules" });
+      continue;
+    }
+    if (!w.clean) {
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "tree not clean (uncommitted, untracked or ignored files present)" });
+      continue;
+    }
+    if (!w.branch || !w.merged) continue; // unmerged/detached: normal in-progress state, not a finding
+    if (!w.onOrigin) {
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `merged locally, not confirmed on origin/${mainBranch}` });
+      continue;
+    }
+    safe.worktrees.push({ ref: w.path, branch: w.branch, reason: "branch merged into main (and on origin), tree fully clean" });
   }
 
   for (const b of branches) {
     if (b.name === mainBranch) continue;
     if (b.name === cur) continue; // never the current branch
+    const protectedName = PROTECTED_BRANCH_NAMES.has(b.name) || PROTECTED_BRANCH_PREFIXES.some((p) => b.name.startsWith(p));
+    if (protectedName) {
+      if (b.merged) {
+        // A branch whose whole value is its name is never mechanically safe: being an ancestor of
+        // main is exactly what a bookmark/alias looks like.
+        judgment.branches.push({ ref: b.name, reason: "protected name, merged but a person decides" });
+      }
+      continue;
+    }
     if (b.merged) {
       safe.branches.push({ ref: b.name, reason: "merged into main" });
     } else if (b.daysSinceCommit === null || b.daysSinceCommit >= UNMERGED_STALE_DAYS) {
@@ -190,10 +297,30 @@ export function classify({ root, mainBranch, worktrees, branches, untrackedFiles
   for (const entry of registryEntries) {
     const met = endConditionMet(entry.record, { now, isMerged: (ref) => branches.some((b) => b.name === ref && b.merged) });
     if (!met) continue;
-    if (entry.record.created_by_tool === true) {
-      safe.registryEntries.push({ ref: entry.record.ref, kind: entry.record.kind, created: entry.record.created, reason: `end_condition met: ${entry.record.end_condition}` });
+    const outsideRoot = !refResolvesInsideRoot(root, entry.record.ref);
+    if (outsideRoot) {
+      // A registry line is untrusted text: never let a ref outside the project root be
+      // advertised as SAFE, whatever created_by_tool claims.
+      judgment.registryEntries.push({
+        ref: entry.record.ref,
+        kind: entry.record.kind,
+        created: entry.record.created,
+        reason: "ref resolves outside the project root",
+      });
+    } else if (entry.record.created_by_tool === true) {
+      safe.registryEntries.push({
+        ref: entry.record.ref,
+        kind: entry.record.kind,
+        created: entry.record.created,
+        reason: `end_condition met: ${entry.record.end_condition}`,
+      });
     } else {
-      judgment.registryEntries.push({ ref: entry.record.ref, kind: entry.record.kind, created: entry.record.created, reason: `end_condition met (${entry.record.end_condition}), not tool-created - needs a human ok` });
+      judgment.registryEntries.push({
+        ref: entry.record.ref,
+        kind: entry.record.kind,
+        created: entry.record.created,
+        reason: `end_condition met (${entry.record.end_condition}), not tool-created - needs a human ok`,
+      });
     }
   }
 
@@ -215,14 +342,11 @@ export function classify({ root, mainBranch, worktrees, branches, untrackedFiles
       openBranchCount: branches.length,
       untrackedFileCount: untrackedFiles.length,
       registryPastEndCount,
-      // diskUsedKB is filled in by the caller, who alone knows how to measure disk.
+      // diskUsedKB, registryMalformedCount, registryUnreadable are filled in by the caller.
     },
   };
 }
 
-function isMergedFlag(w) {
-  return w.merged === true;
-}
 function samePath(a, b) {
   return String(a).replace(/\/$/, "") === String(b).replace(/\/$/, "");
 }
@@ -231,21 +355,35 @@ function currentBranchOf(worktrees, root) {
   return mine ? mine.branch : null;
 }
 
+/** True if `ref` (resolved against `root`, relative or absolute) is strictly inside `root`. */
+function refResolvesInsideRoot(root, ref) {
+  if (typeof ref !== "string" || ref === "") return false;
+  const resolved = resolvePath(root, ref);
+  if (resolved === root) return false; // the root itself is never a valid single-file target
+  return resolved.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
 // ---------- gathering (I/O layer that feeds classify()) ----------
 
+/**
+ * Returns either a normal state object, or `{ __blind: true, reason }` when git state could not be
+ * read at all (distinct from the registry being unreadable, which is layered on afterward so the
+ * caller can give a specific reason for each).
+ */
 export function gatherState({ root, config, now = new Date() }) {
   const mainBranch = config.main_branch || "main";
   const rawWorktrees = listWorktrees(root);
-  if (rawWorktrees === null) return null; // blind
+  if (rawWorktrees === null) return { __blind: true, reason: "could not read git worktree state" };
 
-  const worktrees = rawWorktrees.map((w) => ({
-    ...w,
-    clean: w.bare ? true : isTreeClean(w.path),
-    merged: w.branch ? isBranchMerged(root, w.branch, mainBranch) : false,
-  }));
+  const worktrees = rawWorktrees.map((w) => {
+    const clean = w.bare ? true : isTreeClean(w.path);
+    const merged = w.branch ? isBranchMerged(root, w.branch, mainBranch) : false;
+    const onOrigin = w.branch && merged ? isBranchOnOrigin(root, w.branch, mainBranch) : false;
+    return { ...w, clean, merged, onOrigin, hasSubmodules: w.bare ? false : hasSubmodules(w.path) };
+  });
 
   const branchNames = listLocalBranches(root);
-  if (branchNames === null) return null; // blind
+  if (branchNames === null) return { __blind: true, reason: "could not read git branch state" };
 
   const branches = branchNames.map((name) => ({
     name,
@@ -257,7 +395,11 @@ export function gatherState({ root, config, now = new Date() }) {
   const diskUsedKB = diskUsageKB(root);
 
   const registryPath = resolveRegistryPath(root, config.artifact_registry);
-  const { entries: registryEntries } = listArtifacts({ registryPath, extraKinds: config.extra_artifact_kinds || [] });
+  const { entries: registryEntries, malformedCount, unreadable } = listArtifacts({
+    registryPath,
+    extraKinds: config.extra_artifact_kinds || [],
+  });
+  if (unreadable) return { __blind: true, reason: `could not read the artifact registry (${registryPath})` };
 
   const result = classify({
     root,
@@ -270,19 +412,24 @@ export function gatherState({ root, config, now = new Date() }) {
     scratchPatterns: config.scratch_patterns || [],
   });
   result.drift.diskUsedKB = diskUsedKB;
+  result.drift.registryMalformedCount = malformedCount;
   result._raw = { root, mainBranch, worktrees, branches, registryPath, registryEntries };
   return result;
 }
 
 // ---------- apply (SAFE class only) ----------
 
-export function applySafe(state, { registryPath, extraKinds = [] }) {
-  const log = [];
+/**
+ * Mutates and returns `log`, so a caller can still see partial progress if something outside the
+ * per-item try/catches below somehow throws (defense in depth; every actual mutation site below is
+ * already individually guarded and never throws past this function).
+ */
+export function applySafe(state, { registryPath, extraKinds = [] }, log = []) {
   const { root } = state._raw;
 
   for (const w of state.safe.worktrees) {
     try {
-      git(["worktree", "remove", w.ref], root);
+      git(["worktree", "remove", "--", w.ref], root);
       log.push({ action: "worktree-remove", ref: w.ref, ok: true });
     } catch (err) {
       log.push({ action: "worktree-remove", ref: w.ref, ok: false, error: String(err.message || err) });
@@ -295,14 +442,19 @@ export function applySafe(state, { registryPath, extraKinds = [] }) {
     log.push({ action: "worktree-prune", ok: false, error: String(err.message || err) });
   }
 
-  const stillCheckedOut = new Set((listWorktrees(root) || []).map((w) => w.branch).filter(Boolean));
+  let stillCheckedOut;
+  try {
+    stillCheckedOut = new Set((listWorktrees(root) || []).map((w) => w.branch).filter(Boolean));
+  } catch {
+    stillCheckedOut = new Set();
+  }
   for (const b of state.safe.branches) {
     if (stillCheckedOut.has(b.ref)) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "still checked out in a worktree" });
       continue;
     }
     try {
-      git(["branch", "-d", b.ref], root);
+      git(["branch", "-d", "--", b.ref], root);
       log.push({ action: "branch-delete", ref: b.ref, ok: true });
     } catch (err) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: String(err.message || err) });
@@ -311,12 +463,26 @@ export function applySafe(state, { registryPath, extraKinds = [] }) {
 
   for (const entry of state.safe.registryEntries) {
     if (entry.kind === "scratch" || entry.kind === "packet" || entry.kind === "state") {
-      const filePath = entry.ref;
+      let filePath;
+      try {
+        filePath = resolvePath(root, entry.ref);
+      } catch (err) {
+        log.push({ action: "registry-unlink", ref: entry.ref, ok: false, error: String(err.message || err) });
+        continue;
+      }
+      const inside = refResolvesInsideRoot(root, entry.ref);
+      if (!inside) {
+        log.push({ action: "registry-unlink", ref: entry.ref, ok: false, error: "resolves outside the project root, refusing" });
+        continue;
+      }
       let unlinked = true;
       try {
-        if (existsSync(filePath)) {
-          const st = statSync(filePath);
-          if (st.isDirectory()) {
+        const lst = lstatSync(filePath, { throwIfNoEntry: false });
+        if (lst) {
+          if (lst.isSymbolicLink()) {
+            log.push({ action: "registry-unlink", ref: filePath, ok: false, error: "is a symlink, refusing" });
+            unlinked = false;
+          } else if (lst.isDirectory()) {
             log.push({ action: "registry-unlink", ref: filePath, ok: false, error: "is a directory, refusing" });
             unlinked = false;
           } else {
@@ -328,14 +494,22 @@ export function applySafe(state, { registryPath, extraKinds = [] }) {
         unlinked = false;
       }
       if (unlinked) {
-        closeArtifact({ ref: entry.ref, created: entry.created }, { registryPath, extraKinds });
-        log.push({ action: "registry-close", ref: filePath, ok: true });
+        try {
+          closeArtifact({ ref: entry.ref, created: entry.created }, { registryPath, extraKinds });
+          log.push({ action: "registry-close", ref: filePath, ok: true });
+        } catch (err) {
+          log.push({ action: "registry-close", ref: filePath, ok: false, error: String(err.message || err) });
+        }
       }
     } else {
       // worktree/branch/other registry entries: the underlying git action above already handles
       // worktrees and branches; just retire the registry line once the end_condition is met.
-      closeArtifact({ ref: entry.ref, created: entry.created }, { registryPath, extraKinds });
-      log.push({ action: "registry-close", ref: entry.ref, ok: true });
+      try {
+        closeArtifact({ ref: entry.ref, created: entry.created }, { registryPath, extraKinds });
+        log.push({ action: "registry-close", ref: entry.ref, ok: true });
+      } catch (err) {
+        log.push({ action: "registry-close", ref: entry.ref, ok: false, error: String(err.message || err) });
+      }
     }
   }
 
@@ -374,6 +548,9 @@ function printReport(state) {
   console.log(`  open local branch count: ${state.drift.openBranchCount}`);
   console.log(`  untracked file count: ${state.drift.untrackedFileCount}`);
   console.log(`  registry entries past end condition: ${state.drift.registryPastEndCount}`);
+  if (state.drift.registryMalformedCount > 0) {
+    console.log(`  registry lines unreadable or malformed: ${state.drift.registryMalformedCount}`);
+  }
 }
 
 function hasFindings(state) {
@@ -391,10 +568,18 @@ function hasFindings(state) {
 // ---------- main ----------
 
 export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
+  let startedApplying = false;
+  const applyLog = [];
   try {
     if (switchedOff("janitor")) return 0;
 
-    const { root, config } = loadProjectConfig(cwd);
+    const { root, config, source } = loadProjectConfig(cwd);
+    if (source === "unreadable") {
+      // A corrupt project config is blind, not clean: exiting 0 here would hide every finding
+      // behind a typo in one JSON file.
+      process.stderr.write("janitor: .agents/project.json is unreadable\n");
+      return 3;
+    }
     if (config.vcs === "none") return 0;
     if (!root) return 0; // nothing to see here either
 
@@ -408,22 +593,30 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
     const jsonFlag = argv.includes("--json");
 
     const state = gatherState({ root: toplevel, config });
-    if (state === null) {
-      process.stderr.write("janitor: could not read git worktree/branch state\n");
+    if (state.__blind) {
+      process.stderr.write(`janitor: ${state.reason}\n`);
       return 3;
     }
 
     const registryPath = resolveRegistryPath(toplevel, config.artifact_registry);
-    let applyLog = null;
     if (applyFlag) {
-      applyLog = applySafe(state, { registryPath, extraKinds: config.extra_artifact_kinds || [] });
+      startedApplying = true;
+      try {
+        applySafe(state, { registryPath, extraKinds: config.extra_artifact_kinds || [] }, applyLog);
+      } catch (err) {
+        // Once we have started deleting, silence is not an option: say what was done before
+        // failing. Fail-open applies to READING state, never to reporting a destructive run.
+        for (const line of applyLog) process.stderr.write(`janitor: applied ${JSON.stringify(line)}\n`);
+        process.stderr.write(`janitor: --apply aborted partway: ${String(err && err.message ? err.message : err)}\n`);
+        return 1;
+      }
     }
 
     if (jsonFlag) {
-      console.log(JSON.stringify({ safe: state.safe, judgment: state.judgment, drift: state.drift, applied: applyLog }, null, 2));
+      console.log(JSON.stringify({ safe: state.safe, judgment: state.judgment, drift: state.drift, applied: applyFlag ? applyLog : null }, null, 2));
     } else {
       printReport(state);
-      if (applyLog) {
+      if (applyFlag) {
         console.log("");
         console.log("APPLIED:");
         console.log(table(applyLog, ["action", "ref", "ok", "error"]));
@@ -431,7 +624,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
     }
 
     if (applyFlag) {
-      const applyFailed = (applyLog || []).some((l) => l.ok === false);
+      const applyFailed = applyLog.some((l) => l.ok === false);
       const judgmentRemains =
         state.judgment.worktrees.length > 0 ||
         state.judgment.branches.length > 0 ||
@@ -440,8 +633,14 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       return applyFailed || judgmentRemains ? 1 : 0;
     }
     return hasFindings(state) ? 1 : 0;
-  } catch {
-    // Fail open: an uncaught error is silent and exits 0, per switches-and-exit-codes.md.
+  } catch (err) {
+    if (startedApplying) {
+      // We began deleting things before this unexpected throw. Never claim a clean exit here.
+      for (const line of applyLog) process.stderr.write(`janitor: applied ${JSON.stringify(line)}\n`);
+      process.stderr.write(`janitor: --apply aborted partway: ${String(err && err.message ? err.message : err)}\n`);
+      return 1;
+    }
+    // Fail open: an uncaught error while only READING state is silent and exits 0.
     return 0;
   }
 }

@@ -1,5 +1,5 @@
 // node --test scripts/artifact-registry.test.mjs
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,10 +14,22 @@ import {
   resolveRegistryPath,
 } from "./artifact-registry.mjs";
 
+const tracked = [];
 function tmpRegistry() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-registry-"));
+  tracked.push(dir);
   return { dir, registryPath: path.join(dir, ".agents", "artifacts.jsonl") };
 }
+
+after(() => {
+  for (const dir of tracked) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup only
+    }
+  }
+});
 
 function baseRecord(overrides = {}) {
   return {
@@ -165,4 +177,75 @@ test("endConditionMet: an unrecognized/free-text condition (e.g. run-terminal) i
 test("resolveRegistryPath: relative joins the root, absolute passes through", () => {
   assert.equal(resolveRegistryPath("/proj", ".agents/artifacts.jsonl"), "/proj/.agents/artifacts.jsonl");
   assert.equal(resolveRegistryPath("/proj", "/elsewhere/artifacts.jsonl"), "/elsewhere/artifacts.jsonl");
+});
+
+// --- round 2: BLOCKER 3 and MAJOR 9 fixes ---
+
+test("listArtifacts: a registry file that EXISTS but cannot be read reports unreadable:true, distinct from a genuinely missing file", () => {
+  const { registryPath } = tmpRegistry();
+  const missing = listArtifacts({ registryPath });
+  assert.equal(missing.unreadable, false, "no registry yet is normal, not blind");
+
+  appendArtifact(baseRecord({ ref: "/tmp/example/x" }), { registryPath });
+  fs.chmodSync(registryPath, 0o000);
+  let result;
+  try {
+    result = listArtifacts({ registryPath });
+  } finally {
+    fs.chmodSync(registryPath, 0o600); // restore so the temp dir can be cleaned up
+  }
+  assert.equal(result.unreadable, true, "an existing-but-unreadable file must be reported as blind, not empty");
+  assert.deepEqual(result.entries, []);
+});
+
+test("closeArtifact preserves a line it cannot validate (hand-annotated with an extra field) and a truncated final line, rewriting only the matched line away", () => {
+  const { registryPath } = tmpRegistry();
+  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+  const toolRecord = baseRecord({ ref: "/a/one" });
+  const handAnnotated = JSON.stringify({ ...baseRecord({ ref: "/a/hand" }), note: "DO NOT DELETE, mine" });
+  const truncated = '{ "ref": "/a/broken", "kind": "scratch"';
+  fs.writeFileSync(registryPath, [JSON.stringify(toolRecord), handAnnotated, truncated].join("\n") + "\n");
+
+  const removed = closeArtifact({ ref: "/a/one" }, { registryPath });
+  assert.equal(removed, 1);
+  const after = fs.readFileSync(registryPath, "utf8");
+  assert.ok(!after.includes("/a/one"));
+  assert.ok(after.includes("DO NOT DELETE, mine"), "an unvalidatable line must be preserved, not erased");
+  assert.ok(after.includes('"ref": "/a/broken"'), "a truncated line must be preserved, not erased");
+});
+
+test("appendArtifact: throws (loudly) rather than silently dropping a write when the lock cannot be acquired in time", () => {
+  const { registryPath } = tmpRegistry();
+  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+  const lockPath = `${registryPath}.lock`;
+  const lockFd = fs.openSync(lockPath, "wx");
+  try {
+    assert.throws(() => appendArtifact(baseRecord({ ref: "/a/blocked" }), { registryPath }), /lock/);
+  } finally {
+    fs.closeSync(lockFd);
+    fs.unlinkSync(lockPath);
+  }
+  // once released, the same append succeeds normally
+  appendArtifact(baseRecord({ ref: "/a/unblocked" }), { registryPath });
+  const { entries } = listArtifacts({ registryPath });
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].record.ref, "/a/unblocked");
+});
+
+test("closeArtifact: a held lock (another writer in flight) makes close a no-op (0 removed), never a stale-read rewrite", () => {
+  const { registryPath } = tmpRegistry();
+  const record = baseRecord({ ref: "/a/one" });
+  appendArtifact(record, { registryPath });
+  const before = fs.readFileSync(registryPath, "utf8");
+
+  const lockPath = `${registryPath}.lock`;
+  const lockFd = fs.openSync(lockPath, "wx");
+  try {
+    assert.equal(closeArtifact({ ref: "/a/one" }, { registryPath }), 0);
+    assert.equal(fs.readFileSync(registryPath, "utf8"), before, "file must be untouched while the lock is held elsewhere");
+  } finally {
+    fs.closeSync(lockFd);
+    fs.unlinkSync(lockPath);
+  }
+  assert.equal(closeArtifact({ ref: "/a/one" }, { registryPath }), 1, "once released, the close proceeds normally");
 });

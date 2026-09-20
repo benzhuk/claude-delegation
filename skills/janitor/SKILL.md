@@ -10,22 +10,38 @@ five-second check: run `janitor.mjs`, read two short tables and five numbers, do
 
 ## The two classes
 
-**SAFE**: the tool can prove removal costs nothing.
-- a git worktree whose branch is merged into main AND whose tree is clean
-- a local branch merged into main (never the current branch, never main)
-- a registry entry the tool itself created, past its end condition
+**SAFE**: a human would agree without looking.
+- a git worktree that is not locked, not the main working tree, not the one janitor is
+  running from, whose branch is fully merged into main AND (when an `origin/<main>` ref
+  exists) confirmed on origin, has no submodules, and is fully clean including ignored
+  files (`git status --porcelain --ignored`, not just tracked changes)
+- a local branch merged into main, not a protected name (`main`, `master`, `develop`,
+  `release`, `release/*`, `hotfix/*`, ...), never the current branch, never main
+- a registry entry the tool itself created, past its end condition, whose `ref`
+  resolves strictly inside the project root
 
 **JUDGMENT**: the tool cannot prove it, a person has to look.
-- a dirty worktree (merged or not: uncommitted work is uncommitted work)
+- a dirty worktree, including one that is clean by `git status` but holds ignored
+  files with real content (build output, local config): both count
+- a locked worktree (its lock reason is shown), or one with submodules
+- a merged worktree whose branch has no confirmed `origin/<main>` copy
 - an unmerged branch with no commit in 14 days
-- a registry entry past its end condition that the tool did not create
+- a branch that is merged but carries a protected name (a bookmark IS an ancestor of
+  main by construction; the name is the only signal it has one)
+- a registry entry past its end condition that the tool did not create, or whose `ref`
+  resolves outside the project root even if it claims `created_by_tool`
 - an untracked file matching the project's scratch patterns
 
 The dry run (no flags) always prints both tables plus five drift numbers: disk used by
 the project root, worktree count, open local branch count, untracked file count, and
-registry entries past their end condition. `--apply` acts on SAFE only. JUDGMENT is
-never executed automatically, by this tool or by an agent reading its output. It is
-one batched question to the owner, not N separate ones. Collect everything dispatchable
+registry entries past their end condition (plus a count of unreadable/malformed
+registry lines, when there are any). `--apply` acts on SAFE only, and a registry-line
+`--apply` UNLINKS the file at that entry's `ref` from disk, not just the registry line
+- read that as a real deletion before appending a line with `created_by_tool: true`.
+`--json` emits the same safe/judgment/drift shape as machine-readable JSON instead of
+the printed tables, for a caller that wants to parse the result. JUDGMENT is never
+executed automatically, by this tool or by an agent reading its output. It is one
+batched question to the owner, not N separate ones. Collect everything dispatchable
 first, then ask JUDGMENT as ONE multiple-choice pass: "these N things look stale, keep
 or remove each?" Never surface JUDGMENT items one at a time as they're found; never act
 on one without asking.
@@ -33,9 +49,16 @@ on one without asking.
 ## What janitor will never do
 
 No forced removal, no wiping of uncommitted changes, no resetting a tree, no touching a
-work-in-progress shelf, no recursive delete of a path it did not create. If it isn't
-sure, it reports and stops. A crash, a timeout, or state it can't read is silent and
-exits clean, never a false claim of safety.
+work-in-progress shelf, no recursive delete of a path it did not create, no unlinking a
+path that resolves outside the project root or through a symlink. If it isn't sure, it
+reports and stops.
+
+Reading state and destroying state follow different rules. While only reading, a crash,
+a timeout, or state it can't parse is silent and exits clean (0), never a false claim of
+safety - EXCEPT that an unreadable project config, an unreadable registry, or no git at
+all is BLIND (exit 3, one line on stderr), never silently reported as "nothing found."
+Once `--apply` has taken even one destructive action, nothing is silent again: a later
+failure prints everything already done before it, and the run exits 1 or 3, never 0.
 
 ## Definition of done, for any builder
 

@@ -1,19 +1,22 @@
 // node --test scripts/commit-check.test.mjs
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { main, stagedPaths, findScratchMatches } from "./commit-check.mjs";
+import { main, stagedPaths, findScratchMatches, splitArgv } from "./commit-check.mjs";
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
+const tracked = [];
 function mkTmp(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tracked.push(dir);
+  return dir;
 }
 
 function initRepo() {
@@ -115,4 +118,57 @@ test("main never returns exit code 2", () => {
   assert.notEqual(main([], { cwd: root }), 2);
   assert.notEqual(main(["tmp-x.md"], { cwd: root }), 2);
   assert.notEqual(main([], { cwd: "/path/does/not/exist" }), 2);
+});
+
+// --- round 2: MAJOR 8, MAJOR 10, MINOR 18 ---
+
+test("MAJOR 8: a malformed .agents/project.json exits 3, not 0, and says so on stderr", () => {
+  const root = initRepo();
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".agents", "project.json"), "{ not json");
+  const errs = [];
+  const origErr = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (s) => {
+    errs.push(s);
+    return true;
+  };
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    process.stderr.write = origErr;
+  }
+  assert.equal(code, 3);
+  assert.match(errs.join(""), /project\.json/);
+});
+
+test("MAJOR 10: staged paths with a space and with a non-ASCII character are both caught, not silently missed via C-quoting", () => {
+  const root = initRepo();
+  writeProjectConfig(root, { scratch_patterns: ["tmp-*.md"] });
+  fs.writeFileSync(path.join(root, "tmp-my notes.md"), "x\n");
+  fs.writeFileSync(path.join(root, "tmp-café.md"), "x\n");
+  git(["add", "-A"], root);
+
+  const paths = stagedPaths(root);
+  assert.ok(paths.includes("tmp-my notes.md"), `expected the spaced name unquoted in ${JSON.stringify(paths)}`);
+  assert.ok(paths.includes("tmp-café.md"), `expected the accented name unquoted in ${JSON.stringify(paths)}`);
+
+  const code = main([], { cwd: root });
+  assert.equal(code, 1);
+});
+
+test("MINOR 18: splitArgv stops flag parsing at a literal '--', so a path argument starting with '-' still works", () => {
+  assert.deepEqual(splitArgv(["--json", "a.txt", "b.txt"]), { flags: ["--json"], paths: ["a.txt", "b.txt"] });
+  assert.deepEqual(splitArgv(["--json", "--", "-weird.md", "b.txt"]), { flags: ["--json"], paths: ["-weird.md", "b.txt"] });
+  assert.deepEqual(splitArgv([]), { flags: [], paths: [] });
+});
+
+after(() => {
+  for (const dir of tracked) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup only
+    }
+  }
 });
