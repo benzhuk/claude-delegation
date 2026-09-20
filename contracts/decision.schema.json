@@ -1,0 +1,10 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"decision","type":"object","additionalProperties":false,
+"required":["id","title","kind","status","created"],
+"properties":{"id":{"type":"string","pattern":"^[a-z0-9][a-z0-9-]{2,63}$"},"title":{"type":"string","maxLength":120},
+"kind":{"enum":["simple","complex"]},"project":{"type":"string"},
+"options":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["label"],
+"properties":{"label":{"type":"string"},"recommended":{"type":"boolean"},"reversible":{"type":"boolean"}}}},
+"default":{"type":["string","null"]},"deadline":{"type":["string","null"],"format":"date-time"},
+"status":{"enum":["open","answered","defaulted","closed"]},"answer":{"type":["string","null"]},
+"url":{"type":["string","null"]},"asked_by":{"type":"string"},"created":{"type":"string","format":"date-time"},
+"updated":{"type":"string","format":"date-time"}}}

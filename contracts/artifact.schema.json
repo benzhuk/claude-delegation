@@ -1,0 +1,7 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"artifact","type":"object","additionalProperties":false,
+"required":["ref","kind","owner","purpose","end_condition","created"],
+"properties":{"ref":{"type":"string","description":"absolute path, branch name or other stable reference"},
+"kind":{"enum":["worktree","branch","scratch","packet","state","other"]},"owner":{"type":"string"},
+"purpose":{"type":"string","maxLength":200},
+"end_condition":{"type":"string","description":"what makes this removable, e.g. branch-merged, date:2026-10-01, run-terminal"},
+"created_by_tool":{"type":"boolean","default":false},"created":{"type":"string","format":"date-time"}}}
