@@ -66,6 +66,10 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
 - [`mandate-standards.md`](docs/mandate-standards.md) — what every agent prompt
   carries: paths not summaries, the NOT-list, evidence formats, authorized negative
   results, budgeted autonomy grants.
+- [`research-ladder.md`](docs/research-ladder.md) — prior art before building: source-class lanes, a
+  stronger-tier skeptic that fetches the load-bearing sources, cost tiers, and the BLIND verdict.
+- [`merge-ask-template.md`](docs/merge-ask-template.md) — what a merge ask must carry: observed state,
+  what the change adds and deletes, its research report, and the nearest non-goal when a goal card exists.
 
 **Three agents** for the team-build pipeline: `builder`, `reviewer`, `integrator`.
 
@@ -157,7 +161,7 @@ Codex reads shared skills and agent roles from its own paths, not the Claude Cod
 node scripts/mirror-shared-skills.mjs
 ```
 
-Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
+Publishes: skills to `~/.agents/skills/<name>`; the seven shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
 
 ## The philosophy, in four lines
 

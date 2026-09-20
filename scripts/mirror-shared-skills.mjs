@@ -63,6 +63,7 @@ const CLAUDE_SKILLS = ['knowledge', 'triage', 'dev-server', 'learn'];
 const SHARED_DOC_FILES = [
   'model-tiers.md', 'subagent-contract.md', 'concurrency-budget.md',
   'agent-pacing.md', 'mandate-standards.md',
+  'research-ladder.md', 'merge-ask-template.md',
 ];
 /** Never publish a skill's own test files into Codex's skill store (review M6). */
 const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;
