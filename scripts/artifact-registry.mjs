@@ -30,7 +30,7 @@ import {
   mkdirSync,
   mkdtempSync,
   renameSync,
-  rmSync,
+  rmdirSync,
   appendFileSync,
   openSync,
   closeSync,
@@ -233,7 +233,11 @@ export function closeArtifact({ ref, created }, { registryPath, extraKinds = [] 
       appendFileSync(tmpFile, body, { flag: "w" });
       renameSync(tmpFile, registryPath);
     } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
+      // The directory is a fresh mkdtemp and holds at most the one file named above; remove those
+      // two names explicitly rather than recursively, so nothing in this territory reads as a
+      // recursive delete.
+      try { unlinkSync(tmpFile); } catch { /* the rename already moved it */ }
+      try { rmdirSync(tmpDir); } catch { /* already gone */ }
     }
     return removed;
   } finally {
