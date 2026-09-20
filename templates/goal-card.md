@@ -58,19 +58,48 @@ SOURCE: docs/goals/batches.md (parent: docs/goals/program.md)
   An optional leading `- ` or `* ` bullet on a line is allowed and stripped.
 - A hard byte cap: 800 bytes for the file's card content, 240 bytes per line, 1000 bytes rendered.
   **A card over the cap is REJECTED, never truncated** — a silently shortened goal is worse than no
-  goal. `scripts/goal-card.mjs check` names the offending line; the hook injects nothing and exits 0.
+  goal, and the first line a truncator would cut is NOT, the line doing the work.
 - Anything else (a sixth line, a missing label, labels out of order) is malformed: nothing is
   injected, no session is blocked.
+- A card path that is not a regular file (a directory, a FIFO, a device node) is never read.
+
+### A rejected card is never silent
+
+A refusal nobody can see is indistinguishable from a project with no card, so:
+
+- at **session start only**, the hook prints one `systemMessage` line — outside the conversation,
+  to the human, never to the model — naming the file, the reason, and that no goals are being
+  restated this session. It is not repeated on subagent spawns or tool batches.
+- `scripts/goal-card.mjs check` exits **1** with the same reason.
 
 ## Checking a card
 
 ```
-node scripts/goal-card.mjs check    # 0 valid or no card configured, 1 malformed, 3 cannot see the project
+node scripts/goal-card.mjs check    # 0 valid (or no card, or switched off), 1 malformed, 3 cannot see the project
 node scripts/goal-card.mjs show     # prints exactly the text the hook would inject, or nothing
+```
+
+`check` names a switch rather than answering `ok:` about something that is not happening:
+
+```
+OFF: ws-off is present in /home/you/.agents — the card at … is valid but nothing is injecting it
 ```
 
 ## Switches
 
-`~/.agents/ws-off` (master) or `~/.agents/ws-off-goalcard` — a present file means no card is ever
-injected. Files, not env vars, so the switch works from a GUI-launched session and works exactly when
-a hook is misbehaving.
+Files, not env vars, so the switch works from a GUI-launched session and works exactly when a hook is
+misbehaving — which for this hook means the disk side.
+
+| File | Effect |
+|---|---|
+| `~/.agents/ws-off` | the hook does **nothing at all**: no card, no routing line, no state written, no sweep, nothing read past the check itself |
+| `~/.agents/ws-off-goalcard` | no card and no card state; the one short routing line still goes out |
+
+## When the card is re-injected
+
+Session start (every source, including `compact`), every subagent spawn, and during a long
+autonomous stretch whichever comes first of **40 tool batches** or **30 minutes** since the last
+injection. The batch tally is a file appended one byte per batch and counted by its size, never read
+and rewritten, because a fan-out runs many hooks at once under one session id; the time floor is
+what guarantees a lossy count can delay the card but never cancel it. State lives under
+`~/.agents/ws/goal-card/` keyed by session and agent, and is swept after seven days.
