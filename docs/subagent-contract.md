@@ -43,6 +43,21 @@ lost. Nothing "above" exists on the orchestrator's side.
 - This is the core reason report-to-disk is the default: a file survives any number of
   resumes; inline content must be re-emitted on every single turn end.
 
+## State over intent
+
+A result names the command that observed it, and the output the command actually
+produced — never a description of what should be true or what was attempted.
+
+- "Pushed" means `git rev-parse origin/<branch>` was read and matches the local tip —
+  not that `git push` was run without error.
+- "Deployed" means the running version was read (a health endpoint, a version string
+  from the live process) — not that a deploy command exited 0.
+- A reviewer verifies against origin and the running bytes, never against the report:
+  the report's claim is a lead to check, not evidence in itself.
+
+This applies to every claim in every report, this document included — a rule that
+tells agents to cite commands and outputs is itself bound by it.
+
 ## Never trust the reply — read the report
 
 Observed constantly at scale: final replies of `Done.`, `-`, `(idle)`, `STOP.`,

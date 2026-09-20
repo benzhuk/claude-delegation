@@ -58,6 +58,16 @@ description: Use when a prompt decomposes into independent research, review, aud
    prior messages instead of containing the report, resume once with the clause, then
    respawn with report-to-disk.
 
+## The third-fix rule
+
+A third fix round on one defect CLASS — not merely the third round overall — stops the
+fix loop. Spawn one research lane (`docs/research-ladder.md`, shipped next to this
+skill as `../_docs/research-ladder.md` when mirrored, and in the plugin repo's `docs/`
+otherwise) before a fourth attempt: two rounds hitting the same symptom shape means a
+mechanism is being stacked on a symptom nobody has identified yet. A lane that comes
+back `NOT FOUND` still licenses a fourth attempt; a lane that comes back `FOUND` changes
+the approach, not just the next patch.
+
 ## Peer sessions
 
 To ask, brief or hand off to an EQUAL session you do not own, use the `multi` skill —

@@ -22,28 +22,37 @@ mention says where to find it once mirrored.
 
 ## Setup — before spawning anything
 
-1. **Write the spec to disk**: design decisions, **pinned contracts** (exact API
+1. **Prior art, before the spec is written.** A research report exists on disk
+   (`docs/research-ladder.md`, shipped next to this skill as `../_docs/research-ladder.md`
+   when mirrored, and in the plugin repo's `docs/` otherwise) answering the zoom-out
+   questions — what is this component's job; who else has this job and what do they
+   use; are we on a supported path; what would we delete — AND "search the upstream
+   issue tracker for the exact symptom." No report, no spec: this is the failure a
+   second engine gets built with nobody having searched the first engine's issue
+   tracker.
+2. **Write the spec to disk**: design decisions, **pinned contracts** (exact API
    response shapes, type signatures, module interfaces), and a **territory map** —
    every file path owned by exactly one builder. Agent prompts reference the doc by
    path; never restate its content in prompts.
-2. **Decompose by territory, not layer-step**: one builder per disjoint file territory
+3. **Decompose by territory, not layer-step**: one builder per disjoint file territory
    (e.g. DB+API+shared-lib = one; UI = one; pipeline = one). Pinned contracts let
    territories build in parallel even when they call each other. A serial layer chain
    (schema → api → client → ui, each awaiting review) is the #1 wall-clock waste; one
    agent per micro-task multiplies briefing overhead past the work. File-level disjoint
    territories stated in every prompt is what produces zero edit collisions at 15+
    concurrent agents.
-3. **Commit contract stubs at t0 — mandatory, not optional.** Turn the pinned contracts
+4. **Commit contract stubs at t0 — mandatory, not optional.** Turn the pinned contracts
    into actual committed type/interface files before spawning, so repo-wide typecheck
    is green from the start and builders physically can't drift. Cost ~15 minutes; saves
    a contract-mismatch round in every territory (proven: 4 builders compiled against a
    frozen `contracts.ts` simultaneously with zero mismatch rounds — one built its eval
    harness against an engine signature before that engine existed).
-4. **High-tier spec red-team** (skip only for
+5. **High-tier spec red-team** (skip only for
    small/low-risk builds): one high-tier agent adversarially reviews spec + contracts —
-   missing cases, ambiguities, wrong decomposition. The highest-leverage high-tier spend
-   in the pipeline.
-5. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`, shipped next to this
+   missing cases, ambiguities, wrong decomposition, **and whether this should exist in
+   this shape at all, and what the smallest subset would be**. The highest-leverage
+   high-tier spend in the pipeline.
+6. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`, shipped next to this
    skill as `../_docs/agent-pacing.md` when mirrored, and in the plugin repo's `docs/`
    otherwise). Anchor
    estimates: pure-code territory ≈ 30–60 min; build + measurement harness ≈
@@ -137,6 +146,15 @@ One builder commits at the end: conventional commits split by territory (respect
 user's attribution config). If a local production build is unsafe (dev server running),
 use the CI/preview build as the gate. The integrator runs deployment smoke checks; you
 read its verdict and own the ship decision.
+
+**Definition of done includes cleanup.** A build isn't finished when it merges — worktrees
+removed, scratch files cleared, and stray branches gone are part of done, not a later
+chore. Draft the merge ask from `docs/merge-ask-template.md` (shipped next to this skill
+as `../_docs/merge-ask-template.md` when mirrored, and in the plugin repo's `docs/`
+otherwise): branch, tip, review verdict with reviewer tier, gate line, what this merge
+adds and deletes, the research report id (or `none-needed: why`), and cleanup done —
+stated as what was observed, not what was intended (`docs/subagent-contract.md`'s state-
+over-intent rule applies to the merge ask too).
 
 ## Peer sessions
 
