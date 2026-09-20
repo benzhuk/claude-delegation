@@ -36,7 +36,10 @@ The tier is decided by a test on the change, not by how big it feels:
 - **Small change** — no new dependency, no new long-lived mechanism (a script, a hook, a
   daemon, a queue, an engine), no new external service, and the defect class is on its
   first or second fix round: ONE lane, in a fixed time box stated in the mandate (e.g.
-  "10 minutes, official docs only").
+  "10 minutes, official docs only"). A single-lane run has NO skeptic, so nothing has
+  re-fetched that lane's quotes: before acting on it, the top session opens at least one
+  cited URL itself and confirms the quote is on the page. A citation that does not check
+  out kills the finding and the lane re-runs.
 - **A mechanism or a new project** — anything that fails ANY clause above, including any
   change whose merge-ask `Adds:` line is non-empty in the maintenance sense: the full
   ladder — all four source-class lanes, the fast-tier fetch pass feeding them, and the

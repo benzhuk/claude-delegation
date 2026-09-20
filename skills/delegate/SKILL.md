@@ -44,7 +44,7 @@ repo; that is not repeated at each mention.
 6. **Consume reports, not replies** (`docs/subagent-contract.md`): agents report
    to disk at orchestrator-chosen suffix-style paths, verdict on line 1; a bare "Done."
    reply means read the file. Stop each agent once its report is consumed.
-7. **Inline-report agents get the lossy-channel clause** (`../_docs/subagent-contract.md`):
+7. **Inline-report agents get the lossy-channel clause** (`docs/subagent-contract.md`):
    read-only agents (no Write/Bash) can't land a file, and ONLY their final message text
    reaches you — earlier messages never deliver, and a resumed agent will wrongly say
    "already reported above", destroying the deliverable. Put the contract's verbatim

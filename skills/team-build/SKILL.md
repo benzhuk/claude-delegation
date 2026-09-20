@@ -52,8 +52,10 @@ plugin repo; that is not repeated at each mention.
    a contract-mismatch round in every territory (proven: 4 builders compiled against a
    frozen `contracts.ts` simultaneously with zero mismatch rounds — one built its eval
    harness against an engine signature before that engine existed).
-5. **High-tier spec red-team** (skip only for
-   small/low-risk builds): one high-tier agent first opens the prior-art report named in
+5. **High-tier spec red-team** (skip only for small/low-risk builds; skipping it does
+   NOT skip the prior-art check below — if you skip the red-team you open the report
+   yourself, write the result of that check into the spec, and the first territory
+   reviewer inherits it): one high-tier agent first opens the prior-art report named in
    the spec's `Prior art:` line and refuses the spec if it is missing, empty, `BLIND`, or
    has no issue-tracker section; then adversarially reviews spec + contracts —
    missing cases, ambiguities, wrong decomposition, **and whether this should exist in
@@ -123,7 +125,7 @@ plugin repo; that is not repeated at each mention.
 - More agents ≠ faster: parallelism is capped by genuinely disjoint territories.
   Splitting a territory that shares files trades token cost for serial merge-conflict
   resolution on your critical path — strictly worse. And mind the machine: agent count
-  is free, concurrent local processes are not (`../_docs/concurrency-budget.md`).
+  is free, concurrent local processes are not (`docs/concurrency-budget.md`).
 
 ## Iteration mechanics
 
@@ -140,11 +142,11 @@ plugin repo; that is not repeated at each mention.
   `FOUND` changes the approach, not just the next patch.
 - **Batch scope changes** — never inject instructions into an agent mid-round; queue
   them for its next round. Mid-round addendums get missed and cost two round-trips.
-- Check in at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); an
+- Check in at ETA and use the slow-agent ladder (`docs/agent-pacing.md`); an
   agent killed mid-edit gets the standard recovery prompt (`docs/subagent-contract.md`),
   not blind trust in its memory.
 - Report protocol, termination formula, notification idempotence, and TaskStop hygiene:
-  `../_docs/subagent-contract.md`. Applies verbatim to every role here.
+  `docs/subagent-contract.md`. Applies verbatim to every role here.
 
 ## Ship
 
@@ -156,10 +158,11 @@ read its verdict and own the ship decision.
 **Definition of done includes cleanup.** A build isn't finished when it merges — worktrees
 removed, scratch files cleared, and stray branches gone are part of done, not a later
 chore. Draft the merge ask from `docs/merge-ask-template.md`: branch, tip, review verdict
-with reviewer tier, gate line, what this merge adds and deletes, the research report id
-(or `none-needed: why`), and cleanup done — stated as what was observed, not what was
-intended (`docs/subagent-contract.md`'s state-over-intent rule applies to the merge ask
-too).
+with reviewer tier, gate line, the goal and nearest non-goal when the project has a goal
+card, what this merge adds and deletes as counts read from the diff, the research report
+with its verdict line, and cleanup done — every field stated as what was observed, not
+what was intended (`docs/subagent-contract.md`'s state-over-intent rule applies to the
+merge ask too).
 
 ## Peer sessions
 

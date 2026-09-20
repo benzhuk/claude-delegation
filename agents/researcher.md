@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: Runs one lane of the research ladder — a source-class lane (official docs, issue trackers, practitioner write-ups, alternatives), the fetch-and-quote pass, or the skeptic spot-check — and reports findings with sourced evidence. Use for prior-art checks before a spec, third-fix-rule root-cause lanes, and any research-ladder run.
+description: Runs one lane of the research ladder — a source-class lane (official docs, issue trackers, practitioner write-ups, alternatives), the fetch-and-quote pass, or the skeptic re-fetch — and reports findings with sourced evidence. Use for prior-art checks before a spec, third-fix-rule root-cause lanes, and any research-ladder run.
 model: sonnet
 effort: high
 tools: Read, Grep, Glob, WebFetch, WebSearch, Write

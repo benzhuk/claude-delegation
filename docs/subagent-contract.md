@@ -74,13 +74,15 @@ tells agents to cite commands and outputs is itself bound by it.
 Any lane diagnosing a defect (a research-ladder lane investigating a bug, a fix round
 that didn't land) writes a report with three headings in `templates/research-report.md`'s
 investigation shape: `## Evidence` (the command run and the output it actually
-produced), `## Hypotheses` (append-only, one line each, prefixed `REFUTED:` or
-`CONFIRMED:` plus what settled it), and `## Resolution` (only once fixed). This exists
+produced), `## Hypotheses` (append-only, one line each, prefixed `OPEN:`, `REFUTED:` or
+`CONFIRMED:`; a settled line points at the `## Evidence` entry that settled it, and no
+line is ever deleted or reworded), and `## Resolution` (only once fixed). This exists
 because three wrong hypotheses about one bug were held in sequence this week and nothing
 recorded that they had been refuted — a hypothesis nobody marked `REFUTED:` gets tried
 again by the next agent.
 
-An orchestrator rejects an investigation report with no `REFUTED:` or `CONFIRMED:` line.
+An orchestrator rejects an investigation report with no `REFUTED:` or `CONFIRMED:` line,
+and rejects a settled line that points at no evidence entry.
 
 ## Never trust the reply — read the report
 
