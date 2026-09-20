@@ -23,7 +23,7 @@ A builder that needs a line in one of these writes it in its report under "INTEG
 - Project config is read ONLY through `scripts/project-config.mjs` (`contracts/project.schema.json`). `vcs: "none"`
   projects make git-dependent scripts exit 0 silent.
 - No network calls. No MCP. Nothing project-specific (no "generation", no BTO names).
-- Subagents never see hooks: every rule that must reach a builder, reviewer or integrator lives in the mandate docs.
+- Hooks DO run inside subagents (SubagentStart can inject context, verified against the harness docs on 2026-09-20; the red-team's M9 was wrong on this). Rules that must reach a builder, reviewer or integrator still live in the mandate docs, because a mandate is read and a hook line is ambient; the goal card is the one thing injected at spawn.
 
 ### Territory A — verification and prior art (Sonnet builder, Opus reviewer)
 Files: `skills/team-build/SKILL.md`, `skills/delegate/SKILL.md`, `docs/mandate-standards.md`, `docs/subagent-contract.md`,
