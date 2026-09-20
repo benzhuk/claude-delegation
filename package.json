@@ -1,6 +1,5 @@
 {
   "name": "claude-delegation",
   "private": true,
-  "type": "module",
   "scripts": { "test": "node --test" }
 }
