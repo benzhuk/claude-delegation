@@ -17,35 +17,51 @@ boundaries, not luck.
 
 Shared mechanics — model-tiers, subagent-contract (reports, termination, recovery),
 concurrency-budget, agent-pacing, mandate-standards — are referenced by path in the
-sections below; this file is the build pipeline that uses them. Each doc's first
-mention says where to find it once mirrored.
+sections below; this file is the build pipeline that uses them. Every `docs/<name>.md`
+below is `../_docs/<name>.md` in a mirrored (Codex) install and `docs/<name>.md` in the
+plugin repo; that is not repeated at each mention.
 
 ## Setup — before spawning anything
 
-1. **Write the spec to disk**: design decisions, **pinned contracts** (exact API
+1. **Prior art, before the spec is written.** BEFORE you write a line of the spec, run
+   the ladder (`docs/research-ladder.md`) at its cost tier and land the report on disk.
+   It answers the zoom-out questions — what is this component's job; who else has this
+   job and what do they use; are we on a supported path; what would we delete — and it
+   carries an ISSUE-TRACKER section that lists the tracker URL, the exact symptom
+   strings searched, the result count for each, and the issue URLs read. No report, no
+   spec. A report with no issue-tracker section, or one whose verdict is `BLIND`, does
+   not satisfy this gate: this is the failure a second engine gets built with nobody
+   having searched the first engine's issue tracker.
+   The spec's first section states `Prior art: <report path> — <its verdict line>`; the
+   step-5 red-team's first check is that this line exists and that the report backs it,
+   and it returns NEEDS_FIXES on the spec if it does not.
+2. **Write the spec to disk**: design decisions, **pinned contracts** (exact API
    response shapes, type signatures, module interfaces), and a **territory map** —
    every file path owned by exactly one builder. Agent prompts reference the doc by
    path; never restate its content in prompts.
-2. **Decompose by territory, not layer-step**: one builder per disjoint file territory
+3. **Decompose by territory, not layer-step**: one builder per disjoint file territory
    (e.g. DB+API+shared-lib = one; UI = one; pipeline = one). Pinned contracts let
    territories build in parallel even when they call each other. A serial layer chain
    (schema → api → client → ui, each awaiting review) is the #1 wall-clock waste; one
    agent per micro-task multiplies briefing overhead past the work. File-level disjoint
    territories stated in every prompt is what produces zero edit collisions at 15+
    concurrent agents.
-3. **Commit contract stubs at t0 — mandatory, not optional.** Turn the pinned contracts
+4. **Commit contract stubs at t0 — mandatory, not optional.** Turn the pinned contracts
    into actual committed type/interface files before spawning, so repo-wide typecheck
    is green from the start and builders physically can't drift. Cost ~15 minutes; saves
    a contract-mismatch round in every territory (proven: 4 builders compiled against a
    frozen `contracts.ts` simultaneously with zero mismatch rounds — one built its eval
    harness against an engine signature before that engine existed).
-4. **High-tier spec red-team** (skip only for
-   small/low-risk builds): one high-tier agent adversarially reviews spec + contracts —
-   missing cases, ambiguities, wrong decomposition. The highest-leverage high-tier spend
-   in the pipeline.
-5. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`, shipped next to this
-   skill as `../_docs/agent-pacing.md` when mirrored, and in the plugin repo's `docs/`
-   otherwise). Anchor
+5. **High-tier spec red-team** (skip only for small/low-risk builds; skipping it does
+   NOT skip the prior-art check below — if you skip the red-team you open the report
+   yourself, write the result of that check into the spec, and the first territory
+   reviewer inherits it): one high-tier agent first opens the prior-art report named in
+   the spec's `Prior art:` line and refuses the spec if it is missing, empty, `BLIND`, or
+   has no issue-tracker section; then adversarially reviews spec + contracts —
+   missing cases, ambiguities, wrong decomposition, **and whether this should exist in
+   this shape at all, and what the smallest subset would be**. The highest-leverage
+   high-tier spend in the pipeline.
+6. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`). Anchor
    estimates: pure-code territory ≈ 30–60 min; build + measurement harness ≈
    60–90 min; anything paying a prod build per iteration ≈ 2–3 h unless parallelized —
    that last shape gets its levers (parallel arms budget, cost-split iteration) granted
@@ -59,12 +75,9 @@ mention says where to find it once mirrored.
   overrides the agent file's frontmatter; on Codex, no pre-built high-tier builder role
   ships — copy `~/.codex/agents/builder.toml` to `builder-high.toml` and set
   `model = "gpt-5.6-sol"` for that one territory — see the spawn-mechanics section of
-  `docs/model-tiers.md` (shipped next to this skill as `../_docs/model-tiers.md` when
-  mirrored, and in the plugin repo's `docs/` otherwise)): implements only its
+  `docs/model-tiers.md`): implements only its
   territory. Gate before reporting: territory-scoped tests + typecheck via the shared
-  verification mutex (`docs/concurrency-budget.md`, shipped next to this skill as
-  `../_docs/concurrency-budget.md` when mirrored, and in the plugin repo's `docs/`
-  otherwise) — builders do NOT run
+  verification mutex (`docs/concurrency-budget.md`) — builders do NOT run
   repo-wide checks every fix round; the full graph belongs to the integrator's gate.
   Commits its territory early and often. If a cross-territory import doesn't exist yet,
   code against the contract and note it.
@@ -112,7 +125,7 @@ mention says where to find it once mirrored.
 - More agents ≠ faster: parallelism is capped by genuinely disjoint territories.
   Splitting a territory that shares files trades token cost for serial merge-conflict
   resolution on your critical path — strictly worse. And mind the machine: agent count
-  is free, concurrent local processes are not (`../_docs/concurrency-budget.md`).
+  is free, concurrent local processes are not (`docs/concurrency-budget.md`).
 
 ## Iteration mechanics
 
@@ -121,15 +134,19 @@ mention says where to find it once mirrored.
   re-review (verify each fix, hunt regressions — not a fresh full review). Warm context
   makes delta rounds several times cheaper than fresh spawns. Cap ~3 rounds, then
   intervene yourself.
+- **The third round on ONE defect class stops the loop** (the third-fix rule,
+  `skills/delegate/SKILL.md`): two rounds hitting the same symptom shape means a
+  mechanism is being stacked on a symptom nobody has identified. Spawn one research lane
+  (`docs/research-ladder.md`) before a fourth attempt and paste its verdict line into the
+  next builder mandate. `NOT FOUND` licenses the fourth attempt; `BLIND` does not;
+  `FOUND` changes the approach, not just the next patch.
 - **Batch scope changes** — never inject instructions into an agent mid-round; queue
   them for its next round. Mid-round addendums get missed and cost two round-trips.
-- Check in at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); an
-  agent killed mid-edit gets the standard recovery prompt
-  (`docs/subagent-contract.md`, shipped next to this skill as
-  `../_docs/subagent-contract.md` when mirrored, and in the plugin repo's `docs/`
-  otherwise), not blind trust in its memory.
+- Check in at ETA and use the slow-agent ladder (`docs/agent-pacing.md`); an
+  agent killed mid-edit gets the standard recovery prompt (`docs/subagent-contract.md`),
+  not blind trust in its memory.
 - Report protocol, termination formula, notification idempotence, and TaskStop hygiene:
-  `../_docs/subagent-contract.md`. Applies verbatim to every role here.
+  `docs/subagent-contract.md`. Applies verbatim to every role here.
 
 ## Ship
 
@@ -137,6 +154,15 @@ One builder commits at the end: conventional commits split by territory (respect
 user's attribution config). If a local production build is unsafe (dev server running),
 use the CI/preview build as the gate. The integrator runs deployment smoke checks; you
 read its verdict and own the ship decision.
+
+**Definition of done includes cleanup.** A build isn't finished when it merges — worktrees
+removed, scratch files cleared, and stray branches gone are part of done, not a later
+chore. Draft the merge ask from `docs/merge-ask-template.md`: branch, tip, review verdict
+with reviewer tier, gate line, the goal and nearest non-goal when the project has a goal
+card, what this merge adds and deletes as counts read from the diff, the research report
+with its verdict line, and cleanup done — every field stated as what was observed, not
+what was intended (`docs/subagent-contract.md`'s state-over-intent rule applies to the
+merge ask too).
 
 ## Peer sessions
 

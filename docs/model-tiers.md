@@ -83,3 +83,14 @@ model" becomes a concrete argument instead of a hope.
 - Top-tier Codex spawns (adjudication, spec red-team) use `gpt-6-astra` by the same
   reasoning as the table's note: OpenAI's one flagship covers the "judge" row, and the
   "hardest build territory" row stays `gpt-5.6-sol` unless cost allows Astra there too.
+
+### Research lanes
+
+The research ladder (`docs/research-ladder.md`) maps onto the tiers above with no new
+tier added: mid tier (Sonnet / GPT-5.6-Terra) runs each source-class lane, fast tier
+(Haiku / GPT-5.6-Luna) runs the fetch-and-quote pass over pages a mid-tier lane already
+found, high tier (Opus / GPT-6-Astra, Sol if cost forbids — the skeptic is a review, per
+the table's note) runs the skeptic pass, which refutes by re-fetching every load-bearing
+source itself. The top session adjudicates across lanes; it never runs a lane itself —
+that would spend top-tier tokens on execution, which the rules of thumb above already
+rule out.

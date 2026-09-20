@@ -43,6 +43,47 @@ lost. Nothing "above" exists on the orchestrator's side.
 - This is the core reason report-to-disk is the default: a file survives any number of
   resumes; inline content must be re-emitted on every single turn end.
 
+## State over intent
+
+A result names the command that observed it, and the output the command actually
+produced — never a description of what should be true or what was attempted.
+
+- "Pushed" means `git rev-parse origin/<branch>` was read and matches the local tip —
+  not that `git push` was run without error.
+- "Deployed" means the running version was read (a health endpoint, a version string
+  from the live process) — not that a deploy command exited 0.
+- "Green" names the command, its exit code and its counts, AND what it ran against: the
+  tree sha, and for anything rebuilt or reinstalled, the build id or package versions
+  read back AFTER the build. A suite exits 0 against stale packages and a stale artifact
+  in exactly the same shape as a real pass, so the command alone is not the evidence.
+- "Verified on a harness" states how the harness differs from production on the axis
+  under test, or says the two were compared on that axis and matched. A harness result
+  with neither line is an intent claim.
+- "Reviewed" names the reviewer, its tier and the findings path; a review whose findings
+  file cannot be opened did not happen. "Delivered" (a verdict, a note, a hand-off) means
+  the receiving surface was read back, not that a send command ran.
+- A reviewer verifies against origin and the running bytes, never against the report:
+  the report's claim is a lead to check, not evidence in itself. An integrator's pass or
+  fail carries the suite command, the exit code, the counts and the tree sha it ran in.
+
+This applies to every claim in every report, this document included — a rule that
+tells agents to cite commands and outputs is itself bound by it.
+
+## Investigation reports carry Evidence, Hypotheses, Resolution
+
+Any lane diagnosing a defect (a research-ladder lane investigating a bug, a fix round
+that didn't land) writes a report with three headings in `templates/research-report.md`'s
+investigation shape: `## Evidence` (the command run and the output it actually
+produced), `## Hypotheses` (append-only, one line each, prefixed `OPEN:`, `REFUTED:` or
+`CONFIRMED:`; a settled line points at the `## Evidence` entry that settled it, and no
+line is ever deleted or reworded), and `## Resolution` (only once fixed). This exists
+because three wrong hypotheses about one bug were held in sequence this week and nothing
+recorded that they had been refuted — a hypothesis nobody marked `REFUTED:` gets tried
+again by the next agent.
+
+An orchestrator rejects an investigation report with no `REFUTED:` or `CONFIRMED:` line,
+and rejects a settled line that points at no evidence entry.
+
 ## Never trust the reply — read the report
 
 Observed constantly at scale: final replies of `Done.`, `-`, `(idle)`, `STOP.`,

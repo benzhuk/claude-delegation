@@ -24,6 +24,14 @@ artifacts already on disk instead of letting them re-derive them.
 Ask for the evidence shape you need to act without re-verifying: "cite file:line for
 every field you claim exists", "measured numbers, not adjectives", "verdict word first."
 
+**State over intent** (`docs/subagent-contract.md`, full rule): every claim names the
+command that observed it and its output, never a description of what should be true.
+"Pushed" means `git rev-parse origin/<branch>` was read; "deployed" means the running
+version was read; "green" names the command, the exit code and what it ran against (tree
+sha, and the versions read back after any rebuild). A reviewer verifies against origin
+and the running bytes, never against the report — write this expectation into the
+mandate, don't assume it's known.
+
 ## Authorize negative results — or get fabricated positives
 
 An agent optimizes the metric you gave it. If the prompt doesn't say a negative result
