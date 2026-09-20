@@ -25,7 +25,7 @@ function stripCommentMarker(text) {
 /** Strip a `- ` / `- [ ] ` / `- [x] ` marker (if any) off a line already trimmed of indentation. */
 function splitMarker(rawLine) {
   const stripped = rawLine.replace(/^[ \t]+/, '');
-  const lstrip = (s) => s.replace(/^[ \t]+/, '');
+  const lstrip = (s) => s.replace(/^\s+/, '');
   let m = /^-\s\[([ xX])\]\s?(.*)$/.exec(stripped);
   if (m) return { kind: 'checkbox', ticked: m[1].toLowerCase() === 'x', text: lstrip(m[2]) };
   m = /^-\s(.*)$/.exec(stripped);
@@ -76,7 +76,7 @@ class BlindError extends Error {}
 
 export function parseDocument(text) {
   if (!text || text.trim() === '') throw new BlindError('empty input');
-  const lines = text.replace(/^﻿/, '').split(/\r\n|\n/);
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n/);
   const { doneLineIndex, done } = findDoneLine(lines);
 
   let inFence = false;

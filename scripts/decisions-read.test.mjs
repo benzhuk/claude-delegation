@@ -358,10 +358,22 @@ test('an owner comment as a plain paragraph line, with no list or checkbox marke
   assert.deepEqual(doc.decisions[0].comments.map((c) => c.text), ['a plain paragraph comment']);
 });
 
-test('BLOCKER 2: invoked through a real symlink, the CLI still parses and exits correctly', () => {
+test('BLOCKER 2: invoked through a real symlink, the CLI still parses and exits correctly', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-read-sym-'));
   const link = path.join(dir, 'sym-entry.mjs');
-  fs.symlinkSync(SCRIPT_PATH, link, 'file');
+  try {
+    fs.symlinkSync(SCRIPT_PATH, link, 'file');
+  } catch (err) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    // A Windows box without the symlink privilege (no Developer Mode, not elevated) throws
+    // EPERM/EACCES here. That is an environment fact, not a code failure — a suite that goes
+    // red for a reason unrelated to the code is how a suite rots. Skip with the reason instead.
+    if (err && (err.code === 'EPERM' || err.code === 'EACCES')) {
+      t.skip(`symlinks not permitted on this machine (${err.code})`);
+      return;
+    }
+    throw err;
+  }
   try {
     const result = spawnSync(process.execPath, [link], {
       input: L('<summary>t</summary>', '\t- [x] a'),

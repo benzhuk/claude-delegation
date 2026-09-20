@@ -39,7 +39,9 @@ arrives as plain `**`.
    An item that closes loses its checkboxes: closed items are written as plain
    bullets. The reader cannot tell a historical ticked box from a live one, so a
    Closed section that keeps its checkboxes will be reported as an answered
-   decision.
+   decision. A checkbox inside a callout that sits inside a decision is read as
+   one of that decision's options, so callouts inside a decision must not
+   contain checkboxes.
 5. The page-level DONE line: the LAST NON-EMPTY line of the document, ignoring
    trailing blank lines and trailing `<empty-block/>` lines, if it is a checkbox at
    column 0 whose text is exactly `Done` (case-sensitive). It is not an option of any
