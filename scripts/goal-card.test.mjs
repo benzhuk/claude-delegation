@@ -12,9 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 import {
   LABELS, CARD_MAX_BYTES, LINE_MAX_BYTES, RENDER_MAX_BYTES, DEFAULT_CARD_PATH, CONFIG_KEY,
-  SWITCH_NAME, PROMPT_LINE_MAX_BYTES, BATCHES_PER_REINJECT, CARD_HEADER,
-  agentsHome, switchedOff, cardLocation, readCard, validateCard, renderInjection, asOfStamp,
-  goalCardContext, stateDir, stateFileFor, staleStateFiles, runCli,
+  SWITCH_NAME, MASTER_SWITCH, PROMPT_LINE_MAX_BYTES, BATCHES_PER_REINJECT, REINJECT_MAX_MS, CARD_HEADER,
+  SWEEP_MAX_UNLINKS, SUBAGENT_SUFFIX, REPORT_LINE_AGENT_ROLES,
+  agentsHome, switchedOff, activeSwitch, wantsReportLine, cardLocation, readCard, validateCard,
+  renderInjection, asOfStamp, goalCardContext, goalCardResult, rejectionNotice, isMainModule,
+  stateDir, stateKey, tallyFileFor, firedFileFor, staleStateFiles, runCli,
 } from './goal-card.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -188,13 +190,17 @@ test('AGENTS_HOME points the agents home at a fixture, and defaults to ~/.agents
   assert.equal(stateDir({ AGENTS_HOME: home }), path.join(home, 'ws', 'goal-card'));
 });
 
-test('a session id can never become a path', () => {
+test('a session id and an agent id can never become a path, and the two are different keys', () => {
   const home = tmpdir('goal-card-home-');
   const env = { AGENTS_HOME: home };
-  const evil = stateFileFor('../../etc/passwd', env);
+  const evil = tallyFileFor('../../etc/passwd', null, env);
   assert.equal(path.dirname(evil), stateDir(env));
   assert.equal(path.basename(evil).includes('/'), false);
-  assert.equal(path.basename(stateFileFor('', env)), 'unknown.json');
+  assert.equal(path.basename(tallyFileFor('', null, env)), 'unknown.tally');
+  // MAJOR 2a: a subagent must not share the parent's tally.
+  assert.notEqual(tallyFileFor('s', 'agent-1', env), tallyFileFor('s', null, env));
+  assert.equal(stateKey('s', 'agent-1'), 's.agent-1');
+  assert.equal(path.basename(firedFileFor('s', 'agent-1', env)), 's.agent-1.fired');
 });
 
 test('the stale sweep lists only files past their age and never throws on a missing dir', () => {
@@ -202,13 +208,31 @@ test('the stale sweep lists only files past their age and never throws on a miss
   const env = { AGENTS_HOME: home };
   assert.deepEqual(staleStateFiles(Date.now(), env), []);
   fs.mkdirSync(stateDir(env), { recursive: true });
-  const fresh = stateFileFor('fresh', env);
-  const old = stateFileFor('old', env);
-  fs.writeFileSync(fresh, '{"batches":1}', 'utf8');
-  fs.writeFileSync(old, '{"batches":1}', 'utf8');
+  const fresh = tallyFileFor('fresh', null, env);
+  const old = tallyFileFor('old', null, env);
+  fs.writeFileSync(fresh, '.', 'utf8');
+  fs.writeFileSync(old, '.', 'utf8');
   const longAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   fs.utimesSync(old, longAgo, longAgo);
   assert.deepEqual(staleStateFiles(Date.now(), env), [old]);
+});
+
+test('MINOR 3: the sweep list filters BEFORE it caps, so a backlog past the cap still drains', () => {
+  const home = tmpdir('goal-card-home-');
+  const env = { AGENTS_HOME: home };
+  fs.mkdirSync(stateDir(env), { recursive: true });
+  const longAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const stale = [];
+  for (let i = 0; i < 40; i++) {
+    const f = tallyFileFor(`sess-${String(i).padStart(3, '0')}`, null, env);
+    fs.writeFileSync(f, '.', 'utf8');
+    if (i >= 30) { fs.utimesSync(f, longAgo, longAgo); stale.push(f); }
+  }
+  // A cap of 2 must still return the stale files, which sit at listing positions 30-39.
+  const capped = staleStateFiles(Date.now(), env, 2);
+  assert.equal(capped.length, 2, 'the cap applies to the RESULT, not to how far the listing is read');
+  assert.deepEqual(staleStateFiles(Date.now(), env).sort(), stale.sort());
+  assert.equal(SWEEP_MAX_UNLINKS, 500);
 });
 
 test('a malformed project.json is blind, not a crash', () => {
@@ -278,4 +302,88 @@ test('the CLI as a child process: real exit codes, and stdout is the card', () =
 test('the constants the hook copies are pinned here', () => {
   assert.equal(PROMPT_LINE_MAX_BYTES, 320);
   assert.equal(BATCHES_PER_REINJECT, 40);
+  assert.equal(REINJECT_MAX_MS, 30 * 60 * 1000);
+  assert.equal(SWEEP_MAX_UNLINKS, 500);
+  assert.equal(MASTER_SWITCH, 'ws-off');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round 2 additions
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('MAJOR 3: wantsReportLine names exactly the three delegation roles, scoped or bare', () => {
+  for (const yes of ['delegation:builder', 'delegation:reviewer', 'delegation:integrator',
+    'builder', 'REVIEWER', ' integrator ', 'other-plugin:builder']) {
+    assert.equal(wantsReportLine(yes), true, yes);
+  }
+  for (const no of ['Explore', 'Plan', 'general-purpose', 'mrc-memo-writer', 'statusline-setup',
+    'builderish', '', null, undefined, 42]) {
+    assert.equal(wantsReportLine(no), false, String(no));
+  }
+  assert.deepEqual([...REPORT_LINE_AGENT_ROLES], ['builder', 'reviewer', 'integrator']);
+});
+
+test('MAJOR 4: goalCardResult keeps the REASON a card was refused, and the notice names it', () => {
+  const root = project({ card: `${GOOD}\nEXTRA: a sixth line` });
+  const r = goalCardResult(root, { env: { AGENTS_HOME: tmpdir('goal-card-home-') } });
+  assert.equal(r.status, 'rejected');
+  assert.equal(r.text, null);
+  assert.match(r.reason, /found 6/);
+  const notice = rejectionNotice(r.path, r.reason);
+  assert.match(notice, /goal card not injected/);
+  assert.match(notice, /No goals are being restated/);
+  assert.ok(notice.includes(r.path));
+
+  const ok = goalCardResult(project({ card: GOOD }), { env: { AGENTS_HOME: tmpdir('goal-card-home-') } });
+  assert.equal(ok.status, 'ok');
+  assert.equal(ok.reason, null);
+  assert.equal(goalCardResult(project({ card: null }), { env: { AGENTS_HOME: tmpdir('goal-card-home-') } }).status, 'absent');
+});
+
+test('MAJOR 4: check names the switch instead of saying ok while nothing is injecting', () => {
+  const root = project({ card: GOOD });
+  for (const name of [MASTER_SWITCH, `ws-off-${SWITCH_NAME}`]) {
+    const home = tmpdir('goal-card-home-');
+    fs.writeFileSync(path.join(home, name), '', 'utf8');
+    const env = { AGENTS_HOME: home };
+    assert.equal(activeSwitch(SWITCH_NAME, env), name);
+    const out = sink();
+    assert.equal(runCli(['check'], root, out, sink(), env), 0);
+    assert.match(out.text(), new RegExp(`^OFF: ${name} is present`), name);
+    assert.equal(out.text().includes('ok:'), false, `${name}: check must not answer "ok"`);
+  }
+  // …and a rejected card still reports its reason with the switch on, rather than hiding behind it.
+  const bad = project({ card: 'GOAL: only one line' });
+  const home = tmpdir('goal-card-home-');
+  fs.writeFileSync(path.join(home, MASTER_SWITCH), '', 'utf8');
+  const err = sink();
+  assert.equal(runCli(['check'], bad, sink(), err, { AGENTS_HOME: home }), 1);
+  assert.match(err.text(), /expected exactly 5 card lines/);
+});
+
+test('MINOR 5: a card path that is not a regular file is not read', () => {
+  const root = project({ card: null });
+  fs.mkdirSync(path.join(root, DEFAULT_CARD_PATH), { recursive: true }); // a DIRECTORY at the card path
+  const started = Date.now();
+  const r = goalCardResult(root, { env: { AGENTS_HOME: tmpdir('goal-card-home-') } });
+  assert.equal(r.text, null);
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('MAJOR 5: isMainModule is true for the real path and survives a path containing a space', () => {
+  const self = fileURLToPath(new URL('./goal-card.mjs', import.meta.url));
+  assert.equal(isMainModule(new URL('./goal-card.mjs', import.meta.url).href, self), true);
+  assert.equal(isMainModule(new URL('./goal-card.mjs', import.meta.url).href, undefined), false);
+
+  const spaced = path.join(tmpdir('goal card spaced-'), 'has space');
+  fs.mkdirSync(spaced, { recursive: true });
+  const copy = path.join(spaced, 'goal-card.mjs');
+  fs.copyFileSync(CLI, copy);
+  fs.copyFileSync(path.join(REPO, 'scripts', 'project-config.mjs'), path.join(spaced, 'project-config.mjs'));
+  const root = project({ card: GOOD });
+  const home = tmpdir('goal-card-home-');
+  const stdout = execFileSync(process.execPath, [copy, 'check'], {
+    cwd: root, encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }),
+  });
+  assert.match(stdout, /^ok: /, 'the round-1 URL.pathname comparison printed nothing here');
 });

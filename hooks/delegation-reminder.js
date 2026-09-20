@@ -36,9 +36,13 @@
 //     can kill a turn is a worse problem than the one it solves.
 //   * NEVER block: no `decision`, no `continue: false`, ever.
 //   * FAIL OPEN: any error, any unreadable state, anything unexpected — exit 0, silent.
-//   * NO network, NO child process, and no file read on the hot path beyond two `existsSync` calls
-//     and one small counter file. The goal-card module is imported only when a card will be rendered.
-//   * Switch FILES: `~/.agents/ws-off` (master) and `~/.agents/ws-off-goalcard` silence the card.
+//   * NO network, NO child process.
+//   * SWITCH FILES COME FIRST, BEFORE ANY SIDE EFFECT. `~/.agents/ws-off` (master) makes this hook a
+//     no-op in every sense: no output at all, no state written, no file swept, nothing read past the
+//     two `existsSync` calls that found the switch. `~/.agents/ws-off-goalcard` stops the card and
+//     its state while leaving the routing line. The contract says the switch "must work exactly when
+//     a hook is misbehaving", and for this hook misbehaving most plausibly means the disk side
+//     (review D, MAJOR 1).
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -49,13 +53,15 @@ const { pathToFileURL } = require("url");
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 178 bytes, down from 510. The three shapes are the whole routing policy; the skills carry the
- * detail, and an agent that needs the detail opens the skill.
+ * 246 bytes, down from 510. The classification triad is the routing policy; the two clauses that
+ * encode the anti-patterns ("before any code", "a tier above the writer") are kept because an agent
+ * only opens the skill AFTER it has decided how to route, and the plugin-scoped ids are kept because
+ * they are what the Skill tool takes (review D, MINOR 8).
  */
 const ROUTING =
-  "Routing: multi-file build → team-build skill; independent research/review/audit lanes → delegate skill, all lanes in one message; single-file edit or known lookup → do it yourself.";
+  "Routing: multi-file build → delegation:team-build before any code; independent research/review/audit lanes → delegation:delegate, all lanes in one message, verified a tier above the writer; single-file edit or known lookup → do it yourself.";
 
-/** 65 bytes, down from 161. Top-tier orchestrators only (and unknown models, which are cheap). */
+/** Top-tier orchestrators only (and unknown models, which are cheap). */
 const ECONOMY = " Subagents return a verdict plus a report path, never file dumps.";
 
 /** Asserted by the test suite: the per-prompt payload can never grow back into a paragraph. */
@@ -63,9 +69,14 @@ const PROMPT_LINE_MAX_BYTES = 320;
 
 /** One re-injection per this many tool batches. ~50 tool calls is a typical long task (Manus). */
 const BATCHES_PER_REINJECT = 40;
+/** …or this long since the last injection, whichever comes first. See the state section. */
+const REINJECT_MAX_MS = 30 * 60 * 1000;
+/** Never unlink more than this in one session-start sweep. */
+const SWEEP_MAX_UNLINKS = 500;
+const STATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Whole-hook ceiling, so a stdin that never ends cannot park a turn. */
-const BUDGET_MS = 2000;
+const BUDGET_MS = 500;
 
 const TAIL_BYTES = 262144; // transcripts can be many MB; read only the tail
 
@@ -73,6 +84,12 @@ const TAIL_BYTES = 262144; // transcripts can be many MB; read only the tail
 // Model tier (unchanged behaviour)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * NOTE, so nobody later "restores" a read that was never removed: on UserPromptSubmit this DOES open
+ * the transcript and read its last 256 KB, every time, because the docs say only SessionStart hooks
+ * receive a `model` field and even there not always. Measured cost against a 40 MB transcript is nil
+ * (38.4 ms median, against a 39.5 ms bare-node control) because only the tail is read (MINOR 6a).
+ */
 function modelFromTranscriptTail(p) {
   try {
     if (!p || !fs.existsSync(p)) return "";
@@ -122,9 +139,9 @@ function promptLine(input) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Switches and state — duplicated deliberately
+// Switches — duplicated deliberately
 // ─────────────────────────────────────────────────────────────────────────────
-// `scripts/goal-card.mjs` exports the same two helpers, and a test asserts the two agree. They are
+// `scripts/goal-card.mjs` exports the same helpers, and a test asserts the two agree. They are
 // re-stated here in CommonJS because the hot path (a prompt, a tool batch below the threshold) must
 // not pay for an ESM import to learn it has nothing to do.
 
@@ -132,56 +149,120 @@ function agentsHome() {
   return process.env.AGENTS_HOME || path.join(os.homedir(), ".agents");
 }
 
-function cardSwitchedOff() {
+/** `"ws-off"` (master), `"ws-off-goalcard"` (this feature), or null. */
+function activeSwitch() {
   try {
     const base = agentsHome();
-    return fs.existsSync(path.join(base, "ws-off")) || fs.existsSync(path.join(base, "ws-off-goalcard"));
+    if (fs.existsSync(path.join(base, "ws-off"))) return "ws-off";
+    if (fs.existsSync(path.join(base, "ws-off-goalcard"))) return "ws-off-goalcard";
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function stateFile(sessionId) {
-  const safe =
-    String(sessionId || "unknown")
-      .replace(/[^A-Za-z0-9_-]/g, "_")
-      .slice(0, 120) || "unknown";
-  return path.join(agentsHome(), "ws", "goal-card", `${safe}.json`);
+// ─────────────────────────────────────────────────────────────────────────────
+// State — append-only, never read-modify-write
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A fan-out runs many of these concurrently under ONE `session_id` (tool events fire inside
+// subagents and carry the parent's session id), and the round-1 read-modify-write counter lost 98 of
+// 120 increments and fired ZERO times in the reviewer's 120-way reproduction. Exactness is not what
+// this counter is for; never firing is the only unacceptable outcome. So:
+//   · the tally is appended one byte per batch and its COUNT IS ITS SIZE — never parsed, never read,
+//     only `statSync`ed, which is why an oversized state file costs nothing (MINOR 4);
+//   · the key carries `agent_id`, so a subagent counts its own batches, not the parent's;
+//   · firing truncates the tally and stamps `.fired`, whose mtime is the last injection;
+//   · a TIME FLOOR backs the count up: a batch arriving more than REINJECT_MAX_MS after the last
+//     injection fires regardless of the tally, so a lossy count can delay the card but never cancel it.
+// Two racing hooks may both fire once, and a lost truncation costs one late injection. Both are the
+// harmless direction.
+
+const clean = (v, fallback) =>
+  String(v || fallback)
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .slice(0, 120) || fallback;
+
+function stateKey(sessionId, agentId) {
+  const base = clean(sessionId, "unknown");
+  return agentId ? `${base}.${clean(agentId, "agent")}` : base;
 }
 
-/** Current batch count for this session. Unreadable or malformed reads as 0: fail open. */
-function readCount(sessionId) {
+const stateDir = () => path.join(agentsHome(), "ws", "goal-card");
+const tallyFile = (s, a) => path.join(stateDir(), `${stateKey(s, a)}.tally`);
+const firedFile = (s, a) => path.join(stateDir(), `${stateKey(s, a)}.fired`);
+
+function sizeOf(file) {
   try {
-    const raw = fs.readFileSync(stateFile(sessionId), "utf8");
-    const n = JSON.parse(raw).batches;
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    return fs.statSync(file).size;
   } catch {
     return 0;
   }
 }
 
-/** Temp file + rename, so a second session never reads a half-written counter. Never throws. */
-function writeCount(sessionId, batches) {
+function mtimeOf(file) {
   try {
-    const file = stateFile(sessionId);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ batches, updated: new Date().toISOString() }), "utf8");
-    fs.renameSync(tmp, file);
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/** One byte, appended. No read, no rewrite, no lock. Never throws. */
+function bumpTally(sessionId, agentId) {
+  try {
+    const file = tallyFile(sessionId, agentId);
+    try {
+      fs.appendFileSync(file, ".");
+    } catch {
+      fs.mkdirSync(stateDir(), { recursive: true });
+      fs.appendFileSync(file, ".");
+    }
+    return sizeOf(file);
+  } catch {
+    return 0;
+  }
+}
+
+/** Stamp the clock without touching the tally. Never throws. */
+function startClock(sessionId, agentId) {
+  try {
+    fs.mkdirSync(stateDir(), { recursive: true });
+    fs.writeFileSync(firedFile(sessionId, agentId), "");
   } catch {}
 }
 
-/** Session-start sweep: counters for sessions that ended days ago. Bounded and never throws. */
+/** Record an injection: tally back to zero, `.fired` stamped now. Never throws. */
+function markFired(sessionId, agentId) {
+  try {
+    fs.mkdirSync(stateDir(), { recursive: true });
+    try {
+      fs.writeFileSync(tallyFile(sessionId, agentId), "");
+    } catch {}
+    fs.writeFileSync(firedFile(sessionId, agentId), "");
+  } catch {}
+}
+
+/**
+ * Session-start sweep: state for sessions that ended days ago. Filters FIRST and caps the UNLINKS,
+ * so a backlog larger than the cap still drains a cap's worth every session instead of never
+ * reaching the stale files that sit past position 500 in readdir order (review D, MINOR 3).
+ */
 function sweepState() {
   try {
-    const dir = path.join(agentsHome(), "ws", "goal-card");
+    const dir = stateDir();
     if (!fs.existsSync(dir)) return;
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    for (const name of fs.readdirSync(dir).slice(0, 500)) {
-      if (!name.endsWith(".json")) continue;
+    const cutoff = Date.now() - STATE_MAX_AGE_MS;
+    let removed = 0;
+    for (const name of fs.readdirSync(dir)) {
+      if (removed >= SWEEP_MAX_UNLINKS) break;
+      if (!name.endsWith(".tally") && !name.endsWith(".fired")) continue;
       const file = path.join(dir, name);
       try {
-        if (fs.statSync(file).mtimeMs < cutoff) fs.unlinkSync(file);
+        if (fs.statSync(file).mtimeMs < cutoff) {
+          fs.unlinkSync(file);
+          removed++;
+        }
       } catch {}
     }
   } catch {}
@@ -192,19 +273,27 @@ function sweepState() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Imported lazily: nothing below the injection threshold ever pays for it. */
-async function cardText(cwd, extra) {
+function goalCard() {
+  return import(pathToFileURL(path.join(__dirname, "..", "scripts", "goal-card.mjs")).href);
+}
+
+/**
+ * @returns {Promise<{text: string|null, reason: string|null, path: string|null, status: string}>}
+ */
+async function cardResult(cwd, agentType) {
   try {
-    const mod = await import(pathToFileURL(path.join(__dirname, "..", "scripts", "goal-card.mjs")).href);
-    return mod.goalCardContext(cwd || process.cwd(), extra ? { extra } : {});
+    const mod = await goalCard();
+    const extra = mod.wantsReportLine(agentType) ? mod.SUBAGENT_SUFFIX : undefined;
+    return mod.goalCardResult(cwd || process.cwd(), extra ? { extra } : {});
   } catch {
-    return null;
+    return { status: "blind", text: null, reason: null, path: null };
   }
 }
 
-async function subagentSuffix() {
+async function rejectionNotice(result) {
   try {
-    const mod = await import(pathToFileURL(path.join(__dirname, "..", "scripts", "goal-card.mjs")).href);
-    return mod.SUBAGENT_SUFFIX;
+    const mod = await goalCard();
+    return mod.rejectionNotice(result.path, result.reason);
   } catch {
     return null;
   }
@@ -215,48 +304,74 @@ async function subagentSuffix() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * @returns {Promise<string|null>} the `additionalContext` for this event, or null for silence.
+ * @returns {Promise<{text: string|null, systemMessage: string|null}>}
  */
-async function contextFor(event, input) {
+async function handle(event, input) {
   const cwd = (input && input.cwd) || process.cwd();
   const sessionId = input && input.session_id;
+  const agentId = input && input.agent_id;
+  const nothing = { text: null, systemMessage: null };
+
+  // THE SWITCH, BEFORE ANY SIDE EFFECT. Master: this process does nothing and says nothing.
+  // Feature: the card and every byte of its state are off; the routing line is not a goal-card
+  // feature and survives, as it did before this build existed.
+  const off = activeSwitch();
+  if (off === "ws-off") return nothing;
+  const cardOff = off !== null;
 
   if (event === "UserPromptSubmit") {
     // The card is deliberately NOT here. Every-prompt injection is what made the last standing text
     // wallpaper, and the drift this build targets happens where no prompt is submitted at all.
-    return promptLine(input);
+    return { text: promptLine(input), systemMessage: null };
   }
 
   if (event === "SessionStart") {
-    writeCount(sessionId, 0);
+    if (cardOff) return nothing;
+    markFired(sessionId, agentId); // a session start IS an injection point: reset count and clock
     sweepState();
-    if (cardSwitchedOff()) return null;
-    return cardText(cwd);
+    const result = await cardResult(cwd, input && input.agent_type);
+    if (result.status === "rejected") {
+      // NEVER SILENT. Once per session, to the human, outside the conversation — not to the model,
+      // where it would become the wallpaper this build exists to remove (review D, MAJOR 4).
+      return { text: null, systemMessage: await rejectionNotice(result) };
+    }
+    return { text: result.text, systemMessage: null };
   }
 
   if (event === "PostCompact") {
     // Output is discarded for this event by design ("No decision control"); the reset is the point.
-    writeCount(sessionId, 0);
-    return null;
+    if (cardOff) return nothing;
+    markFired(sessionId, agentId);
+    return nothing;
   }
 
   if (event === "SubagentStart") {
-    // The subagent has its own context and never sees SessionStart. It does NOT share the parent's
-    // counter: `session_id` here is the parent's, and a spawn is not a tool batch.
-    if (cardSwitchedOff()) return null;
-    const suffix = await subagentSuffix();
-    return cardText(cwd, suffix || undefined);
+    // The subagent has its own context and never sees SessionStart. EVERY agent type gets the card —
+    // a researcher drifts too — but only the roles that write a territory report are told to name a
+    // goal line in one (orchestrator ruling, round 2). No counter: `session_id` here is the parent's,
+    // and a spawn is not a tool batch.
+    if (cardOff) return nothing;
+    const result = await cardResult(cwd, input && input.agent_type);
+    return { text: result.text, systemMessage: null };
   }
 
   if (event === "PostToolBatch") {
-    const n = readCount(sessionId) + 1;
-    writeCount(sessionId, n);
-    if (n % BATCHES_PER_REINJECT !== 0) return null;
-    if (cardSwitchedOff()) return null;
-    return cardText(cwd);
+    if (cardOff) return nothing;
+    const n = bumpTally(sessionId, agentId);
+    const firedAt = mtimeOf(firedFile(sessionId, agentId));
+    const overdue = firedAt !== 0 && Date.now() - firedAt >= REINJECT_MAX_MS;
+    if (n < BATCHES_PER_REINJECT && !overdue) {
+      // No clock yet (this hook wired without SessionStart, or the state swept)? Start it HERE.
+      // Treating "never injected" as "injected at the epoch" would fire on every session's first batch.
+      if (firedAt === 0) startClock(sessionId, agentId);
+      return nothing;
+    }
+    markFired(sessionId, agentId);
+    const result = await cardResult(cwd, input && input.agent_type);
+    return { text: result.text, systemMessage: null }; // a rejection is reported at session start only
   }
 
-  return null; // an event nobody wired for this hook: silence, exit 0
+  return nothing; // an event nobody wired for this hook: silence, exit 0
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -265,34 +380,60 @@ async function contextFor(event, input) {
 
 let finished = false;
 
-function finish(event, text) {
+function finish(event, out) {
   if (finished) return;
   finished = true;
+  const { text = null, systemMessage = null } = out || {};
+  let payload = null;
   try {
-    if (text) {
-      process.stdout.write(
-        JSON.stringify({
-          suppressOutput: true,
-          hookSpecificOutput: { hookEventName: event, additionalContext: text },
-        }),
-      );
+    if (text || systemMessage) {
+      const obj = {};
+      if (text) obj.hookSpecificOutput = { hookEventName: event, additionalContext: text };
+      if (systemMessage) obj.systemMessage = systemMessage;
+      payload = JSON.stringify(obj);
     }
   } catch {}
   // 0, always. Never 1, never 3, and above all never 2: this process sits on the path of every
   // prompt and every tool batch on every machine.
-  process.exit(0);
+  if (!payload) {
+    process.exit(0);
+    return;
+  }
+  // stdout is a PIPE, and pipe writes are asynchronous on macOS. Exiting before the bytes are out
+  // would deliver JSON that starts with `{` and does not end with `}`, which the harness then treats
+  // as plain text and injects verbatim (review D, MINOR 2). Exit from the write callback instead,
+  // with a backstop in case it never runs.
+  process.exitCode = 0;
+  const bail = setTimeout(() => process.exit(0), 1000);
+  if (typeof bail.unref === "function") bail.unref();
+  try {
+    process.stdout.write(payload, () => {
+      clearTimeout(bail);
+      process.exit(0);
+    });
+  } catch {
+    process.exit(0);
+  }
 }
 
+/**
+ * The event name. `hook_event_name` is on every real payload; argv is how `hooks.json` names it; the
+ * final fallback is the wiring this hook shipped with (a bare `UserPromptSubmit` entry, no argv), so
+ * a harness that ever stops sending the field does not silently lose the routing line. The timeout
+ * path below deliberately emits NOTHING, which is not a contradiction: there we have no payload at
+ * all, so there is no evidence to fall back ON (review D, MINOR 9).
+ */
 function eventName(input) {
   const fromInput = input && input.hook_event_name;
   if (typeof fromInput === "string" && fromInput) return fromInput;
   const fromArgv = process.argv[2];
   if (typeof fromArgv === "string" && fromArgv) return fromArgv;
-  return "UserPromptSubmit"; // the wiring this hook shipped with, before events were passed
+  return "UserPromptSubmit";
 }
 
-// A stdin that never ends must not park a turn. Silence, not a guessed event name: emitting
-// `hookEventName` for an event this process never saw would be a schema failure in the transcript.
+// A stdin that never ends must not park a turn. A few hundred milliseconds, then proceed as if empty
+// — and silently, because a guessed `hookEventName` for an event this process never saw would be a
+// schema failure in the transcript.
 const guard = setTimeout(() => finish("UserPromptSubmit", null), BUDGET_MS);
 if (typeof guard.unref === "function") guard.unref();
 
@@ -307,18 +448,20 @@ process.stdin.on("end", () => {
   } catch {}
   if (!input || typeof input !== "object") input = {};
   const event = eventName(input);
-  contextFor(event, input)
-    .then((text) => {
+  handle(event, input)
+    .then((out) => {
       clearTimeout(guard);
       // The per-prompt payload can never grow back into a paragraph, whatever a future edit says.
-      if (event === "UserPromptSubmit" && text && Buffer.byteLength(text, "utf8") > PROMPT_LINE_MAX_BYTES) {
-        finish(event, ROUTING);
+      if (event === "UserPromptSubmit" && out.text && Buffer.byteLength(out.text, "utf8") > PROMPT_LINE_MAX_BYTES) {
+        finish(event, { text: ROUTING, systemMessage: null });
         return;
       }
-      finish(event, text);
+      finish(event, out);
     })
     .catch(() => {
       clearTimeout(guard);
-      finish(event, event === "UserPromptSubmit" ? promptLine(input) : null);
+      // Even the failure path honours the master switch: `ws-off` means this process says nothing.
+      const silent = activeSwitch() === "ws-off" || event !== "UserPromptSubmit";
+      finish(event, silent ? null : { text: promptLine(input) });
     });
 });
