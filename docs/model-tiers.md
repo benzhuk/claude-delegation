@@ -86,12 +86,11 @@ model" becomes a concrete argument instead of a hope.
 
 ### Research lanes
 
-The research ladder (`docs/research-ladder.md`, shipped next to this skill as
-`../_docs/research-ladder.md` when mirrored, and in the plugin repo's `docs/`
-otherwise) maps onto the tiers above with no new tier added: mid tier (Sonnet /
-GPT-5.6-Terra) runs each source-class lane, fast tier (Haiku / GPT-5.6-Luna) runs the
-fetch-and-quote pass over pages a mid-tier lane already found, high tier (Opus /
-GPT-5.6-Sol) runs the skeptic pass that refutes and spot-checks by fetching sources
-itself. The top session adjudicates across lanes; it never runs a lane itself — that
-would spend top-tier tokens on execution, which the rules of thumb above already rule
-out.
+The research ladder (`docs/research-ladder.md`) maps onto the tiers above with no new
+tier added: mid tier (Sonnet / GPT-5.6-Terra) runs each source-class lane, fast tier
+(Haiku / GPT-5.6-Luna) runs the fetch-and-quote pass over pages a mid-tier lane already
+found, high tier (Opus / GPT-6-Astra, Sol if cost forbids — the skeptic is a review, per
+the table's note) runs the skeptic pass, which refutes by re-fetching every load-bearing
+source itself. The top session adjudicates across lanes; it never runs a lane itself —
+that would spend top-tier tokens on execution, which the rules of thumb above already
+rule out.

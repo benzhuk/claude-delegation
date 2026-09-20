@@ -9,15 +9,28 @@ command ran.
 
 ```
 Branch: <name>
-Tip: <sha — from `git rev-parse HEAD` on the branch, read at ask time>
+Tip: <sha — from `git rev-parse HEAD`, read at ask time>
+Pushed: <sha — from `git rev-parse origin/<branch>`, read at ask time> — equal to Tip: <yes | no>
+Base: <target branch> @ <sha — `git rev-parse origin/<target>`>, behind by <n>
+  (`git rev-list --count HEAD..origin/<target>`)
+
+Goal: <the project goal-card line this change serves>
+Nearest non-goal: <the NOT line on the project's goal card this change comes closest to
+  crossing, and one sentence on why it doesn't — no goal card yet: write `no goal card`,
+  the reviewer flags it>
 
 Review verdict: <APPROVE | NEEDS_FIXES> — reviewer tier: <mid | high>, report: <path>
 Gate: <the command run and its result, e.g. `npm test` — N passed, 0 failed>
 
-Adds: <what this merge adds that we now maintain — new files, new deps, new surface area>
-Deletes: <what goes away — dead code, retired paths, files removed>
+Adds: <N files, N deps — read from `git diff --stat <base>...HEAD` — and in one line what
+  we now have to keep passing the gate forever. "none" is valid only when that diff shows
+  0 added files and 0 added deps>
+Deletes: <N files/paths removed, named, from the same diff. If none, write "0 — nothing
+  retired", so the ledger shows the build was purely additive>
 
-Research: <report id/path from docs/research-ladder.md, or `none-needed: <why>`>
+Research: <report path, plus its verdict line copied verbatim> or
+  `none-needed: <the cost-tier test it passed — files touched, 0 new deps, no new
+  long-lived mechanism, no defect class at round 3>`
 
 Cleanup: <worktree removed? scratch cleared? stray branches gone? — state what was
   observed (`git worktree list`, `git branch --list`), never what was intended>
@@ -32,7 +45,12 @@ Cleanup: <worktree removed? scratch cleared? stray branches gone? — state what
   one from a high-tier reviewer, and the ask must let the reader tell them apart.
 - **Adds / Deletes** is the maintenance ledger, not a diff summary — "adds a new script"
   matters less than "adds a script we now have to keep passing `npm test` forever."
-- **Research** is never left implicit. If no research lane ran, say why it wasn't
-  needed (small change, no defect class recurred) rather than leaving the field out.
+- **Goal / Nearest non-goal** turns "serves the goal" from free text into a check
+  against the project's own goal card — naming the nearest NOT line is not
+  rubber-stampable the way a free sentence is. No goal card yet is a real, statable
+  answer; a reviewer treats it as a flag to raise, not a failure.
+- **Research** is never left implicit, and "small change" is not a reason on its own —
+  name the cost-tier clauses it passed (`docs/research-ladder.md`). A non-empty `Adds:`
+  line and a `none-needed:` research line in the same ask contradict each other.
 - **Cleanup** is part of done (`skills/team-build/SKILL.md`'s Ship section) — an ask
   without a cleanup line is an ask that hasn't finished.
