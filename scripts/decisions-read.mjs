@@ -25,10 +25,11 @@ function stripCommentMarker(text) {
 /** Strip a `- ` / `- [ ] ` / `- [x] ` marker (if any) off a line already trimmed of indentation. */
 function splitMarker(rawLine) {
   const stripped = rawLine.replace(/^[ \t]+/, '');
+  const lstrip = (s) => s.replace(/^[ \t]+/, '');
   let m = /^-\s\[([ xX])\]\s?(.*)$/.exec(stripped);
-  if (m) return { kind: 'checkbox', ticked: m[1].toLowerCase() === 'x', text: m[2] };
+  if (m) return { kind: 'checkbox', ticked: m[1].toLowerCase() === 'x', text: lstrip(m[2]) };
   m = /^-\s(.*)$/.exec(stripped);
-  if (m) return { kind: 'bullet', text: m[1] };
+  if (m) return { kind: 'bullet', text: lstrip(m[1]) };
   return { kind: 'plain', text: stripped };
 }
 
@@ -36,7 +37,7 @@ function splitMarker(rawLine) {
 function matchTitle(rawLine) {
   let m = /^[ \t]*<summary>(.*)<\/summary>[ \t]*$/.exec(rawLine);
   if (m) return m[1];
-  m = /^[ \t]*#{1,3}[ \t]+(.*?)[ \t]*\{toggle="true"\}[ \t]*$/.exec(rawLine);
+  m = /^[ \t]*#{1,3}[ \t]+(.*?)[ \t]*\{[^}]*\btoggle="true"[^}]*\}[ \t]*$/.exec(rawLine);
   if (m) return m[1];
   return null;
 }
@@ -75,7 +76,7 @@ class BlindError extends Error {}
 
 export function parseDocument(text) {
   if (!text || text.trim() === '') throw new BlindError('empty input');
-  const lines = text.split(/\r\n|\n/);
+  const lines = text.replace(/^﻿/, '').split(/\r\n|\n/);
   const { doneLineIndex, done } = findDoneLine(lines);
 
   let inFence = false;
@@ -92,6 +93,9 @@ export function parseDocument(text) {
     if (inFence) continue;
     if (i === doneLineIndex) continue; // the page-level Done line is not an option of anything
 
+    if (/<summary\b/i.test(raw) && matchTitle(raw) === null) {
+      throw new BlindError(`unreadable <summary> at line ${lineNo}`);
+    }
     const titleText = matchTitle(raw);
     if (titleText !== null) {
       currentTitle = { title: normalizeTitle(titleText), line: lineNo, options: [], comments: [] };
@@ -137,6 +141,10 @@ function detailFor(d) {
 export function formatText(doc) {
   const lines = doc.decisions.map((d) => `${d.status}\t${d.title}\t${detailFor(d)}`);
   for (const u of doc.unattached) lines.push(`UNATTACHED\tline ${u.line}\t${u.text}`);
+  // Explicit, so a caller can tell "legitimately nothing to act on" apart from a format drift
+  // that stopped matching decisions at all (finding 8): zero here on an otherwise non-trivial
+  // page means the export shape moved, not that the owner has answered everything.
+  lines.push(`DECISIONS\t${doc.decisions.length}`);
   lines.push(`DONE\t${doc.done === true ? 'true' : doc.done === false ? 'false' : 'absent'}`);
   return lines.join('\n');
 }
@@ -151,6 +159,7 @@ export function toJsonObject(doc) {
       comments: d.comments.map((c) => ({ text: c.text, line: c.line })),
     })),
     unattached: doc.unattached.map((u) => ({ text: u.text, line: u.line, kind: u.kind })),
+    decisionCount: doc.decisions.length,
     done: doc.done,
   };
 }
@@ -203,8 +212,18 @@ export function run({
 function isMainModule() {
   const entry = process.argv[1];
   if (!entry) return false;
-  const canon = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const canon = (p) => {
+    let r = path.resolve(p);
+    try { r = fs.realpathSync(r); } catch { /* not on disk — fall back to the resolved path */ }
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  };
   return canon(entry) === canon(fileURLToPath(import.meta.url));
 }
 
-if (isMainModule()) process.exitCode = run();
+if (isMainModule()) {
+  // A closed downstream pipe (`| head`) raises EPIPE asynchronously, after run() has already
+  // returned an honest exit code; left unhandled that becomes an uncaught exception and Node
+  // exits 1. Never exit 2 either way — see run()'s own catch for the same rule.
+  process.stdout.on('error', (e) => { if (e.code === 'EPIPE') process.exit(process.exitCode ?? 0); });
+  process.exitCode = run();
+}

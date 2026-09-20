@@ -4,8 +4,15 @@
 // owner asterisks) — never copied from a real page. Spec: docs/specs/2026-09-20-decisions-reader.md
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { parseDocument, formatText, formatJson, toJsonObject, computeExitCode, run } from './decisions-read.mjs';
+
+const SCRIPT_PATH = fileURLToPath(new URL('./decisions-read.mjs', import.meta.url));
 
 const L = (...lines) => lines.join('\n');
 
@@ -208,6 +215,7 @@ test('formatText: one line per decision, then UNATTACHED lines, then DONE', () =
     'TICKED\tA\tyes',
     'OPEN\tB\t',
     'UNATTACHED\tline 1\tstray',
+    'DECISIONS\t2',
     'DONE\ttrue',
   ));
 });
@@ -229,6 +237,7 @@ test('formatJson / toJsonObject: full shape', () => {
       comments: [{ text: 'a comment too', line: 3 }],
     }],
     unattached: [],
+    decisionCount: 1,
     done: null,
   });
   assert.deepEqual(JSON.parse(formatJson(doc)), obj);
@@ -314,4 +323,167 @@ test('NEVER exit 2: every path below returns 0, 1, or 3, including blind input a
     run({ argv: [], readStdin: () => { throw new Error('boom'); }, write: () => {}, writeErr: () => {} }), // crash -> 3
   ];
   for (const code of cases) assert.ok([0, 1, 3].includes(code), `unexpected exit code ${code}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round 1 — Opus review fix list (docs/specs review, reader-review-report.md)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('BLOCKER 1: an owner comment with extra spaces after the checkbox marker is a comment, not a false TICKED', () => {
+  const md = L(
+    '<summary>A decision</summary>',
+    '\t- [x]  \\*\\* i am a comment, not an answer',
+    '\t- [ ] the only real option',
+  );
+  const doc = parseDocument(md);
+  const d = doc.decisions[0];
+  assert.equal(d.status, 'COMMENTED', 'must not be read as a false TICKED');
+  assert.equal(d.options.length, 1);
+  assert.equal(d.comments[0].text, 'i am a comment, not an answer');
+});
+
+test('BLOCKER 1: an owner comment as a plain bullet with extra spacing is not silently dropped', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t-  \\*\\* bullet comment with two spaces',
+    '\t- [ ] a',
+  );
+  const doc = parseDocument(md);
+  assert.deepEqual(doc.decisions[0].comments.map((c) => c.text), ['bullet comment with two spaces']);
+});
+
+test('an owner comment as a plain paragraph line, with no list or checkbox marker at all', () => {
+  const md = L('<summary>t</summary>', '\t\\*\\* a plain paragraph comment', '\t- [ ] a');
+  const doc = parseDocument(md);
+  assert.deepEqual(doc.decisions[0].comments.map((c) => c.text), ['a plain paragraph comment']);
+});
+
+test('BLOCKER 2: invoked through a real symlink, the CLI still parses and exits correctly', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-read-sym-'));
+  const link = path.join(dir, 'sym-entry.mjs');
+  fs.symlinkSync(SCRIPT_PATH, link, 'file');
+  try {
+    const result = spawnSync(process.execPath, [link], {
+      input: L('<summary>t</summary>', '\t- [x] a'),
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 1, 'must still run and report TICKED (exit 1), not silently exit 0');
+    assert.match(result.stdout, /^TICKED\tt\ta/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('MAJOR 3: a toggleable heading with extra attributes is still recognised as a title', () => {
+  const md = L(
+    '<summary>Open decision</summary>',
+    '\t- [ ] a',
+    '# Closed {toggle="true" id="abc"}',
+    '\t- [x] an old answered item',
+    '\t- [x] another old answered item',
+  );
+  const doc = parseDocument(md);
+  const byTitle = Object.fromEntries(doc.decisions.map((d) => [d.title, d]));
+  assert.equal(byTitle['Open decision'].status, 'OPEN', 'the two closed ticks must not land on the decision above');
+  assert.ok(byTitle.Closed, 'the heading with an extra attribute is still recognised as a title');
+  assert.equal(byTitle.Closed.status, 'AMBIGUOUS');
+});
+
+test('MAJOR 4: a <summary> split across lines fails closed instead of misattaching the next decision', () => {
+  const md = L(
+    '<details>',
+    '<summary>Decision A</summary>',
+    '\t- [ ] a-option',
+    '</details>',
+    '<details>',
+    '<summary>Decision B',
+    '</summary>',
+    '\t- [x] b-option',
+    '</details>',
+  );
+  assert.throws(() => parseDocument(md), /summary/i);
+});
+
+test('unescaped ** on a CHECKBOX line stays an ordinary option, not a comment', () => {
+  const md = L('<summary>t</summary>', '\t- [x] **bold option**', '\t- [ ] plain option');
+  const doc = parseDocument(md);
+  const d = doc.decisions[0];
+  assert.equal(d.status, 'TICKED');
+  assert.equal(d.options.find((o) => o.ticked).text, '**bold option**');
+  assert.equal(d.comments.length, 0);
+});
+
+test('rule 2 across a closed </details> boundary: a checkbox after it still attaches to the last title', () => {
+  const md = L(
+    '<details>',
+    '<summary>t</summary>',
+    '\t- [ ] inside',
+    '</details>',
+    '- [x] outside but still under t',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].title, 't');
+  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['inside', 'outside but still under t']);
+  assert.equal(doc.unattached.length, 0);
+});
+
+test('formatText: a TICKED decision with comments shows the ticked text then the comments, joined with " | "', () => {
+  const md = L('<summary>t</summary>', '\t- [x] yes', '\t- [ ] \\*\\* still a live question');
+  const doc = parseDocument(md);
+  const line = formatText(doc).split('\n')[0];
+  assert.equal(line, 'TICKED\tt\tyes | still a live question');
+});
+
+test('a fence at column 0 (no indentation) is recognised, same as a tab-indented one', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '```',
+    '- [x] fake, inside a column-0 fence',
+    '```',
+    '\t- [x] real option',
+  );
+  const doc = parseDocument(md);
+  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['real option']);
+});
+
+test('weak-assertion fix: an INDENTED Done checkbox as the true last line is not the page-level Done', () => {
+  const md = L('<summary>t</summary>', '\t- [x] a', '\t- [x] Done');
+  const doc = parseDocument(md);
+  assert.equal(doc.done, null, 'indented — not column 0 — so it does not count as the page-level line');
+  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['a', 'Done']);
+});
+
+test('weak-assertion fix: a parenthetical without a leading digit is left in the title', () => {
+  const doc = parseDocument(L('<summary>Goals ruling (Sep 20)</summary>', '\t- [ ] a'));
+  assert.equal(doc.decisions[0].title, 'Goals ruling (Sep 20)');
+});
+
+test('MINOR 6: a leading UTF-8 BOM does not hide a first-line title', () => {
+  const md = `﻿${L('<summary>First line title</summary>', '\t- [x] a')}`;
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].title, 'First line title');
+});
+
+test('MINOR 8: formatText and JSON report an explicit decision count', () => {
+  const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
+  assert.equal(zero.decisions.length, 0);
+  assert.match(formatText(zero), /^DECISIONS\t0\nDONE\t/);
+  assert.equal(toJsonObject(zero).decisionCount, 0);
+
+  const two = parseDocument(L('<summary>a</summary>', '\t- [x] x', '<summary>b</summary>', '\t- [ ] y'));
+  assert.match(formatText(two), /DECISIONS\t2\nDONE\t/);
+  assert.equal(toJsonObject(two).decisionCount, 2);
+});
+
+test('spawnSync: the real file, invoked as a process, honors the exit-code contract end to end', () => {
+  const ticked = spawnSync(process.execPath, [SCRIPT_PATH], {
+    input: L('<summary>t</summary>', '\t- [x] a'),
+    encoding: 'utf8',
+  });
+  assert.equal(ticked.status, 1);
+  assert.match(ticked.stdout, /^TICKED\tt\ta/);
+
+  const blind = spawnSync(process.execPath, [SCRIPT_PATH], { input: '', encoding: 'utf8' });
+  assert.equal(blind.status, 3);
+  assert.match(blind.stderr, /decisions-read:/);
 });

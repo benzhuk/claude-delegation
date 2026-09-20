@@ -35,6 +35,11 @@ arrives as plain `**`.
 4. A DECISION is a title with at least one option (a checkbox line that is not an
    owner comment) attached to it. Titles with no options are grouping sections and
    are not reported.
+
+   An item that closes loses its checkboxes: closed items are written as plain
+   bullets. The reader cannot tell a historical ticked box from a live one, so a
+   Closed section that keeps its checkboxes will be reported as an answered
+   decision.
 5. The page-level DONE line: the LAST NON-EMPTY line of the document, ignoring
    trailing blank lines and trailing `<empty-block/>` lines, if it is a checkbox at
    column 0 whose text is exactly `Done` (case-sensitive). It is not an option of any
@@ -58,8 +63,20 @@ arrives as plain `**`.
 ## Output
 Default: one line per decision, `STATUS<TAB>title<TAB>detail`, where detail is the
 ticked option's text, or the comment text(s), or for AMBIGUOUS the ticked texts
-joined with ` | `; then `UNATTACHED<TAB>line N<TAB>text` lines; last line
-`DONE<TAB>true|false|absent`. With `--json`:
-`{ "decisions": [{ "title", "status", "line", "options": [{ "text", "ticked", "line" }], "comments": [{ "text", "line" }] }], "unattached": [{ "text", "line", "kind": "tick"|"comment" }], "done": true|false|null }`.
+joined with ` | `; then `UNATTACHED<TAB>line N<TAB>text` lines; then
+`DECISIONS<TAB>n`; last line `DONE<TAB>true|false|absent`. With `--json`:
+`{ "decisions": [{ "title", "status", "line", "options": [{ "text", "ticked", "line" }], "comments": [{ "text", "line" }] }], "unattached": [{ "text", "line", "kind": "tick"|"comment" }], "decisionCount": n, "done": true|false|null }`.
 Comment text is reported with the leading `\*\*` and any marker removed and trimmed.
 Line numbers are 1-based.
+
+A TICKED decision that also carries owner comments shows the ticked option's text,
+then each comment's text, all joined with ` | ` — a tick never hides a still-live
+comment.
+
+`DECISIONS`/`decisionCount` reports how many decisions were found, so a caller can
+tell "legitimately nothing to act on" apart from a format drift that stopped
+matching decisions at all. Zero decisions on a page that plainly has content (many
+titles, long sections) means the export shape moved — this is not itself a reason
+to fail closed, because a page whose items have all closed legitimately also has
+zero decisions; the count exists so the caller can judge that against what it
+already knows about the page.
