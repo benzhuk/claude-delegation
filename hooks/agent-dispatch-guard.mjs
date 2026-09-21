@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { readContextTokens } from './resume-size.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rule text — exact strings the spec (and the round-1 rulings) pin. Exported so tests
@@ -281,6 +282,141 @@ export function checkR3(input) {
   return findings;
 }
 
+// Resume notice — separate from R1/R1b/R2/R3. SendMessage only, never denies, is the one
+// thing this guard can still print in observe mode (CLI wrapper below). Off switches: the
+// env var here, plus the existing no-dispatch-guard (via decide()) and ws-off (rechecked
+// here — the notice isn't gated by the enforce file the way enforcement is).
+export const RESUME_NOTICE_KIND = 'resume-big';
+const DEFAULT_RESUME_NOTICE_TOKENS = 150000;
+const RESUME_NOTICE_BUDGET_MS = 200;
+// Same shape the CLI already caps `tool_input.to` to before logging it.
+const AGENT_NAME_RE = /^[A-Za-z0-9_-]{1,80}$/;
+const META_SCAN_CAP = 200;
+
+export function resumeNoticeText(to, tokens) {
+  const kTokens = Math.round(tokens / 1000);
+  return `resume notice: agent ${to} is at ${kTokens}k tokens of context and re-reads all of `
+    + 'it on every call. A fresh agent started from its state file opens small. Resume only '
+    + 'if its warm context is worth that.';
+}
+
+function resumeNoticeThreshold(env) {
+  const raw = env?.DELEGATION_RESUME_NOTICE_TOKENS;
+  if (raw === undefined || raw === '') return DEFAULT_RESUME_NOTICE_TOKENS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RESUME_NOTICE_TOKENS;
+}
+
+function readAgentType(fsImpl, metaPath) {
+  try {
+    const meta = JSON.parse(fsImpl.readFileSync(metaPath, 'utf8'));
+    return typeof meta?.agentType === 'string' ? meta.agentType : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `<dir of transcript_path>/<session id>/subagents/agent-<to>.jsonl`, or — when `to` was a
+ * spawn NAME, not the internal id — the newest `agent-*.meta.json` (capped) with `name ===
+ * to`. Null on no match (peer session, teammate, `main`) or any error. */
+function resolveSubagentTranscript(input, fsImpl) {
+  const to = input?.tool_input?.to;
+  const transcriptPath = input?.transcript_path;
+  const sessionId = input?.session_id;
+  if (typeof to !== 'string' || !AGENT_NAME_RE.test(to)) return null;
+  if (typeof transcriptPath !== 'string' || !transcriptPath) return null;
+  if (typeof sessionId !== 'string' || !sessionId) return null;
+  const subagentsDir = path.join(path.dirname(transcriptPath), sessionId, 'subagents');
+
+  try {
+    const directFile = path.join(subagentsDir, `agent-${to}.jsonl`);
+    if (fsImpl.existsSync(directFile)) {
+      const agentType = readAgentType(fsImpl, path.join(subagentsDir, `agent-${to}.meta.json`));
+      return { agentId: to, transcriptFile: directFile, agentType };
+    }
+  } catch {
+    return null;
+  }
+
+  let entries;
+  try { entries = fsImpl.readdirSync(subagentsDir); } catch { return null; }
+  const metaFiles = entries
+    .filter((name) => name.startsWith('agent-') && name.endsWith('.meta.json'))
+    .slice(0, META_SCAN_CAP);
+
+  let best = null;
+  for (const name of metaFiles) {
+    const fullPath = path.join(subagentsDir, name);
+    let meta;
+    try { meta = JSON.parse(fsImpl.readFileSync(fullPath, 'utf8')); } catch { continue; }
+    if (meta?.name !== to) continue;
+    let mtimeMs = 0;
+    try { mtimeMs = fsImpl.statSync(fullPath).mtimeMs; } catch { mtimeMs = 0; }
+    if (!best || mtimeMs > best.mtimeMs) {
+      const agentId = name.slice('agent-'.length, name.length - '.meta.json'.length);
+      best = { mtimeMs, agentId, agentType: typeof meta.agentType === 'string' ? meta.agentType : null };
+    }
+  }
+  if (!best) return null;
+  return {
+    agentId: best.agentId,
+    transcriptFile: path.join(subagentsDir, `agent-${best.agentId}.jsonl`),
+    agentType: best.agentType,
+  };
+}
+
+/** Once per agent: true when the guard's own log already carries a `resume-big` line for
+ * this agent id (scanned fresh each call, no separate state file). */
+function alreadyNotified(fsImpl, home, agentId) {
+  try {
+    const logPath = path.join(home, '.agents', 'ws', 'dispatch-guard.log');
+    const text = fsImpl.readFileSync(logPath, 'utf8');
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry?.kind === RESUME_NOTICE_KIND && entry?.agent_id === agentId) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** { home, fsImpl, env } — tests inject all three. Null on any error, missing/malformed
+ * transcript, sub-threshold size, an already-notified agent, or a run past its time budget.
+ * Never throws, never denies. */
+export function checkResumeNotice(input, ctx = {}) {
+  const t0 = process.hrtime.bigint();
+  try {
+    if (input?.tool_name !== 'SendMessage') return null;
+    const home = ctx.home ?? os.homedir();
+    const fsImpl = ctx.fsImpl ?? fs;
+    const env = ctx.env ?? process.env;
+
+    const threshold = resumeNoticeThreshold(env);
+    if (threshold <= 0) return null; // DELEGATION_RESUME_NOTICE_TOKENS=0 disables
+    if (switchPresentFailSafe(fsImpl, path.join(home, '.agents', 'ws-off'))) return null;
+
+    const resolved = resolveSubagentTranscript(input, fsImpl);
+    if (!resolved) return null;
+    if (alreadyNotified(fsImpl, home, resolved.agentId)) return null;
+
+    const tokens = readContextTokens(fsImpl, resolved.transcriptFile);
+    if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < threshold) return null;
+    if (Number(process.hrtime.bigint() - t0) / 1e6 > RESUME_NOTICE_BUDGET_MS) return null;
+
+    return {
+      agentId: resolved.agentId,
+      agentType: resolved.agentType,
+      tokens,
+      text: resumeNoticeText(input.tool_input.to, tokens),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // decide() — the pure core
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,9 +554,22 @@ export async function runCli(fsImpl = fs) {
   if (result.roundMention) entry.round_mention = true;
   appendLog(home, fsImpl, entry);
 
-  if (!result.enforced) return; // observe-only (the default): never print.
+  // Resume notice: its own branch, evaluated BEFORE the observe-only return below, so it is
+  // the one thing this guard can still print when not enforcing. It never denies; a deny
+  // already decided above for another reason always wins over it (spec: Territory C).
+  const denyWins = result.enforced && result.action === 'deny';
+  const notice = denyWins ? null : checkResumeNotice(input, { home, fsImpl, env: process.env });
+  if (notice) {
+    appendLog(home, fsImpl, {
+      at: new Date().toISOString(),
+      kind: RESUME_NOTICE_KIND,
+      agent_id: notice.agentId,
+      agent_type: notice.agentType,
+      n: notice.tokens,
+    });
+  }
 
-  if (result.action === 'deny') {
+  if (denyWins) {
     await writeJsonFlushed({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
@@ -428,7 +577,23 @@ export async function runCli(fsImpl = fs) {
         permissionDecisionReason: result.text,
       },
     });
-  } else if (result.action === 'note') {
+    return;
+  }
+
+  if (notice) {
+    await writeJsonFlushed({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+        additionalContext: notice.text,
+      },
+    });
+    return;
+  }
+
+  if (!result.enforced) return; // observe-only (the default): never print anything else.
+
+  if (result.action === 'note') {
     await writeJsonFlushed({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
@@ -437,7 +602,7 @@ export async function runCli(fsImpl = fs) {
       },
     });
   }
-  // action === 'allow': nothing to print — silence means "proceed" to a PreToolUse hook.
+  // action === 'allow' and no notice: nothing to print — silence means "proceed".
 }
 
 const isMain = (() => {
