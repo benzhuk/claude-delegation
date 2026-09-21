@@ -980,6 +980,81 @@ test("round-3 MINOR: a tag named refs/heads/main cannot fake 'merged' when the r
   );
 });
 
+// round-4 review F1 (MAJOR): the branch loop never consulted `worktrees`, so a branch checked out
+// in ANY worktree - including the MAIN one - could be reported SAFE while --apply would refuse to
+// delete it, a documented-vs-actual contradiction. A branch is now SAFE only alone, or together with
+// its own worktree also being SAFE this run.
+test("round-4 MAJOR: a merged branch checked out in the MAIN worktree is never SAFE, and appears as one honest JUDGMENT row", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // feat-done is merged and pushed, but checked out in the MAIN working tree itself.
+  git(["checkout", "-q", "-b", "feat-done"], root);
+  fs.writeFileSync(path.join(root, "done.txt"), "x\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "done work"], root);
+  git(["checkout", "-q", "main"], root);
+  git(["merge", "--no-ff", "-q", "-m", "merge feat-done", "feat-done"], root);
+  git(["checkout", "-q", "feat-done"], root); // main worktree now sits ON feat-done
+  pushMain(root);
+
+  // Run from a SEPARATE linked worktree, so "cur" is not feat-done and the branch loop actually has
+  // to consult the worktree list to know feat-done is checked out anywhere at all.
+  const runner = addWorktree(root, "runner-branch");
+
+  const toplevel = gitToplevel(runner);
+  const { config } = loadProjectConfig(runner);
+  const state = gatherState({ root: toplevel, config });
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-done"), "feat-done must never be SAFE while checked out in the main worktree");
+  const row = state.judgment.branches.find((b) => b.ref === "feat-done");
+  assert.ok(row, "it must appear as a JUDGMENT row instead");
+  assert.match(row.reason, /checked out in a worktree/);
+
+  const code = main(["--apply"], { cwd: runner });
+  assert.ok(listLocalBranches(gitToplevel(runner)).includes("feat-done"), "feat-done must survive --apply");
+  void code;
+});
+
+// round-4 review F2/F3: `git worktree prune` used to run unconditionally under --apply, before the
+// removal-tracking guard was computed, so it could deregister a worktree this SAME run had correctly
+// classified JUDGMENT (moved aside, directory unreachable) - and the post-prune listing then made
+// its branch look free to delete in the same run. `worktree prune` is now dropped from --apply
+// entirely; a prunable worktree is its own JUDGMENT row, and nothing --apply does can touch it.
+test("round-4 MAJOR: a worktree moved aside (directory gone, git still registers it as prunable) - its branch and the prunable registration both survive --apply", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-moved");
+  mergeIntoMain(root, "feature-moved");
+  pushMain(root);
+
+  // Simulate "moved aside" (an unmounted drive / offline share): the directory disappears from
+  // where git still expects it, without ever going through `git worktree remove`.
+  const movedTo = `${wt}-actually-moved`;
+  fs.renameSync(wt, movedTo);
+  tracked.push(movedTo); // let the shared after() hook clean this one up too
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+
+  const wtRow = state.judgment.worktrees.find((w) => path.normalize(w.ref) === path.normalize(wt));
+  assert.ok(wtRow, "the moved-aside worktree must be JUDGMENT, not silently absorbed into 'tree not clean'");
+  assert.match(wtRow.reason, /prunable/i);
+  assert.ok(!state.safe.worktrees.some((w) => path.normalize(w.ref) === path.normalize(wt)), "it must never be SAFE");
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feature-moved"), "its branch must never be SAFE either, even though merged and pushed");
+  const branchRow = state.judgment.branches.find((b) => b.ref === "feature-moved");
+  assert.ok(branchRow, "the branch must appear as JUDGMENT");
+
+  const code = main(["--apply"], { cwd: root });
+  assert.ok(listLocalBranches(gitToplevel(root)).includes("feature-moved"), "feature-moved must survive --apply");
+  const stillRegistered = (listWorktrees(gitToplevel(root)) || []).some((w) => w.branch === "feature-moved");
+  assert.ok(stillRegistered, "the moved-aside worktree's git registration must survive --apply - nothing JUDGMENT may be pruned");
+  void code;
+});
+
 after(() => {
   for (const dir of tracked) {
     try {
