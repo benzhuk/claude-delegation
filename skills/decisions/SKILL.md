@@ -12,16 +12,16 @@ page, keeps working on whatever else is dispatchable, and picks the answer up la
 
 ## Writing an item
 
-Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs`. One
-toggle per decision, a unique title, one or two lines of evidence, two to four
-unticked options with the recommended one FIRST marked "(recommended)". Last plain
-line: `Default after <date> <time> <±UTC offset>: <option>` for a reversible
-decision — use the offset in force on that date (`-04:00` New York in summer,
-`-05:00` in winter), e.g. `Default after 2030-06-15 18:00 -04:00: cap at 200 items
-per run` — or `No default: <reason>` for anything irreversible, costly, or that
-changes the owner's machines. Inside the item, no agent line starts with bold — some
-agent-written bold comes back from Notion escaped exactly like an owner comment.
-Bold stays only in the `<summary>` title.
+Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs` (both in
+this repo). One toggle per decision, a unique title, one or two lines of evidence,
+two to four unticked options with the recommended one FIRST marked "(recommended)".
+Last plain line: `Default after <date> <time> <±UTC offset>: <option>` for a
+reversible decision — use the offset in force on that date (`-04:00` New York in
+summer, `-05:00` in winter), e.g. `Default after 2030-06-15 18:00 -04:00: cap at 200
+items per run` — or `No default: <reason>` for anything irreversible, costly, or
+that changes the owner's machines. Inside the item, no agent line starts with bold —
+some agent-written bold comes back from Notion escaped exactly like an owner
+comment. Bold stays only in the `<summary>` title.
 
 State the decision and the recommendation in chat too; send the link only once a
 fresh read shows the item there.
@@ -50,12 +50,12 @@ read, bad fence, no titles) — stop, tell the owner, change nothing.
 - AMBIGUOUS or UNATTACHED: report to the owner — never guess, never drop it.
 - TICKED: act on the option; an unreplied comment on the same item still needs a
   reply (next bullet) — a tick never cancels it.
-- COMMENTED: reply directly under the owner's line, as a line starting with
-  `Reply:` and the date — that marker stops the next read reporting it again.
+- COMMENTED: reply under the owner's line, starting with `Reply: YYYY-MM-DD` (the
+  numeric date is required) — that is what stops the next read reporting it again.
 - DUE: the item's `Default after …` deadline passed unanswered. Apply the default,
   tell the owner in the same message, and close the item.
-- WARN: the page is broken — Done missing, indented, or duplicated, or a `Default`
-  line off-shape (rewrite older wording into it). Fix before trusting anything else.
+- WARN: the page is broken — Done missing, misplaced, indented, or duplicated, or a
+  `Default` line off-shape (rewrite older wording into it). Fix before trusting anything else.
 - REPLIED or OPEN: nothing to do.
 
 ## Closing
