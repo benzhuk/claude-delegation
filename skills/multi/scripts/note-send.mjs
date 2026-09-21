@@ -89,6 +89,7 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
   readInboxes, wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
+  killSwitchActive,
 } from './transport.mjs';
 
 import { drainQuietly, deliverToInbox } from './note-flush.mjs';
@@ -237,7 +238,7 @@ export async function runNoteSend(argv, deps = {}) {
   // N1 (spec 2026-09-20): ACK and FYI are ledger-only for everyone except ben — "unchanged for every
   // kind" there. No wake-up is created: no outbox entry, no inbox post, and (for a slug recipient) no
   // pane resolution at all. `~/.agents/notes/wake-all-kinds` restores the old behaviour.
-  const wakeAllKinds = fsImpl.existsSync(wakeAllKindsPath(home));
+  const wakeAllKinds = killSwitchActive(fsImpl, wakeAllKindsPath(home));
   const quietKind = !isBen && LEDGER_ONLY_KINDS.has(kind) && !wakeAllKinds;
   // A raw `term_…` handle carries no slug of its own — only the pane it names does — so a quiet kind
   // addressed BY HANDLE still has to resolve the pane once to learn what to write in the ledger. Only a
@@ -588,25 +589,29 @@ export async function runNoteSend(argv, deps = {}) {
     // ever heard of is UNKNOWN, not merely "not found right now" — loud enough that a typo (`fable` for
     // `taxonomy-fable`) is caught before two hours pass, not after. `~/.agents/notes/no-unknown-check`
     // restores today's plain message. Never runs for a raw handle or `ben` — both throw earlier.
-    const noUnknownCheck = fsImpl.existsSync(noUnknownCheckPath(home));
+    const noUnknownCheck = killSwitchActive(fsImpl, noUnknownCheckPath(home));
     let message = `${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is queued — `
       + 'note-inbox reads the mirror, so the recipient still gets it. Do NOT re-send this id; fix the pane name '
       + 'or rename the pane to its slug, and the queued wake-up lands on the next flush.';
     let extra = {};
-    if (!noUnknownCheck) {
-      const context = { inboxes: readInboxes(home, fsImpl), bindings, terminals, ledgerTexts: mirrorTextsBeforeSend };
-      if (isUnknownRecipient(toRaw, context)) {
-        const known = knownSlugs(context);
-        const suggestion = suggestSlug(toRaw, known);
-        message = `UNKNOWN RECIPIENT "${toRaw}"\n`
-          + `Known slugs on this machine: ${known.length ? known.join(', ') : '(none)'}`
-          + (suggestion ? `\ndid you mean "${suggestion}"?` : '')
-          + `\n\n${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is `
-          + 'queued — the slug may register later. Do NOT re-send this id; fix the recipient name and send '
-          + 'under the right slug with a NEW id.';
-        extra = { unknownRecipient: true, known, suggestion };
+    // Fails open: anything unreadable here (a corrupt registry, an I/O error) must fall back to today's
+    // plain message rather than crash a send whose note is already safely on disk.
+    try {
+      if (!noUnknownCheck) {
+        const context = { inboxes: readInboxes(home, fsImpl), bindings, terminals, ledgerTexts: mirrorTextsBeforeSend };
+        if (isUnknownRecipient(toRaw, context)) {
+          const known = knownSlugs(context);
+          const suggestion = suggestSlug(toRaw, known);
+          message = `UNKNOWN RECIPIENT "${toRaw}"\n`
+            + `Known slugs on this machine: ${known.length ? known.join(', ') : '(none)'}`
+            + (suggestion ? `\ndid you mean "${suggestion}"?` : '')
+            + `\n\n${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is `
+            + 'queued — the slug may register later. Do NOT re-send this id; fix the recipient name and send '
+            + 'under the right slug with a NEW id.';
+          extra = { unknownRecipient: true, known, suggestion };
+        }
       }
-    }
+    } catch { /* fails open: keep the plain message computed above */ }
     throw new NoteError(
       2, message,
       { ...base, classification: 'not-resolved', notified: false, queued: true, outbox, ...extra },

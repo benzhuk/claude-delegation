@@ -795,6 +795,21 @@ export function wakeAllKindsPath(home) { return toPosix(path.posix.join(notesDir
  * recipient gets today's generic "pane not found" message and no early unknown-recipient dead-letter.
  */
 export function noUnknownCheckPath(home) { return toPosix(path.posix.join(notesDir(home), 'no-unknown-check')); }
+
+/**
+ * Is a kill-switch FILE present? Fails OPEN toward the switch being present — a stat that cannot even
+ * be answered (a permissions error, a missing directory) is treated the same as "yes, the old behaviour
+ * is wanted", per the builder rule that a new-behaviour path must never survive its own error (spec
+ * 2026-09-20, N1/N2 kill switches). `fs.existsSync` itself does not throw for ENOENT, but this is the
+ * one place both call sites go through, so a future stricter fsImpl still fails the right way.
+ */
+export function killSwitchActive(fsImpl, filePath) {
+  try {
+    return fsImpl.existsSync(filePath);
+  } catch {
+    return true;
+  }
+}
 export function paneSlugCachePath(home) { return toPosix(path.posix.join(notesDir(home), '.pane-slug.json')); }
 /**
  * Spec 2026-09-14 D1: the DURABLE pane↔slug binding, `{ "<handle>": { slug, at, title? } }`. Distinct

@@ -63,7 +63,7 @@ import {
   killOutboxEntry, deadOutboxPath, benInboxPath,
   readBindings, pruneBindings, BINDING_GC_MS, readCursor,
   readInboxes, pruneInboxes, INBOX_GC_MS,
-  wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
+  wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts, killSwitchActive,
 } from './transport.mjs';
 import { deliverToSlug as postToClaude, DEFAULT_POST_TIMEOUT_MS } from './inbox-claude.mjs';
 import { deliverToSlug as queueToCodex, DEFAULT_QUEUE_TIMEOUT_MS } from './inbox-codex.mjs';
@@ -347,17 +347,24 @@ export async function runNoteFlush(argv, deps = {}) {
 
   // N1: an ACK/FYI queued before this change never wakes anyone — retired unattempted, like a
   // superseded id. Cheap and no orca: parsed straight out of the envelope text already on disk.
-  const wakeAllKinds = fsImpl.existsSync(wakeAllKindsPath(home));
+  const wakeAllKinds = killSwitchActive(fsImpl, wakeAllKindsPath(home));
   // N2: the same no-orca inputs `isUnknownRecipient` needs, read once for the whole pass. `terminals`
   // is deliberately omitted here — this pass runs before any `terminal list` call, and an entry this
   // check applies to (classification `not-resolved`) never had a live pane in the first place.
-  const noUnknownCheck = fsImpl.existsSync(noUnknownCheckPath(home));
-  const unknownCheckContext = noUnknownCheck ? null : {
-    inboxes: readInboxes(home, fsImpl),
-    bindings: readBindings(home, fsImpl),
-    terminals: [],
-    ledgerTexts: recentMirrorTexts(home, 3, now, fsImpl),
-  };
+  // Fails open: anything unreadable here (a corrupt registry, an I/O error) drops this pass entirely
+  // rather than crash a drain whose real job — typing wake-ups — must still run.
+  const noUnknownCheck = killSwitchActive(fsImpl, noUnknownCheckPath(home));
+  let unknownCheckContext = null;
+  if (!noUnknownCheck) {
+    try {
+      unknownCheckContext = {
+        inboxes: readInboxes(home, fsImpl),
+        bindings: readBindings(home, fsImpl),
+        terminals: [],
+        ledgerTexts: recentMirrorTexts(home, 3, now, fsImpl),
+      };
+    } catch { unknownCheckContext = null; }
+  }
 
   const live = [];
   for (const entry of entries) {
