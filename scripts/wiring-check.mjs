@@ -261,7 +261,7 @@ export function checkWiring({ home = homedir(), platform = process.platform, fsI
 // ---------- CLI ----------
 
 function humanize(id) {
-  return String(id).replace(/[-_]+/g, " ").trim();
+  return String(id).replace(/[-_]+/g, " ").trim().replace(/\s+/g, " ").slice(0, 60);
 }
 
 function printTable(results) {
@@ -275,22 +275,40 @@ function printTable(results) {
   }
 }
 
+/** NIT 2 (seam review): an id from a machine's own private required-wiring.json is not sanitized
+ * elsewhere, so this line caps both the length of one name (humanize()) and the number of names
+ * joined, so one hostile or oversized id can neither split the line nor flood a session's context. */
+const MAX_LINE_NAMES = 8;
+
 function printLine(results) {
   const findings = results.filter((r) => r.state === "missing" || r.state === "stale");
   if (findings.length === 0) return; // nothing to say when everything is ok/info
-  const names = findings.map((r) => humanize(r.id)).join(", ");
-  console.log(`wiring: ${findings.length} missing (${names}). Run wiring-check for the fixes.`);
+  const shown = findings.slice(0, MAX_LINE_NAMES).map((r) => humanize(r.id));
+  const extra = findings.length - shown.length;
+  const names = extra > 0 ? `${shown.join(", ")}, +${extra} more` : shown.join(", ");
+  console.log(`wiring: ${findings.length} flagged (${names}). Run wiring-check for the fixes.`);
 }
 
 function printJson(result) {
   console.log(JSON.stringify(result, null, 2));
 }
 
-/** Master switch: `~/.agents/ws-off` present means `--line` says nothing at all. Fail-safe like the
- * goal card's switchPresent(): a stat error other than "not found" also counts as present. */
-function wsOffActive(home) {
-  try { fs.statSync(path.join(home, ".agents", "ws-off")); return true; }
-  catch (e) { return Boolean(e) && e.code !== "ENOENT" && e.code !== "ENOTDIR"; }
+/** A stat error other than "not found" counts as the switch being present - fail toward silence,
+ * same rule as the goal card's switchErrorMeansPresent(). Exported so the untestable-on-some-platforms
+ * branch (an unreadable switch file) can be driven directly by a fake fsImpl in tests. */
+export function switchErrorMeansPresent(e) { return Boolean(e) && e.code !== "ENOENT" && e.code !== "ENOTDIR"; }
+
+/** Master switch: `~/.agents/ws-off` present means `--line` says nothing at all. Honours `opts.home`,
+ * `opts.fsImpl` and `AGENTS_HOME` like every other switch reader in this plugin (goal-card.mjs,
+ * delegation-reminder.js, project-config.mjs) - and never lets an unresolvable home escape as an
+ * uncaught throw, matching this file's own "never fails its caller" contract. */
+function wsOffActive(opts = {}) {
+  let home;
+  try { home = opts.home ?? homedir(); } catch { return true; } // can't tell => say nothing
+  const base = process.env.AGENTS_HOME || path.join(home, ".agents");
+  const fsImpl = opts.fsImpl ?? fs;
+  try { fsImpl.statSync(path.join(base, "ws-off")); return true; }
+  catch (e) { return switchErrorMeansPresent(e); }
 }
 
 export function main(argv = process.argv.slice(2), opts = {}) {
@@ -310,7 +328,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   }
 
   if (argv.includes("--json")) printJson(result);
-  else if (argv.includes("--line")) { if (!wsOffActive(opts.home ?? homedir())) printLine(result.results); }
+  else if (argv.includes("--line")) { if (!wsOffActive(opts)) printLine(result.results); }
   else printTable(result.results);
 
   return 0;

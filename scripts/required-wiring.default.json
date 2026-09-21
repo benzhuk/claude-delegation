@@ -6,7 +6,7 @@
     "maxAgeSeconds": 300,
     "whenMissing": "info",
     "why": "note-flush should touch this file about once a minute; a stale heartbeat means the outbox is not draining and peer notes are stuck",
-    "fix": "check that the note-flush timer (cron/launchd/systemd --user) is installed and running on this machine, per the multi skill's install docs"
+    "fix": "check that the note-flush timer (cron/launchd/systemd --user) is installed and running on this machine, per the multi skill's install docs; on Windows it is the Task Scheduler task 'note-flush' (Get-ScheduledTask note-flush)"
   },
   {
     "id": "switch-ws-off",

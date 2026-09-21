@@ -1,5 +1,5 @@
 // The ONE loader for .agents/project.json. Every script reads project config through this, never its own parser.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -35,5 +35,7 @@ export function loadProjectConfig(start = process.cwd()) {
 
 export function switchedOff(name) {
   const base = process.env.AGENTS_HOME || join(homedir(), ".agents");
-  return existsSync(join(base, "ws-off")) || (name ? existsSync(join(base, `ws-off-${name}`)) : false);
+  const present = (p) => { try { statSync(p); return true; }
+                           catch (e) { return Boolean(e) && e.code !== "ENOENT" && e.code !== "ENOTDIR"; } };
+  return present(join(base, "ws-off")) || (name ? present(join(base, `ws-off-${name}`)) : false);
 }

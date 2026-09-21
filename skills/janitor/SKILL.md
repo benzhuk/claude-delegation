@@ -6,7 +6,9 @@ description: Use when a build, worktree, or run has finished and something needs
 # Janitor: mechanical cleanup, two classes, one owner call
 
 Cleanup is nobody's job by default, so it doesn't happen. This skill makes it a
-five-second check: run `janitor.mjs`, read two short tables and four numbers, done.
+five-second check: run `node <plugin>/scripts/janitor.mjs` from the project root, read
+two short tables and four numbers, done. This skill is for Claude Code sessions with
+the plugin installed; it is not mirrored to Codex yet.
 
 ## janitor never deletes a file
 

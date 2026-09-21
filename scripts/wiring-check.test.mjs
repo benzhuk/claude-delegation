@@ -413,7 +413,7 @@ test("CLI --line prints one line naming what is missing when something is", () =
   ]));
   const { code, stdout } = runCli(["--line"], home);
   assert.equal(code, 0);
-  assert.match(stdout.trim(), /^wiring: \d+ missing \(.*\)\. Run wiring-check for the fixes\.$/);
+  assert.match(stdout.trim(), /^wiring: \d+ flagged \(.*\)\. Run wiring-check for the fixes\.$/);
   assert.match(stdout, /definitely missing/);
 });
 
@@ -426,6 +426,39 @@ test("CLI --line prints nothing when ~/.agents/ws-off is present, even with a mi
   const { code, stdout } = runCli(["--line"], home);
   assert.equal(code, 0);
   assert.equal(stdout, "");
+});
+
+test("CLI --line: an fsImpl whose stat throws a non-ENOENT error for ws-off counts the switch as present, and the line stays silent", () => {
+  // Seam review MINOR 1+2+3: wsOffActive() now goes through opts.fsImpl, not the real fs - so this
+  // fail-safe branch (an unreadable switch file) is finally reachable from a test at all, on any OS.
+  const home = mkHome();
+  const wsOffPath = path.join(home, ".agents", "ws-off");
+  const fsImpl = {
+    existsSync: (p) => fs.existsSync(p),
+    readFileSync: (p, enc) => fs.readFileSync(p, enc),
+    statSync: (p) => {
+      if (path.resolve(String(p)) === path.resolve(wsOffPath)) {
+        const err = new Error("EACCES simulated");
+        err.code = "EACCES";
+        throw err;
+      }
+      return fs.statSync(p);
+    },
+  };
+  const origLog = console.log;
+  let out = "";
+  console.log = (s) => { out += `${s}\n`; };
+  try {
+    const code = main(["--line"], {
+      home,
+      fsImpl,
+      lists: { public: [{ id: "definitely-missing", type: "file_exists", file: "~/does/not/exist", why: "w", fix: "f" }], private: [] },
+    });
+    assert.equal(code, 0);
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(out, "", "an unreadable ws-off must be treated as present, silencing the line even though something is missing");
 });
 
 test("CLI: an unknown flag is a usage error, exit 1, and never a stack trace", () => {
