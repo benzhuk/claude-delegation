@@ -424,11 +424,10 @@ test('secrecy: a hostile fixture (canary in every surface the census touches) ne
   fs.writeFileSync(path.join(projectsDir, projectFolder, `session-${CANARY}.jsonl`),
     mainLines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n', 'utf8');
 
-  // 7. sidecar agentType: long, multi-line (row-injection shaped, F1), holds a path and the
-  // canary placed AFTER position 40 so a 40-char-capped, sanitised label cannot include it —
-  // agent type names are an intentionally printable field under the secrecy contract, so the
-  // canary must sit outside the printable window to make this assertion meaningful.
-  const agentType = `builder-padded-well-past-forty-characters-so-nothing-after-this-point-survives-the-cap\nINJECTED-ROW ${CANARY}\x1b[31mANSI`;
+  // 7. sidecar agentType: row-injection shaped (F1). The payload sits INSIDE the first 40
+  // chars, so only sanitisation (not the truncation cap) can remove it; the canary sits past
+  // 40, where the cap also holds (round-2-delta review F6).
+  const agentType = `ok\nINJECTED-ROW 9 9 999,999\r\x1b[31m padded-well-past-forty-chars ${CANARY}`;
   fs.writeFileSync(path.join(sessDir, 'subagents', 'agent-aaa.meta.json'),
     JSON.stringify({ agentType, name: `name-field-${CANARY}`, prompt: `full brief ${CANARY}`, model: `m-${CANARY}` }), 'utf8');
   fs.writeFileSync(path.join(sessDir, 'subagents', 'agent-aaa.jsonl'),
@@ -443,8 +442,11 @@ test('secrecy: a hostile fixture (canary in every surface the census touches) ne
   const asText = formatText(report);
   assert.ok(!asJson.includes(CANARY), 'canary leaked into JSON output');
   assert.ok(!asText.includes(CANARY), 'canary leaked into text output');
-  assert.ok(!asText.includes('INJECTED-ROW'), 'a forged table row survived into text output');
-  assert.ok(!asJson.includes('INJECTED-ROW'), 'a forged table row survived into JSON output');
+  // The label legitimately still contains the printable text INJECTED-ROW; the control
+  // character is the thing that forges a row, so that is what this assertion must catch.
+  for (const r of report.topAgentTypes) {
+    assert.equal(/[^\x20-\x7E]/.test(r.agentType), false, 'a control character survived into a label');
+  }
 });
 
 // ── CLI wrapper ──────────────────────────────────────────────────────────────
