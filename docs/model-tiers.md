@@ -32,8 +32,12 @@ Rules of thumb (vendor-neutral):
 Enforced in code, not just prose: `hooks/agent-dispatch-guard.mjs` rule R1 denies an
 `Agent` spawn with an explicit `model: opus` or `model: fable` unless it is a reviewer
 subagent or the prompt states a `JUDGMENT:` line (a quality verdict, which is the one
-case top-tier execution is legitimate). Off switches: `~/.agents/no-dispatch-guard`
-(skip the guard) and `~/.agents/ws-off` (observe-only: logs what it would have done).
+case top-tier execution is legitimate). Default is observe-only (logs, never blocks):
+enforcement needs `~/.agents/dispatch-guard-enforce` to exist AND `~/.agents/ws-off` to
+be absent; either missing file, or `ws-off` present, keeps it observing.
+`~/.agents/no-dispatch-guard` turns the guard off entirely. A forked subagent inherits
+its parent's model, carries no `model` key of its own, and is not counted by R1 — the
+guard's log undercounts top-tier execution by however many forks ran.
 
 Environment: `DELEGATION_TOP_TIER` — comma-separated model-id fragments that count as top/high for the
 routing hook and the delegation gate (default `fable,opus,gpt-6-astra,gpt-5.6-sol`). The old

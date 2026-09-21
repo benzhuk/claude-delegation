@@ -1,7 +1,7 @@
 # Mandate template
 
-Fill in every bracket below and delete this line before sending. Every prompt to an
-agent starts here, whether it goes to a builder, a reviewer, or a one-off researcher.
+Fill in every bracket below and delete these two lines before sending. Every prompt to
+an agent starts here, whether it goes to a builder, a reviewer, or a one-off researcher.
 
 Task: <the exact question or task, one or two sentences, no ambiguity about done>
 
@@ -23,13 +23,18 @@ tried. Do not guess.
 
 Autonomy: <what this agent may decide on its own, and what needs a check-in first>
 
+Un-agent-able steps: <verification this agent cannot do (credentials, captchas,
+human-only auth), already done or scoped out of "done">
+ETA: <how long this should take; report or park by then>
+
 JUDGMENT: <only for a mandate that buys a quality verdict, better or worse, against a
 gold, an advisor note, or a baseline. State in ten or more characters what verdict is
 being bought, then run this on opus at minimum. Delete this whole line otherwise.>
 
-Round: <the round number, only on a second or later fix round>
-Research: <path to a research lane's report, or "not needed, <reason>" — required from
-round 3 on>
+Round: <n> — only on a second or later fix round. Delete both these lines when this is
+not a fix round.
+Research: <path to a research lane's report, or the words "not needed" then a comma and
+a reason of ten or more characters. Required from the third fix round onward.>
 
 Termination: report to the path above, verdict on line 1, then stop. A bare "Done"
 means read the file; nothing is trusted from a final message alone.
