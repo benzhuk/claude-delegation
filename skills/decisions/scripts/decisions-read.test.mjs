@@ -1,4 +1,4 @@
-// node --test "scripts/*.test.mjs"
+// node --test "skills/decisions/scripts/*.test.mjs"
 // decisions-read: markdown in, a status list out. Fixtures below are synthetic, modelled on
 // Notion's markdown export shape (tabs for indentation, `<details>`/toggleable headings, escaped
 // owner asterisks) — never copied from a real page. Spec: docs/specs/2026-09-20-decisions-reader.md

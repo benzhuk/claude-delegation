@@ -10,7 +10,7 @@ network, no state files, no Notion calls, no dependencies beyond Node's standard
 library.
 
 ## Input
-`node scripts/decisions-read.mjs [file] [--json] [--now <ISO>]` — reads the markdown
+`node skills/decisions/scripts/decisions-read.mjs [file] [--json] [--now <ISO>]` — reads the markdown
 from the file, or from stdin when no file (or `-`) is given. `--json` switches to JSON
 output. `--now <ISO instant>` sets the clock used for default deadlines (rule 10);
 tests must pass this rather than relying on the system clock. `--now` with a missing
