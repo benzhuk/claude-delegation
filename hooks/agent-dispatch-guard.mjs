@@ -3,7 +3,9 @@
 // agent-dispatch-guard — a PreToolUse guard on `Agent` and `SendMessage` dispatch calls.
 // Enforces, in code, three rules that used to be prose nobody enforced (spec: build 0921,
 // Territory G; amended in fix round 1 by the owner's rulings on the Opus review —
-// `review-guard-report.md` / `review-guard-rulings.md`):
+// `review-guard-report.md` / `review-guard-rulings.md` — and again in fix round 2 on the
+// delta review — `review-guard-delta-report.md`, no separate rulings file that round, the
+// coordinator's message inlined the rulings):
 //   R1  a top-tier model (opus/fable) on a spawn that is not a review or a stated
 //       judgment is denied. Execution runs on sonnet or haiku.
 //   R1b the mirror note: a spawn states a JUDGMENT but will not run on opus.
@@ -72,28 +74,64 @@ const R1_MODEL_RE = /opus|fable/i;
 const REVIEWER_RE = /(^|:)reviewer$/i;
 // JUDGMENT stays strict (round-1 ruling on MAJOR 5): no markdown decoration allowed, and
 // the deny/note text quotes this exact line-start, uppercase-label form.
-const JUDGMENT_LINE_RE = /^\s*JUDGMENT:\s*\S.{9,}/m;
+//
+// Round-2 fix (found while checking every regex for MAJOR 1's shape, not itself named by
+// the review): the OLD `^\s*JUDGMENT:\s*\S.{9,}` was quadratic on the exact same shape as
+// round 2's MAJOR 1 — `\s` matches `\n`, so with the `m` flag a long blank-line run before
+// (or after) a single real `JUDGMENT:` gives every line-start position in that run its own
+// full-length failed match attempt. Measured: a ~200-line-worth blank run around one
+// `JUDGMENT:` with no valid 10+ char tail took 8.2s at 100k padding chars, 50.3s at 200k —
+// see the round-2 report. Bounding both whitespace runs to `[ \t]{0,20}` (spaces/tabs only,
+// capped) removes the newline-crossing, multi-restart shape entirely; behavior is
+// unchanged for every real JUDGMENT line in this repo (none use more than a couple of
+// leading/trailing spaces).
+const JUDGMENT_LINE_RE = /^[ \t]{0,20}JUDGMENT:[ \t]{0,20}\S.{9,}/m;
 const R1B_MODEL_RE = /sonnet|haiku/i;
 
 // R2 is a DECLARATION rule, not a mention rule (round-1 ruling on BLOCKER 1/2, MINOR N1).
 // `Round:` — the label, WITH its colon — at the start of a line, with optional markdown
-// list/quote/bold decoration before and around the label. A report line like
-// "Round 3 findings" (no colon) must NOT fire; a declared "Round: 3" / "**Round:** 3" /
-// "- Round: 3" / "> Round: 3" must. Verified directly against both forms (see the test
-// file) before wiring this in.
-const ROUND_DECL_RE = /^[\s>*+-]*\**Round:\**\s*#?\s*([3-9]|[1-9]\d)\b/mi;
-// The OLD, too-loose round-0 pattern. Never enforced any more — kept only to log when a
-// prompt mentions a round number in prose without declaring one, so the observe week has
-// a number to look at. `\bround` already excludes "around" (no word boundary between the
-// "a" and the "r" inside it, since both are word characters) — confirmed directly, no
-// regex change was needed there.
-const ROUND_MENTION_RE = /\bround\s*:?\s*#?\s*([3-9]|[1-9]\d)\b/i;
+// list/bold decoration before and around the label. A report line like "Round 3 findings"
+// (no colon) must NOT fire; a declared "Round: 3" / "**Round:** 3" / "- Round: 3" must.
+// Verified directly against both forms (see the test file) before wiring this in.
+//
+// Round-2 fixes, both from the delta review:
+//   MAJOR 1 — the round-1 prefix `[\s>*+-]*\**` was quadratic: `\s` matches `\n`, so with
+//   the `m` flag it could span multiple lines (O(n) redundant restart points), and
+//   `[\s>*+-]*` / `\**` both matched `*`, an ambiguous split that backtracks the same way
+//   on a run of asterisks. Reviewer-measured: 8.7s at 100k whitespace chars, 2.6s at 100k
+//   asterisks, through the real CLI wrapper — past the hook's own 5s timeout. Fixed by
+//   `[ \t]` (never crosses a line) instead of `\s`, dropping the redundant `\**` (it is
+//   already inside the class), and a `{0,20}` bound.
+//   MINOR N1 — `>` is dropped from the class entirely (not just bounded): blockquoting is
+//   how a mandate quotes SOMEONE ELSE'S round declaration (a prior mandate pasted as
+//   context, a ledger excerpt), not how you declare your own. A fenced-code or bulleted
+//   quotation of a declaration is a known, accepted residual limit — see model-tiers.md.
+const ROUND_DECL_RE = /^[ \t*+-]{0,20}Round:\**[ \t]*#?[ \t]*([3-9]|[1-9]\d)\b/mi;
+// The OLD, too-loose round-0 pattern. Never enforced — kept only to log when a prompt
+// mentions a round number in prose without declaring one, so the observe week has a
+// number to look at. `\bround` already excludes "around" (no word boundary between the
+// "a" and the "r" inside it, since both are word characters) — confirmed directly.
+//
+// Round-2 fix (own finding, same MAJOR-1-shaped check): the old separator
+// `\s*:?\s*#?\s*` chained THREE unbounded quantifiers over overlapping character sets
+// with two optional single chars between them — the classic catastrophic-backtracking
+// shape, and it was worse than quadratic: a whitespace run with no trailing digit took
+// 17.3s at just 2,000 characters and did not finish in 3s at 2,000 (measured with a hard
+// per-run kill timeout after the first probe hung past its own budget — see the round-2
+// report). Collapsed the three separate quantified pieces into ONE bounded class,
+// `[ \t:#]{0,10}` — a single quantifier has nothing to backtrack against. Every realistic
+// separator this was meant to catch ("round 3", "round: 3", "round #3", "Round:12") is
+// well under 10 characters.
+const ROUND_MENTION_RE = /\bround[ \t:#]{0,10}([3-9]|[1-9]\d)\b/i;
 
 // Round-1 ruling on MAJOR 5: `Research:` accepts the same markdown decoration as `Round:`
 // (bullets, blockquotes, bold) — mandates in this repo are routinely written as markdown
 // bulleted fields, and the round-0 regex denied both `- Research: x.md` and
-// `**Research:** x.md`.
-const RESEARCH_LINE_RE = /^[\s>*+-]*\**Research:\**\s*(.+)$/mi;
+// `**Research:** x.md`. `>` stays here (unlike `Round:`): MINOR N1 was specifically about
+// a DECLARATION being quotable, not a research line, and no finding named this one.
+// Round-2 MAJOR 1 fix applied the same way as `ROUND_DECL_RE`: `[ \t]` instead of `\s`,
+// `{0,20}` bound, no redundant `\**` outside the class.
+const RESEARCH_LINE_RE = /^[ \t>*+-]{0,20}Research:\**[ \t]*(.+)$/mi;
 const NOT_NEEDED_RE = /^not needed,\s*(.+)$/i;
 const R3_MIN_LEN = 400;
 const R3_NEG_RESULT_RE = /negative result|not found|not determined|not verified|first-class|is a good answer|is a good result/i;

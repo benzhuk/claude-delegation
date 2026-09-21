@@ -38,6 +38,15 @@ be absent; either missing file, or `ws-off` present, keeps it observing.
 `~/.agents/no-dispatch-guard` turns the guard off entirely. A forked subagent inherits
 its parent's model, carries no `model` key of its own, and is not counted by R1 — the
 guard's log undercounts top-tier execution by however many forks ran.
+Two known, accepted limits from the round-2 review (not fixed, on purpose): a `Round:`
+declaration quoted inside a fenced code block, or written as a list item the way a
+ledger line would ("- Round: 3 complete, reviewer approved"), still counts as a real
+declaration — narrowing further risks false negatives on genuine declarations, so this
+is left as-is (a blockquote, `>`, no longer counts — that was the one case worth fixing,
+since blockquoting is how a mandate quotes someone else's round, not how it declares its
+own). Separately, a declared round can be satisfied by pasting the guard's own "not
+needed, <reason>" example text back as the `Research:` line — a slightly inflated
+"R2 satisfied" count in the observe log, never a false deny, and not worth chasing.
 
 Environment: `DELEGATION_TOP_TIER` — comma-separated model-id fragments that count as top/high for the
 routing hook and the delegation gate (default `fable,opus,gpt-6-astra,gpt-5.6-sol`). The old

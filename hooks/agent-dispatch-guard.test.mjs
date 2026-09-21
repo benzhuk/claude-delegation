@@ -190,9 +190,19 @@ test('R2: a bold-markdown declaration ("**Round:** 5") fires', () => {
   assert.ok(checkR2(input, fs));
 });
 
-test('R2: a blockquoted declaration ("> Round: 6") fires', () => {
+test('R2 (round 2, MINOR N1): a blockquoted declaration ("> Round: 6") does NOT fire — blockquoting is how a mandate quotes someone else\'s round, not how it declares its own', () => {
   const input = AGENT({ tool_input: { prompt: '> Round: 6\nNo research line here.' } });
-  assert.ok(checkR2(input, fs));
+  assert.equal(checkR2(input, fs), null);
+});
+
+test('R2 (round 2, MINOR N1 — documented residual limit, not fixed): a declaration inside a fenced code block still fires', () => {
+  const input = AGENT({ tool_input: { prompt: '```\nRound: 3\n```\nNo research line here.' } });
+  assert.ok(checkR2(input, fs), 'known limit, documented in docs/model-tiers.md — not narrowed further');
+});
+
+test('R2 (round 2, MINOR N1 — documented residual limit, not fixed): a ledger-style list-item declaration still fires', () => {
+  const input = AGENT({ tool_input: { prompt: '- Round: 3 complete, reviewer approved\nNo research line here.' } });
+  assert.ok(checkR2(input, fs), 'known limit, documented in docs/model-tiers.md — not narrowed further');
 });
 
 test('R2: "around 3" must NOT trigger the round rule (unchanged from round 0)', () => {
@@ -334,6 +344,79 @@ test('R2: a non-string SendMessage.message (a protocol object) never fires and n
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Performance (round 2, MAJOR 1 + two more found while checking every regex in the file
+// for the same shape, as the ruling asked): a quantified character class that can match
+// `\n` right next to another quantifier is O(n^2) or worse under the `m` flag, because
+// every line-start position gets its own doomed-to-fail attempt. The round-1
+// `ROUND_DECL_RE`/`RESEARCH_LINE_RE` prefixes had exactly this shape (reviewer-measured:
+// 8.7s / 2.6s at 100k chars through the real CLI). Checking the rest of the file the same
+// way turned up two more: `JUDGMENT_LINE_RE`'s leading/trailing `\s*` (quadratic, 8.2s at
+// 100k / 50.3s at 200k) and `ROUND_MENTION_RE`'s three chained `\s*`/optional-char groups
+// (worse than quadratic — 17.3s at just 2,000 characters, did not finish in 3s at 2,000
+// under a hard-killed probe). `NOT_NEEDED_RE`, `R3_NEG_RESULT_RE`, `R3_MD_PATH_RE`,
+// `R1_MODEL_RE`, `REVIEWER_RE`, and `R1B_MODEL_RE` were checked too (simple alternations
+// or a single non-adjacent quantifier, none of this shape) and stayed at well under a
+// millisecond from 50 to 100,000 characters — no change needed. All four vulnerable spots
+// are now fixed; these tests run every one of them through `decide()` (not the bare regex)
+// at 200 KB, so a regression anywhere in the pipeline shows up here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PERF_BUDGET_MS = 200;
+
+test('perf (MAJOR 1): a 200 KB whitespace run through decide() finishes well under the hook timeout', () => {
+  const home = scratchHome();
+  const prompt = `Task.\n${' \n'.repeat(100000)}\nmore`; // ~200 KB
+  const input = AGENT({ tool_input: { prompt, subagent_type: 'general-purpose' } });
+  const t0 = process.hrtime.bigint();
+  decide(input, ctxFor(home));
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < PERF_BUDGET_MS, `expected under ${PERF_BUDGET_MS}ms, took ${ms}ms`);
+});
+
+test('perf (MAJOR 1): a 200 KB asterisk banner through decide() finishes well under the hook timeout', () => {
+  const home = scratchHome();
+  const prompt = `Task.\n${'*'.repeat(200000)}\nmore`;
+  const input = AGENT({ tool_input: { prompt, subagent_type: 'general-purpose' } });
+  const t0 = process.hrtime.bigint();
+  decide(input, ctxFor(home));
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < PERF_BUDGET_MS, `expected under ${PERF_BUDGET_MS}ms, took ${ms}ms`);
+});
+
+// The two tests above declare no round, so checkR2 short-circuits on ROUND_DECL_RE and
+// never reaches RESEARCH_LINE_RE — this one forces that path: a real declaration, then a
+// 200 KB whitespace run with no real "Research:" line anywhere in it.
+test('perf (MAJOR 1): a declared round with a 200 KB whitespace run and no Research: line still finishes well under the hook timeout', () => {
+  const home = scratchHome();
+  const prompt = `Round: 3\n${' \n'.repeat(100000)}\nmore`;
+  const input = AGENT({ tool_input: { prompt, subagent_type: 'general-purpose' } });
+  const t0 = process.hrtime.bigint();
+  decide(input, ctxFor(home));
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < PERF_BUDGET_MS, `expected under ${PERF_BUDGET_MS}ms, took ${ms}ms`);
+});
+
+test('perf (round 2, own finding): a long blank-line run around one JUDGMENT: with no valid tail finishes well under the hook timeout', () => {
+  const home = scratchHome();
+  const prompt = `${' \n'.repeat(30000)}JUDGMENT:${' \n'.repeat(30000)}x`;
+  const input = AGENT({ tool_input: { prompt, subagent_type: 'general-purpose' } });
+  const t0 = process.hrtime.bigint();
+  decide(input, ctxFor(home));
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < PERF_BUDGET_MS, `expected under ${PERF_BUDGET_MS}ms, took ${ms}ms`);
+});
+
+test('perf (round 2, own finding): "round" followed by a long whitespace run with no digit finishes well under the hook timeout (ROUND_MENTION_RE was worse than quadratic)', () => {
+  const home = scratchHome();
+  const prompt = `round${' \n'.repeat(50000)}end-no-digit-here`;
+  const input = AGENT({ tool_input: { prompt, subagent_type: 'general-purpose' } });
+  const t0 = process.hrtime.bigint();
+  decide(input, ctxFor(home));
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < PERF_BUDGET_MS, `expected under ${PERF_BUDGET_MS}ms, took ${ms}ms`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // roundMention — measurement without action (round-1 ruling): the OLD free-text
 // pattern, recorded in the log only, never denies and never notes.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -452,17 +535,54 @@ const FILLED_ROUND1 = [
   'Termination: report to the path above, verdict on line 1, then stop.',
 ].join('\n');
 
-test('decide: mandate-template.md, used verbatim as an Agent prompt, is never denied and never gets an R3 note', () => {
+// Round 2, MAJOR 2: the round-1 template put the JUDGMENT: label OUTSIDE the angle
+// brackets, so the placeholder text itself satisfied JUDGMENT_LINE_RE — which doesn't
+// just draw a note, it EXEMPTS the spawn from R1 entirely (checkR1 returns null the
+// moment the regex matches, whether or not the "verdict" is real). That meant an
+// execution mandate pasted verbatim from the template with `model: opus` and the
+// placeholder left in was ALLOWED — a hole in the one rule this build exists to
+// enforce, reached by the single most likely user error. Fixed by moving the label
+// inside the brackets (`<JUDGMENT: ...>`), so `^[ \t]{0,20}JUDGMENT:` cannot match
+// until a filler removes the brackets. These three tests replace the weaker round-1
+// "never denied, no R3 note" assertion with the real contract.
+
+test('decide: mandate-template.md verbatim, no model — allows with NO notes at all (the bracketed JUDGMENT no longer fires R1b)', () => {
   const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
   assert.ok(template.length > 400, 'the template should be long enough for R3 to actually be exercised');
   const home = scratchHome();
   const input = AGENT({ tool_input: { prompt: template, subagent_type: 'general-purpose' } });
   const result = decide(input, ctxFor(home));
-  assert.notEqual(result.action, 'deny', `the template must never be denied: ${result.text}`);
-  assert.ok(!result.rule.some((r) => r.startsWith('R3')), 'the template authorizes a negative result and names a report file');
-  // The template's own JUDGMENT: placeholder is a legitimate example of the required
-  // 10+ character form, so it fires R1b (a note) when left un-deleted — verified
-  // directly, and the correct outcome per the review: a note, never a deny.
+  assert.equal(result.action, 'allow');
+  assert.deepEqual(result.rule, []);
+});
+
+test('decide: mandate-template.md verbatim, model: opus — denies R1 (round 1 shipped a hole here: the placeholder used to exempt this)', () => {
+  const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+  const home = scratchHome();
+  const input = AGENT({ tool_input: { model: 'opus', prompt: template, subagent_type: 'general-purpose' } });
+  const result = decide(input, ctxFor(home));
+  assert.equal(result.action, 'deny');
+  assert.equal(result.rule[0], 'R1');
+});
+
+test('checkR1: the template + opus still denies directly (belt and suspenders on the exact regression)', () => {
+  const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+  const input = AGENT({ tool_input: { prompt: template, model: 'opus' } });
+  assert.ok(checkR1(input), 'template + opus must still deny');
+});
+
+test('decide: the template with a REAL, filled-in JUDGMENT line (brackets removed) and model: opus — allows (a genuine judgment still exempts, as designed)', () => {
+  const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+  const filled = template.replace(
+    /<JUDGMENT:[\s\S]*?>/,
+    'JUDGMENT: is the new prose voice better than the shipped baseline',
+  );
+  assert.ok(filled.includes('JUDGMENT: is the new prose voice'), 'the replacement must have actually applied');
+  const home = scratchHome();
+  const input = AGENT({ tool_input: { model: 'opus', prompt: filled, subagent_type: 'general-purpose' } });
+  const result = decide(input, ctxFor(home));
+  assert.equal(result.action, 'allow');
+  assert.deepEqual(result.rule, []);
 });
 
 test('decide: the template filled in as a plausible round-1 mandate (JUDGMENT and Round/Research deleted, as the template instructs) allows cleanly', () => {

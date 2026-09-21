@@ -27,9 +27,9 @@ Un-agent-able steps: <verification this agent cannot do (credentials, captchas,
 human-only auth), already done or scoped out of "done">
 ETA: <how long this should take; report or park by then>
 
-JUDGMENT: <only for a mandate that buys a quality verdict, better or worse, against a
-gold, an advisor note, or a baseline. State in ten or more characters what verdict is
-being bought, then run this on opus at minimum. Delete this whole line otherwise.>
+<JUDGMENT: the verdict being bought, ten characters or more. Only for a mandate that
+judges quality against a gold, an advisor note, or a baseline; that spawn runs on opus
+at minimum. Fill it in without the angle brackets, or delete this line entirely.>
 
 Round: <n> — only on a second or later fix round. Delete both these lines when this is
 not a fix round.
