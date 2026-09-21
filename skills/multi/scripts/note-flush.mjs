@@ -139,6 +139,12 @@ const HEARTBEAT_DEAD_LETTERED_OUTCOMES = new Set(['gave-up', 'unknown-recipient'
  * in, and an ENOENT on a socket names the socket) or pane/composer content, so `last_error` below records
  * only the outcome label for these two, never the message - the heartbeat's "no addresses, ever" rule
  * (F1) outranks "the error's message" here. Reported as a SPEC CONFLICT in the build report.
+ *
+ * Review round 1, NIT (finding 8): this counts only the two bug-catcher outcomes, so `stranded`,
+ * `timed-out`, `no-orca` and `gave-up` all read as `deferred`/`dead_lettered` with `errors` at 0 rather
+ * than bumping `errors`. The spec never defined which outcomes count as an "error" versus an expected
+ * retry/terminal state, so this stays scoped to the two paths that are genuinely unexpected bugs; a wider
+ * definition is a product decision left for a future spec, not assumed here.
  */
 const HEARTBEAT_ERROR_OUTCOMES = new Set(['inbox-error', 'error']);
 
@@ -166,11 +172,15 @@ function writeHeartbeatFile(home, data, fsImpl) {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try { fsImpl.rmSync(tmp, { force: true }); } catch { /* will be created, or the write says why */ }
-  fsImpl.writeFileSync(tmp, `${JSON.stringify(data)}\n`, { encoding: 'utf8', mode: HEARTBEAT_MODE });
-  try { fsImpl.chmodSync(tmp, HEARTBEAT_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
   try {
+    fsImpl.writeFileSync(tmp, `${JSON.stringify(data)}\n`, { encoding: 'utf8', mode: HEARTBEAT_MODE });
+    try { fsImpl.chmodSync(tmp, HEARTBEAT_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
     fsImpl.renameSync(tmp, file);
   } catch (err) {
+    // Review finding 4: a failing WRITE (not just a failing rename) left one `.<pid>.tmp` per pass behind
+    // (the old code only cleaned up around the rename). The pre-write `rmSync` above only ever clears
+    // THIS pid's own leftover tmp, so a write that fails every minute (ENOSPC-shaped) orphaned one file a
+    // minute forever. Now the write and the rename share one cleanup.
     try { fsImpl.rmSync(tmp, { force: true }); } catch { /* best effort */ }
     throw err;
   }
@@ -192,9 +202,19 @@ export function readHeartbeat(home, fsImpl = fs) {
  * budget-only piggyback pass, or a pass that threw. `result` is what `runNoteFlushCore` resolved with;
  * `caught` is set instead when it threw. Counters are read straight off `result` (`drained`, `remaining`,
  * the per-entry `results` outcomes) - nothing here is invented bookkeeping.
+ *
+ * Review round 1, BLOCKER: `timer_at` is the stamp `--status` judges staleness on, and only a FULL pass
+ * (`mode` unset or `'timer'`) ever sets it. A piggyback pass (`drainQuietly`, called from note-send on
+ * every send and note-notify on every Codex turn end) carries the PREVIOUS `timer_at` forward untouched -
+ * on a machine whose one-minute timer is dead but whose agents keep sending notes, a piggyback pass used
+ * to refresh `at` and `--status` read the machine as healthy. No fallback to `at` when there is no prior
+ * `timer_at`: that means no full pass has ever run, which is exactly what `--status` should report.
  */
-function buildHeartbeat({ now, ms, result, caught, mode }) {
-  const base = { at: new Date(now).toISOString(), host: os.hostname(), pid: process.pid, ms };
+function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt }) {
+  const at = new Date(now).toISOString();
+  const base = { at, host: os.hostname(), pid: process.pid, ms };
+  const timerAt = mode === 'piggyback' ? prevTimerAt : at;
+  if (timerAt) base.timer_at = timerAt;
   if (mode === 'timer' || mode === 'piggyback') base.mode = mode;
   const version = readPluginVersion();
   if (version) base.version = version;
@@ -246,21 +266,31 @@ export function buildFlushStatus(argv, deps = {}) {
   const now = deps.now ?? Date.now();
   const heartbeat = readHeartbeat(home, fsImpl);
   if (!heartbeat) {
+    // Review round 1, finding 2+3: "no file" and "a file nobody can read" are different problems and
+    // send you to different places. Either way there is no full pass on record, so the json carries
+    // `stale: true` rather than leaving a consumer reading `.stale` as `undefined` (falsy).
+    const there = (() => { try { return Boolean(fsImpl.statSync(flushLastPath(home))); } catch { return false; } })();
     return {
       exitCode: 1,
-      line: 'flusher has never run on this machine (no flush-last.json)',
-      json: { missing: true },
+      line: there
+        ? 'flush-last.json is there but unreadable or not valid JSON: the flusher cannot be checked'
+        : 'flusher has never run on this machine (no flush-last.json)',
+      json: { missing: !there, unreadable: there, age_s: null, timer_age_s: null, stale: true },
     };
   }
   const atMs = Date.parse(String(heartbeat.at ?? ''));
   const ageS = Number.isFinite(atMs) ? Math.max(0, Math.round((now - atMs) / 1000)) : null;
-  const stale = ageS === null || ageS * 1000 > HEARTBEAT_STALE_MS;
+  // Review round 1, BLOCKER: staleness is judged on the last FULL pass, never on a piggyback a note-send
+  // triggered - those keep running on a machine whose one-minute timer is dead.
+  const timerMs = Date.parse(String(heartbeat.timer_at ?? ''));
+  const timerAgeS = Number.isFinite(timerMs) ? Math.max(0, Math.round((now - timerMs) / 1000)) : null;
+  const stale = timerAgeS === null || timerAgeS * 1000 > HEARTBEAT_STALE_MS;
   const base = `flusher last ran ${ageS === null ? 'an unknown time' : `${ageS}s`} ago on ${heartbeat.host ?? 'unknown host'}: `
     + `queued ${heartbeat.queued ?? 0}, delivered ${heartbeat.delivered ?? 0}, deferred ${heartbeat.deferred ?? 0}, errors ${heartbeat.errors ?? 0}`;
   return {
     exitCode: stale ? 1 : 0,
     line: stale ? `${base}. STALE: the one-minute timer is not running` : base,
-    json: { ...heartbeat, age_s: ageS, stale },
+    json: { ...heartbeat, age_s: ageS, timer_age_s: timerAgeS, stale },
   };
 }
 
@@ -1017,7 +1047,10 @@ export async function runNoteFlush(argv, deps = {}) {
         try { ({ home: homeArg } = parseFlushArgs(argv)); } catch { /* argv itself is what threw */ }
         home = toPosix(homeArg ?? deps.home ?? os.homedir());
       }
-      writeHeartbeatFile(home, buildHeartbeat({ now, ms, result, caught, mode: deps.mode }), fsImpl);
+      // Review round 1, BLOCKER: a piggyback pass carries the prior `timer_at` forward rather than
+      // stamping its own `at` - read it off whatever heartbeat is already on disk before overwriting it.
+      const prevTimerAt = deps.mode === 'piggyback' ? readHeartbeat(home, fsImpl)?.timer_at : undefined;
+      writeHeartbeatFile(home, buildHeartbeat({ now, ms, result, caught, mode: deps.mode, prevTimerAt }), fsImpl);
     }
   } catch { /* F2: a heartbeat failure must never touch the pass */ }
 

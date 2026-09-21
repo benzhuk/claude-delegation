@@ -1410,7 +1410,21 @@ test('F3: --status reports missing when the flusher has never run', () => {
   const status = buildFlushStatus([], { home });
   assert.equal(status.exitCode, 1);
   assert.equal(status.line, 'flusher has never run on this machine (no flush-last.json)');
-  assert.deepEqual(status.json, { missing: true });
+  assert.deepEqual(status.json, { missing: true, unreadable: false, age_s: null, timer_age_s: null, stale: true });
+});
+
+// Review round 1, finding 2+3: a file that IS there but corrupt/unreadable is a different problem than
+// "never run", and must still say so and exit 1 (never "never run") - and either way `--status --json`
+// on a missing/unreadable heartbeat must carry `stale: true`, not leave a consumer reading `.stale` as
+// `undefined` (falsy, i.e. "healthy").
+test('F3: --status reports a corrupt heartbeat as unreadable, not as never-run', () => {
+  const home = tmp();
+  fs.mkdirSync(path.dirname(flushLastPath(home)), { recursive: true });
+  fs.writeFileSync(flushLastPath(home), 'not json{{{', 'utf8');
+  const status = buildFlushStatus([], { home });
+  assert.equal(status.exitCode, 1);
+  assert.equal(status.line, 'flush-last.json is there but unreadable or not valid JSON: the flusher cannot be checked');
+  assert.deepEqual(status.json, { missing: false, unreadable: true, age_s: null, timer_age_s: null, stale: true });
 });
 
 test('F3: --status reports fresh when inside the stale window', async () => {
@@ -1432,6 +1446,27 @@ test('F3: --status reports STALE past the 5-minute window, and exits 1', async (
   assert.equal(status.exitCode, 1);
   assert.match(status.line, /^flusher last ran 360s ago on .+: queued 0, delivered 0, deferred 0, errors 0\. STALE: the one-minute timer is not running$/);
   assert.equal(status.json.stale, true);
+});
+
+// Review round 1, BLOCKER masking probe: a dead one-minute timer must not hide behind a busy machine.
+// Six piggyback passes (each with something to report, so each writes), zero timer passes: staleness has
+// to be judged on `timer_at` (never set here) rather than the repeatedly-refreshed `at`.
+test('F1/F3: six piggyback passes with zero timer passes still read STALE - the masking probe', async () => {
+  const home = tmp();
+  queue(home); // one wake-up, recipient never gets a pane below - it just sits queued, undelivered
+  const orca = mockOrca({ panes: [] });
+  for (let i = 0; i < 6; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await drainQuietly({ home, orca, now: NOW + i * 4 * 60_000 }, {});
+  }
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.equal(hb.mode, 'piggyback');
+  assert.equal('timer_at' in hb, false, 'no timer pass has ever run, so no timer_at to fall back on');
+  const status = buildFlushStatus([], { home, now: NOW + 6 * 4 * 60_000 });
+  assert.equal(status.exitCode, 1);
+  assert.match(status.line, /STALE: the one-minute timer is not running$/);
+  assert.equal(status.json.stale, true);
+  assert.equal(status.json.timer_age_s, null);
 });
 
 test('F3: --status --json includes the raw heartbeat plus age_s and stale', async () => {
