@@ -1,4 +1,4 @@
-# Decisions reader — spec (v2)
+# Decisions reader — spec (v2, amended after round-2 review)
 
 ## Why this exists
 The owner answers decisions on a Notion page. Agents read the page as markdown (one
@@ -13,7 +13,10 @@ library.
 `node scripts/decisions-read.mjs [file] [--json] [--now <ISO>]` — reads the markdown
 from the file, or from stdin when no file (or `-`) is given. `--json` switches to JSON
 output. `--now <ISO instant>` sets the clock used for default deadlines (rule 10);
-tests must pass this rather than relying on the system clock. The markdown is
+tests must pass this rather than relying on the system clock. `--now` with a missing
+value, or a value that does not parse as a timestamp, is BLIND (exit 3, rule 13) with
+one stderr line naming the problem — it never silently falls back to the system clock,
+since that would make a hook or a mistyped test believe nothing is due. The markdown is
 Notion-flavored, as produced by Notion's markdown export: children are indented with
 TABS; toggles appear either as `<details>` + `<summary>TITLE</summary>` … `</details>`,
 or as toggleable headings `# TITLE {toggle="true"}` (levels 1-3); checkboxes are
@@ -27,20 +30,26 @@ arrives as plain `**`.
    suffix in parentheses that starts with a digit (e.g. `  (7 · 4 covered)`), trim.
 2. Every checkbox line and every OWNER COMMENT attaches to the NEAREST PRECEDING
    title, at any depth. (No indentation logic beyond that. Nearest preceding title
-   wins.)
+   wins.) A CHECKBOX LINE is ALWAYS read as an option — or as the page-level Done
+   (rule 6), or as an owner comment by the escaped-asterisk rule (rule 3) — FIRST: the
+   reserved `Reply:` (rule 4) and `Default after ` (rule 10) markers are recognised
+   only on a line that is NOT a checkbox, so a ticked option whose text happens to
+   start with either reserved word is never swallowed as a marker.
 3. An OWNER COMMENT is a line whose text, after leading whitespace and after an
    optional list or checkbox marker (`- `, `- [ ] `, `- [x] `), starts with the
    escaped form `\*\*`. A line starting with unescaped `**` is agent-written and is
    NOT a comment. Example of the shape an owner comment arrives in: `\t\t- [ ] \*\*
    which of these is cheaper to undo?`. Such a line is a comment, NOT an option, even
    though it carries a checkbox marker; it never counts as an option or as a tick.
-4. A REPLY is a line whose text, after the same stripping as rule 3, starts with
-   `Reply:` (case-sensitive) — this is how an agent marks an owner comment as
-   answered. Within one decision, a comment is REPLIED if a `Reply:` line appears
-   after it and before the next owner comment (or the end of the decision); only the
-   nearest still-open comment can be closed this way, and once closed it stays closed
-   — a later `Reply:` never reaches back past the next comment. A `Reply:` line is
-   never an option or a comment, regardless of what marker it carries.
+4. A REPLY is a line, other than a checkbox line (rule 2), whose text — after the same
+   stripping as rule 3 — matches `Reply:` followed by optional whitespace and a date in
+   `YYYY-MM-DD` form (a bare `Reply:` with no date does not count, so an owner typing
+   the word by coincidence cannot clear his own comment) — this is how an agent marks an
+   owner comment as answered. Within one decision, a comment is REPLIED if such a line
+   appears after it and before the next owner comment (or the end of the decision);
+   only the nearest still-open comment can be closed this way, and once closed it stays
+   closed — a later `Reply:` never reaches back past the next comment. A `Reply:` line
+   is never an option or a comment.
 5. A DECISION is a title with at least one option (a checkbox line that is not an
    owner comment, a Done line, or a Reply line) attached to it. Titles with no
    options are grouping sections and are not reported as decisions — but see rule 9
@@ -52,15 +61,19 @@ arrives as plain `**`.
    decision. A checkbox inside a callout that sits inside a decision is read as
    one of that decision's options, so callouts inside a decision must not
    contain checkboxes.
-6. The page-level DONE line: ANY checkbox at column 0 (no leading whitespace at all)
-   whose text is exactly `Done` (case-sensitive), wherever in the document it sits, is
-   the page-level Done marker and is NEVER an option of any decision. (An INDENTED
-   `Done` checkbox is unaffected by this rule and remains an ordinary option, as in
-   v1.) `done` is read from the LAST such column-0 line found (`true`/`false`; `null`
-   when none exist). If that last line is not the true last non-empty line of the
-   document (ignoring trailing blank lines and trailing `<empty-block/>` lines), or if
-   more than one column-0 Done line exists, this is a WARN (rule 11) — a page whose
-   Done marker has drifted must never be silent.
+6. The page-level DONE line: ANY checkbox whose text is exactly `Done`
+   (case-sensitive), AT ANY INDENTATION (column 0, tabs, or spaces) and wherever in
+   the document it sits, is the page-level Done marker and is NEVER an option of any
+   decision. `done` is read from the LAST such line found (`true`/`false`; `null` when
+   none exist). Three independent anomalies, each its own WARN (rule 11), none of them
+   silent: (a) the line is indented (not column 0) — `Done line is indented`; (b) the
+   last such line is not the true last non-empty line of the document (ignoring
+   trailing blank lines and trailing `<empty-block/>` lines) — `Done is not the last
+   line`; (c) more than one such line exists — `more than one Done line`. A page that
+   contains at least one real decision (rule 5) but no Done line at all is itself an
+   anomaly (rule 11's `no Done line found`) — the skill leans on Done to assert
+   "nothing open," so its total absence must not be silent either. A page with no real
+   decisions (grouping titles only) needs no Done line and is not warned.
 7. Status of each decision, in priority order: `AMBIGUOUS` if two or more options are
    ticked; otherwise `TICKED` if exactly one is; otherwise `COMMENTED` if it has at
    least one owner comment that is NOT replied; otherwise `DUE` if it carries a valid
@@ -79,22 +92,28 @@ arrives as plain `**`.
    Done line is exempt from (b) — it is the page-level marker, not a stray, even when
    the title nearest to it happens to have zero options (e.g. a Closed section written
    correctly as plain bullets, immediately before the final Done line).
-10. DEFAULTS. Inside a decision, a line whose text (after the same stripping as rule
-    3) starts with `Default after ` must have exactly this shape: `Default after
-    YYYY-MM-DD HH:MM ±HH:MM: <option text>`, parsed into `default: { text, at }` (`at`
-    as an ISO instant, computed from the given local date/time and its numeric UTC
-    offset). The first such line inside a decision wins if more than one appears. A
-    line starting `Default after ` that does not match this shape, or whose date/time
-    is not a real calendar instant, is a WARN naming the line (rule 11) and is never
-    an option. The current time for comparison comes from `--now <ISO>` when given
-    (tests must use it), else the system clock; a decision otherwise OPEN or REPLIED
-    whose current time is at or after its default's `at` is DUE (rule 7), and its
-    detail is the default's text. A line starting with `No default` is ignored (no
-    default set, no warning). Any other line starting with `Default` is likewise
-    ignored — only the exact `Default after ` shape is inspected.
+10. DEFAULTS. Inside a decision, a NON-CHECKBOX line (rule 2) whose text (after the
+    same stripping as rule 3) starts with the word `Default` is inspected: if it does
+    not start with `Default after `, or does not otherwise match this exact shape —
+    `Default after YYYY-MM-DD HH:MM ±HH:MM: <option text>` — it is a WARN, `default
+    line is not in the required shape` (rule 11), and it is never an option. This
+    catches BOTH an older/malformed deadline phrasing entirely (e.g. an owner's
+    pre-v2 "Default if unanswered by …" line) and a `Default after ` line whose shape
+    is otherwise wrong. A well-shaped line is parsed into `default: { text, at }`
+    (`at` as an ISO instant, computed from the given local date/time and its numeric
+    UTC offset) — but the written date/time must be a REAL calendar instant: `Date`
+    silently rolls an impossible one over (`2026-02-30` to March 2, `24:00` to the
+    next day), so those are round-tripped against the written components and rejected
+    (same WARN) rather than silently accepted with a shifted deadline. The first
+    well-shaped line inside a decision wins if more than one appears. The current time
+    for comparison comes from `--now <ISO>` when given (tests must use it), else the
+    system clock; a decision otherwise OPEN or REPLIED whose current time is at or
+    after its default's `at` is DUE (rule 7), and its detail is the default's text. A
+    line starting with `No default` does not start with `Default`, so it is untouched
+    by this rule — no default set, no warning.
 11. WARN: a document-level anomaly that is reported but never fails the parse — a
-    drifted Done marker (rule 6) or a malformed default deadline (rule 10). Reported
-    as `{ text, line }`; never dropped, always actionable (exit 1).
+    drifted or missing Done marker (rule 6) or a malformed default deadline (rule 10).
+    Reported as `{ text, line }`; never dropped, always actionable (exit 1).
 12. Lines inside a fenced code block (``` … ```), at any indentation, are ignored
     entirely. An unterminated fence means the rest of the document cannot be trusted:
     FAIL CLOSED, exit 3.
@@ -110,8 +129,9 @@ Default: one line per decision, `STATUS<TAB>title<TAB>detail`, where detail is t
 ticked option's text (plus any still-unreplied comments' text for TICKED, joined with
 ` | `), or the unreplied comments' text for COMMENTED, or the ticked texts joined with
 ` | ` for AMBIGUOUS, or the default's text for DUE, or empty for REPLIED/OPEN; then
-`UNATTACHED<TAB>line N<TAB>text` lines; then `WARN<TAB>text` lines; then
-`DECISIONS<TAB>n`; last line `DONE<TAB>true|false|absent`.
+`UNATTACHED<TAB>line N<TAB>text` lines (with a trailing `<TAB>(under <title>)` when rule
+9 applies); then `WARN<TAB>text` lines; then `DECISIONS<TAB>n`; last line
+`DONE<TAB>true|false|absent`.
 
 With `--json`:
 ```
@@ -143,9 +163,20 @@ already knows about the page.
 
 ## Changes from v1
 v1's rule "a `Done` checkbox anywhere else [than the true last line] is an ordinary
-option" is REPLACED by rule 6 above: a column-0 Done checkbox is never an option
-regardless of position, and an out-of-place one now WARNs instead of silently
-becoming a false option. Everything else in v1 (rules 1-3, 5, 8, 12, 13 above) is
+option" is REPLACED by rule 6 above: a Done checkbox is never an option regardless of
+position or indentation, and an out-of-place one now WARNs instead of silently
+becoming a false option. Everything else in v1 (rules 1, 3, 5, 8, 12, 13 above) is
 unchanged. New in v2: replies (rule 4), default deadlines and the DUE status (rules 7,
 10), reported strays under non-decision titles (rule 9), and document-level warnings
 (rule 11).
+
+## Changes after round-2 review (same v2, amended)
+The first v2 pass anchored the Done marker at column 0 only, checked `Reply:`/`Default
+after ` prefixes ahead of the checkbox branch, accepted an impossible calendar date by
+letting `Date` roll it over, only recognised the literal `Default after ` prefix (an
+older phrasing WARN'd silently — never), and let `--now` fail two ways without telling
+anyone (a missing value fell back to the system clock; an unparseable one silently
+suppressed every DUE). All five are fixed above (rules 2, 6, 10, and the Input
+section's `--now` note). Also new: the checkbox-first ordering rule (rule 2), the
+narrowed `Reply:` + date shape (rule 4), the reported `under` in the plain-text output
+(Output section), and the "no Done line at all" WARN (rule 6).

@@ -13,12 +13,10 @@ import { fileURLToPath } from 'node:url';
 // The owner's asterisks arrive escaped one at a time: backslash, star, backslash,
 // star (4 chars). Bold an agent writes is plain `**` and must never match this.
 const ESCAPED_BOLD = '\\*\\*';
-const REPLY_PREFIX = 'Reply:';
-const DEFAULT_AFTER_PREFIX = 'Default after ';
+// Narrowed to the form the skill and template mandate ("Reply:" + a numeric date) so a
+// bare "Reply:" the OWNER happens to type does not clear his own comment (round-2 P6).
+const REPLY_RE = /^Reply:\s*\d{4}-\d{2}-\d{2}/;
 const DEFAULT_AFTER_RE = /^Default after (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2}): (.+)$/;
-// Column 0 only: no leading whitespace. Wherever such a line sits, it is the page-level
-// Done marker, never an option of any decision (v2 rule R3).
-const DONE_RE = /^-\s\[([ xX])\]\s+Done\s*$/;
 
 function isCommentText(text) {
   return text.startsWith(ESCAPED_BOLD);
@@ -57,7 +55,7 @@ function normalizeTitle(raw) {
 
 /**
  * `Default after YYYY-MM-DD HH:MM ±HH:MM: <text>` (rule R4). Returns the parsed payload,
- * or null when the shape or the date/time itself is invalid — the caller turns that into
+ * or null when the shape, or the date/time itself, is invalid — the caller turns that into
  * a WARN, since a malformed deadline must never be silent.
  */
 function parseDefaultAfter(text) {
@@ -66,6 +64,14 @@ function parseDefaultAfter(text) {
   const [, date, time, offset, optionText] = m;
   const when = new Date(`${date}T${time}:00${offset}`);
   if (Number.isNaN(when.getTime())) return null;
+  // `Date` silently rolls an impossible calendar value over (2026-02-30 -> March 2,
+  // 24:00 -> the next day) instead of rejecting it. Round-trip the WRITTEN components
+  // (ignoring the offset, which cannot affect calendar validity) to catch that (round-2 P4).
+  const [y, mo, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  const roundTrip = new Date(Date.UTC(y, mo - 1, d, hh, mm));
+  if (roundTrip.getUTCFullYear() !== y || roundTrip.getUTCMonth() + 1 !== mo || roundTrip.getUTCDate() !== d
+      || roundTrip.getUTCHours() !== hh || roundTrip.getUTCMinutes() !== mm) return null;
   return { text: optionText.trim(), at: when.toISOString(), atMs: when.getTime() };
 }
 
@@ -111,9 +117,18 @@ function computeStatus(title, now) {
 /** Throw for anything that leaves the parse unable to trust the document (exit 3, never a crash). */
 class BlindError extends Error {}
 
+/**
+ * A leading UTF-8 BOM, stripped without an invisible character living in this source file
+ * (round-2 P9: an escape sequence for U+FEFF was found to survive as the raw, invisible
+ * byte sequence once written to disk — this sidesteps the whole class of problem).
+ */
+function stripBOM(s) {
+  return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
+}
+
 export function parseDocument(text, { now = new Date() } = {}) {
   if (!text || text.trim() === '') throw new BlindError('empty input');
-  const lines = text.replace(/^﻿/, '').split(/\r\n|\n/);
+  const lines = stripBOM(text).split(/\r\n|\n/);
 
   let inFence = false;
   const titles = [];
@@ -129,12 +144,6 @@ export function parseDocument(text, { now = new Date() } = {}) {
 
     if (/^`{3,}/.test(trimmed)) { inFence = !inFence; continue; }
     if (inFence) continue;
-
-    const doneMatch = DONE_RE.exec(raw);
-    if (doneMatch) {
-      doneCandidates.push({ line: lineNo, ticked: doneMatch[1].toLowerCase() === 'x', attachedTitle: currentTitle });
-      continue; // never an option of any decision, wherever it sits (R3)
-    }
 
     if (/<summary\b/i.test(raw) && matchTitle(raw) === null) {
       throw new BlindError(`unreadable <summary> at line ${lineNo}`);
@@ -155,6 +164,16 @@ export function parseDocument(text, { now = new Date() } = {}) {
 
     const parsed = splitMarker(raw);
 
+    // R3/round-2 P1: a checkbox whose text is EXACTLY "Done" is the page-level Done at
+    // ANY indentation, never an option — checked first, ahead of everything else a
+    // checkbox line could otherwise be read as (round-2 P2's ordering).
+    if (parsed.kind === 'checkbox' && parsed.text.trim() === 'Done') {
+      const indented = /^[ \t]/.test(raw);
+      doneCandidates.push({ line: lineNo, ticked: parsed.ticked, attachedTitle: currentTitle });
+      if (indented) warnings.push({ text: 'Done line is indented', line: lineNo });
+      continue;
+    }
+
     if (isCommentText(parsed.text)) {
       const commentText = stripCommentMarker(parsed.text);
       if (currentTitle) {
@@ -167,7 +186,11 @@ export function parseDocument(text, { now = new Date() } = {}) {
       continue;
     }
 
-    if (currentTitle && parsed.text.startsWith(REPLY_PREFIX)) {
+    // Round-2 P2: a checkbox line is ALWAYS an option (or Done, or a comment) first —
+    // the reserved `Reply:`/`Default` prefixes are only recognised on a line that is NOT
+    // a checkbox, so a ticked option that happens to start with either text is never
+    // swallowed as a marker.
+    if (currentTitle && parsed.kind !== 'checkbox' && REPLY_RE.test(parsed.text)) {
       // Closes only the nearest still-open comment (R1); once closed, it stays closed —
       // a later Reply: line never reaches back past the next comment.
       if (currentTitle._openComment) {
@@ -177,12 +200,17 @@ export function parseDocument(text, { now = new Date() } = {}) {
       continue; // a reply marker, never an option or a comment
     }
 
-    if (currentTitle && parsed.text.startsWith(DEFAULT_AFTER_PREFIX)) {
+    // R4, amended by round-2 P5: ANY non-checkbox line inside a decision that starts with
+    // the word "Default" is inspected — not only the literal "Default after " prefix —
+    // so an older deadline phrasing (or any other malformed one) WARNs instead of being
+    // silently ignored. `No default…` does not start with "Default", so it is naturally
+    // untouched and stays a no-op, per R4.
+    if (currentTitle && parsed.kind !== 'checkbox' && /^Default\b/.test(parsed.text)) {
       const parsedDefault = parseDefaultAfter(parsed.text);
       if (parsedDefault) {
         if (!currentTitle.default) currentTitle.default = parsedDefault; // first one on the item wins
       } else {
-        warnings.push({ text: `Malformed default at line ${lineNo}`, line: lineNo });
+        warnings.push({ text: 'default line is not in the required shape', line: lineNo });
       }
       continue; // a deadline line, never an option
     }
@@ -193,8 +221,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
       else if (parsed.ticked) unattached.push({ text: optionText, line: lineNo, kind: 'tick' });
       // an unticked, unattached checkbox has nothing to attach to and nothing to act on: dropped
     }
-    // a plain paragraph, a non-comment bullet, or a "No default"/other "Default…" line
-    // carries no signal
+    // a plain paragraph or a non-comment, non-marker bullet carries no signal
   }
 
   if (inFence) throw new BlindError('unterminated fenced code block');
@@ -202,6 +229,13 @@ export function parseDocument(text, { now = new Date() } = {}) {
 
   const { done, warnings: doneWarnings } = finalizeDone(doneCandidates, lines);
   warnings.push(...doneWarnings);
+  // Round-2 P8: a page that has at least one real decision but no Done line at all is a
+  // page defect too — the skill leans on Done to assert "nothing open" — so it WARNs. A
+  // page of grouping titles only, with no decisions, needs no Done line.
+  if (doneCandidates.length === 0 && titles.some((t) => t.options.length > 0)) {
+    const idx = lastContentLineIndex(lines);
+    warnings.push({ text: 'no Done line found', line: idx >= 0 ? idx + 1 : 0 });
+  }
 
   // R5: a comment, or a stray ticked (non-canonical) Done line, attached to a title that
   // never gained a real option (a grouping section, not a decision) is reported, never
@@ -243,7 +277,9 @@ function detailFor(d) {
 
 export function formatText(doc) {
   const lines = doc.decisions.map((d) => `${d.status}\t${d.title}\t${detailFor(d)}`);
-  for (const u of doc.unattached) lines.push(`UNATTACHED\tline ${u.line}\t${u.text}`);
+  for (const u of doc.unattached) {
+    lines.push(`UNATTACHED\tline ${u.line}\t${u.text}${u.under !== undefined ? `\t(under ${u.under})` : ''}`);
+  }
   for (const w of doc.warnings) lines.push(`WARN\t${w.text}`);
   // Explicit, so a caller can tell "legitimately nothing to act on" apart from a format drift
   // that stopped matching decisions at all (finding 8): zero here on an otherwise non-trivial
@@ -293,8 +329,14 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--json') json = true;
-    else if (a === '--now') { now = argv[i + 1]; i += 1; }
-    else if (file === null) file = a;
+    else if (a === '--now') {
+      // Round-2 P3: a missing or unparseable --now is BLIND, never a silent fallback to
+      // the system clock (a hook or a test that mistypes the flag must not be told the
+      // owner has nothing due).
+      if (i + 1 >= argv.length) throw new BlindError('--now needs an ISO timestamp');
+      now = argv[i + 1];
+      i += 1;
+    } else if (file === null) file = a;
   }
   return { json, file, now };
 }
@@ -312,8 +354,14 @@ export function run({
 } = {}) {
   try {
     const { json, file, now } = parseArgs(argv);
+    let nowOpt = {};
+    if (now !== null) {
+      const at = new Date(now);
+      if (Number.isNaN(at.getTime())) throw new BlindError(`--now is not a valid timestamp: ${now}`);
+      nowOpt = { now: at };
+    }
     const text = (!file || file === '-') ? readStdin() : readFile(file);
-    const doc = parseDocument(text, now ? { now: new Date(now) } : {});
+    const doc = parseDocument(text, nowOpt);
     const out = json ? formatJson(doc) : formatText(doc);
     write(out.endsWith('\n') ? out : `${out}\n`);
     return computeExitCode(doc);
