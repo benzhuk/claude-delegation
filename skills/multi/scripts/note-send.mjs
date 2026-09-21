@@ -239,7 +239,7 @@ export async function runNoteSend(argv, deps = {}) {
   // kind" there. No wake-up is created: no outbox entry, no inbox post, and (for a slug recipient) no
   // pane resolution at all. `~/.agents/notes/wake-all-kinds` restores the old behaviour.
   //
-  // review MINOR 11: this is one of two enforcement sites for "a ledger-only kind never STARTS a turn" —
+  // review MINOR 11: this is one of three enforcement sites for "a ledger-only kind never STARTS a turn" —
   // the other is `hasLoudNote` / `handleStop` in `hooks/multi-hook-core.mjs`, which lets a Stop-block
   // skip when every note waiting is one of these same `LEDGER_ONLY_KINDS`. One rule, one constant,
   // imported from `envelope.mjs` by both; neither keeps its own list.

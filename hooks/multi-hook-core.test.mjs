@@ -243,6 +243,15 @@ test('MINOR 11: quiet-only does not advance the cursor — the same note surface
   assert.match(next.output.hookSpecificOutput.additionalContext, /astra-ack-1/);
 });
 
+test('MINOR 11: a loud note BEYOND the render limit still blocks', async () => {
+  const notes = resultOf([
+    ...Array.from({ length: STOP_LIMIT }, (_, i) => line('astra', 'taxonomy', `astra-ack-${i + 1}`, 'ACK', 'ok')),
+    line('astra', 'taxonomy', 'astra-ask-7', 'ASK', 'Review PR 2'),
+  ]);
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block', 'the kind scan must cover every note, not the printed slice');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Ack exactly what was rendered (review MINOR 4)
 // ─────────────────────────────────────────────────────────────────────────────

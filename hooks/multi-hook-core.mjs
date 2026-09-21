@@ -224,9 +224,12 @@ async function handlePostToolUse(ctx) {
  * every-waiting-note-quiet, 39% of THOSE continuations made no tool call at all — a full-context turn
  * spent saying "not for me, stopping"). A ledger-only kind never STARTS a turn; a Stop-block that fires
  * on ACK/FYI alone does exactly that, one event later than the sender-side rule already stops it at.
- * This is the second (and last) enforcement site for that ONE rule — the sender's `quietKind`
- * (`note-send.mjs`) and the flusher's early dead-letter gate (`note-flush.mjs`) are the other two, all
- * three importing the same `LEDGER_ONLY_KINDS` from `envelope.mjs`. No second list of kinds anywhere.
+ * This is the third and last enforcement site for that ONE rule; the other two are the sender's
+ * `quietKind` (`note-send.mjs:247`) and the flusher's `retired-quiet-kind` retirement
+ * (`note-flush.mjs:399`), all three importing the same `LEDGER_ONLY_KINDS` from `envelope.mjs` — none
+ * keeps its own list. (`note-flush.mjs`'s `UNKNOWN_RECIPIENT_KINDS` is a DIFFERENT rule — which kinds
+ * earn the early unknown-recipient dead-letter, ASK/BLOCKED but not RESULT — and must not be merged
+ * with this one.)
  *
  * True (block) when at least one waiting note is not ledger-only. Fails toward blocking — the old,
  * pre-2026-09-20 behaviour — in both uncertain cases: the kill-switch file present OR unreadable
