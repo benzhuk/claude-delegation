@@ -466,6 +466,23 @@ test("CLI --line: an fsImpl whose stat throws a non-ENOENT error for ws-off coun
   assert.equal(out, "", "an unreadable ws-off must be treated as present, silencing the line even though something is missing");
 });
 
+test("an injected opts.home wins over an ambient AGENTS_HOME (seam-delta precedence fix)", () => {
+  const decoy = mkHome(); const home = mkHome();
+  write(home, ".agents/ws-off", "");
+  const prev = process.env.AGENTS_HOME;
+  process.env.AGENTS_HOME = path.join(decoy, ".agents");
+  const origLog = console.log; let out = "";
+  console.log = (s) => { out += `${s}\n`; };
+  try {
+    assert.equal(main(["--line"], { home, lists: { public: [
+      { id: "definitely-missing", type: "file_exists", file: "~/nope", why: "w", fix: "f" }], private: [] } }), 0);
+  } finally {
+    console.log = origLog;
+    if (prev === undefined) delete process.env.AGENTS_HOME; else process.env.AGENTS_HOME = prev;
+  }
+  assert.equal(out, "", "opts.home must win: the env-first order would read the decoy and print");
+});
+
 test("CLI: an unknown flag is a usage error, exit 1, and never a stack trace", () => {
   const home = mkHome();
   const { code, stderr } = runCli(["--bogus"], home);
