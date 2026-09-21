@@ -424,9 +424,69 @@ test("CLI: an unknown flag is a usage error, exit 1, and never a stack trace", (
   assert.match(stderr, /unknown argument/);
 });
 
-test("main() as a function (not a subprocess) returns 0 for known flags and 1 for an unknown one", () => {
-  assert.equal(main(["--json"]), 0);
-  assert.equal(main(["--line"]), 0);
-  assert.equal(main([]), 0);
-  assert.equal(main(["--nope"]), 1);
+test("main() as a function (not a subprocess) returns 0 for known flags and 1 for an unknown one - a scratch home only, never the real one", () => {
+  // Round-1 review: main() with no opts falls back to os.homedir(), so calling it bare here would
+  // print THIS machine's real wiring state into the suite's own output. Every call below pins a
+  // scratch home explicitly, exactly like the CLI tests above already do via runCli().
+  const home = mkHome();
+  const origLog = console.log;
+  console.log = () => {}; // this test asserts on exit codes only, not stdout
+  try {
+    assert.equal(main(["--json"], { home, fsImpl: readOnlyFs(home), lists: { public: [], private: [] } }), 0);
+    assert.equal(main(["--line"], { home, fsImpl: readOnlyFs(home), lists: { public: [], private: [] } }), 0);
+    assert.equal(main([], { home, fsImpl: readOnlyFs(home), lists: { public: [], private: [] } }), 0);
+    assert.equal(main(["--nope"], { home, fsImpl: readOnlyFs(home), lists: { public: [], private: [] } }), 1);
+  } finally {
+    console.log = origLog;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// round-1 findings: a missing type is not silently dropped, and inboxes.json is refused
+// ---------------------------------------------------------------------------
+
+test("a check with NO type field at all gets the same 'info: unknown check type' row as an unrecognized one - never silently dropped", () => {
+  const home = mkHome();
+  const checks = [
+    { id: "no-type-at-all", why: "w", fix: "f" }, // no `type` key whatsoever
+    { id: "null-type", type: null, why: "w", fix: "f" },
+  ];
+  const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
+  const byId = Object.fromEntries(results.map((r) => [r.id, r]));
+  assert.ok(byId["no-type-at-all"], "a check with a missing type must still produce a result row");
+  assert.equal(byId["no-type-at-all"].state, "info");
+  assert.match(byId["no-type-at-all"].why, /unknown check type/);
+  assert.ok(byId["null-type"], "a check with type: null must still produce a result row");
+  assert.equal(byId["null-type"].state, "info");
+});
+
+test("a private-list entry naming inboxes.json is refused before any fs call, whatever type it claims", () => {
+  const home = mkHome();
+  const inboxesPath = path.join(home, ".agents", "notes", "inboxes.json");
+  const touched = [];
+  const spyFs = {
+    existsSync: (p) => {
+      touched.push(String(p));
+      return fs.existsSync(p);
+    },
+    readFileSync: (p, enc) => {
+      touched.push(String(p));
+      return fs.readFileSync(p, enc);
+    },
+    statSync: (p) => {
+      touched.push(String(p));
+      return fs.statSync(p);
+    },
+  };
+  const hostile = [
+    { id: "read-the-inbox", type: "file_exists", file: "~/.agents/notes/inboxes.json", why: "w", fix: "f" },
+    { id: "read-the-inbox-fresh", type: "file_fresh", file: "~/.agents/notes/inboxes.json", maxAgeSeconds: 60, why: "w", fix: "f" },
+    { id: "read-the-inbox-json", type: "json_value", file: "~/.agents/notes/inboxes.json", path: "a", expected: 1, why: "w", fix: "f" },
+  ];
+  const { results } = checkWiring({ home, platform: "linux", fsImpl: spyFs, lists: { public: hostile, private: [] } });
+  for (const r of results) {
+    assert.equal(r.state, "info", `${r.id} must be refused as info, not evaluated`);
+    assert.match(r.why, /refuses to read/);
+  }
+  assert.ok(!touched.some((p) => p === inboxesPath), "inboxes.json must never be opened or stat'ed, even though it never exists in this fixture yet");
 });

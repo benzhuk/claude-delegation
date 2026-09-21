@@ -98,6 +98,14 @@ function appliesToPlatform(check, platform) {
   return check.platforms.includes(platform);
 }
 
+/** J6, round-1 finding 6: a check naming the peer-note ledger is refused before any fs call at all -
+ * never opened, never stat'ed, whatever type it claims to be. Matched on basename only, so `~`
+ * expansion or a differently-cased drive letter can't dodge it. */
+function namesInboxesJson(check, home) {
+  if (typeof check.file !== "string") return false;
+  return path.basename(expandHome(check.file, home)) === "inboxes.json";
+}
+
 // ---------- per-type evaluation, each returns { state, why? } (why defaults to check.why) ----------
 
 function evalJsonValue(check, { home, fsImpl }) {
@@ -140,8 +148,10 @@ function evalHookPresence(check, { home, fsImpl }, wantPresent) {
   const data = readJsonSafe(fsImpl, file);
   if (data === null) return { state: "missing", why: `${check.why} (${file} is not valid JSON)` };
   const present = hookGroupHasSubstring(data?.hooks, check.event, check.substring);
-  if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (no ${check.event} hook in ${file} contains "${check.substring}")` };
-  return present ? { state: "stale", why: `${check.why} (a ${check.event} hook in ${file} still contains "${check.substring}")` } : { state: "ok" };
+  const eventLabel = check.event ?? "(unspecified event)";
+  const substringLabel = check.substring ?? "(unspecified substring)";
+  if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (no ${eventLabel} hook in ${file} contains "${substringLabel}")` };
+  return present ? { state: "stale", why: `${check.why} (a ${eventLabel} hook in ${file} still contains "${substringLabel}")` } : { state: "ok" };
 }
 
 function evalFileExistence(check, { home, fsImpl }, wantPresent) {
@@ -165,7 +175,8 @@ function evalFileFresh(check, { home, fsImpl, now }) {
   }
   const ageSeconds = Math.max(0, (now.getTime() - mtimeMs) / 1000);
   if (ageSeconds <= check.maxAgeSeconds) return { state: "ok" };
-  return { state: "stale", why: `${check.why} (last touched ${Math.round(ageSeconds)}s ago, max ${check.maxAgeSeconds}s)` };
+  const maxLabel = typeof check.maxAgeSeconds === "number" ? `${check.maxAgeSeconds}s` : "(unspecified)";
+  return { state: "stale", why: `${check.why} (last touched ${Math.round(ageSeconds)}s ago, max ${maxLabel})` };
 }
 
 function evalSwitch(check, { home, fsImpl }) {
@@ -218,13 +229,20 @@ export function checkWiring({ home = homedir(), platform = process.platform, fsI
 
   const results = [];
   for (const check of merged) {
-    if (!check || typeof check.id !== "string" || typeof check.type !== "string") continue;
+    // J2: a check missing (or with a non-string) `type` gets the same "unknown check type" info row
+    // as an unrecognized one - round-1 review found it was silently dropped instead, the exact
+    // failure mode this tool exists to prevent.
+    if (!check || typeof check.id !== "string") continue;
     if (!appliesToPlatform(check, platform)) continue;
     let outcome;
-    try {
-      outcome = evalCheck(check, { home, fsImpl, now });
-    } catch (err) {
-      outcome = { state: "info", why: `could not evaluate this check: ${String(err && err.message ? err.message : err)}` };
+    if (namesInboxesJson(check, home)) {
+      outcome = { state: "info", why: "this check names the peer-note ledger, which wiring-check refuses to read" };
+    } else {
+      try {
+        outcome = evalCheck(check, { home, fsImpl, now });
+      } catch (err) {
+        outcome = { state: "info", why: `could not evaluate this check: ${String(err && err.message ? err.message : err)}` };
+      }
     }
     results.push({
       id: check.id,
@@ -266,7 +284,7 @@ function printJson(result) {
   console.log(JSON.stringify(result, null, 2));
 }
 
-export function main(argv = process.argv.slice(2)) {
+export function main(argv = process.argv.slice(2), opts = {}) {
   const known = new Set(["--line", "--json"]);
   const unknown = argv.filter((a) => !known.has(a));
   if (unknown.length > 0) {
@@ -276,7 +294,7 @@ export function main(argv = process.argv.slice(2)) {
 
   let result;
   try {
-    result = checkWiring();
+    result = checkWiring(opts);
   } catch (err) {
     // A wiring check never fails its caller: an unexpected throw is reported as one blind info line.
     result = { ok: false, results: [{ id: "wiring-check", state: "info", why: `could not run: ${String(err && err.message ? err.message : err)}`, fix: "" }] };

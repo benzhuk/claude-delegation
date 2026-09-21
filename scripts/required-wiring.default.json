@@ -12,7 +12,7 @@
     "id": "switch-ws-off",
     "type": "switch",
     "file": "~/.agents/ws-off",
-    "why": "the master kill switch that silences every working-smarter feature (goal card, janitor, commit-check) at once",
+    "why": "the master kill switch that silences every working-smarter feature (goal card, janitor) at once",
     "fix": "no fix needed either way, this is a visibility check: remove the file to turn features back on, create it to silence them"
   },
   {
