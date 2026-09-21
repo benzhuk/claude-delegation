@@ -140,7 +140,29 @@ test('Done detected past trailing <empty-block/> and blank lines', () => {
   assert.equal(parseDocument(md).done, true);
 });
 
-test('a Done checkbox that is not the page-level line is an ordinary option', () => {
+// R3 (v2 addendum) CHANGES this rule: v1 said "a Done checkbox that is not the
+// page-level line is an ordinary option", with no column restriction actually enforced
+// by the code beyond "must be the true last line to count as Done at all" — so a
+// column-0 Done checkbox anywhere else in the doc was, in v1, silently folded in as a
+// normal option of whatever title preceded it. R3 says instead: ANY column-0 Done
+// checkbox is NEVER an option, wherever it sits, and an out-of-place one WARNs.
+test('R3: a column-0 Done checkbox that is not the last line is excluded from options and WARNs, never an ordinary option', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [x] other',
+    '- [ ] Done',
+    'trailing paragraph, so the last line is not a checkbox at all',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.done, false, 'read from the only column-0 Done line even though it is not last');
+  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['other'], 'Done must never be an option (R3)');
+  assert.ok(doc.warnings.some((w) => w.text === 'Done is not the last line'));
+});
+
+// Round 2 review P1 (BLOCKER): amended — an INDENTED Done checkbox is now ALSO the
+// page-level Done (never an option) at any indentation, and ALSO WARNs, since it is
+// out of place. This REPLACES the just-added "remains an ordinary option" guarantee.
+test('P1: an INDENTED Done checkbox is still the page-level Done, never an option, and WARNs "Done line is indented"', () => {
   const md = L(
     '<summary>t</summary>',
     '\t- [ ] Done',
@@ -148,9 +170,18 @@ test('a Done checkbox that is not the page-level line is an ordinary option', ()
     'trailing paragraph, so the last line is not a checkbox at all',
   );
   const doc = parseDocument(md);
-  assert.equal(doc.done, null, 'the true last line is not a column-0 Done checkbox');
-  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['Done', 'other']);
-  assert.equal(doc.decisions[0].status, 'TICKED');
+  assert.equal(doc.done, false, 'read even though it is indented and not the last line');
+  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['other'], 'Done is never an option, indented or not');
+  assert.equal(doc.decisions[0].status, 'TICKED', '"other" is the only real, ticked option left');
+  assert.ok(doc.warnings.some((w) => w.text === 'Done line is indented' && w.line === 2));
+  assert.ok(doc.warnings.some((w) => w.text === 'Done is not the last line'));
+});
+
+test('P1: a space-indented Done checkbox at the true end of the document is Done (WARN indented, not "not the last line")', () => {
+  const md = L('<summary>t</summary>', '\t- [x] a', '\tNo default: not needed here', '  - [x] Done');
+  const doc = parseDocument(md);
+  assert.equal(doc.done, true);
+  assert.deepEqual(doc.warnings, [{ text: 'Done line is indented', line: 4 }]);
 });
 
 test('unattached tick and unattached comment, before any title, reported with line numbers', () => {
@@ -205,8 +236,10 @@ test('formatText: one line per decision, then UNATTACHED lines, then DONE', () =
     '- [x] stray',
     '<summary>A</summary>',
     '\t- [x] yes',
+    '\tNo default: not needed here',
     '<summary>B (3 covered)</summary>',
     '\t- [ ] no',
+    '\tNo default: not needed here',
     '- [x] Done',
   );
   const doc = parseDocument(md);
@@ -225,26 +258,34 @@ test('formatJson / toJsonObject: full shape', () => {
     '<summary>A</summary>',
     '\t- [x] yes',
     '\t- [ ] \\*\\* a comment too',
+    '\tNo default: not needed here',
+    '- [x] Done',
   );
   const doc = parseDocument(md);
   const obj = toJsonObject(doc);
+  // v2: comments carry `replied` (R1), decisions carry `default` (R4), and the document
+  // carries a top-level `warnings` array (R3/R4) — new fields, schema grew, shape below updated.
   assert.deepEqual(obj, {
     decisions: [{
       title: 'A',
       status: 'TICKED',
       line: 1,
       options: [{ text: 'yes', ticked: true, line: 2 }],
-      comments: [{ text: 'a comment too', line: 3 }],
+      comments: [{ text: 'a comment too', line: 3, replied: false }],
+      default: null,
     }],
     unattached: [],
+    warnings: [],
     decisionCount: 1,
-    done: null,
+    done: true,
   });
   assert.deepEqual(JSON.parse(formatJson(doc)), obj);
 });
 
 test('computeExitCode: 0 when every decision is OPEN and nothing is unattached, else 1', () => {
-  const openOnly = parseDocument(L('<summary>t</summary>', '\t- [ ] a', '\t- [ ] b'));
+  const openOnly = parseDocument(
+    L('<summary>t</summary>', '\t- [ ] a', '\t- [ ] b', '\tNo default: not needed here', '- [ ] Done'),
+  );
   const ticked = parseDocument(L('<summary>t</summary>', '\t- [x] a'));
   const unattachedOnly = parseDocument(L('- [x] stray', '<summary>t</summary>', '\t- [ ] a'));
   assert.equal(computeExitCode(openOnly), 0);
@@ -276,7 +317,10 @@ test('CLI: stdin input works when no file argument is given', () => {
 });
 
 test('CLI: a file argument reads from readFile, not stdin', () => {
-  const { exitCode, stdout } = runWith({ argv: ['some.md'], fileText: L('<summary>t</summary>', '\t- [ ] a') });
+  const { exitCode, stdout } = runWith({
+    argv: ['some.md'],
+    fileText: L('<summary>t</summary>', '\t- [ ] a', '\tNo default: not needed here', '- [ ] Done'),
+  });
   assert.equal(exitCode, 0);
   assert.match(stdout, /^OPEN\tt\t/);
 });
@@ -309,7 +353,12 @@ test('CLI: a crash inside IO is caught and reported as exit 3 with a one-line st
 });
 
 test('exit codes 0 and 1 through the CLI wrapper', () => {
-  assert.equal(runWith({ stdinText: L('<summary>t</summary>', '\t- [ ] a') }).exitCode, 0);
+  assert.equal(
+    runWith({
+      stdinText: L('<summary>t</summary>', '\t- [ ] a', '\tNo default: not needed here', '- [ ] Done'),
+    }).exitCode,
+    0,
+  );
   assert.equal(runWith({ stdinText: L('<summary>t</summary>', '\t- [x] a') }).exitCode, 1);
 });
 
@@ -458,11 +507,14 @@ test('a fence at column 0 (no indentation) is recognised, same as a tab-indented
   assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['real option']);
 });
 
-test('weak-assertion fix: an INDENTED Done checkbox as the true last line is not the page-level Done', () => {
-  const md = L('<summary>t</summary>', '\t- [x] a', '\t- [x] Done');
+// Round-2 P1 (BLOCKER) REPLACES this v1/v2 guarantee: an indented Done checkbox now
+// counts as the page-level Done at any indentation (never an option), with its own WARN.
+test('P1: an INDENTED Done checkbox as the true last line is still Done, WARNs "Done line is indented" only', () => {
+  const md = L('<summary>t</summary>', '\t- [x] a', '\tNo default: not needed here', '\t- [x] Done');
   const doc = parseDocument(md);
-  assert.equal(doc.done, null, 'indented — not column 0 — so it does not count as the page-level line');
-  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['a', 'Done']);
+  assert.equal(doc.done, true, 'indentation no longer disqualifies it as the page-level line');
+  assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['a'], 'never an option, indented or not');
+  assert.deepEqual(doc.warnings, [{ text: 'Done line is indented', line: 4 }], 'it IS the true last line, so no other warning');
 });
 
 test('weak-assertion fix: a parenthetical without a leading digit is left in the title', () => {
@@ -499,3 +551,375 @@ test('spawnSync: the real file, invoked as a process, honors the exit-code contr
   assert.equal(blind.status, 3);
   assert.match(blind.stderr, /decisions-read:/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round 2 — v2 addendum (build-0920-spec-addendum-decisions.md), R1-R6
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('R1: a comment followed by a Reply: line is replied; JSON carries replied per comment', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] \\*\\* is this cheaper to undo?',
+    '\tReply: 2026-09-20, yes, done.',
+    '\t- [ ] a',
+  );
+  const doc = parseDocument(md);
+  const d = doc.decisions[0];
+  assert.equal(d.comments[0].replied, true);
+  assert.deepEqual(toJsonObject(doc).decisions[0].comments[0], {
+    text: 'is this cheaper to undo?', line: 2, replied: true,
+  });
+});
+
+test('R1: a comment with no Reply: line after it stays unreplied', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] \\*\\* unanswered?', '\t- [ ] a');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].comments[0].replied, false);
+});
+
+test('R1: a Reply: only closes the nearest preceding open comment, never a later or earlier one', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] \\*\\* first question',
+    '\t- [ ] \\*\\* second question',
+    '\tReply: 2026-09-20, answers the second one only',
+    '\t- [ ] a',
+  );
+  const doc = parseDocument(md);
+  const [first, second] = doc.decisions[0].comments;
+  assert.equal(first.replied, false, 'the Reply: line came after the second comment opened, not the first');
+  assert.equal(second.replied, true);
+});
+
+test('R2: all comments replied and no tick -> REPLIED, not COMMENTED, and not actionable', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] \\*\\* a question',
+    '\tReply: 2026-09-20, answered.',
+    '\t- [ ] a',
+    '\t- [ ] b',
+    '\tNo default: not needed here',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].status, 'REPLIED');
+  assert.equal(computeExitCode(doc), 0, 'REPLIED is not actionable');
+});
+
+test('R2: a mix of one replied and one unreplied comment is still COMMENTED (priority order)', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] \\*\\* answered one',
+    '\tReply: 2026-09-20, done.',
+    '\t- [ ] \\*\\* still open',
+    '\t- [ ] a',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].status, 'COMMENTED');
+  assert.equal(doc.decisions[0].comments.filter((c) => !c.replied).length, 1);
+});
+
+test('R2: a WARN alone (no decisions actionable) still makes the document actionable, exit 1', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after garbage: nope');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].status, 'OPEN');
+  assert.ok(doc.warnings.length > 0, 'a malformed default line must WARN');
+  assert.equal(computeExitCode(doc), 1, 'a WARN alone makes the document actionable');
+});
+
+test('R3: more than one column-0 Done line WARNs, and only the LAST sets done', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [x] a',
+    '- [x] Done',
+    '<summary>u</summary>',
+    '\t- [ ] b',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.done, false, 'the LAST Done line wins');
+  assert.ok(doc.warnings.some((w) => w.text === 'more than one Done line'));
+  assert.equal(doc.decisions.every((d) => d.options.every((o) => o.text !== 'Done')), true, 'never an option');
+});
+
+test('R4: a well-formed default is parsed into JSON as { text, at }', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] a',
+    '\tDefault after 2030-01-01 00:00 +00:00: a',
+  );
+  const doc = parseDocument(md);
+  const def = toJsonObject(doc).decisions[0].default;
+  assert.equal(def.text, 'a');
+  assert.equal(def.at, '2030-01-01T00:00:00.000Z');
+});
+
+test('R4: an OPEN decision before its default deadline stays OPEN, not DUE', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2030-01-01 00:00 +00:00: a', '- [ ] Done');
+  const doc = parseDocument(md, { now: new Date('2029-01-01T00:00:00Z') });
+  assert.equal(doc.decisions[0].status, 'OPEN');
+  assert.equal(computeExitCode(doc), 0);
+});
+
+test('R4: an OPEN decision at or after its default deadline is DUE, detail is the default text, and it is actionable', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2030-01-01 00:00 +00:00: a');
+  const doc = parseDocument(md, { now: new Date('2030-01-01T00:00:00Z') });
+  assert.equal(doc.decisions[0].status, 'DUE');
+  assert.equal(detailForTest(doc), 'a');
+  assert.equal(computeExitCode(doc), 1);
+});
+
+test('R4: a REPLIED decision past its deadline becomes DUE, not REPLIED', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] \\*\\* q',
+    '\tReply: 2026-09-20, answered.',
+    '\t- [ ] a',
+    '\tDefault after 2030-01-01 00:00 +00:00: a',
+  );
+  const doc = parseDocument(md, { now: new Date('2031-01-01T00:00:00Z') });
+  assert.equal(doc.decisions[0].status, 'DUE');
+});
+
+test('R4: a malformed "Default after " line WARNs by line and is never an option', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after next Tuesday: a');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].options.length, 1, 'the malformed default line is not an option');
+  assert.ok(doc.warnings.some((w) => w.line === 3 && w.text === 'default line is not in the required shape'));
+});
+
+test('R4: "No default" is ignored — no default set, no warning', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tNo default: irreversible', '- [ ] Done');
+  const doc = parseDocument(md);
+  assert.equal(toJsonObject(doc).decisions[0].default, null);
+  assert.equal(doc.warnings.length, 0);
+});
+
+test('R5: an owner comment under a heading with no checkboxes is UNATTACHED with "under", never dropped', () => {
+  const md = L(
+    '# Waiting {toggle="true"}',
+    '\t\\*\\* a general remark at the top of the section',
+    '<summary>Real decision</summary>',
+    '\t- [ ] a',
+  );
+  const doc = parseDocument(md);
+  const stray = doc.unattached.find((u) => u.kind === 'comment');
+  assert.ok(stray, 'the comment must not vanish');
+  assert.equal(stray.under, 'Waiting');
+  assert.equal(doc.decisions.length, 1, 'the grouping heading itself is still not a decision');
+});
+
+test('R5: unticked checkboxes under a heading still make it a decision, as in v1 (unchanged)', () => {
+  const md = L('# Waiting {toggle="true"}', '\t- [ ] an option', '\t\\*\\* a comment too');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions.length, 1);
+  assert.equal(doc.decisions[0].comments.length, 1, 'the comment is not stripped out just because the tick is a real option');
+  assert.equal(doc.unattached.length, 0);
+});
+
+test('R6: warnings print as WARN<TAB>text, ordered after UNATTACHED and before DECISIONS', () => {
+  const md = L(
+    '# Waiting {toggle="true"}',
+    '\t\\*\\* a stray comment',
+    '<summary>t</summary>',
+    '\t- [x] a',
+    '- [x] Done',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  const lines = formatText(doc).split('\n');
+  const unattachedIdx = lines.findIndex((l) => l.startsWith('UNATTACHED'));
+  const warnIdx = lines.findIndex((l) => l.startsWith('WARN'));
+  const decisionsIdx = lines.findIndex((l) => l.startsWith('DECISIONS'));
+  assert.ok(unattachedIdx >= 0 && warnIdx > unattachedIdx && decisionsIdx > warnIdx);
+});
+
+test('CLI: --now drives DUE through the process end to end', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--now', '2030-01-01T00:00:00Z'],
+    stdinText: L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2030-01-01 00:00 +00:00: a'),
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^DUE\tt\ta/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round 3 — Opus re-review (review-decisions-r2-report.md), parser findings P1-P9
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('P2 (BLOCKER-adjacent MAJOR): a ticked option whose text starts with "Reply:" is never swallowed as a reply marker', () => {
+  const md = L('<summary>t</summary>', '\t- [x] Reply: to the vendor and wait (recommended)', '\t- [ ] other');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].status, 'TICKED');
+  assert.equal(doc.decisions[0].options.find((o) => o.ticked).text, 'Reply: to the vendor and wait (recommended)');
+  assert.equal(computeExitCode(doc), 1);
+});
+
+test('P2: a ticked option whose text starts with "Default after " is never swallowed as a deadline line', () => {
+  const md = L('<summary>t</summary>', '\t- [x] Default after lunch, ship it', '\t- [ ] other');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].status, 'TICKED');
+  assert.equal(doc.decisions[0].options.find((o) => o.ticked).text, 'Default after lunch, ship it');
+});
+
+test('P3 (MAJOR): --now with a missing value is blind, exit 3, and never falls back to the system clock', () => {
+  const { exitCode, stderr } = runWith({
+    argv: ['--now'],
+    stdinText: L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a'),
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stderr, /--now/);
+});
+
+test('P3: --now with an unparseable value is blind, exit 3, and names the bad value on stderr', () => {
+  const { exitCode, stderr } = runWith({
+    argv: ['--now', 'not-a-timestamp'],
+    stdinText: L('<summary>t</summary>', '\t- [ ] a'),
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stderr, /not-a-timestamp/);
+});
+
+test('P4 (MAJOR): an impossible calendar date (Feb 30) never rolls over — malformed, WARN, no DUE', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2026-02-30 18:00 -04:00: a');
+  const doc = parseDocument(md, { now: new Date('2030-01-01T00:00:00Z') });
+  assert.equal(doc.decisions[0].status, 'OPEN', 'must not silently roll to March 2 and go DUE');
+  assert.equal(toJsonObject(doc).decisions[0].default, null);
+  assert.ok(doc.warnings.some((w) => w.text === 'default line is not in the required shape'));
+});
+
+test('P4: 24:00 never rolls over to the next day — malformed, WARN', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2026-09-20 24:00 -04:00: a');
+  const doc = parseDocument(md, { now: new Date('2030-01-01T00:00:00Z') });
+  assert.equal(doc.decisions[0].status, 'OPEN');
+  assert.ok(doc.warnings.some((w) => w.text === 'default line is not in the required shape'));
+});
+
+test('P5 (MAJOR): an older "Default if unanswered by ..." line (not "Default after ") WARNs, never silently ignored', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault if unanswered by Friday, 5pm: option a');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].status, 'OPEN');
+  assert.equal(doc.decisions[0].options.length, 1, 'not swallowed as an option either');
+  assert.ok(doc.warnings.some((w) => w.text === 'default line is not in the required shape'));
+  assert.equal(computeExitCode(doc), 1);
+});
+
+test('P5: "No default" still is not touched by the broadened Default-prefix WARN', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tNo default: irreversible, waits for your word', '- [ ] Done');
+  const doc = parseDocument(md);
+  assert.equal(doc.warnings.length, 0);
+  assert.equal(toJsonObject(doc).decisions[0].default, null);
+});
+
+test('N2 (MAJOR): ordinary prose starting with "Default" but with no colon raises no WARN', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] a',
+    '\tDefault behaviour today is to run uncapped, which is what broke it.',
+    '\tNo default: not needed here',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.warnings.length, 0);
+  assert.equal(doc.decisions[0].status, 'OPEN');
+  assert.equal(computeExitCode(doc), 0);
+});
+
+test('N5 (MAJOR): a decision with a well-formed "Default after " line raises no N5 WARN', () => {
+  const md = L(
+    '<summary>Has a default</summary>',
+    '\t- [ ] a',
+    '\tDefault after 2030-01-01 00:00 +00:00: a',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('no default or "No default" line')));
+});
+
+test('N5 (MAJOR): a decision with a "No default: ..." line raises no N5 WARN', () => {
+  const md = L(
+    '<summary>Explicitly no default</summary>',
+    '\t- [ ] a',
+    '\tNo default: irreversible, waits for your word',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('no default or "No default" line')));
+});
+
+test('N5 (MAJOR): a decision with neither a default nor a "No default" line WARNs, naming the title', () => {
+  const md = L('<summary>Neither one</summary>', '\t- [ ] a', '- [ ] Done');
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'no default or "No default" line: Neither one'));
+  assert.equal(doc.decisions[0].status, 'OPEN', 'N5 never changes the decision status');
+});
+
+test('N5 (MAJOR): a prose deadline not in the "Default"/"No default" shapes still WARNs (the class N5 closes)', () => {
+  const md = L(
+    '<summary>Prose deadline</summary>',
+    '\t- [ ] a',
+    '\tDeadline: 2026-09-25, cap at 200',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'no default or "No default" line: Prose deadline'));
+  assert.equal(doc.decisions[0].options.length, 1, 'the prose deadline line is not swallowed as an option');
+  assert.equal(doc.decisions[0].status, 'OPEN');
+});
+
+test('N5: a Closed/archived section of plain bullets (no options) never triggers the N5 WARN', () => {
+  const md = L(
+    '# Closed {toggle="true"}',
+    '\t- an archived bullet, no checkbox, not a decision',
+    '<summary>Real decision</summary>',
+    '\t- [ ] a',
+    '\tNo default: not needed here',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.includes('Closed')));
+});
+
+test('P6 (MINOR): a bare "Reply:" line with no date does not close the owner\'s comment', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] \\*\\* still open?', '\tReply: fixed now, no date given', '\t- [ ] a');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].comments[0].replied, false, 'the shapeless Reply: line does not count');
+  assert.equal(doc.decisions[0].status, 'COMMENTED');
+});
+
+test('P6: a properly dated "Reply: YYYY-MM-DD ..." line still closes the comment', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] \\*\\* still open?', '\tReply: 2026-09-20, fixed now.', '\t- [ ] a');
+  const doc = parseDocument(md);
+  assert.equal(doc.decisions[0].comments[0].replied, true);
+});
+
+test('P7 (MINOR): the default text output shows "under" for a reported stray, not just JSON', () => {
+  const md = L(
+    '# Waiting {toggle="true"}',
+    '\t\\*\\* a general remark at the top of the section',
+    '<summary>Real decision</summary>',
+    '\t- [ ] a',
+  );
+  const doc = parseDocument(md);
+  const line = formatText(doc).split('\n').find((l) => l.startsWith('UNATTACHED'));
+  assert.match(line, /\(under Waiting\)/);
+});
+
+test('P8 (MINOR): a page with a real decision but no Done line at all WARNs', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a');
+  const doc = parseDocument(md);
+  assert.equal(doc.done, null);
+  assert.ok(doc.warnings.some((w) => w.text === 'no Done line found'));
+  assert.equal(computeExitCode(doc), 1);
+});
+
+test('P8: a page with only grouping titles and no real decisions does not need a Done line', () => {
+  const md = L('# Closed {toggle="true"}', '\t- a plain bullet, no checkbox, not a decision');
+  const doc = parseDocument(md);
+  assert.equal(doc.done, null);
+  assert.equal(doc.warnings.length, 0, 'nothing to be "done" on a page with no open decisions');
+});
+
+function detailForTest(doc) {
+  return formatText(doc).split('\n')[0].split('\t')[2];
+}
