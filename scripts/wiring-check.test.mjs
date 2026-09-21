@@ -402,11 +402,22 @@ test("CLI --json prints a parseable { ok, results } object and exits 0", () => {
   assert.ok(Array.isArray(parsed.results));
 });
 
-test("CLI --line prints nothing when nothing is missing or stale (a bare scratch home has only info/ok results)", () => {
+test("CLI --line prints nothing when nothing is missing or stale (a scratch home with lean-rules.md present has only info/ok results)", () => {
   const home = mkHome();
+  // lean-rules-file (file_fresh, no whenMissing override) is 'stale' when absent, same as any other
+  // required file - a truly "nothing to flag" home has to actually carry it.
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
   const { code, stdout } = runCli(["--line"], home);
   assert.equal(code, 0);
   assert.equal(stdout, "");
+});
+
+test("CLI --line names lean-rules-file when ~/.agents/lean-rules.md is absent", () => {
+  const home = mkHome();
+  const { code, stdout } = runCli(["--line"], home);
+  assert.equal(code, 0);
+  assert.match(stdout.trim(), /^wiring: \d+ flagged \(.*\)\. Run wiring-check for the fixes\.$/);
+  assert.match(stdout, /lean rules file/);
 });
 
 test("CLI --line prints one line naming what is missing when something is", () => {
