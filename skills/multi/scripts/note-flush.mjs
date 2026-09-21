@@ -53,6 +53,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { NoteError, parseEnvelope, LEDGER_ONLY_KINDS, suggestSlug } from './envelope.mjs';
 import {
@@ -117,6 +118,152 @@ export const NO_INBOX_DETAIL = 'no inbox registered on this machine; the ledger 
 /** What 0.4.0 wrote while a Stop hook was parked. Nothing writes these now, so every one is garbage. */
 export const LISTENING_MARKER_RE = /^\.listening-.+\.json$/;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Heartbeat (build spec 0921-F): a quiet flush.log means either "nothing to deliver" or "the flusher is
+// not running at all", and nobody could tell which. This file answers that, overwritten every pass.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Owner-only, on create AND on every rewrite - same rule as inboxes.json (transport.mjs INBOX_MODE). */
+export const HEARTBEAT_MODE = 0o600;
+/** F3: older than this and `--status` says the one-minute timer looks dead. */
+export const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+
+/** Outcomes that left the outbox without ever attempting a delivery (superseded, ACK/FYI, already-read, aged out). */
+const HEARTBEAT_RETIRED_OUTCOMES = new Set(['superseded', 'retired-quiet-kind', 'retired', 'expired']);
+/** Outcomes that moved the entry to `outbox/dead/` and reported it to ben. */
+const HEARTBEAT_DEAD_LETTERED_OUTCOMES = new Set(['gave-up', 'unknown-recipient']);
+/**
+ * The two "this should never happen" catches in this file: an inbox client or the typing path throwing
+ * instead of resolving (both are commented "Defensive: ... a bug-catcher, not a path"). Their raw
+ * messages can embed a socket path (`errorDetail` in inbox-claude.mjs folds the OS error's own message
+ * in, and an ENOENT on a socket names the socket) or pane/composer content, so `last_error` below records
+ * only the outcome label for these two, never the message - the heartbeat's "no addresses, ever" rule
+ * (F1) outranks "the error's message" here. Reported as a SPEC CONFLICT in the build report.
+ */
+const HEARTBEAT_ERROR_OUTCOMES = new Set(['inbox-error', 'error']);
+
+export function flushLastPath(home) { return toPosix(path.posix.join(notesDir(home), 'flush-last.json')); }
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+/** `skills/multi/scripts/` -> repo root, three levels up, then the plugin manifest (F1: "cheaply"). */
+const PLUGIN_JSON_PATH = path.join(SCRIPT_DIR, '..', '..', '..', '.claude-plugin', 'plugin.json');
+let cachedPluginVersion; // undefined = not tried yet; null = tried and unreadable; the real fs, always.
+
+function readPluginVersion() {
+  if (cachedPluginVersion !== undefined) return cachedPluginVersion;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PLUGIN_JSON_PATH, 'utf8'));
+    cachedPluginVersion = typeof parsed?.version === 'string' ? parsed.version : null;
+  } catch {
+    cachedPluginVersion = null;
+  }
+  return cachedPluginVersion;
+}
+
+/** tmp + chmod + rename: the same atomic-write shape transport.mjs uses for inboxes.json. */
+function writeHeartbeatFile(home, data, fsImpl) {
+  const file = flushLastPath(home);
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  try { fsImpl.rmSync(tmp, { force: true }); } catch { /* will be created, or the write says why */ }
+  fsImpl.writeFileSync(tmp, `${JSON.stringify(data)}\n`, { encoding: 'utf8', mode: HEARTBEAT_MODE });
+  try { fsImpl.chmodSync(tmp, HEARTBEAT_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
+  try {
+    fsImpl.renameSync(tmp, file);
+  } catch (err) {
+    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    throw err;
+  }
+  return file;
+}
+
+/** Read-only counterpart, used by `--status` (F3) and available to callers/tests too. Never throws. */
+export function readHeartbeat(home, fsImpl = fs) {
+  try {
+    const parsed = JSON.parse(fsImpl.readFileSync(flushLastPath(home), 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * F1: one JSON object summarizing whatever a pass just did - even a pass that found nothing, a
+ * budget-only piggyback pass, or a pass that threw. `result` is what `runNoteFlushCore` resolved with;
+ * `caught` is set instead when it threw. Counters are read straight off `result` (`drained`, `remaining`,
+ * the per-entry `results` outcomes) - nothing here is invented bookkeeping.
+ */
+function buildHeartbeat({ now, ms, result, caught, mode }) {
+  const base = { at: new Date(now).toISOString(), host: os.hostname(), pid: process.pid, ms };
+  if (mode === 'timer' || mode === 'piggyback') base.mode = mode;
+  const version = readPluginVersion();
+  if (version) base.version = version;
+
+  if (!result) {
+    // The pass never reached a result at all - the CLI's own args, or a bug outside every existing
+    // try/catch in the pass. Nothing else here can be known, so everything else is honestly zero.
+    const message = String(caught?.message ?? caught ?? 'unknown error').slice(0, 200);
+    return {
+      ...base, queued: 0, delivered: 0, deferred: 0, retired: 0, dead_lettered: 0,
+      errors: 1, last_error: message,
+    };
+  }
+
+  const results = Array.isArray(result.results) ? result.results : [];
+  let retired = 0;
+  let deadLettered = 0;
+  let errors = 0;
+  let lastError = null;
+  for (const r of results) {
+    const outcome = String(r?.outcome ?? '');
+    if (HEARTBEAT_RETIRED_OUTCOMES.has(outcome)) retired += 1;
+    if (HEARTBEAT_DEAD_LETTERED_OUTCOMES.has(outcome)) deadLettered += 1;
+    if (HEARTBEAT_ERROR_OUTCOMES.has(outcome)) { errors += 1; lastError = outcome; }
+  }
+
+  return {
+    ...base,
+    queued: Number(result.queued ?? 0),
+    delivered: Number(result.drained ?? 0),
+    deferred: Number(result.remaining ?? 0),
+    retired,
+    dead_lettered: deadLettered,
+    errors,
+    last_error: lastError,
+  };
+}
+
+/**
+ * F3: `note-flush --status` - what the heartbeat says, without running a pass. Pure and injectable
+ * (`fsImpl`, `home`, `now`), so fresh/stale/missing are all testable without a real clock or a real drain.
+ *
+ * @returns {{ exitCode: number, line: string, json: object }}
+ */
+export function buildFlushStatus(argv, deps = {}) {
+  const args = parseFlushArgs(argv);
+  const fsImpl = deps.fsImpl ?? fs;
+  const home = toPosix(args.home ?? deps.home ?? os.homedir());
+  const now = deps.now ?? Date.now();
+  const heartbeat = readHeartbeat(home, fsImpl);
+  if (!heartbeat) {
+    return {
+      exitCode: 1,
+      line: 'flusher has never run on this machine (no flush-last.json)',
+      json: { missing: true },
+    };
+  }
+  const atMs = Date.parse(String(heartbeat.at ?? ''));
+  const ageS = Number.isFinite(atMs) ? Math.max(0, Math.round((now - atMs) / 1000)) : null;
+  const stale = ageS === null || ageS * 1000 > HEARTBEAT_STALE_MS;
+  const base = `flusher last ran ${ageS === null ? 'an unknown time' : `${ageS}s`} ago on ${heartbeat.host ?? 'unknown host'}: `
+    + `queued ${heartbeat.queued ?? 0}, delivered ${heartbeat.delivered ?? 0}, deferred ${heartbeat.deferred ?? 0}, errors ${heartbeat.errors ?? 0}`;
+  return {
+    exitCode: stale ? 1 : 0,
+    line: stale ? `${base}. STALE: the one-minute timer is not running` : base,
+    json: { ...heartbeat, age_s: ageS, stale },
+  };
+}
+
 /**
  * Spec 2026-09-20 N2: an ASK or BLOCKED whose recipient is STILL unknown this long after it was queued
  * is dead-lettered on the spot — much sooner than the ordinary give-up (DEFAULT_MAX_ATTEMPTS attempts,
@@ -161,7 +308,7 @@ const STRING_FLAGS = new Set([
   // binary when a non-login shell's PATH cannot find it. $CODEX_CLI does the same thing.
   'codex',
 ]);
-const BOOL_FLAGS = new Set(['json', 'dry-run', 'help']);
+const BOOL_FLAGS = new Set(['json', 'dry-run', 'help', 'status']);
 
 export function parseFlushArgs(argv) {
   const out = {};
@@ -281,7 +428,7 @@ export async function deliverToInbox(home, slug, envelope, record, opts = {}) {
  * @param {string[]} argv
  * @param {object} deps - { fsImpl, home, env, orca, now, inboxes, deliverToInbox } — injectable for tests.
  */
-export async function runNoteFlush(argv, deps = {}) {
+async function runNoteFlushCore(argv, deps = {}) {
   const args = parseFlushArgs(argv);
   const fsImpl = deps.fsImpl ?? fs;
   const env = deps.env ?? process.env;
@@ -319,7 +466,7 @@ export async function runNoteFlush(argv, deps = {}) {
   if (!dryRun) reclaimStaleClaims(home, { fsImpl, now });
   const entries = readOutbox(home, fsImpl).filter((e) => entryMatchesTarget(e, args.to));
   if (entries.length === 0) {
-    return { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: 0, results, home, dryRun };
+    return { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: 0, results, home, dryRun, queued: entries.length };
   }
 
   // Retirement pass first: a superseded wake-up must never be typed, and an ancient or hopeless one is
@@ -508,7 +655,7 @@ export async function runNoteFlush(argv, deps = {}) {
     return {
       ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length,
       results: [...results, ...live.map((e) => ({ id: e.id, to: e.toSlug ?? e.to, outcome: dryRun ? 'would-retry' : 'pending' }))],
-      home, dryRun,
+      home, dryRun, queued: entries.length,
     };
   }
 
@@ -654,12 +801,12 @@ export async function runNoteFlush(argv, deps = {}) {
         log: log('no-inbox', entry, 'no inbox registered on this machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)'),
       });
     }
-    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun, queued: entries.length };
   }
 
   // ── The typing pass: the last resort, MULTI_ALLOW_TYPING=1 only. One `terminal list` for the rest.
   if (needTyping.length === 0) {
-    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun, queued: entries.length };
   }
   let orca;
   let terminals;
@@ -671,7 +818,7 @@ export async function runNoteFlush(argv, deps = {}) {
       remaining += 1;
       results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'no-orca', log: log('no-orca', entry, err?.message ?? String(err)) });
     }
-    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+    return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun, queued: entries.length };
   }
 
   // The durable pane↔slug bindings, read once for the whole drain (spec 2026-09-14 D3). This is what
@@ -814,7 +961,68 @@ export async function runNoteFlush(argv, deps = {}) {
     });
   }
 
-  return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun };
+  return { ok: true, exitCode: 0, drained, attempted, remaining, results, home, dryRun, queued: entries.length };
+}
+
+/**
+ * F1/F2: every pass, whatever happened - a no-op, a budget-only piggyback, or a pass that threw - writes
+ * `~/.agents/notes/flush-last.json`. This wraps `runNoteFlushCore` rather than living inside it, so the
+ * heartbeat is a pure side effect with one write site for every one of the core function's return points:
+ * the pass's result (or thrown error) is untouched, passed straight through (F2).
+ *
+ * @param {string[]} argv
+ * @param {object} deps - everything `runNoteFlushCore` takes, plus `mode` ('timer' | 'piggyback'): set by
+ *   a caller that already knows which one it is (`drainQuietly` sets it below). A bare CLI invocation
+ *   cannot tell a scheduled timer run from a human running it by hand, so `mode` is left unset rather than
+ *   guessed - F1 allows omitting it when the code does not already distinguish the two.
+ */
+export async function runNoteFlush(argv, deps = {}) {
+  const startedAt = Date.now();
+  let result;
+  let caught = null;
+  try {
+    result = await runNoteFlushCore(argv, deps);
+  } catch (err) {
+    caught = err;
+  }
+  const ms = Date.now() - startedAt;
+
+  // F2: everything below is inside its own try/catch and never changes what the pass returns or throws.
+  try {
+    // Dry-run's whole contract in this file is "report what would happen, touch nothing on disk" (every
+    // other side effect - the log, the outbox, the listening-marker sweep - is already gated the same
+    // way); the heartbeat keeps that contract rather than making a preview run look like a real one.
+    //
+    // SPEC CONFLICT (reported in the build report): F1 asks for a heartbeat on every pass, "including...
+    // a budget-only piggyback pass". But note-send's own piggyback drain (`drainQuietly`, `mode:
+    // 'piggyback'`) runs BEFORE note-send knows whether anything else will be recorded, and one of its
+    // own tests (note-send.test.mjs, out of this territory) asserts that a send which records nothing
+    // leaves NO file at all under `~/.agents/notes` - not even the directory. `mkdirSync`-ing that
+    // directory to hold a heartbeat for an outbox that had nothing in it would break that guarantee. The
+    // conservative fix: a piggyback pass only writes a heartbeat once it has something to report (queued
+    // > 0) - which still covers F1's literal "budget-only piggyback pass" example (queued > 0, just not
+    // enough budget to finish). A piggyback pass that found nothing, or threw before a result existed,
+    // writes nothing. Every timer/CLI-invoked pass (`mode` unset) is unaffected and always writes,
+    // including with nothing queued - that is the audience `--status` actually serves.
+    const queued = result ? Number(result.queued ?? 0) : 0;
+    const skipEmptyPiggyback = deps.mode === 'piggyback' && queued === 0;
+    if (!skipEmptyPiggyback && (!result || !result.dryRun)) {
+      const fsImpl = deps.fsImpl ?? fs;
+      const now = deps.now ?? Date.now();
+      let home;
+      if (result) {
+        home = result.home;
+      } else {
+        let homeArg;
+        try { ({ home: homeArg } = parseFlushArgs(argv)); } catch { /* argv itself is what threw */ }
+        home = toPosix(homeArg ?? deps.home ?? os.homedir());
+      }
+      writeHeartbeatFile(home, buildHeartbeat({ now, ms, result, caught, mode: deps.mode }), fsImpl);
+    }
+  } catch { /* F2: a heartbeat failure must never touch the pass */ }
+
+  if (caught) throw caught;
+  return result;
 }
 
 /**
@@ -827,7 +1035,8 @@ export async function drainQuietly(deps = {}, opts = {}) {
   argv.push('--max-ms', String(opts.maxMs ?? 3_000));
   if (opts.orca) argv.push('--orca', String(opts.orca));
   try {
-    return await runNoteFlush(argv, deps);
+    // F1: this is the piggyback path by construction - note-send and note-notify are its only callers.
+    return await runNoteFlush(argv, { mode: 'piggyback', ...deps });
   } catch {
     return { ok: false, drained: 0, attempted: 0, remaining: 0, results: [] };
   }
@@ -841,6 +1050,7 @@ const USAGE = `note-flush — deliver the wake-ups note-send deferred, and forge
 
   note-flush [--to <slug>] [--json] [--max-ms 100000] [--max-attempts 20] [--max-age-hours 48]
              [--codex <cmd>] [--orca <cmd>] [--dry-run]
+  note-flush --status [--json]
 
 Delivery goes to the recipient's OWN INBOX — a Claude session's socket, a Codex session's queue — which
 its own hook registered in ~/.agents/notes/inboxes.json. Nothing is typed into anybody's composer.
@@ -850,6 +1060,10 @@ default: MULTI_ALLOW_TYPING=1 turns it back on, and ~/.agents/notes/no-type kill
 
 Runs from note-send (piggyback), from note-notify at a Codex turn end, and from a 1-minute timer.
 Exit 0 always. Every attempt is appended to ~/.agents/notes/flush.log.
+
+Every pass, whatever happened, overwrites ~/.agents/notes/flush-last.json with one summary object, so a
+quiet flush.log can be told apart from "the timer is not running". \`--status\` prints that summary in one
+line and exits 1 if it is missing or older than 5 minutes.
 `;
 
 export function formatFlush(result) {
@@ -862,6 +1076,16 @@ async function main() {
   const argv = process.argv.slice(2);
   const wantsJson = argv.includes('--json');
   if (argv.includes('--help')) { process.stdout.write(USAGE); return 0; }
+  if (argv.includes('--status')) {
+    try {
+      const status = buildFlushStatus(argv);
+      process.stdout.write(wantsJson ? `${JSON.stringify(status.json)}\n` : `${status.line}\n`);
+      return status.exitCode;
+    } catch (err) {
+      process.stdout.write(`note-flush: ${err?.message ?? String(err)}\n`);
+      return 1;
+    }
+  }
   try {
     const result = await runNoteFlush(argv);
     process.stdout.write(wantsJson ? `${JSON.stringify(result)}\n` : `${formatFlush(result)}\n`);

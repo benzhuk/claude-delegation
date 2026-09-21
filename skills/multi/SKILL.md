@@ -117,7 +117,11 @@ never registered, because registering under a guess would divert another session
 
 That file is the one thing to look at when delivery is not happening:
 
+`note-flush --status` is the first check: a quiet `flush.log` alone cannot tell "nothing to deliver" from
+"the timer is not running".
+
 ```bash
+note-flush --status                                       # is the timer running, and what did it last do?
 ls -l ~/.agents/notes/inboxes.json                        # there? recently modified?
 grep 'inbox' ~/.agents/notes/flush.log | tail             # what the flusher did, per note
 ```

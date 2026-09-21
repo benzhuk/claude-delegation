@@ -21,6 +21,7 @@ import {
   runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush,
   DEFAULT_MAX_MS, DEFAULT_PER_ENTRY_MS, DEFAULT_PHASE2_RESERVE_MS,
   DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_AGE_HOURS, UNKNOWN_RECIPIENT_DEADLETTER_MS,
+  flushLastPath, readHeartbeat, buildFlushStatus, HEARTBEAT_STALE_MS,
 } from './note-flush.mjs';
 import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-notify.mjs';
 
@@ -1237,4 +1238,209 @@ test('review MINOR 5: several stuck notes to the same wrong slug produce ONE ben
   assert.match(blockedLines[0], /taxonomy sent 2 notes/);
   assert.match(blockedLines[0], /\[taxonomy-fable-ping-1\]/);
   assert.match(blockedLines[0], /\[taxonomy-fable-ping-2\]/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Build spec 0921-F: the heartbeat (~/.agents/notes/flush-last.json) and `note-flush --status`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('F1: an empty outbox pass still writes a heartbeat, all zero', async () => {
+  const home = tmp();
+  const orca = mockOrca({ panes: [claudePane()] });
+  const res = await runNoteFlush([], { home, orca, now: NOW });
+  assert.equal(res.drained, 0);
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.equal(hb.queued, 0);
+  assert.equal(hb.delivered, 0);
+  assert.equal(hb.deferred, 0);
+  assert.equal(hb.retired, 0);
+  assert.equal(hb.dead_lettered, 0);
+  assert.equal(hb.errors, 0);
+  assert.equal(hb.last_error, null);
+  assert.equal(hb.host, os.hostname());
+  assert.equal(hb.pid, process.pid);
+  assert.equal(typeof hb.ms, 'number');
+  assert.equal(hb.at, new Date(NOW).toISOString());
+  assert.equal('mode' in hb, false, 'a bare CLI-shaped call cannot tell a timer run from a manual one');
+});
+
+test('F1: a pass that delivers writes correct counts', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
+  assert.equal(res.drained, 1);
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.equal(hb.queued, 1);
+  assert.equal(hb.delivered, 1);
+  assert.equal(hb.deferred, 0);
+  assert.equal(hb.retired, 0);
+  assert.equal(hb.dead_lettered, 0);
+  assert.equal(hb.errors, 0);
+  assert.equal(hb.last_error, null);
+});
+
+test('F1: retired and dead-lettered outcomes are tallied separately from delivered/deferred', async () => {
+  const home = tmp();
+  queue(home, { id: 'astra-tired-1', attempts: 20 }); // gave-up -> dead_lettered
+  queue(home, { id: 'astra-ancient-1', createdAt: new Date(NOW - 72 * 3_600_000).toISOString() }); // expired -> retired
+  const orca = mockOrca({ panes: [claudePane()] });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
+  assert.equal(res.results.length, 2);
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.equal(hb.queued, 2);
+  assert.equal(hb.retired, 1, 'the expired entry');
+  assert.equal(hb.dead_lettered, 1, 'the gave-up entry');
+  assert.equal(hb.delivered, 0);
+});
+
+test('F1: a delivery that throws still writes a heartbeat with an error, never the raw message', async () => {
+  const home = tmp();
+  queue(home);
+  // Registered so the pass takes the inbox path (no typing), and its own error carries the socket path -
+  // exactly the shape `errorDetail` in inbox-claude.mjs produces for a real connect failure.
+  writeInbox(home, 'taxonomy', { kind: 'claude-socket', socket: '/tmp/marker-sock.sock', token: 'tok', sessionId: 's1' }, { now: NOW });
+  const res = await runNoteFlush([], {
+    home, now: NOW, env: {}, orca: mockOrca({ panes: [] }),
+    deliverToInbox: async () => { throw new Error('boom: connect ENOENT /tmp/marker-sock.sock'); },
+  });
+  assert.equal(res.results[0].outcome, 'inbox-error');
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.ok(hb.errors >= 1);
+  assert.equal(hb.last_error, 'inbox-error', 'only the outcome label is recorded — the real message could carry the socket path');
+  assert.equal(String(hb.last_error).includes('marker-sock'), false);
+});
+
+test('F1: a pass that throws before producing a result still writes a heartbeat, using deps.home', async () => {
+  const home = tmp();
+  await assert.rejects(
+    runNoteFlush(['--bogus-flag'], { home, now: NOW }),
+    (e) => e instanceof NoteError && /unknown flag/.test(e.message),
+  );
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.equal(hb.errors, 1);
+  assert.match(hb.last_error, /unknown flag --bogus-flag/);
+  assert.equal(hb.queued, 0);
+  assert.equal(hb.delivered, 0);
+  assert.equal(hb.deferred, 0);
+  assert.equal(hb.retired, 0);
+  assert.equal(hb.dead_lettered, 0);
+});
+
+test('F2: an unwritable heartbeat path leaves the pass result identical to a working one', async () => {
+  const runOnce = async (fsImplOverride) => {
+    const home = tmp();
+    queue(home);
+    const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+    return runNoteFlush([], { home, orca, now: NOW, env: TYPING, fsImpl: fsImplOverride });
+  };
+  const good = await runOnce(fs);
+  const brokenFs = {
+    ...fs,
+    renameSync(src, dest) {
+      if (String(dest).endsWith('flush-last.json')) throw new Error('EACCES: cannot rename heartbeat');
+      return fs.renameSync(src, dest);
+    },
+  };
+  const bad = await runOnce(brokenFs);
+  assert.equal(bad.ok, good.ok);
+  assert.equal(bad.exitCode, good.exitCode);
+  assert.equal(bad.drained, good.drained);
+  assert.equal(bad.attempted, good.attempted);
+  assert.equal(bad.remaining, good.remaining);
+  assert.equal(bad.dryRun, good.dryRun);
+  assert.deepEqual(bad.results, good.results);
+  assert.equal(fs.existsSync(flushLastPath(bad.home)), false, 'the failed rename must leave no heartbeat file');
+  assert.deepEqual(
+    fs.readdirSync(notesDir(bad.home)).filter((n) => n.includes('.tmp')),
+    [],
+    'a failed heartbeat write must not leave a stray tmp file either',
+  );
+});
+
+test('F1/F2: a dry run writes no heartbeat, matching its "touch nothing" contract', async () => {
+  const home = tmp();
+  queue(home);
+  await runNoteFlush(['--dry-run'], { home, orca: mockOrca({ panes: [claudePane()] }), now: NOW });
+  assert.equal(fs.existsSync(flushLastPath(home)), false);
+});
+
+test('F1: the heartbeat never contains note text or a registered inbox address', async () => {
+  const home = tmp();
+  const MARKER = 'zzMARKERzz42';
+  const envelope = `astra → taxonomy, 9.13.26 13:45 NYC [astra-pr137-1] ASK: ${MARKER} please review. Needs: review by 15:00`;
+  queue(home, { envelope });
+  writeInbox(home, 'taxonomy', { kind: 'claude-socket', socket: `/tmp/${MARKER}.sock`, token: MARKER, sessionId: MARKER }, { now: NOW });
+  await runNoteFlush([], { home, now: NOW, env: {}, orca: mockOrca({ panes: [] }) });
+  const raw = fs.readFileSync(flushLastPath(home), 'utf8');
+  assert.equal(raw.includes(MARKER), false, `heartbeat leaked: ${raw}`);
+});
+
+test('F1: drainQuietly (the piggyback path) tags the heartbeat mode, once it has something to report', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  await drainQuietly({ home, orca, now: NOW, env: TYPING }, {});
+  const hb = JSON.parse(fs.readFileSync(flushLastPath(home), 'utf8'));
+  assert.equal(hb.mode, 'piggyback');
+  assert.equal(hb.queued, 1);
+});
+
+/**
+ * SPEC CONFLICT (see the build report): F1 wants a heartbeat on every pass, piggyback included. But
+ * note-send's own piggyback drain runs before it knows whether it will record anything, and one of its
+ * tests (note-send.test.mjs H3, out of this territory) asserts NO file at all appears under
+ * `~/.agents/notes` when a send records nothing. Creating the directory to hold a heartbeat for an empty
+ * outbox would break that. Resolved conservatively: an empty piggyback pass writes nothing.
+ */
+test('F1: an empty piggyback pass writes no heartbeat, and creates no directory - the note-send H3 contract', async () => {
+  const home = tmp();
+  await drainQuietly({ home, orca: mockOrca({ panes: [] }), now: NOW }, {});
+  assert.equal(fs.existsSync(path.join(home, '.agents/notes')), false);
+});
+
+test('F1: a bare (non-piggyback) empty pass still writes a heartbeat - that is the --status audience', async () => {
+  const home = tmp();
+  await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.equal(fs.existsSync(flushLastPath(home)), true);
+});
+
+test('F3: --status reports missing when the flusher has never run', () => {
+  const home = tmp();
+  const status = buildFlushStatus([], { home });
+  assert.equal(status.exitCode, 1);
+  assert.equal(status.line, 'flusher has never run on this machine (no flush-last.json)');
+  assert.deepEqual(status.json, { missing: true });
+});
+
+test('F3: --status reports fresh when inside the stale window', async () => {
+  const home = tmp();
+  queue(home);
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
+  const status = buildFlushStatus([], { home, now: NOW + 42_000 });
+  assert.equal(status.exitCode, 0);
+  assert.equal(status.line, `flusher last ran 42s ago on ${os.hostname()}: queued 1, delivered 1, deferred 0, errors 0`);
+  assert.equal(status.json.stale, false);
+  assert.equal(status.json.age_s, 42);
+});
+
+test('F3: --status reports STALE past the 5-minute window, and exits 1', async () => {
+  const home = tmp();
+  await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW }); // empty outbox, still a heartbeat
+  const status = buildFlushStatus([], { home, now: NOW + HEARTBEAT_STALE_MS + 60_000 });
+  assert.equal(status.exitCode, 1);
+  assert.match(status.line, /^flusher last ran 360s ago on .+: queued 0, delivered 0, deferred 0, errors 0\. STALE: the one-minute timer is not running$/);
+  assert.equal(status.json.stale, true);
+});
+
+test('F3: --status --json includes the raw heartbeat plus age_s and stale', async () => {
+  const home = tmp();
+  await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  const status = buildFlushStatus(['--json'], { home, now: NOW + 5_000 });
+  assert.equal(status.json.queued, 0);
+  assert.equal(status.json.age_s, 5);
+  assert.equal(status.json.stale, false);
+  assert.equal(typeof status.json.host, 'string');
+  assert.equal(typeof status.json.at, 'string');
 });
