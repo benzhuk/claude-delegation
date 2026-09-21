@@ -21,7 +21,6 @@ import {
   applySafe,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
-import { appendArtifact, closeArtifact } from "./artifact-registry.mjs";
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -264,83 +263,6 @@ test("vcs: none makes janitor exit 0 silently even with a dirty tree", () => {
   assert.deepEqual(logs, []);
 });
 
-test("a malformed artifact registry line does not crash janitor - fail open on READ, and the run still completes", () => {
-  const root = initRepo();
-  writeProjectConfig(root);
-  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
-  fs.writeFileSync(
-    path.join(root, ".agents", "artifacts.jsonl"),
-    ["{ this is not valid json at all", JSON.stringify({ ref: "missing-fields" })].join("\n") + "\n",
-  );
-  assert.doesNotThrow(() => {
-    const code = main([], { cwd: root });
-    assert.ok([0, 1].includes(code));
-  });
-});
-
-test("registry entries are REPORT-ONLY: an overdue entry (tool-created or not) is always JUDGMENT, never SAFE, and --apply never touches its file or its registry line", () => {
-  // Round 3: the unlink feature was cut entirely (NEW-1/NEW-3 from the delta review). janitor has
-  // no unlink code path left at all - a registry entry past its end_condition is reported in the
-  // JUDGMENT table, whatever it claims about who created it, and --apply does not act on it.
-  const root = initRepo();
-  writeProjectConfig(root);
-
-  const registryPath = path.join(root, ".agents", "artifacts.jsonl");
-  const toolFile = path.join(root, "scratch-one.txt");
-  fs.writeFileSync(toolFile, "scratch\n");
-  appendArtifact(
-    {
-      ref: toolFile,
-      kind: "scratch",
-      owner: "builder-b",
-      purpose: "test scratch file",
-      end_condition: "date:2020-01-01",
-      created_by_tool: true,
-      created: new Date().toISOString(),
-    },
-    { registryPath },
-  );
-
-  const otherFile = path.join(root, "scratch-two.txt");
-  fs.writeFileSync(otherFile, "scratch2\n");
-  appendArtifact(
-    {
-      ref: otherFile,
-      kind: "scratch",
-      owner: "a-human",
-      purpose: "hand-made scratch file",
-      end_condition: "date:2020-01-01",
-      created_by_tool: false,
-      created: new Date().toISOString(),
-    },
-    { registryPath },
-  );
-
-  const toplevel = gitToplevel(root);
-  const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
-  assert.equal(state.safe.worktrees.length + (state.safe.branches?.length ?? 0), 0, "SAFE has no registryEntries key at all now");
-  assert.ok(!("registryEntries" in state.safe), "the SAFE class is exactly worktrees and branches, per the round-3 cut");
-  assert.equal(state.judgment.registryEntries.length, 2, "both entries land in JUDGMENT regardless of created_by_tool");
-
-  const code = main(["--apply"], { cwd: root });
-
-  assert.ok(fs.existsSync(toolFile), "a tool-created registry entry's file must survive --apply - there is no unlink path");
-  assert.ok(fs.existsSync(otherFile), "the human-made scratch file must survive --apply");
-
-  // Parse each JSONL line rather than substring-matching the raw text: on win32 the `ref` path
-  // contains backslashes, which JSON.stringify escapes (`\\`), so a raw `remaining.includes(toolFile)`
-  // never matches the doubled-backslash bytes actually on disk even though the entry is present.
-  const remainingRefs = fs
-    .readFileSync(registryPath, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line).ref);
-  assert.ok(remainingRefs.includes(toolFile), "the tool-created line must remain - closeArtifact is never called from apply");
-  assert.ok(remainingRefs.includes(otherFile), "the other registry line must remain for a human to see");
-  assert.equal(code, 1, "both surviving judgment entries are still findings");
-});
-
 test("matchesScratchPattern: matches basename-only patterns anywhere, and path patterns by relative path", () => {
   assert.equal(matchesScratchPattern("tmp-foo.md", ["tmp-*.md"]), true);
   assert.equal(matchesScratchPattern("docs/tmp-foo.md", ["tmp-*.md"]), true);
@@ -383,7 +305,7 @@ test("NEW-4: a scratch pattern that names a directory matches every file inside 
   assert.equal(matchesScratchPattern("scripts/real-file.mjs", ["scripts/_tmp-*"]), false, "a non-matching sibling must not match");
 });
 
-test("the five drift numbers are all present and numeric (or null for disk, if `du` is unavailable)", () => {
+test("the four drift numbers are all present and numeric (or null for disk, if `du` is unavailable)", () => {
   const root = initRepo();
   writeProjectConfig(root);
   const toplevel = gitToplevel(root);
@@ -392,17 +314,14 @@ test("the five drift numbers are all present and numeric (or null for disk, if `
   assert.equal(typeof state.drift.worktreeCount, "number");
   assert.equal(typeof state.drift.openBranchCount, "number");
   assert.equal(typeof state.drift.untrackedFileCount, "number");
-  assert.equal(typeof state.drift.registryPastEndCount, "number");
   assert.ok(state.drift.diskUsedKB === null || typeof state.drift.diskUsedKB === "number");
+  assert.ok(!("registryPastEndCount" in state.drift), "the registry drift number is gone with the registry (round-1 cut)");
 });
 
 test("source never contains a destructive git verb, a force flag, or exit(2), outside comments", () => {
-  const files = ["janitor.mjs", "commit-check.mjs", "artifact-registry.mjs"].map((f) =>
-    path.join(import.meta.dirname, f),
-  );
+  const files = ["janitor.mjs"].map((f) => path.join(import.meta.dirname, f));
   const banned = ["git clean", "reset --hard", "stash", "rm -rf", "--force", "branch -D", "process.exit(2)"];
   for (const file of files) {
-    if (!fs.existsSync(file)) continue; // commit-check.mjs may not exist yet when this file runs standalone
     const src = fs.readFileSync(file, "utf8");
     const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     for (const bad of banned) {
@@ -476,41 +395,9 @@ test("SAFE-CUT: --apply never removes a regular file anywhere - only a whole wor
   const wtDirty = addWorktree(root, "feature-dirty");
   fs.writeFileSync(path.join(wtDirty, "keep-me.txt"), "keep\n");
 
-  const registryPath = path.join(root, ".agents", "artifacts.jsonl");
-  const registryFile = path.join(root, "registry-referenced.txt");
-  fs.writeFileSync(registryFile, "referenced\n");
-  appendArtifact(
-    {
-      ref: registryFile,
-      kind: "scratch",
-      owner: "tool",
-      purpose: "in-root, overdue, tool-created - would have been unlinked in round 2",
-      end_condition: "date:2020-01-01",
-      created_by_tool: true,
-      created: new Date().toISOString(),
-    },
-    { registryPath },
-  );
-
-  const outsideDir = mkTmp("janitor-outside-");
-  const outsideFile = path.join(outsideDir, "outside.txt");
-  fs.writeFileSync(outsideFile, "outside\n");
-  appendArtifact(
-    {
-      ref: outsideFile,
-      kind: "scratch",
-      owner: "tool",
-      purpose: "out-of-root, overdue, tool-created - would have been an escape target in round 2",
-      end_condition: "date:2020-01-01",
-      created_by_tool: true,
-      created: new Date().toISOString(),
-    },
-    { registryPath },
-  );
-
   // Everything except wtSafe (the one sanctioned removal) must be byte-for-byte the same set of
   // regular files, before and after --apply.
-  const watched = [root, wtDirty, outsideDir];
+  const watched = [root, wtDirty];
   assert.ok(fs.existsSync(wtSafe), "sanity: the SAFE worktree exists before --apply");
   const before = watched.map((d) => listAllFiles(d));
 
@@ -521,85 +408,8 @@ test("SAFE-CUT: --apply never removes a regular file anywhere - only a whole wor
     assert.deepEqual(after[i], before[i], `the set of regular files under ${watched[i]} must be unchanged by --apply`);
   }
   assert.ok(!fs.existsSync(wtSafe), "the SAFE worktree is the one sanctioned removal - a whole directory, via git");
-  assert.ok(fs.existsSync(registryFile), "the in-root registry-referenced file survives - report-only");
-  assert.ok(fs.existsSync(outsideFile), "the out-of-root registry-referenced file survives - report-only");
   assert.ok(fs.existsSync(path.join(wtDirty, "keep-me.txt")), "every file in the surviving dirty worktree survives");
-  assert.equal(code, 1, "the surviving JUDGMENT rows (dirty worktree, two registry entries) are still findings");
-});
-
-// BLOCKER 2: --apply unlinks any path on the machine a registry line names
-// Round-3 note: BLOCKER 2 (round 2) and NEW-1 (round 3's symlinked-parent bypass of the round-2
-// containment check) are both retired here, not fixed further - the orchestrator's decision was to
-// CUT the unlink feature entirely rather than harden the containment check again. See the
-// dedicated "--apply never removes a regular file anywhere" test below, which is the replacement
-// the orchestrator asked for: a tool with no unlink code path cannot have a containment bug in it.
-
-// BLOCKER 3: closeArtifact silently erases every registry line it cannot parse or validate
-test("BLOCKER 3: closeArtifact preserves a line it cannot validate (hand-annotated) and a truncated final line", () => {
-  const root = initRepo();
-  const registryPath = path.join(root, ".agents", "artifacts.jsonl");
-  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
-
-  const toolRecord = {
-    ref: "/a/one",
-    kind: "scratch",
-    owner: "tool",
-    purpose: "p",
-    end_condition: "date:2020-01-01",
-    created: "2026-01-01T00:00:00.000Z",
-  };
-  const handAnnotated = JSON.stringify({
-    ref: "/a/hand",
-    kind: "scratch",
-    owner: "ben",
-    purpose: "p",
-    end_condition: "date:2030-01-01",
-    created: "2026-01-01T00:00:00.000Z",
-    note: "DO NOT DELETE, mine",
-  });
-  const truncated = '{ "ref": "/a/broken", "kind": "scratch"';
-
-  fs.writeFileSync(registryPath, [JSON.stringify(toolRecord), handAnnotated, truncated].join("\n") + "\n");
-
-  const removed = closeArtifact({ ref: "/a/one" }, { registryPath });
-  assert.equal(removed, 1);
-
-  const after_ = fs.readFileSync(registryPath, "utf8");
-  assert.ok(!after_.includes("/a/one"), "the matched line should be gone");
-  assert.ok(after_.includes("DO NOT DELETE, mine"), "the hand-annotated line must survive byte for byte");
-  assert.ok(after_.includes('"ref": "/a/broken"'), "the truncated line must survive byte for byte");
-});
-
-test("BLOCKER 3: a close that cannot get the write lock (another writer holds it) skips entirely and does not touch the file", () => {
-  const root = initRepo();
-  const registryPath = path.join(root, ".agents", "artifacts.jsonl");
-  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
-  const record = {
-    ref: "/a/one",
-    kind: "scratch",
-    owner: "tool",
-    purpose: "p",
-    end_condition: "date:2020-01-01",
-    created: "2026-01-01T00:00:00.000Z",
-  };
-  fs.writeFileSync(registryPath, JSON.stringify(record) + "\n");
-  const before = fs.readFileSync(registryPath, "utf8");
-
-  // Simulate a concurrent writer by holding the same lock file closeArtifact uses.
-  const lockPath = `${registryPath}.lock`;
-  const lockFd = fs.openSync(lockPath, "wx");
-  try {
-    const removed = closeArtifact({ ref: "/a/one" }, { registryPath });
-    assert.equal(removed, 0, "a held lock means: do nothing this run, try again next time");
-    assert.equal(fs.readFileSync(registryPath, "utf8"), before, "the file must be byte-for-byte untouched");
-  } finally {
-    fs.closeSync(lockFd);
-    fs.unlinkSync(lockPath);
-  }
-
-  // Lock released: the same close now succeeds normally.
-  const removedAfter = closeArtifact({ ref: "/a/one" }, { registryPath });
-  assert.equal(removedAfter, 1);
+  assert.equal(code, 1, "the surviving dirty worktree is still a finding");
 });
 
 // BLOCKER 4 (round 2): a throw during --apply, after something was already deleted, produced zero
@@ -740,6 +550,148 @@ test("MAJOR 7: a branch named 'release' that points at main is JUDGMENT and surv
   assert.ok(listLocalBranches(gitToplevel(root)).includes("release"), "release must survive --apply");
 });
 
+// round-1 review MAJOR: a local branch literally named `origin/<main>` shadows the real
+// refs/remotes/origin/<main> ref in git's own bare-name ambiguity order, making a never-pushed,
+// locally-merged branch look confirmed on origin. --apply then deleted both its worktree and its
+// ref, leaving the commits reachable only via a local main that could itself be reset later.
+test("round-1 MAJOR: a local branch named origin/main does not fool the origin-confirmation proof", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const wt = addWorktree(root, "feat-precious");
+  fs.writeFileSync(path.join(wt, "precious.txt"), "only copy\n");
+  git(["add", "."], wt);
+  git(["commit", "-q", "-m", "precious work"], wt);
+  mergeIntoMain(root, "feat-precious"); // merged into LOCAL main only - never pushed
+
+  // The shadow: a local branch literally named origin/main, pointing at the same (unpushed) tip.
+  git(["branch", "origin/main", "main"], root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(
+    !state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal),
+    "feat-precious's worktree must NOT be SAFE just because a branch named origin/main exists locally",
+  );
+  assert.ok(
+    state.judgment.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal),
+    "it must be JUDGMENT instead - merged locally, not actually confirmed on the real origin/main",
+  );
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-precious"), "feat-precious the branch must NOT be SAFE either");
+  assert.ok(state.judgment.branches.some((b) => b.ref === "feat-precious"), "it must be JUDGMENT");
+
+  const code = main(["--apply"], { cwd: root });
+  assert.ok(fs.existsSync(wt), "the worktree must survive --apply");
+  assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-precious"), "feat-precious must survive --apply");
+  assert.equal(code, 1);
+});
+
+// round-1 review MINOR 2: the protected-name guard existed only in the branch loop - a worktree
+// checked out on a protected name (clean, merged, pushed) was SAFE and --apply removed the
+// directory, while the branch of the same name was correctly held back as JUDGMENT.
+test("round-1 MINOR: a worktree checked out on a protected branch name is JUDGMENT, never SAFE, and survives --apply", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const wt = addWorktree(root, "release/rc1");
+  mergeIntoMain(root, "release/rc1");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "a protected-name worktree must never be SAFE");
+  const row = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
+  assert.ok(row, "it must be JUDGMENT instead");
+  assert.match(row.reason, /protected/);
+
+  const code = main(["--apply"], { cwd: root });
+  assert.ok(fs.existsSync(wt), "the release/rc1 worktree must survive --apply");
+  void code;
+});
+
+// round-1 review MINOR 3: a worktree-remove that fails (even partially - git can deregister and
+// empty the directory before a final rmdir fails) must never let that worktree's branch get
+// deleted in the same run, and the log must say what actually happened.
+test("round-1 MINOR: when a worktree-remove fails, its branch is not deleted this run, and both survive", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-failremove");
+  mergeIntoMain(root, "feature-failremove");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.equal(state.safe.worktrees.length, 1, "sanity: classified SAFE before the race");
+  assert.ok(state.safe.branches.some((b) => b.ref === "feature-failremove"), "sanity: its branch is also SAFE");
+
+  // Race: lock the worktree after classification but before applySafe runs, so the removal fails
+  // cleanly (git itself refuses; directory and worktree registration both survive intact).
+  git(["worktree", "lock", "--reason", "raced", wt], root);
+  try {
+    const log = applySafe(state, []);
+    const removeEntry = log.find((l) => l.action === "worktree-remove");
+    assert.equal(removeEntry.ok, false, "the removal must be logged as failed");
+    const branchEntry = log.find((l) => l.action === "branch-delete" && l.ref === "feature-failremove");
+    assert.ok(branchEntry, "the branch-delete attempt must be logged, not silently skipped");
+    assert.equal(branchEntry.ok, false, "the branch must NOT be deleted when its worktree removal did not succeed");
+    assert.ok(fs.existsSync(wt), "the worktree directory must survive");
+    assert.ok(listLocalBranches(gitToplevel(root)).includes("feature-failremove"), "the branch must survive");
+  } finally {
+    git(["worktree", "unlock", wt], root);
+  }
+});
+
+// round-1 review MINOR 7: no test pinned "never the worktree janitor is standing in" - verified
+// live by the reviewer three ways (normal cwd, lowercased cwd, NTFS junction) but unpinned.
+test("round-1: run FROM a linked worktree, that worktree never appears in SAFE and survives --apply", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-self");
+  mergeIntoMain(root, "feature-self");
+  pushMain(root);
+
+  const state = gatherState({ root: gitToplevel(wt), config: loadProjectConfig(wt).config });
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(
+    !state.safe.worktrees.some((w) => path.normalize(w.ref) === path.normalize(wtReal)),
+    "the worktree we're standing in must never appear in SAFE",
+  );
+
+  main(["--apply"], { cwd: wt });
+  assert.ok(fs.existsSync(wt), "janitor must never remove the worktree it is running from");
+});
+
+test(
+  "round-1: run FROM a linked worktree reached via a lowercased path, it still never appears in SAFE (case-insensitive fs)",
+  { skip: process.platform === "linux" ? "linux filesystems are case-sensitive; a lowercased path would not resolve to the same worktree" : false },
+  () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    addOrigin(root);
+    const wt = addWorktree(root, "feature-self-lc");
+    mergeIntoMain(root, "feature-self-lc");
+    pushMain(root);
+
+    const lowered = wt.toLowerCase();
+    const state = gatherState({ root: gitToplevel(lowered), config: loadProjectConfig(lowered).config });
+    const wtReal = fs.realpathSync(wt);
+    assert.ok(
+      !state.safe.worktrees.some((w) => path.normalize(w.ref).toLowerCase() === path.normalize(wtReal).toLowerCase()),
+      "the worktree we're standing in, reached via a different-case path, must never appear in SAFE",
+    );
+  },
+);
+
 // NEW-2 (round 3 delta review): branch deletion had no origin confirmation at all - only the
 // worktree class did. In a repo with zero remotes, a merged local branch was SAFE and --apply
 // deleted it, even though the exact same commit reachable only via a worktree was correctly held
@@ -792,62 +744,10 @@ test("MAJOR 8: a malformed .agents/project.json exits 3, not 0, and says so on s
   assert.match(errs.join(""), /project\.json/);
 });
 
-// MAJOR 9: registry read failures are swallowed and the drift number lies
-test(
-  "MAJOR 9: an unreadable registry file exits 3 (blind), never a clean-looking 0",
-  // On win32, chmod(0o000) does not block the owning process from reading its own file (NTFS ACLs,
-  // not POSIX mode bits, govern access; verified live on this machine before skipping), so this
-  // fixture cannot produce an unreadable file here. Skipped rather than faked green. Same gap
-  // documented in artifact-registry.test.mjs's equivalent unreadable-file test.
-  { skip: process.platform === "win32" ? "chmod(0o000) does not block owner reads on win32" : false },
-  () => {
-  const root = initRepo();
-  writeProjectConfig(root);
-  const registryPath = path.join(root, ".agents", "artifacts.jsonl");
-  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
-  appendArtifact(
-    {
-      ref: path.join(root, "whatever.txt"),
-      kind: "scratch",
-      owner: "tool",
-      purpose: "p",
-      end_condition: "date:2020-01-01",
-      created_by_tool: true,
-      created: new Date().toISOString(),
-    },
-    { registryPath },
-  );
-  fs.chmodSync(registryPath, 0o000);
-
-  const errs = [];
-  const origErr = process.stderr.write.bind(process.stderr);
-  process.stderr.write = (s) => {
-    errs.push(s);
-    return true;
-  };
-  let code;
-  try {
-    code = main([], { cwd: root });
-  } finally {
-    process.stderr.write = origErr;
-    fs.chmodSync(registryPath, 0o600); // restore so cleanup can remove it
-  }
-  assert.equal(code, 3, "an unreadable registry must never be reported as zero findings");
-  assert.match(errs.join(""), /registry/);
-});
-
-test("MAJOR 9b: malformed (but readable) registry lines are surfaced as a count, not silently dropped to zero", () => {
-  const root = initRepo();
-  writeProjectConfig(root);
-  const registryPath = path.join(root, ".agents", "artifacts.jsonl");
-  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
-  fs.writeFileSync(registryPath, ["{ broken", JSON.stringify({ ref: "x" })].join("\n") + "\n");
-
-  const toplevel = gitToplevel(root);
-  const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
-  assert.equal(state.drift.registryMalformedCount, 2);
-});
+// MAJOR 9 / MAJOR 9b (round-1 CUT): both covered the artifact registry's blind/malformed-read
+// paths. The registry (scripts/artifact-registry.mjs) was removed from this build entirely per
+// round-1 review - it read a file nothing shipped ever wrote - so there is no registry read path
+// left to be blind about. Removed rather than kept red.
 
 // MAJOR 10: C-quoted paths defeat the scratch-pattern match
 test("MAJOR 10: an untracked scratch file with a space, and one with a non-ASCII character, are both flagged", () => {

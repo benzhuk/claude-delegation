@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// janitor — dry-run by default, prints a SAFE table, a JUDGMENT table, and five drift numbers for
+// janitor — dry-run by default, prints a SAFE table, a JUDGMENT table, and four drift numbers for
 // the current project (per contracts/project.schema.json, read only through project-config.mjs).
 //
 // janitor NEVER deletes a file. Its only two destructive actions, both delegated straight to git,
@@ -11,18 +11,24 @@
 // the wrong file.
 //
 // SAFE (a human would agree without looking) = a git worktree that is: not locked, not the main
-//   working tree, not the worktree we are standing in, its branch fully merged into main AND its
-//   tip confirmed present on origin/<main> (when an origin/<main> ref exists — with no origin
-//   remote at all, nothing is ever confirmed and nothing is ever SAFE), `git status --porcelain
-//   --ignored` fully empty (untracked AND ignored content both count), no submodules; OR a local
-//   branch merged into main AND confirmed on origin/<main> the same way, that is not a protected
-//   name, not the current branch, not main.
+//   working tree, not the worktree we are standing in, not checked out on a protected branch name,
+//   its branch fully merged into main AND its tip confirmed present on origin/<main> (when an
+//   origin/<main> ref exists — with no origin remote at all, nothing is ever confirmed and nothing
+//   is ever SAFE), `git status --porcelain --ignored` fully empty (untracked AND ignored content
+//   both count), no submodules; OR a local branch merged into main AND confirmed on origin/<main>
+//   the same way, that is not a protected name, not the current branch, not main.
 // JUDGMENT = everything that fails one of the above proofs but still looks stale: a dirty/ignored/
-//   locked/submoduled worktree, a merged worktree whose branch is not confirmed on origin, an
-//   unmerged branch with no commit in 14 days, a merged branch not confirmed on origin, a
-//   protected-name branch that happens to be merged, a registry entry past its end_condition (of
-//   ANY kind, whatever it claims — registry entries are report-only, nothing ever acts on one), an
+//   locked/submoduled worktree, a protected-name worktree (even if otherwise SAFE), a merged
+//   worktree whose branch is not confirmed on origin, an unmerged branch with no commit in 14 days,
+//   a merged branch not confirmed on origin, a protected-name branch that happens to be merged, an
 //   untracked file matching the project's scratch_patterns.
+//
+// round-1 fix note: the artifact registry (scripts/artifact-registry.mjs) and commit-check
+// (scripts/commit-check.mjs) were CUT from this build per review — the registry read a file nothing
+// shipped ever wrote, and commit-check implemented no agent/owner distinction while blocking
+// nobody. Losing the registry means janitor no longer has a `registryEntries` JUDGMENT row, a
+// `registryPastEndCount`/`registryMalformedCount` drift number, or a "registry entries" report
+// section — SAFE/JUDGMENT worktree and branch classification is unaffected.
 //
 // `--apply` acts on SAFE only: a plain, unforced worktree removal, a worktree prune, and a
 // lower-case branch delete (the non-forcing form only - never its capital-letter sibling). JUDGMENT
@@ -35,8 +41,8 @@
 // already done is printed, and the exit code is 1 or 3, never 0.
 //
 // Exit codes: 0 ok (no findings, or --apply cleared everything with nothing left over), 1 findings
-// remain (or an apply action failed), 3 blind (couldn't read project config, the registry, or git
-// state at all — this is NOT the same as clean). NEVER 2. The only silent-0 paths are the switch
+// remain (or an apply action failed), 3 blind (couldn't read project config or git state at all —
+// this is NOT the same as clean). NEVER 2. The only silent-0 paths are the switch
 // file and `vcs: "none"`; every other blind or crash condition says so on stderr before returning 3
 // (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
 // no destructive action has been taken yet).
@@ -47,12 +53,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
-import { listArtifacts, endConditionMet, resolveRegistryPath } from "./artifact-registry.mjs";
 import { checkWiring } from "./wiring-check.mjs";
 
 const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
 const PROTECTED_BRANCH_PREFIXES = ["release/", "hotfix/"];
+
+/** Every ref/branch name this file hands to git as a revision is qualified (refs/heads/... or
+ * refs/remotes/origin/...), never bare. A bare name is resolved by git's own ambiguity order, which
+ * checks refs/tags/<name> AND a like-named local branch/remote-tracking ref BEFORE the one this tool
+ * means — round-1 review found a local branch literally named `origin/main` shadowing the real
+ * `refs/remotes/origin/main` and making a never-pushed branch look SAFE. */
+function headRef(name) {
+  return `refs/heads/${name}`;
+}
 
 // ---------- git wrappers (each catches its own failure; callers decide safe/blind) ----------
 
@@ -135,7 +149,7 @@ export function isTreeClean(worktreePath) {
 export function isBranchMerged(root, branch, mainBranch) {
   if (branch === mainBranch) return false;
   try {
-    git(["merge-base", "--is-ancestor", branch, mainBranch], root);
+    git(["merge-base", "--is-ancestor", headRef(branch), headRef(mainBranch)], root);
     return true;
   } catch {
     return false;
@@ -157,7 +171,7 @@ export function isBranchOnOrigin(root, branch, mainBranch) {
     return false;
   }
   try {
-    git(["merge-base", "--is-ancestor", branch, `origin/${mainBranch}`], root);
+    git(["merge-base", "--is-ancestor", headRef(branch), `refs/remotes/origin/${mainBranch}`], root);
     return true;
   } catch {
     return false;
@@ -186,7 +200,7 @@ export function listLocalBranches(root) {
 
 export function daysSinceLastCommit(root, branch, now = new Date()) {
   try {
-    const epoch = Number(git(["log", "-1", "--format=%ct", branch], root).trim());
+    const epoch = Number(git(["log", "-1", "--format=%ct", headRef(branch)], root).trim());
     if (!Number.isFinite(epoch)) return null;
     return (now.getTime() / 1000 - epoch) / 86400;
   } catch {
@@ -248,8 +262,8 @@ export function matchesScratchPattern(relPath, patterns) {
 // ---------- classification ----------
 
 /**
- * Builds the SAFE/JUDGMENT classes and the five drift numbers from already-gathered git + registry
- * state. Pure (no I/O) so it can be unit tested directly, separate from the git-shelling-out layer.
+ * Builds the SAFE/JUDGMENT classes and the four drift numbers from already-gathered git state. Pure
+ * (no I/O) so it can be unit tested directly, separate from the git-shelling-out layer.
  */
 export function classify({
   root,
@@ -257,12 +271,10 @@ export function classify({
   worktrees,
   branches,
   untrackedFiles,
-  registryEntries,
-  now = new Date(),
   scratchPatterns = [],
 }) {
   const safe = { worktrees: [], branches: [] };
-  const judgment = { worktrees: [], branches: [], registryEntries: [], untrackedFiles: [] };
+  const judgment = { worktrees: [], branches: [], untrackedFiles: [] };
 
   const cur = currentBranchOf(worktrees, root);
 
@@ -285,6 +297,13 @@ export function classify({
     if (!w.branch || !w.merged) continue; // unmerged/detached: normal in-progress state, not a finding
     if (!w.onOrigin) {
       judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `merged locally, not confirmed on origin/${mainBranch}` });
+      continue;
+    }
+    const protectedWt = PROTECTED_BRANCH_NAMES.has(w.branch) || PROTECTED_BRANCH_PREFIXES.some((p) => w.branch.startsWith(p));
+    if (protectedWt) {
+      // Same reasoning as the branch class below: a name whose whole value IS the name is never
+      // mechanically safe, whether it's a ref or a directory checked out on that ref.
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "protected branch name, a person decides" });
       continue;
     }
     safe.worktrees.push({ ref: w.path, branch: w.branch, reason: "branch merged into main (and on origin), tree fully clean" });
@@ -316,20 +335,6 @@ export function classify({
     }
   }
 
-  // Registry entries are REPORT-ONLY: janitor has no unlink path at all, so an overdue entry -
-  // whatever kind, whatever it claims about who created it - is always a JUDGMENT row for a human
-  // to act on by hand, never a SAFE one.
-  for (const entry of registryEntries) {
-    const met = endConditionMet(entry.record, { now, isMerged: (ref) => branches.some((b) => b.name === ref && b.merged) });
-    if (!met) continue;
-    judgment.registryEntries.push({
-      ref: entry.record.ref,
-      kind: entry.record.kind,
-      created: entry.record.created,
-      reason: `end_condition met: ${entry.record.end_condition}${entry.record.created_by_tool === true ? " (tool-created)" : ""}`,
-    });
-  }
-
   for (const f of untrackedFiles) {
     if (matchesScratchPattern(f, scratchPatterns)) {
       judgment.untrackedFiles.push({ ref: f, reason: "untracked, matches a scratch pattern" });
@@ -343,8 +348,7 @@ export function classify({
       worktreeCount: worktrees.filter((w) => !w.bare).length,
       openBranchCount: branches.length,
       untrackedFileCount: untrackedFiles.length,
-      registryPastEndCount: judgment.registryEntries.length,
-      // diskUsedKB, registryMalformedCount are filled in by the caller.
+      // diskUsedKB is filled in by the caller.
     },
   };
 }
@@ -361,8 +365,7 @@ function currentBranchOf(worktrees, root) {
 
 /**
  * Returns either a normal state object, or `{ __blind: true, reason }` when git state could not be
- * read at all (distinct from the registry being unreadable, which is layered on afterward so the
- * caller can give a specific reason for each).
+ * read at all.
  */
 export function gatherState({ root, config, now = new Date() }) {
   const mainBranch = config.main_branch || "main";
@@ -392,25 +395,15 @@ export function gatherState({ root, config, now = new Date() }) {
   const untrackedFiles = listUntrackedFiles(root);
   const diskUsedKB = diskUsageKB(root);
 
-  const registryPath = resolveRegistryPath(root, config.artifact_registry);
-  const { entries: registryEntries, malformedCount, unreadable } = listArtifacts({
-    registryPath,
-    extraKinds: config.extra_artifact_kinds || [],
-  });
-  if (unreadable) return { __blind: true, reason: `could not read the artifact registry (${registryPath})` };
-
   const result = classify({
     root,
     mainBranch,
     worktrees,
     branches,
     untrackedFiles,
-    registryEntries,
-    now,
     scratchPatterns: config.scratch_patterns || [],
   });
   result.drift.diskUsedKB = diskUsedKB;
-  result.drift.registryMalformedCount = malformedCount;
   result._raw = { root, mainBranch };
   return result;
 }
@@ -423,16 +416,31 @@ export function gatherState({ root, config, now = new Date() }) {
  * already individually guarded and never throws past this function). Only two kinds of action
  * exist: a worktree removal (a directory, via git) and a branch delete (a ref, via git). Neither
  * this function nor anything it calls ever unlinks a file.
+ *
+ * A branch is only ever deleted after ITS OWN worktree removal (if it had one) logged `ok: true`.
+ * Round-1 review found a case where `git worktree remove` reported failure (a permission-denied
+ * final rmdir) yet had already deregistered the worktree and emptied its directory - `stillCheckedOut`
+ * alone no longer saw the branch as checked out, so it was deleted anyway even though the log line
+ * read "failed". The branch is the last copy of those commits if anything went wrong; when in doubt
+ * it stays, and the log says exactly what happened to each.
  */
 export function applySafe(state, log = []) {
   const { root } = state._raw;
 
+  const failedWorktreeBranches = new Set();
   for (const w of state.safe.worktrees) {
     try {
       git(["worktree", "remove", "--", w.ref], root);
       log.push({ action: "worktree-remove", ref: w.ref, ok: true });
     } catch (err) {
-      log.push({ action: "worktree-remove", ref: w.ref, ok: false, error: String(err.message || err) });
+      // A failure here can still have left the directory's CONTENT gone (git deregisters and empties
+      // it before the final rmdir, which is what can fail) - say so, rather than implying survival.
+      const goneAnyway = w.ref ? !existsSync(w.ref) : false;
+      const note = goneAnyway
+        ? " (the worktree directory no longer exists even though this removal reported failure - treat it as gone, not survived)"
+        : "";
+      log.push({ action: "worktree-remove", ref: w.ref, ok: false, error: `${String(err.message || err)}${note}` });
+      if (w.branch) failedWorktreeBranches.add(w.branch);
     }
   }
   try {
@@ -449,6 +457,10 @@ export function applySafe(state, log = []) {
     stillCheckedOut = new Set();
   }
   for (const b of state.safe.branches) {
+    if (failedWorktreeBranches.has(b.ref)) {
+      log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "skipped: its worktree removal did not report success" });
+      continue;
+    }
     if (stillCheckedOut.has(b.ref)) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "still checked out in a worktree" });
       continue;
@@ -483,8 +495,6 @@ function printReport(state, wiring) {
   console.log(table(state.judgment.worktrees, ["ref", "branch", "reason"]));
   console.log("  branches:");
   console.log(table(state.judgment.branches, ["ref", "reason"]));
-  console.log("  registry entries (report-only, nothing acts on these):");
-  console.log(table(state.judgment.registryEntries, ["ref", "kind", "reason"]));
   console.log("  untracked files:");
   console.log(table(state.judgment.untrackedFiles, ["ref", "reason"]));
   console.log("");
@@ -493,10 +503,6 @@ function printReport(state, wiring) {
   console.log(`  worktree count: ${state.drift.worktreeCount}`);
   console.log(`  open local branch count: ${state.drift.openBranchCount}`);
   console.log(`  untracked file count: ${state.drift.untrackedFileCount}`);
-  console.log(`  registry entries past end condition: ${state.drift.registryPastEndCount}`);
-  if (state.drift.registryMalformedCount > 0) {
-    console.log(`  registry lines unreadable or malformed: ${state.drift.registryMalformedCount}`);
-  }
   if (wiring) {
     console.log("");
     console.log("WIRING (read-only visibility, never acted on by janitor):");
@@ -510,7 +516,6 @@ function hasFindings(state) {
     state.safe.branches.length > 0 ||
     state.judgment.worktrees.length > 0 ||
     state.judgment.branches.length > 0 ||
-    state.judgment.registryEntries.length > 0 ||
     state.judgment.untrackedFiles.length > 0
   );
 }
@@ -587,7 +592,6 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       const judgmentRemains =
         state.judgment.worktrees.length > 0 ||
         state.judgment.branches.length > 0 ||
-        state.judgment.registryEntries.length > 0 ||
         state.judgment.untrackedFiles.length > 0;
       return applyFailed || judgmentRemains ? 1 : 0;
     }
