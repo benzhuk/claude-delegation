@@ -303,9 +303,12 @@ export function switchErrorMeansPresent(e) { return Boolean(e) && e.code !== "EN
  * delegation-reminder.js, project-config.mjs) - and never lets an unresolvable home escape as an
  * uncaught throw, matching this file's own "never fails its caller" contract. */
 function wsOffActive(opts = {}) {
-  let home;
-  try { home = opts.home ?? homedir(); } catch { return true; } // can't tell => say nothing
-  const base = process.env.AGENTS_HOME || path.join(home, ".agents");
+  let base;
+  // MINOR A (seam delta review): an explicitly injected home wins over the ambient env - the
+  // reverse order silently redirected a caller's scratch home to the real one.
+  try { base = opts.home ? path.join(opts.home, ".agents")
+                         : (process.env.AGENTS_HOME || path.join(homedir(), ".agents")); }
+  catch { return true; } // can't tell => say nothing
   const fsImpl = opts.fsImpl ?? fs;
   try { fsImpl.statSync(path.join(base, "ws-off")); return true; }
   catch (e) { return switchErrorMeansPresent(e); }

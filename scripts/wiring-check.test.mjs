@@ -371,10 +371,15 @@ test("the default list names nothing private to the owner's machines (no absolut
 // ---------------------------------------------------------------------------
 
 /** Every child here goes through childEnv(): this session's own inbox socket/token must never
- * reach a spawned wiring-check process, whatever else it needs to see (test-child-env.mjs). */
+ * reach a spawned wiring-check process, whatever else it needs to see (test-child-env.mjs).
+ * AGENTS_HOME is pinned to this fixture's own .agents dir (goal-card.test.mjs:296 does the same),
+ * so an ambient AGENTS_HOME on the machine running the suite can never leak into the child. */
 function runCli(args, home) {
   try {
-    const out = execFileSync(NODE, [SCRIPT, ...args], { encoding: "utf8", env: childEnv(home) });
+    const out = execFileSync(NODE, [SCRIPT, ...args], {
+      encoding: "utf8",
+      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents") }),
+    });
     return { code: 0, stdout: out, stderr: "" };
   } catch (err) {
     return { code: err.status ?? 1, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };

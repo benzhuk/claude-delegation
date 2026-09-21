@@ -151,7 +151,15 @@ test("--apply removes only the SAFE class; the dirty worktree and its branch sur
   const wtARealBefore = fs.realpathSync(wtA);
   const wtBRealBefore = fs.realpathSync(wtB);
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
 
   const toplevel = gitToplevel(root);
   // `git worktree list --porcelain` always prints forward-slash paths, even on win32; normalize
@@ -182,7 +190,15 @@ test("the current worktree and its branch are never touched, and main is never d
   const toplevel = gitToplevel(wtC);
   const before = { worktrees: listWorktrees(toplevel).length, branches: listLocalBranches(toplevel).length };
 
-  const code = main(["--apply"], { cwd: wtC });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: wtC });
+  } finally {
+    console.log = origLog;
+  }
 
   const after_ = { worktrees: listWorktrees(toplevel).length, branches: listLocalBranches(toplevel).length };
   assert.deepEqual(after_, before, "nothing should have been removed - the only candidate was the current worktree/branch");
@@ -370,7 +386,15 @@ test("BLOCKER 1: a merged worktree holding a gitignored file with content is JUD
     "it must be JUDGMENT instead",
   );
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.equal(code, 1);
   assert.ok(fs.existsSync(wt), "the worktree directory must survive --apply");
   assert.ok(fs.existsSync(path.join(wt, "local-config.ini")), "the ignored file must survive --apply");
@@ -403,7 +427,15 @@ test("SAFE-CUT: --apply never removes a regular file anywhere - only a whole wor
   assert.ok(fs.existsSync(wtSafe), "sanity: the SAFE worktree exists before --apply");
   const before = watched.map((d) => listAllFiles(d));
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
 
   const after = watched.map((d) => listAllFiles(d));
   for (let i = 0; i < watched.length; i++) {
@@ -530,7 +562,15 @@ test("MAJOR 6: run from a linked worktree, the main working tree never appears i
     "the main working tree must never appear in SAFE, from anywhere",
   );
 
-  const code = main(["--apply"], { cwd: other });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: other });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(fs.existsSync(root), "the main working tree must survive --apply");
   assert.ok(fs.existsSync(path.join(root, ".git")), "the main working tree's .git must survive --apply");
   void code;
@@ -548,7 +588,14 @@ test("MAJOR 7: a branch named 'release' that points at main is JUDGMENT and surv
   assert.ok(!state.safe.branches.some((b) => b.ref === "release"), "a protected-name branch must never be SAFE");
   assert.ok(state.judgment.branches.some((b) => b.ref === "release"), "it must be JUDGMENT instead");
 
-  main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(listLocalBranches(gitToplevel(root)).includes("release"), "release must survive --apply");
 });
 
@@ -586,7 +633,15 @@ test("round-1 MAJOR: a local branch named origin/main does not fool the origin-c
   assert.ok(!state.safe.branches.some((b) => b.ref === "feat-precious"), "feat-precious the branch must NOT be SAFE either");
   assert.ok(state.judgment.branches.some((b) => b.ref === "feat-precious"), "it must be JUDGMENT");
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(fs.existsSync(wt), "the worktree must survive --apply");
   assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-precious"), "feat-precious must survive --apply");
   assert.equal(code, 1);
@@ -613,7 +668,15 @@ test("round-1 MINOR: a worktree checked out on a protected branch name is JUDGME
   assert.ok(row, "it must be JUDGMENT instead");
   assert.match(row.reason, /protected/);
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(fs.existsSync(wt), "the release/rc1 worktree must survive --apply");
   void code;
 });
@@ -669,7 +732,14 @@ test("round-1: run FROM a linked worktree, that worktree never appears in SAFE a
     "the worktree we're standing in must never appear in SAFE",
   );
 
-  main(["--apply"], { cwd: wt });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    main(["--apply"], { cwd: wt });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(fs.existsSync(wt), "janitor must never remove the worktree it is running from");
 });
 
@@ -717,7 +787,15 @@ test("NEW-2: in a repo with NO remote at all, a merged branch is JUDGMENT (not c
   assert.ok(row, "it must be JUDGMENT instead");
   assert.match(row.reason, /not confirmed on origin/);
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-local"), "feat-local must survive --apply with no remote to confirm against");
   assert.equal(code, 1);
 });
@@ -862,7 +940,15 @@ test("round-2 MAJOR: a tag named refs/remotes/origin/main cannot fool the origin
   assert.ok(!state.safe.branches.some((b) => b.ref === "feat-unpushed"), "feat-unpushed must NOT be SAFE");
   assert.ok(state.judgment.branches.some((b) => b.ref === "feat-unpushed"), "it must be JUDGMENT - merged locally, not actually confirmed");
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-unpushed"), "feat-unpushed must survive --apply");
   assert.equal(code, 1);
 });
@@ -1012,7 +1098,15 @@ test("round-4 MAJOR: a merged branch checked out in the MAIN worktree is never S
   assert.ok(row, "it must appear as a JUDGMENT row instead");
   assert.match(row.reason, /checked out in a worktree/);
 
-  const code = main(["--apply"], { cwd: runner });
+  // NIT (seam delta): --apply prints a real-machine WIRING section, display-only - capture, discard.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: runner });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(listLocalBranches(gitToplevel(runner)).includes("feat-done"), "feat-done must survive --apply");
   void code;
 });
@@ -1048,7 +1142,15 @@ test("round-4 MAJOR: a worktree moved aside (directory gone, git still registers
   const branchRow = state.judgment.branches.find((b) => b.ref === "feature-moved");
   assert.ok(branchRow, "the branch must appear as JUDGMENT");
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): same as above - suppress the real-machine WIRING section, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(listLocalBranches(gitToplevel(root)).includes("feature-moved"), "feature-moved must survive --apply");
   const stillRegistered = (listWorktrees(gitToplevel(root)) || []).some((w) => w.branch === "feature-moved");
   assert.ok(stillRegistered, "the moved-aside worktree's git registration must survive --apply - nothing JUDGMENT may be pruned");
@@ -1077,7 +1179,15 @@ test("round-5 MINOR: an abandoned worktree on a stale UNMERGED branch is reporte
   assert.match(row.reason, /unmerged/);
   assert.match(row.reason, /checked out in a worktree/);
 
-  const code = main(["--apply"], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-stale"), "unmerged work must survive --apply regardless");
   void code;
 });
