@@ -12,8 +12,12 @@ page, keeps working on whatever else is dispatchable, and picks the answer up la
 
 ## Writing an item
 
-Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs` (both in
-this repo). One toggle per decision, a unique title, one or two lines of evidence,
+Shape: `templates/decision-item.md`, in the plugin repo's `templates/` folder only
+(not yet mirrored — read this skill from a checkout, not a mirrored copy, if you
+need it). Read the page with `scripts/decisions-read.mjs`, shipped next to this
+skill as `../_scripts/decisions-read.mjs` when mirrored, and at
+`scripts/decisions-read.mjs` in the plugin repo otherwise. One toggle per decision,
+a unique title, one or two lines of evidence,
 two to four unticked options with the recommended one FIRST marked "(recommended)".
 Last plain line: `Default after <date> <time> <±UTC offset>: <option>` for a
 reversible decision — use the offset in force on that date (`-04:00` New York in

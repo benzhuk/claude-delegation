@@ -32,7 +32,7 @@ claude plugin install delegation@benzhuk
 
 ## What you get
 
-**Three skills** (auto-suggested by task shape, or invoke directly):
+**Four skills** (auto-suggested by task shape, or invoke directly):
 
 - **`/delegation:delegate`** — parallel fan-out orchestration for independent
   research / review / audit lanes: decompose, tier the models, budget the concurrency,
@@ -43,6 +43,8 @@ claude plugin install delegation@benzhuk
   verification verbs, ship gate with the orchestrator.
 - **`/delegation:multi`** — peer-session notes: one-line envelopes to an EQUAL session
   you don't own (see below).
+- **`/delegation:decisions`** — record a question only the owner can answer on their
+  Notion decisions page and keep working, instead of blocking on a reply.
 
 Neither `delegate` nor `team-build` is for talking to a session you don't own — see
 [`multi`](#multi--peer-sessions) below for that.
