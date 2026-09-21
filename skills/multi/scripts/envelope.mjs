@@ -9,6 +9,13 @@
 // with a clear message BEFORE the regex ever runs, so a bad field is never silently swallowed.
 
 export const KINDS = ['ASK', 'ACK', 'RESULT', 'BLOCKED', 'FYI'];
+/**
+ * Spec 2026-09-20 N1: ACK and FYI never start a peer's turn. They are validated and written to the
+ * ledger exactly like any other kind — the recipient's own hooks surface them at its next event — but
+ * no outbox entry, inbox post or pane resolution happens FOR them. `~/.agents/notes/wake-all-kinds`
+ * (a kill switch, checked by the caller) restores the old behaviour.
+ */
+export const LEDGER_ONLY_KINDS = new Set(['ACK', 'FYI']);
 export const NEEDS = ['decision', 'review', 'ack', 'none'];
 /** Only ASK may carry a need other than `none` (envelope.md, Needs row; red-team M3). */
 export const ASK_ONLY_NEEDS = ['decision', 'review', 'ack'];
@@ -204,6 +211,57 @@ export function highestCounter(texts, prefix) {
 }
 
 export function nextCounter(texts, prefix) { return highestCounter(texts, prefix) + 1; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slug suggestion (spec 2026-09-20 N2) — "did you mean"
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Standard iterative Levenshtein edit distance. Pure, O(len(a) * len(b)). */
+export function editDistance(a, b) {
+  const s = String(a);
+  const t = String(b);
+  if (s === t) return 0;
+  if (s.length === 0) return t.length;
+  if (t.length === 0) return s.length;
+  let prev = Array.from({ length: t.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= s.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= t.length; j++) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[t.length];
+}
+
+/** `a` and `b` share a boundary — one is a prefix or suffix of the other, e.g. "fable" / "taxonomy-fable". */
+export function isAffixMatch(a, b) {
+  const s = String(a);
+  const t = String(b);
+  if (!s || !t || s === t) return false;
+  return t.endsWith(s) || t.startsWith(s) || s.endsWith(t) || s.startsWith(t);
+}
+
+/**
+ * The closest known slug to an unresolved recipient, or null — the "did you mean" hint on an
+ * unknown-recipient error (spec N2). Edit distance <= 2 OR a prefix/suffix match; ties broken by the
+ * smaller edit distance, then alphabetically (`knownSlugs` is sorted before this runs).
+ */
+export function suggestSlug(target, knownSlugsList) {
+  const want = String(target);
+  let best = null;
+  let bestScore = Infinity;
+  for (const slug of knownSlugsList) {
+    if (slug === want) continue;
+    const dist = editDistance(want, slug);
+    const affix = isAffixMatch(want, slug);
+    if (dist > 2 && !affix) continue;
+    const score = affix ? Math.min(dist, 2) : dist;
+    if (score < bestScore) { bestScore = score; best = slug; }
+  }
+  return best;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Time
