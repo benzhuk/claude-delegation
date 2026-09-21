@@ -29,6 +29,12 @@ Rules of thumb (vendor-neutral):
 - Fast tier never touches anything that computes a number someone will act on.
 - On Ben's plans the mid tier is effectively free: run executors at full strength, always.
 
+Enforced in code, not just prose: `hooks/agent-dispatch-guard.mjs` rule R1 denies an
+`Agent` spawn with an explicit `model: opus` or `model: fable` unless it is a reviewer
+subagent or the prompt states a `JUDGMENT:` line (a quality verdict, which is the one
+case top-tier execution is legitimate). Off switches: `~/.agents/no-dispatch-guard`
+(skip the guard) and `~/.agents/ws-off` (observe-only: logs what it would have done).
+
 Environment: `DELEGATION_TOP_TIER` — comma-separated model-id fragments that count as top/high for the
 routing hook and the delegation gate (default `fable,opus,gpt-6-astra,gpt-5.6-sol`). The old
 `CLAUDE_DELEGATION_TOP_TIER` is read as a fallback in 0.2.x and removed in 0.3.0. Only Claude Code has
