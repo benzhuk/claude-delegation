@@ -19,6 +19,7 @@ import {
   matchesScratchPattern,
   isTreeClean,
   isBranchOnOrigin,
+  isBranchMerged,
   applySafe,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
@@ -951,6 +952,33 @@ test(
     }
   },
 );
+
+// round-3 review E1 (MINOR): a full, qualified refname still DWIMs to a TAG of the identical name
+// when the real ref is ABSENT (gitrevisions rule 3, refs/tags/<the whole qualified string>, still
+// matches a string like "refs/heads/main"). In a repo whose main branch was deleted, with a tag
+// named `refs/heads/main` left behind, `isBranchMerged` answered `true` for an unrelated branch that
+// was not actually merged into anything. Non-destructive (SAFE still requires the separately
+// show-ref-gated `onOrigin` proof), but the JUDGMENT reason was wrong. Both operands are now
+// show-ref-verified to exist before ever being used as a merge-base revision.
+test("round-3 MINOR: a tag named refs/heads/main cannot fake 'merged' when the real main branch does not exist", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  git(["checkout", "-q", "-b", "feat-orphan"], root);
+  fs.writeFileSync(path.join(root, "orphan.txt"), "x\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "orphan work"], root);
+
+  // Delete the real main branch (git allows this once HEAD has moved elsewhere), then plant a tag
+  // with the exact string a fully-qualified reference to it would have been.
+  git(["branch", "-D", "main"], root);
+  git(["tag", "refs/heads/main", "feat-orphan"], root);
+
+  assert.equal(
+    isBranchMerged(root, "feat-orphan", "main"),
+    false,
+    "a tag named refs/heads/main must never stand in for the real (now-deleted) main branch",
+  );
+});
 
 after(() => {
   for (const dir of tracked) {

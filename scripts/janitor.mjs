@@ -60,25 +60,35 @@ const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "developmen
 const PROTECTED_BRANCH_PREFIXES = ["release/", "hotfix/"];
 
 /**
- * Round-2 invariant, checked by hand against every git() call site in this file (see the table in
- * that round's build report): NO short or guessable name ever reaches git here. Every ref this file
+ * Round-2/3 invariant, checked by hand against every git() call site in this file (see the table in
+ * those rounds' build reports): NO short or guessable name ever reaches git here. Every ref this file
  * hands to git is either (a) a full refname (`refs/heads/<name>` or `refs/remotes/origin/<name>`)
- * used as the OPERAND of `merge-base --is-ancestor` or `log`, which git looks up directly with no
- * disambiguation once it is fully qualified; (b) an EXISTENCE test done with `git show-ref --verify`,
- * which reads the ref store only and never DWIMs the way `git rev-parse --verify` does; or (c) a
- * LISTING done with `--format=%(refname)` (the full name, never the short/DWIM `%(refname:short)`
- * form), with the literal, known-exact `refs/heads/` prefix stripped in code afterward. A bare name
- * handed to git is resolved through gitrevisions' ambiguity order - $GIT_DIR/<refname>, then
- * refs/<refname>, refs/tags/<refname>, refs/heads/<refname>, refs/remotes/<refname>,
- * refs/remotes/<refname>/HEAD, in that order - so a same-named TAG or a like-named branch/
- * remote-tracking ref can shadow the one this tool means. Round 1 found a local branch literally
- * named `origin/main` doing this to a bare `merge-base` operand. Round 2 found two more: a bare
- * `rev-parse --verify` EXISTENCE check DWIMing past a tag named `refs/remotes/origin/main` in a repo
- * with no origin remote at all, and `%(refname:short)` LISTING branches under a name git itself had
- * to mangle to `heads/<name>` to disambiguate against a same-named tag - which then also slipped past
- * the plain string-equality protected-name checks. The three shapes above (full-name operand,
- * show-ref existence, full-name listing) are the only three ways this file is allowed to touch a git
- * ref; anything else added later must justify why it doesn't need one of them.
+ * used as the OPERAND of `merge-base --is-ancestor` or `log`, and ONLY after an existence check on
+ * that same full refname via `git show-ref --verify` - a full refname is unambiguous only once its
+ * existence is proven; an ABSENT one still falls through gitrevisions' ambiguity order and a tag
+ * named the same string can answer in its place (round 3, see below); (b) an EXISTENCE test done
+ * with `git show-ref --verify`, which reads the ref store only and never DWIMs the way
+ * `git rev-parse --verify` does; or (c) a LISTING done with `--format=%(refname)` (the full name,
+ * never the short/DWIM `%(refname:short)` form), with the literal, known-exact `refs/heads/` prefix
+ * stripped in code afterward. A bare name handed to git is resolved through gitrevisions' ambiguity
+ * order - $GIT_DIR/<refname>, then refs/<refname>, refs/tags/<refname>, refs/heads/<refname>,
+ * refs/remotes/<refname>, refs/remotes/<refname>/HEAD, in that order - so a same-named TAG or a
+ * like-named branch/remote-tracking ref can shadow the one this tool means, EVEN WHEN the name is
+ * fully qualified, if the qualified ref itself does not exist (rule 3, refs/tags/<the whole
+ * qualified string>, still matches). Round 1 found a local branch literally named `origin/main`
+ * shadowing a bare `merge-base` operand. Round 2 found a bare `rev-parse --verify` EXISTENCE check
+ * DWIMing past a tag named `refs/remotes/origin/main` in a repo with no origin remote at all, and
+ * `%(refname:short)` LISTING branches under a name git itself had to mangle to `heads/<name>` to
+ * disambiguate against a same-named tag - which then also slipped past the plain string-equality
+ * protected-name checks. Round 3 found that a full, qualified refname used as a merge-base/log
+ * operand still DWIMs to a tag of the identical name when the real branch is ABSENT (a repo whose
+ * main branch was deleted, with a tag named `refs/heads/main` left behind, made `isBranchMerged`
+ * answer `true`) - non-destructive in every reachable case (SAFE always requires the separately
+ * `show-ref`-gated `onOrigin` proof too) but a wrong answer in the JUDGMENT reason nonetheless, so
+ * `isBranchMerged` and `daysSinceLastCommit` now `show-ref --verify` both operands before ever using
+ * them as a revision. The shapes above (full-name operand PROVEN to exist first, show-ref existence,
+ * full-name listing) are the only ways this file is allowed to touch a git ref; anything else added
+ * later must justify why it doesn't need one of them.
  */
 function headRef(name) {
   return `refs/heads/${name}`;
@@ -164,6 +174,16 @@ export function isTreeClean(worktreePath) {
 
 export function isBranchMerged(root, branch, mainBranch) {
   if (branch === mainBranch) return false;
+  // Both operands must EXIST as real branches before they are used as revisions: a full refname
+  // still falls through gitrevisions' order when the ref is absent, so a tag named
+  // `refs/heads/<mainBranch>` would otherwise answer this question in a repo whose main branch is
+  // gone. show-ref reads the ref store only.
+  try {
+    git(["show-ref", "--verify", "--quiet", headRef(branch)], root);
+    git(["show-ref", "--verify", "--quiet", headRef(mainBranch)], root);
+  } catch {
+    return false;
+  }
   try {
     git(["merge-base", "--is-ancestor", headRef(branch), headRef(mainBranch)], root);
     return true;
@@ -190,6 +210,11 @@ export function isBranchOnOrigin(root, branch, mainBranch) {
   } catch {
     return false;
   }
+  // The merge-base call below is safe not because both sides are fully qualified (round-3 review:
+  // that alone is not enough when a ref is absent) but because BOTH operands are already proven to
+  // exist as real refs by this point: the right side by the show-ref call just above, the left side
+  // because `branch` always comes from `for-each-ref refs/heads` (listLocalBranches) or a worktree's
+  // own `branch` line (listWorktrees) - never a name the caller made up.
   try {
     git(["merge-base", "--is-ancestor", headRef(branch), `refs/remotes/origin/${mainBranch}`], root);
     return true;
@@ -227,6 +252,7 @@ export function listLocalBranches(root) {
 
 export function daysSinceLastCommit(root, branch, now = new Date()) {
   try {
+    git(["show-ref", "--verify", "--quiet", headRef(branch)], root);
     const epoch = Number(git(["log", "-1", "--format=%ct", headRef(branch)], root).trim());
     if (!Number.isFinite(epoch)) return null;
     return (now.getTime() / 1000 - epoch) / 86400;
@@ -250,6 +276,9 @@ export function listUntrackedFiles(root) {
 
 export function diskUsageKB(root) {
   try {
+    // The one non-git subprocess in this file. `root` is always an absolute path returned by
+    // `git rev-parse --show-toplevel`, never user/config-supplied, and there is no `--` for `du` to
+    // need: nothing here reaches this call as an option-shaped or otherwise hostile string.
     const out = execFileSync("du", ["-sk", root], { encoding: "utf8" });
     const n = Number(out.split(/\s+/)[0]);
     return Number.isFinite(n) ? n : null;
@@ -497,6 +526,11 @@ export function applySafe(state, log = []) {
       continue;
     }
     try {
+      // b.ref is a short name here, the one shape this file otherwise avoids - `git branch -d`
+      // rejects a fully-qualified refname outright ("not found"), so a short name is the only input
+      // it accepts. Safe anyway: `branch -d` is scoped to refs/heads by the subcommand itself (a
+      // same-named tag cannot shadow it - round-3 review measured this directly), and `--` plus
+      // git's own branch-name validation rules out any option-shaped value reaching it as a flag.
       git(["branch", "-d", "--", b.ref], root);
       log.push({ action: "branch-delete", ref: b.ref, ok: true });
     } catch (err) {
