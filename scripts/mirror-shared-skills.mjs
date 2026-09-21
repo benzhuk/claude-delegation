@@ -62,7 +62,7 @@ const CLAUDE_SKILLS = ['knowledge', 'triage', 'dev-server', 'learn'];
 /** The docs every mirrored skill links to. Without these, `../_docs/model-tiers.md` dangles (S1). */
 const SHARED_DOC_FILES = [
   'model-tiers.md', 'subagent-contract.md', 'concurrency-budget.md',
-  'agent-pacing.md', 'mandate-standards.md',
+  'agent-pacing.md', 'mandate-standards.md', 'mandate-template.md',
 ];
 /** Never publish a skill's own test files into Codex's skill store (review M6). */
 const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;

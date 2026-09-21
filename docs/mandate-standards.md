@@ -27,12 +27,9 @@ every field you claim exists", "measured numbers, not adjectives", "verdict word
 ## Authorize negative results — or get fabricated positives
 
 An agent optimizes the metric you gave it. If the prompt doesn't say a negative result
-is acceptable, you get overfitting dressed as progress. Standard language:
-
-> "If the values genuinely aren't derivable / the bug isn't in this territory / the
-> concept doesn't exist in this codebase, say so plainly with evidence and stop.
-> A proven limit or a confirmed absence is a BETTER outcome than a hack that games
-> one case."
+is acceptable, you get overfitting dressed as progress. Start every mandate from
+`mandate-template.md`, which carries the negative-results sentence verbatim; use it as
+written, never a paraphrase.
 
 The most valuable agent outputs in a large real session were exactly these: a
 ground-truth-limit proof that honestly ended a workstream, and a scope finding that a

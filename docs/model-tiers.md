@@ -29,6 +29,25 @@ Rules of thumb (vendor-neutral):
 - Fast tier never touches anything that computes a number someone will act on.
 - On Ben's plans the mid tier is effectively free: run executors at full strength, always.
 
+Enforced in code, not just prose: `hooks/agent-dispatch-guard.mjs` rule R1 denies an
+`Agent` spawn with an explicit `model: opus` or `model: fable` unless it is a reviewer
+subagent or the prompt states a `JUDGMENT:` line (a quality verdict, which is the one
+case top-tier execution is legitimate). Default is observe-only (logs, never blocks):
+enforcement needs `~/.agents/dispatch-guard-enforce` to exist AND `~/.agents/ws-off` to
+be absent; either missing file, or `ws-off` present, keeps it observing.
+`~/.agents/no-dispatch-guard` turns the guard off entirely. A forked subagent inherits
+its parent's model, carries no `model` key of its own, and is not counted by R1 — the
+guard's log undercounts top-tier execution by however many forks ran.
+Two known, accepted limits from the round-2 review (not fixed, on purpose): a `Round:`
+declaration quoted inside a fenced code block, or written as a list item the way a
+ledger line would ("- Round: 3 complete, reviewer approved"), still counts as a real
+declaration — narrowing further risks false negatives on genuine declarations, so this
+is left as-is (a blockquote, `>`, no longer counts — that was the one case worth fixing,
+since blockquoting is how a mandate quotes someone else's round, not how it declares its
+own). Separately, a declared round can be satisfied by pasting the guard's own "not
+needed, <reason>" example text back as the `Research:` line — a slightly inflated
+"R2 satisfied" count in the observe log, never a false deny, and not worth chasing.
+
 Environment: `DELEGATION_TOP_TIER` — comma-separated model-id fragments that count as top/high for the
 routing hook and the delegation gate (default `fable,opus,gpt-6-astra,gpt-5.6-sol`). The old
 `CLAUDE_DELEGATION_TOP_TIER` is read as a fallback in 0.2.x and removed in 0.3.0. Only Claude Code has

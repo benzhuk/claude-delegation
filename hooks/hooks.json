@@ -49,6 +49,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-dispatch-guard.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

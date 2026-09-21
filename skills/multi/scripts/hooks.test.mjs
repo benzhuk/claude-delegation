@@ -61,7 +61,7 @@ function runHook(event, home, input = {}, extraEnv = {}) {
 
 test('V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT}', () => {
   const cfg = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8'));
-  assert.deepEqual(Object.keys(cfg.hooks).sort(), ['PostToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+  assert.deepEqual(Object.keys(cfg.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
   const commands = Object.values(cfg.hooks).flat().flatMap((g) => g.hooks).map((h) => h.command);
   assert.ok(commands.length >= 4);
   for (const c of commands) {
@@ -72,6 +72,9 @@ test('V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT
   assert.equal(commands.filter((c) => c.includes('multi-inbox.js')).length, 4);
   // C4: SessionStart is what makes a session that starts and sits idle reachable at all.
   assert.match(cfg.hooks.SessionStart[0].hooks[0].command, /multi-inbox\.js" SessionStart/);
+  // The dispatch guard must stay narrow: a catch-all matcher would put a node cold start on every tool call.
+  assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Agent|SendMessage');
+  assert.match(cfg.hooks.PreToolUse[0].hooks[0].command, /agent-dispatch-guard\.mjs"$/);
 });
 
 test('V3: UserPromptSubmit injects the new notes and acks them', () => {
