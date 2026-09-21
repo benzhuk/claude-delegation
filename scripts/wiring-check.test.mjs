@@ -417,6 +417,17 @@ test("CLI --line prints one line naming what is missing when something is", () =
   assert.match(stdout, /definitely missing/);
 });
 
+test("CLI --line prints nothing when ~/.agents/ws-off is present, even with a missing check", () => {
+  const home = mkHome();
+  write(home, ".agents/required-wiring.json", JSON.stringify([
+    { id: "definitely-missing", type: "file_exists", file: "~/does/not/exist", why: "w", fix: "f" },
+  ]));
+  write(home, ".agents/ws-off", "");
+  const { code, stdout } = runCli(["--line"], home);
+  assert.equal(code, 0);
+  assert.equal(stdout, "");
+});
+
 test("CLI: an unknown flag is a usage error, exit 1, and never a stack trace", () => {
   const home = mkHome();
   const { code, stderr } = runCli(["--bogus"], home);
@@ -533,4 +544,22 @@ test("a check naming inboxes.json in ANY letter case is refused before any fs ca
   }
   assert.equal(touched.length, 0, "no case variant of inboxes.json may ever be opened or stat'ed, whatever the platform's own case sensitivity would resolve to");
   void inboxesPath;
+});
+
+// ---------------------------------------------------------------------------
+// Wired into hooks.json: SessionStart shows the wiring check on its own
+// ---------------------------------------------------------------------------
+
+test("hooks.json runs wiring-check.mjs --line on SessionStart, pointed at a real file, with a timeout", () => {
+  const repoRoot = path.join(HERE, "..");
+  const hooksPath = path.join(repoRoot, "hooks", "hooks.json");
+  const cfg = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+  const sessionStartHooks = cfg.hooks.SessionStart.flatMap((g) => g.hooks);
+  const entry = sessionStartHooks.find((h) => h.command.includes("wiring-check.mjs") && h.command.includes("--line"));
+  assert.ok(entry, "SessionStart must run wiring-check.mjs --line");
+  assert.match(entry.command, /\$\{CLAUDE_PLUGIN_ROOT\}/, "must be plugin-root relative like its neighbours");
+  assert.equal(typeof entry.timeout, "number");
+  assert.ok(entry.timeout > 0);
+  const referenced = entry.command.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+wiring-check\.mjs)/)[1];
+  assert.ok(fs.existsSync(path.join(repoRoot, referenced)), `${referenced} must exist`);
 });

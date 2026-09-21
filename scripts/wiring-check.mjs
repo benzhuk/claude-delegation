@@ -286,6 +286,13 @@ function printJson(result) {
   console.log(JSON.stringify(result, null, 2));
 }
 
+/** Master switch: `~/.agents/ws-off` present means `--line` says nothing at all. Fail-safe like the
+ * goal card's switchPresent(): a stat error other than "not found" also counts as present. */
+function wsOffActive(home) {
+  try { fs.statSync(path.join(home, ".agents", "ws-off")); return true; }
+  catch (e) { return Boolean(e) && e.code !== "ENOENT" && e.code !== "ENOTDIR"; }
+}
+
 export function main(argv = process.argv.slice(2), opts = {}) {
   const known = new Set(["--line", "--json"]);
   const unknown = argv.filter((a) => !known.has(a));
@@ -303,7 +310,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   }
 
   if (argv.includes("--json")) printJson(result);
-  else if (argv.includes("--line")) printLine(result.results);
+  else if (argv.includes("--line")) { if (!wsOffActive(opts.home ?? homedir())) printLine(result.results); }
   else printTable(result.results);
 
   return 0;

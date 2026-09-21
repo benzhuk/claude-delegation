@@ -75,7 +75,7 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
 
 **Three agents** for the team-build pipeline: `builder`, `reviewer`, `integrator`.
 
-**Two hooks** (all require `node` on PATH):
+**Three hooks** (all require `node` on PATH):
 
 - **Routing reminder** (UserPromptSubmit, SessionStart, PostToolBatch —
   `hooks/delegation-reminder.js`): injects a one-line routing reminder on every prompt —
@@ -94,6 +94,9 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
   session without anyone typing into its pane. `Stop` blocks the stop while something is
   waiting (honouring `stop_hook_active`). Silent when there are no notes, when the
   session is not in an Orca pane, and on any error — a hook must never break a session.
+- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line`): prints one line
+  at session start when a required guard, hook, timer or switch looks missing or stale;
+  silent when everything is wired, and honours `~/.agents/ws-off`.
 
 ## Model tiers
 
