@@ -399,7 +399,14 @@ export function classify({
     if (b.name === mainBranch) continue;
     if (b.name === cur) continue; // never the current branch
     if (checkedOutAnywhere.has(b.name) && !removedHere.has(b.name)) {
-      if (b.merged) judgment.branches.push({ ref: b.name, reason: "merged, but checked out in a worktree this run is not removing" });
+      if (b.merged) {
+        judgment.branches.push({ ref: b.name, reason: "merged, but checked out in a worktree this run is not removing" });
+      } else if (b.daysSinceCommit === null || b.daysSinceCommit >= UNMERGED_STALE_DAYS) {
+        judgment.branches.push({
+          ref: b.name,
+          reason: b.daysSinceCommit === null ? "unmerged, last-commit age unknown, checked out in a worktree" : `unmerged, no commit in ${Math.floor(b.daysSinceCommit)} days, checked out in a worktree`,
+        });
+      }
       continue;
     }
     const protectedName = PROTECTED_BRANCH_NAMES.has(b.name) || PROTECTED_BRANCH_PREFIXES.some((p) => b.name.startsWith(p));

@@ -1055,6 +1055,33 @@ test("round-4 MAJOR: a worktree moved aside (directory gone, git still registers
   void code;
 });
 
+test("round-5 MINOR: an abandoned worktree on a stale UNMERGED branch is reported in JUDGMENT, not silently dropped from both tables", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feat-stale");
+  fs.writeFileSync(path.join(wt, "wip.txt"), "wip\n");
+  git(["add", "."], wt);
+  git(["commit", "-q", "-m", "unfinished work"], wt);
+  // never merged into main, never pushed - the janitor's most common real shape: an agent
+  // worktree left on stale, unfinished work.
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const farFuture = new Date(Date.now() + 900 * 86400 * 1000); // simulate 900 days of staleness
+  const state = gatherState({ root: toplevel, config, now: farFuture });
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-stale"), "an unmerged branch must never be SAFE");
+  const row = state.judgment.branches.find((b) => b.ref === "feat-stale");
+  assert.ok(row, "a stale unmerged branch checked out in a worktree must appear in JUDGMENT, never vanish from both tables");
+  assert.match(row.reason, /unmerged/);
+  assert.match(row.reason, /checked out in a worktree/);
+
+  const code = main(["--apply"], { cwd: root });
+  assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-stale"), "unmerged work must survive --apply regardless");
+  void code;
+});
+
 after(() => {
   for (const dir of tracked) {
     try {
