@@ -37,7 +37,10 @@ function tmp() { return toPosix(fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-'))
 
 const NOW = Date.UTC(2026, 8, 17, 22, 0);
 const TOKEN = 'tok3n-that-must-never-be-printed';
-const ENVELOPE = 'astra → taxonomy, 9.17.26 18:00 NYC [astra-inbox-1] FYI: delivered without a keystroke.';
+// N1 (2026-09-20): ACK and FYI are ledger-only outbox entries that note-flush retires unattempted (see
+// note-flush.test.mjs). This suite's default fixture exercises the inbox-delivery mechanism itself,
+// which is orthogonal to kind, so it uses ASK.
+const ENVELOPE = 'astra → taxonomy, 9.17.26 18:00 NYC [astra-inbox-1] ASK: delivered without a keystroke. Needs: none';
 
 const SESSION_ID = 'sess-0001-aaaa';
 const HOST = os.hostname();
@@ -644,7 +647,10 @@ test('D3: a real end-to-end drain posts the envelope onto a real socket, with no
 // D3 — note-send takes the same route: inbox first, then queue, and never a keystroke by default
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SEND_ARGS = ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+// N1 (2026-09-20): ACK and FYI are ledger-only and never post to an inbox at all — see note-send.test.mjs
+// for that contract's own tests. This fixture exercises the general inbox-delivery mechanism, which is
+// orthogonal to kind, so it uses ASK.
+const SEND_ARGS = ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'ASK', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
 /** A real directory, because note-send refuses to write a ledger into a recipient repo that is not there. */
 const sendArgsIn = (repo, over = []) => [...SEND_ARGS, '--recipient-repo', repo, ...over];
 const nucleusPane = (over = {}) => ({
@@ -692,7 +698,7 @@ test('D3: note-send posts into a registered inbox and is exit 0 delivered, with 
   assert.equal(res.classification, 'inbox (claude-socket)');
   assert.equal(posts.length, 1);
   assert.equal(posts[0].slug, 'nucleus');
-  assert.match(posts[0].envelope, /\[taxonomy-ping-1\] FYI: Batch finished, 413 films/);
+  assert.match(posts[0].envelope, /\[taxonomy-ping-1\] ASK: Batch finished, 413 films/);
   assert.ok(res.ledgers.length >= 1, 'ledger first, as always');
   noToken(res, JSON.stringify(res));
 });
@@ -994,7 +1000,7 @@ test('C5: a raw handle target never addresses an inbox - a guessed slug is not a
     throw new Error(`nothing may be typed: ${args.join(' ')}`);
   };
   await rejectsWith(
-    runNoteSend(['--from', 'astra', '--to', 'term_aaa', '--kind', 'FYI', '--topic', 'ping', '--text', 'x', '--recipient-repo', home], {
+    runNoteSend(['--from', 'astra', '--to', 'term_aaa', '--kind', 'ASK', '--topic', 'ping', '--text', 'x', '--recipient-repo', home], {
       home, git: () => '.git', now: NOW, env: {}, orca,
       deliverToInbox: async () => { posted += 1; return { ok: true, delivered: true, reason: 'delivered' }; },
     }),
