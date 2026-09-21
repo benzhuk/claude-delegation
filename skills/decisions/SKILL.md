@@ -20,17 +20,18 @@ recommended one FIRST marked "(recommended)". Last plain line: `Default after <d
 <time> <±UTC offset>: <option>` for a reversible decision (the offset is the owner's
 local time, e.g. `Default after 2026-09-25 18:00 -04:00: cap at 200 items per run`),
 or `No default: <reason>` for anything irreversible, costly, or that changes the
-owner's machines.
-
-State the decision and the recommendation in chat too; send the link only once a
-fresh read shows the item there.
+owner's machines. Inside the item, no agent line may start with bold or a colored
+span — plain text first, bold only in the `<summary>` title — because Notion escapes
+colored-span bold exactly like the owner's own asterisks, so such a line reads back
+as a forged owner comment. State the decision and the recommendation in chat too;
+send the link only once a fresh read shows the item there.
 
 ## Page rules
 
-`scripts/decisions-read.mjs` reads a comment when a line starts with the escaped
-`\*\*` — what Notion produces from the two asterisks the owner types. Bold an agent
-writes (`**like this**`) is never a comment. Never re-type or quote the owner's line
-when answering it: a copied `\*\*` prefix forges a second comment that never clears.
+`scripts/decisions-read.mjs` reads a comment from a line starting with the escaped
+`\*\*` Notion produces from the owner's typed asterisks — plain agent bold
+(`**like this**`) is never one. Never re-type or quote the owner's line when
+answering it: a copied `\*\*` prefix forges a second comment that never clears.
 Write and read the page through the `notion-writing` skill: markdown endpoints only,
 one request per page, never a whole-page replace, read fresh seconds before writing,
 a multi-line edit built from a script with the old and new text loaded from files,
@@ -42,10 +43,9 @@ asserts the owner has nothing open.
 ## Reading answers
 
 `node ~/.claude/scripts/notion.js read <page-id> | node scripts/decisions-read.mjs`
-(reader path per above; the page id comes from the owner or your brief — never
-search for it, search is fuzzy). Exit 1: act, below. Exit 0: only OPEN/REPLIED
-items — nothing due yet. Exit 3: BLIND (empty read, a broken fence, no titles) —
-stop, tell the owner the read failed, change nothing.
+(path per above; page id from the owner or brief — never search, it's fuzzy).
+Exit 1: act, below. Exit 0: OPEN/REPLIED only — nothing due. Exit 3: BLIND (empty
+read, bad fence, no titles) — stop, tell the owner, change nothing.
 
 - AMBIGUOUS or UNATTACHED: report to the owner — never guess, never drop it.
 - TICKED: act on the option; an unreplied comment on the same item still needs a
