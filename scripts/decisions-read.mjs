@@ -204,8 +204,11 @@ export function parseDocument(text, { now = new Date() } = {}) {
     // the word "Default" is inspected — not only the literal "Default after " prefix —
     // so an older deadline phrasing (or any other malformed one) WARNs instead of being
     // silently ignored. `No default…` does not start with "Default", so it is naturally
-    // untouched and stays a no-op, per R4.
-    if (currentTitle && parsed.kind !== 'checkbox' && /^Default\b/.test(parsed.text)) {
+    // untouched and stays a no-op, per R4. Round-3 review N2: a deadline line always carries
+    // `: <option>`, so also requiring a colon keeps ordinary prose that happens to start with
+    // "Default" (e.g. an evidence sentence) from raising a false WARN.
+    if (currentTitle && parsed.kind !== 'checkbox' && /^Default\b/.test(parsed.text)
+        && parsed.text.includes(':')) {
       const parsedDefault = parseDefaultAfter(parsed.text);
       if (parsedDefault) {
         if (!currentTitle.default) currentTitle.default = parsedDefault; // first one on the item wins

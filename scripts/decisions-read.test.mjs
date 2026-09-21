@@ -800,6 +800,19 @@ test('P5: "No default" still is not touched by the broadened Default-prefix WARN
   assert.equal(toJsonObject(doc).decisions[0].default, null);
 });
 
+test('N2 (MAJOR): ordinary prose starting with "Default" but with no colon raises no WARN', () => {
+  const md = L(
+    '<summary>t</summary>',
+    '\t- [ ] a',
+    '\tDefault behaviour today is to run uncapped, which is what broke it.',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.equal(doc.warnings.length, 0);
+  assert.equal(doc.decisions[0].status, 'OPEN');
+  assert.equal(computeExitCode(doc), 0);
+});
+
 test('P6 (MINOR): a bare "Reply:" line with no date does not close the owner\'s comment', () => {
   const md = L('<summary>t</summary>', '\t- [ ] \\*\\* still open?', '\tReply: fixed now, no date given', '\t- [ ] a');
   const doc = parseDocument(md);

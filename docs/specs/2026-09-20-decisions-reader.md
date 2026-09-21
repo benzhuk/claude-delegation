@@ -93,13 +93,17 @@ arrives as plain `**`.
    the title nearest to it happens to have zero options (e.g. a Closed section written
    correctly as plain bullets, immediately before the final Done line).
 10. DEFAULTS. Inside a decision, a NON-CHECKBOX line (rule 2) whose text (after the
-    same stripping as rule 3) starts with the word `Default` is inspected: if it does
-    not start with `Default after `, or does not otherwise match this exact shape —
-    `Default after YYYY-MM-DD HH:MM ±HH:MM: <option text>` — it is a WARN, `default
-    line is not in the required shape` (rule 11), and it is never an option. This
-    catches BOTH an older/malformed deadline phrasing entirely (e.g. an owner's
-    pre-v2 "Default if unanswered by …" line) and a `Default after ` line whose shape
-    is otherwise wrong. A well-shaped line is parsed into `default: { text, at }`
+    same stripping as rule 3) starts with the word `Default` AND contains a `:` is
+    inspected: if it does not start with `Default after `, or does not otherwise
+    match this exact shape — `Default after YYYY-MM-DD HH:MM ±HH:MM: <option text>`
+    — it is a WARN, `default line is not in the required shape` (rule 11), and it is
+    never an option. The `:` requirement exists so that ordinary prose starting with
+    the word "Default" (e.g. an evidence line like "Default behaviour today is to run
+    uncapped…") is not mistaken for a deadline and does not raise a false WARN — a
+    deadline line always carries `: <option>`. This still catches BOTH an
+    older/malformed deadline phrasing entirely (e.g. an owner's pre-v2 "Default if
+    unanswered by …: <option>" line) and a `Default after ` line whose shape is
+    otherwise wrong. A well-shaped line is parsed into `default: { text, at }`
     (`at` as an ISO instant, computed from the given local date/time and its numeric
     UTC offset) — but the written date/time must be a REAL calendar instant: `Date`
     silently rolls an impossible one over (`2026-02-30` to March 2, `24:00` to the
@@ -180,3 +184,11 @@ suppressed every DUE). All five are fixed above (rules 2, 6, 10, and the Input
 section's `--now` note). Also new: the checkbox-first ordering rule (rule 2), the
 narrowed `Reply:` + date shape (rule 4), the reported `under` in the plain-text output
 (Output section), and the "no Done line at all" WARN (rule 6).
+
+## Changes after the final review (same v2, one more amendment)
+Round-3's broadened `/^Default\b/` check also fired on ordinary prose that merely
+starts with the word "Default" (e.g. an evidence sentence), raising a false WARN on an
+otherwise-clean decision. Rule 10 now also requires the line to contain a `:` before
+it is treated as a deadline candidate — a real deadline line always has one
+(`Default after …: <option>`), so this closes the false-WARN gap without reopening
+the "silently ignored" gap round-2 (P5) fixed.
