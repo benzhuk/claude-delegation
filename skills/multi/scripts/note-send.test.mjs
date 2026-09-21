@@ -18,7 +18,7 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
-  runNoteSend, writeBinding,
+  runNoteSend, writeBinding, writeInbox,
   wakeAllKindsPath, noUnknownCheckPath,
 } from './note-send.mjs';
 
@@ -1070,6 +1070,20 @@ test('N1: FYI to a slug is ledger-only — no pane resolution, no outbox, exit 0
   assert.equal(orca.calls.length, 0, 'a ledger-only kind never resolves a pane');
   assert.match(fs.readFileSync(res.ledgers[0], 'utf8'), /\[taxonomy-ping-1\] FYI:/);
   assert.equal(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')), false, 'no outbox entry');
+});
+
+test('N1: even a registered inbox is never posted to for a ledger-only kind', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't1', cwd: repo }, { now: NOW });
+  let posted = 0;
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: TYPING, deliverToInbox: async () => { posted += 1; return { delivered: true }; } },
+  );
+  assert.equal(posted, 0, 'N1 says "no inbox post" — a registered inbox changes nothing for a quiet kind');
+  assert.equal(res.delivered, false);
+  assert.equal(res.wake, 'none');
+  assert.ok(res.ledgers[0].startsWith(repo), 'still lands in the registered recipient repo, just never posted');
 });
 
 test('N1: ACK to a slug is ledger-only too, and --dry-run says the same', async () => {
