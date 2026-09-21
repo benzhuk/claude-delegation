@@ -23,7 +23,7 @@ taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please re
 | `from`, `to` | Pane slugs `[a-z0-9-]+` (the Orca pane title, which the pilot renames to a slug: `taxonomy`, `nucleus`, `astra`, `n-astra`). `ben` is a reserved recipient for decisions only Ben can make (no pane is resolved; see transport). |
 | date, time, `TZ` | Ben's local zone (rule 05-time.md; `NYC` today). Month.Day.YY numeric, 24h clock. If the EVENT time differs from send time, say it in the substance ("ran 11:25"). |
 | `[id]` | `<from>-<slug>-<n>`, lowercase only: the sender's slug, a topic slug, and a counter — `taxonomy-pr132-review-1`. The sender prefix makes ids collision-free without a central store. A reply keeps the topic, uses the replier's prefix and its own counter, and names the parent: `[nucleus-pr132-review-1 re taxonomy-pr132-review-1]`. A correction adds ` supersedes <id>` inside the brackets. Uppercase in an id is rejected by tooling (exit 1) with a message showing the lowercase form. |
-| `KIND` | `ASK` (needs something from the peer) · `ACK` (started on an ASK; exactly one per ASK) · `RESULT` (done; Details points at the deliverable) · `BLOCKED` (cannot proceed; reason; sent once, then move on) · `FYI` (no reply expected). Nothing else. No heartbeats, no "worker_done". |
+| `KIND` | `ASK` (needs something from the peer) · `ACK` (started on an ASK; exactly one per ASK) · `RESULT` (done; Details points at the deliverable) · `BLOCKED` (cannot proceed; reason; sent once, then move on) · `FYI` (no reply expected). Nothing else. No heartbeats, no "worker_done". Since 2026-09-20, `ACK` and `FYI` are ledger-only — validated and written exactly like any other kind, but no wake-up is ever created for them (see transport step 5's N1 note below). |
 | substance | One or two sentences, on the same line. Lead with the ask, the verdict, or the decision. Never a recap of earlier rounds. No secrets, ever. |
 | `Goal:` | Why this matters, one clause. Optional on ACK/FYI. |
 | `Details:` | Path to the detail file. Format `^[A-Za-z0-9._/-]+$`: repo-relative POSIX path in the RECIPIENT's repo (no spaces, no backslashes, no drive letters, no host prefix — cross-host notes are sent from the recipient's host, see transport step 7). Required on ASK and RESULT when there is anything beyond two sentences to say; optional otherwise. |
@@ -147,6 +147,22 @@ has no safety gate of its own, so the SENDER is the gate:
    forever and never disappears.
    A validation failure prints its `ok:false` JSON on STDOUT as well as one line on stderr, so a
    rejection is never silent in a pipe. Nothing is ever dropped silently.
+
+   **N1 (2026-09-20): `ACK` and `FYI` never reach any of the above for a non-`ben` recipient.** They are
+   validated and written to the ledger exactly like step 5 describes, but no pane is resolved, no outbox
+   entry is written and no inbox is posted to — `note-send` exits 0 with `delivered:false, wake:"none",
+   reason:"ledger-only kind"`. `~/.agents/notes/wake-all-kinds` restores the old behaviour. A raw
+   `term_…` handle still resolves its pane once, because only the pane can say what its own slug is, but
+   never proceeds past that to a wake-up.
+
+   **N2 (2026-09-20): an unresolved SLUG recipient (never a handle) is checked against everything this
+   machine knows** — registered inboxes, pane bindings, live pane titles, and the last 3 days of the
+   ledger mirror. If none of them have ever heard of it, exit 2 leads with `UNKNOWN RECIPIENT "<slug>"`,
+   lists the known slugs, and suggests one within edit distance 2 or a prefix/suffix match (stdout JSON:
+   `unknown_recipient:true, known:[...], suggestion:"<slug>"|null`). `note-flush` dead-letters an ASK or
+   BLOCKED to a slug still unknown 10 minutes after it was queued — well before the ordinary give-up (20
+   attempts or about 48 hours) — with one BLOCKED line in `ben-inbox.md`.
+   `~/.agents/notes/no-unknown-check` restores the plain "not found" message and the ordinary timing.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,
    notified:true`. A BLOCKED to ben, or a `Needs: decision` to ben, is also appended to
    `~/.agents/notes/ben-inbox.md` — one file Ben reads. Ben sends with
