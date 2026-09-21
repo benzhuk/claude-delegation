@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 import {
-  ENVELOPE_RE, DETAILS_RE, MAX_LINE, NoteError,
+  ENVELOPE_RE, DETAILS_RE, MAX_LINE, NoteError, KINDS, LEDGER_ONLY_KINDS,
   buildEnvelope, parseEnvelope, terminate,
   validateDetails, validateKindNeeds, assertFieldSafe, assertLowercase,
   highestCounter, nextCounter, timeParts, packetTemplate, firstSentence,
+  editDistance, isAffixMatch, suggestSlug,
 } from './envelope.mjs';
 
 const BASE = {
@@ -288,4 +289,52 @@ test('every envelope in the pinned envelope.md and in SKILL.md parses too', () =
     assert.ok(lines.length >= 1, `no envelopes found in ${rel}`);
     for (const line of lines) assert.ok(parseEnvelope(line), `does not match (${rel}):\n${line}`);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N1: ACK and FYI are ledger-only kinds
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('N1: LEDGER_ONLY_KINDS is exactly ACK and FYI, and nothing else in KINDS', () => {
+  assert.deepEqual([...LEDGER_ONLY_KINDS].sort(), ['ACK', 'FYI']);
+  for (const k of ['ASK', 'RESULT', 'BLOCKED']) assert.ok(!LEDGER_ONLY_KINDS.has(k), k);
+  for (const k of LEDGER_ONLY_KINDS) assert.ok(KINDS.includes(k), k);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N2: edit distance and "did you mean" suggestion
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('editDistance: identical strings, empty strings, and simple substitutions', () => {
+  assert.equal(editDistance('fable', 'fable'), 0);
+  assert.equal(editDistance('', ''), 0);
+  assert.equal(editDistance('', 'abc'), 3);
+  assert.equal(editDistance('abc', ''), 3);
+  assert.equal(editDistance('fable', 'fable2'), 1);
+  assert.equal(editDistance('fable', 'sable'), 1);
+  assert.equal(editDistance('kitten', 'sitting'), 3);
+});
+
+test('isAffixMatch: a prefix or suffix relationship in either direction', () => {
+  assert.ok(isAffixMatch('fable', 'taxonomy-fable'));
+  assert.ok(isAffixMatch('taxonomy-fable', 'fable'));
+  assert.ok(isAffixMatch('astra', 'astra-2'));
+  assert.ok(!isAffixMatch('fable', 'fable'), 'identical strings are not a suggestion candidate');
+  assert.ok(!isAffixMatch('fable', 'nucleus'));
+  assert.ok(!isAffixMatch('', 'nucleus'));
+});
+
+test('suggestSlug: the evidence case — "fable" suggests "taxonomy-fable"', () => {
+  assert.equal(suggestSlug('fable', ['nucleus', 'taxonomy-fable', 'astra']), 'taxonomy-fable');
+});
+
+test('suggestSlug: a close typo wins by edit distance', () => {
+  assert.equal(suggestSlug('nucleu', ['nucleus', 'astra', 'taxonomy']), 'nucleus');
+  assert.equal(suggestSlug('astrra', ['nucleus', 'astra']), 'astra');
+});
+
+test('suggestSlug: nothing close enough returns null, and the target itself is never suggested', () => {
+  assert.equal(suggestSlug('fable', ['nucleus', 'astra', 'taxonomy']), null);
+  assert.equal(suggestSlug('nucleus', ['nucleus']), null);
+  assert.equal(suggestSlug('anything', []), null);
 });

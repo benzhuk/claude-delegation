@@ -205,7 +205,9 @@ test('M3: a missing packet is surfaced in the injected context, not just on stde
 test('L3: a Stop reason stays small — six notes, each truncated', () => {
   const home = tmp();
   const long = 'x'.repeat(400);
-  mirror(home, Array.from({ length: 12 }, (_, i) => note(`astra-bulk${i}-1`, 'FYI', long)));
+  // ASK (not FYI): since MINOR 11, a Stop where every waiting note is ledger-only does not block at
+  // all — this test is about the size/truncation of a block that DOES happen, so it needs a loud kind.
+  mirror(home, Array.from({ length: 12 }, (_, i) => note(`astra-bulk${i}-1`, 'ASK', long)));
   const out = runHook('Stop', home);
   assert.equal(out.decision, 'block');
   assert.ok(out.reason.length < 2500, `Stop reason was ${out.reason.length} bytes`);

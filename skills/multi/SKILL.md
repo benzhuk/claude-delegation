@@ -29,7 +29,14 @@ Five rules carry the whole protocol:
   `note-inbox` or the ledger before you decide something did not land.
 - **Never wait on a peer inside a turn.** Send, record, carry on. They answer at their next pause.
 - **Receipts, not heartbeats.** One ACK when a peer starts, one RESULT when it finishes. Nothing in
-  between. A peer that says nothing is working, not stuck.
+  between. A peer that says nothing is working, not stuck. Since 2026-09-20 an ACK no longer STARTS a
+  turn — it is a ledger record, not a nudge (so is FYI); the recipient's own hooks surface it at their
+  next event. It still shows up mid-turn if this turn does anything at all (a prompt, a tool call), and
+  since round 2 (MINOR 11) it no longer costs a Stop-block by itself either: a Stop where EVERY waiting
+  note is ACK/FYI does not block — it surfaces at your next prompt or tool call instead. A Stop where
+  even one waiting note is louder (ASK/RESULT/BLOCKED) still blocks once, and still shows everything
+  waiting, ACK/FYI included. `~/.agents/notes/wake-all-kinds` restores the old wake-and-block-on-ACK/FYI
+  behaviour.
 - **Never a hidden drop.** Ledger first, always. A refusal is reported with an exit code and a JSON
   object on stdout, never silence.
 
@@ -91,12 +98,15 @@ You do not fetch notes and you never wait for one. Two paths deliver them, and b
 every state a session can be in:
 
 - **While you are working**, the hooks put new notes straight into your context — on your next prompt,
-  after a tool call, and again when you try to stop. A Stop with notes waiting blocks once so you handle
-  them before the turn ends; a Stop with nothing waiting is silent and instant.
+  after a tool call, and again when you try to stop. A Stop where at least one waiting note is NOT
+  ledger-only blocks once so you handle everything waiting before the turn ends (ACK/FYI included, if
+  any are mixed in); a Stop where every waiting note IS ledger-only (ACK/FYI) does not block — those
+  already reached you mid-turn, or will at your next prompt or tool call; a Stop with nothing waiting is
+  silent and instant either way.
 - **While you are idle**, `note-flush` posts one line into YOUR INBOX, within about a minute of the note
   being written — a Claude session's messaging socket, a Codex session's queue. Claude Code starts a new
   turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in
-  the ledger.
+  the ledger. ACK and FYI excepted, they are ledger-only — see below.
 
 ### What you have to do to be reachable: nothing
 
@@ -322,7 +332,7 @@ safety gate and its failures are silent.
 | exit | meaning | what you do |
 |---|---|---|
 | 1 | bad arguments, envelope, or packet | read the message; it names the field and the fix. The same object is on stdout as JSON, so a pipe never swallows it |
-| 2 | pane not found or ambiguous | **the note is still recorded and queued** — do NOT re-send the id. Rename the pane to its slug, or have that pane run `note-inbox --bind <slug>` once, and the queued wake-up lands on the next flush |
+| 2 | pane not found or ambiguous, **or the recipient is UNKNOWN** | **the note is still recorded and queued** — do NOT re-send the id. For a plain "not found", rename the pane to its slug, or have that pane run `note-inbox --bind <slug>` once, and the queued wake-up lands on the next flush. For `UNKNOWN RECIPIENT "<slug>"` (since 2026-09-20: no inbox, no binding, no live pane title and no appearance in the last 3 days of ledgers has ever heard of that slug) — DO fix the name, the note IS recorded either way, and re-sending under the right slug needs a NEW id, never the same one |
 | 3 | **deferred — queued, nothing delivered yet** | nothing to do. The ledger has the note and `note-flush` retries. Do NOT re-send the id. Since 0.5.0 this is also what a recipient with no registered inbox looks like |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
@@ -340,8 +350,37 @@ longer swallow an ask. The one exception is a raw `term_…` handle that resolve
 names no slug, so there is no readable recipient to record, and that case exits 2 having written
 nothing and says so. Send to a slug, not a handle, if you want the ledger to keep it.
 
+**An unknown recipient is loud (since 2026-09-20).** When a slug's pane cannot be found AND nothing on
+this machine has ever heard of it — no registered inbox, no binding, no live pane title, and no
+appearance as a sender or recipient in the last 3 days of ledgers — the exit-2 message leads with
+`UNKNOWN RECIPIENT "<slug>"`, lists the known slugs on this machine, and offers a `did you mean
+"<slug>"?` guess when one is close (edit distance 2, or a prefix/suffix match — `fable` suggests
+`taxonomy-fable`). Fix the name and re-send: the note IS recorded either way, but a corrected send
+needs a NEW id, never the one that just failed. A slug that HAS been seen recently just has no live
+pane right now, which is the ordinary case above, not this one. `note-flush` backs this up: an ASK or
+BLOCKED whose recipient is still unknown ten minutes after it was queued is dead-lettered right then
+— far sooner than the ordinary give-up — with one BLOCKED line in `ben-inbox.md` naming the sender,
+the unknown slug, and the suggestion.
+
+**Two paths that never resolve a pane get the same check, downgraded to a warning.** `--no-type` and a
+ledger-only ACK/FYI (N1) never make a `terminal list` call, so neither could ever reach the exit-2
+banner above — both still run the same no-orca check (inboxes, bindings, the 3-day ledger mirror) and,
+when the recipient is unknown, print a warning and set `unknown_recipient: true` in the JSON. Neither
+changes the exit code: a caller that opted out of pane resolution has not earned an exit-2 for a pane it
+never looked at.
+
+The early 10-minute dead-letter is skipped while `MULTI_ALLOW_TYPING=1` is set on this machine: typing is
+still a real path to that pane later in the same drain, and dead-lettering first would pre-empt a
+delivery that was already coming.
+
 The one exit 3 that does need you: "the text may be sitting UNSENT in the composer". That one is
 NOT queued for retry, because retyping it is how the same note arrives twice. Clear the pane by hand.
+
+**Two kill switches**, both a file whose mere presence restores the pre-2026-09-20 behaviour (`touch`
+to pause, `rm` to resume — no deploy, no restart):
+`~/.agents/notes/wake-all-kinds` (ACK and FYI wake their recipient again) and
+`~/.agents/notes/no-unknown-check` (an unresolved recipient gets the plain "not found" message again,
+and `note-flush` stops dead-lettering unknown recipients early).
 
 ## Codex peers are different, and it matters
 

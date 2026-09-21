@@ -17,7 +17,10 @@
 //      A hook that parks is a turn that will not end (the 2026-09-16 ruling; see the spec).
 //   4. NEVER GUESS THE SLUG. An inbox read under the wrong slug shows one session another's notes.
 
-import { parseEnvelope } from '../skills/multi/scripts/envelope.mjs';
+import fs from 'node:fs';
+
+import { parseEnvelope, LEDGER_ONLY_KINDS } from '../skills/multi/scripts/envelope.mjs';
+import { wakeAllKindsPath, killSwitchActive } from '../skills/multi/scripts/transport.mjs';
 
 /** Whole-hook ceiling for the cheap events. */
 export const BUDGET_MS = 2500;
@@ -217,11 +220,45 @@ async function handlePostToolUse(ctx) {
 }
 
 /**
+ * MINOR 11 (review 2026-09-20, measured by `stop-block-census`: 28 of 66 Stop-blocks over 7 days were
+ * every-waiting-note-quiet, 39% of THOSE continuations made no tool call at all — a full-context turn
+ * spent saying "not for me, stopping"). A ledger-only kind never STARTS a turn; a Stop-block that fires
+ * on ACK/FYI alone does exactly that, one event later than the sender-side rule already stops it at.
+ * This is the third and last enforcement site for that ONE rule; the other two are the sender's
+ * `quietKind` (`note-send.mjs:247`) and the flusher's `retired-quiet-kind` retirement
+ * (`note-flush.mjs:399`), all three importing the same `LEDGER_ONLY_KINDS` from `envelope.mjs` — none
+ * keeps its own list. (`note-flush.mjs`'s `UNKNOWN_RECIPIENT_KINDS` is a DIFFERENT rule — which kinds
+ * earn the early unknown-recipient dead-letter, ASK/BLOCKED but not RESULT — and must not be merged
+ * with this one.)
+ *
+ * True (block) when at least one waiting note is not ledger-only. Fails toward blocking — the old,
+ * pre-2026-09-20 behaviour — in both uncertain cases: the kill-switch file present OR unreadable
+ * (`killSwitchActive`'s own fail-open already means "yes" here, since THIS switch's presence restores
+ * "everyone wakes"), and a note whose kind did not parse (`undefined` is not in `LEDGER_ONLY_KINDS`, so
+ * it is loud by construction — no separate check needed).
+ */
+function hasLoudNote(result, home, fsImpl) {
+  if (killSwitchActive(fsImpl, wakeAllKindsPath(home))) return true;
+  return (result.notes ?? []).some((n) => !LEDGER_ONLY_KINDS.has(n?.kind));
+}
+
+/**
  * Stop, after the 2026-09-16 ruling: surface what is already there, then get out of the way.
  *
  *   · `stop_hook_active` → silent. This is the re-fire of a stop we already blocked.
- *   · notes already waiting → block, so they are handled before the turn ends.
- *   · nothing waiting → exit 0, silently, at once. ALWAYS, whatever this session is owed.
+ *   · loud notes waiting (MINOR 11: at least one is not ACK/FYI) → block, so they are handled before
+ *     the turn ends. MIXED still blocks once and still surfaces everything, exactly as before.
+ *   · only ledger-only notes waiting → silent, same as nothing waiting. They already reached the model
+ *     mid-turn if this turn ran any tool call or prompt (handleContextEvent/handlePostToolUse, both
+ *     unchanged); this Stop does not read them a second time to say so. Nothing is acked and nothing is
+ *     marked seen — `ctx.onRead`/the cursor only move on the branch below — so they surface again,
+ *     unchanged, at the next UserPromptSubmit/PostToolUse/SessionStart exactly as they would today.
+ *   · nothing waiting at all → exit 0, silently, at once. ALWAYS, whatever this session is owed.
+ *
+ * No new read for the kind check: `result.notes[i].kind` already comes back from the SAME `ctx.inbox([])`
+ * call this function always made, so seeing kinds costs nothing extra. The kill-switch check is one
+ * `fs.existsSync`, and only runs once a note is already waiting — a Stop with nothing waiting never
+ * reaches it, so it stays silent and instant exactly as before.
  *
  * 0.4.0 parked here for up to fifteen minutes while this session had an unanswered ASK, and it was the
  * wrong architecture. The live failure: `infra` asked a peer something; the peer ACKed and later sent
@@ -240,6 +277,7 @@ async function handleStop(ctx) {
 
   const result = await ctx.inbox([]);
   if (!result || result.count === 0) return null;
+  if (!hasLoudNote(result, ctx.home, ctx.fsImpl ?? fs)) return null;
   ctx.onRead?.(result);
   return { output: blockOutput(result, STOP_REASON, STOP_LIMIT), ackIds: shown(result, STOP_LIMIT) };
 }
