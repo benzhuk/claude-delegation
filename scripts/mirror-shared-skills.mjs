@@ -44,9 +44,6 @@ const REPO = path.resolve(HERE, '..');
 const HOME = os.homedir();
 const AGENTS_SKILLS = path.join(HOME, '.agents', 'skills');
 const SHARED_DOCS = path.join(AGENTS_SKILLS, '_docs');
-/** decisions-read.mjs lives in the repo's top-level scripts/, not inside skills/decisions/, so a
- * folder-copy of that skill would not carry it — publish it beside the skill, like _docs/. */
-const SHARED_SCRIPTS = path.join(AGENTS_SKILLS, '_scripts');
 const CODEX_AGENTS = path.join(HOME, '.codex', 'agents');
 const LOCAL_BIN = path.join(HOME, '.local', 'bin');
 const MANIFEST = path.join(AGENTS_SKILLS, '.mirror-manifest.json');
@@ -67,8 +64,6 @@ const SHARED_DOC_FILES = [
   'model-tiers.md', 'subagent-contract.md', 'concurrency-budget.md',
   'agent-pacing.md', 'mandate-standards.md',
 ];
-/** Scripts a mirrored skill links to but that live outside its own folder (see SHARED_SCRIPTS above). */
-const SHARED_SCRIPT_FILES = ['decisions-read.mjs'];
 /** Never publish a skill's own test files into Codex's skill store (review M6). */
 const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;
 const IS_WINDOWS = process.platform === 'win32';
@@ -213,11 +208,6 @@ function collectSources() {
     const src = path.join(REPO, 'docs', file);
     if (fs.existsSync(src)) out.push({ kind: 'doc', name: file, src, dest: path.join(SHARED_DOCS, file) });
     else refuse(`missing shared doc ${src}`);
-  }
-  for (const file of SHARED_SCRIPT_FILES) {
-    const src = path.join(REPO, 'scripts', file);
-    if (fs.existsSync(src)) out.push({ kind: 'script', name: file, src, dest: path.join(SHARED_SCRIPTS, file) });
-    else refuse(`missing shared script ${src}`);
   }
   const codexDir = path.join(REPO, 'codex', 'agents');
   for (const file of safeReaddir(codexDir).filter((f) => f.endsWith('.toml'))) {
@@ -540,7 +530,7 @@ Never writes ~/.claude/skills: Claude Code gets these skills from the plugin cac
 
 function publish(entry, prev) {
   if (entry.kind === 'shim') return publishShim(entry, prev);
-  if (entry.kind === 'codex-agent' || entry.kind === 'doc' || entry.kind === 'script') return publishFile(entry, prev);
+  if (entry.kind === 'codex-agent' || entry.kind === 'doc') return publishFile(entry, prev);
   return MODE === 'symlink' ? publishSymlink(entry, prev) : publishCopy(entry, prev);
 }
 
@@ -722,7 +712,6 @@ function main() {
     if (!opts.dryRun) {
       fs.mkdirSync(AGENTS_SKILLS, { recursive: true });
       if (sources.some((s) => s.kind === 'doc')) fs.mkdirSync(SHARED_DOCS, { recursive: true });
-      if (sources.some((s) => s.kind === 'script')) fs.mkdirSync(SHARED_SCRIPTS, { recursive: true });
       if (sources.some((s) => s.kind === 'codex-agent')) fs.mkdirSync(CODEX_AGENTS, { recursive: true });
       if (sources.some((s) => s.kind === 'shim')) fs.mkdirSync(LOCAL_BIN, { recursive: true });
     }
