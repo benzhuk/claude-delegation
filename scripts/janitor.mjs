@@ -12,16 +12,20 @@
 //
 // SAFE (a human would agree without looking) = a git worktree that is: not locked, not the main
 //   working tree, not the worktree we are standing in, not checked out on a protected branch name,
-//   its branch fully merged into main AND its tip confirmed present on origin/<main> (when an
-//   origin/<main> ref exists — with no origin remote at all, nothing is ever confirmed and nothing
-//   is ever SAFE), `git status --porcelain --ignored` fully empty (untracked AND ignored content
-//   both count), no submodules; OR a local branch merged into main AND confirmed on origin/<main>
-//   the same way, that is not a protected name, not the current branch, not main.
+//   not prunable (its directory must actually be there), its branch fully merged into main AND its
+//   tip confirmed present on origin/<main> (when an origin/<main> ref exists — with no origin remote
+//   at all, nothing is ever confirmed and nothing is ever SAFE), `git status --porcelain --ignored`
+//   fully empty (untracked AND ignored content both count), no submodules; OR a local branch merged
+//   into main AND confirmed on origin/<main> the same way, that is not a protected name, not the
+//   current branch, not main, and not checked out in ANY worktree unless that worktree is ALSO SAFE
+//   this same run (round-4 review: a branch checked out anywhere else is never mechanically safe by
+//   itself, even if the worktree holding it is the main working tree).
 // JUDGMENT = everything that fails one of the above proofs but still looks stale: a dirty/ignored/
-//   locked/submoduled worktree, a protected-name worktree (even if otherwise SAFE), a merged
-//   worktree whose branch is not confirmed on origin, an unmerged branch with no commit in 14 days,
-//   a merged branch not confirmed on origin, a protected-name branch that happens to be merged, an
-//   untracked file matching the project's scratch_patterns.
+//   locked/submoduled/prunable worktree, a protected-name worktree (even if otherwise SAFE), a
+//   merged worktree whose branch is not confirmed on origin, an unmerged branch with no commit in 14
+//   days, a merged branch not confirmed on origin, a protected-name branch that happens to be
+//   merged, a merged branch checked out in a worktree this run is not removing, an untracked file
+//   matching the project's scratch_patterns.
 //
 // round-1 fix note: the artifact registry (scripts/artifact-registry.mjs) and commit-check
 // (scripts/commit-check.mjs) were CUT from this build per review — the registry read a file nothing
@@ -30,11 +34,18 @@
 // `registryPastEndCount`/`registryMalformedCount` drift number, or a "registry entries" report
 // section — SAFE/JUDGMENT worktree and branch classification is unaffected.
 //
-// `--apply` acts on SAFE only: a plain, unforced worktree removal, a worktree prune, and a
-// lower-case branch delete (the non-forcing form only - never its capital-letter sibling). JUDGMENT
-// is reported and never executed. This script never wipes uncommitted work, never resets a tree,
-// never touches a work-in-progress shelf, never forces anything, never recursively deletes a path
-// it did not create, and never unlinks a file.
+// round-4 fix note: `git worktree prune` was CUT from `--apply` per review — it is a blanket
+// operation that cannot be scoped to SAFE entries only, so it could deregister a JUDGMENT worktree's
+// own bookkeeping (one merely moved aside, directory unreachable) in the same run that then let its
+// branch look free to delete. A prunable worktree is now its own JUDGMENT row (see classify()) and
+// is never touched by --apply; the report-only path already told the operator about it, --apply just
+// never acted on it.
+//
+// `--apply` acts on SAFE only: a plain, unforced worktree removal, and a lower-case branch delete
+// (the non-forcing form only - never its capital-letter sibling). JUDGMENT is reported and never
+// executed. This script never wipes uncommitted work, never resets a tree, never touches a
+// work-in-progress shelf, never forces anything, never recursively deletes a path it did not create,
+// and never unlinks a file.
 //
 // Fail-open applies to READING state, never to a run that has already started deleting something.
 // Once --apply has taken even one destructive action, a later failure is never silent: whatever was
@@ -116,11 +127,16 @@ export function currentBranch(root) {
   }
 }
 
-/** Parses `git worktree list --porcelain` into [{ path, branch, bare, detached, locked, lockReason, prunable, main }]. */
+/** Parses `git worktree list --porcelain -z` into [{ path, branch, bare, detached, locked, lockReason, prunable, main }].
+ * -z: without it, git C-quotes any "unusual" character in a lock reason (a literal `\n` or `\t`
+ * appears escaped, not as the real byte) - round-4 review found this could make a lock/prune reason
+ * unreadable or misleading. -z NUL-terminates each field instead and never quotes, and this file's
+ * own line-by-line parsing (splitting on the terminator, matching known prefixes) is unaffected by
+ * the switch - verified against a reason containing a real embedded newline and a tab. */
 export function listWorktrees(root) {
   let out;
   try {
-    out = git(["worktree", "list", "--porcelain"], root);
+    out = git(["worktree", "list", "--porcelain", "-z"], root);
   } catch {
     return null;
   }
@@ -129,7 +145,7 @@ export function listWorktrees(root) {
   const push = () => {
     if (cur) worktrees.push(cur);
   };
-  for (const line of out.split("\n")) {
+  for (const line of out.split("\0")) {
     if (line.startsWith("worktree ")) {
       push();
       cur = {
@@ -346,6 +362,14 @@ export function classify({
       judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "has submodules" });
       continue;
     }
+    if (w.prunable) {
+      // round-4 review F3: a worktree whose directory git can no longer find (moved aside, an
+      // unmounted drive, an offline share) reports `--ignored` status as a bare error, which fell
+      // through to the generic "tree not clean" reason - telling the operator there is uncommitted
+      // work at a path that does not exist. Say what is actually true instead.
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "worktree directory is missing (git reports it prunable)" });
+      continue;
+    }
     if (!w.clean) {
       judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "tree not clean (uncommitted, untracked or ignored files present)" });
       continue;
@@ -365,9 +389,19 @@ export function classify({
     safe.worktrees.push({ ref: w.path, branch: w.branch, reason: "branch merged into main (and on origin), tree fully clean" });
   }
 
+  // round-4 review F1: a branch checked out in ANY worktree - the main one included - is never SAFE
+  // by itself. It is SAFE only together with its own worktree ALSO being SAFE this run (in which
+  // case that worktree's removal frees the branch before the branch-delete step ever runs); checked
+  // out anywhere else, it goes to JUDGMENT with one row, not two silently-contradicting tables.
+  const checkedOutAnywhere = new Set(worktrees.map((w) => w.branch).filter(Boolean));
+  const removedHere = new Set(safe.worktrees.map((w) => w.branch).filter(Boolean));
   for (const b of branches) {
     if (b.name === mainBranch) continue;
     if (b.name === cur) continue; // never the current branch
+    if (checkedOutAnywhere.has(b.name) && !removedHere.has(b.name)) {
+      if (b.merged) judgment.branches.push({ ref: b.name, reason: "merged, but checked out in a worktree this run is not removing" });
+      continue;
+    }
     const protectedName = PROTECTED_BRANCH_NAMES.has(b.name) || PROTECTED_BRANCH_PREFIXES.some((p) => b.name.startsWith(p));
     if (protectedName) {
       if (b.merged) {
@@ -503,12 +537,17 @@ export function applySafe(state, log = []) {
       if (w.branch) failedWorktreeBranches.add(w.branch);
     }
   }
-  try {
-    git(["worktree", "prune"], root);
-    log.push({ action: "worktree-prune", ok: true });
-  } catch (err) {
-    log.push({ action: "worktree-prune", ok: false, error: String(err.message || err) });
-  }
+  // round-4 review F2: `git worktree prune` used to run here, unconditionally, before this
+  // function's own `stillCheckedOut` guard was computed - it deregisters ANY worktree whose
+  // directory git can no longer find, including one this same run correctly classified JUDGMENT
+  // (moved aside, an unmounted drive), not only the SAFE ones this function is scoped to. Measured
+  // erasing a JUDGMENT worktree's registration and then, on the pruned listing, letting its merged
+  // branch look free to delete in the same run. The invariant for this whole function is: act ONLY
+  // on rows this run printed as SAFE, and never touch, prune, or delete anything it called JUDGMENT.
+  // `git worktree prune` cannot be scoped to SAFE entries only - it is a blanket operation - so it
+  // does not belong in a function that must keep that promise; a prunable worktree is now its own
+  // JUDGMENT row instead (see classify()). Fewer moving parts: no snapshot-before-prune bookkeeping
+  // is needed here because nothing here deregisters anything this loop did not itself just remove.
 
   let stillCheckedOut;
   try {
