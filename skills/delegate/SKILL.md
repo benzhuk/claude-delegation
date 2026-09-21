@@ -27,7 +27,11 @@ description: Use when a prompt decomposes into independent research, review, aud
    OpenAI GPT-5.6-Terra) executes at full strength, the high tier (Claude Opus /
    OpenAI GPT-6-Astra, Sol if cost forbids) verifies and adjudicates, the fast tier (Claude Haiku / OpenAI
    GPT-5.6-Luna, GPT-5.3-Codex-Spark) is only for mindless bulk sweeps. Verify with a
-   stronger tier than the writer.
+   stronger tier than the writer. On Claude Code, the dispatch guard covers the top-tier
+   half of this rule: a spawn naming `model: opus` or `model: fable` is denied unless it
+   is a reviewer or its prompt has a `JUDGMENT:` line. It only enforces when
+   `~/.agents/dispatch-guard-enforce` exists and `~/.agents/ws-off` does not, and
+   `~/.agents/no-dispatch-guard` turns it off entirely.
 3. **Check the concurrency budget** (`docs/concurrency-budget.md`, shipped next to this
    skill as `../_docs/concurrency-budget.md` when mirrored, and in the plugin repo's
    `docs/` otherwise): read-only
@@ -39,7 +43,10 @@ description: Use when a prompt decomposes into independent research, review, aud
    `../_docs/mandate-standards.md` when mirrored, and in the plugin repo's `docs/`
    otherwise): paths not summaries,
    explicit NOT-list, evidence format, negative results authorized, un-agent-able steps
-   scoped out, autonomy grants explicit, and the termination formula at the end.
+   scoped out, autonomy grants explicit, and the termination formula at the end. Start
+   every mandate from `docs/mandate-template.md`, shipped next to this skill as
+   `../_docs/mandate-template.md` when mirrored, and in the plugin repo's `docs/`
+   otherwise.
 5. **Set ETAs and timers** (`docs/agent-pacing.md`, shipped next to this skill as
    `../_docs/agent-pacing.md` when mirrored, and in the plugin repo's `docs/`
    otherwise) for anything expected past a
@@ -50,13 +57,6 @@ description: Use when a prompt decomposes into independent research, review, aud
    `docs/` otherwise): agents report
    to disk at orchestrator-chosen suffix-style paths, verdict on line 1; a bare "Done."
    reply means read the file. Stop each agent once its report is consumed.
-7. **Inline-report agents get the lossy-channel clause** (`../_docs/subagent-contract.md`):
-   read-only agents (no Write/Bash) can't land a file, and ONLY their final message text
-   reaches you — earlier messages never deliver, and a resumed agent will wrongly say
-   "already reported above", destroying the deliverable. Put the contract's verbatim
-   clause in their spawn prompt AND every resume; if a completion result references
-   prior messages instead of containing the report, resume once with the clause, then
-   respawn with report-to-disk.
 
 ## Peer sessions
 

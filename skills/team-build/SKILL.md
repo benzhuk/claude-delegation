@@ -25,7 +25,10 @@ mention says where to find it once mirrored.
 1. **Write the spec to disk**: design decisions, **pinned contracts** (exact API
    response shapes, type signatures, module interfaces), and a **territory map** —
    every file path owned by exactly one builder. Agent prompts reference the doc by
-   path; never restate its content in prompts.
+   path; never restate its content in prompts. Start each builder's prompt, the
+   mandate, from `docs/mandate-template.md`, shipped next to this skill as
+   `../_docs/mandate-template.md` when mirrored, and in the plugin repo's `docs/`
+   otherwise.
 2. **Decompose by territory, not layer-step**: one builder per disjoint file territory
    (e.g. DB+API+shared-lib = one; UI = one; pipeline = one). Pinned contracts let
    territories build in parallel even when they call each other. A serial layer chain
@@ -61,7 +64,10 @@ mention says where to find it once mirrored.
   `model = "gpt-5.6-sol"` for that one territory — see the spawn-mechanics section of
   `docs/model-tiers.md` (shipped next to this skill as `../_docs/model-tiers.md` when
   mirrored, and in the plugin repo's `docs/` otherwise)): implements only its
-  territory. Gate before reporting: territory-scoped tests + typecheck via the shared
+  territory. On Claude Code, an explicit `model: opus` here needs a `JUDGMENT:` line
+  in the prompt, or the dispatch guard denies the spawn once enforcement is on (off
+  switch `~/.agents/no-dispatch-guard`).
+  Gate before reporting: territory-scoped tests + typecheck via the shared
   verification mutex (`docs/concurrency-budget.md`, shipped next to this skill as
   `../_docs/concurrency-budget.md` when mirrored, and in the plugin repo's `docs/`
   otherwise) — builders do NOT run
