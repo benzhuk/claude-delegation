@@ -143,12 +143,15 @@ export function resolveWindow(opts, nowMs = Date.now()) {
     if (!Number.isFinite(sinceMs)) throw new Error(`invalid --since value: ${opts.since}`);
     return { startMs: sinceMs, endMs: nowMs };
   }
+  // --days 0 or negative is treated as "not given" and silently falls back to 7 (F8 nit).
   const days = Number.isFinite(opts.days) && opts.days > 0 ? opts.days : 7;
   return { startMs: nowMs - days * 24 * 60 * 60 * 1000, endMs: nowMs };
 }
 
 function inWindow(ts, window) {
   if (!ts) return false;
+  // A timestamp with no zone offset is parsed as machine-local, not UTC — shifts the window
+  // edge by the machine's UTC offset for that one line (F8 nit).
   const ms = Date.parse(ts);
   if (!Number.isFinite(ms)) return false;
   return ms >= window.startMs && ms <= window.endMs;
@@ -206,16 +209,27 @@ export function discoverFiles(fsImpl, projectsDir) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function newClassBucket() {
-  return { turns: 0, costUnits: 0, rawTokens: 0, coldTurns: 0, coldCostUnits: 0 };
+  return { turns: 0, costUnits: 0, rawTokens: 0 };
+}
+
+// Cold-start bookkeeping lives in its own accumulator, scoped to top-tier turns only — see
+// finalizeMainTurn (round-2 review F3).
+function newColdBucket() {
+  return { turns: 0, costUnits: 0, coldTurns: 0, coldCostUnits: 0 };
 }
 
 function newState() {
   const byClass = {};
-  for (const cls of CLASS_ORDER) byClass[cls] = newClassBucket();
+  const coldStartTopTier = {};
+  for (const cls of CLASS_ORDER) {
+    byClass[cls] = newClassBucket();
+    coldStartTopTier[cls] = newColdBucket();
+  }
   return {
     sanity: { mainFiles: 0, subFiles: 0, malformedLines: 0, metaMissing: 0, fileErrors: 0, mainLinesSeen: 0, subLinesSeen: 0 },
     dedupe: { main: new Set(), sub: new Set() },
     byClass,
+    coldStartTopTier,
     tier: { top: 0, mid: 0, fast: 0, other: 0 },
     scope: { main: { costUnits: 0, rawTokens: 0 }, sub: { costUnits: 0, rawTokens: 0 } },
     agentTypes: new Map(), // agentType -> { agentType, famCounts, files, apiResponses, costUnits, baselineArr, ctxSum, ctxCount }
@@ -237,13 +251,22 @@ function finalizeMainTurn(turn, state) {
   bucket.rawTokens += raw;
 
   const first = turn.apiResponses[0];
-  const ctx0 = first.input + first.cache_creation + first.cache_read;
-  // Cold start (census_r3.js definition): the turn's first (in-window) response paid to
-  // rebuild more than half its own context from scratch, i.e. it landed on an expired cache.
-  const cold = ctx0 > 0 && first.cache_creation / ctx0 > 0.5;
-  if (cold) {
-    bucket.coldTurns += 1;
-    bucket.coldCostUnits += cu;
+  // census_r3.js gated cold-start to top-tier (fable/opus) turns only, using the family of the
+  // turn's first (in-window) response — restored here (instead of just relabelling) so these
+  // numbers are comparable to that reference table rather than a same-named, differently-scoped
+  // metric (round-2 review F3: all-tier drifted 33.3% vs R3's 21.1% HUMAN cold-turn share).
+  if (tierOf(first.fam) === 'top') {
+    const coldBucket = state.coldStartTopTier[turn.cls] || (state.coldStartTopTier[turn.cls] = newColdBucket());
+    coldBucket.turns += 1;
+    coldBucket.costUnits += cu;
+    const ctx0 = first.input + first.cache_creation + first.cache_read;
+    // Cold start (census_r3.js definition): the turn's first (in-window) response paid to
+    // rebuild more than half its own context from scratch, i.e. it landed on an expired cache.
+    const cold = ctx0 > 0 && first.cache_creation / ctx0 > 0.5;
+    if (cold) {
+      coldBucket.coldTurns += 1;
+      coldBucket.coldCostUnits += cu;
+    }
   }
 }
 
@@ -307,13 +330,14 @@ async function scanMainFile(fsImpl, fileInfo, window, state) {
 
     if (!inWindow(obj.timestamp, window)) continue;
 
+    const fam = modelFamily(msg.model);
     const rec = {
       input: usage.input_tokens || 0,
       cache_creation: usage.cache_creation_input_tokens || 0,
       cache_read: usage.cache_read_input_tokens || 0,
       output: usage.output_tokens || 0,
+      fam, // carried per-response so finalizeMainTurn can gate cold-start to top-tier turns (F3)
     };
-    const fam = modelFamily(msg.model);
     const cu = costUnits(rec);
 
     state.tier[tierOf(fam)] += cu;
@@ -391,7 +415,11 @@ async function scanSubagentFile(fsImpl, fileInfo, window, state) {
     ctxSum += ctxNow;
     ctxCount += 1;
     famCounts[fam] = (famCounts[fam] || 0) + 1;
-    if (firstCtx == null) firstCtx = ctxNow; // opening/baseline context: first IN-WINDOW response
+    // opening/baseline context: first IN-WINDOW response, not the file's true first response
+    // (census_r4.js always used the file's first) — identical on the corpora measured so far
+    // since subagent files are short-lived, but a --since that cuts into a long file would
+    // make this differ from that reference (F7 nit).
+    if (firstCtx == null) firstCtx = ctxNow;
 
     state.tier[tierOf(fam)] += cu;
     state.scope.sub.costUnits += cu;
@@ -424,6 +452,14 @@ function round(n) {
   return Math.round(n || 0);
 }
 
+/** Secrecy: agent type is the one label here that is not a closed set — it comes off a
+ * sidecar on disk, which an orchestrator writes but this tool must not blindly trust. Keep
+ * printable ASCII only, so a newline or an ANSI escape cannot forge a second table row or
+ * move the cursor, then cap the length. (Round-2 review F1.) */
+function safeLabel(s) {
+  return String(s == null ? '' : s).replace(/[^\x20-\x7E]/g, '.').slice(0, 40);
+}
+
 function buildReport(state, opts, window, projectsDir) {
   const byClass = CLASS_ORDER.map((cls) => {
     const b = state.byClass[cls];
@@ -449,7 +485,7 @@ function buildReport(state, opts, window, projectsDir) {
       let domCount = -1;
       for (const [f, c] of Object.entries(a.famCounts)) if (c > domCount) { domFam = f; domCount = c; }
       return {
-        agentType: a.agentType.slice(0, 40), // secrecy: agent type names truncated at 40 chars
+        agentType: safeLabel(a.agentType), // secrecy: sanitised, then capped at 40 chars
         family: domFam,
         files: a.files,
         apiResponses: a.apiResponses,
@@ -465,8 +501,10 @@ function buildReport(state, opts, window, projectsDir) {
     ? +(state.subHighCtx.atOrAbove150k / state.subHighCtx.total).toFixed(4)
     : null;
 
+  // TOP-TIER TURNS ONLY (fable/opus) — see finalizeMainTurn (F3); this scope, not
+  // state.byClass, is what makes these numbers comparable to census_r3.js's table.
   const coldStartByClass = CLASS_ORDER.map((cls) => {
-    const b = state.byClass[cls];
+    const b = state.coldStartTopTier[cls];
     return {
       cls,
       turns: b.turns,
@@ -585,9 +623,9 @@ export function formatText(report) {
     );
   }
   lines.push('');
-  lines.push(`Subagent cost at or above 150k context: ${pctOrNa(report.subagentHighContextShare)}`);
+  lines.push(`Subagent cost at or above 150k context, per API response: ${pctOrNa(report.subagentHighContextShare)}`);
   lines.push('');
-  lines.push('Cold-start share of cost, by class (first in-window response, cache_creation > 50% of its own context):');
+  lines.push('Cold-start share of cost, by class, TOP-TIER TURNS ONLY (first in-window response, cache_creation > 50% of its own context):');
   lines.push(`  ${pad('class', 20)} ${pad('turns', 6)} ${pad('cold', 6)} ${pad('cold turn%', 11)} ${pad('cost units', 12)} ${pad('cold cost units', 16)} ${pad('cold cost%', 11)}`);
   for (const r of report.coldStartByClass) {
     lines.push(
@@ -608,9 +646,14 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (a === '--days') opts.days = Number(argv[++i]);
     else if (a === '--since') opts.since = argv[++i];
-    else if (a === '--projects-dir') opts.projectsDir = argv[++i];
-    else if (a === '--json') opts.json = true;
+    else if (a === '--projects-dir') {
+      opts.projectsDir = argv[++i];
+      // secrecy/containment: a missing or empty value here must not silently fall through
+      // to the real ~/.claude/projects default below (round-2 review F2).
+      if (!opts.projectsDir) throw new Error('--projects-dir needs a directory');
+    } else if (a === '--json') opts.json = true;
     else if (a === '--top') opts.top = Number(argv[++i]);
+    else throw new Error(`unknown argument: ${a}`);
   }
   return opts;
 }

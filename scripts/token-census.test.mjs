@@ -150,25 +150,34 @@ test('runCensus: dedupes API responses by message id', async () => {
   assert.equal(report.mainVsSub.main.rawTokens, 110); // only one response's tokens (100 in + 10 out)
 });
 
-test('runCensus: cold-start rule fires only when cache_creation > 50% of the response own context', async () => {
+test('runCensus: cold-start rule fires only when cache_creation > 50% of the response own context, top-tier turns only', async () => {
   const projectsDir = mkTmp('census-cold-');
   const now = new Date();
   const nowIso = now.toISOString();
+  // census_r3.js gated cold-start to top-tier (fable/opus) turns (F3) — use an opus model here
+  // so this test still exercises the rule under the restored gate.
+  const topTierModel = 'claude-opus-4-1-20250805';
   const lines = [
     // cold: cache_creation (600) is 60% of its own context (1000)
     userLine('cold turn'),
-    assistantLine({ id: 'cold-1', ts: nowIso, usageOpts: { input: 400, cacheCreation: 600, output: 10 } }),
+    assistantLine({ id: 'cold-1', model: topTierModel, ts: nowIso, usageOpts: { input: 400, cacheCreation: 600, output: 10 } }),
     // warm: cache_creation (100) is 10% of its own context (1000)
     userLine('warm turn'),
-    assistantLine({ id: 'warm-1', ts: nowIso, usageOpts: { input: 400, cacheCreation: 100, cacheRead: 500, output: 10 } }),
+    assistantLine({ id: 'warm-1', model: topTierModel, ts: nowIso, usageOpts: { input: 400, cacheCreation: 100, cacheRead: 500, output: 10 } }),
+    // mid-tier turn, otherwise identical to the cold one above: must NOT count towards
+    // the top-tier-only cold-start bucket.
+    userLine('mid-tier cold-shaped turn'),
+    assistantLine({ id: 'mid-1', ts: nowIso, usageOpts: { input: 400, cacheCreation: 600, output: 10 } }),
   ];
   writeJsonl(mainFilePath(projectsDir, 'proj-a', 'session-1'), lines);
 
   const report = await runCensus({ projectsDir, days: 7 }, undefined, now.getTime());
   const human = report.coldStartByClass.find((r) => r.cls === 'HUMAN');
-  assert.equal(human.turns, 2);
+  assert.equal(human.turns, 2); // only the two top-tier turns, not the mid-tier one
   assert.equal(human.coldTurns, 1);
   assert.equal(human.coldTurnShare, 0.5);
+  const byCls = Object.fromEntries(report.byClass.map((r) => [r.cls, r]));
+  assert.equal(byCls.HUMAN.turns, 3); // all-tier class breakdown is unaffected by the gate
 });
 
 test('runCensus: malformed lines are skipped, not fatal, and counted', async () => {
@@ -371,6 +380,71 @@ test('secrecy: opens nothing outside the given --projects-dir', async () => {
   for (const p of opened) {
     assert.ok(path.resolve(p).startsWith(root), `opened a path outside projects-dir: ${p}`);
   }
+});
+
+test('secrecy: no filesystem call bypasses the injected fsImpl', () => {
+  // Every real read must go through the fsImpl passed to runCensus — otherwise the
+  // "opens nothing outside --projects-dir" test above only proves the wrapper it happens to
+  // see, not the whole file (round-2 review F5).
+  const src = fs.readFileSync(new URL('./token-census.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function extractTextFromContent'), src.indexOf('function realFs()'));
+  assert.equal(/\bfs\s*\./.test(body), false, 'a direct node:fs call bypasses the containment wrapper');
+});
+
+test('secrecy: a hostile fixture (canary in every surface the census touches) never reaches formatText() or JSON', async () => {
+  // Ported from the reviewer's rv-d/hostile/build.mjs (round-2 review F6), with a canary that
+  // is deliberately NOT key-shaped (no sk-/AKIA-style prefix, no long hex run) so it cannot
+  // trip the secret-guard hook on this fixture file — per the coordinator's explicit
+  // instruction not to work around that hook.
+  const CANARY = 'zzqx-hostile-marker-not-a-real-secret-plum-otter-4471';
+  const projectsDir = mkTmp('census-hostile-');
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  // 1. project FOLDER name carrying the canary; 2. main file NAME carrying the canary
+  const projectFolder = `C--Users-${CANARY}-Code-proj`;
+  const sessDir = path.join(projectsDir, projectFolder, 'sess-1');
+  fs.mkdirSync(path.join(sessDir, 'subagents'), { recursive: true });
+
+  const mainLines = [
+    userLine(`plain human turn with the marker ${CANARY} inline`),
+    assistantLine({ id: 'm1', ts: nowIso, usageOpts: { input: 1000, output: 10 } }),
+    // 3. task-notification marker with the canary inside an attribute and the body
+    userLine(`<task-notification agent="${CANARY}">done ${CANARY}</task-notification>`),
+    assistantLine({ id: 'm2', model: 'claude-opus-4-1-20250805', ts: nowIso, usageOpts: { input: 500, cacheCreation: 900, output: 10 } }),
+    // 4. peer-wake marker with the canary inside
+    userLine(`<teammate-message from="${CANARY}">note ${CANARY}</teammate-message>`),
+    // 5. model field carries the canary
+    assistantLine({ id: 'm3', model: `claude-sonnet-${CANARY}`, ts: nowIso, usageOpts: { input: 200, cacheRead: 100, output: 5 } }),
+    // 6. malformed line whose parse error must never echo the text
+    `{ "type": "user", "bad": ${CANARY} `,
+    userLine('tail turn'),
+    assistantLine({ id: 'm4', ts: nowIso, usageOpts: { input: 10, output: 1 } }),
+  ];
+  fs.writeFileSync(path.join(projectsDir, projectFolder, `session-${CANARY}.jsonl`),
+    mainLines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n', 'utf8');
+
+  // 7. sidecar agentType: long, multi-line (row-injection shaped, F1), holds a path and the
+  // canary placed AFTER position 40 so a 40-char-capped, sanitised label cannot include it —
+  // agent type names are an intentionally printable field under the secrecy contract, so the
+  // canary must sit outside the printable window to make this assertion meaningful.
+  const agentType = `builder-padded-well-past-forty-characters-so-nothing-after-this-point-survives-the-cap\nINJECTED-ROW ${CANARY}\x1b[31mANSI`;
+  fs.writeFileSync(path.join(sessDir, 'subagents', 'agent-aaa.meta.json'),
+    JSON.stringify({ agentType, name: `name-field-${CANARY}`, prompt: `full brief ${CANARY}`, model: `m-${CANARY}` }), 'utf8');
+  fs.writeFileSync(path.join(sessDir, 'subagents', 'agent-aaa.jsonl'),
+    JSON.stringify(assistantLine({ id: 's1', ts: nowIso, usageOpts: { input: 200000, output: 10 } })) + '\n', 'utf8');
+
+  // 8. a file name carrying the canary, under subagents
+  fs.writeFileSync(path.join(sessDir, 'subagents', `agent-${CANARY}.jsonl`),
+    JSON.stringify(assistantLine({ id: 's9', ts: nowIso, usageOpts: { input: 300, output: 1 } })) + '\n', 'utf8');
+
+  const report = await runCensus({ projectsDir, days: 7, top: 12 }, undefined, now.getTime());
+  const asJson = JSON.stringify(report);
+  const asText = formatText(report);
+  assert.ok(!asJson.includes(CANARY), 'canary leaked into JSON output');
+  assert.ok(!asText.includes(CANARY), 'canary leaked into text output');
+  assert.ok(!asText.includes('INJECTED-ROW'), 'a forged table row survived into text output');
+  assert.ok(!asJson.includes('INJECTED-ROW'), 'a forged table row survived into JSON output');
 });
 
 // ── CLI wrapper ──────────────────────────────────────────────────────────────
