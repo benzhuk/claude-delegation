@@ -106,8 +106,11 @@ function mockOrca(cfg = {}) {
   return run;
 }
 
+// N1 (2026-09-20): ACK and FYI are ledger-only — no pane resolution, no delivery. This suite's default
+// fixture exercises pane resolution and delivery, so it uses ASK (unaffected by N1); the N1 behaviour
+// itself has its own dedicated tests below.
 const ARGS_OK = (over = []) => [
-  '--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping',
+  '--from', 'taxonomy', '--to', 'nucleus', '--kind', 'ASK', '--topic', 'ping',
   '--text', 'Batch finished, 413 films', ...over,
 ];
 
@@ -440,7 +443,7 @@ test('MAJOR 2: --to <handle> files the note under the BINDING, not the conversat
   const pane = idlePane({ handle: 'term_bbb', title: 'Continue | bto-workflows', worktreePath: repo });
   const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
 
-  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'ASK', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
   const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.match(res.envelope, /^taxonomy → nucleus, /, 'the ledger line must name a slug note-inbox reads');
   assert.equal(res.delivered, true);
@@ -451,7 +454,7 @@ test('MAJOR 2: with no binding it still falls back to the title, as it always di
   const repo = tmp(); const home = tmp();
   const pane = idlePane({ handle: 'term_bbb', title: 'nucleus', worktreePath: repo });
   const orca = mockOrca({ panes: [pane], reads: DELIVERY_READS() });
-  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
+  const args = ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'ASK', '--topic', 'ping', '--text', 'Batch finished, 413 films'];
   const res = await runNoteSend(args, { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.match(res.envelope, /^taxonomy → nucleus, /);
 });
@@ -767,7 +770,7 @@ test('a bad envelope is rejected before orca is touched at all', async () => {
   const orca = mockOrca({ panes: [idlePane()] });
   const deps = { orca, home: tmp(), git: () => '.git', now: NOW };
   await rejectsWith(runNoteSend(ARGS_OK(['--to', 'Nucleus']), deps), 1, /use "nucleus"/);
-  await rejectsWith(runNoteSend(ARGS_OK(['--needs', 'decision']), deps), 1, /ASK-only/);
+  await rejectsWith(runNoteSend(ARGS_OK(['--kind', 'FYI', '--needs', 'decision']), deps), 1, /ASK-only/);
   await rejectsWith(runNoteSend(ARGS_OK(['--details', 'docs/notes/a b.md']), deps), 1, /spaces/);
   await rejectsWith(runNoteSend(ARGS_OK(['--text', 'run `whoami`']), deps), 1, /execute/);
   await rejectsWith(runNoteSend(ARGS_OK(['--text', 'fixed; rm -rf build']), deps), 1, /execute/);
@@ -999,7 +1002,7 @@ test('H3: a pane that does not resolve still gets the note into the ledger, then
   assert.equal(err.queued, true);
   const mirror = err.ledgers.find((l) => l.includes('/.agents/notes/'));
   assert.ok(mirror, `the mirror is what every note-inbox reads; got ${err.ledgers}`);
-  assert.match(fs.readFileSync(mirror, 'utf8'), /\[taxonomy-ping-1\] FYI:/);
+  assert.match(fs.readFileSync(mirror, 'utf8'), /\[taxonomy-ping-1\] ASK:/);
   assert.ok(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')));
   assert.match(err.message, /The note IS recorded/);
   assert.match(err.message, /Do NOT re-send this id/);

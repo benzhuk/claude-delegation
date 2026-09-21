@@ -77,9 +77,9 @@ import path from 'node:path';
 import os from 'node:os';
 
 import {
-  NoteError, RESERVED_RECIPIENT, DEFAULT_ZONE, DEFAULT_TZ_LABEL,
+  NoteError, RESERVED_RECIPIENT, DEFAULT_ZONE, DEFAULT_TZ_LABEL, LEDGER_ONLY_KINDS,
   assertFieldSafe, validateSlug, validateId, validateDetails, validateKindNeeds,
-  buildEnvelope, nextCounter, timeParts,
+  buildEnvelope, nextCounter, timeParts, suggestSlug,
 } from './envelope.mjs';
 
 import {
@@ -88,7 +88,7 @@ import {
   resolvePane, isLocalPane, titleToSlug, readBindings,
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
-  readInboxes,
+  readInboxes, wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
 } from './transport.mjs';
 
 import { drainQuietly, deliverToInbox } from './note-flush.mjs';
@@ -234,6 +234,16 @@ export async function runNoteSend(argv, deps = {}) {
   const isBen = toRaw.toLowerCase() === RESERVED_RECIPIENT;
   const senderHost = env.ORCA_SENDER_HOST || '';
 
+  // N1 (spec 2026-09-20): ACK and FYI are ledger-only for everyone except ben — "unchanged for every
+  // kind" there. No wake-up is created: no outbox entry, no inbox post, and (for a slug recipient) no
+  // pane resolution at all. `~/.agents/notes/wake-all-kinds` restores the old behaviour.
+  const wakeAllKinds = fsImpl.existsSync(wakeAllKindsPath(home));
+  const quietKind = !isBen && LEDGER_ONLY_KINDS.has(kind) && !wakeAllKinds;
+  // A raw `term_…` handle carries no slug of its own — only the pane it names does — so a quiet kind
+  // addressed BY HANDLE still has to resolve the pane once to learn what to write in the ledger. Only a
+  // slug recipient can skip pane resolution outright.
+  const quietSkipsResolution = quietKind && !HANDLE_RE.test(toRaw);
+
   // Step 1 of the contract: every check that does not need a pane runs BEFORE we touch orca,
   // so a typo never costs a terminal round-trip and never half-resolves a recipient.
   if (args['wait-max'] !== undefined && !/^\d+$/.test(String(args['wait-max']))) {
@@ -278,11 +288,17 @@ export async function runNoteSend(argv, deps = {}) {
   // ── 2/3. Drain the backlog, then resolve the pane. In --dry-run we never touch orca at all.
   let pane = null;
   let bindings = {};
+  let terminals = [];
   let orca = null;
   let drained = null;
   let paneError = null;
   if (isBen) {
     plan.push('"ben" is a reserved recipient: no pane is resolved; the line is recorded and printed');
+  } else if (quietSkipsResolution) {
+    // N1: no wake-up for this kind — no outbox entry, no inbox post, and (the whole point of this
+    // branch) no pane resolution at all. The ledger write below is exactly what any other kind gets.
+    plan.push(`${kind} is ledger-only: written to the ledger, no wake-up is created `
+      + '(no outbox entry, no inbox post, no pane resolution)');
   } else if (dryRun) {
     plan.push(inboxRecord
       ? `post the envelope into "${toRaw}"'s registered inbox (${inboxRecord.kind}): no pane is resolved, `
@@ -315,7 +331,8 @@ export async function runNoteSend(argv, deps = {}) {
       // pane retitled `Continue` by a restart. Resolution order is unchanged otherwise: handle, then
       // exact title, then the binding (spec 2026-09-14 D3).
       bindings = readBindings(home, fsImpl);
-      pane = resolvePane((await orca(['terminal', 'list', '--json']))?.terminals, toRaw, { bindings });
+      terminals = (await orca(['terminal', 'list', '--json']))?.terminals ?? [];
+      pane = resolvePane(terminals, toRaw, { bindings });
     } catch (err) {
       if (!(err instanceof NoteError) || err.exitCode !== 2) throw err;
       // A raw `term_…` handle that resolves to nothing is the one case we cannot record: without a pane
@@ -386,6 +403,13 @@ export async function runNoteSend(argv, deps = {}) {
       `pane "${toRaw}" did not resolve, so the ledger line went to ${targetRepo} (this session's repo), `
       + 'not the recipient\'s. The ~/.agents/notes mirror is what note-inbox reads.',
     );
+  } else if (quietSkipsResolution) {
+    // N1: no pane was ever resolved for a ledger-only kind addressed by slug, so there is nothing to
+    // derive a repo from beyond this pane's own worktree — same fallback the paneError branch uses.
+    targetRepo = mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
+    if (!targetRepo) {
+      throw new NoteError(1, `${kind} is ledger-only and resolves no pane — pass --recipient-repo so the note has a home`);
+    }
   } else if (noType) {
     throw new NoteError(1, '--no-type needs --recipient-repo: no pane is resolved, so nothing says where the note lives');
   } else {
@@ -445,7 +469,10 @@ export async function runNoteSend(argv, deps = {}) {
       plan.push(`write packet ${packetPath} from ${args['packet-file'] === '-' ? 'stdin' : args['packet-file']}${force ? ' (--force: overwrites an existing packet)' : ' (refuses to overwrite)'}`);
     }
     for (const t of ledgerTargets) plan.push(`append envelope to ${t}`);
-    if (!isBen && inboxRecord) {
+    if (quietKind) {
+      // N1: "--dry-run says the same" — no pane-resolution plan for a ledger-only kind.
+      plan.push(`exit 0: delivered:false, wake:none (${kind} is ledger-only)`);
+    } else if (!isBen && inboxRecord) {
       // N4: this is what a real send would do, so it is what the preview says.
       plan.push('drain ~/.agents/notes/outbox first (3 s budget)');
       plan.push(`post the envelope into ${toRaw}'s inbox and exit 0 - no terminal list, show, read or send`);
@@ -459,9 +486,10 @@ export async function runNoteSend(argv, deps = {}) {
     }
     return {
       ok: true, exitCode: 0, envelope, id, to: toRaw, handle: null,
-      classification: isBen ? 'n/a (ben)' : 'not-checked (--dry-run)',
+      classification: isBen ? 'n/a (ben)' : (quietKind ? 'ledger-only (quiet kind)' : 'not-checked (--dry-run)'),
       delivered: false, deferred: false, queued: false, notified: false, dryRun: true,
       ledgers: ledgerTargets, packetPath, outbox: null, plan, warnings, error: null,
+      ...(quietKind ? { wake: 'none', reason: 'ledger-only kind' } : {}),
     };
   }
 
@@ -499,6 +527,17 @@ export async function runNoteSend(argv, deps = {}) {
     return {
       ok: true, exitCode: 0, ...base, classification: 'n/a (ben)',
       delivered: false, deferred: false, queued: false, notified: true, benInbox, outbox: null, error: null,
+    };
+  }
+
+  // ── N1: a ledger-only kind stops here too — validated and recorded exactly like any other kind, but
+  //    no outbox entry, no inbox post, no pane resolution. The recipient's own hooks surface the ledger
+  //    line at its next event; this call never tries to start one.
+  if (quietKind) {
+    return {
+      ok: true, exitCode: 0, ...base, classification: 'ledger-only (quiet kind)',
+      delivered: false, deferred: false, queued: false, notified: false,
+      wake: 'none', reason: 'ledger-only kind', outbox: null, error: null,
     };
   }
 
@@ -540,12 +579,34 @@ export async function runNoteSend(argv, deps = {}) {
   //       then report the exit 2, with the ledger paths in the message and in the JSON.
   if (paneError) {
     const outbox = queue('not-resolved');
-    throw new NoteError(
-      2,
-      `${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is queued — `
+
+    // N2 (spec 2026-09-20): a slug that no inbox, binding, live pane title or recent ledger line has
+    // ever heard of is UNKNOWN, not merely "not found right now" — loud enough that a typo (`fable` for
+    // `taxonomy-fable`) is caught before two hours pass, not after. `~/.agents/notes/no-unknown-check`
+    // restores today's plain message. Never runs for a raw handle or `ben` — both throw earlier.
+    const noUnknownCheck = fsImpl.existsSync(noUnknownCheckPath(home));
+    let message = `${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is queued — `
       + 'note-inbox reads the mirror, so the recipient still gets it. Do NOT re-send this id; fix the pane name '
-      + 'or rename the pane to its slug, and the queued wake-up lands on the next flush.',
-      { ...base, classification: 'not-resolved', notified: false, queued: true, outbox },
+      + 'or rename the pane to its slug, and the queued wake-up lands on the next flush.';
+    let extra = {};
+    if (!noUnknownCheck) {
+      const ledgerTexts = recentMirrorTexts(home, 3, now.getTime(), fsImpl);
+      const context = { inboxes: readInboxes(home, fsImpl), bindings, terminals, ledgerTexts };
+      if (isUnknownRecipient(toRaw, context)) {
+        const known = knownSlugs(context);
+        const suggestion = suggestSlug(toRaw, known);
+        message = `UNKNOWN RECIPIENT "${toRaw}"\n`
+          + `Known slugs on this machine: ${known.length ? known.join(', ') : '(none)'}`
+          + (suggestion ? `\ndid you mean "${suggestion}"?` : '')
+          + `\n\n${paneError.message}\n\nThe note IS recorded (${ledgerTargets.join(', ')}) and the wake-up is `
+          + 'queued — the slug may register later. Do NOT re-send this id; fix the recipient name and send '
+          + 'under the right slug with a NEW id.';
+        extra = { unknownRecipient: true, known, suggestion };
+      }
+    }
+    throw new NoteError(
+      2, message,
+      { ...base, classification: 'not-resolved', notified: false, queued: true, outbox, ...extra },
     );
   }
 
@@ -646,6 +707,10 @@ function failureJson(err, exitCode) {
     deferred: exitCode === 3, queued: Boolean(err.queued), notified: Boolean(err.notified),
     ledgers: err.ledgers ?? [], packetPath: err.packetPath ?? null, outbox: err.outbox ?? null,
     warnings: err.warnings ?? [], error: err.message,
+    // N2: only present when note-send actually ran the unknown-recipient check and it fired.
+    ...(err.unknownRecipient
+      ? { unknown_recipient: true, known: err.known ?? [], suggestion: err.suggestion ?? null }
+      : {}),
   };
 }
 

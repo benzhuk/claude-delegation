@@ -18,7 +18,9 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { NoteError, SLUG_RE, validateSlug } from './envelope.mjs';
+import {
+  NoteError, SLUG_RE, validateSlug, RESERVED_RECIPIENT, timeParts,
+} from './envelope.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -783,6 +785,16 @@ export function cursorPath(home, slug) { return toPosix(path.posix.join(notesDir
 export function flushLogPath(home) { return toPosix(path.posix.join(notesDir(home), 'flush.log')); }
 /** Spec V7: one file Ben can read for everything blocked on him. */
 export function benInboxPath(home) { return toPosix(path.posix.join(notesDir(home), 'ben-inbox.md')); }
+/**
+ * Spec 2026-09-20 N1 kill switch: its presence restores the pre-N1 behaviour where ACK and FYI wake
+ * their recipient like any other kind.
+ */
+export function wakeAllKindsPath(home) { return toPosix(path.posix.join(notesDir(home), 'wake-all-kinds')); }
+/**
+ * Spec 2026-09-20 N2 kill switch: its presence restores the pre-N2 behaviour, where an unresolved
+ * recipient gets today's generic "pane not found" message and no early unknown-recipient dead-letter.
+ */
+export function noUnknownCheckPath(home) { return toPosix(path.posix.join(notesDir(home), 'no-unknown-check')); }
 export function paneSlugCachePath(home) { return toPosix(path.posix.join(notesDir(home), '.pane-slug.json')); }
 /**
  * Spec 2026-09-14 D1: the DURABLE pane↔slug binding, `{ "<handle>": { slug, at, title? } }`. Distinct
@@ -1766,4 +1778,65 @@ export function worktreePathFromEnv(env = process.env) {
   const parts = String(raw).split('::');
   const candidate = parts[1];
   return candidate && !candidate.startsWith('workspace:') ? toPosix(candidate) : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unknown-recipient check (spec 2026-09-20 N2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `from → to, ...` — the two slugs an envelope line names, lowercased. */
+const ENVELOPE_PARTIES_RE = /^([a-z0-9-]+) → ([a-z0-9-]+),/gmu;
+
+/**
+ * The last `days` days of the machine-wide ledger mirror (`~/.agents/notes/YYYY-MM-DD.md`), as raw
+ * text — what N2's "appears as a sender or recipient in the last 3 days of ledgers on this machine"
+ * is checked against. Never a repo's `docs/ledger`: the mirror is the one place every session's sends
+ * land, wherever their worktree happened to be.
+ */
+export function recentMirrorTexts(home, days, now = Date.now(), fsImpl = fs) {
+  const dir = notesDir(home);
+  const todayYmd = timeParts(new Date(now)).ymd;
+  return recentLedgerFiles(dir, days, todayYmd, fsImpl).map((f) => readIfExists(f.file, fsImpl));
+}
+
+/**
+ * Spec N2: is `slug` unknown on this machine? ALL of — no registered inbox, no pane binding (live or
+ * not), no live pane whose title reduces to it, and it has not appeared as a sender or recipient in
+ * `ledgerTexts` (the caller supplies the 3-day mirror window). Callers guarantee `slug` is never `ben`
+ * and never a raw `term_…` handle — those are handled before this ever runs.
+ */
+export function isUnknownRecipient(slug, { inboxes = {}, bindings = {}, terminals = [], ledgerTexts = [] } = {}) {
+  const want = String(slug).toLowerCase();
+  if (inboxes[slug]) return false;
+  if (Object.values(bindings).some((b) => String(b?.slug ?? '').toLowerCase() === want)) return false;
+  if ((Array.isArray(terminals) ? terminals : []).some((t) => titleToSlug(t?.title) === want)) return false;
+  for (const text of ledgerTexts) {
+    for (const m of String(text ?? '').matchAll(ENVELOPE_PARTIES_RE)) {
+      if (m[1] === want || m[2] === want) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Every slug this machine currently knows about — inboxes, bindings, live pane titles, and the senders
+ * and recipients seen in the ledger mirror's recent history. This is what an unknown-recipient error
+ * prints, so the reader can see what DOES exist and, with `suggestSlug`, what they probably meant.
+ */
+export function knownSlugs({ inboxes = {}, bindings = {}, terminals = [], ledgerTexts = [] } = {}) {
+  const out = new Set();
+  for (const slug of Object.keys(inboxes)) out.add(slug);
+  for (const b of Object.values(bindings)) if (b?.slug) out.add(String(b.slug));
+  for (const t of (Array.isArray(terminals) ? terminals : [])) {
+    const slug = titleToSlug(t?.title);
+    if (slug) out.add(slug);
+  }
+  for (const text of ledgerTexts) {
+    for (const m of String(text ?? '').matchAll(ENVELOPE_PARTIES_RE)) {
+      out.add(m[1]);
+      out.add(m[2]);
+    }
+  }
+  out.delete(RESERVED_RECIPIENT);
+  return [...out].sort();
 }
