@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
 import { checkWiring, mergeChecks, expandHome, main } from "./wiring-check.mjs";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const NODE = process.execPath;
@@ -369,9 +370,11 @@ test("the default list names nothing private to the owner's machines (no absolut
 // J4: CLI
 // ---------------------------------------------------------------------------
 
-function runCli(args, env) {
+/** Every child here goes through childEnv(): this session's own inbox socket/token must never
+ * reach a spawned wiring-check process, whatever else it needs to see (test-child-env.mjs). */
+function runCli(args, home) {
   try {
-    const out = execFileSync(NODE, [SCRIPT, ...args], { encoding: "utf8", env: { ...process.env, ...env } });
+    const out = execFileSync(NODE, [SCRIPT, ...args], { encoding: "utf8", env: childEnv(home) });
     return { code: 0, stdout: out, stderr: "" };
   } catch (err) {
     return { code: err.status ?? 1, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
@@ -380,14 +383,14 @@ function runCli(args, env) {
 
 test("CLI: no flag prints a table and exits 0 against a scratch home with nothing configured", () => {
   const home = mkHome();
-  const { code, stdout } = runCli([], { HOME: home, USERPROFILE: home });
+  const { code, stdout } = runCli([], home);
   assert.equal(code, 0);
   assert.match(stdout, /wiring check:/);
 });
 
 test("CLI --json prints a parseable { ok, results } object and exits 0", () => {
   const home = mkHome();
-  const { code, stdout } = runCli(["--json"], { HOME: home, USERPROFILE: home });
+  const { code, stdout } = runCli(["--json"], home);
   assert.equal(code, 0);
   const parsed = JSON.parse(stdout);
   assert.equal(typeof parsed.ok, "boolean");
@@ -396,7 +399,7 @@ test("CLI --json prints a parseable { ok, results } object and exits 0", () => {
 
 test("CLI --line prints nothing when nothing is missing or stale (a bare scratch home has only info/ok results)", () => {
   const home = mkHome();
-  const { code, stdout } = runCli(["--line"], { HOME: home, USERPROFILE: home });
+  const { code, stdout } = runCli(["--line"], home);
   assert.equal(code, 0);
   assert.equal(stdout, "");
 });
@@ -408,7 +411,7 @@ test("CLI --line prints one line naming what is missing when something is", () =
   write(home, ".agents/required-wiring.json", JSON.stringify([
     { id: "definitely-missing", type: "file_exists", file: "~/does/not/exist", why: "w", fix: "f" },
   ]));
-  const { code, stdout } = runCli(["--line"], { HOME: home, USERPROFILE: home });
+  const { code, stdout } = runCli(["--line"], home);
   assert.equal(code, 0);
   assert.match(stdout.trim(), /^wiring: \d+ missing \(.*\)\. Run wiring-check for the fixes\.$/);
   assert.match(stdout, /definitely missing/);
@@ -416,7 +419,7 @@ test("CLI --line prints one line naming what is missing when something is", () =
 
 test("CLI: an unknown flag is a usage error, exit 1, and never a stack trace", () => {
   const home = mkHome();
-  const { code, stderr } = runCli(["--bogus"], { HOME: home, USERPROFILE: home });
+  const { code, stderr } = runCli(["--bogus"], home);
   assert.equal(code, 1);
   assert.match(stderr, /unknown argument/);
 });
