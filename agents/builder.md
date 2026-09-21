@@ -21,6 +21,7 @@ and you never touch files outside it.
 - A batch or parallel run: put the whole workload in flight unless the transport has a real rate wall, then confirm the in-flight number from the run's own startup output before you report.
 - Temp files go in the scratch folder your brief names, never in a repo. A cleanup command runs by itself, never chained after productive work.
 - Report to the path your brief names, verdict on line 1. Your final message is a short notification, not the report.
+- Never write an AI or assistant byline, signature or attribution into any document, page, commit or comment you produce; the owner's tools already carry the owner's name.
 <!-- safety-block:end -->
 
 - The spec and pinned contracts live in a doc referenced by path in your prompt — read

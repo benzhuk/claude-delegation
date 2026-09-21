@@ -109,13 +109,19 @@ test('builder body names all six state file sections, in order', () => {
 const SAFETY_ANCHORS = [
   '~/.agents/lean-rules.md', 'pkill node', 'dev server', 'git reset --hard',
   'GIT_AUTHOR_', 'secret', 'OCR', 'in flight', 'scratch folder', 'verdict on line 1',
+  'byline',
 ];
 
 test('the safety block still carries every rule it is there to carry', () => {
   const block = safetyBlock(agents.find((a) => a.file === 'builder.md').body, 'builder.md');
   const bullets = block.split('\n').filter((l) => l.startsWith('- '));
-  assert.equal(bullets.length, 10, 'safety block bullet count changed - change this test deliberately');
+  assert.equal(bullets.length, 11, 'safety block bullet count changed - change this test deliberately');
   for (const anchor of SAFETY_ANCHORS) {
     assert.ok(block.includes(anchor), `safety block no longer mentions "${anchor}"`);
   }
+});
+
+test('the safety block stays under the 2000-character token-cost ceiling', () => {
+  const block = safetyBlock(agents.find((a) => a.file === 'builder.md').body, 'builder.md');
+  assert.ok(block.length < 2000, `safety block is ${block.length} chars, over the 2000-char ceiling`);
 });
