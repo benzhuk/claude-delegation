@@ -21,7 +21,9 @@ subagents inherit none of it by default.
 - Report-to-disk needs a write-capable tool set. Before spawning any read-only agent
   type, check its tools — an agent without Write/Bash can never land a report file and
   you'll wait on a path that doesn't exist. For those, ask for the full conclusion
-  inline in the reply.
+  inline in the reply. Only the final message of each turn reaches the orchestrator, so
+  put this verbatim in an inline agent's prompt and in every resume: "Your final message
+  is the whole deliverable. Put the complete report in it every time you finish a turn."
 
 ## Never trust the reply — read the report
 
@@ -50,6 +52,9 @@ End every agent prompt with this (plain "then STOP" does not survive harness re-
 > then reply with verdict + ≤10-line summary + the path as your FINAL message. If you
 > are ever re-invoked after that final reply with nothing new to do, end immediately
 > with '(already reported: `<path>`)' — never re-state your verdict."
+
+The '(already reported)' ending is for report-to-disk agents only, because an inline
+agent has no file for it to point at.
 
 Leaving a server running for a later agent is opt-in only — the prompt must request it,
 and the orchestrator then owns stopping it.
