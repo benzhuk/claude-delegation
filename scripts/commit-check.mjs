@@ -10,6 +10,9 @@
 // (couldn't read project config or git state at all). NEVER 2. Fail open: exit 0, silent on crash.
 
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 import { matchesScratchPattern } from "./janitor.mjs";
@@ -71,6 +74,28 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Only when RUN, never when imported (a plain `import.meta.url === file://${argv[1]}` check never
+ * matches on win32: argv[1] is a backslash path, import.meta.url is a forward-slash file:// URL -
+ * without this fix `node scripts/commit-check.mjs` silently did nothing at all on this machine, exit
+ * 0, no output. Same fix used by scripts/mirror-shared-skills.mjs's isMainModule() and by janitor.mjs).
+ */
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const canon = (p) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const self = real(fileURLToPath(import.meta.url));
+  const argv1 = real(entry);
+  return canon(self) === canon(argv1);
+}
+
+if (isMainModule()) {
   process.exit(main());
 }

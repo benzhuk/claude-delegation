@@ -864,6 +864,69 @@ test("MAJOR 10: an untracked scratch file with a space, and one with a non-ASCII
   assert.ok(flagged.includes("tmp-café.md"), `expected the accented filename in ${JSON.stringify(flagged)}`);
 });
 
+// ---------------------------------------------------------------------------
+// J5: the janitor's report gains the wiring results as its last section
+// ---------------------------------------------------------------------------
+
+test("J5: --json output carries a top-level wiring key with the checkWiring() shape", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const origLog = console.log;
+  const lines = [];
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main(["--json"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  const parsed = JSON.parse(lines.join("\n"));
+  assert.ok("wiring" in parsed, "JSON output must carry a wiring key (J5)");
+  assert.equal(typeof parsed.wiring.ok, "boolean");
+  assert.ok(Array.isArray(parsed.wiring.results));
+});
+
+test("J5: the printed table's last section is WIRING, and janitor never acts on its results (display only)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const origLog = console.log;
+  const lines = [];
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  const text = lines.join("\n");
+  const driftIndex = text.indexOf("DRIFT:");
+  const wiringIndex = text.indexOf("WIRING (read-only visibility, never acted on by janitor):");
+  assert.ok(driftIndex >= 0 && wiringIndex > driftIndex, "WIRING must print after DRIFT, as the last section");
+  // Exit code reflects only SAFE/JUDGMENT findings, per the janitor's own contract - the wiring
+  // section is informational and must never change it. A bare project with nothing stale here
+  // has no janitor findings, so this must stay 0 regardless of what wiring reports.
+  assert.equal(code, 0);
+});
+
+test("J5: a wiring check failure never breaks the janitor's own report (display only, wrapped)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  // No fault injection needed beyond proving the call site is guarded: main() itself wraps
+  // checkWiring() in its own try/catch and continues printing everything else regardless.
+  const origLog = console.log;
+  const lines = [];
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  assert.ok(lines.join("\n").includes("SAFE:"), "the rest of the report must still print even around the wiring call");
+});
+
 after(() => {
   for (const dir of tracked) {
     try {

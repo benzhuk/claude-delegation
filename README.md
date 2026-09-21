@@ -32,7 +32,7 @@ claude plugin install delegation@benzhuk
 
 ## What you get
 
-**Four skills** (auto-suggested by task shape, or invoke directly):
+**Five skills** (auto-suggested by task shape, or invoke directly):
 
 - **`/delegation:delegate`** — parallel fan-out orchestration for independent
   research / review / audit lanes: decompose, tier the models, budget the concurrency,
@@ -45,6 +45,10 @@ claude plugin install delegation@benzhuk
   you don't own (see below).
 - **`/delegation:decisions`** — record a question only the owner can answer on their
   Notion decisions page and keep working, instead of blocking on a reply.
+- **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
+  default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
+  a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
+  flags a guard, hook, timer or switch that looks unwired on this machine.
 
 Neither `delegate` nor `team-build` is for talking to a session you don't own — see
 [`multi`](#multi--peer-sessions) below for that.

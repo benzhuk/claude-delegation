@@ -41,11 +41,14 @@
 // (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
 // no destructive action has been taken yet).
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 import { listArtifacts, endConditionMet, resolveRegistryPath } from "./artifact-registry.mjs";
+import { checkWiring } from "./wiring-check.mjs";
 
 const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
@@ -468,7 +471,7 @@ function table(rows, columns) {
   return rows.map((r) => `  ${columns.map((c) => r[c] ?? "").join("  |  ")}`).join("\n");
 }
 
-function printReport(state) {
+function printReport(state, wiring) {
   console.log("SAFE:");
   console.log("  worktrees:");
   console.log(table(state.safe.worktrees, ["ref", "branch", "reason"]));
@@ -493,6 +496,11 @@ function printReport(state) {
   console.log(`  registry entries past end condition: ${state.drift.registryPastEndCount}`);
   if (state.drift.registryMalformedCount > 0) {
     console.log(`  registry lines unreadable or malformed: ${state.drift.registryMalformedCount}`);
+  }
+  if (wiring) {
+    console.log("");
+    console.log("WIRING (read-only visibility, never acted on by janitor):");
+    console.log(table(wiring.results, ["id", "state", "why"]));
   }
 }
 
@@ -553,10 +561,20 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       }
     }
 
+    // J5: the wiring check is its own read-only tool with its own fail-open contract - a failure
+    // here must never take down janitor's own report. It is display only: it never affects janitor's
+    // findings or exit code.
+    let wiring = null;
+    try {
+      wiring = checkWiring();
+    } catch {
+      wiring = null;
+    }
+
     if (jsonFlag) {
-      console.log(JSON.stringify({ safe: state.safe, judgment: state.judgment, drift: state.drift, applied: applyFlag ? applyLog : null }, null, 2));
+      console.log(JSON.stringify({ safe: state.safe, judgment: state.judgment, drift: state.drift, wiring, applied: applyFlag ? applyLog : null }, null, 2));
     } else {
-      printReport(state);
+      printReport(state, wiring);
       if (applyFlag) {
         console.log("");
         console.log("APPLIED:");
@@ -586,6 +604,28 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Only when RUN, never when imported (a plain `import.meta.url === file://${argv[1]}` check never
+ * matches on win32: argv[1] is a backslash path, import.meta.url is a forward-slash file:// URL -
+ * without this fix `node scripts/janitor.mjs` silently did nothing at all on this machine, exit 0,
+ * no output. Same fix already used by scripts/mirror-shared-skills.mjs's isMainModule()).
+ */
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const canon = (p) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const self = real(fileURLToPath(import.meta.url));
+  const argv1 = real(entry);
+  return canon(self) === canon(argv1);
+}
+
+if (isMainModule()) {
   process.exit(main());
 }
