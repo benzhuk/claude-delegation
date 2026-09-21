@@ -18,8 +18,8 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
-  runNoteSend, writeBinding, writeInbox,
-  wakeAllKindsPath, noUnknownCheckPath,
+  runNoteSend, writeBinding, writeInbox, firstStderrLine,
+  wakeAllKindsPath, noUnknownCheckPath, withoutIds, undeliveredIds, outboxDir, deadOutboxDir, knownSlugs,
 } from './note-send.mjs';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1259,4 +1259,150 @@ test('N2: a raw handle that resolves to nothing is the handle case, never the un
     2, /Nothing was recorded/,
   );
   assert.equal(err.unknownRecipient, undefined);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix round 1 (review 2026-09-20): BLOCKER 1 / MAJOR 2 / MAJOR 3 / MINOR 4-9 / NIT 13-15
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('review BLOCKER 1/MAJOR 2: withoutIds strips only the named ids, other lines untouched', () => {
+  const texts = [
+    'taxonomy → fable, 9.20.26 10:00 NYC [taxonomy-fable-ping-1] ASK: hi.\n'
+    + 'nucleus → astra, 9.20.26 09:00 NYC [nucleus-x-1] FYI: hi.',
+  ];
+  const out = withoutIds(texts, new Set(['taxonomy-fable-ping-1']));
+  assert.ok(!out[0].includes('taxonomy-fable-ping-1'), out[0]);
+  assert.ok(out[0].includes('nucleus-x-1'), out[0]);
+});
+
+test('review BLOCKER 1/MAJOR 2: withoutIds is a no-op for an empty id set', () => {
+  const texts = ['taxonomy → fable, 9.20.26 10:00 NYC [taxonomy-fable-ping-1] ASK: hi.'];
+  assert.deepEqual(withoutIds(texts, new Set()), texts);
+});
+
+test('review BLOCKER 1: undeliveredIds reads both the live and the dead outbox directories', () => {
+  const home = tmp();
+  fs.mkdirSync(outboxDir(home), { recursive: true });
+  fs.writeFileSync(path.join(outboxDir(home), 'a-b-1.json'), '{}');
+  fs.mkdirSync(deadOutboxDir(home), { recursive: true });
+  fs.writeFileSync(path.join(deadOutboxDir(home), 'c-d-2.json'), '{}');
+  const ids = undeliveredIds(home);
+  assert.ok(ids.has('a-b-1'));
+  assert.ok(ids.has('c-d-2'));
+});
+
+test('review MAJOR 2: a SECOND send to the same still-unknown slug still gets the banner', async () => {
+  // Root cause this closes: the FIRST send's own ledger line necessarily names "fable" as a recipient,
+  // so without excluding undelivered ids, the second send would see it in the mirror and call "fable"
+  // known — the loudness switching itself off exactly when a session repeats the mistake.
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [idlePane({ title: 'someone-else', worktreePath: repo })] });
+  const env = { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` };
+  const first = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'fable']), { orca, home, git: () => '.git', now: NOW, env }),
+    2, /UNKNOWN RECIPIENT "fable"/,
+  );
+  assert.equal(first.unknownRecipient, true);
+  const second = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'fable']), { orca, home, git: () => '.git', now: NOW, env }),
+    2, /UNKNOWN RECIPIENT "fable"/,
+  );
+  assert.equal(second.unknownRecipient, true, 'the first send\'s own undelivered line must not make "fable" look known');
+});
+
+test('review MAJOR 3: --no-type to an unknown slug warns and flags unknown_recipient, but stays exit 0', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const res = await runNoteSend(
+    ARGS_OK(['--to', 'fable', '--no-type', '--recipient-repo', repo]),
+    { orca, home, git: () => '.git', now: NOW, env: {} },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.queued, true);
+  assert.equal(res.unknown_recipient, true);
+  assert.ok(Array.isArray(res.known));
+  assert.match(res.warnings.join('\n'), /not a recognized recipient/);
+  assert.match(res.warnings.join('\n'), /--no-type never resolved a pane, so this is not the exit-2/);
+  assert.equal(orca.calls.length, 0, '--no-type never resolves a pane, so no terminal list call either');
+});
+
+test('review MAJOR 3: --no-type to a KNOWN slug (registered inbox) gets no warning at all', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't1' }, { now: NOW });
+  const res = await runNoteSend(
+    ARGS_OK(['--to', 'nucleus', '--no-type', '--recipient-repo', repo]),
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: {} },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.unknown_recipient, undefined);
+  assert.equal((res.warnings ?? []).length, 0);
+});
+
+test('review MINOR 7: a quiet kind with no registered inbox says its ledger line went to the sender\'s repo', async () => {
+  const repo = tmp(); const home = tmp();
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.match(res.warnings.join('\n'), /ledger-only, so no pane was resolved/);
+  assert.match(res.warnings.join('\n'), /not the recipient's/);
+});
+
+test('review MINOR 8: a quiet kind to an unknown slug warns but still creates no wake-up', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'fable', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films',
+      '--recipient-repo', repo],
+    { orca, home, git: () => '.git', now: NOW, env: {} },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.wake, 'none', 'MINOR 8 is a warning only — N1 still creates no wake-up');
+  assert.equal(res.unknown_recipient, true);
+  assert.match(res.warnings.join('\n'), /not a recognized recipient/);
+  assert.equal(orca.calls.length, 0, 'a quiet kind never resolves a pane, warning or not');
+});
+
+test('review MINOR 8: a quiet kind to a KNOWN slug gets no warning', async () => {
+  const repo = tmp(); const home = tmp();
+  writeBinding(home, 'term_zzz', 'nucleus', { now: NOW });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films',
+      '--recipient-repo', repo],
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: {} },
+  );
+  assert.equal(res.unknown_recipient, undefined);
+  assert.equal((res.warnings ?? []).length, 0);
+});
+
+test('review NIT14: --dry-run for a HANDLE-addressed quiet kind prints only the exit-0 plan, not exit-3', async () => {
+  const repo = tmp(); const home = tmp();
+  const pane = idlePane({ handle: 'term_bbb', title: 'nucleus', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane] });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'ACK', '--topic', 'ping', '--text', 'Taking it now',
+      '--needs', 'none', '--dry-run', '--recipient-repo', repo],
+    { orca, home, git: () => '.git', now: NOW, env: TYPING },
+  );
+  assert.equal(res.dryRun, true);
+  assert.ok(!res.plan.some((p) => /exit 3/.test(p)), `contradictory exit-3 plan line survived: ${JSON.stringify(res.plan)}`);
+  assert.ok(res.plan.some((p) => /exit 0: delivered:false, wake:none/.test(p)));
+  assert.equal(orca.calls.length, 0, '--dry-run never touches orca, quiet kind or not');
+});
+
+test('review NIT13: firstStderrLine keeps the banner unprefixed, everything else gets note-send:', () => {
+  assert.equal(
+    firstStderrLine('UNKNOWN RECIPIENT "fable"\nKnown slugs on this machine: a, b'),
+    'UNKNOWN RECIPIENT "fable"',
+  );
+  assert.equal(firstStderrLine('no pane titled "fable"'), 'note-send: no pane titled "fable"');
+});
+
+test('review NIT15: knownSlugs ignores a pane with no agentIdentity (a plain shell)', () => {
+  const terminals = [
+    { title: 'MINGW64:/c/Users/benzh/code', agentIdentity: null },
+    { title: 'nucleus', agentIdentity: 'claude' },
+  ];
+  assert.deepEqual(knownSlugs({ terminals }), ['nucleus']);
 });

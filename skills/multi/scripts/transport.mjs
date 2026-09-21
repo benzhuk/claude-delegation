@@ -1842,7 +1842,11 @@ export function knownSlugs({ inboxes = {}, bindings = {}, terminals = [], ledger
   const out = new Set();
   for (const slug of Object.keys(inboxes)) out.add(slug);
   for (const b of Object.values(bindings)) if (b?.slug) out.add(String(b.slug));
+  // review NIT15: `resolveSlug` already refuses to derive a slug from an agent-less pane — a Git Bash
+  // shell titled with its cwd is not a recipient anyone could address. Same filter here, or "known slugs
+  // on this machine" prints junk like `mingw64-c-users-benzh-code`.
   for (const t of (Array.isArray(terminals) ? terminals : [])) {
+    if (!t?.agentIdentity) continue;
     const slug = titleToSlug(t?.title);
     if (slug) out.add(slug);
   }
@@ -1854,4 +1858,32 @@ export function knownSlugs({ inboxes = {}, bindings = {}, terminals = [], ledger
   }
   out.delete(RESERVED_RECIPIENT);
   return [...out].sort();
+}
+
+/** The bracketed id at the head of an envelope line. */
+export const LINE_ID_RE = /\[([a-z0-9-]+-\d+)/;
+
+/**
+ * Mirror text with every line whose id is in `ids` removed. Used to keep an undelivered note's own
+ * ledger line from making its (unknown) recipient look "known" — review BLOCKER 1 / MAJOR 2.
+ */
+export function withoutIds(texts, ids) {
+  if (!ids || ids.size === 0) return texts;
+  return texts.map((t) => String(t ?? '').split('\n')
+    .filter((line) => { const m = LINE_ID_RE.exec(line); return !(m && ids.has(m[1])); })
+    .join('\n'));
+}
+
+/**
+ * Ids whose wake-up is still queued or was dead-lettered — their ledger lines name a recipient that
+ * was never reached, so they must not make that recipient look "known" (N2, review BLOCKER 1).
+ */
+export function undeliveredIds(home, fsImpl = fs) {
+  const ids = new Set();
+  for (const dir of [outboxDir(home), deadOutboxDir(home)]) {
+    for (const name of safeReaddir(dir, fsImpl)) {
+      if (name.endsWith('.json')) ids.add(name.replace(/\.json$/, ''));
+    }
+  }
+  return ids;
 }

@@ -13,9 +13,9 @@ import {
   classifyPane, isSendable, hasShimmerLine,
   normalizeTitle, stripStatusTag, titleToSlug, titleMatchesSlug, titleSignalsPermission, resolvePane,
   claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
-  composerResidue, deadOutboxPath, benInboxPath, DEFAULT_ORCA_TIMEOUT_MS,
+  composerResidue, deadOutboxPath, deadOutboxDir, benInboxPath, DEFAULT_ORCA_TIMEOUT_MS,
   splitAtPrompt, locateId, composerShows,
-  wakeAllKindsPath, noUnknownCheckPath, writeInbox,
+  wakeAllKindsPath, noUnknownCheckPath, writeInbox, notesDir, appendLine,
 } from './transport.mjs';
 import {
   runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush,
@@ -1081,16 +1081,33 @@ test('N1: the wake-all-kinds kill switch keeps ACK/FYI in the ordinary flow', as
 // N2 (spec 2026-09-20): an ASK/BLOCKED to a slug still unknown 10 minutes later is dead-lettered early
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** classification `not-resolved` is what note-send records when the pane never resolved at all. */
+const UNKNOWN_ASK_ENVELOPE = 'taxonomy → fable, 9.20.26 10:00 NYC [taxonomy-fable-ping-1] ASK: Does C14 still hold? Needs: decision by 16:00';
+/** The mirror file `now` (NOW, Sept 13 2026) falls inside the flusher's 3-day lookback window. */
+const NOW_YMD = '2026-09-13';
+
+/**
+ * classification `not-resolved` is what note-send records when the pane never resolved at all.
+ *
+ * review BLOCKER 1: production ALWAYS writes the note's own envelope line to the machine-wide mirror
+ * BEFORE the entry is ever queued (note-send's ledger-first ordering) — a fixture that omits it tests a
+ * state production never reaches, which is exactly how the original N2 flush tests shipped green against
+ * a check that could never fire for real. `seedMirror: false` opts a test out when it needs to see the
+ * unpolluted "nobody has ever heard of this slug" state instead (there is no such state in production;
+ * it is only useful for isolating the OLD, broken behaviour in a regression test).
+ */
 function unknownAskEntry(home, over = {}) {
+  const { seedMirror = true, envelope = UNKNOWN_ASK_ENVELOPE, ...rest } = over;
+  if (seedMirror) {
+    appendLine(toPosix(path.posix.join(notesDir(home), `${NOW_YMD}.md`)), envelope);
+  }
   return writeOutboxEntry(home, {
     id: 'taxonomy-fable-ping-1', from: 'taxonomy', to: 'fable', toSlug: 'fable', handle: null,
     agentIdentity: null,
-    envelope: 'taxonomy → fable, 9.20.26 10:00 NYC [taxonomy-fable-ping-1] ASK: Does C14 still hold? Needs: decision by 16:00',
+    envelope,
     classification: 'not-resolved',
     ledgers: ['/repo/docs/ledger/2026-09-20.md'], packetPath: null,
     createdAt: new Date(NOW - 11 * 60_000).toISOString(),
-    ...over,
+    ...rest,
   });
 }
 
@@ -1152,4 +1169,72 @@ test('N2: the no-unknown-check kill switch skips the early dead-letter', async (
   const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
   assert.notEqual(res.results[0]?.outcome, 'unknown-recipient');
   assert.equal(readOutbox(home).length, 1, 'still queued, following the ordinary path');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix round 1 (review 2026-09-20): BLOCKER 1 / MAJOR 3 / MINOR 4/5/9
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('review BLOCKER 1: dead-lettered even though the note\'s OWN envelope line is in the mirror', async () => {
+  // The headline bug: `recentMirrorTexts` sees exactly what note-send already wrote for this entry
+  // BEFORE it was ever queued — a state every real unknown-recipient entry is in, and the one the
+  // original fixture (no mirror file at all) never exercised.
+  const home = tmp();
+  unknownAskEntry(home);
+  const mirror = fs.readFileSync(path.posix.join(notesDir(home), `${NOW_YMD}.md`), 'utf8');
+  assert.match(mirror, /taxonomy → fable,.*\[taxonomy-fable-ping-1\]/, 'fixture sanity: the self-line really is there');
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.equal(res.results[0].outcome, 'unknown-recipient', 'the note\'s own undelivered line must not make "fable" look known');
+});
+
+test('review MAJOR 3: a --no-type entry (classification not-checked) is also eligible for the early dead-letter', async () => {
+  const home = tmp();
+  unknownAskEntry(home, { classification: 'not-checked (--no-type)' });
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.equal(res.results[0]?.outcome, 'unknown-recipient');
+});
+
+test('review MINOR 9: with MULTI_ALLOW_TYPING=1, the early dead-letter is skipped so typing gets a chance', async () => {
+  const home = tmp();
+  unknownAskEntry(home);
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW, env: TYPING });
+  assert.notEqual(res.results[0]?.outcome, 'unknown-recipient');
+});
+
+test('review MINOR 4: a claim lost to another drainer is never dead-lettered or reported twice', async () => {
+  const home = tmp();
+  unknownAskEntry(home);
+  let renameAttempts = 0;
+  const fsImpl = {
+    ...fs,
+    renameSync(src, dest) {
+      if (String(src).includes('taxonomy-fable-ping-1') && String(dest).endsWith('.claim')) {
+        renameAttempts += 1;
+        throw new Error('ENOENT: no such file (claimed by another drainer)');
+      }
+      return fs.renameSync(src, dest);
+    },
+  };
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW, fsImpl });
+  assert.equal(renameAttempts, 1, 'the claim really was attempted and really did fail');
+  assert.equal(res.results[0]?.outcome, 'claimed-elsewhere');
+  assert.ok(!fs.existsSync(deadOutboxPath(home, 'taxonomy-fable-ping-1')), 'a lost claim must not dead-letter');
+  assert.ok(!fs.existsSync(benInboxPath(home)), 'a lost claim must not report to ben either');
+});
+
+test('review MINOR 5: several stuck notes to the same wrong slug produce ONE ben-inbox line, not one each', async () => {
+  const home = tmp();
+  unknownAskEntry(home, { id: 'taxonomy-fable-ping-1' });
+  unknownAskEntry(home, {
+    id: 'taxonomy-fable-ping-2',
+    envelope: 'taxonomy → fable, 9.20.26 10:05 NYC [taxonomy-fable-ping-2] ASK: And this too? Needs: decision by 16:00',
+  });
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.equal(res.results.filter((r) => r.outcome === 'unknown-recipient').length, 2, 'both are still dead-lettered individually');
+  const inbox = fs.readFileSync(benInboxPath(home), 'utf8');
+  const blockedLines = inbox.split('\n').filter((l) => l.includes('BLOCKED:') && l.includes('"fable"'));
+  assert.equal(blockedLines.length, 1, `expected one aggregated line, got:\n${inbox}`);
+  assert.match(blockedLines[0], /taxonomy sent 2 notes/);
+  assert.match(blockedLines[0], /\[taxonomy-fable-ping-1\]/);
+  assert.match(blockedLines[0], /\[taxonomy-fable-ping-2\]/);
 });

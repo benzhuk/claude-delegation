@@ -89,7 +89,7 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
   readInboxes, wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
-  killSwitchActive,
+  killSwitchActive, withoutIds, undeliveredIds,
 } from './transport.mjs';
 
 import { drainQuietly, deliverToInbox } from './note-flush.mjs';
@@ -301,11 +301,16 @@ export async function runNoteSend(argv, deps = {}) {
     plan.push(`${kind} is ledger-only: written to the ledger, no wake-up is created `
       + '(no outbox entry, no inbox post, no pane resolution)');
   } else if (dryRun) {
-    plan.push(inboxRecord
-      ? `post the envelope into "${toRaw}"'s registered inbox (${inboxRecord.kind}): no pane is resolved, `
-        + 'nothing is typed, and no orca call is made (skipped: --dry-run)'
-      : `"${toRaw}" has no registered inbox on this machine, so this would record the note, queue the `
-        + 'wake-up and exit 3 - typing is off unless MULTI_ALLOW_TYPING=1 (skipped: --dry-run)');
+    // review NIT14: a handle-addressed quiet kind reaches this branch (quietSkipsResolution is false for
+    // a handle), but the exit-0/no-wake-up plan line below is the true one for it — printing this exit-3
+    // plan too was self-contradictory.
+    if (!quietKind) {
+      plan.push(inboxRecord
+        ? `post the envelope into "${toRaw}"'s registered inbox (${inboxRecord.kind}): no pane is resolved, `
+          + 'nothing is typed, and no orca call is made (skipped: --dry-run)'
+        : `"${toRaw}" has no registered inbox on this machine, so this would record the note, queue the `
+          + 'wake-up and exit 3 - typing is off unless MULTI_ALLOW_TYPING=1 (skipped: --dry-run)');
+    }
   } else if (noType) {
     plan.push('--no-type: the envelope is recorded and queued; nothing is typed and no pane is resolved');
   } else if (inboxRecord) {
@@ -411,6 +416,13 @@ export async function runNoteSend(argv, deps = {}) {
     if (!targetRepo) {
       throw new NoteError(1, `${kind} is ledger-only and resolves no pane — pass --recipient-repo so the note has a home`);
     }
+    // review MINOR 7: the paneError branch below says this out loud; this branch did not, so the repo-side
+    // ledger line (and any packet) landing in the SENDER's repo instead of the recipient's went unremarked.
+    warnings.push(
+      `${kind} is ledger-only, so no pane was resolved and the ledger line (and any packet) went to `
+      + `${targetRepo} (this session's repo), not the recipient's. The ~/.agents/notes mirror is what `
+      + 'note-inbox reads.',
+    );
   } else if (noType) {
     throw new NoteError(1, '--no-type needs --recipient-repo: no pane is resolved, so nothing says where the note lives');
   } else {
@@ -509,9 +521,15 @@ export async function runNoteSend(argv, deps = {}) {
     packetWritten = res.written;
   }
 
-  // N2: snapshot the mirror BEFORE this send's own line lands in it — otherwise the line we are about
-  // to write (which necessarily names `toRaw`) would make every recipient look "known" by definition.
-  const mirrorTextsBeforeSend = quietKind ? [] : recentMirrorTexts(home, 3, now.getTime(), fsImpl);
+  // N2: snapshot the mirror BEFORE this send's own line lands in it — otherwise the line we are about to
+  // write (which necessarily names `toRaw`) would make every recipient look "known" by definition. Read
+  // for every kind, including a quiet one (review MINOR 8): three of N2's four "known" signals need no
+  // orca, so a quiet kind can still get a warning about an unrecognized recipient even though it never
+  // creates a wake-up. Wrapped (review MINOR 6): this sits between "the note is decided" and "the note
+  // is on disk" — a read that cannot even throw with the real fs must never cost the ledger write next.
+  const mirrorTextsBeforeSend = (() => {
+    try { return recentMirrorTexts(home, 3, now.getTime(), fsImpl); } catch { return []; }
+  })();
 
   for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
 
@@ -539,10 +557,38 @@ export async function runNoteSend(argv, deps = {}) {
   //    no outbox entry, no inbox post, no pane resolution. The recipient's own hooks surface the ledger
   //    line at its next event; this call never tries to start one.
   if (quietKind) {
+    // review MINOR 8: N1 removed ACK/FYI's only loudness — with no pane resolved, the exit-2 banner can
+    // never fire for a quiet kind either, so a quiet note to a typo'd slug used to vanish into the ledger
+    // silently. Three of N2's four "known" signals need no orca, so they still run here: a WARNING only
+    // (exit stays 0 — "no wake-up is created" is still true), and only for a slug we were given (a raw
+    // handle already resolved a pane above, via `quietSkipsResolution`, and is never "unknown").
+    let extra = {};
+    if (!HANDLE_RE.test(toRaw)) {
+      const noUnknownCheck = killSwitchActive(fsImpl, noUnknownCheckPath(home));
+      try {
+        if (!noUnknownCheck) {
+          const context = {
+            inboxes: readInboxes(home, fsImpl), bindings: readBindings(home, fsImpl), terminals: [],
+            ledgerTexts: withoutIds(mirrorTextsBeforeSend, undeliveredIds(home, fsImpl)),
+          };
+          if (isUnknownRecipient(toRaw, context)) {
+            const known = knownSlugs(context);
+            const suggestion = suggestSlug(toRaw, known);
+            warnings.push(
+              `"${toRaw}" is not a recognized recipient on this machine (no inbox, binding, live pane, or `
+              + `recent ledger line)${suggestion ? ` — did you mean "${suggestion}"?` : ''}. ${kind} is `
+              + 'ledger-only, so no wake-up was ever going to be created for it — this warning is the only signal.',
+            );
+            extra = { unknown_recipient: true, known, suggestion };
+          }
+        }
+      } catch { /* fails open: no warning, no unknown_recipient flag */ }
+    }
     return {
       ok: true, exitCode: 0, ...base, classification: 'ledger-only (quiet kind)',
       delivered: false, deferred: false, queued: false, notified: false,
       wake: 'none', reason: 'ledger-only kind', outbox: null, error: null,
+      ...extra,
     };
   }
 
@@ -598,7 +644,14 @@ export async function runNoteSend(argv, deps = {}) {
     // plain message rather than crash a send whose note is already safely on disk.
     try {
       if (!noUnknownCheck) {
-        const context = { inboxes: readInboxes(home, fsImpl), bindings, terminals, ledgerTexts: mirrorTextsBeforeSend };
+        // review MAJOR 2: exclude every id whose wake-up is still undelivered (queued or dead-lettered),
+        // not just this send's own — a mirror line from the FIRST unanswered send to a wrong slug would
+        // otherwise make that slug look "known" to the second, third, … send, switching the banner off
+        // exactly when a session repeats the mistake it exists to catch.
+        const context = {
+          inboxes: readInboxes(home, fsImpl), bindings, terminals,
+          ledgerTexts: withoutIds(mirrorTextsBeforeSend, undeliveredIds(home, fsImpl)),
+        };
         if (isUnknownRecipient(toRaw, context)) {
           const known = knownSlugs(context);
           const suggestion = suggestSlug(toRaw, known);
@@ -621,9 +674,40 @@ export async function runNoteSend(argv, deps = {}) {
   // ── `--no-type`: the ledger is the channel; the wake-up is queued for note-flush. Not a failure.
   if (noType) {
     const outbox = queue('not-checked (--no-type)');
+    // review MAJOR 3: `--no-type` never resolves a pane, so it never reaches the `paneError` branch and
+    // its exit-2 banner — a `--no-type` ASK to a typo'd slug used to be recorded and queued with zero
+    // signal that anything was wrong. Same check, run with `terminals: []` because no `terminal list`
+    // call was ever made. This is a WARNING, not the exit-2 error, and the exit code stays 0: a caller
+    // that opted out of pane resolution has not earned an exit-2 for a pane that was never looked at.
+    let extra = {};
+    if (!HANDLE_RE.test(toRaw)) {
+      const noUnknownCheck = killSwitchActive(fsImpl, noUnknownCheckPath(home));
+      try {
+        if (!noUnknownCheck) {
+          // `bindings` (the outer variable) is only populated on the real pane-resolution path, which
+          // --no-type never takes — read fresh here, same as the quietKind check above.
+          const context = {
+            inboxes: readInboxes(home, fsImpl), bindings: readBindings(home, fsImpl), terminals: [],
+            ledgerTexts: withoutIds(mirrorTextsBeforeSend, undeliveredIds(home, fsImpl)),
+          };
+          if (isUnknownRecipient(toRaw, context)) {
+            const known = knownSlugs(context);
+            const suggestion = suggestSlug(toRaw, known);
+            warnings.push(
+              `"${toRaw}" is not a recognized recipient on this machine (no inbox, binding, live pane, or `
+              + `recent ledger line)${suggestion ? ` — did you mean "${suggestion}"?` : ''}. The note IS `
+              + 'recorded and the wake-up is queued; --no-type never resolved a pane, so this is not the '
+              + 'exit-2 unknown-recipient error.',
+            );
+            extra = { unknown_recipient: true, known, suggestion };
+          }
+        }
+      } catch { /* fails open: no warning, no unknown_recipient flag */ }
+    }
     return {
       ok: true, exitCode: 0, ...base, classification: 'not-checked (--no-type)',
       delivered: false, deferred: false, queued: true, notified: false, outbox, error: null,
+      ...extra,
     };
   }
 
@@ -722,6 +806,16 @@ function failureJson(err, exitCode) {
   };
 }
 
+/**
+ * review NIT13: N2's contract is "prints as the FIRST line of stderr" — literally, not "the first line
+ * after a note-send: prefix". Every other line still gets the prefix. A pure, exported function so this
+ * exact rule is unit-testable without spawning a real orca-dependent CLI process.
+ */
+export function firstStderrLine(message) {
+  const line = String(message).split('\n')[0];
+  return line.startsWith('UNKNOWN RECIPIENT ') ? line : `note-send: ${line}`;
+}
+
 function emit(result, wantsJson) {
   if (wantsJson) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -761,7 +855,7 @@ async function main() {
     // the only message went to stderr. The packet and ledger are written before most failures, so this
     // object also tells the caller what DID land.
     process.stdout.write(`${JSON.stringify(failureJson(err, exitCode))}\n`);
-    process.stderr.write(`note-send: ${err.message.split('\n')[0]}\n`);
+    process.stderr.write(`${firstStderrLine(err.message)}\n`);
     if (!wantsJson && err.message.includes('\n')) {
       for (const line of err.message.split('\n').slice(1)) process.stderr.write(`note-send: ${line}\n`);
     }

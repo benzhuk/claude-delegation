@@ -29,9 +29,11 @@ Five rules carry the whole protocol:
   `note-inbox` or the ledger before you decide something did not land.
 - **Never wait on a peer inside a turn.** Send, record, carry on. They answer at their next pause.
 - **Receipts, not heartbeats.** One ACK when a peer starts, one RESULT when it finishes. Nothing in
-  between. A peer that says nothing is working, not stuck. Since 2026-09-20 an ACK no longer wakes
-  anyone — it is a ledger record, not a nudge (so is FYI); the recipient's own hooks surface it at
-  their next event. `~/.agents/notes/wake-all-kinds` restores the old wake-on-ACK/FYI behaviour.
+  between. A peer that says nothing is working, not stuck. Since 2026-09-20 an ACK no longer STARTS a
+  turn — it is a ledger record, not a nudge (so is FYI); the recipient's own hooks surface it at their
+  next event. It is not free for a session that is already working: it still shows up mid-turn and can
+  still block a Stop once, the same as any other note. `~/.agents/notes/wake-all-kinds` restores the old
+  wake-on-ACK/FYI behaviour.
 - **Never a hidden drop.** Ledger first, always. A refusal is reported with an exit code and a JSON
   object on stdout, never silence.
 
@@ -98,7 +100,7 @@ every state a session can be in:
 - **While you are idle**, `note-flush` posts one line into YOUR INBOX, within about a minute of the note
   being written — a Claude session's messaging socket, a Codex session's queue. Claude Code starts a new
   turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in
-  the ledger.
+  the ledger. ACK and FYI excepted, they are ledger-only — see below.
 
 ### What you have to do to be reachable: nothing
 
@@ -353,6 +355,17 @@ pane right now, which is the ordinary case above, not this one. `note-flush` bac
 BLOCKED whose recipient is still unknown ten minutes after it was queued is dead-lettered right then
 — far sooner than the ordinary give-up — with one BLOCKED line in `ben-inbox.md` naming the sender,
 the unknown slug, and the suggestion.
+
+**Two paths that never resolve a pane get the same check, downgraded to a warning.** `--no-type` and a
+ledger-only ACK/FYI (N1) never make a `terminal list` call, so neither could ever reach the exit-2
+banner above — both still run the same no-orca check (inboxes, bindings, the 3-day ledger mirror) and,
+when the recipient is unknown, print a warning and set `unknown_recipient: true` in the JSON. Neither
+changes the exit code: a caller that opted out of pane resolution has not earned an exit-2 for a pane it
+never looked at.
+
+The early 10-minute dead-letter is skipped while `MULTI_ALLOW_TYPING=1` is set on this machine: typing is
+still a real path to that pane later in the same drain, and dead-lettering first would pre-empt a
+delivery that was already coming.
 
 The one exit 3 that does need you: "the text may be sitting UNSENT in the composer". That one is
 NOT queued for retry, because retyping it is how the same note arrives twice. Clear the pane by hand.

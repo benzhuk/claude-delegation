@@ -64,6 +64,7 @@ import {
   readBindings, pruneBindings, BINDING_GC_MS, readCursor,
   readInboxes, pruneInboxes, INBOX_GC_MS,
   wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts, killSwitchActive,
+  withoutIds, undeliveredIds,
 } from './transport.mjs';
 import { deliverToSlug as postToClaude, DEFAULT_POST_TIMEOUT_MS } from './inbox-claude.mjs';
 import { deliverToSlug as queueToCodex, DEFAULT_QUEUE_TIMEOUT_MS } from './inbox-codex.mjs';
@@ -223,15 +224,22 @@ export function appendBlockedToBen(home, entry, attempts, fsImpl = fs, reason = 
 }
 
 /**
- * Spec 2026-09-20 N2: one BLOCKED line for an ASK/BLOCKED whose recipient is still unknown ten minutes
- * after it was sent — naming the sender, the unknown slug, and a suggestion when one is close enough.
- * Distinct from `appendBlockedToBen`: this fires long before the ordinary give-up could, and for a
- * different reason (nobody has ever heard of the slug, not merely "unreachable right now").
+ * Spec 2026-09-20 N2: one BLOCKED line for every (from, slug) pair a pass dead-lettered — naming the
+ * sender, the unknown slug, every id involved, and a suggestion when one is close enough. Distinct from
+ * `appendBlockedToBen`: this fires long before the ordinary give-up could, and for a different reason
+ * (nobody has ever heard of the slug, not merely "unreachable right now").
+ *
+ * `group` is `{ from, slug, suggestion, ids, deadPaths }` — one entry per dead-lettered id, aggregated
+ * BEFORE this is called (review MINOR 5): several stuck notes to the same wrong slug in one pass must
+ * produce one line, not one per note, in the single file Ben reads for everything blocked on him.
  */
-export function appendUnknownRecipientToBen(home, entry, slug, suggestion, fsImpl = fs) {
+export function appendUnknownRecipientToBen(home, group, fsImpl = fs) {
   const file = benInboxPath(home);
-  const from = entry.from ?? 'a peer';
-  const body = `${from} sent [${entry.id}] to "${slug}", which is still unknown on this machine 10 minutes later`
+  const { from = 'a peer', slug, suggestion, ids = [], deadPaths = [] } = group;
+  const count = ids.length;
+  const idList = ids.map((id) => `[${id}]`).join(', ');
+  const body = `${from} sent ${count} note${count === 1 ? '' : 's'} (${idList}) to "${slug}", `
+    + `still unknown on this machine 10 minutes later`
     + (suggestion ? ` — did you mean "${suggestion}"?` : '');
   try {
     fsImpl.mkdirSync(path.dirname(file), { recursive: true });
@@ -241,7 +249,8 @@ export function appendUnknownRecipientToBen(home, entry, slug, suggestion, fsImp
     fsImpl.appendFileSync(
       file,
       `- note-flush -> ben, ${new Date().toISOString()} BLOCKED: ${body}. `
-      + `The note IS in the ledger; only the wake-up failed. Entry: ${deadOutboxPath(home, entry.id)}\n`,
+      + `The note${count === 1 ? ' IS' : 's ARE'} in the ledger; only the wake-up failed.`
+      + `${deadPaths.length ? ` ${deadPaths.length === 1 ? 'Entry' : 'Entries'}: ${deadPaths.join(', ')}` : ''}\n`,
       'utf8',
     );
   } catch { /* never fail a drain because a convenience file could not be written */ }
@@ -348,6 +357,10 @@ export async function runNoteFlush(argv, deps = {}) {
   // N1: an ACK/FYI queued before this change never wakes anyone — retired unattempted, like a
   // superseded id. Cheap and no orca: parsed straight out of the envelope text already on disk.
   const wakeAllKinds = killSwitchActive(fsImpl, wakeAllKindsPath(home));
+  // D3(3), hoisted (review MINOR 9): the early unknown-recipient dead-letter below must not fire on a
+  // machine that still has a real shot at the pane later in THIS SAME pass — dead-lettering here would
+  // beat a delivery that was coming. Read once, before the retirement loop that needs it.
+  const allowTyping = String(env.MULTI_ALLOW_TYPING ?? '') === '1';
   // N2: the same no-orca inputs `isUnknownRecipient` needs, read once for the whole pass. `terminals`
   // is deliberately omitted here — this pass runs before any `terminal list` call, and an entry this
   // check applies to (classification `not-resolved`) never had a live pane in the first place.
@@ -361,11 +374,21 @@ export async function runNoteFlush(argv, deps = {}) {
         inboxes: readInboxes(home, fsImpl),
         bindings: readBindings(home, fsImpl),
         terminals: [],
-        ledgerTexts: recentMirrorTexts(home, 3, now, fsImpl),
+        // review BLOCKER 1: a note-send that never delivered still wrote ITS OWN line into this exact
+        // mirror before the entry was ever queued (note-send.mjs's ledger-first ordering), which would
+        // otherwise make every unresolved recipient look "known" by the note that failed to reach them.
+        // Strip every line whose id is still undelivered (queued or already dead-lettered), including
+        // this pass's own entries — a sibling drainer may have claimed one and renamed it away already.
+        ledgerTexts: withoutIds(
+          recentMirrorTexts(home, 3, now, fsImpl),
+          new Set([...undeliveredIds(home, fsImpl), ...entries.map((e) => e.id)]),
+        ),
       };
     } catch { unknownCheckContext = null; }
   }
 
+  /** review MINOR 5: one ben-inbox line per (from, slug) per pass, not one per dead-lettered entry. */
+  const unknownRecipientGroups = new Map();
   const live = [];
   for (const entry of entries) {
     if (retired.has(entry.id)) {
@@ -382,21 +405,45 @@ export async function runNoteFlush(argv, deps = {}) {
       continue;
     }
     if (
-      unknownCheckContext
-      && entry.classification === 'not-resolved'
+      !allowTyping
+      && unknownCheckContext
+      // review MAJOR 3: a `--no-type` send never resolves a pane either — its classification is
+      // `not-checked (--no-type)`, not `not-resolved` — so without this it could churn until the
+      // ordinary 48h/20-attempt give-up and never reach the early unknown-recipient dead-letter at all.
+      && (entry.classification === 'not-resolved' || entry.classification === 'not-checked (--no-type)')
       && UNKNOWN_RECIPIENT_KINDS.has(parseEnvelope(entry.envelope)?.kind)
       && (now - Date.parse(String(entry.createdAt ?? ''))) >= UNKNOWN_RECIPIENT_DEADLETTER_MS
       && isUnknownRecipient(entry.toSlug ?? entry.to, unknownCheckContext)
     ) {
       // N2: much sooner than the ordinary give-up (DEFAULT_MAX_ATTEMPTS / DEFAULT_MAX_AGE_HOURS) — a
       // slug nothing on this machine has ever heard of is not going to become deliverable by waiting.
+      // Gated on `!allowTyping` (review MINOR 9): with typing enabled, the pass below still gets a real
+      // shot at the pane, so dead-lettering here would pre-empt a delivery that was already coming.
       const slug = entry.toSlug ?? entry.to;
       const suggestion = suggestSlug(slug, knownSlugs(unknownCheckContext));
       let dead = null;
       if (!dryRun) {
+        // review MINOR 4: claim like every other writer in this file — two overlapping drains (the
+        // 1-minute timer and a note-send piggyback) must not both dead-letter, and both report to ben,
+        // the same entry.
+        const claim = claimOutboxEntry(home, entry.id, fsImpl);
+        if (!claim) {
+          results.push({ id: entry.id, to: slug, outcome: 'claimed-elsewhere' });
+          continue;
+        }
         dead = killOutboxEntry(home, entry.id, entry, fsImpl);
-        appendUnknownRecipientToBen(home, entry, slug, suggestion, fsImpl);
+        releaseClaim(claim, fsImpl);
       }
+      // review MINOR 5: collected here, one ben-inbox line per (from, slug) written after the loop —
+      // several stuck notes to the same wrong slug must not produce a line each.
+      const from = entry.from ?? 'a peer';
+      const groupKey = `${from}\u0000${slug}`;
+      if (!unknownRecipientGroups.has(groupKey)) {
+        unknownRecipientGroups.set(groupKey, { from, slug, suggestion, ids: [], deadPaths: [] });
+      }
+      const group = unknownRecipientGroups.get(groupKey);
+      group.ids.push(entry.id);
+      if (dead) group.deadPaths.push(dead);
       results.push({
         id: entry.id, to: slug, outcome: 'unknown-recipient', dead,
         log: log('unknown-recipient', entry, `"${slug}" is still unknown 10 minutes after it was sent`
@@ -449,6 +496,14 @@ export async function runNoteFlush(argv, deps = {}) {
     live.push(entry);
   }
 
+  // review MINOR 5: one BLOCKED line per (from, slug) for this whole pass, listing every id, rather
+  // than one line per dead-lettered entry — a stuck batch to the same wrong slug reads as one incident.
+  if (!dryRun) {
+    for (const group of unknownRecipientGroups.values()) {
+      appendUnknownRecipientToBen(home, group, fsImpl);
+    }
+  }
+
   if (live.length === 0 || dryRun) {
     return {
       ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: live.length,
@@ -477,8 +532,8 @@ export async function runNoteFlush(argv, deps = {}) {
   }
   const inboxes = deps.inboxes ?? readInboxes(home, fsImpl);
   const deliverInbox = deps.deliverToInbox ?? deliverToInbox;
-  /** D3(3): typing is off unless this machine asks for it explicitly. */
-  const allowTyping = String(env.MULTI_ALLOW_TYPING ?? '') === '1';
+  // D3(3): typing is off unless this machine asks for it explicitly. `allowTyping` itself is computed
+  // above, before the retirement pass, which now also needs it (review MINOR 9).
   const needTyping = [];
   /** C1: entries this pass could not START, summarised in one line rather than one attempt each. */
   const shortBudget = [];
@@ -705,7 +760,10 @@ export async function runNoteFlush(argv, deps = {}) {
       } else {
         // ── Phase B: typed, therefore UNRACED. Only the orca per-call timeouts bound this, so the
         //    Enter that follows the text always gets its chance.
-        const res = await twoPhaseSend(orca, look.pane, entry.envelope, entry.id, look.classification, { knownEnvelopes });
+        const res = await twoPhaseSend(
+          orca, look.pane, entry.envelope, entry.id, look.classification,
+          { knownEnvelopes },
+        );
         if (res.delivered) {
           // `confirmed-from-screen`: the id was already in the pane's TRANSCRIPT, so the note arrived
           // on an earlier attempt and only the bookkeeping was left (addendum item 7).

@@ -157,11 +157,16 @@ has no safety gate of its own, so the SENDER is the gate:
 
    **N2 (2026-09-20): an unresolved SLUG recipient (never a handle) is checked against everything this
    machine knows** — registered inboxes, pane bindings, live pane titles, and the last 3 days of the
-   ledger mirror. If none of them have ever heard of it, exit 2 leads with `UNKNOWN RECIPIENT "<slug>"`,
-   lists the known slugs, and suggests one within edit distance 2 or a prefix/suffix match (stdout JSON:
-   `unknown_recipient:true, known:[...], suggestion:"<slug>"|null`). `note-flush` dead-letters an ASK or
-   BLOCKED to a slug still unknown 10 minutes after it was queued — well before the ordinary give-up (20
-   attempts or about 48 hours) — with one BLOCKED line in `ben-inbox.md`.
+   ledger mirror (a note's OWN line is always excluded from that mirror check, so an undelivered note
+   never makes its own recipient look "known"). If none of them have ever heard of it, exit 2 leads with
+   `UNKNOWN RECIPIENT "<slug>"`, lists the known slugs, and suggests one within edit distance 2 or a
+   prefix/suffix match (stdout JSON: `unknown_recipient:true, known:[...], suggestion:"<slug>"|null`).
+   `note-flush` dead-letters an ASK or BLOCKED to a slug still unknown 10 minutes after it was queued —
+   well before the ordinary give-up (20 attempts or about 48 hours) — with one BLOCKED line in
+   `ben-inbox.md`, unless `MULTI_ALLOW_TYPING=1` on this machine, since typing is still a real path to
+   that pane later in the same drain. `--no-type` and a ledger-only ACK/FYI never resolve a pane at all,
+   so neither can reach the exit-2 banner; both still run the same check and, when the recipient is
+   unknown, add a warning and `unknown_recipient:true` to their (otherwise unchanged, exit-0) result.
    `~/.agents/notes/no-unknown-check` restores the plain "not found" message and the ordinary timing.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,
    notified:true`. A BLOCKED to ben, or a `Needs: decision` to ben, is also appended to
