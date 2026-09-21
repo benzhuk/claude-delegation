@@ -31,9 +31,12 @@ Five rules carry the whole protocol:
 - **Receipts, not heartbeats.** One ACK when a peer starts, one RESULT when it finishes. Nothing in
   between. A peer that says nothing is working, not stuck. Since 2026-09-20 an ACK no longer STARTS a
   turn — it is a ledger record, not a nudge (so is FYI); the recipient's own hooks surface it at their
-  next event. It is not free for a session that is already working: it still shows up mid-turn and can
-  still block a Stop once, the same as any other note. `~/.agents/notes/wake-all-kinds` restores the old
-  wake-on-ACK/FYI behaviour.
+  next event. It still shows up mid-turn if this turn does anything at all (a prompt, a tool call), and
+  since round 2 (MINOR 11) it no longer costs a Stop-block by itself either: a Stop where EVERY waiting
+  note is ACK/FYI does not block — it surfaces at your next prompt or tool call instead. A Stop where
+  even one waiting note is louder (ASK/RESULT/BLOCKED) still blocks once, and still shows everything
+  waiting, ACK/FYI included. `~/.agents/notes/wake-all-kinds` restores the old wake-and-block-on-ACK/FYI
+  behaviour.
 - **Never a hidden drop.** Ledger first, always. A refusal is reported with an exit code and a JSON
   object on stdout, never silence.
 
@@ -95,8 +98,11 @@ You do not fetch notes and you never wait for one. Two paths deliver them, and b
 every state a session can be in:
 
 - **While you are working**, the hooks put new notes straight into your context — on your next prompt,
-  after a tool call, and again when you try to stop. A Stop with notes waiting blocks once so you handle
-  them before the turn ends; a Stop with nothing waiting is silent and instant.
+  after a tool call, and again when you try to stop. A Stop where at least one waiting note is NOT
+  ledger-only blocks once so you handle everything waiting before the turn ends (ACK/FYI included, if
+  any are mixed in); a Stop where every waiting note IS ledger-only (ACK/FYI) does not block — those
+  already reached you mid-turn, or will at your next prompt or tool call; a Stop with nothing waiting is
+  silent and instant either way.
 - **While you are idle**, `note-flush` posts one line into YOUR INBOX, within about a minute of the note
   being written — a Claude session's messaging socket, a Codex session's queue. Claude Code starts a new
   turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in

@@ -238,6 +238,11 @@ export async function runNoteSend(argv, deps = {}) {
   // N1 (spec 2026-09-20): ACK and FYI are ledger-only for everyone except ben — "unchanged for every
   // kind" there. No wake-up is created: no outbox entry, no inbox post, and (for a slug recipient) no
   // pane resolution at all. `~/.agents/notes/wake-all-kinds` restores the old behaviour.
+  //
+  // review MINOR 11: this is one of two enforcement sites for "a ledger-only kind never STARTS a turn" —
+  // the other is `hasLoudNote` / `handleStop` in `hooks/multi-hook-core.mjs`, which lets a Stop-block
+  // skip when every note waiting is one of these same `LEDGER_ONLY_KINDS`. One rule, one constant,
+  // imported from `envelope.mjs` by both; neither keeps its own list.
   const wakeAllKinds = killSwitchActive(fsImpl, wakeAllKindsPath(home));
   const quietKind = !isBen && LEDGER_ONLY_KINDS.has(kind) && !wakeAllKinds;
   // A raw `term_…` handle carries no slug of its own — only the pane it names does — so a quiet kind

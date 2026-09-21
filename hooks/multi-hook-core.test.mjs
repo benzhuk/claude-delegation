@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { toPosix, readInboxes } from '../skills/multi/scripts/transport.mjs';
+import { toPosix, readInboxes, wakeAllKindsPath } from '../skills/multi/scripts/transport.mjs';
 import {
   summarise, humanLine, humanSummary, contextOutput, blockOutput, runHookEvent,
   STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
@@ -178,12 +178,82 @@ test('Stop with nothing waiting is silent', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MINOR 11 (review round 2): a Stop does not block on ledger-only notes alone
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('MINOR 11: a Stop where every waiting note is ledger-only (ACK/FYI) does not block', async () => {
+  const notes = resultOf([
+    line('astra', 'taxonomy', 'astra-ack-1', 'ACK', 'Taking PR 1'),
+    line('astra', 'taxonomy', 'astra-fyi-1', 'FYI', 'Merged main'),
+  ]);
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
+  assert.equal(res, null, 'already surfaced mid-turn; a Stop-block would only cost a turn to say so');
+});
+
+test('MINOR 11: MIXED still blocks once, and still surfaces every note (ACK/FYI included)', async () => {
+  const notes = resultOf([
+    line('astra', 'taxonomy', 'astra-ack-1', 'ACK', 'Taking PR 1'),
+    line('astra', 'taxonomy', 'astra-ask-1', 'ASK', 'Review PR 2'),
+  ]);
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block');
+  assert.match(res.output.reason, /astra-ack-1/, 'the quiet note is still shown, not dropped');
+  assert.match(res.output.reason, /astra-ask-1/);
+  assert.deepEqual(res.ackIds, ['astra-ack-1', 'astra-ask-1']);
+});
+
+test('MINOR 11: loud-only still blocks, unchanged', async () => {
+  const notes = resultOf([line('astra', 'taxonomy', 'astra-ask-1', 'ASK', 'Review PR 1')]);
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block');
+});
+
+test('MINOR 11: the wake-all-kinds switch restores blocking on quiet-only notes', async () => {
+  const home = tmp();
+  fs.mkdirSync(path.join(home, '.agents/notes'), { recursive: true });
+  fs.writeFileSync(wakeAllKindsPath(home), '');
+  const notes = resultOf([line('astra', 'taxonomy', 'astra-ack-1', 'ACK', 'Taking PR 1')]);
+  const res = await runHookEvent(stubCtx({ event: 'Stop', home, inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block', 'the same switch that turns off N1 turns this off too');
+});
+
+test('MINOR 11: an unreadable kill-switch check fails toward blocking', async () => {
+  const notes = resultOf([line('astra', 'taxonomy', 'astra-ack-1', 'ACK', 'Taking PR 1')]);
+  const fsImpl = { existsSync: () => { throw new Error('EPERM'); } };
+  const res = await runHookEvent(stubCtx({ event: 'Stop', fsImpl, inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block', 'unreadable must fail toward the old, safe behaviour');
+});
+
+test('MINOR 11: a kind that failed to parse counts as loud', async () => {
+  const notes = resultOf([line('astra', 'taxonomy', 'astra-x-1', 'ACK', 'ok')]);
+  notes.notes[0].kind = undefined; // simulates a line parseEnvelope/note-inbox could not classify
+  const res = await runHookEvent(stubCtx({ event: 'Stop', inbox: async () => notes }));
+  assert.equal(res.output.decision, 'block', 'an unparseable kind is not assumed quiet');
+});
+
+test('MINOR 11: quiet-only does not advance the cursor — the same note surfaces at the next event', async () => {
+  const lines = [line('astra', 'taxonomy', 'astra-ack-1', 'ACK', 'Taking PR 1')];
+  const inbox = stubInbox(lines);
+
+  const stopRes = await runHookEvent(stubCtx({ event: 'Stop', inbox }));
+  assert.equal(stopRes, null, 'no block, and (unlike a block) nothing to ack');
+
+  const next = await runHookEvent(stubCtx({ event: 'UserPromptSubmit', inbox }));
+  assert.deepEqual(next.ackIds, ['astra-ack-1'], 'still there, still unacked, exactly as if Stop had never run');
+  assert.match(next.output.hookSpecificOutput.additionalContext, /astra-ack-1/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Ack exactly what was rendered (review MINOR 4)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** `n` unseen FYIs, in order, as the inbox would hand them over. */
+/**
+ * `n` unseen ASKs, in order, as the inbox would hand them over. ASK (not FYI): these back the Stop
+ * ack-slicing tests below, and since MINOR 11 a Stop where every note is ledger-only does not block at
+ * all — a loud kind keeps this section testing what it says it tests.
+ */
 const backlog = (n, prefix) => Array.from({ length: n }, (_, i) =>
-  line('astra', 'taxonomy', `${prefix}-${i + 1}`, 'FYI', `note ${i + 1}`));
+  line('astra', 'taxonomy', `${prefix}-${i + 1}`, 'ASK', `note ${i + 1}`));
 
 /**
  * An inbox with a real cursor: ids that have been acked stop coming back. This is what makes the
