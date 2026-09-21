@@ -18,7 +18,7 @@
 // with no card at all, so `goalCardResult` reports WHY it refused, the hook surfaces that once per
 // session on `systemMessage`, and `check` exits 1 with the same sentence (review D, MAJOR 4).
 import { readFileSync, existsSync, statSync, readdirSync, realpathSync } from "node:fs";
-import { join, isAbsolute, resolve, basename } from "node:path";
+import { join, isAbsolute, resolve, basename, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { loadProjectConfig } from "./project-config.mjs";
@@ -47,7 +47,8 @@ export const RENDER_MAX_BYTES = 1000; // what the hook injects, header and stamp
  * so a future edit to `hooks/delegation-reminder.js` that diverges fails a test rather than a session.
  * The hook keeps CommonJS copies: its hot path must not import ESM to learn it is idle.
  */
-export const PROMPT_LINE_MAX_BYTES = 320;
+export const PROMPT_LINE_MAX_BYTES = 336; // raised from 320 (round-1 review MINOR 1) to restore the
+// owner's "orchestrator tokens buy judgment only" clause without re-lengthening the routing line.
 export const BATCHES_PER_REINJECT = 40;
 /**
  * The time floor. The batch tally can lose increments under parallel writers by design (see
@@ -98,12 +99,33 @@ export function agentsHome(env = process.env) {
  * Which switch, if any, is present: `"ws-off"` (master), `"ws-off-goalcard"` (this feature), or null.
  * The distinction matters as of round 2: the master switch stops the hook doing ANYTHING, including
  * the routing line; the feature switch stops only the card.
+ *
+ * MINOR 2 (round-1 review): `existsSync` returns `false` on ANY failure, including `EACCES` on the
+ * containing directory, so an unreadable switch path read as "switch absent" and the feature stayed
+ * ON. Fail toward doing nothing instead: `ENOENT`/`ENOTDIR` (the file genuinely is not there) is the
+ * only case that means absent; every other error (permission denied, a device that refuses to answer,
+ * etc.) counts as the switch being present. Exported so both this and the hook's own truth table can
+ * be unit-tested without needing to induce a real OS-level permission error, which is unreliable on
+ * Windows (chmod does not reliably produce EACCES on stat there).
  */
+export function switchErrorMeansPresent(e) {
+  return Boolean(e) && e.code !== "ENOENT" && e.code !== "ENOTDIR";
+}
+
+export function switchPresent(p) {
+  try {
+    statSync(p);
+    return true;
+  } catch (e) {
+    return switchErrorMeansPresent(e);
+  }
+}
+
 export function activeSwitch(name = SWITCH_NAME, env = process.env) {
   try {
     const base = agentsHome(env);
-    if (existsSync(join(base, MASTER_SWITCH))) return MASTER_SWITCH;
-    if (name && existsSync(join(base, `ws-off-${name}`))) return `ws-off-${name}`;
+    if (switchPresent(join(base, MASTER_SWITCH))) return MASTER_SWITCH;
+    if (name && switchPresent(join(base, `ws-off-${name}`))) return `ws-off-${name}`;
     return null;
   } catch {
     return null;
@@ -139,7 +161,22 @@ export function cardLocation(cwd = process.cwd()) {
     config && typeof config[CONFIG_KEY] === "string" && config[CONFIG_KEY].trim()
       ? config[CONFIG_KEY].trim()
       : DEFAULT_CARD_PATH;
-  const path = isAbsolute(raw) ? resolve(raw) : resolve(join(root, raw));
+  // NIT 5 (round-1 review), narrowed: the review's literal patch also closed the ABSOLUTE case, but
+  // "an absolute goal_card path is used as given" is an existing, deliberately tested feature (a
+  // monorepo pointing several projects at one shared card) — not the bug. Left as is. The actual bug
+  // is a RELATIVE `../` escape slipping past a naive `resolve(join(root, raw))`: that alone is closed,
+  // by refusing (not following) any relative path whose resolution lands outside `root`.
+  const resolvedRoot = resolve(root);
+  let path;
+  if (isAbsolute(raw)) {
+    path = resolve(raw);
+  } else {
+    const joined = resolve(join(resolvedRoot, raw));
+    if (joined !== resolvedRoot && !joined.startsWith(resolvedRoot + sep)) {
+      return { root, path: null, configured: false, blind: true };
+    }
+    path = joined;
+  }
   return {
     root,
     path,

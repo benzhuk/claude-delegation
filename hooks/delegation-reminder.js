@@ -30,8 +30,10 @@
 //                   injected once before the next model call."
 //   PostCompact     "No decision control. Used for side effects like logging or cleanup" — it CANNOT
 //                   inject. It is handled here for its one legitimate side effect (resetting the
-//                   counter) and emits nothing. The post-compaction injection is SessionStart's
-//                   `compact` source.
+//                   counter) and emits nothing. NIT 3 (round-1 review): `hooks/hooks.json` does not
+//                   currently wire this event, so this branch is dead code until it is added — the
+//                   post-compaction injection that DOES fire today is SessionStart's `compact` source,
+//                   which also calls `markFired` (see its branch below).
 //   UserPromptSubmit  unchanged path, short line.
 //
 // HARD RULES THIS FILE OBEYS:
@@ -65,11 +67,16 @@ const { pathToFileURL } = require("url");
 const ROUTING =
   "Routing: multi-file build → delegation:team-build before any code; independent research/review/audit lanes → delegation:delegate, all lanes in one message, verified a tier above the writer; single-file edit or known lookup → do it yourself.";
 
-/** Top-tier orchestrators only (and unknown models, which are cheap). */
-const ECONOMY = " Subagents return a verdict plus a report path, never file dumps.";
+/**
+ * Top-tier orchestrators only (and unknown models, which are cheap). Round-1 review (MINOR 1):
+ * this dropped the owner's standing rule ("Orchestrator tokens buy judgment only: never pull big
+ * files or broad grep output into the main loop", `rules/30-delegation.md`) to hit a byte target.
+ * Restored, at the cost of the cap (see `PROMPT_LINE_MAX_BYTES` below).
+ */
+const ECONOMY = " Orchestrator tokens buy judgment only: never pull big files or grep into the loop.";
 
 /** Asserted by the test suite: the per-prompt payload can never grow back into a paragraph. */
-const PROMPT_LINE_MAX_BYTES = 320;
+const PROMPT_LINE_MAX_BYTES = 336;
 
 /** One re-injection per this many tool batches. ~50 tool calls is a typical long task (Manus). */
 const BATCHES_PER_REINJECT = 40;
@@ -153,12 +160,27 @@ function agentsHome() {
   return process.env.AGENTS_HOME || path.join(os.homedir(), ".agents");
 }
 
-/** `"ws-off"` (master), `"ws-off-goalcard"` (this feature), or null. */
+/**
+ * `"ws-off"` (master), `"ws-off-goalcard"` (this feature), or null.
+ * MINOR 2 (round-1 review): `existsSync` returns `false` on ANY failure, including `EACCES` on the
+ * containing directory — so an unreadable switch path read as "switch absent" and the hook stayed ON.
+ * Fail toward doing nothing: only `ENOENT`/`ENOTDIR` (the file genuinely is not there) counts as
+ * absent; every other error (permission denied, etc.) counts as the switch being present.
+ */
+function switchPresent(p) {
+  try {
+    fs.statSync(p);
+    return true;
+  } catch (e) {
+    return Boolean(e) && e.code !== "ENOENT" && e.code !== "ENOTDIR";
+  }
+}
+
 function activeSwitch() {
   try {
     const base = agentsHome();
-    if (fs.existsSync(path.join(base, "ws-off"))) return "ws-off";
-    if (fs.existsSync(path.join(base, "ws-off-goalcard"))) return "ws-off-goalcard";
+    if (switchPresent(path.join(base, "ws-off"))) return "ws-off";
+    if (switchPresent(path.join(base, "ws-off-goalcard"))) return "ws-off-goalcard";
     return null;
   } catch {
     return null;

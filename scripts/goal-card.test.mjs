@@ -16,7 +16,8 @@ import {
   SWEEP_MAX_UNLINKS, SUBAGENT_SUFFIX, REPORT_LINE_AGENT_ROLES,
   agentsHome, switchedOff, activeSwitch, wantsReportLine, cardLocation, readCard, validateCard,
   renderInjection, asOfStamp, goalCardContext, goalCardResult, rejectionNotice, isMainModule,
-  stateDir, stateKey, tallyFileFor, firedFileFor, staleStateFiles, runCli,
+  stateDir, stateKey, tallyFileFor, firedFileFor, staleStateFiles, runCli, switchPresent,
+  switchErrorMeansPresent,
 } from './goal-card.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -164,6 +165,17 @@ test('an absolute goal_card path is used as given', () => {
   assert.equal(goalCardContext(root, { env: { AGENTS_HOME: tmpdir('goal-card-home-') } }).includes('GOAL:'), true);
 });
 
+test('NIT 5 (round-1 review): a relative goal_card escape is refused, not followed', () => {
+  const outside = tmpdir('goal-card-outside-');
+  fs.writeFileSync(path.join(outside, 'evil.md'), GOOD, 'utf8');
+  const root = project({ cardPath: `../${path.basename(outside)}/evil.md` });
+  const loc = cardLocation(root);
+  assert.equal(loc.path, null, 'a relative escape must not resolve to a path at all');
+  assert.equal(loc.blind, true);
+  // Absolute paths are unaffected: that is an existing, deliberately supported feature, not the bug.
+  assert.equal(cardLocation(project({ cardPath: path.join(outside, 'evil.md') })).path, path.resolve(outside, 'evil.md'));
+});
+
 test('no card means nothing is rendered, and that is not an error', () => {
   const root = project({ card: null });
   assert.equal(readCard(root).exists, false);
@@ -300,7 +312,7 @@ test('the CLI as a child process: real exit codes, and stdout is the card', () =
 });
 
 test('the constants the hook copies are pinned here', () => {
-  assert.equal(PROMPT_LINE_MAX_BYTES, 320);
+  assert.equal(PROMPT_LINE_MAX_BYTES, 336); // raised from 320, round-1 review MINOR 1
   assert.equal(BATCHES_PER_REINJECT, 40);
   assert.equal(REINJECT_MAX_MS, 30 * 60 * 1000);
   assert.equal(SWEEP_MAX_UNLINKS, 500);
@@ -359,6 +371,27 @@ test('MAJOR 4: check names the switch instead of saying ok while nothing is inje
   const err = sink();
   assert.equal(runCli(['check'], bad, sink(), err, { AGENTS_HOME: home }), 1);
   assert.match(err.text(), /expected exactly 5 card lines/);
+});
+
+test('MINOR 2 (round-1 review): an unreadable switch path counts as present, so the feature goes quiet', () => {
+  // The decision table, unit-tested directly: forcing a real EACCES from Node is not reliable on
+  // Windows (chmod does not reliably deny stat there), so the pure predicate is what is asserted.
+  assert.equal(switchErrorMeansPresent({ code: 'ENOENT' }), false, 'genuinely absent stays absent');
+  assert.equal(switchErrorMeansPresent({ code: 'ENOTDIR' }), false, 'a path component that is a file stays absent');
+  assert.equal(switchErrorMeansPresent({ code: 'EACCES' }), true, 'permission denied must read as present');
+  assert.equal(switchErrorMeansPresent({ code: 'EPERM' }), true, 'operation not permitted must read as present');
+  assert.equal(switchErrorMeansPresent({ code: 'EIO' }), true, 'a device that refuses to answer must read as present');
+  assert.equal(switchErrorMeansPresent(undefined), false, 'no error at all is not a reason to go quiet');
+
+  // Integration-level: `switchPresent` really calls through to this predicate, not just existsSync.
+  const home = tmpdir('goal-card-home-');
+  assert.equal(switchPresent(path.join(home, 'does-not-exist')), false, 'a real missing file is absent');
+  fs.writeFileSync(path.join(home, 'ws-off'), '', 'utf8');
+  assert.equal(switchPresent(path.join(home, 'ws-off')), true, 'a real present file is present');
+  // A path with a FILE as one of its own components: statSync throws ENOTDIR, which this fix
+  // deliberately keeps in the "absent" bucket (matches the reviewer's own reproduction: pointing
+  // AGENTS_HOME at a file did not make the hook treat the switch as present).
+  assert.equal(switchPresent(path.join(home, 'ws-off', 'nested')), false, 'a path through a file component stays absent');
 });
 
 test('MINOR 5: a card path that is not a regular file is not read', () => {

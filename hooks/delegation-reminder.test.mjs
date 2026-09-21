@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 import {
   PROMPT_LINE_MAX_BYTES, BATCHES_PER_REINJECT, REINJECT_MAX_MS, RENDER_MAX_BYTES, SUBAGENT_SUFFIX,
-  SWITCH_NAME, MASTER_SWITCH, CONFIG_KEY, DEFAULT_CARD_PATH, SWEEP_MAX_UNLINKS,
+  SWITCH_NAME, MASTER_SWITCH, CONFIG_KEY, DEFAULT_CARD_PATH, SWEEP_MAX_UNLINKS, STATE_MAX_AGE_MS,
   tallyFileFor, firedFileFor, stateDir, stateKey, renderInjection,
 } from '../scripts/goal-card.mjs';
 
@@ -363,6 +363,17 @@ test('MINOR 3: the sweep removes a stale file that sits past the 500th directory
   assert.ok(SWEEP_MAX_UNLINKS === 500, 'the cap is on unlinks, not on the listing');
 });
 
+test('NIT 4 (round-1 review): the hook\'s duplicated SWEEP_MAX_UNLINKS and STATE_MAX_AGE_MS agree with the module\'s', () => {
+  // BATCHES_PER_REINJECT, REINJECT_MAX_MS and PROMPT_LINE_MAX_BYTES are already cross-pinned because
+  // the suite imports them from goal-card.mjs and uses them to drive the hook's behaviour above — a
+  // divergence there fails a test. These two constants are duplicated in the hook (CommonJS, so the
+  // hot path is not paying for an ESM import) but were never actually compared to their module twin.
+  const source = fs.readFileSync(HOOK, 'utf8');
+  assert.match(source, new RegExp(`SWEEP_MAX_UNLINKS\\s*=\\s*${SWEEP_MAX_UNLINKS}\\b`), 'hook SWEEP_MAX_UNLINKS diverged from goal-card.mjs');
+  assert.match(source, new RegExp(`STATE_MAX_AGE_MS\\s*=\\s*7\\s*\\*\\s*24\\s*\\*\\s*60\\s*\\*\\s*60\\s*\\*\\s*1000`), 'hook STATE_MAX_AGE_MS diverged from goal-card.mjs');
+  assert.equal(7 * 24 * 60 * 60 * 1000, STATE_MAX_AGE_MS, 'sanity: the module constant is still 7 days');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAJOR 4 — a rejected card is never silent
 // ─────────────────────────────────────────────────────────────────────────────
@@ -501,8 +512,12 @@ test('the per-prompt payload is under budget, well under what it replaced, and k
   const root = project();
   const top = context(runHook('UserPromptSubmit', home, { cwd: root, over: { DELEGATION_TOP_TIER: 'opus' }, input: { model: 'claude-opus-5' } }));
   const exec = context(runHook('UserPromptSubmit', home, { cwd: root, input: { model: 'claude-sonnet-5' } }));
-  assert.ok(top.includes('Subagents return a verdict'), 'top tier keeps the economy sentence');
-  assert.equal(exec.includes('Subagents return a verdict'), false, 'execution tier does not');
+  // MINOR 1 (round-1 review): the shrink had dropped the owner's standing rule
+  // ("Orchestrator tokens buy judgment only: never pull big files or broad grep output into the main
+  // loop", rules/30-delegation.md) to hit a byte target. Restored; the cap moved instead (see below).
+  assert.ok(top.includes('Orchestrator tokens buy judgment only'), 'top tier keeps the economy sentence');
+  assert.ok(top.includes('never pull big files'), 'top tier keeps the never-pull-big-files clause');
+  assert.equal(exec.includes('Orchestrator tokens buy judgment only'), false, 'execution tier does not');
   // MINOR 8: the clauses the shrink dropped, restored.
   for (const clause of ['delegation:team-build', 'before any code', 'delegation:delegate', 'a tier above the writer']) {
     assert.ok(exec.includes(clause), `the routing line lost "${clause}"`);
