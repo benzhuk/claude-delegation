@@ -7,6 +7,16 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js\" SessionStart",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delegation-reminder.js\" SessionStart",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/wiring-check.mjs\" --line",
+            "timeout": 5
           }
         ]
       }
@@ -57,6 +67,17 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-dispatch-guard.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delegation-reminder.js\" PostToolBatch",
             "timeout": 5
           }
         ]

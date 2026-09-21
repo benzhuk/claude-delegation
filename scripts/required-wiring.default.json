@@ -1,0 +1,46 @@
+[
+  {
+    "id": "flusher-heartbeat",
+    "type": "file_fresh",
+    "file": "~/.agents/notes/flush-last.json",
+    "maxAgeSeconds": 300,
+    "whenMissing": "info",
+    "why": "note-flush should touch this file about once a minute; a stale heartbeat means the outbox is not draining and peer notes are stuck",
+    "fix": "check that the note-flush timer (cron/launchd/systemd --user) is installed and running on this machine, per the multi skill's install docs; on Windows it is the Task Scheduler task 'note-flush' (Get-ScheduledTask note-flush)"
+  },
+  {
+    "id": "switch-ws-off",
+    "type": "switch",
+    "file": "~/.agents/ws-off",
+    "why": "the master kill switch that silences every working-smarter feature (goal card, janitor) at once",
+    "fix": "no fix needed either way, this is a visibility check: remove the file to turn features back on, create it to silence them"
+  },
+  {
+    "id": "switch-no-dispatch-guard",
+    "type": "switch",
+    "file": "~/.agents/no-dispatch-guard",
+    "why": "the total kill switch for the PreToolUse agent-dispatch-guard hook",
+    "fix": "no fix needed either way, this is a visibility check: remove the file to re-enable the guard, create it to silence it"
+  },
+  {
+    "id": "switch-dispatch-guard-enforce",
+    "type": "switch",
+    "file": "~/.agents/dispatch-guard-enforce",
+    "why": "flips the dispatch guard from advisory to enforced (it blocks instead of only warning)",
+    "fix": "no fix needed either way, this is a visibility check: create the file to enforce the guard, remove it to keep it advisory"
+  },
+  {
+    "id": "switch-wake-all-kinds",
+    "type": "switch",
+    "file": "~/.agents/notes/wake-all-kinds",
+    "why": "widens which peer-note kinds are allowed to wake an idle pane",
+    "fix": "no fix needed either way, this is a visibility check"
+  },
+  {
+    "id": "switch-no-type",
+    "type": "switch",
+    "file": "~/.agents/notes/no-type",
+    "why": "disables the flusher's typed-into-composer delivery path",
+    "fix": "no fix needed either way, this is a visibility check"
+  }
+]

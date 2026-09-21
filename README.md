@@ -32,7 +32,7 @@ claude plugin install delegation@benzhuk
 
 ## What you get
 
-**Four skills** (auto-suggested by task shape, or invoke directly):
+**Five skills** (auto-suggested by task shape, or invoke directly):
 
 - **`/delegation:delegate`** — parallel fan-out orchestration for independent
   research / review / audit lanes: decompose, tier the models, budget the concurrency,
@@ -45,6 +45,10 @@ claude plugin install delegation@benzhuk
   you don't own (see below).
 - **`/delegation:decisions`** — record a question only the owner can answer on their
   Notion decisions page and keep working, instead of blocking on a reply.
+- **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
+  default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
+  a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
+  flags a guard, hook, timer or switch that looks unwired on this machine.
 
 Neither `delegate` nor `team-build` is for talking to a session you don't own — see
 [`multi`](#multi--peer-sessions) below for that.
@@ -71,19 +75,28 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
 
 **Three agents** for the team-build pipeline: `builder`, `reviewer`, `integrator`.
 
-**Two hooks** (all require `node` on PATH):
+**Three hooks** (all require `node` on PATH):
 
-- **Routing reminder** (UserPromptSubmit): injects a one-line routing reminder — build →
-  team-build, fan-out → delegate, small task → no agents — so the policy survives long
-  sessions and context compaction. It reads `DELEGATION_TOP_TIER` (falling back to the
-  legacy `CLAUDE_DELEGATION_TOP_TIER`; default `fable,opus,gpt-6-astra,gpt-5.6-sol`) to
-  decide whether the current session is top/high-tier and add the orchestrator-economy
-  sentence.
+- **Routing reminder** (UserPromptSubmit, SessionStart, PostToolBatch —
+  `hooks/delegation-reminder.js`): injects a one-line routing reminder on every prompt —
+  build → team-build, fan-out → delegate, small task → no agents — so the policy survives
+  long sessions and context compaction. It reads `DELEGATION_TOP_TIER` (falling back to
+  the legacy `CLAUDE_DELEGATION_TOP_TIER`; default `fable,opus,gpt-6-astra,gpt-5.6-sol`)
+  to decide whether the current session is top/high-tier and add the orchestrator-economy
+  sentence. It also injects the project's five-line goal card
+  (`scripts/goal-card.mjs`, format in `templates/goal-card.md`) at session start
+  (including after compaction) and once every 40 tool batches during a long autonomous
+  stretch, never on every prompt; a subagent gets its goal from its mandate, not this
+  hook. Off switches: `~/.agents/ws-off` (both features) and `~/.agents/ws-off-goalcard`
+  (card only).
 - **Peer-note inbox** (UserPromptSubmit, Stop, PostToolUse — new in 0.3.0): reads the
   peer-note ledger for this pane and injects anything new, so a `multi` note reaches the
   session without anyone typing into its pane. `Stop` blocks the stop while something is
   waiting (honouring `stop_hook_active`). Silent when there are no notes, when the
   session is not in an Orca pane, and on any error — a hook must never break a session.
+- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line`): prints one line
+  at session start when a required guard, hook, timer or switch looks missing or stale;
+  silent when everything is wired, and honours `~/.agents/ws-off`.
 
 ## Model tiers
 
