@@ -41,6 +41,6 @@ brand-new comment, and the item would never stop reporting as answered again.
 	- [ ] Cap the batch at 200 items per run, queue the rest for the next night (recommended)
 	- [ ] Run uncapped and add a memory alert instead
 	- [ ] Move the batch to a bigger box
-	Default after 2026-09-25 18:00 -04:00: cap at 200 items per run.
+	Default after 2030-06-15 18:00 -04:00: cap at 200 items per run
 	<empty-block/>
 </details>

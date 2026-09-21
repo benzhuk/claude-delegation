@@ -12,19 +12,19 @@ page, keeps working on whatever else is dispatchable, and picks the answer up la
 
 ## Writing an item
 
-Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs` — both
-shipped next to this skill (`../_templates/…`, `../_scripts/…`) when mirrored, else at
-the plugin repo's `templates/` and `scripts/`. One toggle per decision, a unique
-title, one or two lines of evidence, two to four unticked options with the
-recommended one FIRST marked "(recommended)". Last plain line: `Default after <date>
-<time> <±UTC offset>: <option>` for a reversible decision (the offset is the owner's
-local time, e.g. `Default after 2026-09-25 18:00 -04:00: cap at 200 items per run`),
-or `No default: <reason>` for anything irreversible, costly, or that changes the
-owner's machines. Inside the item, no agent line may start with bold or a colored
-span — plain text first, bold only in the `<summary>` title — because Notion escapes
-colored-span bold exactly like the owner's own asterisks, so such a line reads back
-as a forged owner comment. State the decision and the recommendation in chat too;
-send the link only once a fresh read shows the item there.
+Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs`. One
+toggle per decision, a unique title, one or two lines of evidence, two to four
+unticked options with the recommended one FIRST marked "(recommended)". Last plain
+line: `Default after <date> <time> <±UTC offset>: <option>` for a reversible
+decision — use the offset in force on that date (`-04:00` New York in summer,
+`-05:00` in winter), e.g. `Default after 2030-06-15 18:00 -04:00: cap at 200 items
+per run` — or `No default: <reason>` for anything irreversible, costly, or that
+changes the owner's machines. Inside the item, no agent line starts with bold — some
+agent-written bold comes back from Notion escaped exactly like an owner comment.
+Bold stays only in the `<summary>` title.
+
+State the decision and the recommendation in chat too; send the link only once a
+fresh read shows the item there.
 
 ## Page rules
 
@@ -54,8 +54,8 @@ read, bad fence, no titles) — stop, tell the owner, change nothing.
   `Reply:` and the date — that marker stops the next read reporting it again.
 - DUE: the item's `Default after …` deadline passed unanswered. Apply the default,
   tell the owner in the same message, and close the item.
-- WARN: the page itself is broken (Done misplaced or duplicated, a malformed
-  Default line). Fix the page before trusting any other status on it.
+- WARN: the page is broken — Done missing, indented, or duplicated, or a `Default`
+  line off-shape (rewrite older wording into it). Fix before trusting anything else.
 - REPLIED or OPEN: nothing to do.
 
 ## Closing
