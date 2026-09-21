@@ -48,7 +48,6 @@
     "type": "file_fresh",
     "file": "~/.agents/lean-rules.md",
     "maxAgeSeconds": 315360000,
-    "whenMissing": "info",
     "why": "lean agents (builder, integrator, reviewer, runner) do not load the user's ~/.claude rules files; this file is where the user's personal hard stops reach them",
     "fix": "create ~/.agents/lean-rules.md (owned by the user, at most 40 lines) with the personal hard stops a lean agent should still obey - the plugin does not ship this file"
   }
