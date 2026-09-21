@@ -57,7 +57,7 @@ const MANIFEST_VERSION = 2;
  */
 const CODEX_HOOK_SCRIPT = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
 
-const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions'];
+const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'janitor'];
 const CLAUDE_SKILLS = ['knowledge', 'triage', 'dev-server', 'learn'];
 /** The docs every mirrored skill links to. Without these, `../_docs/model-tiers.md` dangles (S1). */
 const SHARED_DOC_FILES = [
