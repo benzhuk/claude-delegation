@@ -19,6 +19,7 @@ import {
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
   runNoteSend, writeBinding,
+  wakeAllKindsPath, noUnknownCheckPath,
 } from './note-send.mjs';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1048,4 +1049,200 @@ test('H3: a raw handle that resolves to nothing records NOTHING, and says why', 
   // A handle names no slug, so a ledger line would be addressed to nobody and no note-inbox would see it.
   assert.match(err.message, /Re-send with --to <slug>/);
   assert.equal(fs.existsSync(path.join(home, '.agents/notes')), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N1 (spec 2026-09-20): ACK and FYI are ledger-only
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('N1: FYI to a slug is ledger-only — no pane resolution, no outbox, exit 0', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })] });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping',
+      '--text', 'Batch finished, 413 films', '--recipient-repo', repo],
+    { orca, home, git: () => '.git', now: NOW, env: TYPING },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.delivered, false);
+  assert.equal(res.wake, 'none');
+  assert.equal(res.reason, 'ledger-only kind');
+  assert.equal(orca.calls.length, 0, 'a ledger-only kind never resolves a pane');
+  assert.match(fs.readFileSync(res.ledgers[0], 'utf8'), /\[taxonomy-ping-1\] FYI:/);
+  assert.equal(fs.existsSync(path.join(home, '.agents/notes/outbox/taxonomy-ping-1.json')), false, 'no outbox entry');
+});
+
+test('N1: ACK to a slug is ledger-only too, and --dry-run says the same', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const res = await runNoteSend(
+    ['--from', 'nucleus', '--to', 'taxonomy', '--kind', 'ACK', '--re', 'taxonomy-pr132-review-1',
+      '--topic', 'pr132-review', '--text', 'Taking it now', '--needs', 'none',
+      '--recipient-repo', repo, '--dry-run'],
+    { orca, home, git: () => '.git', now: NOW, env: TYPING },
+  );
+  assert.equal(res.dryRun, true);
+  assert.equal(res.wake, 'none');
+  assert.equal(res.reason, 'ledger-only kind');
+  assert.equal(orca.calls.length, 0);
+  assert.equal(fs.existsSync(path.join(repo, 'docs')), false, '--dry-run still writes nothing');
+});
+
+test('N1: ASK, RESULT and BLOCKED are unaffected — no ledger-only short-circuit', async () => {
+  // Proven by reaching real pane resolution (an orca `terminal list` call), not by asserting the
+  // two-phase type-and-Enter sequence succeeds — that half is the pre-existing, environment-dependent
+  // `no-type` flag concern this baseline suite already has several failures for (see baseline notes),
+  // unrelated to N1/N2.
+  const repo = tmp();
+  for (const kind of ['ASK', 'RESULT', 'BLOCKED']) {
+    const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })] });
+    let res = null;
+    let err = null;
+    try {
+      res = await runNoteSend(
+        ['--from', 'taxonomy', '--to', 'nucleus', '--kind', kind, '--topic', `ping-${kind.toLowerCase()}`,
+          '--text', 'Batch finished, 413 films'],
+        { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING },
+      );
+    } catch (e) { err = e; }
+    assert.ok(orca.calls.some((c) => c[1] === 'list'), `${kind} must still resolve a pane`);
+    const classification = res ? res.classification : err.classification;
+    assert.notEqual(classification, 'ledger-only (quiet kind)', kind);
+    assert.equal(res ? res.wake : err.wake, undefined, `${kind} must not carry the new N1 fields`);
+  }
+});
+
+test('N1: a handle-addressed quiet note still resolves the pane to learn its slug, but never delivers', async () => {
+  const repo = tmp(); const home = tmp();
+  const pane = idlePane({ handle: 'term_bbb', title: 'nucleus', worktreePath: repo });
+  const orca = mockOrca({ panes: [pane] });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'term_bbb', '--kind', 'ACK', '--topic', 'ping', '--text', 'Taking it now', '--needs', 'none'],
+    { orca, home, git: () => '.git', now: NOW, env: TYPING },
+  );
+  assert.match(res.envelope, /^taxonomy → nucleus, /, 'the pane had to be resolved to learn the slug');
+  assert.equal(res.delivered, false);
+  assert.equal(res.wake, 'none');
+  assert.equal(orca.calls.some((c) => c[1] === 'list'), true);
+  assert.equal(orca.sends().length, 0, 'never typed, whatever the pane state');
+});
+
+test('N1: --to ben is unchanged for every kind, including the ledger-only ones', async () => {
+  const repo = tmp();
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'ben', '--kind', 'FYI', '--topic', 'ping',
+      '--text', 'Batch finished, 413 films', '--sender-repo', repo],
+    { orca: mockOrca({ panes: [] }), home: tmp(), git: () => '.git', now: NOW },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.notified, true);
+  assert.equal(res.wake, undefined, 'the ben path is untouched by N1 — no new fields');
+});
+
+test('N1: the wake-all-kinds kill switch resumes pane resolution for ACK and FYI', async () => {
+  const repo = tmp(); const home = tmp();
+  fs.mkdirSync(path.dirname(wakeAllKindsPath(home)), { recursive: true });
+  fs.writeFileSync(wakeAllKindsPath(home), '');
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  // The kill switch is proven by reaching pane resolution at all — without it, a ledger-only kind
+  // never calls orca. Whether the two-phase type-and-Enter sequence itself then succeeds is the same
+  // environment-dependent concern the baseline suite already isolates for ASK/RESULT/BLOCKED.
+  await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca, home, git: () => '.git', now: NOW, env: TYPING },
+  ).catch(() => {});
+  assert.ok(orca.calls.some((c) => c[1] === 'list'), 'the kill switch resumes pane resolution instead of the N1 short-circuit');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N2 (spec 2026-09-20): an unknown recipient is loud
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('N2: a slug nothing on this machine has heard of is UNKNOWN, with known slugs and a suggestion', async () => {
+  const repo = tmp(); const home = tmp();
+  const mirrorDir = path.join(home, '.agents/notes');
+  fs.mkdirSync(mirrorDir, { recursive: true });
+  const ymd = timeParts(new Date(NOW)).ymd;
+  // "taxonomy-fable" is known (it sent a note recently); "fable" itself never appeared anywhere.
+  fs.writeFileSync(path.join(mirrorDir, `${ymd}.md`), 'taxonomy-fable → nucleus, 9.20.26 10:00 NYC [taxonomy-fable-ping-1] FYI: hi.\n');
+  const orca = mockOrca({ panes: [idlePane({ title: 'someone-else', worktreePath: repo })] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'fable']), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /UNKNOWN RECIPIENT "fable"/,
+  );
+  assert.match(err.message, /Known slugs on this machine:.*taxonomy-fable/);
+  assert.match(err.message, /did you mean "taxonomy-fable"\?/);
+  assert.match(err.message, /no pane titled "fable"/, 'the original reason is kept, just not first');
+  assert.match(err.message, /The note IS recorded/);
+  assert.match(err.message, /Do NOT re-send this id/);
+  assert.equal(err.unknownRecipient, true);
+  assert.ok(err.known.includes('taxonomy-fable'));
+  assert.equal(err.suggestion, 'taxonomy-fable');
+  assert.ok(err.ledgers.length > 0, 'still recorded');
+  assert.equal(err.queued, true, 'still queued — the slug may register later');
+});
+
+test('N2: a slug seen in the ledger mirror recently is known, even with no live pane', async () => {
+  const repo = tmp(); const home = tmp();
+  const mirrorDir = path.join(home, '.agents/notes');
+  fs.mkdirSync(mirrorDir, { recursive: true });
+  const ymd = timeParts(new Date(NOW)).ymd;
+  fs.writeFileSync(path.join(mirrorDir, `${ymd}.md`), 'nucleus → astra, 9.20.26 09:00 NYC [nucleus-x-1] FYI: hi.\n');
+  const orca = mockOrca({ panes: [idlePane({ title: 'someone-else', worktreePath: repo })] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'astra']), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /no pane titled "astra"/,
+  );
+  assert.ok(!err.message.startsWith('UNKNOWN RECIPIENT'), `astra appeared in the mirror, so it is known: ${err.message}`);
+  assert.equal(err.unknownRecipient, undefined);
+});
+
+test('N2: a binding makes a slug known even without a matching title', async () => {
+  const repo = tmp(); const home = tmp();
+  writeBinding(home, 'term_zzz', 'astra', { now: NOW });
+  const orca = mockOrca({ panes: [idlePane({ title: 'someone-else', worktreePath: repo })] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'astra']), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /no pane titled "astra"/,
+  );
+  assert.ok(!err.message.startsWith('UNKNOWN RECIPIENT'));
+  assert.equal(err.unknownRecipient, undefined);
+});
+
+test('N2: an ambiguous recipient is known by definition (its title DOES resolve) — no banner', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({
+    panes: [
+      idlePane({ handle: 'term_one', title: 'nucleus', worktreePath: repo }),
+      idlePane({ handle: 'term_two', title: '◑ nucleus', worktreePath: repo }),
+    ],
+  });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /matches 2 panes/,
+  );
+  assert.ok(!err.message.startsWith('UNKNOWN RECIPIENT'));
+});
+
+test('N2: the no-unknown-check kill switch restores the plain not-found message', async () => {
+  const repo = tmp(); const home = tmp();
+  fs.mkdirSync(path.dirname(noUnknownCheckPath(home)), { recursive: true });
+  fs.writeFileSync(noUnknownCheckPath(home), '');
+  const orca = mockOrca({ panes: [idlePane({ title: 'someone-else', worktreePath: repo })] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'fable']), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    2, /no pane titled "fable"/,
+  );
+  assert.ok(!err.message.startsWith('UNKNOWN RECIPIENT'));
+  assert.equal(err.unknownRecipient, undefined);
+});
+
+test('N2: a raw handle that resolves to nothing is the handle case, never the unknown-recipient banner', async () => {
+  const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(['--to', 'term_gone']), { orca, home, git: () => '.git', now: NOW, env: TYPING }),
+    2, /Nothing was recorded/,
+  );
+  assert.equal(err.unknownRecipient, undefined);
 });

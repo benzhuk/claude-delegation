@@ -508,6 +508,10 @@ export async function runNoteSend(argv, deps = {}) {
     packetWritten = res.written;
   }
 
+  // N2: snapshot the mirror BEFORE this send's own line lands in it — otherwise the line we are about
+  // to write (which necessarily names `toRaw`) would make every recipient look "known" by definition.
+  const mirrorTextsBeforeSend = quietKind ? [] : recentMirrorTexts(home, 3, now.getTime(), fsImpl);
+
   for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
 
   const base = {
@@ -590,8 +594,7 @@ export async function runNoteSend(argv, deps = {}) {
       + 'or rename the pane to its slug, and the queued wake-up lands on the next flush.';
     let extra = {};
     if (!noUnknownCheck) {
-      const ledgerTexts = recentMirrorTexts(home, 3, now.getTime(), fsImpl);
-      const context = { inboxes: readInboxes(home, fsImpl), bindings, terminals, ledgerTexts };
+      const context = { inboxes: readInboxes(home, fsImpl), bindings, terminals, ledgerTexts: mirrorTextsBeforeSend };
       if (isUnknownRecipient(toRaw, context)) {
         const known = knownSlugs(context);
         const suggestion = suggestSlug(toRaw, known);
