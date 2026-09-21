@@ -17,6 +17,9 @@ const ESCAPED_BOLD = '\\*\\*';
 // bare "Reply:" the OWNER happens to type does not clear his own comment (round-2 P6).
 const REPLY_RE = /^Reply:\s*\d{4}-\d{2}-\d{2}/;
 const DEFAULT_AFTER_RE = /^Default after (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2}): (.+)$/;
+// A recognised no-op per R4 — tracked (not just ignored) so the post-loop N5 check can
+// tell "explicitly declared no default" apart from "never addressed the question".
+const NO_DEFAULT_RE = /^No default\b/;
 
 function isCommentText(text) {
   return text.startsWith(ESCAPED_BOLD);
@@ -156,6 +159,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
         options: [],
         comments: [],
         default: null,
+        noDefaultLine: false,
         _openComment: null,
       };
       titles.push(currentTitle);
@@ -218,6 +222,13 @@ export function parseDocument(text, { now = new Date() } = {}) {
       continue; // a deadline line, never an option
     }
 
+    // R4: a line starting "No default" is the OTHER recognised no-op (alongside a
+    // well-shaped `Default after `) — track that it appeared, per the final review's N5.
+    if (currentTitle && parsed.kind !== 'checkbox' && NO_DEFAULT_RE.test(parsed.text)) {
+      currentTitle.noDefaultLine = true;
+      continue;
+    }
+
     if (parsed.kind === 'checkbox') {
       const optionText = parsed.text.trim();
       if (currentTitle) currentTitle.options.push({ text: optionText, ticked: parsed.ticked, line: lineNo });
@@ -238,6 +249,17 @@ export function parseDocument(text, { now = new Date() } = {}) {
   if (doneCandidates.length === 0 && titles.some((t) => t.options.length > 0)) {
     const idx = lastContentLineIndex(lines);
     warnings.push({ text: 'no Done line found', line: idx >= 0 ? idx + 1 : 0 });
+  }
+
+  // Final review N5: the skill requires exactly one of a parsed default or a "No
+  // default" line on every decision; make that rule mechanical rather than something an
+  // agent must remember to check. Closed/archived bullets never reach here — they have
+  // no options, so they are never a decision (filtered out below).
+  for (const t of titles) {
+    if (t.options.length === 0) continue;
+    if (!t.default && !t.noDefaultLine) {
+      warnings.push({ text: `no default or "No default" line: ${t.title}`, line: t.line });
+    }
   }
 
   // R5: a comment, or a stray ticked (non-canonical) Done line, attached to a title that
@@ -261,7 +283,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
   const decisions = titles
     .filter((t) => t.options.length > 0)
     .map((t) => {
-      const { _openComment, ...rest } = t;
+      const { _openComment, noDefaultLine, ...rest } = t;
       return { ...rest, status: computeStatus(t, now) };
     });
 

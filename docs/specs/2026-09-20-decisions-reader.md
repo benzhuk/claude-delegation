@@ -114,9 +114,24 @@ arrives as plain `**`.
     system clock; a decision otherwise OPEN or REPLIED whose current time is at or
     after its default's `at` is DUE (rule 7), and its detail is the default's text. A
     line starting with `No default` does not start with `Default`, so it is untouched
-    by this rule — no default set, no warning.
+    by this rule — no default set, no warning; it is instead tracked to satisfy rule
+    10a below. A `Deadline:` line, or any other deadline phrased without the word
+    "Default" at all, is read as ordinary prose — it sets no default and by itself
+    raises no WARN under this rule (it does under rule 10a).
+10a. DEFAULT REQUIRED. The skill requires every decision to carry exactly one of a
+    well-shaped default (rule 10) or an explicit `No default` line. This is
+    mechanical, not left to an agent to notice: once a decision's parse is complete,
+    if it has neither a parsed `default` NOR a line starting `No default` anywhere
+    inside it, it is a WARN, `no default or "No default" line: <decision title>`
+    (rule 11) — naming the title, so multiple such decisions on one page are each
+    identifiable. This never changes the decision's `status`, and affects the exit
+    code only the way any other WARN already does (rule 11/13). A title with zero
+    options (a grouping heading, a Closed/archived section of plain bullets) is not a
+    decision and is exempt — this check only runs over titles that already qualify as
+    decisions under rule 5.
 11. WARN: a document-level anomaly that is reported but never fails the parse — a
-    drifted or missing Done marker (rule 6) or a malformed default deadline (rule 10).
+    drifted or missing Done marker (rule 6), a malformed default deadline (rule 10),
+    or a decision missing both a default and a "No default" line (rule 10a).
     Reported as `{ text, line }`; never dropped, always actionable (exit 1).
 12. Lines inside a fenced code block (``` … ```), at any indentation, are ignored
     entirely. An unterminated fence means the rest of the document cannot be trusted:
@@ -192,3 +207,13 @@ otherwise-clean decision. Rule 10 now also requires the line to contain a `:` be
 it is treated as a deadline candidate — a real deadline line always has one
 (`Default after …: <option>`), so this closes the false-WARN gap without reopening
 the "silently ignored" gap round-2 (P5) fixed.
+
+## Changes after the final review, round 2 (same v2, one more amendment)
+A deadline phrased without the word "Default" at all (`Deadline: 2026-09-25, cap at
+200`, or plain prose with no deadline marker whatsoever) set no default and raised no
+WARN — an authoring-compliance gap the skill's own rule (exactly one of a default or a
+"No default" line, on every item) already closed on paper but the parser never
+enforced. New rule 10a makes it mechanical: any decision ending its parse with neither
+is now a WARN naming the decision's title. This is additive only — it changes no
+decision's `status`, and follows the same exit-code behavior every other WARN already
+has (rule 13).

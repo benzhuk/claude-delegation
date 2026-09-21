@@ -178,10 +178,10 @@ test('P1: an INDENTED Done checkbox is still the page-level Done, never an optio
 });
 
 test('P1: a space-indented Done checkbox at the true end of the document is Done (WARN indented, not "not the last line")', () => {
-  const md = L('<summary>t</summary>', '\t- [x] a', '  - [x] Done');
+  const md = L('<summary>t</summary>', '\t- [x] a', '\tNo default: not needed here', '  - [x] Done');
   const doc = parseDocument(md);
   assert.equal(doc.done, true);
-  assert.deepEqual(doc.warnings, [{ text: 'Done line is indented', line: 3 }]);
+  assert.deepEqual(doc.warnings, [{ text: 'Done line is indented', line: 4 }]);
 });
 
 test('unattached tick and unattached comment, before any title, reported with line numbers', () => {
@@ -236,8 +236,10 @@ test('formatText: one line per decision, then UNATTACHED lines, then DONE', () =
     '- [x] stray',
     '<summary>A</summary>',
     '\t- [x] yes',
+    '\tNo default: not needed here',
     '<summary>B (3 covered)</summary>',
     '\t- [ ] no',
+    '\tNo default: not needed here',
     '- [x] Done',
   );
   const doc = parseDocument(md);
@@ -256,6 +258,7 @@ test('formatJson / toJsonObject: full shape', () => {
     '<summary>A</summary>',
     '\t- [x] yes',
     '\t- [ ] \\*\\* a comment too',
+    '\tNo default: not needed here',
     '- [x] Done',
   );
   const doc = parseDocument(md);
@@ -280,7 +283,9 @@ test('formatJson / toJsonObject: full shape', () => {
 });
 
 test('computeExitCode: 0 when every decision is OPEN and nothing is unattached, else 1', () => {
-  const openOnly = parseDocument(L('<summary>t</summary>', '\t- [ ] a', '\t- [ ] b', '- [ ] Done'));
+  const openOnly = parseDocument(
+    L('<summary>t</summary>', '\t- [ ] a', '\t- [ ] b', '\tNo default: not needed here', '- [ ] Done'),
+  );
   const ticked = parseDocument(L('<summary>t</summary>', '\t- [x] a'));
   const unattachedOnly = parseDocument(L('- [x] stray', '<summary>t</summary>', '\t- [ ] a'));
   assert.equal(computeExitCode(openOnly), 0);
@@ -314,7 +319,7 @@ test('CLI: stdin input works when no file argument is given', () => {
 test('CLI: a file argument reads from readFile, not stdin', () => {
   const { exitCode, stdout } = runWith({
     argv: ['some.md'],
-    fileText: L('<summary>t</summary>', '\t- [ ] a', '- [ ] Done'),
+    fileText: L('<summary>t</summary>', '\t- [ ] a', '\tNo default: not needed here', '- [ ] Done'),
   });
   assert.equal(exitCode, 0);
   assert.match(stdout, /^OPEN\tt\t/);
@@ -348,7 +353,12 @@ test('CLI: a crash inside IO is caught and reported as exit 3 with a one-line st
 });
 
 test('exit codes 0 and 1 through the CLI wrapper', () => {
-  assert.equal(runWith({ stdinText: L('<summary>t</summary>', '\t- [ ] a', '- [ ] Done') }).exitCode, 0);
+  assert.equal(
+    runWith({
+      stdinText: L('<summary>t</summary>', '\t- [ ] a', '\tNo default: not needed here', '- [ ] Done'),
+    }).exitCode,
+    0,
+  );
   assert.equal(runWith({ stdinText: L('<summary>t</summary>', '\t- [x] a') }).exitCode, 1);
 });
 
@@ -500,11 +510,11 @@ test('a fence at column 0 (no indentation) is recognised, same as a tab-indented
 // Round-2 P1 (BLOCKER) REPLACES this v1/v2 guarantee: an indented Done checkbox now
 // counts as the page-level Done at any indentation (never an option), with its own WARN.
 test('P1: an INDENTED Done checkbox as the true last line is still Done, WARNs "Done line is indented" only', () => {
-  const md = L('<summary>t</summary>', '\t- [x] a', '\t- [x] Done');
+  const md = L('<summary>t</summary>', '\t- [x] a', '\tNo default: not needed here', '\t- [x] Done');
   const doc = parseDocument(md);
   assert.equal(doc.done, true, 'indentation no longer disqualifies it as the page-level line');
   assert.deepEqual(doc.decisions[0].options.map((o) => o.text), ['a'], 'never an option, indented or not');
-  assert.deepEqual(doc.warnings, [{ text: 'Done line is indented', line: 3 }], 'it IS the true last line, so no other warning');
+  assert.deepEqual(doc.warnings, [{ text: 'Done line is indented', line: 4 }], 'it IS the true last line, so no other warning');
 });
 
 test('weak-assertion fix: a parenthetical without a leading digit is left in the title', () => {
@@ -588,6 +598,7 @@ test('R2: all comments replied and no tick -> REPLIED, not COMMENTED, and not ac
     '\tReply: 2026-09-20, answered.',
     '\t- [ ] a',
     '\t- [ ] b',
+    '\tNo default: not needed here',
     '- [ ] Done',
   );
   const doc = parseDocument(md);
@@ -805,12 +816,68 @@ test('N2 (MAJOR): ordinary prose starting with "Default" but with no colon raise
     '<summary>t</summary>',
     '\t- [ ] a',
     '\tDefault behaviour today is to run uncapped, which is what broke it.',
+    '\tNo default: not needed here',
     '- [ ] Done',
   );
   const doc = parseDocument(md);
   assert.equal(doc.warnings.length, 0);
   assert.equal(doc.decisions[0].status, 'OPEN');
   assert.equal(computeExitCode(doc), 0);
+});
+
+test('N5 (MAJOR): a decision with a well-formed "Default after " line raises no N5 WARN', () => {
+  const md = L(
+    '<summary>Has a default</summary>',
+    '\t- [ ] a',
+    '\tDefault after 2030-01-01 00:00 +00:00: a',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('no default or "No default" line')));
+});
+
+test('N5 (MAJOR): a decision with a "No default: ..." line raises no N5 WARN', () => {
+  const md = L(
+    '<summary>Explicitly no default</summary>',
+    '\t- [ ] a',
+    '\tNo default: irreversible, waits for your word',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('no default or "No default" line')));
+});
+
+test('N5 (MAJOR): a decision with neither a default nor a "No default" line WARNs, naming the title', () => {
+  const md = L('<summary>Neither one</summary>', '\t- [ ] a', '- [ ] Done');
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'no default or "No default" line: Neither one'));
+  assert.equal(doc.decisions[0].status, 'OPEN', 'N5 never changes the decision status');
+});
+
+test('N5 (MAJOR): a prose deadline not in the "Default"/"No default" shapes still WARNs (the class N5 closes)', () => {
+  const md = L(
+    '<summary>Prose deadline</summary>',
+    '\t- [ ] a',
+    '\tDeadline: 2026-09-25, cap at 200',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'no default or "No default" line: Prose deadline'));
+  assert.equal(doc.decisions[0].options.length, 1, 'the prose deadline line is not swallowed as an option');
+  assert.equal(doc.decisions[0].status, 'OPEN');
+});
+
+test('N5: a Closed/archived section of plain bullets (no options) never triggers the N5 WARN', () => {
+  const md = L(
+    '# Closed {toggle="true"}',
+    '\t- an archived bullet, no checkbox, not a decision',
+    '<summary>Real decision</summary>',
+    '\t- [ ] a',
+    '\tNo default: not needed here',
+    '- [ ] Done',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.includes('Closed')));
 });
 
 test('P6 (MINOR): a bare "Reply:" line with no date does not close the owner\'s comment', () => {
