@@ -65,7 +65,10 @@ for (const agent of agents) {
   });
 
   test(`${agent.file}: tools list never names Agent or Task`, () => {
-    const tools = agent.frontmatter.tools.split(',').map((t) => t.trim());
+    const tools = agent.frontmatter.tools
+      .replace(/^\[|\]$/g, '')
+      .split(',')
+      .map((t) => t.trim().replace(/^["']|["']$/g, ''));
     assert.ok(!tools.includes('Agent'), `${agent.file} tools list includes Agent`);
     assert.ok(!tools.includes('Task'), `${agent.file} tools list includes Task`);
   });
@@ -100,5 +103,19 @@ test('builder body names all six state file sections, in order', () => {
     assert.ok(at !== -1, `builder.md body does not name state file section "${section}"`);
     assert.ok(at > cursor, `builder.md body names "${section}" out of order`);
     cursor = at;
+  }
+});
+
+const SAFETY_ANCHORS = [
+  '~/.agents/lean-rules.md', 'pkill node', 'dev server', 'git reset --hard',
+  'GIT_AUTHOR_', 'secret', 'OCR', 'in flight', 'scratch folder', 'verdict on line 1',
+];
+
+test('the safety block still carries every rule it is there to carry', () => {
+  const block = safetyBlock(agents.find((a) => a.file === 'builder.md').body, 'builder.md');
+  const bullets = block.split('\n').filter((l) => l.startsWith('- '));
+  assert.equal(bullets.length, 10, 'safety block bullet count changed - change this test deliberately');
+  for (const anchor of SAFETY_ANCHORS) {
+    assert.ok(block.includes(anchor), `safety block no longer mentions "${anchor}"`);
   }
 });
