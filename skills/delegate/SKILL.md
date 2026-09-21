@@ -21,6 +21,11 @@ description: Use when a prompt decomposes into independent research, review, aud
 
 1. **Decompose into independent questions.** One agent per question. Spawn them all in
    a single message so they run truly concurrently; staggering serializes for nothing.
+   Pick the agent type by lane shape: a read-only search or lookup lane goes to
+   `Explore` (opens at about 19k, far under `general-purpose`, and has no Write
+   tool, so ask it for its conclusion inline); a shell job, data pull,
+   census, diff, or doc edit through a CLI goes to `delegation:runner`; use
+   `general-purpose` only when neither of those fits.
 2. **Tier the models** (`docs/model-tiers.md`, shipped next to this skill as
    `../_docs/model-tiers.md` when mirrored, and in the plugin repo's `docs/`
    otherwise): the mid tier (Claude Sonnet /

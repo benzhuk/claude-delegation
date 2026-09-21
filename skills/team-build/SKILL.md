@@ -12,7 +12,8 @@ You are the orchestrator. Builders (mid tier: Claude Sonnet / OpenAI GPT-5.6-Ter
 write; independent reviewers (high tier: Claude Opus / OpenAI GPT-6-Astra) verify
 adversarially; an integrator runs the mechanical gates; you own the spec, adjudication,
 and the ship decision. Token efficiency comes from paying for context
-once (specs on disk, warm agents, reports by path); speed comes from ownership
+once (specs on disk, reports by path, agents resumed while they are small and
+restarted from their state file once they are not); speed comes from ownership
 boundaries, not luck.
 
 Shared mechanics — model-tiers, subagent-contract (reports, termination, recovery),
@@ -58,7 +59,10 @@ mention says where to find it once mirrored.
 
 - **Builder** (mid tier: Claude Sonnet / OpenAI GPT-5.6-Terra; **high tier for the
   hardest territory** — core algorithms, concurrency/state machines, data integrity,
-  subtle migrations — on Claude Code, set `model: opus` on the `Agent` call, which
+  subtle migrations; high-tier builders already cost about 17 percent of all measured
+  spend and over a quarter of the top tier, so reserve this for one territory, don't
+  default to it — on Claude Code, set
+  `model: opus` on the `Agent` call, which
   overrides the agent file's frontmatter; on Codex, no pre-built high-tier builder role
   ships — copy `~/.codex/agents/builder.toml` to `builder-high.toml` and set
   `model = "gpt-5.6-sol"` for that one territory — see the spawn-mechanics section of
@@ -87,10 +91,9 @@ mention says where to find it once mirrored.
   class catches its twin immediately. Findings require severity, file:line or
   measured-count evidence, and a concrete fix; mechanical findings carry a
   ready-to-apply patch (exact old → exact new) the builder applies verbatim. Verdict
-  `APPROVE`/`NEEDS_FIXES` first. **Check the reviewer's tools against what the review
-  requires** — a reviewer that must run a typecheck needs a shell. The bundled
-  `reviewer` agent ships read-only (no Bash) — grant tools at the spawn call for any
-  review with a mechanical component. Mid-tier reviewers
+  `APPROVE`/`NEEDS_FIXES` first. The bundled `reviewer` agent has a shell (Bash,
+  PowerShell), so a mechanical check (running the gate, a revert-and-diff) needs no
+  extra tool grant. Mid-tier reviewers
   only for genuinely low-risk territories; reviews are not optional for anything that
   computes a number someone will act on.
 - **Seam reviewer** (high tier, after all territories land; worth it at ≥3 territories or
@@ -122,11 +125,14 @@ mention says where to find it once mirrored.
 
 ## Iteration mechanics
 
-- Fix rounds continue the **same agents by name**: the builder gets the **findings file
-  path** (never a paraphrase, never inlined content); the same reviewer runs a delta
-  re-review (verify each fix, hunt regressions — not a fresh full review). Warm context
-  makes delta rounds several times cheaper than fresh spawns. Cap ~3 rounds, then
-  intervene yourself.
+- Fix rounds continue the **same agents by name** only while they stay small: the
+  builder gets the **findings file path** (never a paraphrase, never inlined content);
+  the same reviewer runs a delta re-review (verify each fix, hunt regressions — not a
+  fresh full review). Once the dispatch guard's resume notice has fired for an agent
+  (its context passed `DELEGATION_RESUME_NOTICE_TOKENS`, default 150k), the next round
+  spawns a FRESH builder instead: brief it with the spec path, the findings path, and
+  its state file path (`<report-dir>/<territory>-state.md`), never its stale memory.
+  Cap ~3 rounds, then intervene yourself.
 - **Batch scope changes** — never inject instructions into an agent mid-round; queue
   them for its next round. Mid-round addendums get missed and cost two round-trips.
 - Check in at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); an
