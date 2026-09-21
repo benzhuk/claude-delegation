@@ -13,6 +13,9 @@ Only these categories. Never "when you judge it important".
 - (e) the third fix round on one defect class.
 - (f) anything the owner has an open decision on.
 
+If a category needs a number (the dollar threshold in (a)), it is the one in your
+mandate; with no number given in your mandate, escalate.
+
 ## The packet
 
 At most two pages, these headings, in this order:
@@ -36,9 +39,11 @@ DEADLINE: <when an answer is needed>
 DEFAULT: <what fires if no answer arrives by the deadline>
 ```
 
-The top tier answers this in a fresh small session that reads only the packet — never
-the sending session's full history. The answer is written back beside the packet, so
-it survives both sessions.
+Send it with `note-send --kind ASK --needs decision --packet-file -` (the `multi`
+skill), piping this file in. The top tier answers in a fresh small session that reads
+only the packet — never the sending session's full history — and appends the answer
+under an `ANSWER:` heading at the bottom of the same packet file, so it survives both
+sessions.
 
 ## Example (synthetic, filled in)
 

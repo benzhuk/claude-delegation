@@ -7,27 +7,40 @@ result under the Open section of the page.
 
 ```
 <details>
-<summary>[Decision title — short, unique on the page]</summary>
+<summary>**[Decision title — short, unique on the page]**</summary>
 	[One or two lines of context: the evidence that raised this.]
 	- [ ] [Recommended option] (recommended)
 	- [ ] [Second option]
 	- [ ] [Third option, optional]
 	- [ ] [Fourth option, optional]
-	[Default if unanswered by <day, time, zone>: <the recommended option>]
+	Default after [YYYY-MM-DD HH:MM ±HH:MM]: [the recommended option]
+	<empty-block/>
 </details>
 ```
 
 For anything irreversible, costly, or that changes the owner's machines, replace the
-last line with `No default — <reason>` instead of a deadline.
+last line with `No default: <reason>` instead of a deadline.
+
+## Replying to an owner's comment (fenced — reference only, not a live decision)
+
+```
+	\*\* [the owner's question]
+	Reply: 2026-09-22 09:00 -04:00 — [the answer]
+```
+
+The reply is its own line starting with `Reply:` plus the date. Never quote the
+owner's line back when writing it — a copied `\*\*` prefix would be read as a
+brand-new comment, and the item would never stop reporting as answered again.
 
 ## Example (synthetic, filled in)
 
 <details>
-<summary>Cap the nightly batch at 200 items or run it uncapped</summary>
+<summary>**Cap the nightly batch at 200 items or run it uncapped**</summary>
 	Evidence: the nightly batch queue has outgrown the box's free memory twice this
 	month; the last two runs were killed by the OS before finishing.
 	- [ ] Cap the batch at 200 items per run, queue the rest for the next night (recommended)
 	- [ ] Run uncapped and add a memory alert instead
 	- [ ] Move the batch to a bigger box
-	Default if unanswered by Thu 9/25, 6pm NYC: cap at 200 items per run.
+	Default after 2026-09-25 18:00 -04:00: cap at 200 items per run.
+	<empty-block/>
 </details>

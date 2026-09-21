@@ -15,10 +15,16 @@ named decision or a named peer ask, with its id
 
 Notes:
 
-- Keep the condition under 4,000 characters. The checker model reads it every turn.
+- Keep it to a few lines — the checker model reads it every turn.
 - Set it at session start. A goal does not persist across sessions or restarts.
 - This suits a small-context orchestrator that mostly dispatches and waits. It is
   expensive to run on a large context, because the check happens every turn.
+- The checker sees only the transcript, not files or notes on disk. Make the
+  evidence visible: end each turn with one line per open item naming what it is
+  blocked on and the id, so a condition like the one above can actually be judged.
+- Setting `/goal` from a shell command on Windows: Git Bash/MSYS can rewrite a
+  leading `/goal` into a path, so it silently becomes a plain prompt with no
+  evaluator. Prefix the command with `MSYS_NO_PATHCONV=1` if that happens.
 
 ## Example: a build orchestrator (synthetic)
 

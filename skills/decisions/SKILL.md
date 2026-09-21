@@ -12,55 +12,59 @@ page, keeps working on whatever else is dispatchable, and picks the answer up la
 
 ## Writing an item
 
-Shape: `templates/decision-item.md`. One toggle per decision, with a unique title. One
-or two lines of context that state the evidence. Two to four options as unticked
-checkboxes, the recommended option FIRST and marked "(recommended)". A last plain line
-that gives one of:
+Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs` — both
+shipped next to this skill (`../_templates/…`, `../_scripts/…`) when mirrored, else at
+the plugin repo's `templates/` and `scripts/`. One toggle per decision, a unique
+title, one or two lines of evidence, two to four unticked options with the
+recommended one FIRST marked "(recommended)". Last plain line: `Default after <date>
+<time> <±UTC offset>: <option>` for a reversible decision (the offset is the owner's
+local time, e.g. `Default after 2026-09-25 18:00 -04:00: cap at 200 items per run`),
+or `No default: <reason>` for anything irreversible, costly, or that changes the
+owner's machines.
 
-- for a reversible decision: `Default if unanswered by <day, time, zone>: <option>`,
-  the time in the owner's local time.
-- for anything irreversible, costly, or that changes the owner's machines: `No
-  default` and the reason.
-
-None of the agent's own lines may start with two asterisks (`**`) — that prefix is how
-the owner's comments are recognised by `scripts/decisions-read.mjs`. Write the item with
-the `notion-writing` skill's tooling, never a hand-rolled request.
-
-State the decision and the recommendation in the chat message too. Send the page link
-only after reading the page back and confirming the item is there, and only while it is
-still open.
+State the decision and the recommendation in chat too; send the link only once a
+fresh read shows the item there.
 
 ## Page rules
 
-Follow the `notion-writing` skill: markdown endpoints only, one request per page, never
-the per-block API, never replace a whole page the owner may be editing. Read the page
-fresh seconds before writing. Build a multi-line edit from a script FILE, never an
-inline shell escape — an inline escape put an option line into the page's header
-callout on 2026-09-20. The page-level `- [ ] Done` line is the last non-empty line of
-the page; whoever adds an open item unticks it in the same pass.
+`scripts/decisions-read.mjs` reads a comment when a line starts with the escaped
+`\*\*` — what Notion produces from the two asterisks the owner types. Bold an agent
+writes (`**like this**`) is never a comment. Never re-type or quote the owner's line
+when answering it: a copied `\*\*` prefix forges a second comment that never clears.
+Write and read the page through the `notion-writing` skill: markdown endpoints only,
+one request per page, never a whole-page replace, read fresh seconds before writing,
+a multi-line edit built from a script with the old and new text loaded from files,
+not argv. New items go inside the open section, never appended past the page-level
+`- [ ] Done` line (`append-md` must not be used for this); whoever adds an item
+unticks Done in the same pass; whoever closes the last open item ticks it back, which
+asserts the owner has nothing open.
 
 ## Reading answers
 
-`<read the page as markdown> | node scripts/decisions-read.mjs` — exit 1 means there is
-something to act on.
+`node ~/.claude/scripts/notion.js read <page-id> | node scripts/decisions-read.mjs`
+(reader path per above; the page id comes from the owner or your brief — never
+search for it, search is fuzzy). Exit 1: act, below. Exit 0: only OPEN/REPLIED
+items — nothing due yet. Exit 3: BLIND (empty read, a broken fence, no titles) —
+stop, tell the owner the read failed, change nothing.
 
-- TICKED: act on the ticked option.
-- COMMENTED: the owner asked or said something. Answer it INSIDE the item, under their
-  line — never edit or delete their line. Leave the item open and untick Done.
-- AMBIGUOUS or UNATTACHED: report to the owner, never guess.
-
-A default is applied only after its deadline has passed, by the session that reads the
-page, and it tells the owner in the same message that it did.
+- AMBIGUOUS or UNATTACHED: report to the owner — never guess, never drop it.
+- TICKED: act on the option; an unreplied comment on the same item still needs a
+  reply (next bullet) — a tick never cancels it.
+- COMMENTED: reply directly under the owner's line, as a line starting with
+  `Reply:` and the date — that marker stops the next read reporting it again.
+- DUE: the item's `Default after …` deadline passed unanswered. Apply the default,
+  tell the owner in the same message, and close the item.
+- WARN: the page itself is broken (Done misplaced or duplicated, a malformed
+  Default line). Fix the page before trusting any other status on it.
+- REPLIED or OPEN: nothing to do.
 
 ## Closing
 
-Move a closed item to the Closed section as a plain bullet WITHOUT checkboxes — the
-parser cannot tell a historical tick from a live one. Give the title, what was chosen,
-the date, and the OBSERVED result once acted on. This is mechanical page housekeeping:
-a mid-tier agent does it, not a top-tier thread.
+DELETE the item's toggle, checkboxes and all, and write ONE plain bullet in Closed:
+title, what was chosen, the date, the OBSERVED result — never move or copy the toggle.
 
 ## Sub-sessions
 
-A sub-session sends its decision UP to the session that talks to the owner: `note-send`
-with `--kind ASK --needs decision` (the `multi` skill). That session batches simple
-ones into one pass, after everything dispatchable is dispatched.
+A sub-session sends its decision UP to the session that talks to the owner:
+`note-send` with `--kind ASK --needs decision` (the `multi` skill). That session
+batches simple ones into one pass, after everything dispatchable is dispatched.
