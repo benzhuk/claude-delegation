@@ -75,10 +75,11 @@ model" becomes a concrete argument instead of a hope.
   says. Use this to upgrade one territory (the hardest builder) without touching the
   shared agent file.
 - **`agents/*.md` frontmatter `model:` is the default** for every spawn of that agent
-  type that doesn't override it — `agents/builder.md` and `agents/integrator.md` ship
-  `model: sonnet` (mid tier), `agents/reviewer.md` ships `model: opus` (high tier). This
-  is a Claude Code-only mechanism (frontmatter format + the `Agent` tool's `model` param);
-  Codex has no equivalent file format, hence the parallel `.toml` files below.
+  type that doesn't override it — `agents/builder.md`, `agents/integrator.md` and
+  `agents/runner.md` ship `model: sonnet` (mid tier), `agents/reviewer.md` ships
+  `model: opus` (high tier). This is a Claude Code-only mechanism (frontmatter format +
+  the `Agent` tool's `model` param); Codex has no equivalent file format, hence the
+  parallel `.toml` files below.
 - Concrete ids to pass: `claude-fable-5-1` (top), `claude-opus-5` (high),
   `claude-sonnet-5` (mid), `claude-haiku-4-5-20251001` (fast).
 

@@ -26,7 +26,7 @@
     "id": "switch-dispatch-guard-enforce",
     "type": "switch",
     "file": "~/.agents/dispatch-guard-enforce",
-    "why": "flips the dispatch guard from advisory to enforced (it blocks instead of only warning)",
+    "why": "flips the dispatch guard from advisory to enforced (advisory mode evaluates and logs silently and never prints anything to the agent; only enforced mode can deny or add context)",
     "fix": "no fix needed either way, this is a visibility check: create the file to enforce the guard, remove it to keep it advisory"
   },
   {
@@ -42,5 +42,13 @@
     "file": "~/.agents/notes/no-type",
     "why": "disables the flusher's typed-into-composer delivery path",
     "fix": "no fix needed either way, this is a visibility check"
+  },
+  {
+    "id": "lean-rules-file",
+    "type": "file_fresh",
+    "file": "~/.agents/lean-rules.md",
+    "maxAgeSeconds": 315360000,
+    "why": "lean agents (builder, integrator, reviewer, runner) do not load the user's ~/.claude rules files; this file is where the user's personal hard stops reach them",
+    "fix": "create ~/.agents/lean-rules.md (owned by the user, at most 40 lines) with the personal hard stops a lean agent should still obey - the plugin does not ship this file"
   }
 ]

@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import {
   decide, checkR1, checkR1b, checkR2, checkR3, checkRoundMention,
   R1_TEXT, R1B_TEXT, R2_TEXT_BASE, R3_NEG_TEXT, R3_REPORT_TEXT,
+  checkResumeNotice, resumeNoticeText, RESUME_NOTICE_KIND,
 } from './agent-dispatch-guard.mjs';
 // Shared with skills/multi/scripts: a CLI-subprocess test must never spread process.env
 // itself (that is how the running session's own messaging token leaked into a fixture on
@@ -892,4 +893,354 @@ test('CLI (N4): an oversized subagent_type is capped at 64 characters in the log
   runCliProcess({ home, input: payload });
   const logLine = lastLogLine(home);
   assert.equal(logLine.subagent_type.length, 64);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resume notice (round 1, Territory C). Fixtures build a fake main-session transcript_path
+// and its `<session id>/subagents/` sibling directory — the on-disk shape gate G2 confirmed:
+// `<dir of transcript_path>/<session id>/subagents/agent-<agentId>.jsonl` plus an
+// `agent-<agentId>.meta.json` sidecar. `checkResumeNotice` is pure over an injected
+// { home, fsImpl, env }, same pattern as `decide()`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fixtureRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'resume-notice-'));
+}
+
+/** `<root>/project/<sessionId>.jsonl` as transcript_path, and its subagents dir, created. */
+function fixtureTranscript(root, sessionId) {
+  const transcriptPath = path.join(root, 'project', `${sessionId}.jsonl`);
+  const subagentsDir = path.join(root, 'project', sessionId, 'subagents');
+  fs.mkdirSync(subagentsDir, { recursive: true });
+  return { transcriptPath, subagentsDir };
+}
+
+function writeAgentTranscript(subagentsDir, agentId, tokens) {
+  const usage = { input_tokens: tokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  const line = JSON.stringify({ type: 'assistant', message: { role: 'assistant', usage } });
+  fs.writeFileSync(path.join(subagentsDir, `agent-${agentId}.jsonl`), `${line}\n`, 'utf8');
+}
+
+function writeAgentMeta(subagentsDir, agentId, meta) {
+  fs.writeFileSync(path.join(subagentsDir, `agent-${agentId}.meta.json`), JSON.stringify(meta), 'utf8');
+}
+
+test('resumeNoticeText: matches the pinned template, with the k-token count rounded', () => {
+  assert.equal(
+    resumeNoticeText('builder-c', 172391),
+    'resume notice: agent builder-c is at 172k tokens of context and re-reads all of it on '
+      + 'every call. A fresh agent started from its state file opens small. Resume only if '
+      + 'its warm context is worth that.',
+  );
+});
+
+test('checkResumeNotice: an unnamed agent (to === the internal id) resolves via the direct file and fires above threshold', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-direct');
+  writeAgentTranscript(subagentsDir, 'unnamed01', 200000);
+  const input = SEND({
+    tool_input: { to: 'unnamed01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-direct',
+  });
+  const notice = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(notice);
+  assert.equal(notice.agentId, 'unnamed01');
+  assert.equal(notice.tokens, 200000);
+  assert.match(notice.text, /^resume notice: agent unnamed01 is at 200k tokens/);
+});
+
+test('checkResumeNotice: a named agent (to is a spawn name) resolves through the sidecar scan, not a literal filename', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-named');
+  writeAgentTranscript(subagentsDir, 'internal42', 180000);
+  writeAgentMeta(subagentsDir, 'internal42', { name: 'probe-one', agentType: 'general-purpose' });
+  const input = SEND({
+    tool_input: { to: 'probe-one', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-named',
+  });
+  const notice = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(notice);
+  assert.equal(notice.agentId, 'internal42');
+  assert.equal(notice.agentType, 'general-purpose');
+  assert.match(notice.text, /agent probe-one is at 180k tokens/);
+});
+
+test('checkResumeNotice: the sidecar scan picks the newest meta file when names collide (a re-spawned name)', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-collide');
+  writeAgentTranscript(subagentsDir, 'old1', 999000);
+  writeAgentMeta(subagentsDir, 'old1', { name: 'builder-c', agentType: 'delegation:builder' });
+  fs.utimesSync(path.join(subagentsDir, 'agent-old1.meta.json'), new Date(1000), new Date(1000));
+  writeAgentTranscript(subagentsDir, 'new1', 160000);
+  writeAgentMeta(subagentsDir, 'new1', { name: 'builder-c', agentType: 'delegation:builder' });
+  fs.utimesSync(path.join(subagentsDir, 'agent-new1.meta.json'), new Date(), new Date());
+  const input = SEND({
+    tool_input: { to: 'builder-c', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-collide',
+  });
+  const notice = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(notice);
+  assert.equal(notice.agentId, 'new1', 'newest mtime wins, not the largest transcript');
+  assert.equal(notice.tokens, 160000);
+});
+
+test('checkResumeNotice: below the default threshold fires no notice', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-small');
+  writeAgentTranscript(subagentsDir, 'small01', 4000);
+  const input = SEND({
+    tool_input: { to: 'small01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-small',
+  });
+  assert.equal(checkResumeNotice(input, { home, fsImpl: fs, env: {} }), null);
+});
+
+test('checkResumeNotice: a second call for the same agent id is silent once the guard has logged one resume-big line for it', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-once');
+  writeAgentTranscript(subagentsDir, 'once01', 200000);
+  const input = SEND({
+    tool_input: { to: 'once01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-once',
+  });
+  const first = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(first, 'first call should fire');
+  assert.equal(first.dedupKey, 'sess-once:once01', 'the dedup key is session-scoped, not the bare agent id');
+  fs.mkdirSync(path.join(home, '.agents', 'ws'), { recursive: true });
+  fs.appendFileSync(
+    path.join(home, '.agents', 'ws', 'dispatch-guard.log'),
+    `${JSON.stringify({ kind: RESUME_NOTICE_KIND, agent_id: first.dedupKey, agent_type: null, n: 200000 })}\n`,
+    'utf8',
+  );
+  const second = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.equal(second, null, 'the dedup log line must silence a second call for the same agent');
+});
+
+test('checkResumeNotice (MINOR 6): two different sessions resolving to the same unnamed direct-file agent id do NOT silence each other', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath: t1, subagentsDir: d1 } = fixtureTranscript(root, 'sess-a');
+  const { transcriptPath: t2, subagentsDir: d2 } = fixtureTranscript(root, 'sess-b');
+  writeAgentTranscript(d1, 'shared01', 200000);
+  writeAgentTranscript(d2, 'shared01', 200000);
+  const inputA = SEND({ tool_input: { to: 'shared01', message: 'x' }, transcript_path: t1, session_id: 'sess-a' });
+  const inputB = SEND({ tool_input: { to: 'shared01', message: 'x' }, transcript_path: t2, session_id: 'sess-b' });
+  const noticeA = checkResumeNotice(inputA, { home, fsImpl: fs, env: {} });
+  assert.ok(noticeA, 'session A should fire');
+  fs.mkdirSync(path.join(home, '.agents', 'ws'), { recursive: true });
+  fs.appendFileSync(
+    path.join(home, '.agents', 'ws', 'dispatch-guard.log'),
+    `${JSON.stringify({ kind: RESUME_NOTICE_KIND, agent_id: noticeA.dedupKey, agent_type: null, n: 200000 })}\n`,
+    'utf8',
+  );
+  const noticeB = checkResumeNotice(inputB, { home, fsImpl: fs, env: {} });
+  assert.ok(noticeB, 'session B must still fire — it is a different session, even though the agent id string collides');
+});
+
+test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS lowers the threshold so a small agent fires', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-env-low');
+  writeAgentTranscript(subagentsDir, 'lowthresh01', 1000);
+  const input = SEND({
+    tool_input: { to: 'lowthresh01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-env-low',
+  });
+  const notice = checkResumeNotice(input, { home, fsImpl: fs, env: { DELEGATION_RESUME_NOTICE_TOKENS: '500' } });
+  assert.ok(notice);
+});
+
+test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS=0 disables the notice even for a huge agent (with a positive control proving the same fixture DOES fire without it)', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-env-zero');
+  writeAgentTranscript(subagentsDir, 'zeroed01', 999999);
+  const input = SEND({
+    tool_input: { to: 'zeroed01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-env-zero',
+  });
+  const control = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(control, 'positive control: the same fixture must fire with no override at all');
+  const notice = checkResumeNotice(input, { home, fsImpl: fs, env: { DELEGATION_RESUME_NOTICE_TOKENS: '0' } });
+  assert.equal(notice, null);
+});
+
+test('checkResumeNotice: a malformed DELEGATION_RESUME_NOTICE_TOKENS value (round-2 MINOR 5) disables rather than silently falling back to the default', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-env-malformed');
+  writeAgentTranscript(subagentsDir, 'malformedenv01', 999999);
+  const input = SEND({
+    tool_input: { to: 'malformedenv01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-env-malformed',
+  });
+  for (const bad of ['-1', 'banana', 'off']) {
+    assert.equal(
+      checkResumeNotice(input, { home, fsImpl: fs, env: { DELEGATION_RESUME_NOTICE_TOKENS: bad } }),
+      null,
+      `"${bad}" must disable, not silently mean the default threshold`,
+    );
+  }
+});
+
+test('checkResumeNotice: ws-off disables the notice even for a huge, resolvable agent (with a positive control proving the same fixture DOES fire without it)', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-wsoff');
+  writeAgentTranscript(subagentsDir, 'wsoff01', 500000);
+  const input = SEND({
+    tool_input: { to: 'wsoff01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-wsoff',
+  });
+  const control = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(control, 'positive control: the same fixture must fire with no ws-off present');
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off'), '', 'utf8');
+  assert.equal(checkResumeNotice(input, { home, fsImpl: fs, env: {} }), null);
+});
+
+test('checkResumeNotice: no match at all (peer session, teammate, "main") is silent, not an error', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath } = fixtureTranscript(root, 'sess-nomatch'); // no subagents ever written
+  const input = SEND({
+    tool_input: { to: 'main', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-nomatch',
+  });
+  assert.doesNotThrow(() => checkResumeNotice(input, { home, fsImpl: fs, env: {} }));
+  assert.equal(checkResumeNotice(input, { home, fsImpl: fs, env: {} }), null);
+});
+
+test('checkResumeNotice: a missing transcript_path or session_id never throws', () => {
+  const home = scratchHome();
+  assert.doesNotThrow(() => checkResumeNotice(SEND({ tool_input: { to: 'x' }, transcript_path: undefined }), { home, fsImpl: fs, env: {} }));
+  assert.equal(checkResumeNotice(SEND({ tool_input: { to: 'x' }, session_id: undefined }), { home, fsImpl: fs, env: {} }), null);
+});
+
+test('checkResumeNotice: a malformed transcript (no valid assistant usage line) fires no notice', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-malformed');
+  fs.writeFileSync(path.join(subagentsDir, 'agent-malformed01.jsonl'), 'not json at all {{{\n', 'utf8');
+  const input = SEND({
+    tool_input: { to: 'malformed01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-malformed',
+  });
+  assert.equal(checkResumeNotice(input, { home, fsImpl: fs, env: {} }), null);
+});
+
+test('checkResumeNotice: does not apply to the Agent tool at all', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-agent-tool');
+  writeAgentTranscript(subagentsDir, 'agenttool01', 500000);
+  const input = AGENT({
+    tool_input: { subagent_type: 'agenttool01', prompt: 'x' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-agent-tool',
+  });
+  assert.equal(checkResumeNotice(input, { home, fsImpl: fs, env: {} }), null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resume notice through the CLI wrapper — the two things a unit test on checkResumeNotice
+// alone cannot show: that it actually reaches stdout in BOTH observe and enforce mode
+// (spec: "the only thing the guard prints in observe mode"), and that a deny decided for
+// another reason always wins over it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function cliTranscriptFixture(home, sessionId, agentId, tokens) {
+  const transcriptPath = path.join(home, 'project', `${sessionId}.jsonl`);
+  const subagentsDir = path.join(home, 'project', sessionId, 'subagents');
+  fs.mkdirSync(subagentsDir, { recursive: true });
+  writeAgentTranscript(subagentsDir, agentId, tokens);
+  return transcriptPath;
+}
+
+function sendPayload({ to, message, transcriptPath, sessionId }) {
+  return JSON.stringify({
+    tool_name: 'SendMessage',
+    tool_input: { to, message, type: 'ASK', content: message },
+    cwd: process.cwd(),
+    session_id: sessionId,
+    transcript_path: transcriptPath,
+  });
+}
+
+test('CLI: resume notice is the only thing printed in observe mode (default, no enforce file)', () => {
+  const home = scratchHome();
+  const transcriptPath = cliTranscriptFixture(home, 'cli-sess-observe', 'cli-agent-observe', 200000);
+  const payload = sendPayload({
+    to: 'cli-agent-observe', message: 'status check', transcriptPath, sessionId: 'cli-sess-observe',
+  });
+  const result = runCliProcess({ home, input: payload });
+  assert.equal(result.status, 0);
+  const out = JSON.parse(result.stdout.trim());
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'allow');
+  assert.match(out.hookSpecificOutput.additionalContext, /^resume notice: agent cli-agent-observe is at 200k tokens/);
+  const logLine = lastLogLine(home);
+  assert.equal(logLine.kind, RESUME_NOTICE_KIND);
+  assert.equal(logLine.agent_id, 'cli-sess-observe:cli-agent-observe', 'the logged dedup key is session-scoped (round-2 MINOR 6)');
+});
+
+test('CLI: resume notice also fires in enforce mode when nothing else denies', () => {
+  const home = enforcedHome();
+  const transcriptPath = cliTranscriptFixture(home, 'cli-sess-enforce', 'cli-agent-enforce', 200000);
+  const payload = sendPayload({
+    to: 'cli-agent-enforce', message: 'status check', transcriptPath, sessionId: 'cli-sess-enforce',
+  });
+  const result = runCliProcess({ home, input: payload });
+  const out = JSON.parse(result.stdout.trim());
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'allow');
+  assert.match(out.hookSpecificOutput.additionalContext, /resume notice: agent cli-agent-enforce/);
+});
+
+test('CLI: a second SendMessage to the same agent is silent (no output, no repeat notice)', () => {
+  const home = scratchHome();
+  const transcriptPath = cliTranscriptFixture(home, 'cli-sess-dedup', 'cli-agent-dedup', 200000);
+  const payload = sendPayload({
+    to: 'cli-agent-dedup', message: 'status check', transcriptPath, sessionId: 'cli-sess-dedup',
+  });
+  const first = runCliProcess({ home, input: payload });
+  assert.match(JSON.parse(first.stdout.trim()).hookSpecificOutput.additionalContext, /resume notice/);
+  const second = runCliProcess({ home, input: payload });
+  assert.equal(second.stdout, '', 'the second send for the same agent must print nothing');
+});
+
+test('CLI: the notice never turns an allow into a deny — a deny decided for another reason always wins and suppresses it', () => {
+  const home = enforcedHome();
+  const transcriptPath = cliTranscriptFixture(home, 'cli-sess-denywins', 'cli-agent-denywins', 200000);
+  const payload = JSON.stringify({
+    tool_name: 'SendMessage',
+    tool_input: { to: 'cli-agent-denywins', message: 'Round: 3\nNo research line here.', type: 'ASK' },
+    cwd: process.cwd(),
+    session_id: 'cli-sess-denywins',
+    transcript_path: transcriptPath,
+  });
+  const result = runCliProcess({ home, input: payload });
+  const out = JSON.parse(result.stdout.trim());
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /dispatch-guard R2/);
+  assert.ok(!result.stdout.includes('resume notice'), 'a standing deny must suppress the notice entirely');
+  // Round-2 MINOR 9: a denyWins call must never even reach the dedup log write, so a later
+  // retry (after the mandate is fixed) can still get its notice.
+  const logText = fs.readFileSync(path.join(home, '.agents', 'ws', 'dispatch-guard.log'), 'utf8');
+  const loggedKinds = logText.trim().split('\n').map((line) => JSON.parse(line).kind);
+  assert.ok(!loggedKinds.includes(RESUME_NOTICE_KIND), 'no resume-big line should be logged when a deny wins');
 });
