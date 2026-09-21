@@ -24,7 +24,8 @@ for every claim", "measured numbers, not adjectives", "verdict word first">
 Report: <path to the report file, ending in .md>. Line 1 is the verdict, first word.
 
 Gate: <command> > <report-dir>/<territory>-gate.log 2>&1. Read only the tail and the
-failing names. No wrapper script.
+failing names. No wrapper script. Builder mandates only; delete both this and the
+next field for a review or one-off lane.
 
 State file: <report-dir>/<territory>-state.md. Keep it current after every gate.
 
