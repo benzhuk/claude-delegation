@@ -61,7 +61,7 @@ function runHook(event, home, input = {}, extraEnv = {}) {
 
 test('V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT}', () => {
   const cfg = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8'));
-  assert.deepEqual(Object.keys(cfg.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+  assert.deepEqual(Object.keys(cfg.hooks).sort(), ['PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
   const commands = Object.values(cfg.hooks).flat().flatMap((g) => g.hooks).map((h) => h.command);
   assert.ok(commands.length >= 4);
   for (const c of commands) {
