@@ -4,6 +4,7 @@ Fill in every bracket below and delete these two lines before sending. Every pro
 an agent starts here, whether it goes to a builder, a reviewer, or a one-off researcher.
 
 Task: <the exact question or task, one or two sentences, no ambiguity about done>
+Goal: <the project goal line this task serves>
 
 Inputs (by path):
 - <path to the spec, contract, or prior finding this agent needs>
