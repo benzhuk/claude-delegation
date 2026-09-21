@@ -59,11 +59,27 @@ const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
 const PROTECTED_BRANCH_PREFIXES = ["release/", "hotfix/"];
 
-/** Every ref/branch name this file hands to git as a revision is qualified (refs/heads/... or
- * refs/remotes/origin/...), never bare. A bare name is resolved by git's own ambiguity order, which
- * checks refs/tags/<name> AND a like-named local branch/remote-tracking ref BEFORE the one this tool
- * means — round-1 review found a local branch literally named `origin/main` shadowing the real
- * `refs/remotes/origin/main` and making a never-pushed branch look SAFE. */
+/**
+ * Round-2 invariant, checked by hand against every git() call site in this file (see the table in
+ * that round's build report): NO short or guessable name ever reaches git here. Every ref this file
+ * hands to git is either (a) a full refname (`refs/heads/<name>` or `refs/remotes/origin/<name>`)
+ * used as the OPERAND of `merge-base --is-ancestor` or `log`, which git looks up directly with no
+ * disambiguation once it is fully qualified; (b) an EXISTENCE test done with `git show-ref --verify`,
+ * which reads the ref store only and never DWIMs the way `git rev-parse --verify` does; or (c) a
+ * LISTING done with `--format=%(refname)` (the full name, never the short/DWIM `%(refname:short)`
+ * form), with the literal, known-exact `refs/heads/` prefix stripped in code afterward. A bare name
+ * handed to git is resolved through gitrevisions' ambiguity order - $GIT_DIR/<refname>, then
+ * refs/<refname>, refs/tags/<refname>, refs/heads/<refname>, refs/remotes/<refname>,
+ * refs/remotes/<refname>/HEAD, in that order - so a same-named TAG or a like-named branch/
+ * remote-tracking ref can shadow the one this tool means. Round 1 found a local branch literally
+ * named `origin/main` doing this to a bare `merge-base` operand. Round 2 found two more: a bare
+ * `rev-parse --verify` EXISTENCE check DWIMing past a tag named `refs/remotes/origin/main` in a repo
+ * with no origin remote at all, and `%(refname:short)` LISTING branches under a name git itself had
+ * to mangle to `heads/<name>` to disambiguate against a same-named tag - which then also slipped past
+ * the plain string-equality protected-name checks. The three shapes above (full-name operand,
+ * show-ref existence, full-name listing) are the only three ways this file is allowed to touch a git
+ * ref; anything else added later must justify why it doesn't need one of them.
+ */
 function headRef(name) {
   return `refs/heads/${name}`;
 }
@@ -166,7 +182,11 @@ export function isBranchMerged(root, branch, mainBranch) {
  */
 export function isBranchOnOrigin(root, branch, mainBranch) {
   try {
-    git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${mainBranch}`], root);
+    // show-ref --verify reads the ref store directly and never DWIMs through gitrevisions'
+    // disambiguation order the way `rev-parse --verify` does - round-2 review found a TAG named
+    // `refs/remotes/origin/<mainBranch>` satisfying a bare `rev-parse` existence check even in a
+    // repo with no origin remote at all, which let a never-pushed branch look confirmed.
+    git(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${mainBranch}`], root);
   } catch {
     return false;
   }
@@ -189,10 +209,17 @@ export function hasSubmodules(worktreePath) {
 
 export function listLocalBranches(root) {
   try {
-    return git(["for-each-ref", "refs/heads", "--format=%(refname:short)"], root)
+    // %(refname) is the full, unambiguous ref (never guessed at); %(refname:short) is git's own
+    // DWIM output and comes back as `heads/<name>` whenever a tag of the same name exists - round-2
+    // review found that mangled form then failing headRef() qualification entirely (reported as
+    // permanently unmerged) AND slipping past both the mainBranch and protected-name string checks,
+    // which could list the protected main branch itself as a cleanup candidate. Stripping the known,
+    // literal `refs/heads/` prefix off the full name never guesses.
+    return git(["for-each-ref", "refs/heads", "--format=%(refname)"], root)
       .split("\n")
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((s) => s.replace(/^refs\/heads\//, ""));
   } catch {
     return null;
   }
@@ -433,11 +460,15 @@ export function applySafe(state, log = []) {
       git(["worktree", "remove", "--", w.ref], root);
       log.push({ action: "worktree-remove", ref: w.ref, ok: true });
     } catch (err) {
-      // A failure here can still have left the directory's CONTENT gone (git deregisters and empties
-      // it before the final rmdir, which is what can fail) - say so, rather than implying survival.
-      const goneAnyway = w.ref ? !existsSync(w.ref) : false;
+      // A failure here can still have left git's own bookkeeping deregistered and the directory
+      // emptied (only the final rmdir failed) - round-2 review found that on Windows the empty
+      // directory SHELL survives even then, so `!existsSync(w.ref)` never fired the note and the
+      // operator read a bare error as "the worktree survived intact". Ask git's own worktree list
+      // instead of the filesystem: if git no longer lists it, it is gone, regardless of what is left
+      // on disk.
+      const goneAnyway = w.ref ? !(listWorktrees(root) || []).some((x) => samePath(x.path, w.ref)) : false;
       const note = goneAnyway
-        ? " (the worktree directory no longer exists even though this removal reported failure - treat it as gone, not survived)"
+        ? " (git no longer lists this worktree and its contents are gone; only an empty directory remains - treat it as removed, not survived)"
         : "";
       log.push({ action: "worktree-remove", ref: w.ref, ok: false, error: `${String(err.message || err)}${note}` });
       if (w.branch) failedWorktreeBranches.add(w.branch);

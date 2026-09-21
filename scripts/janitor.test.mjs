@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 import {
   main,
@@ -18,6 +18,7 @@ import {
   listLocalBranches,
   matchesScratchPattern,
   isTreeClean,
+  isBranchOnOrigin,
   applySafe,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
@@ -826,6 +827,130 @@ test("J5: a wiring check failure never breaks the janitor's own report (display 
   assert.equal(code, 0);
   assert.ok(lines.join("\n").includes("SAFE:"), "the rest of the report must still print even around the wiring call");
 });
+
+// round-2 review D1 (MAJOR): `rev-parse --verify --quiet` DWIMs through gitrevisions'
+// disambiguation order, so a TAG named `refs/remotes/origin/<main>` satisfied the origin-existence
+// guard even in a repo with no origin remote at all - a locally-merged, never-pushed branch then
+// looked confirmed. `show-ref --verify` reads the ref store directly and never guesses.
+test("round-2 MAJOR: a tag named refs/remotes/origin/main cannot fool the origin-confirmation guard when there is no origin remote", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  // Deliberately no addOrigin(root) - the whole point is that nothing is actually confirmed.
+
+  git(["checkout", "-q", "-b", "feat-unpushed"], root);
+  fs.writeFileSync(path.join(root, "unpushed.txt"), "only copy\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "unpushed work"], root);
+  git(["checkout", "-q", "main"], root);
+  git(["merge", "--no-ff", "-q", "-m", "merge feat-unpushed", "feat-unpushed"], root);
+
+  assert.equal(isBranchOnOrigin(root, "feat-unpushed", "main"), false, "sanity: unconfirmed before the tag exists");
+
+  // The shadow: a tag whose NAME is the exact string the origin-confirmation guard checks for.
+  git(["tag", "refs/remotes/origin/main", "main"], root);
+
+  assert.equal(
+    isBranchOnOrigin(root, "feat-unpushed", "main"),
+    false,
+    "a tag literally named refs/remotes/origin/main must never satisfy the origin-existence guard",
+  );
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-unpushed"), "feat-unpushed must NOT be SAFE");
+  assert.ok(state.judgment.branches.some((b) => b.ref === "feat-unpushed"), "it must be JUDGMENT - merged locally, not actually confirmed");
+
+  const code = main(["--apply"], { cwd: root });
+  assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-unpushed"), "feat-unpushed must survive --apply");
+  assert.equal(code, 1);
+});
+
+// round-2 review D2 (MINOR): `%(refname:short)` is git's own DWIM output and comes back as
+// `heads/<name>` whenever a tag of the same name exists, which then fails headRef() qualification
+// entirely (reported as permanently unmerged even when merged and pushed). `%(refname)` is the full,
+// unambiguous name; stripping the literal `refs/heads/` prefix never guesses.
+test("round-2 MINOR: a tag sharing a branch's name does not corrupt that branch's classification", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const wt = addWorktree(root, "feat-amb");
+  mergeIntoMain(root, "feat-amb");
+  pushMain(root);
+  git(["tag", "feat-amb", "feat-amb"], root); // a tag with the exact same name as the branch
+
+  assert.ok(listLocalBranches(root).includes("feat-amb"), "the real branch name must appear, not a mangled 'heads/feat-amb'");
+  assert.ok(!listLocalBranches(root).includes("heads/feat-amb"), "for-each-ref's DWIM-shortened form must never leak through");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.ok(state.safe.branches.some((b) => b.ref === "feat-amb"), "feat-amb must classify as SAFE (merged and on origin) despite the same-named tag");
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "its worktree must classify as SAFE too");
+});
+
+// round-2 ruling: the exact case the reviewer measured - a tag named "main" makes for-each-ref
+// disambiguate the real main branch's own short name to "heads/main", which then matches neither
+// the `b.name === mainBranch` skip nor the protected-name set, listing the protected main branch
+// itself as a cleanup candidate.
+test("round-2 MINOR: a tag literally named 'main' does not make the protected main branch appear as a JUDGMENT candidate", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  git(["tag", "main", "main"], root); // a tag with the exact same name as the protected main branch
+
+  assert.ok(!listLocalBranches(root).includes("heads/main"), "the mangled DWIM form must never reach the branch list");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.ok(!state.judgment.branches.some((b) => b.ref === "heads/main" || b.ref === "main"), "main itself must never appear as a cleanup candidate");
+  assert.ok(!state.safe.branches.some((b) => b.ref === "heads/main" || b.ref === "main"), "nor as SAFE");
+});
+
+// round-2 review D3 (MINOR): on Windows, `git worktree remove` can deregister the worktree and
+// empty its directory of tracked files before a final rmdir fails (a live process holding the
+// directory as its CWD is enough) - `!existsSync(w.ref)` never fired because the empty directory
+// SHELL survives, so the log read as "the worktree survived" when git had already stopped tracking
+// it. Ask git's own worktree list instead of the filesystem.
+test(
+  "round-2 MINOR: when git deregisters a worktree but an empty directory shell survives (Windows), the log says removed, not survived",
+  { skip: process.platform !== "win32" ? "this reproduces a Windows-only failure shape (RemoveDirectory refuses while a live process holds the directory as its CWD, after git has already unlinked its tracked files and deregistered it)" : false },
+  async () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    addOrigin(root);
+    const wt = addWorktree(root, "feature-shellremains");
+    mergeIntoMain(root, "feature-shellremains");
+    pushMain(root);
+
+    const toplevel = gitToplevel(root);
+    const { config } = loadProjectConfig(root);
+    const state = gatherState({ root: toplevel, config });
+    assert.equal(state.safe.worktrees.length, 1, "sanity: classified SAFE before the race");
+
+    const holder = spawn(process.execPath, ["-e", "setInterval(()=>{}, 1000)"], { cwd: wt, stdio: "ignore" });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const log = applySafe(state, []);
+      const removeEntry = log.find((l) => l.action === "worktree-remove");
+      assert.equal(removeEntry.ok, false, "the removal must be logged as failed (permission denied on the final rmdir)");
+      assert.ok(!(listWorktrees(root) || []).some((w) => w.branch === "feature-shellremains"), "sanity: git itself no longer lists this worktree");
+      assert.match(
+        removeEntry.error,
+        /git no longer lists this worktree/,
+        "the note must say REMOVED, not imply survival, once git's own listing confirms it is gone",
+      );
+      const branchEntry = log.find((l) => l.action === "branch-delete" && l.ref === "feature-shellremains");
+      assert.equal(branchEntry.ok, false, "the branch must still not be deleted this run, regardless of the wording fix");
+    } finally {
+      holder.kill();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  },
+);
 
 after(() => {
   for (const dir of tracked) {

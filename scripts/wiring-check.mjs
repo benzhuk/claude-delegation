@@ -100,10 +100,12 @@ function appliesToPlatform(check, platform) {
 
 /** J6, round-1 finding 6: a check naming the peer-note ledger is refused before any fs call at all -
  * never opened, never stat'ed, whatever type it claims to be. Matched on basename only, so `~`
- * expansion or a differently-cased drive letter can't dodge it. */
+ * expansion or a differently-cased drive letter can't dodge it. Compared lower-cased (round-2
+ * review: `INBOXES.JSON` reached a real, case-insensitive Windows filesystem past a case-sensitive
+ * comparison here, and a mismatch printer then read a value out of it). */
 function namesInboxesJson(check, home) {
   if (typeof check.file !== "string") return false;
-  return path.basename(expandHome(check.file, home)) === "inboxes.json";
+  return path.basename(expandHome(check.file, home)).toLowerCase() === "inboxes.json";
 }
 
 // ---------- per-type evaluation, each returns { state, why? } (why defaults to check.why) ----------

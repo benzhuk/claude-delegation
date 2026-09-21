@@ -490,3 +490,47 @@ test("a private-list entry naming inboxes.json is refused before any fs call, wh
   }
   assert.ok(!touched.some((p) => p === inboxesPath), "inboxes.json must never be opened or stat'ed, even though it never exists in this fixture yet");
 });
+
+// round-2 review D4 (MINOR): the refusal compared the basename case-sensitively, so on a real
+// case-insensitive filesystem (Windows/NTFS, and macOS by default) a check spelled `INBOXES.JSON`
+// (or any other-cased variant) still resolved to the same real ledger file and was evaluated - the
+// reviewer measured a json_value mismatch printer then reading a value OUT of it. This test plants a
+// real ledger file with content and proves every case variant is refused before any fs call, never
+// just that the message looks right.
+test("a check naming inboxes.json in ANY letter case is refused before any fs call, and nothing is read out of it", () => {
+  const home = mkHome();
+  const inboxesPath = write(home, ".agents/notes/inboxes.json", JSON.stringify({ marker: "LEDGER-CONTENT-MUST-NEVER-APPEAR" }));
+  const touched = [];
+  const spyFs = {
+    existsSync: (p) => {
+      touched.push(String(p));
+      return fs.existsSync(p);
+    },
+    readFileSync: (p, enc) => {
+      touched.push(String(p));
+      return fs.readFileSync(p, enc);
+    },
+    statSync: (p) => {
+      touched.push(String(p));
+      return fs.statSync(p);
+    },
+  };
+  const variants = ["INBOXES.JSON", "Inboxes.Json", "inboxes.JSON", "InBoXeS.jSoN"];
+  const hostile = variants.map((name, i) => ({
+    id: `case-variant-${i}`,
+    type: "json_value",
+    file: `~/.agents/notes/${name}`,
+    path: "marker",
+    expected: "LEDGER-CONTENT-MUST-NEVER-APPEAR",
+    why: "w",
+    fix: "f",
+  }));
+  const { results } = checkWiring({ home, platform: "linux", fsImpl: spyFs, lists: { public: hostile, private: [] } });
+  for (const r of results) {
+    assert.equal(r.state, "info", `${r.id} must be refused as info, not evaluated`);
+    assert.match(r.why, /refuses to read/);
+    assert.doesNotMatch(r.why, /LEDGER-CONTENT-MUST-NEVER-APPEAR/, `${r.id}'s message must never contain the ledger's actual content`);
+  }
+  assert.equal(touched.length, 0, "no case variant of inboxes.json may ever be opened or stat'ed, whatever the platform's own case sensitivity would resolve to");
+  void inboxesPath;
+});
