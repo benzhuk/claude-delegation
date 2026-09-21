@@ -394,6 +394,19 @@ test('MINOR 2 (round-1 review): an unreadable switch path counts as present, so 
   assert.equal(switchPresent(path.join(home, 'ws-off', 'nested')), false, 'a path through a file component stays absent');
 });
 
+test('D1 (round-2 delta review): activeSwitch actually routes through switchPresent, in both copies', () => {
+  // The MINOR 2 test above pins switchErrorMeansPresent/switchPresent's own truth table, but nothing
+  // asserted that activeSwitch's CALL SITES actually use them: reverting both bodies to existsSync
+  // left the whole suite green (measured by the reviewer on a copy under SCRATCH\build-goal-card\).
+  const mod = fs.readFileSync(path.join(REPO, 'scripts', 'goal-card.mjs'), 'utf8');
+  const hook = fs.readFileSync(path.join(REPO, 'hooks', 'delegation-reminder.js'), 'utf8');
+  const body = (src) => /function activeSwitch\([^)]*\) \{[\s\S]*?\n\}/.exec(src)[0];
+  for (const [name, src] of [['goal-card.mjs', mod], ['delegation-reminder.js', hook]]) {
+    assert.equal(/existsSync\(/.test(body(src)), false, `${name}: activeSwitch fell back to existsSync`);
+    assert.match(body(src), /switchPresent\(/, `${name}: activeSwitch must use switchPresent`);
+  }
+});
+
 test('MINOR 5: a card path that is not a regular file is not read', () => {
   const root = project({ card: null });
   fs.mkdirSync(path.join(root, DEFAULT_CARD_PATH), { recursive: true }); // a DIRECTORY at the card path
