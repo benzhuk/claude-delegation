@@ -742,7 +742,11 @@ export async function runNoteSend(argv, deps = {}) {
   }
 
   // ── 7. Two-phase delivery: baseline, text, verify, only then Enter (C1 / review H1).
-  const res = await twoPhaseSend(orca, pane, envelope, id, classification);
+  // review MINOR 12: without `{ home, env, fsImpl }`, the no-type check inside `twoPhaseSend` falls back
+  // to `os.homedir()` / `process.env`, so an injected test fixture silently reads the REAL
+  // `~/.agents/notes/no-type` instead of its own. Production behaviour is unchanged — there `home`/`env`
+  // already ARE the real ones — but a unit test with an isolated `home` deserves an isolated answer.
+  const res = await twoPhaseSend(orca, pane, envelope, id, classification, { home, env, fsImpl });
   if (!res.delivered) {
     if (res.cliError && !res.stranded) {
       const outbox = queue(classification);

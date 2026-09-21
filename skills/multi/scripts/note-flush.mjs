@@ -760,9 +760,12 @@ export async function runNoteFlush(argv, deps = {}) {
       } else {
         // ── Phase B: typed, therefore UNRACED. Only the orca per-call timeouts bound this, so the
         //    Enter that follows the text always gets its chance.
+        // review MINOR 12: same fix as note-send — without `home`/`env`/`fsImpl`, the no-type check falls
+        // back to the real `os.homedir()` / `process.env`, so an injected test `home` was silently
+        // ignored. Production is unaffected (there they already are the real ones).
         const res = await twoPhaseSend(
           orca, look.pane, entry.envelope, entry.id, look.classification,
-          { knownEnvelopes },
+          { knownEnvelopes, home, env, fsImpl },
         );
         if (res.delivered) {
           // `confirmed-from-screen`: the id was already in the pane's TRANSCRIPT, so the note arrived
