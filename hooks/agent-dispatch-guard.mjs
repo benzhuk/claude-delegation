@@ -40,7 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readContextTokens } from './resume-size.mjs';
+import { readContextTokens, readTail } from './resume-size.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rule text — exact strings the spec (and the round-1 rulings) pin. Exported so tests
@@ -289,6 +289,8 @@ export function checkR3(input) {
 export const RESUME_NOTICE_KIND = 'resume-big';
 const DEFAULT_RESUME_NOTICE_TOKENS = 150000;
 const RESUME_NOTICE_BUDGET_MS = 200;
+// Round-2 review MAJOR 1: the dedup scan must never read the whole (forever-growing) log.
+const DEDUP_TAIL_BYTES = 1024 * 1024;
 // Same shape the CLI already caps `tool_input.to` to before logging it.
 const AGENT_NAME_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const META_SCAN_CAP = 200;
@@ -300,11 +302,15 @@ export function resumeNoticeText(to, tokens) {
     + 'if its warm context is worth that.';
 }
 
+// Round-2 review MINOR 5: an unset var means the default threshold (150000, notice ON); a
+// SET-BUT-MALFORMED one (`-1`, `banana`, `off`) must not silently mean the same thing — it
+// falls back to DISABLED instead, since "I typed the switch wrong" should never turn a
+// switch that reads as off-ish back on.
 function resumeNoticeThreshold(env) {
   const raw = env?.DELEGATION_RESUME_NOTICE_TOKENS;
   if (raw === undefined || raw === '') return DEFAULT_RESUME_NOTICE_TOKENS;
   const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RESUME_NOTICE_TOKENS;
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 function readAgentType(fsImpl, metaPath) {
@@ -340,22 +346,30 @@ function resolveSubagentTranscript(input, fsImpl) {
 
   let entries;
   try { entries = fsImpl.readdirSync(subagentsDir); } catch { return null; }
+  // Round-2 review MAJOR 2: sort NEWEST-FIRST before capping, not the reverse. Capping in
+  // raw readdirSync order and only THEN looking at mtime let the cap silently drop exactly
+  // the long-running, big-context agents this feature exists for, in any session with more
+  // than META_SCAN_CAP sidecars.
   const metaFiles = entries
     .filter((name) => name.startsWith('agent-') && name.endsWith('.meta.json'))
+    .map((name) => {
+      let mtimeMs = 0;
+      try { mtimeMs = fsImpl.statSync(path.join(subagentsDir, name)).mtimeMs; } catch { mtimeMs = 0; }
+      return { name, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, META_SCAN_CAP);
 
   let best = null;
-  for (const name of metaFiles) {
-    const fullPath = path.join(subagentsDir, name);
+  for (const { name } of metaFiles) {
     let meta;
-    try { meta = JSON.parse(fsImpl.readFileSync(fullPath, 'utf8')); } catch { continue; }
+    try { meta = JSON.parse(fsImpl.readFileSync(path.join(subagentsDir, name), 'utf8')); } catch { continue; }
     if (meta?.name !== to) continue;
-    let mtimeMs = 0;
-    try { mtimeMs = fsImpl.statSync(fullPath).mtimeMs; } catch { mtimeMs = 0; }
-    if (!best || mtimeMs > best.mtimeMs) {
-      const agentId = name.slice('agent-'.length, name.length - '.meta.json'.length);
-      best = { mtimeMs, agentId, agentType: typeof meta.agentType === 'string' ? meta.agentType : null };
-    }
+    best = {
+      agentId: name.slice('agent-'.length, name.length - '.meta.json'.length),
+      agentType: typeof meta.agentType === 'string' ? meta.agentType : null,
+    };
+    break; // metaFiles is newest-first, so the first match IS the newest.
   }
   if (!best) return null;
   return {
@@ -366,16 +380,18 @@ function resolveSubagentTranscript(input, fsImpl) {
 }
 
 /** Once per agent: true when the guard's own log already carries a `resume-big` line for
- * this agent id (scanned fresh each call, no separate state file). */
-function alreadyNotified(fsImpl, home, agentId) {
+ * this dedup key (scanned fresh each call, no separate state file). Round-2 review MAJOR 1:
+ * this log grows one line per dispatch forever, on every machine — read only its tail, the
+ * same bound `resume-size.mjs` already gives the transcript read. */
+function alreadyNotified(fsImpl, home, dedupKey) {
   try {
     const logPath = path.join(home, '.agents', 'ws', 'dispatch-guard.log');
-    const text = fsImpl.readFileSync(logPath, 'utf8');
+    const text = readTail(fsImpl, logPath, DEDUP_TAIL_BYTES);
     for (const line of text.split('\n')) {
       if (!line) continue;
       let entry;
       try { entry = JSON.parse(line); } catch { continue; }
-      if (entry?.kind === RESUME_NOTICE_KIND && entry?.agent_id === agentId) return true;
+      if (entry?.kind === RESUME_NOTICE_KIND && entry?.agent_id === dedupKey) return true;
     }
     return false;
   } catch {
@@ -383,9 +399,15 @@ function alreadyNotified(fsImpl, home, agentId) {
   }
 }
 
+function elapsedMs(t0) {
+  return Number(process.hrtime.bigint() - t0) / 1e6;
+}
+
 /** { home, fsImpl, env } — tests inject all three. Null on any error, missing/malformed
  * transcript, sub-threshold size, an already-notified agent, or a run past its time budget.
- * Never throws, never denies. */
+ * Never throws, never denies. The budget is checked once right after resolution (the
+ * expensive part, e.g. a large sidecar scan) and again before returning, so a slow call is
+ * cut short before the token read too, not just after all the work is already done. */
 export function checkResumeNotice(input, ctx = {}) {
   const t0 = process.hrtime.bigint();
   try {
@@ -395,19 +417,26 @@ export function checkResumeNotice(input, ctx = {}) {
     const env = ctx.env ?? process.env;
 
     const threshold = resumeNoticeThreshold(env);
-    if (threshold <= 0) return null; // DELEGATION_RESUME_NOTICE_TOKENS=0 disables
+    if (threshold <= 0) return null; // DELEGATION_RESUME_NOTICE_TOKENS=0, or a malformed value
     if (switchPresentFailSafe(fsImpl, path.join(home, '.agents', 'ws-off'))) return null;
 
     const resolved = resolveSubagentTranscript(input, fsImpl);
     if (!resolved) return null;
-    if (alreadyNotified(fsImpl, home, resolved.agentId)) return null;
+    if (elapsedMs(t0) > RESUME_NOTICE_BUDGET_MS) return null;
+
+    // Round-2 review MINOR 6: key the dedup on session + agent id, not the agent id alone —
+    // two different sessions can otherwise resolve to the same unnamed direct-file agent id
+    // and silence each other's notice.
+    const dedupKey = `${input.session_id}:${resolved.agentId}`;
+    if (alreadyNotified(fsImpl, home, dedupKey)) return null;
 
     const tokens = readContextTokens(fsImpl, resolved.transcriptFile);
     if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < threshold) return null;
-    if (Number(process.hrtime.bigint() - t0) / 1e6 > RESUME_NOTICE_BUDGET_MS) return null;
+    if (elapsedMs(t0) > RESUME_NOTICE_BUDGET_MS) return null;
 
     return {
       agentId: resolved.agentId,
+      dedupKey,
       agentType: resolved.agentType,
       tokens,
       text: resumeNoticeText(input.tool_input.to, tokens),
@@ -563,8 +592,8 @@ export async function runCli(fsImpl = fs) {
     appendLog(home, fsImpl, {
       at: new Date().toISOString(),
       kind: RESUME_NOTICE_KIND,
-      agent_id: notice.agentId,
-      agent_type: notice.agentType,
+      agent_id: notice.dedupKey,
+      agent_type: cappedString(notice.agentType),
       n: notice.tokens,
     });
   }
@@ -580,29 +609,24 @@ export async function runCli(fsImpl = fs) {
     return;
   }
 
-  if (notice) {
+  // Round-2 review MINOR 7: join rather than return-early on the notice, so a future rule
+  // that ever notes on SendMessage (none does today — R1/R1b/R3 are Agent-only, R2 only
+  // denies) can never have its note silently dropped by a notice firing on the same call.
+  const parts = [];
+  if (notice) parts.push(notice.text);
+  if (result.enforced && result.action === 'note') parts.push(result.text);
+
+  if (parts.length > 0) {
     await writeJsonFlushed({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'allow',
-        additionalContext: notice.text,
-      },
-    });
-    return;
-  }
-
-  if (!result.enforced) return; // observe-only (the default): never print anything else.
-
-  if (result.action === 'note') {
-    await writeJsonFlushed({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-        additionalContext: result.text,
+        additionalContext: parts.join('\n'),
       },
     });
   }
-  // action === 'allow' and no notice: nothing to print — silence means "proceed".
+  // Nothing in parts: either observe-only with no notice, or an enforced plain allow.
+  // Silence means "proceed" either way.
 }
 
 const isMain = (() => {

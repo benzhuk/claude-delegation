@@ -1015,14 +1015,36 @@ test('checkResumeNotice: a second call for the same agent id is silent once the 
   });
   const first = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
   assert.ok(first, 'first call should fire');
+  assert.equal(first.dedupKey, 'sess-once:once01', 'the dedup key is session-scoped, not the bare agent id');
   fs.mkdirSync(path.join(home, '.agents', 'ws'), { recursive: true });
   fs.appendFileSync(
     path.join(home, '.agents', 'ws', 'dispatch-guard.log'),
-    `${JSON.stringify({ kind: RESUME_NOTICE_KIND, agent_id: 'once01', agent_type: null, n: 200000 })}\n`,
+    `${JSON.stringify({ kind: RESUME_NOTICE_KIND, agent_id: first.dedupKey, agent_type: null, n: 200000 })}\n`,
     'utf8',
   );
   const second = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
   assert.equal(second, null, 'the dedup log line must silence a second call for the same agent');
+});
+
+test('checkResumeNotice (MINOR 6): two different sessions resolving to the same unnamed direct-file agent id do NOT silence each other', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
+  const { transcriptPath: t1, subagentsDir: d1 } = fixtureTranscript(root, 'sess-a');
+  const { transcriptPath: t2, subagentsDir: d2 } = fixtureTranscript(root, 'sess-b');
+  writeAgentTranscript(d1, 'shared01', 200000);
+  writeAgentTranscript(d2, 'shared01', 200000);
+  const inputA = SEND({ tool_input: { to: 'shared01', message: 'x' }, transcript_path: t1, session_id: 'sess-a' });
+  const inputB = SEND({ tool_input: { to: 'shared01', message: 'x' }, transcript_path: t2, session_id: 'sess-b' });
+  const noticeA = checkResumeNotice(inputA, { home, fsImpl: fs, env: {} });
+  assert.ok(noticeA, 'session A should fire');
+  fs.mkdirSync(path.join(home, '.agents', 'ws'), { recursive: true });
+  fs.appendFileSync(
+    path.join(home, '.agents', 'ws', 'dispatch-guard.log'),
+    `${JSON.stringify({ kind: RESUME_NOTICE_KIND, agent_id: noticeA.dedupKey, agent_type: null, n: 200000 })}\n`,
+    'utf8',
+  );
+  const noticeB = checkResumeNotice(inputB, { home, fsImpl: fs, env: {} });
+  assert.ok(noticeB, 'session B must still fire — it is a different session, even though the agent id string collides');
 });
 
 test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS lowers the threshold so a small agent fires', () => {
@@ -1039,7 +1061,7 @@ test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS lowers the threshold so
   assert.ok(notice);
 });
 
-test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS=0 disables the notice even for a huge agent', () => {
+test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS=0 disables the notice even for a huge agent (with a positive control proving the same fixture DOES fire without it)', () => {
   const root = fixtureRoot();
   const home = scratchHome();
   const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-env-zero');
@@ -1049,15 +1071,34 @@ test('checkResumeNotice: DELEGATION_RESUME_NOTICE_TOKENS=0 disables the notice e
     transcript_path: transcriptPath,
     session_id: 'sess-env-zero',
   });
+  const control = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(control, 'positive control: the same fixture must fire with no override at all');
   const notice = checkResumeNotice(input, { home, fsImpl: fs, env: { DELEGATION_RESUME_NOTICE_TOKENS: '0' } });
   assert.equal(notice, null);
 });
 
-test('checkResumeNotice: ws-off disables the notice even for a huge, resolvable agent', () => {
+test('checkResumeNotice: a malformed DELEGATION_RESUME_NOTICE_TOKENS value (round-2 MINOR 5) disables rather than silently falling back to the default', () => {
   const root = fixtureRoot();
   const home = scratchHome();
-  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.agents', 'ws-off'), '', 'utf8');
+  const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-env-malformed');
+  writeAgentTranscript(subagentsDir, 'malformedenv01', 999999);
+  const input = SEND({
+    tool_input: { to: 'malformedenv01', message: 'status check' },
+    transcript_path: transcriptPath,
+    session_id: 'sess-env-malformed',
+  });
+  for (const bad of ['-1', 'banana', 'off']) {
+    assert.equal(
+      checkResumeNotice(input, { home, fsImpl: fs, env: { DELEGATION_RESUME_NOTICE_TOKENS: bad } }),
+      null,
+      `"${bad}" must disable, not silently mean the default threshold`,
+    );
+  }
+});
+
+test('checkResumeNotice: ws-off disables the notice even for a huge, resolvable agent (with a positive control proving the same fixture DOES fire without it)', () => {
+  const root = fixtureRoot();
+  const home = scratchHome();
   const { transcriptPath, subagentsDir } = fixtureTranscript(root, 'sess-wsoff');
   writeAgentTranscript(subagentsDir, 'wsoff01', 500000);
   const input = SEND({
@@ -1065,6 +1106,10 @@ test('checkResumeNotice: ws-off disables the notice even for a huge, resolvable 
     transcript_path: transcriptPath,
     session_id: 'sess-wsoff',
   });
+  const control = checkResumeNotice(input, { home, fsImpl: fs, env: {} });
+  assert.ok(control, 'positive control: the same fixture must fire with no ws-off present');
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off'), '', 'utf8');
   assert.equal(checkResumeNotice(input, { home, fsImpl: fs, env: {} }), null);
 });
 
@@ -1151,7 +1196,7 @@ test('CLI: resume notice is the only thing printed in observe mode (default, no 
   assert.match(out.hookSpecificOutput.additionalContext, /^resume notice: agent cli-agent-observe is at 200k tokens/);
   const logLine = lastLogLine(home);
   assert.equal(logLine.kind, RESUME_NOTICE_KIND);
-  assert.equal(logLine.agent_id, 'cli-agent-observe');
+  assert.equal(logLine.agent_id, 'cli-sess-observe:cli-agent-observe', 'the logged dedup key is session-scoped (round-2 MINOR 6)');
 });
 
 test('CLI: resume notice also fires in enforce mode when nothing else denies', () => {
@@ -1193,4 +1238,9 @@ test('CLI: the notice never turns an allow into a deny — a deny decided for an
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /dispatch-guard R2/);
   assert.ok(!result.stdout.includes('resume notice'), 'a standing deny must suppress the notice entirely');
+  // Round-2 MINOR 9: a denyWins call must never even reach the dedup log write, so a later
+  // retry (after the mandate is fixed) can still get its notice.
+  const logText = fs.readFileSync(path.join(home, '.agents', 'ws', 'dispatch-guard.log'), 'utf8');
+  const loggedKinds = logText.trim().split('\n').map((line) => JSON.parse(line).kind);
+  assert.ok(!loggedKinds.includes(RESUME_NOTICE_KIND), 'no resume-big line should be logged when a deny wins');
 });
