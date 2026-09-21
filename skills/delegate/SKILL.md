@@ -27,9 +27,11 @@ description: Use when a prompt decomposes into independent research, review, aud
    OpenAI GPT-5.6-Terra) executes at full strength, the high tier (Claude Opus /
    OpenAI GPT-6-Astra, Sol if cost forbids) verifies and adjudicates, the fast tier (Claude Haiku / OpenAI
    GPT-5.6-Luna, GPT-5.3-Codex-Spark) is only for mindless bulk sweeps. Verify with a
-   stronger tier than the writer. On Claude Code, the dispatch guard enforces this rule
-   on every spawn (off switch `~/.agents/no-dispatch-guard`, observe-only switch
-   `~/.agents/ws-off`).
+   stronger tier than the writer. On Claude Code, the dispatch guard covers the top-tier
+   half of this rule: a spawn naming `model: opus` or `model: fable` is denied unless it
+   is a reviewer or its prompt has a `JUDGMENT:` line. It only enforces when
+   `~/.agents/dispatch-guard-enforce` exists and `~/.agents/ws-off` does not, and
+   `~/.agents/no-dispatch-guard` turns it off entirely.
 3. **Check the concurrency budget** (`docs/concurrency-budget.md`, shipped next to this
    skill as `../_docs/concurrency-budget.md` when mirrored, and in the plugin repo's
    `docs/` otherwise): read-only

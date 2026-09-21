@@ -65,8 +65,8 @@ mention says where to find it once mirrored.
   `docs/model-tiers.md` (shipped next to this skill as `../_docs/model-tiers.md` when
   mirrored, and in the plugin repo's `docs/` otherwise)): implements only its
   territory. On Claude Code, an explicit `model: opus` here needs a `JUDGMENT:` line
-  in the prompt or the dispatch guard denies the spawn (off switch
-  `~/.agents/no-dispatch-guard`).
+  in the prompt, or the dispatch guard denies the spawn once enforcement is on (off
+  switch `~/.agents/no-dispatch-guard`).
   Gate before reporting: territory-scoped tests + typecheck via the shared
   verification mutex (`docs/concurrency-budget.md`, shipped next to this skill as
   `../_docs/concurrency-budget.md` when mirrored, and in the plugin repo's `docs/`
