@@ -15,10 +15,12 @@ import {
   claimOutboxEntry, reclaimStaleClaims, makeOrcaRunner,
   composerResidue, deadOutboxPath, benInboxPath, DEFAULT_ORCA_TIMEOUT_MS,
   splitAtPrompt, locateId, composerShows,
+  wakeAllKindsPath, noUnknownCheckPath, writeInbox,
 } from './transport.mjs';
 import {
   runNoteFlush, drainQuietly, parseFlushArgs, entryMatchesTarget, formatFlush,
   DEFAULT_MAX_MS, DEFAULT_PER_ENTRY_MS, DEFAULT_PHASE2_RESERVE_MS,
+  DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_AGE_HOURS, UNKNOWN_RECIPIENT_DEADLETTER_MS,
 } from './note-flush.mjs';
 import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-notify.mjs';
 
@@ -1041,4 +1043,113 @@ test('F1: end to end — one human word means the drain refuses and requeues', a
   assert.equal(res.drained, 0);
   assert.equal(orca.enters().length, 0, "Ben's 'ok' must never be submitted");
   assert.equal(readOutbox(home).length, 1);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N1 (spec 2026-09-20): ACK and FYI never wake anyone — an entry queued before the change is retired
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ACK_ENVELOPE = 'astra → taxonomy, 9.13.26 13:50 NYC [astra-pr137-2 re astra-pr137-1] ACK: Taking it now. Needs: none';
+
+test('N1: an ACK/FYI outbox entry queued before the change is retired unattempted', async () => {
+  const home = tmp();
+  queue(home, { envelope: ACK_ENVELOPE, classification: 'permission' });
+  const orca = mockOrca({ panes: [claudePane()] });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
+  assert.equal(res.drained, 0);
+  assert.equal(res.results[0].outcome, 'retired-quiet-kind');
+  assert.equal(orca.sends().length, 0);
+  assert.ok(!fs.existsSync(outboxPath(home, 'astra-pr137-1')));
+  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /retired-quiet-kind \[astra-pr137-1\]/);
+});
+
+test('N1: the wake-all-kinds kill switch keeps ACK/FYI in the ordinary flow', async () => {
+  const home = tmp();
+  fs.mkdirSync(path.dirname(wakeAllKindsPath(home)), { recursive: true });
+  fs.writeFileSync(wakeAllKindsPath(home), '');
+  queue(home, { envelope: ACK_ENVELOPE });
+  const orca = mockOrca({ panes: [claudePane()], reads: DELIVERY_READS() });
+  const res = await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
+  // Proven by reaching a real attempt (an orca call happened at all) and NOT the quiet-kind retirement —
+  // whether the two-phase type-and-Enter sequence itself completes is the same environment-dependent
+  // concern several baseline tests already have, unrelated to N1.
+  assert.notEqual(res.results[0]?.outcome, 'retired-quiet-kind');
+  assert.ok(orca.calls.length > 0, 'with the kill switch, an ACK is attempted like any other kind');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N2 (spec 2026-09-20): an ASK/BLOCKED to a slug still unknown 10 minutes later is dead-lettered early
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** classification `not-resolved` is what note-send records when the pane never resolved at all. */
+function unknownAskEntry(home, over = {}) {
+  return writeOutboxEntry(home, {
+    id: 'taxonomy-fable-ping-1', from: 'taxonomy', to: 'fable', toSlug: 'fable', handle: null,
+    agentIdentity: null,
+    envelope: 'taxonomy → fable, 9.20.26 10:00 NYC [taxonomy-fable-ping-1] ASK: Does C14 still hold? Needs: decision by 16:00',
+    classification: 'not-resolved',
+    ledgers: ['/repo/docs/ledger/2026-09-20.md'], packetPath: null,
+    createdAt: new Date(NOW - 11 * 60_000).toISOString(),
+    ...over,
+  });
+}
+
+test('N2: an ASK to a slug still unknown 10 minutes later is dead-lettered, well before the ordinary give-up', async () => {
+  const home = tmp();
+  unknownAskEntry(home);
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.equal(res.results[0].outcome, 'unknown-recipient');
+  assert.ok(fs.existsSync(deadOutboxPath(home, 'taxonomy-fable-ping-1')));
+  assert.equal(readOutbox(home).length, 0);
+  const inbox = fs.readFileSync(benInboxPath(home), 'utf8');
+  assert.match(inbox, /BLOCKED:/);
+  assert.match(inbox, /"fable"/);
+  assert.match(inbox, /still unknown/);
+  assert.match(fs.readFileSync(flushLogPath(home), 'utf8'), /unknown-recipient \[taxonomy-fable-ping-1\]/);
+});
+
+test('N2: the ordinary give-up needs far more than the 10-minute unknown-recipient window', () => {
+  // Reported per the build spec: the ordinary limits are 20 attempts (DEFAULT_MAX_ATTEMPTS) or about
+  // 48 hours (DEFAULT_MAX_AGE_HOURS) — whichever comes first. 10 minutes is neither.
+  assert.equal(DEFAULT_MAX_ATTEMPTS, 20);
+  assert.equal(DEFAULT_MAX_AGE_HOURS, 48);
+  assert.ok(DEFAULT_MAX_AGE_HOURS * 3_600_000 > UNKNOWN_RECIPIENT_DEADLETTER_MS * 100);
+});
+
+test('N2: an ASK less than 10 minutes old is not dead-lettered yet, even if unknown', async () => {
+  const home = tmp();
+  unknownAskEntry(home, { createdAt: new Date(NOW - 60_000).toISOString() });
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.notEqual(res.results.find((r) => r.id === 'taxonomy-fable-ping-1')?.outcome, 'unknown-recipient');
+  assert.equal(readOutbox(home).length, 1);
+});
+
+test('N2: a slug that has since registered an inbox is no longer unknown', async () => {
+  const home = tmp();
+  unknownAskEntry(home);
+  writeInbox(home, 'fable', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't1' }, { now: NOW });
+  const res = await runNoteFlush([], {
+    home, orca: mockOrca({ panes: [] }), now: NOW,
+    deliverToInbox: async () => ({ delivered: false, reason: 'inbox-error', detail: 'stub' }),
+  });
+  assert.notEqual(res.results.find((r) => r.id === 'taxonomy-fable-ping-1')?.outcome, 'unknown-recipient');
+});
+
+test('N2: a queued entry whose pane DID resolve is never treated as unknown-recipient', async () => {
+  const home = tmp();
+  // classification is not `not-resolved` here — a pane WAS found, just not sendable — so this is not
+  // the case N2 is about, whatever the ledger mirror says.
+  unknownAskEntry(home, { classification: 'permission', handle: 'term_aaa' });
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.notEqual(res.results[0]?.outcome, 'unknown-recipient');
+});
+
+test('N2: the no-unknown-check kill switch skips the early dead-letter', async () => {
+  const home = tmp();
+  fs.mkdirSync(path.dirname(noUnknownCheckPath(home)), { recursive: true });
+  fs.writeFileSync(noUnknownCheckPath(home), '');
+  unknownAskEntry(home);
+  const res = await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  assert.notEqual(res.results[0]?.outcome, 'unknown-recipient');
+  assert.equal(readOutbox(home).length, 1, 'still queued, following the ordinary path');
 });

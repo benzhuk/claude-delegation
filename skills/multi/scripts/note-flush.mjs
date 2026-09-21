@@ -54,7 +54,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { NoteError } from './envelope.mjs';
+import { NoteError, parseEnvelope, LEDGER_ONLY_KINDS, suggestSlug } from './envelope.mjs';
 import {
   toPosix, makeOrcaRunner, resolvePaneWithSource, showPane, readPane, classifyPane, isSendable,
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
@@ -63,6 +63,7 @@ import {
   killOutboxEntry, deadOutboxPath, benInboxPath,
   readBindings, pruneBindings, BINDING_GC_MS, readCursor,
   readInboxes, pruneInboxes, INBOX_GC_MS,
+  wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
 } from './transport.mjs';
 import { deliverToSlug as postToClaude, DEFAULT_POST_TIMEOUT_MS } from './inbox-claude.mjs';
 import { deliverToSlug as queueToCodex, DEFAULT_QUEUE_TIMEOUT_MS } from './inbox-codex.mjs';
@@ -114,6 +115,17 @@ export const NO_INBOX_DETAIL = 'no inbox registered on this machine; the ledger 
 
 /** What 0.4.0 wrote while a Stop hook was parked. Nothing writes these now, so every one is garbage. */
 export const LISTENING_MARKER_RE = /^\.listening-.+\.json$/;
+
+/**
+ * Spec 2026-09-20 N2: an ASK or BLOCKED whose recipient is STILL unknown this long after it was queued
+ * is dead-lettered on the spot — much sooner than the ordinary give-up (DEFAULT_MAX_ATTEMPTS attempts,
+ * about DEFAULT_MAX_AGE_HOURS hours). A note to a slug nobody has ever heard of is not going to become
+ * deliverable by retrying it for two days; the evidence (2026-09-20) is two lost hours on five ASKs sent
+ * to `fable` instead of `taxonomy-fable`.
+ */
+export const UNKNOWN_RECIPIENT_DEADLETTER_MS = 10 * 60 * 1000;
+/** Only these kinds get the early unknown-recipient dead-letter — an ACK/FYI is already ledger-only (N1). */
+export const UNKNOWN_RECIPIENT_KINDS = new Set(['ASK', 'BLOCKED']);
 
 /**
  * Sweep `~/.agents/notes/.listening-*.json`.
@@ -204,6 +216,32 @@ export function appendBlockedToBen(home, entry, attempts, fsImpl = fs, reason = 
       `- note-flush -> ben, ${new Date().toISOString()} BLOCKED: [${entry.id}] ${body}`
       + `${entry.lastError ? ` (last: ${String(entry.lastError).split('\n')[0].slice(0, 120)})` : ''}.`
       + ` The note IS in the ledger; only the wake-up failed. Entry: ${deadOutboxPath(home, entry.id)}\n`,
+      'utf8',
+    );
+  } catch { /* never fail a drain because a convenience file could not be written */ }
+  return file;
+}
+
+/**
+ * Spec 2026-09-20 N2: one BLOCKED line for an ASK/BLOCKED whose recipient is still unknown ten minutes
+ * after it was sent — naming the sender, the unknown slug, and a suggestion when one is close enough.
+ * Distinct from `appendBlockedToBen`: this fires long before the ordinary give-up could, and for a
+ * different reason (nobody has ever heard of the slug, not merely "unreachable right now").
+ */
+export function appendUnknownRecipientToBen(home, entry, slug, suggestion, fsImpl = fs) {
+  const file = benInboxPath(home);
+  const from = entry.from ?? 'a peer';
+  const body = `${from} sent [${entry.id}] to "${slug}", which is still unknown on this machine 10 minutes later`
+    + (suggestion ? ` — did you mean "${suggestion}"?` : '');
+  try {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      fsImpl.writeFileSync(file, '# Ben\'s inbox — peer notes that need Ben\n\nAppended by note-send. Delete a line when it is handled.\n\n', { flag: 'wx' });
+    } catch { /* already there */ }
+    fsImpl.appendFileSync(
+      file,
+      `- note-flush -> ben, ${new Date().toISOString()} BLOCKED: ${body}. `
+      + `The note IS in the ledger; only the wake-up failed. Entry: ${deadOutboxPath(home, entry.id)}\n`,
       'utf8',
     );
   } catch { /* never fail a drain because a convenience file could not be written */ }
@@ -307,11 +345,56 @@ export async function runNoteFlush(argv, deps = {}) {
     return Boolean(cursor.seen?.[id]) && !cursor.cold?.[id];
   };
 
+  // N1: an ACK/FYI queued before this change never wakes anyone — retired unattempted, like a
+  // superseded id. Cheap and no orca: parsed straight out of the envelope text already on disk.
+  const wakeAllKinds = fsImpl.existsSync(wakeAllKindsPath(home));
+  // N2: the same no-orca inputs `isUnknownRecipient` needs, read once for the whole pass. `terminals`
+  // is deliberately omitted here — this pass runs before any `terminal list` call, and an entry this
+  // check applies to (classification `not-resolved`) never had a live pane in the first place.
+  const noUnknownCheck = fsImpl.existsSync(noUnknownCheckPath(home));
+  const unknownCheckContext = noUnknownCheck ? null : {
+    inboxes: readInboxes(home, fsImpl),
+    bindings: readBindings(home, fsImpl),
+    terminals: [],
+    ledgerTexts: recentMirrorTexts(home, 3, now, fsImpl),
+  };
+
   const live = [];
   for (const entry of entries) {
     if (retired.has(entry.id)) {
       if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
       results.push({ id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'superseded', log: log('superseded', entry, 'a later note supersedes this id') });
+      continue;
+    }
+    if (!wakeAllKinds && LEDGER_ONLY_KINDS.has(parseEnvelope(entry.envelope)?.kind)) {
+      if (!dryRun) removeOutboxEntry(home, entry.id, fsImpl);
+      results.push({
+        id: entry.id, to: entry.toSlug ?? entry.to, outcome: 'retired-quiet-kind',
+        log: log('retired-quiet-kind', entry, 'ACK/FYI are ledger-only (N1); no wake-up is ever sent for them'),
+      });
+      continue;
+    }
+    if (
+      unknownCheckContext
+      && entry.classification === 'not-resolved'
+      && UNKNOWN_RECIPIENT_KINDS.has(parseEnvelope(entry.envelope)?.kind)
+      && (now - Date.parse(String(entry.createdAt ?? ''))) >= UNKNOWN_RECIPIENT_DEADLETTER_MS
+      && isUnknownRecipient(entry.toSlug ?? entry.to, unknownCheckContext)
+    ) {
+      // N2: much sooner than the ordinary give-up (DEFAULT_MAX_ATTEMPTS / DEFAULT_MAX_AGE_HOURS) — a
+      // slug nothing on this machine has ever heard of is not going to become deliverable by waiting.
+      const slug = entry.toSlug ?? entry.to;
+      const suggestion = suggestSlug(slug, knownSlugs(unknownCheckContext));
+      let dead = null;
+      if (!dryRun) {
+        dead = killOutboxEntry(home, entry.id, entry, fsImpl);
+        appendUnknownRecipientToBen(home, entry, slug, suggestion, fsImpl);
+      }
+      results.push({
+        id: entry.id, to: slug, outcome: 'unknown-recipient', dead,
+        log: log('unknown-recipient', entry, `"${slug}" is still unknown 10 minutes after it was sent`
+          + `${suggestion ? ` (did you mean "${suggestion}"?)` : ''} — moved to outbox/dead/ and reported to ben`),
+      });
       continue;
     }
     if (alreadyRead(entry.toSlug ?? entry.to, entry.id)) {
