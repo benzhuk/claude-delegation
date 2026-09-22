@@ -298,10 +298,10 @@ async function main() {
   if (cheapExit({ event, sentinel, workDir, now })) return;
 
   let entries = [];
-  let statuses = ['runnable', 'owned', 'delivered', 'rejected', 'reviewed', 'accepted', 'blocked'];
+  let statuses;
   try {
     const parser = await import(pathToFileURL(PARSER_PATH).href);
-    statuses = parser.STATUSES || statuses;
+    statuses = parser.STATUSES;
     entries = parser.listRecords(workDir, { fsImpl: fs });
   } catch (err) {
     process.stderr.write(`backlog-notice: could not load the parser — ${err && err.message ? err.message : String(err)}\n`);
