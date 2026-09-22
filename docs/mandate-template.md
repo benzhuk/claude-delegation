@@ -61,5 +61,5 @@ lines — Cause:, Discriminating check:, Fix location:, Simplification: — chec
 requirement explicitly; a reviewer omits these four lines only when the mandate is not
 a bug-fix review.
 
-Termination: report to the path above, verdict on line 1, then stop. A bare "Done"
-means read the file; nothing is trusted from a final message alone.
+Termination: report to the path above, first line `VERDICT: <word>`, then stop. A bare
+"Done" means read the file; nothing is trusted from a final message alone.

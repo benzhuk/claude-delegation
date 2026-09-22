@@ -211,7 +211,16 @@ export function validateRecord(record, opts = {}) {
         const out = execImpl("git", ["-C", opts.gitDir, "log", "-1", "--format=%H", opts.ref, "--", scopePath], {
           encoding: "utf8",
         }).trim();
-        if (out && !out.toLowerCase().startsWith(sha.toLowerCase())) {
+        if (!out) {
+          // git ran fine and answered "no history for this path at this ref" - an unresolvable
+          // scope is not the same fact as an agreeing one (F7); say so without adding a finding
+          // code (C2's twelve are pinned; this info row sits outside that list).
+          findings.push({
+            code: "scope-unresolvable",
+            level: "info",
+            message: `${opts.ref} has no commit touching ${scopePath}: scope-drift could not be checked`,
+          });
+        } else if (!out.toLowerCase().startsWith(sha.toLowerCase())) {
           findings.push({
             code: "scope-drift",
             level: "finding",
@@ -219,7 +228,8 @@ export function validateRecord(record, opts = {}) {
           });
         }
       } catch {
-        // git could not answer (path never committed, not a repo, etc.) - fail open, no finding.
+        // git could not answer at all (bad gitDir, not a repo, etc.) - fail open, no finding, no
+        // info row: this is a different failure mode than "git ran and found nothing".
       }
     }
   }
