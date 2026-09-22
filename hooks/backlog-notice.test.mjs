@@ -249,3 +249,56 @@ test('A1: PostToolUse stays silent past the window when nothing changed; other e
   const promptPastWindow = runHook('UserPromptSubmit', home, cwd);
   assert.ok(promptPastWindow.json, 'UserPromptSubmit has no second gate: past the window it reprints regardless');
 });
+
+// Round-2 review, MAJOR 2 — the second gate's OPEN direction was untested (mutating it to `if (true)`
+// passed 11/11). Both tests below are appended verbatim from the review's pointed-to file.
+
+test('A1/hot path: with no records the parser is never imported (a broken plugin root stays silent)', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  const out = runHook('PostToolUse', home, cwd, { over: { CLAUDE_PLUGIN_ROOT: tmpdir('backlog-noplugin-') } });
+  assert.equal(out.status, 0);
+  assert.equal(out.json, null);
+  assert.equal(out.stderr, '', 'the parser must not load when docs/work holds no records');
+});
+
+test('A1: PostToolUse past the window reprints after an IN-PLACE edit (the second gate opens)', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  const file = writeRecord(cwd, { work: 'wr-2026-09-21-inplace', status: 'runnable' });
+  assert.ok(runHook('PostToolUse', home, cwd).json, 'baseline print');
+
+  // Same file, same count: only this file's own mtime moves. The second gate must OPEN.
+  fs.writeFileSync(file, recordText({ work: 'wr-2026-09-21-inplace', status: 'rejected' }), 'utf8');
+  const later = new Date(Date.now() + 5_000);
+  fs.utimesSync(file, later, later);
+
+  const sentinelPath = sentinelPathFor(agentsOf(home), SESSION_ID);
+  const stale = readSentinel(sentinelPath);
+  writeSentinel(sentinelPath, { now: Date.now() - 130_000, newestMtimeMs: stale.newestMtimeMs, fileCount: stale.fileCount });
+
+  const out = runHook('PostToolUse', home, cwd);
+  assert.ok(out.json, 'PostToolUse must reprint after an in-place edit past the window');
+  assert.match(out.json.hookSpecificOutput.additionalContext, /1 rejected awaiting a fix round \(wr-2026-09-21-inplace\)/);
+});
+
+// MAJOR 1 residual, orchestrator ruling (round 2): the sentinel's scan fields (newestMtimeMs,
+// fileCount) are recorded on every PostToolUse evaluation that gets past the 120s gate, printed or
+// not — so an all-owned ledger (nothing ever prints, so `writeSentinel`'s printedAt path never
+// fires) is parsed once and then stat-only for as long as nothing changes.
+test('MAJOR 1 residual: PostToolUse on an all-owned ledger imports the parser only on the first call', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecord(cwd, { work: 'wr-2026-09-21-owned', status: 'owned' });
+
+  const first = runHook('PostToolUse', home, cwd);
+  assert.equal(first.json, null, 'an all-owned ledger prints nothing');
+  assert.equal(first.stderr, '', 'no malformed records, no import error');
+
+  // Break the plugin root: if the second call still needed to import the parser, this surfaces as a
+  // stderr line. It must not — the first call's scan should make this one stat-only via the second
+  // gate, never reaching the import at all.
+  const second = runHook('PostToolUse', home, cwd, { over: { CLAUDE_PLUGIN_ROOT: tmpdir('backlog-noplugin2-') } });
+  assert.equal(second.json, null);
+  assert.equal(second.stderr, '', 'the parser must not be imported on the second call');
+});

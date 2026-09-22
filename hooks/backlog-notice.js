@@ -26,6 +26,19 @@
 //   4. The sentinel is rewritten only when a line is actually printed.
 // The sentinel path is `<agentsHome>/ws/backlog-notice.<session_id>` — one sentinel per session,
 // shared by all three events, same shape as the stamp file in `hooks/multi-inbox.js:214-224`.
+//
+// ROUND-2 REVIEW FIXES:
+//   MAJOR 1 — with no sentinel yet (a repo with no `docs/work`, or a ledger that never prints
+//     because every record is `owned`/`accepted`), the second gate used to be skipped entirely, so
+//     every PostToolUse paid for the ESM import and a full parse. `cheapExit` now stats first,
+//     unconditionally, and exits at once when there are zero record files — nothing to import for.
+//   MAJOR 1 residual (orchestrator ruling, binding): the sentinel keeps two kinds of fields.
+//     `printedAt` moves only when a line is printed (A1.4, unchanged). The scan fields
+//     (`newestMtimeMs`, `fileCount`) are recorded on EVERY PostToolUse evaluation that gets past the
+//     120s gate, printed or not (`writeScanOnly`, below) — so an all-owned ledger is parsed once and
+//     then stat-only until a record file actually changes.
+//   MINOR 4 — `outputFor` only ever emits for the three events C3 names; anything else gets no
+//     output at all (there is no fourth shape to guess at).
 'use strict';
 
 const fs = require('fs');
@@ -89,14 +102,17 @@ function sentinelPathFor(home, sessionId) {
   return path.join(home, 'ws', `backlog-notice.${sessionId || 'unknown'}`);
 }
 
-/** null when absent, unreadable or malformed — treated the same as "no sentinel yet". */
+/**
+ * null only when the file is absent, unreadable or not valid JSON — treated as "no sentinel yet".
+ * `printedAt` is `null` (not a reason to discard the rest) when the file holds scan fields but has
+ * never had a print recorded — `writeScanOnly` produces exactly that shape.
+ */
 function readSentinel(p) {
   try {
     const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
-    const printedAt = typeof raw.printedAt === 'string' ? Date.parse(raw.printedAt) : NaN;
-    if (!Number.isFinite(printedAt)) return null;
+    const parsed = typeof raw.printedAt === 'string' ? Date.parse(raw.printedAt) : NaN;
     return {
-      printedAt,
+      printedAt: Number.isFinite(parsed) ? parsed : null,
       newestMtimeMs: Number(raw.newestMtimeMs) || 0,
       fileCount: Number(raw.fileCount) || 0,
     };
@@ -114,6 +130,26 @@ function writeSentinel(p, { now, newestMtimeMs, fileCount }) {
       JSON.stringify({ printedAt: new Date(now).toISOString(), newestMtimeMs, fileCount }),
       'utf8',
     );
+  } catch {
+    /* a sentinel we cannot write just means the next call re-derives everything */
+  }
+}
+
+/**
+ * Orchestrator ruling on MAJOR 1's residual: records what THIS evaluation scanned WITHOUT moving
+ * `printedAt` — called only when PostToolUse got past the 120s gate but had nothing to print. Any
+ * `printedAt` already on disk is preserved untouched; a sentinel that has never printed stays
+ * without one. Never throws.
+ */
+function writeScanOnly(p, { newestMtimeMs, fileCount }) {
+  try {
+    const existing = readSentinel(p);
+    const body = { newestMtimeMs, fileCount };
+    if (existing && existing.printedAt !== null) {
+      body.printedAt = new Date(existing.printedAt).toISOString();
+    }
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(body), 'utf8');
   } catch {
     /* a sentinel we cannot write just means the next call re-derives everything */
   }
@@ -149,9 +185,13 @@ function scanWorkDir(workDir) {
  * the PostToolUse second gate is skipped, never the whole function.
  */
 function cheapExit({ event, sentinel, workDir, now }) {
-  if (sentinel && now - sentinel.printedAt < SENTINEL_INTERVAL_MS) return true;
+  if (sentinel && sentinel.printedAt !== null && now - sentinel.printedAt < SENTINEL_INTERVAL_MS) return true;
+  // MAJOR 1: stat-only, before any import. With no records there is nothing to say, and without
+  // this a sentinel-less repo (no docs/work, or a ledger that never prints) paid for the ESM import
+  // and a full parse on every single PostToolUse call.
+  const scan = scanWorkDir(workDir);
+  if (scan.fileCount === 0) return true;
   if (event === 'PostToolUse' && sentinel) {
-    const scan = scanWorkDir(workDir);
     if (scan.newestMtimeMs === sentinel.newestMtimeMs && scan.fileCount === sentinel.fileCount) {
       return true;
     }
@@ -202,7 +242,10 @@ function buildLine({ runnable, delivered, rejected }) {
 
 function outputFor(event, line) {
   if (event === 'Stop') return { systemMessage: line };
-  return { hookSpecificOutput: { hookEventName: event, additionalContext: line } };
+  if (event === 'UserPromptSubmit' || event === 'PostToolUse') {
+    return { hookSpecificOutput: { hookEventName: event, additionalContext: line } };
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,12 +313,23 @@ async function main() {
     process.stderr.write(`backlog-notice: skipped ${malformed} malformed record(s) in ${workDir}\n`);
   }
 
-  if (runnable.length === 0 && delivered.length === 0 && rejected.length === 0) return;
+  const scan = scanWorkDir(workDir);
+  const hasBacklog = runnable.length > 0 || delivered.length > 0 || rejected.length > 0;
+
+  if (!hasBacklog) {
+    // MAJOR 1 residual (orchestrator ruling): PostToolUse records what it just scanned even with
+    // nothing to print, so the next PostToolUse call — if nothing changed — hits the second gate's
+    // match check instead of importing the parser and re-parsing every record again.
+    if (event === 'PostToolUse') {
+      writeScanOnly(sentinelPath, { newestMtimeMs: scan.newestMtimeMs, fileCount: scan.fileCount });
+    }
+    return;
+  }
 
   const line = buildLine({ runnable, delivered, rejected });
-  await emit(outputFor(event, line));
-
-  const scan = scanWorkDir(workDir);
+  const payload = outputFor(event, line);
+  if (!payload) return;
+  await emit(payload);
   writeSentinel(sentinelPath, { now, newestMtimeMs: scan.newestMtimeMs, fileCount: scan.fileCount });
 }
 
