@@ -44,6 +44,13 @@
     "fix": "no fix needed either way, this is a visibility check"
   },
   {
+    "id": "switch-ws-off-backlog",
+    "type": "switch",
+    "file": "~/.agents/ws-off-backlog",
+    "why": "the feature kill switch for hooks/backlog-notice.js (the master ws-off switch silences it too)",
+    "fix": "no fix needed either way, this is a visibility check: remove the file to turn the backlog notice back on, create it to silence it"
+  },
+  {
     "id": "lean-rules-file",
     "type": "file_fresh",
     "file": "~/.agents/lean-rules.md",
