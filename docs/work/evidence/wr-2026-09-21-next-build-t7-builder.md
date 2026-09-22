@@ -1,4 +1,4 @@
-PASS
+VERDICT: PASS
 
 # T7: sealed test runner
 

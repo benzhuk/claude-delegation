@@ -1,4 +1,4 @@
-APPROVE eada62c
+VERDICT: APPROVE eada62c
 
 # T4 review, round 2 (delta only: 8498f22..eada62c, branch feat/next-build-T4)
 

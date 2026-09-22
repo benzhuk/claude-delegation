@@ -1,4 +1,4 @@
-PASS
+VERDICT: PASS
 
 # T4 — Janitor workarounds
 

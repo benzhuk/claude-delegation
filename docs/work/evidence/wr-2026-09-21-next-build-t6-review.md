@@ -1,4 +1,4 @@
-APPROVE 7b2cfd2
+VERDICT: APPROVE 7b2cfd2
 
 # T6 Ladder — round-2 delta re-review
 

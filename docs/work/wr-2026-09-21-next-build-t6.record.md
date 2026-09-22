@@ -14,6 +14,7 @@ Log: 2026-09-22T00:23:42.447Z owned builder-t6 spawned
 Log: 2026-09-22T00:49:14.000Z delivered builder-t6 artifact 7b2cfd2
 Log: 2026-09-22T00:49:15.000Z owned orchestrator agent-exited artifact 7b2cfd2
 Log: 2026-09-22T00:49:16.000Z reviewed orchestrator artifact 7b2cfd2
+Log: 2026-09-22T01:21:27.000Z reviewed orchestrator evidence-normalised
 
 T6 covers the ladder: `skills/delegate/SKILL.md` (new "Ladder, Opus orchestrator panes only"
 section), `skills/delegate/references/ladder-workflow.js`, and

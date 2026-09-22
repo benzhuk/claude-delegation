@@ -1,4 +1,4 @@
-APPROVE c439be0
+VERDICT: APPROVE c439be0
 
 Round 2, delta only (`git diff 9586189..c439be0`, three files, +75/-30). Every round-1 fix landed as the patch specified, and the two that mattered are now mechanically pinned.
 

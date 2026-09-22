@@ -1,4 +1,4 @@
-APPROVE f78474c
+VERDICT: APPROVE f78474c
 
 Round 3, delta `d691711..f78474c` only: one file, one hunk, seven added lines —
 `scripts/prefix-test.test.mjs:316-321`, my round-2 patch **verbatim** (diffed character for

@@ -14,5 +14,6 @@ Log: 2026-09-22T00:23:42.447Z owned builder-t4 spawned
 Log: 2026-09-22T00:49:11.000Z delivered builder-t4 artifact eada62c
 Log: 2026-09-22T00:49:12.000Z owned orchestrator agent-exited artifact eada62c
 Log: 2026-09-22T00:49:13.000Z reviewed orchestrator artifact eada62c
+Log: 2026-09-22T01:21:26.000Z reviewed orchestrator evidence-normalised
 
 T4 covers janitor workarounds: `scripts/janitor.mjs` and `scripts/janitor.test.mjs`.

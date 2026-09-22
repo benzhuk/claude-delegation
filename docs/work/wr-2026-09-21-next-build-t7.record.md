@@ -14,6 +14,7 @@ Log: 2026-09-22T00:23:42.447Z owned builder-t7 spawned
 Log: 2026-09-22T01:03:27.000Z delivered builder-t7 artifact c439be0
 Log: 2026-09-22T01:03:28.000Z owned orchestrator agent-exited artifact c439be0
 Log: 2026-09-22T01:03:29.000Z reviewed orchestrator artifact c439be0
+Log: 2026-09-22T01:21:28.000Z reviewed orchestrator evidence-normalised
 
 T7 covers the sealed test runner: `scripts/run-tests.mjs`, `scripts/test-home.mjs`,
 `scripts/test-home.test.mjs`, `docs/sealed-baseline.json`, and `package.json`

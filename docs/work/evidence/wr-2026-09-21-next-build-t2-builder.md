@@ -1,4 +1,4 @@
-PASS
+VERDICT: PASS
 
 Territory T2 (backlog notice), spec v2.1 C3 + round-3 red-team addendum A1 applied
 (confirmed applied — see below). Worktree

@@ -1,4 +1,4 @@
-PASS
+VERDICT: PASS
 
 # T6 Ladder — builder report
 

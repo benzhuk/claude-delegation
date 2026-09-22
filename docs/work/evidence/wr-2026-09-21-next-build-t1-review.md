@@ -1,4 +1,4 @@
-APPROVE 8500d9a
+VERDICT: APPROVE 8500d9a
 
 Round 3, delta `6b28563..8500d9a` only.
 

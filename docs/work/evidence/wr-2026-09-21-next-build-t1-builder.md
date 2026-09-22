@@ -1,4 +1,4 @@
-PASS
+VERDICT: PASS
 
 ## Territory T1 — record and fields
 

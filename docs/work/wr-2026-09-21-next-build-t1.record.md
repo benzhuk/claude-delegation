@@ -14,6 +14,7 @@ Log: 2026-09-22T00:23:42.447Z owned builder-t1 spawned
 Log: 2026-09-22T00:54:38.000Z delivered builder-t1 artifact 8500d9a
 Log: 2026-09-22T00:54:39.000Z owned orchestrator agent-exited artifact 8500d9a
 Log: 2026-09-22T00:54:40.000Z reviewed orchestrator artifact 8500d9a
+Log: 2026-09-22T01:21:23.000Z reviewed orchestrator evidence-normalised
 
 T1 covers record and fields: `scripts/work-record.mjs`, `scripts/work-record.test.mjs`,
 `docs/work-record.md`, `docs/mandate-template.md`, `agents/builder.md`, `agents/reviewer.md`,

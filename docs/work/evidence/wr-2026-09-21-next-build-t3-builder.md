@@ -1,4 +1,4 @@
-PASS
+VERDICT: PASS
 
 Territory T3 (spec v2): scripts/bugfix-fields.mjs, scripts/bugfix-fields.test.mjs,
 scripts/prefix-test.mjs, scripts/prefix-test.test.mjs, agents/integrator.md,
