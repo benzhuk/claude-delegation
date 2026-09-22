@@ -1,9 +1,10 @@
 // node --test scripts/prefix-test.test.mjs
 //
-// Fixture identity (spec.md C5 shape, T3.md scoped-identity instructions, addendum A3):
-// a temp .gitconfig holding ONLY an `[includeIf "gitdir/i:<realpath of the system temp
-// dir>/**"]` pointing at a `.gitconfig-fixture` carrying `[user] name = Fixture` /
-// `email = fixture@example.invalid`; GIT_CONFIG_GLOBAL and GIT_CONFIG_NOSYSTEM=1 are set
+// Fixture identity (spec.md C5 shape, T3.md scoped-identity instructions, addendum A3;
+// narrowed to fixtureRoot by L-C7, round 2 review minor 1): a temp .gitconfig holding ONLY an
+// `[includeIf "gitdir/i:<realpath of fixtureRoot>/**"]` (fixtureRoot = `<home>/fixtures`, NOT
+// the whole system temp dir) pointing at a `.gitconfig-fixture` carrying `[user] name =
+// Fixture` / `email = fixture@example.invalid`; GIT_CONFIG_GLOBAL and GIT_CONFIG_NOSYSTEM=1 are set
 // only in the child-process env used to build THIS test's fixture repo, never via
 // `-c user.*`, never GIT_AUTHOR_*, never touching a real repo.
 //
