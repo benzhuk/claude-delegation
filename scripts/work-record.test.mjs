@@ -193,6 +193,11 @@ test("validateRecord: without repoRoot, every evidence-path check is skipped (A4
   assert.ok(!codes(findings).includes("evidence-unreachable"));
 });
 
+test("validateRecord: accepted with an in-repo evidence path is clean without repoRoot (A4)", () => {
+  const r = parseRecord(mkRecordText({ Status: "accepted", Artifact: "integrate/next-build@abc1111", Evidence: "docs/work/evidence/wr-x-review.md" }));
+  assert.ok(!codes(validateRecord(r)).includes("accepted-without-evidence"));
+});
+
 test("validateRecord: evidence-missing fires for an in-repo path that does not exist", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-evidence-"));
   const r = parseRecord(mkRecordText({ Evidence: "reports/missing.md" }));
