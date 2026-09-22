@@ -118,12 +118,15 @@ a headless child instead:
 This is a fallback for the read rung only, not a replacement for the ladder script as a
 whole.
 
-**Status**: approved, not live, until one run from an Opus pane. Its acceptance is a
-single real run from an Opus orchestrator pane after merge, recorded on its work record —
-until then, treat it as reviewed template code, not a load-bearing tool.
+**Status**: live since 2026-09-22. Its acceptance was a single real run from an Opus
+orchestrator pane, recorded on `wr-2026-09-22-package-build-p5`: run `wf_4f009ac9-8aa`,
+9 agents (4 fast-tier reads, 4 mid-tier research, 1 high-tier judge), 0 errors, 11m52s,
+template unmodified. That run produced the pane inbox-registration ruling now in
+`docs/pane-setup.md`.
 
 The build-review-fix loop is a sibling of this ladder, not part of it: it launches from
 the same Opus orchestrator pane, per the team-build skill's own new section on running
-it, and it carries the identical status — approved, not live, until its own first
-real run from that pane after merge. Neither the loop nor the ladder is ever launched
-from the lead pane or a builder pane.
+it, and it is live on the same footing since 2026-09-22: run `wf_a7f9c859-48a` from that
+pane returned four APPROVEd territories, an empty blockers array and an integrator PASS —
+15 agents, 0 errors, 50m01s, 19 deduped lead turns in the orchestrator pane. Neither the
+loop nor the ladder is ever launched from the lead pane or a builder pane.

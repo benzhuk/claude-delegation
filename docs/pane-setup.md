@@ -38,8 +38,45 @@ vocabulary; don't re-derive the tier table here.
    applies Ship (work-record transitions, evidence copies), and reports the merge-ready
    state back to `<project>-fable` for the actual ship decision.
 5. If this build also uses the ladder for a bounded research/judge pass, `<project>-o`
-   launches it the same way — its own pane, never a subordinate one — and its status
-   stays approved-not-live until its own first real run, same as the build loop.
+   launches it the same way — its own pane, never a subordinate one. Both the ladder and
+   the build loop are live as of 2026-09-22, each having had its first real run from an
+   Opus orchestrator pane (`wf_4f009ac9-8aa` and `wf_a7f9c859-48a`); see
+   `wr-2026-09-22-package-build-p5`.
+
+## Registering a pane's peer-note inbox
+
+The already-shipped `SessionStart` hook (`hooks/hooks.json` → `hooks/multi-inbox.js
+SessionStart` → `registerMyInbox`) registers this pane's inbox automatically, from
+`NOTE_SLUG` if the environment carries it, else a `panes.json` binding for
+`ORCA_TERMINAL_HANDLE`. It never guesses a slug from a title. When neither is present,
+nothing registers and the pane never appears in `inboxes.json` — it silently misses peer
+notes until something sets one of the two.
+
+The pre-flight fallback, when nothing else set the slug: state it in the `--command`
+string `orca terminal create` already accepts —
+
+```
+orca terminal create --worktree <wt> --title <slug> --command 'NOTE_SLUG=<slug> claude' --json
+```
+
+On a Windows pane, use the PowerShell assignment in place of the bash-style env prefix:
+
+```
+$env:NOTE_SLUG='<slug>'; claude
+```
+
+To confirm delivery actually reached this pane (rather than guessing from silence), read
+`~/.agents/notes/flush.log`'s own line for the note's id — the two shapes to look for,
+quoted exactly from `skills/multi/scripts/note-flush.mjs:483,756,831`:
+
+- Delivered: `<stamp> delivered [<id>] -> <slug> — inbox (claude-socket)`
+- Never registered: `<stamp> no-inbox [<id>] -> <slug> — no inbox registered on this
+  machine (typing is off; set MULTI_ALLOW_TYPING=1 to nudge by keystroke)`
+
+`scripts/wiring-check.mjs`'s `pane-note-slug` row (`scripts/required-wiring.default.json`)
+reports whether `NOTE_SLUG` is set on this pane at the moment the check runs — always
+`info`, never `missing`/`stale`, since a pane may legitimately be bound instead of
+env-set; it exists to make the silent-miss case visible, not to flag it as wrong.
 
 ## Notes between panes
 
@@ -54,22 +91,21 @@ reviewers, the integrator); `multi` is for talking to the fable pane.
 - **Elapsed per work id** (`opened` → `accepted`, or `opened` → last `reviewed` when no
   `accepted` line exists yet, labeled `(to reviewed)`) — `scripts/work-census.mjs`,
   reading `docs/work/*.record.md`'s `Log:` lines.
-- **Dispatch latency** (each `delivered` line to the first later `reviewed`/`rejected`
-  line, per round, plus the sum) — `scripts/work-census.mjs`, same source.
-- **Idle minutes with a runnable unowned record** (time at least one record sat
-  `Status: runnable` / `Owner: none`) — `scripts/work-census.mjs`'s footer, computed
-  across every record's merged, timestamp-sorted transitions.
-- **Recurrence of a failure class** and **workarounds past removal** — read from the
-  work records' own `Log:` notes and findings files across builds; no dedicated script
-  computes these yet, so read them by grepping `docs/work/` and past reports rather than
-  expecting a census tool to surface them automatically.
-- **Lead turns (total and windowed), turns/hour in the window, tokens by model for the
-  lead and for each subagent, and the combined lead+subagent split** (the speed-census
-  numbers) — `scripts/build-census.mjs`, reading the lead's own
-  transcript plus each subagent's task-output directory. Its turn/token counts are
-  de-duplicated per request id (Claude Code re-emits the same turn as multiple JSONL
-  lines while a response streams); the mechanism lives in `scripts/build-census.mjs`'s own
-  doc and test fixture, and is deliberately not restated here.
+- **Rounds per territory** (the `Rounds:` field when present, else a count of `owned` ->
+  `delivered` transitions, file order) — `scripts/work-census.mjs`, same source.
+- **Lead turns and wall clock per build** (turns total and windowed, turns/hour in the
+  window, tokens by model for the lead and for each subagent, and the combined
+  lead+subagent split) — `scripts/build-census.mjs`, reading the lead's own transcript
+  plus each subagent's task-output directory. Its turn/token counts are de-duplicated per
+  request id (Claude Code re-emits the same turn as multiple JSONL lines while a response
+  streams); the mechanism lives in `scripts/build-census.mjs`'s own doc and test fixture,
+  and is deliberately not restated here.
+- **Recurrence of a labelled failure class** — read from the work records' own `Log:`
+  notes and findings files across builds; no dedicated script computes this yet, so read
+  it by grepping `docs/work/` and past reports rather than expecting a census tool to
+  surface it automatically.
+- **Workarounds past removal** — same source as above, same caveat: no dedicated script,
+  read from `docs/work/` and past reports.
 
 Run both census scripts from `<project>-o`'s pane once a build's Ship step completes
 (`skills/team-build/SKILL.md`'s Ship section names the exact moment); the numbers go into

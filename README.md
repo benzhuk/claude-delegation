@@ -53,6 +53,10 @@ claude plugin install delegation@benzhuk
 Neither `delegate` nor `team-build` is for talking to a session you don't own — see
 [`multi`](#multi--peer-sessions) below for that.
 
+The plugin also ships `notion-writing` and `dev-server` as utility skills (`skills/`),
+distinct from the five orchestration skills above — mirrored the same way for Codex by
+`mirror-shared-skills.mjs`.
+
 **Shared mechanics** (`docs/`, referenced by both skills — these links are repo-relative;
 if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
 `~/.agents/skills/{delegate,team-build}/SKILL.md`, find the same files at
