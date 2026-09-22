@@ -63,6 +63,16 @@ mention says where to find it once mirrored.
    report to the path in their mandate; neither one ever touches `docs/work/`. Ownership
    returns to you, recorded as a `Log:` line, the moment an agent reports, is stopped, or
    dies.
+7. **Scout** — one cheap (mid-tier) agent, per BUILD, not per territory: after the
+   territory map exists and before any territory's worktree is created, it surveys every
+   territory in one pass and writes one output file per territory (`<spec-pack>/scout-
+   <territory-id>.md`, at most 40 lines each — files/symbols the territory will touch and
+   whether the spec's premise about them still holds, existing helpers to reuse, tests
+   that police the area, open questions for the spec). Full instructions, copyable
+   verbatim into the scout's prompt: `references/scout-brief.md`. Fold each territory's
+   scout file into that territory's brief (by path, as an addendum — never restate it)
+   before spawning that territory's builder; a scout finding that contradicts the spec
+   loses to the spec once you've ruled on the discrepancy.
 
 ## Roles
 
@@ -202,6 +212,13 @@ the prefix at copy time if the original report didn't carry it. You remain the o
 writer to `docs/work/` through to the end; a fresh orchestrator, or one that is woken, is
 shown its next runnable record by reading that directory, never by asking you to recall
 it.
+
+Once every territory is `accepted`, run `scripts/work-census.mjs` against `docs/work/`
+(and, if this build launched the loop from an Opus pane, `scripts/build-census.mjs`
+against the lead transcript) to get the measures — elapsed per work id, dispatch latency,
+idle minutes with a runnable unowned record — that make the build's speed a number
+instead of an impression. `docs/pane-setup.md` names what each measure means and which
+script reads it; don't restate that here.
 
 ## Peer sessions
 
