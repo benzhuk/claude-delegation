@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
-import { inboxesPath, readInboxes } from '../skills/multi/scripts/transport.mjs';
+import { inboxesPath, readInboxes, readBindings } from '../skills/multi/scripts/transport.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'multi-inbox.js');
@@ -238,4 +238,47 @@ test('(h) F3: the same renamed session also gets its note at Stop, not only User
   const out = JSON.parse(stdout);
   assert.equal(out.decision, 'block');
   assert.match(out.reason, /\[astra-fork-note-2\]/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F2 (rename-build spec, Contract 2c) — round-1 review MAJOR 2: `cheapSlug()`'s session-name rank had no
+// test at all (deleting it wholesale still left the gate green), and its BLOCKER 1 corollary — a
+// session-name slug must never be laundered into a `--me` binding — was likewise unpinned.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('(i) F2: a renamed session with no NOTE_SLUG and no binding receives a mid-turn note at PostToolUse', () => {
+  const home = fixtureHome();
+  const sessionId = 'fixture-session-p1-0005';
+  const transcriptPath = writeSidecar(home, sessionId, 'f2-fixture-slug');
+  mirrorNoteFor(home, 'f2-fixture-note-1', 'f2-fixture-slug');
+  const stdout = execFileSync(process.execPath, [HOOK, 'PostToolUse'], {
+    input: JSON.stringify({
+      hook_event_name: 'PostToolUse', cwd: home, session_id: sessionId, transcript_path: transcriptPath,
+    }),
+    encoding: 'utf8',
+    env: childEnv(home, { CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' }),
+  });
+  const out = JSON.parse(stdout);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.match(out.hookSpecificOutput.additionalContext, /\[f2-fixture-note-1\]/);
+});
+
+test('(j) F2/BLOCKER 1: the session-name slug is first-hand, so PostToolUse writes no pane binding', () => {
+  const home = fixtureHome();
+  const sessionId = 'fixture-session-p1-0006';
+  const transcriptPath = writeSidecar(home, sessionId, 'f2-fixture-bind');
+  mirrorNoteFor(home, 'f2-fixture-note-2', 'f2-fixture-bind');
+  const stdout = execFileSync(process.execPath, [HOOK, 'PostToolUse'], {
+    input: JSON.stringify({
+      hook_event_name: 'PostToolUse', cwd: home, session_id: sessionId, transcript_path: transcriptPath,
+    }),
+    encoding: 'utf8',
+    env: childEnv(home, { CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: 'term_f2fixture' }),
+  });
+  const out = JSON.parse(stdout);
+  assert.match(out.hookSpecificOutput.additionalContext, /\[f2-fixture-note-2\]/, 'sanity: the note was still delivered');
+  assert.deepEqual(
+    readBindings(home), {},
+    'a per-SESSION name must never become a permanent panes.json binding for the pane it happened to run in',
+  );
 });

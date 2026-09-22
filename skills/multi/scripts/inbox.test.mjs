@@ -284,6 +284,23 @@ test('re-register under a previously used slug inside the refresh window still r
   assert.deepEqual(Object.keys(readInboxes(home)), ['astra'], 'taxonomy must not be left behind as a stale second entry');
 });
 
+// MAJOR 3 (round-1 review): the sweep used to stop at the FIRST stale slug (`break` + a singular
+// `staleSlug`), so a pre-sweep `inboxes.json` already carrying two stale entries for one sessionId — or
+// a race that recreates one mid-window — kept the second one live after a "successful" rename. The sweep
+// must find and remove EVERY stale slug for this sessionId in the one write.
+test('D3: two stale entries for one sessionId are BOTH removed in a single register', () => {
+  const home = tmp();
+  const rec = claudeRecord();
+  writeInbox(home, 'alpha', rec, { now: NOW });
+  writeInbox(home, 'beta', rec, { now: NOW });
+  assert.deepEqual(Object.keys(readInboxes(home)).sort(), ['alpha', 'beta'], 'sanity: both stale entries exist first');
+
+  const res = registerInbox(home, 'gamma', claudeRecord({ socket: '/tmp/cc-socks/gamma.sock' }), { now: NOW + 1 });
+  assert.equal(res.written, true);
+  assert.deepEqual(res.removedSlugs.sort(), ['alpha', 'beta']);
+  assert.deepEqual(Object.keys(readInboxes(home)), ['gamma'], 'neither stale entry may be left behind');
+});
+
 test('D3: renaming does not disturb an UNRELATED session registered under its own slug', () => {
   const home = tmp();
   registerInbox(home, 'old-slug', claudeRecord(), { now: NOW });
@@ -294,11 +311,12 @@ test('D3: renaming does not disturb an UNRELATED session registered under its ow
   assert.equal(readInboxes(home).unrelated.sessionId, 'sess-0002-bbbb', 'a different session is never swept');
 });
 
-test('D3: the sweep never touches a codex-queue entry — Codex has no sessionId field at all (D7)', () => {
+test('D3: a codex-queue entry is unaffected by a Claude rename', () => {
+  // NOT a test of the sweep's `rec.kind === 'claude-socket'` guard: `normalizeInboxRecord` drops any
+  // `sessionId` field on a codex-queue record (it only keeps `codexHome`/`threadId` beyond the common
+  // fields), so the sweep's sessionId comparison is falsy here regardless of the `kind` check — this only
+  // proves a codex entry survives a Claude session's rename untouched, which is D7's actual guarantee.
   const home = tmp();
-  // A codex-queue registration happens to reuse this Claude session's sessionId in its own unrelated
-  // field space — it cannot, since codex records carry threadId, not sessionId, but this proves the
-  // sweep's `rec.kind === 'claude-socket'` guard rather than relying on that absence by accident.
   writeInbox(home, 'codex-slug', codexRecord(), { now: NOW });
   const rec = claudeRecord();
   registerInbox(home, 'claude-slug', rec, { now: NOW + 1 });

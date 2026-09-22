@@ -116,7 +116,11 @@ function cheapSlug(transcriptPath, sessionId) {
   // One small fs.readFileSync, well inside POST_TOOL_BUDGET_MS — never the transcript, never anything
   // that reaches for orca.
   const named = readSessionNameSafe(transcriptPath, sessionId);
-  if (named) return { slug: named.slug, guess: false };
+  // First-hand, so never `guess`; but a per-SESSION name is not a PANE's identity, so it must not become
+  // a binding either — `resolveSlug` keeps 'session-name' out of BINDING_SOURCES for exactly that reason,
+  // and `source` here is what lets the PostToolUse branch below apply the same rule to `--me` (review
+  // BLOCKER 1: laundering a session name through `--me` would write the very binding this excludes).
+  if (named) return { slug: named.slug, guess: false, source: "session-name" };
   if (process.env.NOTE_SLUG) return { slug: process.env.NOTE_SLUG, guess: false };
   const handle = process.env.ORCA_TERMINAL_HANDLE;
   if (!handle) return null;
@@ -177,18 +181,30 @@ function couldBeInAPane() {
  * Best-effort and silent: a registration that cannot be written costs one deferred nudge, and the note
  * is already in the ledger.
  *
- * @returns {{ slug: string|null, result: object|null }} `slug` is set whenever ANY of D1's three ranks
- *   resolved one, even if the registration itself then failed for some other reason (no messaging env,
- *   an unwritable file) — this is what lets the SessionStart nudge (D4) below tell "genuinely unnamed"
- *   apart from "named, but nothing to register it with", without over-nudging the second case.
+ * @returns {{ slug: string|null, result: object|null, configBroken: boolean }} `slug` is set whenever ANY
+ *   of D1's three ranks resolved one, even if the registration itself then failed for some other reason
+ *   (no messaging env, an unwritable file) — this is what lets the SessionStart nudge (D4) below tell
+ *   "genuinely unnamed" apart from "named, but nothing to register it with", without over-nudging the
+ *   second case. `configBroken` is set specifically when `transport.mjs` itself could not be imported (a
+ *   broken `CLAUDE_PLUGIN_ROOT`) — rank 3 (the panes.json binding) is then never reached, so a pane whose
+ *   ONLY identity is a binding would otherwise read as `slug: null` and get told "this session has no
+ *   name", which is not the real fault (review MINOR 6). The caller uses this to skip the nudge in that
+ *   case; M1's UserPromptSubmit warning already says the config is broken.
  */
 async function registerMyInbox(cwd, sessionId, transcriptPath) {
   // Ranks 1 and 2 never need the transport module, so a broken CLAUDE_PLUGIN_ROOT still lets the catch
   // below report the right `slug` for the nudge, instead of guessing "unnamed" when it might not be.
   let slug = readSessionNameSafe(transcriptPath, sessionId)?.slug ?? null;
   if (!slug) slug = process.env.NOTE_SLUG || null;
+  let transport;
   try {
-    const transport = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "transport.mjs")).href);
+    transport = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "transport.mjs")).href);
+  } catch {
+    // rule 1: never throw out of a hook. `configBroken: true` tells the SessionStart caller that rank 3
+    // (the binding) was never even attempted — this is NOT the same thing as "genuinely unnamed".
+    return { slug, result: null, configBroken: true };
+  }
+  try {
     const home = os.homedir();
     if (!slug) {
       const handle = process.env.ORCA_TERMINAL_HANDLE;
@@ -197,19 +213,19 @@ async function registerMyInbox(cwd, sessionId, transcriptPath) {
         slug = bound && bound.slug ? bound.slug : null;
       }
     }
-    if (!slug) return { slug: null, result: null };
+    if (!slug) return { slug: null, result: null, configBroken: false };
     // `sessionId` comes from the payload Claude Code writes to this hook's stdin, so it is first-hand
     // — and it is REQUIRED (review C6): it is sent with every post, the receiver drops a frame whose
     // session id is not its own, and that is what stops a recycled pid from redirecting somebody's note
     // into a different session behind the same `/tmp/cc-socks/<pid>.sock` path.
     // `process.ppid` is recorded for a human reading the file; delivery never uses it.
     const record = transport.claudeInboxRecord(process.env, { sessionId, pid: process.ppid, cwd });
-    if (!record) return { slug, result: null };
+    if (!record) return { slug, result: null, configBroken: false };
     // D3: the same-sessionId sweep (moving an old slug's entry to this new one) lives inside
     // transport.registerInbox itself now, so a rename is atomic no matter which caller triggers it.
-    return { slug, result: transport.registerInbox(transport.toPosix(home), slug, record) };
+    return { slug, result: transport.registerInbox(transport.toPosix(home), slug, record), configBroken: false };
   } catch {
-    return { slug, result: null }; // rule 1: never throw out of a hook
+    return { slug, result: null, configBroken: false }; // rule 1: never throw out of a hook
   }
 }
 
@@ -255,7 +271,7 @@ async function main() {
   // session that has just started has not asked for anything, and its first UserPromptSubmit will
   // surface whatever is waiting a moment later anyway.
   if (event === "SessionStart") {
-    const { slug } = await registerMyInbox(cwd, sessionId, transcriptPath);
+    const { slug, configBroken } = await registerMyInbox(cwd, sessionId, transcriptPath);
     // D4/F6 (red-team FIX FIRST 6): nudge a session that resolved NO slug at all, from any of the three
     // ranks above. hooks.json registers SessionStart with no `matcher` at all, so this already covers
     // every source including a --fork-session resume (a new session id with no sidecar of its own yet
@@ -263,7 +279,10 @@ async function main() {
     // only reach this branch when at least one of NOTE_SLUG/ORCA_TERMINAL_HANDLE was present OR a name
     // resolved — and a resolved name means `slug` is non-null, so the corollary (a session with NEITHER
     // env var gets no nudge either) falls out of that alone, with no extra check needed here.
-    if (!slug) {
+    // MINOR 6 (round-1 review): `configBroken` means rank 3 (the panes.json binding) was never even
+    // reached, so a bound pane could read `slug: null` for a reason that has nothing to do with its name
+    // — skip the nudge in that case; M1's UserPromptSubmit warning already says the config is broken.
+    if (!slug && !configBroken) {
       await emit({
         suppressOutput: true,
         hookSpecificOutput: {
@@ -292,8 +311,11 @@ async function main() {
     if (!me) return;
     const newest = newestLedgerMtime();
     if (newest === 0 || newest <= readStamp(me.slug)) return;
-    // `--no-bind` when the slug came from the title cache: a guess must never become a permanent binding.
-    extraArgs.push("--me", me.slug, "--no-repo", ...(me.guess ? ["--no-bind"] : []));
+    // `--no-bind` when the slug came from the title cache (a guess must never become a permanent
+    // binding) AND when it came from this session's own name: laundering a session name through `--me`
+    // would write the very binding BINDING_SOURCES excludes 'session-name' to prevent (review BLOCKER 1).
+    const noBind = me.guess || me.source === "session-name";
+    extraArgs.push("--me", me.slug, "--no-repo", ...(noBind ? ["--no-bind"] : []));
   }
 
   let delivered = null;

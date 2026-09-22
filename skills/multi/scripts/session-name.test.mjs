@@ -185,10 +185,14 @@ test('readSessionName: never reads the transcript itself, even when it is not va
   assert.equal(result.slug, 'ghost-transcript');
 });
 
-test('readSessionName: a transcriptPath containing backslashes resolves the sidecar without toPosix', () => {
-  // The path.dirname/path.join built here uses whatever separator this platform's path module uses,
-  // exactly like the real call site (hooks/multi-inbox.js) would receive from Claude Code's stdin.
-  // Building the fixture with path.join (never toPosix) is what proves the RAW string round-trips.
+// MINOR 5 (round-1 review): this test's fixture is built with path.join and read back with path.join, so
+// it passes whether or not a `toPosix()` call sneaks into the production path — on Windows `readFileSync`
+// accepts forward slashes too, so a posix-forced path still reads. It is NOT the toPosix guard; that pin
+// lives in 'a fixture dir with a real sidecar returns {title, slug, path}' above and in 'a custom fs
+// implementation is honoured' below, both of which assert `result.path` against a `path.join`-built
+// expectation and DO fail if the production code posix-forces the path first. Retitled to what this test
+// actually checks: a native-separator transcriptPath resolves at all.
+test('readSessionName: a native-separator transcriptPath resolves the sidecar', () => {
   const sessionId = 'sess-winpath-0001';
   const projectDir = tmp();
   fs.writeFileSync(path.join(projectDir, `${sessionId}.jsonl`), '', 'utf8');

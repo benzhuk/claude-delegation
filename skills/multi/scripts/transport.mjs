@@ -1360,12 +1360,12 @@ function writeInboxesFile(home, inboxes, fsImpl) {
  * is deliberately no second write path for the removal; a caller that wants the old entry gone must ask
  * for it here, in the same call that registers the new one.
  *
- * @returns {{ file: string|null, slug: string, inbox: object|null, error: string|null, removedSlug: string|null }}
+ * @returns {{ file: string|null, slug: string, inbox: object|null, error: string|null, removedSlug: string|null, removedSlugs: string[] }}
  */
 export function writeInbox(home, slug, record, opts = {}) {
   const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
   const now = opts.now ?? Date.now();
-  const out = { file: null, slug: String(slug), inbox: null, error: null, removedSlug: null };
+  const out = { file: null, slug: String(slug), inbox: null, error: null, removedSlug: null, removedSlugs: [] };
   if (!SLUG_RE.test(String(slug))) {
     out.error = `"${slug}" is not a legal slug`;
     return out;
@@ -1379,11 +1379,20 @@ export function writeInbox(home, slug, record, opts = {}) {
   }
   const inboxes = readInboxes(home, fsImpl);
   const previous = inboxes[String(slug)] ?? null;
-  const removeSlug = opts.removeSlug != null ? String(opts.removeSlug) : null;
-  if (removeSlug && removeSlug !== String(slug) && inboxes[removeSlug]) {
-    delete inboxes[removeSlug];
-    out.removedSlug = removeSlug;
+  // `opts.removeSlug` may be a single slug (legacy shape) or an array — a pre-sweep `inboxes.json` can
+  // already carry more than one stale slug for the same session, and leaving any behind is the same
+  // stale-delivery D3 exists to stop. `removedSlug` stays the FIRST removal for every existing caller and
+  // test; `removedSlugs` is the honest count — never one confident name standing in for an unknown number.
+  const removeList = opts.removeSlug == null ? []
+    : (Array.isArray(opts.removeSlug) ? opts.removeSlug : [opts.removeSlug]).map(String);
+  const removed = [];
+  for (const dead of removeList) {
+    if (dead === String(slug) || !inboxes[dead]) continue;
+    delete inboxes[dead];
+    removed.push(dead);
   }
+  out.removedSlug = removed[0] ?? null;
+  out.removedSlugs = removed;
   inboxes[String(slug)] = norm;
   try {
     out.file = writeInboxesFile(home, inboxes, fsImpl);
@@ -1535,7 +1544,7 @@ export function codexInboxRecord(env = process.env, { threadId, cwd = undefined,
  * Codex records have no `sessionId` field at all (D7: Codex sessions are unchanged by this build), so
  * this sweep is a no-op for them by construction.
  *
- * @returns {{ written: boolean, reason: string, slug: string, inbox: object|null, error: string|null, removedSlug: string|null }}
+ * @returns {{ written: boolean, reason: string, slug: string, inbox: object|null, error: string|null, removedSlug: string|null, removedSlugs: string[] }}
  */
 export function registerInbox(home, slug, record, opts = {}) {
   const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
@@ -1543,6 +1552,7 @@ export function registerInbox(home, slug, record, opts = {}) {
   const refreshMs = opts.refreshMs ?? INBOX_REFRESH_MS;
   const out = {
     written: false, reason: 'skipped', slug: String(slug ?? ''), inbox: null, error: null, removedSlug: null,
+    removedSlugs: [],
   };
   try {
     if (!record) { out.reason = 'no-inbox-in-env'; return out; }
@@ -1550,24 +1560,27 @@ export function registerInbox(home, slug, record, opts = {}) {
     const inboxes = readInboxes(home, fsImpl);
     const existing = inboxes[String(slug)];
     const sessionId = record.sessionId ? String(record.sessionId) : null;
-    let staleSlug = null;
+    // EVERY other slug holding this session's id, not just the first: a pre-sweep inboxes.json can
+    // already carry two (or more), and leaving one behind is the same stale-delivery D3 exists to stop.
+    const staleSlugs = [];
     if (sessionId) {
       for (const [otherSlug, rec] of Object.entries(inboxes)) {
         if (otherSlug === String(slug)) continue;
-        if (rec?.kind === 'claude-socket' && rec.sessionId === sessionId) { staleSlug = otherSlug; break; }
+        if (rec?.kind === 'claude-socket' && rec.sessionId === sessionId) staleSlugs.push(otherSlug);
       }
     }
-    if (!staleSlug && existing && sameInbox(existing, record) && now - Number(existing.at ?? 0) < refreshMs) {
+    if (!staleSlugs.length && existing && sameInbox(existing, record) && now - Number(existing.at ?? 0) < refreshMs) {
       out.reason = 'fresh';
       out.inbox = describeInbox(existing);
       return out;
     }
-    const res = writeInbox(home, slug, record, { fs: fsImpl, now, removeSlug: staleSlug });
+    const res = writeInbox(home, slug, record, { fs: fsImpl, now, removeSlug: staleSlugs });
     out.error = res.error;
     out.inbox = res.inbox;
     out.written = Boolean(res.file);
     out.reason = res.file ? 'written' : 'error';
     out.removedSlug = res.removedSlug ?? null;
+    out.removedSlugs = res.removedSlugs ?? [];
     return out;
   } catch (err) {
     out.reason = 'error';
