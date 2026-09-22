@@ -8,7 +8,8 @@ description: Use when something only the owner can decide comes up, when writing
 ## The one idea
 
 A session never blocks on the owner. It records the decision on the owner's decisions
-page, keeps working on whatever else is dispatchable, and picks the answer up later.
+page, keeps working on whatever else is dispatchable, and picks the answer up later
+(not checked).
 
 ## Writing an item
 
@@ -16,7 +17,9 @@ Shape: `templates/decision-item.md`, read with `scripts/decisions-read.mjs` (bot
 live in this skill's own folder, so the path is the same read from a checkout or a
 mirrored copy). Every item goes in through the template shape. A bullet that is not a
 `<details>` toggle with unticked options and a Default or No default line is not a
-decision — the reader cannot see it (checked by `scripts/decisions-read.mjs`, rule 5).
+decision: the reader cannot see it (not checked — a bullet with no options is
+invisible to `scripts/decisions-read.mjs`, rule 5, so nothing reports it; only a toggle
+that has options but neither line is caught, as a WARN, rule 10a).
 
 One toggle per decision, a unique title, one or two lines of evidence, two to four
 unticked options with the recommended one FIRST marked "(recommended)" (not checked).
@@ -44,6 +47,10 @@ second comment that never clears (not checked). Write and read the page through 
 whole-page replace, read fresh seconds before writing, a multi-line edit built from a
 script with the old and new text loaded from files, not argv (not checked).
 
+The page callout's owner instruction reads: "Tick a box, or add a line starting with
+** anywhere; every such line is acted on and removed before this page comes back to
+you." (not checked)
+
 New items go inside the open section, never appended past the page-level `- [ ] Done`
 line (`append-md` must not be used for this) (not checked). Whoever adds an item
 unticks Done in the same pass; whoever closes the last open item ticks it back —
@@ -52,8 +59,8 @@ than 0 and `true` when DECISIONS is 0 (an absent Done line blocks the hand-back)
 
 Keep the page in two sections the owner reads, `# Waiting on you now` and `# Closed`;
 status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this
-page (not checked). This build does not delete any existing extra section already on
-the page — whether to remove one is the lead's call with the owner, not this skill's.
+page (not checked). Existing extra sections are not deleted by this skill; whether to
+remove one is the lead's call with the owner (not checked).
 
 ## Reading answers
 
@@ -67,39 +74,55 @@ change nothing (checked by `scripts/decisions-read.mjs`).
   (reported by `scripts/decisions-read.mjs`; UNATTACHED also blocks the hand-back via
   `scripts/decisions-handback.mjs`).
 - TICKED: `scripts/decisions-read.mjs` reports the ticked option; act on it (not
-  checked). An unreplied comment on the same item still needs a reply (next bullet) —
-  a tick never cancels it (checked by `scripts/decisions-read.mjs`).
+  checked). An unhandled owner note on the same item still needs handling (next
+  bullet) — a tick never cancels it (checked by `scripts/decisions-read.mjs`).
 - An owner note (a line starting with the escaped `\*\*`, on either the decisions page
   or the goals page) is one of two kinds, told apart by what the lead does, never by
   parsing the owner's text:
   - An instruction: do it, or record why not. Write one plain bullet under
     `# Closed` (on the decisions page, even for a note found on the goals page)
-    beginning `Your note, <M-D>: "<first 12 words of the note>…" — <what was done>`,
-    and delete the owner's line (not checked).
+    beginning `Your note, <M-D>: "<first 12 words of the note>…" — <what was done>`
+    (not checked), and delete the owner's line (checked by
+    `scripts/decisions-handback.mjs`: a line left behind still reports COMMENTED or
+    UNATTACHED and blocks). A note on an item that is still waiting also gets its
+    answer inside that item, as a plain (not bold) line starting `Answered <M-D>:`,
+    written before the owner's line is deleted (not checked).
   - A question: write `Reply: <YYYY-MM-DD> <answer>` directly under the owner's line
     — the numeric date is required, and this is what stops the next read reporting it
-    again (checked by `scripts/decisions-read.mjs`, REPLY_RE). Both lines stay until
-    the first hand-back pass whose date is after the Reply date — flagged as an
-    `ARCHIVE` line by `scripts/decisions-handback.mjs` (non-blocking) — at which point
-    the pair is archived: one plain bullet under `# Closed` beginning `Your question,
-    <M-D>: "<first 12 words>…" — <the answer>`, and both lines are deleted from the
-    open section (not checked). A follow-up from the owner under a reply is a new
-    `\*\*` line and is COMMENTED again (checked by `scripts/decisions-read.mjs`).
+    again (inside a decision item; checked by `scripts/decisions-read.mjs`, REPLY_RE).
+    Both lines stay until the first hand-back pass whose date is after the Reply
+    date — flagged as an `ARCHIVE` line by `scripts/decisions-handback.mjs`
+    (non-blocking) — at which point the pair is archived: one plain bullet under
+    `# Closed` beginning `Your question, <M-D>: "<first 12 words>…" — <the answer>`,
+    and both lines are deleted from the open section (not checked). If the answer is
+    itself a decision, make it a template-shaped item and write the Reply as
+    `Reply: <YYYY-MM-DD> made it an item above` (not checked). A follow-up from the
+    owner under a reply is a new `\*\*` line and is COMMENTED again (checked by
+    `scripts/decisions-read.mjs`).
+  - A question with no decision item around it (every goals-page heading, or a note
+    outside any `<details>` toggle) is not cleared by a Reply: the reader keeps
+    reporting it UNATTACHED (rule 9), which blocks the hand-back and the mirror publish
+    (checked by `scripts/decisions-handback.mjs` and `scripts/goals-mirror.mjs`).
+    Answer and archive it in the same pass: the `Your question, <M-D>: …` bullet under
+    the decisions page's `# Closed`, then delete the owner's line.
 - DUE: the item's `Default after …` deadline passed unanswered (reported by
   `scripts/decisions-read.mjs`). Apply the default, tell the owner in the same
   message, and close the item (not checked).
 - WARN: the page is broken — Done missing, misplaced, indented, or duplicated, or a
   `Default` line off-shape (checked by `scripts/decisions-read.mjs`). Rewrite older
   wording into the required shape and fix before trusting anything else (not checked).
-- REPLIED or OPEN: nothing to do.
+- OPEN: nothing to do. REPLIED: nothing to do until the hand-back check lists the pair
+  as an `ARCHIVE` line; then archive it as above (reported by
+  `scripts/decisions-handback.mjs`).
 
 ## Closing
 
 DELETE the item's toggle, checkboxes and all, and write ONE plain bullet in Closed:
 title, what was chosen, the date, the OBSERVED result — never move or copy the toggle
 (not checked). Closing an item deletes its toggle. A closed toggle left in Closed
-keeps reporting TICKED or OPEN forever (checked by `scripts/decisions-read.mjs`, rule
-5: closed items must be written as plain bullets).
+keeps reporting TICKED or OPEN forever (partly checked: a leftover ticked toggle
+reports TICKED and blocks `scripts/decisions-handback.mjs`; a leftover unticked one
+reads as a live OPEN item and nothing flags it).
 
 ## Handing the page back
 
@@ -107,24 +130,30 @@ Before giving the owner the decisions URL, run the hand-back check on fresh read
 both pages (a read is two `notion.js read` calls, run through a Sonnet runner):
 
 ```
-node ~/.claude/scripts/notion.js read <decisions-page-id> > /tmp/decisions.md
-node ~/.claude/scripts/notion.js read <goals-page-id> > /tmp/goals.md
-node skills/decisions/scripts/decisions-handback.mjs --decisions /tmp/decisions.md --goals /tmp/goals.md --repo .
+node ~/.claude/scripts/notion.js read <decisions-page-id> > <scratch>/decisions.md
+node ~/.claude/scripts/notion.js read <goals-page-id> > <scratch>/goals.md
+node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
 ```
 
-Exit 0 only: give the owner the URL, on a read taken seconds earlier (checked by
-`scripts/decisions-handback.mjs`). The check prints, just before `HANDBACK ok`, a
-`Decisions waiting: <n>, notes logged today: <n>, goals mirror at <sha>` line — paste
-it verbatim as the last line of the hand-back message, so the line cannot exist
-unless the check ran (checked by `scripts/decisions-handback.mjs`).
+Run from the project root; `<skill-dir>` is this skill's folder (`skills/decisions` in
+this repo), `<scratch>` the session's scratch folder (not checked).
+
+Exit 0 only: give the owner the URL (the exit code is `scripts/decisions-handback.mjs`'s;
+that both reads were taken seconds earlier is not checked — the script reads whatever
+files it is given, so rerun both reads every time). The check prints, just before
+`HANDBACK ok`, a `Decisions waiting: <n>, notes logged today: <n>, goals mirror at
+<sha>` line — paste it verbatim as the last line of the hand-back message, so the line
+cannot exist unless the check ran (not checked by any script: the owner sees whether
+the line is there).
 
 ## Keeping the goals mirror current
 
 After a release changes `docs/GOALS.md` or `docs/goals/card.md`, publish the mirror
-before the next hand-back:
+before the next hand-back (a stale mirror blocks the hand-back:
+`scripts/decisions-handback.mjs`, stale-sha WARN):
 
 ```
-node skills/decisions/scripts/goals-mirror.mjs publish --repo . --parent <goals_parent_page> --current <read>
+node <skill-dir>/scripts/goals-mirror.mjs publish --repo . --parent <goals_parent_page> --current <read>
 ```
 
 `<goals_parent_page>` comes from `.agents/project.json`; `<read>` is a fresh
