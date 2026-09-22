@@ -13,6 +13,12 @@ import { toPosix, cursorPath, readCursor } from './transport.mjs';
 // S1/S2, then N2: ONE sealing helper for the whole suite, so the rule is a property of the suite and
 // not of this file. `no test file inherits the runner environment` below is what keeps it that way.
 import { childEnv, SEALED } from './test-child-env.mjs';
+// Round 2 (N2 review MAJOR 1): N2 scans the SAME files `run-tests.mjs` actually runs, found the
+// SAME way, instead of a hand-maintained root list - a mistyped or renamed root used to scan zero
+// files and still pass (proved by renaming `scripts` -> `scriptz`: N2 stayed green with 10 files
+// unscanned). Reusing this walk also means a new territory's test directory is policed the moment
+// it exists, with nothing for anyone to remember to add here.
+import { walkTestFiles } from '../../../scripts/run-tests.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'multi-inbox.js');
@@ -425,29 +431,15 @@ test('N2: no test file in this suite inherits the runner environment on its own'
   // test file spreads `process.env` itself. A new spawn site that forgets the seal fails HERE, at the
   // class, instead of quietly writing this session's token into a fixture the way the 2026-09-17 one
   // did. (`test-child-env.mjs` is the one place that spread lives, and it is not a .test.mjs.)
-  const roots = [
-    path.join(REPO, 'skills', 'multi', 'scripts'),
-    path.join(REPO, 'hooks'),
-    path.join(REPO, 'scripts'),
-    // L-C7 (addendum A2): scan the build-loop and ladder test directories too, so a new spawn
-    // site there is caught from the start rather than by policy alone.
-    path.join(REPO, 'skills', 'team-build', 'references'),
-    path.join(REPO, 'skills', 'delegate', 'references'),
-  ];
+  const files = walkTestFiles(REPO);
+  assert.ok(files.length > 0, 'N2 scanned no test files at all - the walk itself is broken');
   const offenders = [];
-  for (const dir of roots) {
-    // A sibling territory's directory (e.g. skills/team-build/references) may not exist yet in
-    // an unmerged worktree - that is not a finding, it is nothing to scan yet; on the merged
-    // tree every root here exists.
-    if (!fs.existsSync(dir)) continue;
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.test.mjs')) continue;
-      const text = fs.readFileSync(path.join(dir, name), 'utf8');
-      // Built, never written: a literal here would make this test its own first offender.
-      const needle = ['...', 'process', '.', 'env'].join('');
-      for (const [i, line] of text.split('\n').entries()) {
-        if (line.includes(needle)) offenders.push(`${name}:${i + 1}`);
-      }
+  for (const full of files) {
+    const text = fs.readFileSync(full, 'utf8');
+    // Built, never written: a literal here would make this test its own first offender.
+    const needle = ['...', 'process', '.', 'env'].join('');
+    for (const [i, line] of text.split('\n').entries()) {
+      if (line.includes(needle)) offenders.push(`${path.relative(REPO, full)}:${i + 1}`);
     }
   }
   assert.deepEqual(offenders, [], `these spawn sites build their own env instead of using childEnv(): ${offenders.join(', ')}`);
