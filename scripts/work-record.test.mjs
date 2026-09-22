@@ -309,7 +309,8 @@ test("validateRecord: effect landed but result lost -> accepted is refused (acce
 // commit than the sha recorded in Scope:.
 test("validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixture repo", () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-scope-"));
-  const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+  const env = makeGitFixtureEnv();
+  const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
   run(["init", "-q"]);
   fs.writeFileSync(path.join(repo, "target.txt"), "v1\n");
   run(["add", "-A"]);
@@ -352,6 +353,16 @@ test("validateRecord: scope-unresolvable (info) fires when the Scope: path has n
   const resolvableFindings = validateRecord(resolvable, { gitDir: repo, ref: "HEAD" });
   assert.ok(!codes(resolvableFindings).includes("scope-unresolvable"));
   assert.ok(!codes(resolvableFindings).includes("scope-drift"));
+});
+
+test("validateRecord: a git invocation that fails outright yields neither scope-drift nor scope-unresolvable", () => {
+  const execImpl = () => {
+    throw new Error("fatal: not a git repository");
+  };
+  const r = parseRecord(mkRecordText({ Scope: "docs/mandate-template.md@0000000" }));
+  const findings = validateRecord(r, { gitDir: "/tmp/not-a-repo", ref: "HEAD", execImpl });
+  assert.ok(!codes(findings).includes("scope-drift"));
+  assert.ok(!codes(findings).includes("scope-unresolvable"));
 });
 
 test("validateRecord: scope-drift is not attempted without both gitDir and ref", () => {
