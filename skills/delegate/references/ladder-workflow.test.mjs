@@ -86,7 +86,40 @@ async function pipelineStub(items, ...stages) {
   );
 }
 
-function runScript(args, agentStub) {
+// Runtime-faithful variants (review Notes: the real Workflow runtime resolves a thunk's
+// or stage's thrown error to `null` for just that one item rather than rejecting the
+// whole parallel()/pipeline() call — Promise.all above does NOT match that and never
+// exercised the null-drop path). These catch per-item and resolve null, same as the
+// documented runtime behavior.
+async function parallelNullOnThrowStub(thunks) {
+  return Promise.all(
+    thunks.map(async (t) => {
+      try {
+        return await t();
+      } catch {
+        return null;
+      }
+    }),
+  );
+}
+
+async function pipelineNullOnThrowStub(items, ...stages) {
+  return Promise.all(
+    items.map(async (item, index) => {
+      let result = item;
+      try {
+        for (const stage of stages) {
+          result = await stage(result, item, index);
+        }
+      } catch {
+        return null;
+      }
+      return result;
+    }),
+  );
+}
+
+function runScript(args, agentStub, { parallelImpl = parallelStub, pipelineImpl = pipelineStub } = {}) {
   const body = stripLeadingExport(SOURCE);
   const fn = new AsyncFunction(
     "agent",
@@ -98,7 +131,7 @@ function runScript(args, agentStub) {
     "budget",
     body,
   );
-  return fn(agentStub, parallelStub, pipelineStub, () => {}, () => {}, args, {
+  return fn(agentStub, parallelImpl, pipelineImpl, () => {}, () => {}, args, {
     total: null,
     spent: () => 0,
     remaining: () => Infinity,
@@ -233,6 +266,17 @@ test("default cap is 12", async () => {
   assert.equal(result.cost.agents, 9);
 });
 
+test("a numeric-string maxAgents (e.g. from JSON-ish args) still honours the cap, not widen it to 12", async () => {
+  const stub = makeAgentStub();
+  // 5 targets, maxAgents: '2' -> parses to 2; Read alone reserves 5, which exceeds 2 ->
+  // must throw at the Read rung, never run 11 agents against an unenforced cap.
+  await assert.rejects(
+    () => runScript({ targets: ["a", "b", "c", "d", "e"], maxAgents: "2" }, stub),
+    /maxAgents cap of 2 exceeded/,
+  );
+  assert.equal(stub.calls.length, 0, "no agent() call happens once a rung is over cap");
+});
+
 // ---------------------------------------------------------------------------
 // return shape: exactly one object, intermediate output never leaves the script
 // ---------------------------------------------------------------------------
@@ -244,4 +288,43 @@ test("returns exactly { verdict, evidence, cost: { agents } } and nothing else",
   assert.deepEqual(Object.keys(result.cost), ["agents"]);
   assert.equal(typeof result.verdict, "string");
   assert.ok(Array.isArray(result.evidence));
+});
+
+// ---------------------------------------------------------------------------
+// runtime-faithful stubs: a thrown thunk/stage resolves to null (the null-drop path),
+// not a rejection, matching the real Workflow parallel()/pipeline() semantics
+// ---------------------------------------------------------------------------
+
+test("a per-item throw under runtime-faithful parallel()/pipeline() drops that item to null, without crashing or re-counting it downstream", async () => {
+  const calls = [];
+  async function agentStub(prompt, opts) {
+    calls.push({ prompt, opts });
+    if (opts && opts.label === "read:b") {
+      throw new Error("simulated per-item failure");
+    }
+    if (opts && opts.schema) {
+      return { verdict: "PASS", evidence: ["docs/work/example.record.md"] };
+    }
+    return `stub summary for ${(opts && opts.label) || "call"}`;
+  }
+
+  const result = await runScript(
+    { targets: ["a", "b", "c"] },
+    agentStub,
+    { parallelImpl: parallelNullOnThrowStub, pipelineImpl: pipelineNullOnThrowStub },
+  );
+
+  const readCalls = calls.filter((c) => c.opts.phase === "Read");
+  assert.equal(readCalls.length, 3, "all three reads are attempted");
+  const researchCalls = calls.filter((c) => c.opts.phase === "Research");
+  assert.equal(researchCalls.length, 2, "only the two surviving reads go to research");
+  assert.ok(
+    researchCalls.every((c) => c.opts.label !== "research:b"),
+    "the dropped read is never paraphrased into a research call",
+  );
+  const judgeCalls = calls.filter((c) => c.opts.phase === "Judge");
+  assert.equal(judgeCalls.length, 1, "the judge still runs exactly once");
+  // 3 reads + 2 research + 1 judge = 6 actual agent() calls; cost.agents is the real
+  // count, not an inflated reservation against the dropped item.
+  assert.equal(result.cost.agents, 6);
 });

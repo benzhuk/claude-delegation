@@ -24,7 +24,8 @@ export const meta = {
 
 const a = args ?? {}
 const targets = Array.isArray(a.targets) ? a.targets : []
-const maxAgents = typeof a.maxAgents === 'number' ? a.maxAgents : 12
+const capArg = Number(a.maxAgents)
+const maxAgents = a.maxAgents != null && Number.isFinite(capArg) ? capArg : 12
 const readerType = a.readerType ?? 'delegation:runner'
 const question =
   typeof a.question === 'string' && a.question

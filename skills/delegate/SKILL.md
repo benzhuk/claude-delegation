@@ -90,8 +90,8 @@ hoping for a positive.
 what the reads surfaced, one high-tier judge rendering a single verdict — for a pane that
 wants that shape without hand-authoring a Workflow script each time. Run it ONLY from an
 Opus orchestrator pane; never from the lead pane, a builder pane, or a Sonnet-tier
-session. Ultracode is not used anywhere in this template — it is a fixed, deterministic
-ladder, not an open-ended exhaustive workflow.
+session. Ultracode is not used anywhere — not here and not in any other delegation path; this
+is a fixed, deterministic ladder, not an open-ended exhaustive workflow.
 
 **Script**: `skills/delegate/references/ladder-workflow.js`, invoked with the Workflow
 tool as `{scriptPath: "skills/delegate/references/ladder-workflow.js"}` (or by name once
