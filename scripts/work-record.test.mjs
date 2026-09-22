@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
-import { STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine } from "./work-record.mjs";
+import { STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet } from "./work-record.mjs";
 
 function codes(findings) {
   return findings.map((f) => f.code);
@@ -147,8 +147,9 @@ test("validateRecord: a clean record with no repoRoot given produces zero findin
   assert.deepEqual(validateRecord(r), []);
 });
 
-test("FINDING_CODES is exactly C2's twelve codes", () => {
+test("FINDING_CODES is exactly L-C6's thirteen codes (the original twelve plus runnable-with-owner)", () => {
   // Documents the full set this suite must cover; the individual tests below assert each one fires.
+  assert.equal(FINDING_CODES.length, 13);
   assert.deepEqual(
     [...FINDING_CODES].sort(),
     [
@@ -161,6 +162,7 @@ test("FINDING_CODES is exactly C2's twelve codes", () => {
       "evidence-no-verdict",
       "evidence-unreachable",
       "missing-field",
+      "runnable-with-owner",
       "scope-drift",
       "stale-result-candidate",
       "workaround-overdue",
@@ -308,7 +310,7 @@ test("validateRecord: effect landed but result lost -> accepted is refused (acce
 // fixture repo (built under os.tmpdir() per addendum A3) where the scope file has a newer
 // commit than the sha recorded in Scope:.
 test("validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixture repo", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-scope-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-scope-"));
   const env = makeGitFixtureEnv();
   const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
   run(["init", "-q"]);
@@ -333,7 +335,7 @@ test("validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixtu
 // F7 (seam review): an unresolvable Scope: path (never tracked at ref) must be
 // distinguishable from an agreeing one - a silent [] either way hides the difference.
 test("validateRecord: scope-unresolvable (info) fires when the Scope: path has no history at ref, not when it does", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-scope-unresolvable-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-scope-unresolvable-"));
   const env = makeGitFixtureEnv();
   const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
   run(["init", "-q"]);
@@ -431,4 +433,102 @@ test("validateRecord: bugfix-gate-missing does not fire once an evidence path's 
   );
   const findings = validateRecord(r, { repoRoot: dir });
   assert.ok(!codes(findings).includes("bugfix-gate-missing"));
+});
+
+// --- L-C6: runnable-with-owner ----------------------------------------------------
+
+test("validateRecord: runnable-with-owner fires when Status: runnable and Owner: is present and not none", () => {
+  const r = parseRecord(mkRecordText({ Status: "runnable", Owner: "t2" }));
+  const findings = validateRecord(r);
+  assert.ok(codes(findings).includes("runnable-with-owner"));
+  const finding = findings.find((f) => f.code === "runnable-with-owner");
+  assert.equal(finding.level, "finding");
+});
+
+test("validateRecord: runnable-with-owner does not fire when Owner: is none", () => {
+  const r = parseRecord(mkRecordText({ Status: "runnable", Owner: "none" }));
+  assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));
+});
+
+test("validateRecord: runnable-with-owner does not fire when Owner: is missing entirely", () => {
+  const r = parseRecord("Work: wr-2026-09-21-x\nStatus: runnable\n\nbody");
+  assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));
+});
+
+// Round-2 review MINOR 1: a whitespace-only Owner: line parses to "" (not undefined, not
+// "none"), which used to fire runnable-with-owner and silently drop an unowned runnable
+// record out of the backlog notice - the one failure mode the hook exists to prevent.
+test("validateRecord: runnable-with-owner does not fire when Owner: is whitespace-only (parses to empty string)", () => {
+  const spaces = parseRecord(mkRecordText({ Status: "runnable", Owner: "   " }));
+  assert.equal(spaces.fields.owner, "");
+  assert.ok(!codes(validateRecord(spaces)).includes("runnable-with-owner"));
+});
+
+test("validateRecord: runnable-with-owner does not fire when Owner: is tab-only (parses to empty string)", () => {
+  const tab = parseRecord(mkRecordText({ Status: "runnable", Owner: "\t" }));
+  assert.equal(tab.fields.owner, "");
+  assert.ok(!codes(validateRecord(tab)).includes("runnable-with-owner"));
+});
+
+test("validateRecord: runnable-with-owner does not fire when Owner: has no value at all on the line", () => {
+  const r = parseRecord("Work: wr-2026-09-21-x\nStatus: runnable\nOwner:\n\nbody");
+  assert.equal(r.fields.owner, undefined, "no characters after the colon means the field regex never matches");
+  assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));
+});
+
+test("validateRecord: runnable-with-owner does not fire for a non-runnable status with an owner", () => {
+  const r = parseRecord(mkRecordText({ Status: "owned", Owner: "t2" }));
+  assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));
+});
+
+// --- L-C6: checkRecordSet -----------------------------------------------------------
+
+test("checkRecordSet: a work id held by exactly one record produces no finding", () => {
+  const records = [{ path: "/a/wr-2026-09-21-solo.record.md", record: parseRecord(mkRecordText({ Work: "wr-2026-09-21-solo" })) }];
+  assert.deepEqual(checkRecordSet(records), []);
+});
+
+test("checkRecordSet: a work id held by more than one record produces duplicate-work-id with both paths", () => {
+  const records = [
+    { path: "/a/one.record.md", record: parseRecord(mkRecordText({ Work: "wr-2026-09-21-dup" })) },
+    { path: "/a/two.record.md", record: parseRecord(mkRecordText({ Work: "wr-2026-09-21-dup" })) },
+  ];
+  const findings = checkRecordSet(records);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].code, "duplicate-work-id");
+  assert.equal(findings[0].level, "finding");
+  assert.equal(findings[0].work, "wr-2026-09-21-dup");
+  assert.deepEqual(findings[0].paths.sort(), ["/a/one.record.md", "/a/two.record.md"]);
+  // Deliberately a different shape from validateRecord's findings: work/paths, not message.
+  assert.equal(findings[0].message, undefined);
+});
+
+test("checkRecordSet: records with no work field are skipped, not treated as one more duplicate group", () => {
+  const records = [
+    { path: "/a/one.record.md", record: parseRecord("Owner: t1\n\nno work field") },
+    { path: "/a/two.record.md", record: parseRecord("Owner: t2\n\nno work field either") },
+  ];
+  assert.deepEqual(checkRecordSet(records), []);
+});
+
+test("checkRecordSet: three or more distinct work ids with one duplicated pair reports only that pair", () => {
+  const records = [
+    { path: "/a/one.record.md", record: parseRecord(mkRecordText({ Work: "wr-2026-09-21-a" })) },
+    { path: "/a/two.record.md", record: parseRecord(mkRecordText({ Work: "wr-2026-09-21-b" })) },
+    { path: "/a/three.record.md", record: parseRecord(mkRecordText({ Work: "wr-2026-09-21-b" })) },
+  ];
+  const findings = checkRecordSet(records);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].work, "wr-2026-09-21-b");
+});
+
+test("checkRecordSet: works end to end against listRecords' own [{ path, record }] shape", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-dup-"));
+  fs.writeFileSync(path.join(dir, "one.record.md"), mkRecordText({ Work: "wr-2026-09-21-live" }));
+  fs.writeFileSync(path.join(dir, "two.record.md"), mkRecordText({ Work: "wr-2026-09-21-live" }));
+  const results = listRecords(dir);
+  const findings = checkRecordSet(results);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].work, "wr-2026-09-21-live");
+  assert.equal(findings[0].paths.length, 2);
 });

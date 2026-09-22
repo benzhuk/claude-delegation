@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { makeTempHome, checkSeal } from "./test-home.mjs";
+import { runSealed } from "./run-tests.mjs";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -31,10 +32,11 @@ function tempHome(opts) {
   return built;
 }
 
-// A3 (spec-addendum-r3.md): every fixture repo in this file lives under a mkdtemp of os.tmpdir(),
-// never inside this repo - the includeIf pattern makeTempHome seeds only grants an identity there.
-function fixtureRepoDir() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "test-home-fixture-repo-"));
+// L-C7: every fixture repo in this file lives under a mkdtemp of the CALLER-SUPPLIED
+// `fixtureRoot` (from `makeTempHome`'s own return), never bare `os.tmpdir()` and never inside
+// this repo - the includeIf pattern makeTempHome seeds only grants an identity under fixtureRoot.
+function fixtureRepoDir(fixtureRoot) {
+  const dir = fs.mkdtempSync(path.join(fixtureRoot, "test-home-fixture-repo-"));
   cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -54,7 +56,7 @@ function checkSealInChild(env) {
 // ---------------------------------------------------------------------------
 
 test("makeTempHome returns a fresh, empty, disposable home with the expected shape", () => {
-  const { home, agentsHome, env, cleanup } = tempHome();
+  const { home, agentsHome, env, fixtureRoot, cleanup } = tempHome();
   assert.equal(typeof home, "string");
   assert.ok(fs.existsSync(home));
   assert.equal(agentsHome, path.join(home, ".agents"));
@@ -64,6 +66,10 @@ test("makeTempHome returns a fresh, empty, disposable home with the expected sha
   assert.equal(env.AGENTS_HOME, agentsHome);
   assert.equal(env.GIT_CONFIG_GLOBAL, path.join(home, ".gitconfig"));
   assert.equal(env.GIT_CONFIG_NOSYSTEM, "1");
+  assert.equal(typeof fixtureRoot, "string");
+  assert.ok(fs.existsSync(fixtureRoot));
+  assert.equal(fs.realpathSync(fixtureRoot), fs.realpathSync(path.join(home, "fixtures")));
+  assert.equal(env.FIXTURE_ROOT, fixtureRoot.split(path.sep).join("/"));
   assert.equal(typeof cleanup, "function");
 });
 
@@ -86,6 +92,45 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
   assert.equal(fs.readFileSync(full, "utf8"), "Work: wr-1\n");
 });
 
+// L-C7: run-tests.mjs adds no new wiring of its own - `runSealed` already forwards the WHOLE
+// `env` object `makeTempHome` returns to both spawnSync calls, so once `makeTempHome` sets
+// FIXTURE_ROOT the sealed child gets it for free. This proves that end-to-end through the real
+// `runSealed`, not just that `makeTempHome`'s own return shape has the field.
+//
+// NODE_TEST_CONTEXT (set by node's OWN `--test` runner on THIS process, since this file runs
+// under `node --test`) must be stripped before calling `runSealed`: `childEnv()` spreads
+// `process.env`, so left in place it silently propagates to the grandchild `node --test <probe>`
+// this test spawns, which then detects a "recursive" run and SKIPS running the probe entirely,
+// still exiting 0 - a false green that would pass whether or not FIXTURE_ROOT actually arrived.
+// Confirmed by direct check: with a deliberately-failing probe and NODE_TEST_CONTEXT left in
+// place, runSealed() returned 0 (skipped) instead of 1; stripping it, the same failing probe
+// correctly returned 1.
+test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", () => {
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-tests-fixture-root-probe-"));
+  cleanups.push(() => fs.rmSync(probeDir, { recursive: true, force: true }));
+  const probeFile = path.join(probeDir, "fixture-root-probe.test.mjs");
+  fs.writeFileSync(
+    probeFile,
+    [
+      "import test from 'node:test';",
+      "import assert from 'node:assert/strict';",
+      "test('FIXTURE_ROOT reaches the sealed child', () => {",
+      "  assert.ok(process.env.FIXTURE_ROOT, 'FIXTURE_ROOT must be set under the seal');",
+      "});",
+      "",
+    ].join("\n"),
+  );
+  const savedTestContext = process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_CONTEXT;
+  let code;
+  try {
+    code = runSealed({ files: [probeFile] });
+  } finally {
+    if (savedTestContext !== undefined) process.env.NODE_TEST_CONTEXT = savedTestContext;
+  }
+  assert.equal(code, 0, "the sealed run of the probe file must succeed - FIXTURE_ROOT reached it");
+});
+
 test("cleanup removes the home directory", () => {
   const built = makeTempHome();
   assert.ok(fs.existsSync(built.home));
@@ -94,17 +139,21 @@ test("cleanup removes the home directory", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Gitconfig seeding (C5 / A3): includeIf scoped to the realpath'd system temp dir, forward slashes
+// Gitconfig seeding (C5 / L-C7): includeIf scoped to the realpath'd fixtureRoot, forward slashes
 // ---------------------------------------------------------------------------
 
-test("makeTempHome seeds .gitconfig with an includeIf scoped to the realpath'd system temp dir, forward slashes only", () => {
-  const { home } = tempHome({ gitIdentity: true });
+test("makeTempHome seeds .gitconfig with an includeIf scoped to the realpath'd fixtureRoot, forward slashes only", () => {
+  const { home, fixtureRoot } = tempHome({ gitIdentity: true });
   const gitconfig = fs.readFileSync(path.join(home, ".gitconfig"), "utf8");
-  const tempRoot = fs.realpathSync(os.tmpdir()).split(path.sep).join("/");
+  const fixtureRootGitPath = fs.realpathSync(fixtureRoot).split(path.sep).join("/");
   assert.match(gitconfig, /\[includeIf "gitdir\/i:/);
-  assert.ok(gitconfig.includes(tempRoot), "includeIf pattern must contain the realpath'd temp dir");
+  assert.ok(gitconfig.includes(fixtureRootGitPath), "includeIf pattern must contain the realpath'd fixtureRoot");
   assert.ok(!gitconfig.includes("\\"), "gitconfig values must use forward slashes, never backslashes");
   assert.match(gitconfig, /path = .*\.gitconfig-fixture/);
+  // Narrowing (L-C7): the pattern must NOT be scoped to the whole system temp dir any more - it
+  // has to name something more specific than the bare realpath'd tmpdir on its own.
+  const tempRoot = fs.realpathSync(os.tmpdir()).split(path.sep).join("/");
+  assert.notEqual(fixtureRootGitPath, tempRoot, "fixtureRoot must be a subdirectory of the temp dir, not the temp dir itself");
 });
 
 test("makeTempHome seeds .gitconfig-fixture with the Fixture identity, forward slashes only", () => {
@@ -124,18 +173,43 @@ test("gitIdentity: false leaves an empty global gitconfig (no identity anywhere 
 });
 
 // ---------------------------------------------------------------------------
-// Fixture commits: identity resolves under the temp dir, refused everywhere else
+// Fixture commits: identity resolves under fixtureRoot, refused everywhere else (L-C7)
 // ---------------------------------------------------------------------------
 
 test("a fixture commit succeeds under the seal with the fixture identity", () => {
-  const { env } = tempHome({ gitIdentity: true });
-  const repo = fixtureRepoDir(); // under os.tmpdir(), per A3
+  const { env, fixtureRoot } = tempHome({ gitIdentity: true });
+  const repo = fixtureRepoDir(fixtureRoot); // under fixtureRoot, per L-C7
   execFileSync("git", ["init", "-q"], { cwd: repo, env });
   fs.writeFileSync(path.join(repo, "a.txt"), "hi");
   execFileSync("git", ["add", "a.txt"], { cwd: repo, env });
   execFileSync("git", ["commit", "-q", "-m", "fixture commit"], { cwd: repo, env });
   const who = execFileSync("git", ["log", "-1", "--format=%an <%ae>"], { cwd: repo, env }).toString().trim();
   assert.equal(who, "Fixture <fixture@example.invalid>");
+});
+
+// This is the L-C7 canary: the whole point of narrowing is that a repo merely sitting somewhere
+// under the system temp dir - but OUTSIDE fixtureRoot - must get NO identity, where before the
+// narrowing it would have. Built as a sibling of fixtureRoot (both under the same sealed home's
+// realpath'd os.tmpdir() ancestor), so this test would PASS EVEN ON A REVERT to the old
+// whole-tmpdir scoping if it merely checked "under tmpdir" - it specifically checks "under
+// tmpdir, sibling to fixtureRoot, not inside it," which only the narrowed includeIf refuses.
+test("a repo built under the system temp dir but OUTSIDE fixtureRoot gets no identity under the seal (L-C7 canary)", () => {
+  const { env, fixtureRoot } = tempHome({ gitIdentity: true });
+  const outsideRoot = path.dirname(fixtureRoot); // sibling of "fixtures", i.e. the sealed home itself
+  const repo = fs.mkdtempSync(path.join(outsideRoot, "outside-fixture-root-"));
+  cleanups.push(() => fs.rmSync(repo, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q"], { cwd: repo, env });
+  fs.writeFileSync(path.join(repo, "a.txt"), "hi");
+  execFileSync("git", ["add", "a.txt"], { cwd: repo, env });
+  assert.throws(
+    () => execFileSync("git", ["commit", "-q", "-m", "should be refused"], { cwd: repo, env, stdio: "pipe" }),
+    // Round 2 (N2 review MAJOR 3): `/./` matches ANY execFileSync failure, including one that
+    // has nothing to do with identity (e.g. "nothing staged" if `git add` above hadn't run) -
+    // proved on a scratch copy. The strict predicate already used 40 lines below (the
+    // "outside the system temp dir" test) is the real check: it must be an identity refusal.
+    (e) => /identity unknown|unable to auto-detect email|empty ident/i.test(String(e.stderr ?? "") + String(e.message ?? "")),
+    "a repo outside fixtureRoot must not resolve the fixture identity",
+  );
 });
 
 test("a commit attempted outside the system temp dir has no identity under the seal and is refused", () => {
@@ -145,8 +219,9 @@ test("a commit attempted outside the system temp dir has no identity under the s
   // under the main checkout's `.git/worktrees/<name>`, which the includeIf pattern (matched against
   // gitdir, not worktree) does not cover. That's what this test actually exercises: gitdir outside
   // the temp dir -> no identity -> refused. (A DIFFERENT repo, e.g. one `git clone`d directly under
-  // %TEMP% instead of `worktree add`, would have its gitdir there too and WOULD get the identity -
-  // that's F4's flagged follow-up, not a bug in this assertion.)
+  // %TEMP% instead of `worktree add`, would have its gitdir there too and, before L-C7's narrowing,
+  // would have gotten the identity - that's F4's flagged follow-up, not a bug in this assertion; per
+  // L-C7 it now needs to be under fixtureRoot specifically, which this repo also is not.)
   //
   // `git var GIT_COMMITTER_IDENT` resolves identity with no write - unlike `git commit`, which would
   // actually create a real commit on this checked-out branch if identity ever resolved here.
@@ -156,15 +231,17 @@ test("a commit attempted outside the system temp dir has no identity under the s
   );
 });
 
-test("gitIdentity: false refuses a commit even under the system temp dir", () => {
-  const { env } = tempHome({ gitIdentity: false });
-  const repo = fixtureRepoDir();
+test("gitIdentity: false refuses a commit even under fixtureRoot", () => {
+  const { env, fixtureRoot } = tempHome({ gitIdentity: false });
+  const repo = fixtureRepoDir(fixtureRoot);
   execFileSync("git", ["init", "-q"], { cwd: repo, env });
   fs.writeFileSync(path.join(repo, "a.txt"), "hi");
   execFileSync("git", ["add", "a.txt"], { cwd: repo, env });
+  // Same tightening as the L-C7 canary above (round 2, N2 review MAJOR 3, applied here too for
+  // consistency - pre-existing, not introduced this round, but the same loose match either way).
   assert.throws(() => {
     execFileSync("git", ["commit", "-q", "-m", "no identity"], { cwd: repo, env, stdio: "pipe" });
-  }, /./);
+  }, (e) => /identity unknown|unable to auto-detect email|empty ident/i.test(String(e.stderr ?? "") + String(e.message ?? "")));
 });
 
 // ---------------------------------------------------------------------------
@@ -221,4 +298,63 @@ test("checkSeal fails in a child when AGENTS_HOME is not '<home>/.agents'", () =
   const r = checkSealInChild(broken);
   assert.equal(r.ok, false);
   assert.match(r.message, /AGENTS_HOME/);
+});
+
+// ---------------------------------------------------------------------------
+// Class test (L-C7, unconditional - no carve-out): exactly ONE construction of an
+// `includeIf "gitdir` directive anywhere in the repo.
+// ---------------------------------------------------------------------------
+
+// Round 2 (N2 review minor 2): a hardcoded three-root list had drifted from N2's own scope (now
+// the whole repo, per MAJOR 1's fix) - a second construction under skills/delegate/references/,
+// skills/decisions/scripts/, or agents/ would not have been caught. Walking the whole repo (same
+// exclusions as run-tests.mjs's walkTestFiles) closes that, and closes the non-recursive gap too
+// (a construction under a future scripts/lib/ would previously have been missed).
+function walkSourceFiles(dir, out = []) {
+  const EXCLUDED = new Set(["node_modules", ".claude", ".git"]);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (EXCLUDED.has(entry.name)) continue;
+      walkSourceFiles(path.join(dir, entry.name), out);
+      continue;
+    }
+    if (entry.isFile() && /\.(mjs|js)$/.test(entry.name)) out.push(path.join(dir, entry.name));
+  }
+  return out;
+}
+
+test("class test: exactly one construction of the fixture includeIf gitdir-scope directive anywhere in the repo", () => {
+  const REPO_ROOT = path.resolve(HERE, "..");
+  // Built, never written literally, so this test is never counted as its own second construction.
+  const needle = ["includeIf ", '"gitdir'].join("");
+  const constructions = [];
+  for (const full of walkSourceFiles(REPO_ROOT)) {
+    const lines = fs.readFileSync(full, "utf8").split("\n");
+    let inBlockComment = false;
+    for (const [i, line] of lines.entries()) {
+      const trimmed = line.trim();
+      if (inBlockComment) {
+        if (trimmed.includes("*/")) inBlockComment = false;
+        continue; // the whole line lives inside the block comment
+      }
+      if (trimmed.startsWith("/*")) {
+        if (!trimmed.includes("*/")) inBlockComment = true;
+        continue;
+      }
+      if (!line.includes(needle)) continue;
+      if (trimmed.startsWith("//")) continue; // line comment
+      // A regex literal used only for matching (e.g. this file's own
+      // `assert.match(gitconfig, /\[includeIf "gitdir\/i:/)`) escapes the bracket and the
+      // slash the way a JS RegExp source does - a constructed value (a plain string or
+      // template literal actually written to a file) never contains those escapes.
+      if (line.includes('\\[includeIf') || line.includes("gitdir\\/")) continue;
+      constructions.push(`${path.relative(REPO_ROOT, full)}:${i + 1}`);
+    }
+  }
+  assert.equal(
+    constructions.length,
+    1,
+    `expected exactly one includeIf gitdir-scope construction, found: ${constructions.join(", ") || "(none)"}`,
+  );
+  assert.match(constructions[0], /test-home\.mjs:/, "the one construction must be makeTempHome's own");
 });

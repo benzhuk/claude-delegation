@@ -238,6 +238,18 @@ test('V4: a real install writes one shim per command, each naming ITS OWN comman
       assert.ok(cmd.includes(`echo ${command}: node not found`), `${command} cmd shim reports the wrong command`);
     }
   }
+  // SKILL_FILE_EXCLUDE (m5): a real install must never publish a skill's own test file —
+  // skills/multi/scripts/hooks.test.mjs relies on this to import from outside its
+  // mirrored directory. Windows publishes by copy, so this can only be pinned by
+  // checking what actually landed, not the dry-run plan (which logs a per-directory
+  // file count, not names).
+  const mirroredFiles = fs.readdirSync(path.join(home, '.agents', 'skills'), { recursive: true });
+  assert.ok(!mirroredFiles.some((f) => f.endsWith('.test.mjs')),
+    'SKILL_FILE_EXCLUDE let a .test.mjs file publish');
+  // Positive control: the assertion above must fail because the walk found real files and
+  // filtered one out, not because the walk (or the whole publish) silently did nothing.
+  assert.ok(mirroredFiles.some((f) => f.replace(/\\/g, '/').endsWith('multi/scripts/transport.mjs')),
+    'the skill file walk published nothing');
   // …and it removes exactly what it created.
   execFileSync(process.execPath, [MIRROR, '--uninstall'], { encoding: 'utf8', env: fakeEnv(home) });
   assert.equal(fs.existsSync(bin), false, 'uninstall left shims behind');

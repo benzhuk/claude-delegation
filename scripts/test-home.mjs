@@ -3,11 +3,16 @@
 // The ONE way a test (or `scripts/run-tests.mjs`) builds a sealed fake home: a fresh, disposable
 // temp directory that stands in for HOME (and USERPROFILE, since `os.homedir()` reads that on
 // Windows), with AGENTS_HOME pointed underneath it, and - when asked - a git identity that ONLY
-// resolves for repos created under the system temp dir, never for a real repo. That scoping is the
-// point (C5): a commit inside a fixture repo under the temp dir gets an identity; a commit attempted
-// anywhere else under the seal has none and fails loudly, so the seal (which hides `core.hooksPath`
-// and every other global git setting, via GIT_CONFIG_GLOBAL + GIT_CONFIG_NOSYSTEM) never becomes a
-// way to bypass the machine's real git-identity guard for a real repo.
+// resolves for repos created under `fixtureRoot` (a dedicated `<home>/fixtures` directory), never
+// for a real repo and never for anything else merely sitting under the system temp dir. That
+// scoping is the point (C5, narrowed by L-C7): a commit inside a fixture repo under `fixtureRoot`
+// gets an identity; a commit attempted anywhere else under the seal - including elsewhere under
+// the system temp dir - has none and fails loudly, so the seal (which hides `core.hooksPath` and
+// every other global git setting, via GIT_CONFIG_GLOBAL + GIT_CONFIG_NOSYSTEM) never becomes a way
+// to bypass the machine's real git-identity guard for a real repo. Narrowing the scope from the
+// whole system temp dir to `fixtureRoot` matters because the system temp dir is shared with every
+// other process on the machine, sealed or not - a stray repo built there by something else could
+// otherwise pick up the fixture identity by accident.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,24 +28,25 @@ function toGitPath(p) {
 /**
  * Build a fresh sealed home for a test (or a child process the test spawns).
  *
- * IMPORTANT for callers who then create a fixture repo to commit into (T1, T3): the
+ * IMPORTANT for callers who then create a fixture repo to commit into (T1, T3, L-C7): the
  * `includeIf "gitdir/i:..."` pattern this seeds only matches a gitdir that is itself under the
- * REALPATH of `os.tmpdir()` (A3, spec-addendum-r3.md). Build every fixture repo with
- * `fs.mkdtempSync(path.join(os.tmpdir(), <prefix>))` - never inside this repo, a project scratch
- * path, or any other location - or the commit you make in it gets no identity and git refuses it.
- * The pattern and the `path =` value are always written with forward slashes, even on Windows
- * (a backslash in a git config value is an escape sequence and silently mis-resolves) - `toGitPath`
- * below is the one place that conversion happens; a caller does not need to repeat it.
+ * REALPATH of `fixtureRoot`, the `env.FIXTURE_ROOT` this function returns - NOT the whole system
+ * temp dir. Build every fixture repo with `fs.mkdtempSync(path.join(fixtureRoot, <prefix>))` -
+ * never inside this repo, a project scratch path, elsewhere under `os.tmpdir()`, or any other
+ * location - or the commit you make in it gets no identity and git refuses it. The pattern and the
+ * `path =` value are always written with forward slashes, even on Windows (a backslash in a git
+ * config value is an escape sequence and silently mis-resolves) - `toGitPath` below is the one
+ * place that conversion happens; a caller does not need to repeat it.
  *
  * @param {object} [opts]
  * @param {Record<string,string>} [opts.files]  relative-path -> content, written under the new home
  *   before `env`/`cleanup` are handed back (e.g. seeding `.agents/...` state for a test). Written
  *   BEFORE `.gitconfig`/`.gitconfig-fixture` are seeded, so a `files` entry at either of those paths
  *   is silently overwritten by the identity seeding below - don't pass one.
- * @param {boolean} [opts.gitIdentity=true]  seed the fixture git identity scoped to the system temp
- *   dir. `false` leaves `GIT_CONFIG_GLOBAL` pointed at an empty file: any commit under the seal then
+ * @param {boolean} [opts.gitIdentity=true]  seed the fixture git identity scoped to `fixtureRoot`.
+ *   `false` leaves `GIT_CONFIG_GLOBAL` pointed at an empty file: any commit under the seal then
  *   has no identity and git refuses it, on purpose.
- * @returns {{ home: string, agentsHome: string, env: object, cleanup: () => void }}
+ * @returns {{ home: string, agentsHome: string, env: object, fixtureRoot: string, cleanup: () => void }}
  */
 export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
   const raw = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-home-"));
@@ -49,6 +55,14 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
   const home = fs.realpathSync(raw);
   const agentsHome = path.join(home, ".agents");
   fs.mkdirSync(agentsHome, { recursive: true });
+
+  // L-C7: fixture repos live under their OWN dedicated directory inside the sealed home, not
+  // anywhere under the whole system temp dir - the includeIf pattern below is scoped to exactly
+  // this. realpath it too, for the same reason `home` above is realpath'd: the glob is matched
+  // against a realpath, and `fixtureRoot` being a plain child of an already-realpath'd `home`
+  // does not itself guarantee no symlink was introduced by `mkdirSync` on every platform.
+  fs.mkdirSync(path.join(home, "fixtures"), { recursive: true });
+  const fixtureRoot = fs.realpathSync(path.join(home, "fixtures"));
 
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(home, rel);
@@ -60,10 +74,9 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
 
   if (gitIdentity) {
     const fixtureConfig = path.join(home, ".gitconfig-fixture");
-    const tempRoot = fs.realpathSync(os.tmpdir());
     fs.writeFileSync(
       gitConfigGlobal,
-      `[includeIf "gitdir/i:${toGitPath(tempRoot)}/**"]\n\tpath = ${toGitPath(fixtureConfig)}\n`,
+      `[includeIf "gitdir/i:${toGitPath(fixtureRoot)}/**"]\n\tpath = ${toGitPath(fixtureConfig)}\n`,
     );
     fs.writeFileSync(
       fixtureConfig,
@@ -83,6 +96,7 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
     HOMEPATH: home.slice(2),
     GIT_CONFIG_GLOBAL: gitConfigGlobal,
     GIT_CONFIG_NOSYSTEM: "1",
+    FIXTURE_ROOT: toGitPath(fixtureRoot),
   };
   // Removed rather than blanked: some callers branch on the KEY BEING ABSENT, not on its value
   // being empty (e.g. codex-hook-trust.mjs falls back to process.env.CODEX_HOME only when the
@@ -98,7 +112,7 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
     }
   }
 
-  return { home, agentsHome, env, cleanup };
+  return { home, agentsHome, env, fixtureRoot, cleanup };
 }
 
 /**

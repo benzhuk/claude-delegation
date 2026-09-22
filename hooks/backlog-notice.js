@@ -210,7 +210,9 @@ function idsList(ids) {
 /**
  * Buckets records by status. A record with no `work` id, no `status`, or a `status` outside the
  * known set is malformed: skipped here, counted only for the caller's stderr note, never in the
- * printed counts.
+ * printed counts. A `runnable`-status record whose `owner` is present and not `'none'` is malformed
+ * too (work-record.mjs's `runnable-with-owner`, L-C6) — it is not what it claims to be, so it is not
+ * pushed into `runnable` either.
  */
 function classify(entries, statuses) {
   const runnable = [];
@@ -220,7 +222,12 @@ function classify(entries, statuses) {
   for (const { record } of entries) {
     const status = record && record.fields && record.fields.status;
     const work = record && record.fields && record.fields.work;
+    const owner = record && record.fields && record.fields.owner;
     if (!status || !work || !statuses.includes(status)) {
+      malformed += 1;
+      continue;
+    }
+    if (status === 'runnable' && owner !== undefined && owner !== '' && owner !== 'none') {
       malformed += 1;
       continue;
     }
@@ -299,10 +306,12 @@ async function main() {
 
   let entries = [];
   let statuses;
+  let duplicates = [];
   try {
     const parser = await import(pathToFileURL(PARSER_PATH).href);
     statuses = parser.STATUSES;
     entries = parser.listRecords(workDir, { fsImpl: fs });
+    duplicates = parser.checkRecordSet(entries);
   } catch (err) {
     process.stderr.write(`backlog-notice: could not load the parser — ${err && err.message ? err.message : String(err)}\n`);
     return;
@@ -311,6 +320,10 @@ async function main() {
   const { runnable, delivered, rejected, malformed } = classify(entries, statuses);
   if (malformed > 0) {
     process.stderr.write(`backlog-notice: skipped ${malformed} malformed record(s) in ${workDir}\n`);
+  }
+  if (duplicates.length > 0) {
+    const ids = duplicates.map((d) => d.work).join(', ');
+    process.stderr.write(`backlog-notice: duplicate work id(s): ${ids}\n`);
   }
 
   const scan = scanWorkDir(workDir);

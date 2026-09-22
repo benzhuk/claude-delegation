@@ -30,31 +30,42 @@ mention says where to find it once mirrored.
    mandate, from `docs/mandate-template.md`, shipped next to this skill as
    `../_docs/mandate-template.md` when mirrored, and in the plugin repo's `docs/`
    otherwise.
-2. **Decompose by territory, not layer-step**: one builder per disjoint file territory
+2. **Scout** — one cheap (mid-tier) agent, per BUILD, not per territory: after the
+   territory map exists and before any territory's worktree is created, it surveys every
+   territory in one pass and writes one output file per territory
+   (`<spec-pack>/scout-<territory-id>.md`, at most 40 lines each — files/symbols the
+   territory will touch and whether the spec's premise about them still holds, existing
+   helpers to reuse, tests
+   that police the area, open questions for the spec). Full instructions, copyable
+   verbatim into the scout's prompt: `references/scout-brief.md`. Fold each territory's
+   scout file into that territory's brief (by path, as an addendum — never restate it)
+   before spawning that territory's builder; a scout finding that contradicts the spec
+   loses to the spec once you've ruled on the discrepancy.
+3. **Decompose by territory, not layer-step**: one builder per disjoint file territory
    (e.g. DB+API+shared-lib = one; UI = one; pipeline = one). Pinned contracts let
    territories build in parallel even when they call each other. A serial layer chain
    (schema → api → client → ui, each awaiting review) is the #1 wall-clock waste; one
    agent per micro-task multiplies briefing overhead past the work. File-level disjoint
    territories stated in every prompt is what produces zero edit collisions at 15+
    concurrent agents.
-3. **Commit contract stubs at t0 — mandatory, not optional.** Turn the pinned contracts
+4. **Commit contract stubs at t0 — mandatory, not optional.** Turn the pinned contracts
    into actual committed type/interface files before spawning, so repo-wide typecheck
    is green from the start and builders physically can't drift. Cost ~15 minutes; saves
    a contract-mismatch round in every territory (proven: 4 builders compiled against a
    frozen `contracts.ts` simultaneously with zero mismatch rounds — one built its eval
    harness against an engine signature before that engine existed).
-4. **High-tier spec red-team** (skip only for
+5. **High-tier spec red-team** (skip only for
    small/low-risk builds): one high-tier agent adversarially reviews spec + contracts —
    missing cases, ambiguities, wrong decomposition. The highest-leverage high-tier spend
    in the pipeline.
-5. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`, shipped next to this
+6. **Estimate ETAs and plan the timers** (`docs/agent-pacing.md`, shipped next to this
    skill as `../_docs/agent-pacing.md` when mirrored, and in the plugin repo's `docs/`
    otherwise). Anchor
    estimates: pure-code territory ≈ 30–60 min; build + measurement harness ≈
    60–90 min; anything paying a prod build per iteration ≈ 2–3 h unless parallelized —
    that last shape gets its levers (parallel arms budget, cost-split iteration) granted
    AT SPAWN, in the mandate, not discovered at check-in.
-6. **Open one work record per territory before spawning it** — `docs/work/<work-id>.record.md`
+7. **Open one work record per territory before spawning it** — `docs/work/<work-id>.record.md`
    (`docs/work-record.md`, shipped next to this skill as `../_docs/work-record.md` when
    mirrored, and in the plugin repo's `docs/` otherwise, has the full field list): `Status:
    runnable`, `Owner: none`, `Scope:` the spec or brief path and the commit it was read at,
@@ -203,6 +214,15 @@ writer to `docs/work/` through to the end; a fresh orchestrator, or one that is 
 shown its next runnable record by reading that directory, never by asking you to recall
 it.
 
+Once every territory is `reviewed` and the integrator's gates are green — before the merge
+ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
+— run `node <plugin>/scripts/work-census.mjs docs/work` (and, if this build launched the
+loop from an Opus pane, `node <plugin>/scripts/build-census.mjs --lead <lead-session.jsonl>
+--tasks <subagent-tasks-dir>`) to get the measures — elapsed per work id, dispatch latency,
+idle minutes with a runnable unowned record — that make the build's speed a number instead
+of an impression. The plugin repo's `docs/pane-setup.md` names what each measure means and
+which script reads it; don't restate that here.
+
 ## Peer sessions
 
 To ask, brief or hand off to an EQUAL session you do not own — another territory's
@@ -223,3 +243,70 @@ you spawned and own; a peer note goes to a session you don't.
 - Paraphrasing findings when relaying → drops file:line specifics; send the path.
 - Acting on a bare "Done." reply → read the report file; the reply is only a
   notification that it exists.
+
+## Running the loop from an Opus pane
+
+This section is the file's last section — it follows Common mistakes above, not the Ship
+section earlier in this file, even though Ship is where a reader might expect a "how the
+build actually runs" note to live.
+
+**When**: two or more territories, from an Opus orchestrator pane only — never Fable,
+never a builder or lead pane running at a lower tier. Below two territories, run the
+pipeline by hand as described in Setup through Ship above; the loop earns its keep on
+genuine fan-out, not a single-file fix.
+
+**What it is**: `skills/team-build/references/build-loop-workflow.js`, a Workflow script
+that runs the whole build → review → fix loop, for every territory, as one call. Inside
+it, one `runTerritory(t)` per territory drives that territory's own build/review/fix-round
+loop; every territory runs concurrently under `parallel()`, a barrier, so the script only
+moves on to the integrator once all of them have either reached `APPROVE`, exhausted
+`maxRounds`, or died twice. Static contract, tests, and the pinned agent-type/model pairs:
+`skills/team-build/references/build-loop-workflow.test.mjs`.
+
+**Pre-launch steps, in order** — the script does none of these itself:
+1. Spec pack on disk (spec, contracts, territory map) per Setup step 1 above.
+2. One scout agent per build — not per territory — writing one file per territory to
+   `<spec-pack>/scout-<territory>.md` (`skills/team-build/references/scout-brief.md` has
+   the brief). Fold each territory's scout findings into its brief before any builder
+   spawns; where a scout report and the spec disagree, the spec wins.
+3. Worktrees and branches, one per territory, ALL cut from the SAME shared `baseSha`:
+   `git worktree add <worktree> -b <branch> <baseSha>`. The script never creates a
+   worktree of its own — that concept doesn't exist inside it, by design; every worktree
+   decision happens here, before launch.
+4. Briefs written, one per territory, plus the reviewer brief and the integrator brief.
+5. Open one work record per territory, as in Setup step 7 above, before spawning.
+
+**The launch call**: invoke the Workflow tool with
+`{scriptPath: "skills/team-build/references/build-loop-workflow.js"}` and an `args`
+object shaped `{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, briefPath,
+worktree, branch, gate }], reviewerBriefPath, integratorBriefPath }` — see
+`skills/team-build/references/build-loop-args.example.json` for a worked example.
+`startedAt` is required: the script has no clock of its own (`Date.now()`/`new Date()`
+are unavailable inside a Workflow script), so stamp it yourself before calling. `maxRounds`
+defaults to 3.
+
+**Reading the return**: one object, `{ territories, integrator, blockers }`.
+`territories` is one row per territory — `{ id, sha, verdict, rounds, reportPath,
+findingsPath, blocker }` — read `verdict` for the outcome and `blocker` for why a
+territory never reached one (`'agent-died'`, `'builder-blocked'`, `'build-failed'`, or
+`'rounds-exhausted'`; `null` means it reached the loop's normal end). `blockers` is the
+same information again as a flat `[{ id, reason }]` list, for a quick scan without
+walking every territory row. `integrator` is that stage's own verdict object — read it
+last, since it only ran over the territories that weren't excluded for a blocker.
+
+**What breaks honestly**:
+- No warm-delta re-review across rounds — every fix round gets a full review, not a diff
+  against the prior one's findings.
+- No per-agent timeout. A hung agent is killed externally (outside the script) and the
+  run resumed with `resumeFromRunId`; the longest unchanged prefix of `agent()` calls
+  replays from cache, and only the stuck call and everything after it runs live.
+- Results return once, at the end — there is no partial/streaming read of a
+  still-running loop; `journal.jsonl` in the run's transcript directory is the durable,
+  inspectable record of every agent's actual return, read that before assuming a result
+  was empty.
+
+**Making this a measured change, not just a launched one**: record `startedAt` and the
+full return value in the work record's `Log:` line for this run, then run the plugin
+repo's `scripts/build-census.mjs` (its `docs/census.md` has the CLI) against this run's
+own lead transcript. Those two steps are what let a future build compare its own
+turns-and-tokens cost against this one, honestly, instead of by memory.

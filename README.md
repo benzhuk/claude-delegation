@@ -172,7 +172,7 @@ Codex reads shared skills and agent roles from its own paths, not the Claude Cod
 node scripts/mirror-shared-skills.mjs
 ```
 
-Publishes: skills to `~/.agents/skills/<name>`; the five shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
+Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
 
 ## The philosophy, in four lines
 
