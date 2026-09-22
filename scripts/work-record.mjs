@@ -13,7 +13,7 @@ export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
-  "evidence-unreachable", "bugfix-gate-missing",
+  "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner",
 ];
 
 const FIELD_LABELS = [
@@ -119,6 +119,14 @@ export function validateRecord(record, opts = {}) {
       code: "bad-status",
       level: "finding",
       message: `status "${fields.status}" is not one of ${STATUSES.join(", ")}`,
+    });
+  }
+
+  if (fields.status === "runnable" && fields.owner !== undefined && fields.owner !== "" && fields.owner !== "none") {
+    findings.push({
+      code: "runnable-with-owner",
+      level: "finding",
+      message: `Status: runnable but Owner: is "${fields.owner}", not none`,
     });
   }
 
@@ -287,6 +295,28 @@ export function listRecords(dir, opts = {}) {
       }
       return { path: p, record: parseRecord(text) };
     });
+}
+
+// records is listRecords's own return shape ([{ path, record }]); groups by
+// record.fields.work (records with no work field are skipped — that's missing-field's
+// job) and reports every work id held by more than one record. Deliberately a different
+// shape from validateRecord's findings: work/paths, not message.
+// -> [{ code: 'duplicate-work-id', level: 'finding', work, paths: [...] }]
+export function checkRecordSet(records) {
+  const byWork = new Map();
+  for (const { path: p, record } of records) {
+    const work = record?.fields?.work;
+    if (work === undefined) continue;
+    if (!byWork.has(work)) byWork.set(work, []);
+    byWork.get(work).push(p);
+  }
+  const findings = [];
+  for (const [work, paths] of byWork) {
+    if (paths.length > 1) {
+      findings.push({ code: "duplicate-work-id", level: "finding", work, paths });
+    }
+  }
+  return findings;
 }
 
 export function formatLogLine(at, status, owner, note) {
