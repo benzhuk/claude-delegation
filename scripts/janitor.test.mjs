@@ -1224,7 +1224,15 @@ test("T4: no docs/work directory at all is not a finding - judgment.workarounds 
   const { config } = loadProjectConfig(root);
   const state = gatherState({ root: toplevel, config });
   assert.deepEqual(state.judgment.workarounds, []);
-  const code = main([], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.equal(code, 0);
 });
 
@@ -1249,7 +1257,15 @@ test("T4: an overdue workaround (remove when a past 'by <date>') is a JUDGMENT r
   assert.equal(row.overdue, true);
   assert.match(row.reason, /^manual review skipped \/ remove when by 2020-01-01 \(overdue\)$/);
 
-  const code = main([], { cwd: root });
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
   assert.equal(code, 1, "an overdue workaround must fail the run");
 });
 
@@ -1319,7 +1335,13 @@ test("T4: a record with no Work: id is skipped for workarounds, never guessed at
   const { config } = loadProjectConfig(root);
   const state = gatherState({ root: toplevel, config });
   assert.deepEqual(state.judgment.workarounds, []);
-  assert.equal(main([], { cwd: root }), 0);
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    assert.equal(main([], { cwd: root }), 0);
+  } finally {
+    console.log = origLog;
+  }
 });
 
 test("T4: gatherWorkarounds is exported and pure (no I/O beyond listRecords) - repeatable WORKAROUND lines on one record each become their own row", () => {
@@ -1329,14 +1351,47 @@ test("T4: gatherWorkarounds is exported and pure (no I/O beyond listRecords) - r
     ...WORK_RECORD_HEADER,
     "WORKAROUND: cause one / blocked one / by 2020-01-01",
     "WORKAROUND: cause two / blocked two / by 2099-01-01",
+    "WORKAROUND: cause three / blocked three / 2020-01-01",
     "",
     "Prose.",
     "",
   ]);
   const rows = gatherWorkarounds(root, { now: new Date("2026-09-21T00:00:00Z") });
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.ok(rows.some((r) => r.ref === "wr-2026-01-01-multi" && r.overdue === true && /cause one/.test(r.reason)));
   assert.ok(rows.some((r) => r.ref === "wr-2026-01-01-multi" && r.overdue === false && /cause two/.test(r.reason)));
+  assert.ok(
+    rows.some((r) => r.ref === "wr-2026-01-01-multi" && r.overdue === true && /cause three/.test(r.reason)),
+    "a bare yyyy-mm-dd (no 'by' prefix) in the past must also be judged overdue - C1 says ANY remove-when date in the past, in any status",
+  );
+});
+
+// MAJOR 2 (round-2 review): listRecords guards readdirSync but not readFileSync - a directory (or
+// a win32-locked file) named `x.record.md` throws EISDIR out of gatherWorkarounds, out of
+// gatherState, into main()'s fail-open catch, which used to print NOTHING and exit 0, hiding every
+// other finding. gatherWorkarounds now catches that read failure itself and returns [] with a
+// stderr line, so the rest of the report still prints.
+test("MAJOR 2: an unreadable docs/work entry (a directory named *.record.md) does not blind the whole report", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  fs.mkdirSync(path.join(root, "docs", "work", "x.record.md"), { recursive: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.deepEqual(state.judgment.workarounds, [], "the unreadable entry yields no rows, but does not throw");
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0, "no other findings in this fixture - the report must still complete cleanly");
+  assert.ok(lines.join("\n").includes("SAFE:"), "the rest of the report must still print despite the unreadable record entry");
 });
 
 after(() => {

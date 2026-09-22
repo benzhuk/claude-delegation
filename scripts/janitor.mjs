@@ -472,7 +472,11 @@ function currentBranchOf(worktrees, root) {
  * evaluated - it stays "open" until a person (or the orchestrator) says otherwise.
  */
 function isWorkaroundOverdue(removeWhen, now) {
-  const m = /^by[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$/i.exec(String(removeWhen ?? "").trim());
+  // Bounded like every regex in this repo (hooks/agent-dispatch-guard.mjs:79-135): [ \t]{0,20},
+  // never an unbounded run. `by` is optional and trailing words are allowed, so a bare
+  // `<yyyy-mm-dd>` and `by <date> at the latest` are judged too - C1 says ANY remove-when date
+  // in the past, not only the canonical form. A worded condition still never matches.
+  const m = /^(?:by[ \t]{1,20})?(\d{4}-\d{2}-\d{2})\b/i.exec(String(removeWhen ?? "").trim());
   if (!m) return false;
   const due = new Date(`${m[1]}T00:00:00Z`);
   if (Number.isNaN(due.getTime())) return false;
@@ -488,7 +492,16 @@ function isWorkaroundOverdue(removeWhen, now) {
  */
 export function gatherWorkarounds(root, { now = new Date(), fsImpl } = {}) {
   const dir = path.join(root, "docs", "work");
-  const entries = listRecords(dir, fsImpl ? { fsImpl } : {});
+  let entries;
+  try {
+    entries = listRecords(dir, fsImpl ? { fsImpl } : {});
+  } catch (err) {
+    // One unreadable `*.record.md` (a directory with that name, a locked file on win32) threw out
+    // of gatherState, where main()'s fail-open catch swallowed EVERY finding and printed nothing
+    // at exit 0. Blind is not clean: say so on stderr and keep the rest of the report.
+    process.stderr.write(`janitor: could not read work records in ${dir}: ${String(err && err.message ? err.message : err)}\n`);
+    return [];
+  }
   const rows = [];
   for (const { record } of entries) {
     const workId = record?.fields?.work;
