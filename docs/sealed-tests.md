@@ -43,6 +43,19 @@ carries it through for free.
 Cleanup only happens when the run exits 0; a non-zero exit leaves the sealed home in
 place (path printed on line 1) for inspection.
 
+`runSealed` is importable, not just a CLI - it also strips `NODE_TEST_CONTEXT` and
+`NODE_TEST_WORKER_ID` from the env it builds before spawning either child. Without
+this, a caller running `runSealed` from inside its OWN `node --test` process (e.g. a
+test that exercises `run-tests.mjs` itself) would silently break the suite spawn: node
+inherits those two vars through `childEnv`'s `process.env` spread, sees them on the
+grandchild `node --test` invocation, decides it's a "recursive" run, and SKIPS
+executing the suite entirely - while `runSealed` still returns exit 0, as if every
+test had passed. Confirmed directly: a deliberately-failing probe test returned 0
+through the leak, and 1 once these two vars were stripped. The same fix already
+existed at `scripts/prefix-test.mjs`'s own `node --test` spawn site before this was
+found here too - any NEW `node --test` spawn site added to this repo needs the same
+strip if it might ever run from inside another `node --test` process.
+
 ### Fixture identity scope
 
 `gitIdentity: true` (the default) seeds `<home>/.gitconfig` with exactly one directive:
