@@ -121,7 +121,7 @@ test('the safety block still carries every rule it is there to carry', () => {
   }
 });
 
-test('the safety block stays under the 2000-character token-cost ceiling', () => {
+test('the safety block stays under the 2100-character token-cost ceiling', () => {
   const block = safetyBlock(agents.find((a) => a.file === 'builder.md').body, 'builder.md');
   // raised from 2000 in package-build/P3 — see spec.md PB-C3
   assert.ok(block.length < 2100, `safety block is ${block.length} chars, over the 2100-char ceiling`);

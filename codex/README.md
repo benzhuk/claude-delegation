@@ -21,6 +21,9 @@ in vendor-neutral words — no Agent tool, no `subagent_type`, no Claude-specifi
 Where Claude's file says "you have no Bash tool", the Codex file says "your sandbox is
 read-only", which is the same guarantee by a different mechanism.
 
+The safety block in these files is hand-kept in sync with `agents/*.md`'s — no test compares
+the two, so a change to one side can drift until somebody notices.
+
 ## Installation
 
 `scripts/mirror-shared-skills.mjs` copies every `codex/agents/*.toml` to

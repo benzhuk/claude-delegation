@@ -62,7 +62,7 @@
     "id": "pane-note-slug",
     "type": "env_presence",
     "var": "NOTE_SLUG",
-    "why": "this pane's peer-note inbox registers only when NOTE_SLUG is set at launch (or a panes.json binding exists) - a pane with neither never appears in inboxes.json and silently misses peer notes",
-    "fix": "no fix needed either way, this is a visibility check: launch with NOTE_SLUG=<slug> in the --command string (docs/pane-setup.md), or bind by hand with `note-inbox --bind <slug>`"
+    "why": "this pane's peer-note inbox registers from its session name (/rename <slug> or claude --name <slug>) first, or NOTE_SLUG, or a panes.json binding - this check only sees NOTE_SLUG, so a pane named the new way may correctly show 'not set' here while still being fully registered",
+    "fix": "no fix needed either way, this is a visibility check: name the session with /rename <slug> (the primary route, docs/pane-setup.md), or fall back to NOTE_SLUG=<slug> in the --command string, or bind by hand with `note-inbox --bind <slug>`"
   }
 ]
