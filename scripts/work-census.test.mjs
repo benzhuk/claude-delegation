@@ -92,6 +92,19 @@ Log: 2026-01-01T05:10:00.000Z delivered builder-6 artifact bbb222
 Log: 2026-01-01T05:15:00.000Z reviewed orchestrator artifact bbb222
 `;
 
+// t7: a `delivered` line whose only later reviewed candidate carries an EARLIER
+// timestamp than the delivery itself — dispatchLatencies() correctly skips it as a
+// negative interval, leaving zero candidates even though the record WAS delivered.
+// This must render as "no valid responder" (null / n/a), never as a plausible 0.0m
+// indistinguishable from an instant dispatch (N2).
+const T7_ALLBAD = `Work: wr-2026-01-01-census-t7-allbad
+Opened: 2026-01-01T06:00:00.000Z
+Log: 2026-01-01T06:00:00.000Z runnable none
+Log: 2026-01-01T06:05:00.000Z owned builder-7 spawned
+Log: 2026-01-01T06:20:00.000Z delivered builder-7 artifact ccc333
+Log: 2026-01-01T06:10:00.000Z reviewed orchestrator out-of-order-only-candidate
+`;
+
 function writeFixtures(dir, files) {
   for (const [name, text] of Object.entries(files)) {
     fs.writeFileSync(path.join(dir, name), text, 'utf8');
@@ -183,6 +196,19 @@ test('dispatch latency: an out-of-order Log line (earlier timestamp than the del
   assert.ok(t5.dispatchLatencies.every((d) => d.ms >= 0), 'no negative latency is ever reported');
   assert.equal(t5.dispatchLatencies[0].respondedAt, '2026-01-01T04:25:00.000Z', 'the real, later review is the one picked');
   assert.equal(t5.dispatchLatencies[0].ms, 5 * 60 * 1000);
+});
+
+test('dispatch latency: a delivered record whose only later candidate is out-of-order (negative interval, skipped) reports the sum as null/n/a, never a plausible 0.0m (N2)', () => {
+  const dir = mkTmp('work-census-latency-allbad-');
+  const records = writeFixtures(dir, { 't7.record.md': T7_ALLBAD });
+  const { perWork } = computeWorkCensus(records);
+  const t7 = perWork[0];
+  assert.equal(t7.dispatchLatencies.length, 0, 'no candidate survives the negative-interval guard');
+  assert.equal(t7.dispatchLatencySumMs, null, 'a record with a delivered line but no valid responder is not the same as a zero latency');
+  assert.notEqual(t7.dispatchLatencySumMs, 0);
+
+  const text = formatText({ perWork, idleMinutes: 0 });
+  assert.match(text, /\| wr-2026-01-01-census-t7-allbad \| n\/a \|/, 'the latency-sum row renders n/a, not 0.0m');
 });
 
 test('elapsed: opened -> accepted when an accepted line exists', () => {

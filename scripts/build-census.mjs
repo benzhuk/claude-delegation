@@ -169,7 +169,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
 
   if (!marker) windowStartAt = firstAt;
 
-  return { totalById, windowById, windowStartAt, firstAt, lastAt };
+  return { totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt };
 }
 
 /**
@@ -284,6 +284,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       windowTurns: lead.windowById.size,
       totalByModel: leadTotalByModel,
       windowByModel: leadWindowByModel,
+      markerFound: lead.markerFound,
       windowStartAt: lead.windowStartAt,
       windowEndAt: lead.lastAt,
       turnsPerHour,
@@ -391,7 +392,7 @@ export async function main(argv = process.argv.slice(2), { fsImpl = realFs(), no
   // would otherwise print a confident VERDICT of 0 lead turns and a zeroed combined
   // split — the exact shape spec.md's "Done" comparison depends on. Loud failure instead
   // of a silent, plausible-looking zero. The marker text itself is never echoed.
-  if (opts.marker && report.lead.windowStartAt === null) {
+  if (opts.marker && !report.lead.markerFound) {
     throw new Error(`--marker text not found in ${path.basename(opts.lead)} (window would be empty)`);
   }
   const text = formatText(report);

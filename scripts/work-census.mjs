@@ -98,7 +98,10 @@ function perWorkReport(entry) {
   const work = fields.work || path.basename(recPath);
 
   const latencies = dispatchLatencies(log);
-  const latencySumMs = latencies.reduce((s, d) => s + d.ms, 0);
+  const hasDelivered = log.some((l) => l.status === 'delivered');
+  const latencySumMs = latencies.length === 0 && hasDelivered
+    ? null
+    : latencies.reduce((s, d) => s + d.ms, 0);
   const elapsed = elapsedFor(fields.opened, log);
 
   return {

@@ -246,6 +246,41 @@ test('--marker given but not found in the file throws loudly instead of printing
   );
 });
 
+test('--marker: matching a line that carries no timestamp does not false-alarm as "not found" (N1)', async () => {
+  const dir = mkTmp('build-census-marker-no-ts-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [
+    // the marker-matching line itself has no `timestamp` field, and no earlier line
+    // supplied one either — windowStartAt stays null even though the marker WAS found.
+    { type: 'user', message: { role: 'user', content: 'MARK-HERE now building' } },
+    asstLine({ requestId: 'r1', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 1, input: 1 } }),
+  ]);
+  const { windowById, windowStartAt, markerFound } = await censusLeadFile(leadPath, { marker: 'MARK-HERE' });
+  assert.equal(markerFound, true, 'the marker line was matched');
+  assert.equal(windowById.size, 1, 'the window is not empty');
+  assert.equal(windowStartAt, null, 'no timestamp was ever seen at or before the marker line');
+  // main() must not throw on this input — a found marker with no timestamp is a real,
+  // non-empty window, not the "marker not found" case.
+  await assert.doesNotReject(() =>
+    main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'MARK-HERE'], { write: () => {} }),
+  );
+});
+
+test('--marker: a marker that genuinely matches nothing still throws even when no line in the file carries a timestamp (N1 counterpart)', async () => {
+  const dir = mkTmp('build-census-marker-no-ts-notfound-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [
+    { type: 'user', message: { role: 'user', content: 'nothing to see here' } },
+    asstLine({ requestId: 'r1', usageOpts: { output: 1, input: 1 } }), // no ts field
+  ]);
+  const { markerFound } = await censusLeadFile(leadPath, { marker: 'NEVER-PRESENT' });
+  assert.equal(markerFound, false);
+  await assert.rejects(
+    () => main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'NEVER-PRESENT'], { write: () => {} }),
+    /--marker text not found/,
+  );
+});
+
 // ── --out ────────────────────────────────────────────────────────────────
 
 test('--out writes the full report to a file and stdout gets only the "wrote:" line', async () => {

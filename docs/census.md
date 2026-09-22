@@ -5,7 +5,7 @@ Two read-only tools for measuring one loop-build run against another (spec.md
 repeatable): `scripts/build-census.mjs` (turns and tokens over a lead transcript and its
 subagents) and `scripts/work-census.mjs` (dispatch latency, elapsed time and idle time
 over the work-record ledger). Both follow this repo's `scripts/token-census.mjs` pattern:
-`parseArgs(argv)`, `async main(argv, {fsImpl, write})`, a win32-safe `isMainModule()`
+`parseArgs(argv)`, `async main(argv, {fsImpl, now, write})`, a win32-safe `isMainModule()`
 guard. Neither prints transcript or record prose — only counts, model names, work ids and
 file basenames.
 
