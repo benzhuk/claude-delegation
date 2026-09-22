@@ -13,6 +13,13 @@
 // (scripts/test-home.mjs) does not exist at this territory's base commit; the seam
 // review is expected to dedupe the two once T7 lands (spec.md's "Gates and acceptance"
 // seam-review line).
+//
+// The fixture's child env is still built through the ONE shared `childEnv` helper
+// (`skills/multi/scripts/test-child-env.mjs`), never by spreading `process.env` directly
+// in this file — `skills/multi/scripts/hooks.test.mjs`'s N2 fails the whole suite on any
+// `.test.mjs` under `scripts/` that does (round-4 integrator finding). `childEnv` also
+// seals `CLAUDE_CODE_MESSAGING_SOCKET`/`_TOKEN` out of this fixture's git children, which
+// a bare spread of the runner's environment would not have done.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -21,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTapCounts, classifyRun } from "./prefix-test.mjs";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, "prefix-test.mjs");
@@ -41,11 +49,13 @@ function makeFixtureGitEnv(configDir) {
     fixtureConfig,
     "[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n"
   );
-  return {
-    ...process.env,
+  // configDir is already a fresh mkdtemp directory (see buildFixtureRepo below) used for
+  // nothing but this fixture's two gitconfig files, so it doubles as the fixture HOME that
+  // childEnv() re-homes the child onto; the two git vars ride on top via childEnv's `over`.
+  return childEnv(configDir, {
     GIT_CONFIG_GLOBAL: globalConfig,
     GIT_CONFIG_NOSYSTEM: "1",
-  };
+  });
 }
 
 function git(args, cwd, env) {
