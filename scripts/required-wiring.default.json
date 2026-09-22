@@ -57,5 +57,12 @@
     "maxAgeSeconds": 315360000,
     "why": "lean agents (builder, integrator, reviewer, runner) do not load the user's ~/.claude rules files; this file is where the user's personal hard stops reach them",
     "fix": "create ~/.agents/lean-rules.md (owned by the user, at most 40 lines) with the personal hard stops a lean agent should still obey - the plugin does not ship this file"
+  },
+  {
+    "id": "pane-note-slug",
+    "type": "env_presence",
+    "var": "NOTE_SLUG",
+    "why": "this pane's peer-note inbox registers only when NOTE_SLUG is set at launch (or a panes.json binding exists) - a pane with neither never appears in inboxes.json and silently misses peer notes",
+    "fix": "no fix needed either way, this is a visibility check: launch with NOTE_SLUG=<slug> in the --command string (docs/pane-setup.md), or bind by hand with `note-inbox --bind <slug>`"
   }
 ]
