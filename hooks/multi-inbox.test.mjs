@@ -93,3 +93,149 @@ test('(b) SessionStart with neither NOTE_SLUG nor ORCA_TERMINAL_HANDLE writes no
   assert.equal(fs.existsSync(notesDir), false, 'no notes directory may be created when there is no pane identity');
   assert.equal(fs.existsSync(inboxesPath(home)), false, 'inboxes.json must not exist at all');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F1/F6 (rename-build spec, Contract 2a/2d) — the pane gate moves to AFTER readInput(), and now also
+// opens on a resolved session name; the SessionStart nudge fires only when NO slug resolves at all.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A fixture sidecar at `<dirname(transcriptPath)>/<sessionId>/custom-title.json`, per D1/D2's layout
+ * (the scout's own correction: the transcript lives in the project dir, one level ABOVE the sidecar's
+ * own session-id subdir — not inside it). */
+function writeSidecar(home, sessionId, customTitle) {
+  const projectDir = path.join(home, 'fixture-project');
+  const sidecarDir = path.join(projectDir, sessionId);
+  fs.mkdirSync(sidecarDir, { recursive: true });
+  fs.writeFileSync(path.join(sidecarDir, 'custom-title.json'), JSON.stringify({ customTitle }), 'utf8');
+  return path.join(projectDir, `${sessionId}.jsonl`);
+}
+
+test('(c) F1: neither env var set, but a real sidecar resolves a session name — still registers', () => {
+  const home = fixtureHome();
+  const sessionId = 'fixture-session-p1-0002';
+  const transcriptPath = writeSidecar(home, sessionId, 'My Renamed Session');
+  const stdout = execFileSync(process.execPath, [HOOK, 'SessionStart'], {
+    input: JSON.stringify({
+      hook_event_name: 'SessionStart', cwd: home, session_id: sessionId,
+      transcript_path: transcriptPath, source: 'startup',
+    }),
+    encoding: 'utf8',
+    env: childEnv(home, {
+      CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '',
+      CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+    }),
+  });
+  assert.equal(stdout.trim(), '', 'a named session registers silently, same as NOTE_SLUG would');
+  const reg = readInboxes(home);
+  assert.ok(Object.prototype.hasOwnProperty.call(reg, 'my-renamed-session'), 'the normalised slug must be addressable');
+  assert.equal(reg['my-renamed-session'].sessionId, sessionId);
+});
+
+test('(d) D4/F6: SessionStart nudges a session that IS in the protocol (env var set) but resolves no slug at all', () => {
+  const home = fixtureHome();
+  const stdout = runSessionStart(home, {
+    NOTE_SLUG: '',
+    ORCA_TERMINAL_HANDLE: 'term_unboundp1',
+    CLAUDE_CODE_MESSAGING_SOCKET: SOCKET,
+    CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+  });
+  const out = JSON.parse(stdout);
+  assert.equal(out.suppressOutput, true);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.equal(
+    out.hookSpecificOutput.additionalContext,
+    'This session has no name, so peer notes cannot reach it. Run /rename <slug> (lowercase, dashes) to register its inbox.',
+  );
+});
+
+test('(e) D4: no nudge when the slug resolves through a binding alone (no NOTE_SLUG, no session name)', () => {
+  const home = fixtureHome();
+  fs.mkdirSync(path.join(home, '.agents', 'notes'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.agents', 'notes', 'panes.json'),
+    JSON.stringify({ term_boundp1: { slug: 'bound-pane', at: Date.now() } }),
+    'utf8',
+  );
+  const stdout = runSessionStart(home, {
+    NOTE_SLUG: '',
+    ORCA_TERMINAL_HANDLE: 'term_boundp1',
+    CLAUDE_CODE_MESSAGING_SOCKET: SOCKET,
+    CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+  });
+  assert.equal(stdout.trim(), '', 'a resolved binding must not be treated as unnamed — no over-nudging');
+  assert.equal(readInboxes(home)['bound-pane'].sessionId, SESSION_ID);
+});
+
+test('(f) D4/F6: a --fork-session resume (source=fork) gets the nudge too — hooks.json has no matcher to special-case it away', () => {
+  const home = fixtureHome();
+  const stdout = execFileSync(process.execPath, [HOOK, 'SessionStart'], {
+    input: JSON.stringify({
+      hook_event_name: 'SessionStart', cwd: home, session_id: 'forked-session-p1-0099', source: 'fork',
+    }),
+    encoding: 'utf8',
+    env: childEnv(home, {
+      CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: 'term_forkedp1',
+      CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+    }),
+  });
+  const out = JSON.parse(stdout);
+  assert.match(out.hookSpecificOutput.additionalContext, /This session has no name/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F3 (rename-build spec, Contract 2e) — the session's identity reaches UserPromptSubmit and Stop, not
+// only PostToolUse. Required test, named per the brief.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const nycParts = Object.fromEntries(
+  new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date()).map((p) => [p.type, p.value]),
+);
+const TODAY = `${nycParts.year}-${nycParts.month}-${nycParts.day}`;
+const STAMP = `${Number(nycParts.month)}.${Number(nycParts.day)}.${nycParts.year.slice(2)}`;
+const CLOCK = `${nycParts.hour === '24' ? '00' : nycParts.hour}:${nycParts.minute}`;
+
+function mirrorNoteFor(home, id, to, body = 'Please review PR 137') {
+  const file = path.join(home, '.agents/notes', `${TODAY}.md`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const line = `astra → ${to}, ${STAMP} ${CLOCK} NYC [${id}] ASK: ${body}.`;
+  fs.writeFileSync(file, `# Peer-note ledger ${TODAY}\n\n${line}\n`, 'utf8');
+  return file;
+}
+
+test('(g) F3: a session with a real sidecar and no NOTE_SLUG/binding receives a note via UserPromptSubmit', () => {
+  const home = fixtureHome();
+  const sessionId = 'fixture-session-p1-0003';
+  const transcriptPath = writeSidecar(home, sessionId, 'astra-renamed');
+  mirrorNoteFor(home, 'astra-fork-note-1', 'astra-renamed');
+  const stdout = execFileSync(process.execPath, [HOOK, 'UserPromptSubmit'], {
+    input: JSON.stringify({
+      hook_event_name: 'UserPromptSubmit', cwd: home, session_id: sessionId, transcript_path: transcriptPath,
+    }),
+    encoding: 'utf8',
+    env: childEnv(home, { CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' }),
+  });
+  const out = JSON.parse(stdout);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(out.hookSpecificOutput.additionalContext, /1 new peer note for astra-renamed/);
+  assert.match(out.hookSpecificOutput.additionalContext, /\[astra-fork-note-1\]/);
+});
+
+test('(h) F3: the same renamed session also gets its note at Stop, not only UserPromptSubmit', () => {
+  const home = fixtureHome();
+  const sessionId = 'fixture-session-p1-0004';
+  const transcriptPath = writeSidecar(home, sessionId, 'nucleus-renamed');
+  mirrorNoteFor(home, 'astra-fork-note-2', 'nucleus-renamed');
+  const stdout = execFileSync(process.execPath, [HOOK, 'Stop'], {
+    input: JSON.stringify({
+      hook_event_name: 'Stop', cwd: home, session_id: sessionId, transcript_path: transcriptPath,
+    }),
+    encoding: 'utf8',
+    env: childEnv(home, { CLAUDE_PLUGIN_ROOT: REPO, NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' }),
+  });
+  const out = JSON.parse(stdout);
+  assert.equal(out.decision, 'block');
+  assert.match(out.reason, /\[astra-fork-note-2\]/);
+});

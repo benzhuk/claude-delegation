@@ -46,6 +46,25 @@ function stampPath(slug) {
   return path.join(NOTES_DIR, `.poll-${slug}`);
 }
 
+/**
+ * D1/D2 (rename-build spec): this session's own name, read straight from the sidecar `/rename` and
+ * `claude --name` both write. ONE reader for three call sites (the pane gate, `cheapSlug`, and
+ * `registerMyInbox`) so the read-normalise-validate logic never drifts between them.
+ *
+ * `require(esm)` (stable on this Node) keeps this synchronous — load-bearing for `cheapSlug`, which runs
+ * on the hot PostToolUse path inside a 700ms budget and cannot afford an async import. Never throws:
+ * a missing/broken session-name module is exactly like a missing sidecar — unnamed, not a hook failure.
+ */
+function readSessionNameSafe(transcriptPath, sessionId) {
+  if (!transcriptPath || !sessionId) return null;
+  try {
+    const sessionName = require(path.join(SKILL_SCRIPTS, "session-name.mjs"));
+    return sessionName.readSessionName({ transcriptPath, sessionId, fs });
+  } catch {
+    return null;
+  }
+}
+
 /** Newest mtime across the ledger mirror. Appending to today's file bumps that file, not the dir. */
 function newestLedgerMtime() {
   let newest = 0;
@@ -81,16 +100,23 @@ function writeStamp(slug, value) {
 }
 
 /**
- * The slug WITHOUT spending anything: the env var, or the pane-slug cache transport wrote the last
- * time something resolved this handle. Returns null rather than reaching for orca.
+ * The slug WITHOUT spending anything: the session's own name, the env var, or the pane-slug cache
+ * transport wrote the last time something resolved this handle. Returns null rather than reaching for
+ * orca.
  *
- * `guess` says WHERE it came from, and it decides whether this read may write a binding. The env var
- * is the pane's own statement; the cache is a title we once reduced, kept for 10 minutes on purpose.
- * A binding has no expiry at all, so passing a cached title as `--me` would freeze a renamed pane's
- * old slug forever — it would keep reading and ACKING another slug's inbox, which is exactly what the
- * TTL below exists to prevent (review BLOCKER 1).
+ * `guess` says WHERE it came from, and it decides whether this read may write a binding. A session name
+ * is first-hand (D1/F2: it ranks above $NOTE_SLUG here too — this is PostToolUse's own hot path, and
+ * without this rank a renamed session with no NOTE_SLUG set got no mid-turn delivery at all, however
+ * cleanly it registered elsewhere). The env var is the pane's own statement; the cache is a title we
+ * once reduced, kept for 10 minutes on purpose. A binding has no expiry at all, so passing a cached
+ * title as `--me` would freeze a renamed pane's old slug forever — it would keep reading and ACKING
+ * another slug's inbox, which is exactly what the TTL below exists to prevent (review BLOCKER 1).
  */
-function cheapSlug() {
+function cheapSlug(transcriptPath, sessionId) {
+  // One small fs.readFileSync, well inside POST_TOOL_BUDGET_MS — never the transcript, never anything
+  // that reaches for orca.
+  const named = readSessionNameSafe(transcriptPath, sessionId);
+  if (named) return { slug: named.slug, guess: false };
   if (process.env.NOTE_SLUG) return { slug: process.env.NOTE_SLUG, guess: false };
   const handle = process.env.ORCA_TERMINAL_HANDLE;
   if (!handle) return null;
@@ -125,7 +151,12 @@ function warnOnce(message) {
   return message;
 }
 
-/** Nothing to do at all: no pane identity anywhere, so this session is not part of the protocol. */
+/**
+ * The two ENV-VAR pane-identity signals — unchanged from before this build. `main()`'s gate (F1) now
+ * ALSO opens on a resolved session name; see the call site. This function stays narrow on purpose: the
+ * D4 nudge's corollary needs exactly this signal (env identity present) to decide whether a session is
+ * "in the protocol at all", separately from whether it happens to be named.
+ */
 function couldBeInAPane() {
   return Boolean(process.env.NOTE_SLUG || process.env.ORCA_TERMINAL_HANDLE);
 }
@@ -138,18 +169,27 @@ function couldBeInAPane() {
  * let the flusher post a note straight into this session's inbox. The alternative was typing into the
  * composer, which on 2026-09-17 landed inside a sentence Ben was writing and submitted it.
  *
- * The slug must be FIRST-HAND (the 0.4.0 rule): `$NOTE_SLUG` is this session stating its own identity,
- * and `panes.json` is the same statement written down earlier. A title-derived guess is never used —
- * registering under a guessed slug would send another session's notes here.
+ * The slug must be FIRST-HAND (the 0.4.0 rule): the session's own name (D1, rename-build — new,
+ * outranks both ranks below), `$NOTE_SLUG` is this session stating its own identity, and `panes.json`
+ * is the same statement written down earlier. A title-derived guess is never used — registering under
+ * a guessed slug would send another session's notes here.
  *
  * Best-effort and silent: a registration that cannot be written costs one deferred nudge, and the note
  * is already in the ledger.
+ *
+ * @returns {{ slug: string|null, result: object|null }} `slug` is set whenever ANY of D1's three ranks
+ *   resolved one, even if the registration itself then failed for some other reason (no messaging env,
+ *   an unwritable file) — this is what lets the SessionStart nudge (D4) below tell "genuinely unnamed"
+ *   apart from "named, but nothing to register it with", without over-nudging the second case.
  */
-async function registerMyInbox(cwd, sessionId) {
+async function registerMyInbox(cwd, sessionId, transcriptPath) {
+  // Ranks 1 and 2 never need the transport module, so a broken CLAUDE_PLUGIN_ROOT still lets the catch
+  // below report the right `slug` for the nudge, instead of guessing "unnamed" when it might not be.
+  let slug = readSessionNameSafe(transcriptPath, sessionId)?.slug ?? null;
+  if (!slug) slug = process.env.NOTE_SLUG || null;
   try {
     const transport = await import(pathToFileURL(path.join(SKILL_SCRIPTS, "transport.mjs")).href);
     const home = os.homedir();
-    let slug = process.env.NOTE_SLUG || null;
     if (!slug) {
       const handle = process.env.ORCA_TERMINAL_HANDLE;
       if (handle && transport.HANDLE_RE.test(handle)) {
@@ -157,17 +197,19 @@ async function registerMyInbox(cwd, sessionId) {
         slug = bound && bound.slug ? bound.slug : null;
       }
     }
-    if (!slug) return null;
+    if (!slug) return { slug: null, result: null };
     // `sessionId` comes from the payload Claude Code writes to this hook's stdin, so it is first-hand
     // — and it is REQUIRED (review C6): it is sent with every post, the receiver drops a frame whose
     // session id is not its own, and that is what stops a recycled pid from redirecting somebody's note
     // into a different session behind the same `/tmp/cc-socks/<pid>.sock` path.
     // `process.ppid` is recorded for a human reading the file; delivery never uses it.
     const record = transport.claudeInboxRecord(process.env, { sessionId, pid: process.ppid, cwd });
-    if (!record) return null;
-    return transport.registerInbox(transport.toPosix(home), slug, record);
+    if (!record) return { slug, result: null };
+    // D3: the same-sessionId sweep (moving an old slug's entry to this new one) lives inside
+    // transport.registerInbox itself now, so a rename is atomic no matter which caller triggers it.
+    return { slug, result: transport.registerInbox(transport.toPosix(home), slug, record) };
   } catch {
-    return null; // rule 1: never throw out of a hook
+    return { slug, result: null }; // rule 1: never throw out of a hook
   }
 }
 
@@ -191,11 +233,20 @@ function emit(object) {
 }
 
 async function main() {
-  if (!couldBeInAPane()) return;
+  // F1 fix (red-team FIX FIRST 1): this gate used to be main()'s FIRST statement, running BEFORE
+  // readInput() ever parsed stdin — so it could never see the sidecar, and a session identified only by
+  // its own name (no NOTE_SLUG, no ORCA_TERMINAL_HANDLE) never reached registration at all. It now runs
+  // AFTER readInput(), and widens: NOTE_SLUG, OR ORCA_TERMINAL_HANDLE, OR a session name that resolves
+  // from input.transcript_path + input.session_id. Only when NONE of the three is true does main()
+  // return early, exactly as before this build.
   const input = await readInput();
   const event = input.hook_event_name || process.argv[2] || "";
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const sessionId = input.session_id;
+  const transcriptPath = input.transcript_path;
+
+  const hasEnvIdentity = couldBeInAPane();
+  if (!hasEnvIdentity && !readSessionNameSafe(transcriptPath, sessionId)) return;
 
   // C4: SessionStart REGISTERS and stops there — no inbox read, no output, nothing in the context.
   // A pane Ben opens and walks away from used to register nothing at all (the adapter only gets here on
@@ -204,20 +255,45 @@ async function main() {
   // session that has just started has not asked for anything, and its first UserPromptSubmit will
   // surface whatever is waiting a moment later anyway.
   if (event === "SessionStart") {
-    await registerMyInbox(cwd, sessionId);
+    const { slug } = await registerMyInbox(cwd, sessionId, transcriptPath);
+    // D4/F6 (red-team FIX FIRST 6): nudge a session that resolved NO slug at all, from any of the three
+    // ranks above. hooks.json registers SessionStart with no `matcher` at all, so this already covers
+    // every source including a --fork-session resume (a new session id with no sidecar of its own yet
+    // reads as unnamed here, correctly — that is intended, not a gap). The gate above already means we
+    // only reach this branch when at least one of NOTE_SLUG/ORCA_TERMINAL_HANDLE was present OR a name
+    // resolved — and a resolved name means `slug` is non-null, so the corollary (a session with NEITHER
+    // env var gets no nudge either) falls out of that alone, with no extra check needed here.
+    if (!slug) {
+      await emit({
+        suppressOutput: true,
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: "This session has no name, so peer notes cannot reach it. Run /rename <slug> (lowercase, dashes) to register its inbox.",
+        },
+      });
+    }
     return;
   }
 
+  // F3 fix (red-team FIX FIRST 3): this session's identity is threaded through on EVERY event, not just
+  // PostToolUse — UserPromptSubmit and Stop are the two events that actually DELIVER notes, and without
+  // this a renamed session with neither NOTE_SLUG nor a binding got the M1 "peer notes are not being
+  // read" warning instead of its notes. Built as an unconditional extraArgs array (mirroring the CLI's
+  // own --session-id/--transcript-path flags from Contract 3/4) rather than a separate `deps` object, so
+  // the same `inbox()` closure below stays the one call site regardless of event.
+  let extraArgs = [];
+  if (transcriptPath) extraArgs.push("--transcript-path", transcriptPath);
+  if (sessionId) extraArgs.push("--session-id", sessionId);
+
   // PostToolUse is the hot path: it fires on every tool call, so it decides whether there is anything
   // to do from a stamp and a directory mtime, before importing anything.
-  let extraArgs = [];
   if (event === "PostToolUse") {
-    const me = cheapSlug();
+    const me = cheapSlug(transcriptPath, sessionId);
     if (!me) return;
     const newest = newestLedgerMtime();
     if (newest === 0 || newest <= readStamp(me.slug)) return;
     // `--no-bind` when the slug came from the title cache: a guess must never become a permanent binding.
-    extraArgs = ["--me", me.slug, "--no-repo", ...(me.guess ? ["--no-bind"] : [])];
+    extraArgs.push("--me", me.slug, "--no-repo", ...(me.guess ? ["--no-bind"] : []));
   }
 
   let delivered = null;
@@ -225,7 +301,7 @@ async function main() {
   const work = (async () => {
     // D2: register this session's inbox first, so a session that has nothing to read is still
     // REACHABLE. Its own try/catch, because a failed registration must not stop the note read.
-    await registerMyInbox(cwd, sessionId);
+    await registerMyInbox(cwd, sessionId, transcriptPath);
     try {
       // Inside the try on purpose: a broken CLAUDE_PLUGIN_ROOT makes this import throw, and M1 says a
       // config error must SAY SO once rather than making the hook permanently silent.
