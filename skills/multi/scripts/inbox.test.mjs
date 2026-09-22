@@ -215,6 +215,123 @@ test('D1: registerInbox never throws — no record, no slug, or an unwritable fi
   noToken(res, res.error);
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// D3/F4 (rename-build spec) — a rename moves the inbox: the OLD slug's entry for this same sessionId is
+// removed in the SAME write that registers the new one, and the sweep runs even when the new slug's own
+// record is already fresh (F4 — otherwise the fast path never reaches it).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('D3: registering a session under a NEW slug removes its OLD slug entry, in one write', () => {
+  const home = tmp();
+  const rec = claudeRecord();
+  assert.equal(registerInbox(home, 'old-slug', rec, { now: NOW }).written, true);
+  assert.ok(readInboxes(home)['old-slug'], 'sanity: the old entry is really there first');
+
+  const moved = registerInbox(home, 'new-slug', claudeRecord({ socket: '/tmp/cc-socks/moved.sock' }), { now: NOW + 1 });
+  assert.equal(moved.written, true);
+  assert.equal(moved.removedSlug, 'old-slug');
+
+  const after = readInboxes(home);
+  assert.deepEqual(Object.keys(after), ['new-slug'], 'the old slug must not linger as a second, stale entry');
+  assert.equal(after['new-slug'].sessionId, SESSION_ID);
+});
+
+test('D3: writeInbox itself only removes opts.removeSlug when it is a DIFFERENT, actually-present slug', () => {
+  const home = tmp();
+  // Asking to remove the slug being written is a no-op (nothing to move to itself).
+  const same = writeInbox(home, 'taxonomy', claudeRecord(), { now: NOW, removeSlug: 'taxonomy' });
+  assert.equal(same.removedSlug, null);
+  assert.deepEqual(Object.keys(readInboxes(home)), ['taxonomy']);
+
+  // Asking to remove a slug that was never there is also a no-op, not an error.
+  const nothing = writeInbox(home, 'astra', claudeRecord({ socket: '/tmp/cc-socks/astra.sock' }), {
+    now: NOW, removeSlug: 'never-registered',
+  });
+  assert.equal(nothing.removedSlug, null);
+  assert.deepEqual(Object.keys(readInboxes(home)).sort(), ['astra', 'taxonomy']);
+});
+
+// F4 (red-team FIX FIRST 4, citing transport.mjs:1526-1531): when the TARGET slug's own record is
+// already fresh, `registerInbox` used to take the `reason: 'fresh'` fast path with no write at all — so
+// a rename A→B→A performed inside the refresh window left B's entry live, because the fast path never
+// reached the sweep. The required test, named exactly as the spec spells it out:
+test('re-register under a previously used slug inside the refresh window still removes the other slug\'s entry', () => {
+  const home = tmp();
+  const rec = claudeRecord();
+  // A→B: the session registers under 'astra', then is renamed to 'taxonomy' — the sweep on that second
+  // call removes 'astra', so this is genuinely a clean rename, not a leftover.
+  assert.equal(registerInbox(home, 'astra', rec, { now: NOW }).written, true);
+  assert.equal(registerInbox(home, 'taxonomy', rec, { now: NOW + 500 }).removedSlug, 'astra');
+  assert.deepEqual(Object.keys(readInboxes(home)), ['taxonomy']);
+
+  // B→A: renamed BACK to 'astra' — a PREVIOUSLY USED slug — well inside the refresh window. 'taxonomy'
+  // is swept away here (this is the ordinary rename path, already covered above); the interesting part
+  // is what happens NEXT.
+  assert.equal(registerInbox(home, 'astra', rec, { now: NOW + 1_000 }).removedSlug, 'taxonomy');
+  assert.deepEqual(Object.keys(readInboxes(home)), ['astra']);
+
+  // Now simulate the exact pre-F4 failure mode directly: a stale second entry for THIS SAME sessionId
+  // reappears under 'taxonomy' (e.g. a hook event racing an older, un-swept write) WHILE 'astra' — the
+  // slug we are about to re-register — is already fresh (written 1s ago, well inside refreshMs). Without
+  // F4, registering 'astra' again here would hit `reason: 'fresh'` and never reach the sweep, leaving
+  // 'taxonomy' behind forever.
+  writeInbox(home, 'taxonomy', rec, { now: NOW + 1_000 });
+  assert.deepEqual(Object.keys(readInboxes(home)).sort(), ['astra', 'taxonomy'], 'sanity: both entries exist now');
+
+  const res = registerInbox(home, 'astra', rec, { now: NOW + 1_050 }); // well inside refreshMs of 'astra'
+  assert.equal(res.reason, 'written', 'F4: never "fresh" — a stale OTHER slug must force the real write+sweep');
+  assert.equal(res.removedSlug, 'taxonomy');
+  assert.deepEqual(Object.keys(readInboxes(home)), ['astra'], 'taxonomy must not be left behind as a stale second entry');
+});
+
+// MAJOR 3 (round-1 review): the sweep used to stop at the FIRST stale slug (`break` + a singular
+// `staleSlug`), so a pre-sweep `inboxes.json` already carrying two stale entries for one sessionId — or
+// a race that recreates one mid-window — kept the second one live after a "successful" rename. The sweep
+// must find and remove EVERY stale slug for this sessionId in the one write.
+test('D3: two stale entries for one sessionId are BOTH removed in a single register', () => {
+  const home = tmp();
+  const rec = claudeRecord();
+  writeInbox(home, 'alpha', rec, { now: NOW });
+  writeInbox(home, 'beta', rec, { now: NOW });
+  assert.deepEqual(Object.keys(readInboxes(home)).sort(), ['alpha', 'beta'], 'sanity: both stale entries exist first');
+
+  const res = registerInbox(home, 'gamma', claudeRecord({ socket: '/tmp/cc-socks/gamma.sock' }), { now: NOW + 1 });
+  assert.equal(res.written, true);
+  assert.deepEqual(res.removedSlugs.sort(), ['alpha', 'beta']);
+  assert.deepEqual(Object.keys(readInboxes(home)), ['gamma'], 'neither stale entry may be left behind');
+});
+
+test('D3: renaming does not disturb an UNRELATED session registered under its own slug', () => {
+  const home = tmp();
+  registerInbox(home, 'old-slug', claudeRecord(), { now: NOW });
+  registerInbox(home, 'unrelated', claudeRecord({ sessionId: 'sess-0002-bbbb', socket: '/tmp/cc-socks/other.sock' }), { now: NOW });
+
+  registerInbox(home, 'new-slug', claudeRecord({ socket: '/tmp/cc-socks/moved.sock' }), { now: NOW + 1 });
+  assert.deepEqual(Object.keys(readInboxes(home)).sort(), ['new-slug', 'unrelated']);
+  assert.equal(readInboxes(home).unrelated.sessionId, 'sess-0002-bbbb', 'a different session is never swept');
+});
+
+test('D3: a codex-queue entry is unaffected by a Claude rename', () => {
+  // NOT a test of the sweep's `rec.kind === 'claude-socket'` guard: `normalizeInboxRecord` drops any
+  // `sessionId` field on a codex-queue record (it only keeps `codexHome`/`threadId` beyond the common
+  // fields), so the sweep's sessionId comparison is falsy here regardless of the `kind` check — this only
+  // proves a codex entry survives a Claude session's rename untouched, which is D7's actual guarantee.
+  const home = tmp();
+  writeInbox(home, 'codex-slug', codexRecord(), { now: NOW });
+  const rec = claudeRecord();
+  registerInbox(home, 'claude-slug', rec, { now: NOW + 1 });
+  assert.deepEqual(Object.keys(readInboxes(home)).sort(), ['claude-slug', 'codex-slug']);
+});
+
+test('D3: the existing inbox-conflict throttle (two DIFFERENT sessions on one slug) is unaffected by the sweep', () => {
+  const home = tmp();
+  const dir = tmp();
+  const a = (name, over) => { const socket = path.join(dir, name); fs.writeFileSync(socket, ''); return claudeRecord({ socket, pid: process.pid, ...over }); };
+  writeInbox(home, 'astra', a('a.sock', { sessionId: 'sess-A' }), { now: NOW });
+  const conflict = writeInbox(home, 'astra', a('b.sock', { sessionId: 'sess-B' }), { now: NOW + 5_000 });
+  assert.equal(conflict.conflict, true, 'two different sessions claiming the same slug is still flagged, unchanged');
+});
+
 test('D1: the env readers say exactly when a session has an inbox', () => {
   const both = { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock', CLAUDE_CODE_MESSAGING_TOKEN: TOKEN };
   assert.equal(claudeInboxRecord({}, { sessionId: SESSION_ID }), null);

@@ -11,9 +11,12 @@
 //   note-inbox --bind <slug> [--title <text>]
 //   note-inbox --unbind
 //
-//   --me      the pane's slug. Otherwise $NOTE_SLUG, otherwise the binding recorded for
-//             $ORCA_TERMINAL_HANDLE, otherwise the pane title via `orca terminal show` (cached 10 min).
-//             Never guessed — see transport.resolveSlug.
+//   --me      the pane's slug. Otherwise the session's own name (--transcript-path + --session-id,
+//             D6), otherwise $NOTE_SLUG, otherwise the binding recorded for $ORCA_TERMINAL_HANDLE,
+//             otherwise the pane title via `orca terminal show` (cached 10 min). Never guessed — see
+//             transport.resolveSlug.
+//   --transcript-path/--session-id  this session's own hook-payload fields, for the session-name
+//             source above. Only used together; either alone is simply skipped, never guessed.
 //   --bind    record "this pane IS <slug>" in ~/.agents/notes/panes.json and do nothing else. A --me
 //             read does the same registration as a side effect, so a session that reads its inbox is
 //             reachable by slug even after its title changes (spec 2026-09-14).
@@ -52,6 +55,9 @@ export const DEFAULT_COLD_START_HOURS = 12;
 
 const STRING_FLAGS = new Set([
   'me', 'days', 'cold-start-hours', 'orca', 'repo', 'zone', 'home', 'bind', 'title', 'ack-ids',
+  // D6 (rename-build spec): threaded straight into resolveSlug's new session-name source; for the
+  // hand-run CLI case, since a bare `note-inbox` has no other way to state which session it is.
+  'transcript-path', 'session-id',
 ]);
 const BOOL_FLAGS = new Set(['ack', 'json', 'help', 'no-repo', 'active-terminal', 'no-bind', 'unbind']);
 
@@ -184,6 +190,9 @@ export async function runNoteInbox(argv, deps = {}) {
   const orca = deps.orca ?? (needsOrca ? makeOrcaRunner(args.orca, env) : null);
   const { slug, source: slugSource } = await resolveSlug({
     explicit: args.me, env, home, fsImpl, orca, now,
+    // D6: threaded through unconditionally — resolveSlug itself never reads these from process.env, so
+    // without the flags this source is simply absent, exactly today's behaviour.
+    transcriptPath: args['transcript-path'], sessionId: args['session-id'],
     // Opt-in only: the focused pane is "me" only when a human ran this command in it.
     allowActiveTerminal: Boolean(args['active-terminal']),
   });
@@ -372,7 +381,10 @@ const USAGE = `note-inbox — the ledger, read as this pane's inbox.
   note-inbox --bind <slug> [--title <text>]
   note-inbox --unbind
 
-  --me     this pane's slug (else $NOTE_SLUG, else the binding for $ORCA_TERMINAL_HANDLE, else its title)
+  --me     this pane's slug (else the session's own name, else $NOTE_SLUG, else the binding for
+           $ORCA_TERMINAL_HANDLE, else its title)
+  --transcript-path <path>  this session's transcript path, for the session-name source (with --session-id)
+  --session-id <uuid>       this session's id, for the session-name source (with --transcript-path)
   --ack    mark everything printed as seen (advances ~/.agents/notes/.cursor-<slug>)
   --ack-ids <a,b>
            mark exactly those ids seen — what a hook runs AFTER it has emitted them
