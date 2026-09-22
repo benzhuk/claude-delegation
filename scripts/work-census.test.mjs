@@ -3,7 +3,7 @@
 // Fixtures are hand-written `.record.md` files under a fresh mkdtempSync temp dir (never
 // the real docs/work), read through scripts/work-record.mjs's own listRecords — this file
 // never re-implements record parsing. No child process is spawned anywhere in this file,
-// so childEnv() does not apply (per common.md's own carve-out for this territory).
+// so childEnv() does not apply.
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +11,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { listRecords } from './work-record.mjs';
-import { parseArgs, computeWorkCensus, idleMsAcrossRecords, formatText, main } from './work-census.mjs';
+import * as workCensus from './work-census.mjs';
+import { parseArgs, computeWorkCensus, formatText, main } from './work-census.mjs';
 
 const tracked = [];
 function mkTmp(prefix) {
@@ -23,7 +24,7 @@ after(() => {
   for (const d of tracked) fs.rmSync(d, { recursive: true, force: true });
 });
 
-// t1: one round, reaches accepted; 10-minute idle gap before its first `owned`.
+// t1: one round, reaches accepted.
 const T1 = `Work: wr-2026-01-01-census-t1
 Opened: 2026-01-01T00:00:00.000Z
 Log: 2026-01-01T00:00:00.000Z runnable none
@@ -34,12 +35,11 @@ Log: 2026-01-01T00:25:00.000Z reviewed orchestrator artifact abc123
 Log: 2026-01-01T00:30:00.000Z accepted lead artifact abc123
 `;
 
-// t2: two rounds (Rounds: field given explicitly), never accepted; 5-minute idle gap
-// before its first `owned`. Carries TWO `reviewed` lines — an interim one mid-log and the
-// final one — specifically so a fallback to the LAST reviewed line is distinguishable
-// from a fallback to the FIRST one (M3: with only one `reviewed` line, first and last are
-// the same timestamp and the elapsed test below could not tell a correct implementation
-// from a `firstOfStatus` mutant).
+// t2: two rounds (Rounds: field given explicitly), never accepted. Carries TWO `reviewed`
+// lines — an interim one mid-log and the final one — specifically so a fallback to the
+// LAST reviewed line is distinguishable from a fallback to the FIRST one (M3: with only
+// one `reviewed` line, first and last are the same timestamp and the elapsed test below
+// could not tell a correct implementation from a `firstOfStatus` mutant).
 const T2 = `Work: wr-2026-01-01-census-t2
 Opened: 2026-01-01T01:00:00.000Z
 Rounds: 2
@@ -55,8 +55,8 @@ Log: 2026-01-01T01:25:01.000Z owned orchestrator agent-exited artifact ghi789
 Log: 2026-01-01T01:30:00.000Z reviewed orchestrator artifact ghi789
 `;
 
-// t3: still runnable/unowned, only one Log line — an idle window with no closing event,
-// which must NOT be counted (there is no "now" reference to close it against).
+// t3: still runnable/unowned, only one Log line — no reviewed or accepted line, so
+// elapsed must fall back to null rather than guess.
 const T3 = `Work: wr-2026-01-01-census-t3
 Opened: 2026-01-01T02:00:00.000Z
 Log: 2026-01-01T02:00:00.000Z runnable none
@@ -72,37 +72,12 @@ Log: 2026-01-01T03:07:00.000Z reviewed orchestrator interim-note
 Log: 2026-01-01T03:10:00.000Z delivered builder-4 artifact xyz111
 `;
 
-// t5: an out-of-order Log line (04:10:00) sits, in FILE order, right after `delivered`
-// (04:20:00) but carries an EARLIER timestamp than it — a plausible backfilled or
-// concurrently-appended line. The real reviewed line (04:25:00) follows it.
-const T5 = `Work: wr-2026-01-01-census-t5
-Opened: 2026-01-01T04:00:00.000Z
-Log: 2026-01-01T04:00:00.000Z runnable none
-Log: 2026-01-01T04:05:00.000Z owned builder-5 spawned
-Log: 2026-01-01T04:20:00.000Z delivered builder-5 artifact aaa111
-Log: 2026-01-01T04:10:00.000Z reviewed orchestrator out-of-order-line
-Log: 2026-01-01T04:25:00.000Z reviewed orchestrator real-review
-`;
-
 // t6: has a `reviewed` line but no `Opened:` field at all.
 const T6_NO_OPENED = `Work: wr-2026-01-01-census-t6
 Log: 2026-01-01T05:00:00.000Z runnable none
 Log: 2026-01-01T05:05:00.000Z owned builder-6 spawned
 Log: 2026-01-01T05:10:00.000Z delivered builder-6 artifact bbb222
 Log: 2026-01-01T05:15:00.000Z reviewed orchestrator artifact bbb222
-`;
-
-// t7: a `delivered` line whose only later reviewed candidate carries an EARLIER
-// timestamp than the delivery itself — dispatchLatencies() correctly skips it as a
-// negative interval, leaving zero candidates even though the record WAS delivered.
-// This must render as "no valid responder" (null / n/a), never as a plausible 0.0m
-// indistinguishable from an instant dispatch (N2).
-const T7_ALLBAD = `Work: wr-2026-01-01-census-t7-allbad
-Opened: 2026-01-01T06:00:00.000Z
-Log: 2026-01-01T06:00:00.000Z runnable none
-Log: 2026-01-01T06:05:00.000Z owned builder-7 spawned
-Log: 2026-01-01T06:20:00.000Z delivered builder-7 artifact ccc333
-Log: 2026-01-01T06:10:00.000Z reviewed orchestrator out-of-order-only-candidate
 `;
 
 function writeFixtures(dir, files) {
@@ -167,48 +142,29 @@ test('rounds: the fallback counts a NON-ADJACENT owned -> delivered transition (
   assert.equal(perWork[0].rounds, 1, 'owned -> reviewed(interim) -> delivered is still one round');
 });
 
-test('dispatch latency: skips the same-second "owned ... agent-exited" hand-back and measures to the first reviewed/rejected line, per round', () => {
-  const dir = mkTmp('work-census-latency-');
+// dispatch latency and idle minutes were retired per the M4 ruling
+// (docs/notes/skills-fable-loop-build-3.md:8-9): both measured the lead's hand dispatch,
+// which the loop deletes by construction, and `Log:` lines can never carry a real
+// spawn-time stamp honestly enough to quote. These assertions guard the DATA path, not
+// just the printed output — a builder who only stopped `md.push`-ing the old sections
+// while leaving the dead computation in place would still fail these.
+test('dispatch latency: the field and its computation are gone from perWorkReport, not merely unprinted', () => {
+  const dir = mkTmp('work-census-latency-removed-');
   const records = writeFixtures(dir, { 't1.record.md': T1, 't2.record.md': T2 });
   const { perWork } = computeWorkCensus(records);
-
-  const t1 = perWork.find((r) => r.work === 'wr-2026-01-01-census-t1');
-  assert.equal(t1.dispatchLatencies.length, 1);
-  assert.equal(t1.dispatchLatencies[0].respondedStatus, 'reviewed');
-  assert.equal(t1.dispatchLatencies[0].ms, 5 * 60 * 1000); // 00:20:00 -> 00:25:00, not the 00:20:01 hand-back
-  assert.equal(t1.dispatchLatencySumMs, 5 * 60 * 1000);
-
-  const t2 = perWork.find((r) => r.work === 'wr-2026-01-01-census-t2');
-  assert.equal(t2.dispatchLatencies.length, 2);
-  assert.equal(t2.dispatchLatencies[0].respondedStatus, 'rejected');
-  assert.equal(t2.dispatchLatencies[0].ms, 2 * 60 * 1000); // 01:15:00 -> 01:17:00
-  assert.equal(t2.dispatchLatencies[1].respondedStatus, 'reviewed');
-  assert.equal(t2.dispatchLatencies[1].ms, 5 * 60 * 1000); // 01:25:00 -> 01:30:00
-  assert.equal(t2.dispatchLatencySumMs, 7 * 60 * 1000);
+  for (const r of perWork) {
+    assert.equal(r.dispatchLatencies, undefined);
+    assert.equal(r.dispatchLatencySumMs, undefined);
+  }
 });
 
-test('dispatch latency: an out-of-order Log line (earlier timestamp than the delivered it follows in file order) never produces a negative latency', () => {
-  const dir = mkTmp('work-census-latency-outoforder-');
-  const records = writeFixtures(dir, { 't5.record.md': T5 });
-  const { perWork } = computeWorkCensus(records);
-  const t5 = perWork[0];
-  assert.equal(t5.dispatchLatencies.length, 1, 'the out-of-order candidate is skipped, not reported');
-  assert.ok(t5.dispatchLatencies.every((d) => d.ms >= 0), 'no negative latency is ever reported');
-  assert.equal(t5.dispatchLatencies[0].respondedAt, '2026-01-01T04:25:00.000Z', 'the real, later review is the one picked');
-  assert.equal(t5.dispatchLatencies[0].ms, 5 * 60 * 1000);
-});
-
-test('dispatch latency: a delivered record whose only later candidate is out-of-order (negative interval, skipped) reports the sum as null/n/a, never a plausible 0.0m (N2)', () => {
-  const dir = mkTmp('work-census-latency-allbad-');
-  const records = writeFixtures(dir, { 't7.record.md': T7_ALLBAD });
-  const { perWork } = computeWorkCensus(records);
-  const t7 = perWork[0];
-  assert.equal(t7.dispatchLatencies.length, 0, 'no candidate survives the negative-interval guard');
-  assert.equal(t7.dispatchLatencySumMs, null, 'a record with a delivered line but no valid responder is not the same as a zero latency');
-  assert.notEqual(t7.dispatchLatencySumMs, 0);
-
-  const text = formatText({ perWork, idleMinutes: 0 });
-  assert.match(text, /\| wr-2026-01-01-census-t7-allbad \| n\/a \|/, 'the latency-sum row renders n/a, not 0.0m');
+test('idle minutes: idleMsAcrossRecords is no longer exported or callable, and computeWorkCensus no longer reports idleMinutes', () => {
+  assert.equal(workCensus.idleMsAcrossRecords, undefined, 'idleMsAcrossRecords must not be exported at all');
+  const dir = mkTmp('work-census-idle-removed-');
+  const records = writeFixtures(dir, { 't1.record.md': T1 });
+  const report = computeWorkCensus(records);
+  assert.equal(report.idleMinutes, undefined);
+  assert.ok(!('idleMinutes' in report), 'idleMinutes must not be a key on the report at all');
 });
 
 test('elapsed: opened -> accepted when an accepted line exists', () => {
@@ -248,47 +204,6 @@ test('elapsed: a record with a reviewed line but no Opened: field is labeled for
   assert.equal(r.elapsedEndAt, '2026-01-01T05:15:00.000Z');
 });
 
-// ── idle minutes footer ─────────────────────────────────────────────────────
-
-test('idle minutes: sums only the CLOSED runnable/Owner:none windows across all records, in merged time order', () => {
-  const dir = mkTmp('work-census-idle-');
-  const records = writeFixtures(dir, { 't1.record.md': T1, 't2.record.md': T2, 't3.record.md': T3 });
-  const idleMs = idleMsAcrossRecords(records);
-  // t1: 10 idle minutes (00:00 runnable -> 00:10 owned). t2: 5 idle minutes (01:00 -> 01:05).
-  // t3: runnable with no closing event ever — contributes 0, not an open-ended guess.
-  assert.equal(idleMs, (10 + 5) * 60 * 1000);
-
-  const { idleMinutes } = computeWorkCensus(records);
-  assert.equal(idleMinutes, 15);
-});
-
-test('idle minutes: two records idle AT THE SAME TIME are not double-counted', () => {
-  const dir = mkTmp('work-census-idle-overlap-');
-  const A = `Work: wr-2026-01-01-overlap-a
-Opened: 2026-01-01T00:00:00.000Z
-Log: 2026-01-01T00:00:00.000Z runnable none
-Log: 2026-01-01T00:10:00.000Z owned builder-a spawned
-`;
-  const B = `Work: wr-2026-01-01-overlap-b
-Opened: 2026-01-01T00:00:00.000Z
-Log: 2026-01-01T00:00:00.000Z runnable none
-Log: 2026-01-01T00:10:00.000Z owned builder-b spawned
-`;
-  const records = writeFixtures(dir, { 'a.record.md': A, 'b.record.md': B });
-  // Both are idle over the exact same [00:00, 00:10) window — the union is 10 minutes,
-  // not 20.
-  assert.equal(idleMsAcrossRecords(records), 10 * 60 * 1000);
-});
-
-test('idle minutes: a record with no Log lines at all contributes no idle time', () => {
-  const dir = mkTmp('work-census-idle-nolog-');
-  const NO_LOG = `Work: wr-2026-01-01-nolog
-Opened: 2026-01-01T00:00:00.000Z
-`;
-  const records = writeFixtures(dir, { 'x.record.md': NO_LOG });
-  assert.equal(idleMsAcrossRecords(records), 0);
-});
-
 // ── CLI ──────────────────────────────────────────────────────────────────
 
 test('main(): reads the given dir, writes a report to --out, and prints only "wrote: <path>"', async () => {
@@ -302,7 +217,8 @@ test('main(): reads the given dir, writes a report to --out, and prints only "wr
   const written = fs.readFileSync(outPath, 'utf8');
   assert.ok(written.includes('wr-2026-01-01-census-t1'));
   assert.ok(written.includes('wr-2026-01-01-census-t2'));
-  assert.ok(written.includes('Total idle: **15.0 minutes**'));
+  assert.ok(!written.includes('Dispatch latency'), 'the retired section header must never print');
+  assert.ok(!written.includes('Idle minutes'), 'the retired section header must never print');
 });
 
 test('main(): without --out, the full report goes to the write() sink', async () => {
@@ -320,4 +236,13 @@ test('formatText: renders a header row for every record', () => {
   const text = formatText(computeWorkCensus(records));
   assert.ok(text.includes('wr-2026-01-01-census-t1'));
   assert.ok(text.includes('wr-2026-01-01-census-t2'));
+});
+
+test('the retired measures are absent from the SOURCE, not merely from the returned object', () => {
+  const src = fs.readFileSync(new URL('./work-census.mjs', import.meta.url), 'utf8');
+  // Identifiers only — the top-of-file comment names the retired measures in prose, which is
+  // the point of it; a surviving *identifier* means the dead computation is still there.
+  for (const ident of ['dispatchLatencies', 'dispatchLatencySumMs', 'idleMsAcrossRecords', 'idleMinutes']) {
+    assert.ok(!src.includes(ident), `${ident} must not survive anywhere in work-census.mjs`);
+  }
 });

@@ -3,8 +3,8 @@
 Two read-only tools for measuring one loop-build run against another (spec.md
 `spec-outline.md`'s "now vs then" goal, the same measure the speed census needed to be
 repeatable): `scripts/build-census.mjs` (turns and tokens over a lead transcript and its
-subagents) and `scripts/work-census.mjs` (dispatch latency, elapsed time and idle time
-over the work-record ledger). Both follow this repo's `scripts/token-census.mjs` pattern:
+subagents) and `scripts/work-census.mjs` (elapsed time and rounds over the work-record
+ledger). Both follow this repo's `scripts/token-census.mjs` pattern:
 `parseArgs(argv)`, `async main(argv, {fsImpl, now, write})`, a win32-safe `isMainModule()`
 guard. Neither prints transcript or record prose — only counts, model names, work ids and
 file basenames.
@@ -80,17 +80,6 @@ file never re-parses a record. Per work id:
   interim `reviewed` note, a `rejected` verdict) between an `owned` and its eventual
   `delivered` still counts as one transition, tracked with an "armed" flag that arms on
   `owned` and fires (and disarms) on the next `delivered`.
-- **dispatch latency** — for each `delivered` `Log:` line, the time to the FIRST LATER
-  `Log:` line whose status is `reviewed` or `rejected` — not simply the next line,
-  whatever its status. A real record's line right after `delivered` is routinely a
-  same-second `owned ... agent-exited` hand-back, which measures bookkeeping, not
-  dispatch. A record delivered more than once (fix rounds) gets one latency per round,
-  plus their sum. `Log:` lines are hand-appended and can land out of chronological order
-  (a backfilled or concurrently-appended line); a candidate whose interval would be
-  negative is skipped in favor of the next later candidate, so a negative latency is
-  never reported. A record that has a `delivered` line but no valid later
-  responder reports its latency sum as `n/a`, never `0.0m` — "not measurable" and
-  "dispatched instantly" must not render the same.
 - **elapsed** — `opened` -> `accepted`. Most real records never reach `accepted` (the
   common case, not an edge case): when no `accepted` line exists, elapsed falls back to
   `opened` -> the LAST `reviewed` line, labeled `(to reviewed)` in the report rather than
@@ -98,12 +87,6 @@ file never re-parses a record. Per work id:
   `(no reviewed or accepted line)`. A record that HAS a `reviewed`/`accepted` line but no
   `Opened:` field also reports `null`, but labeled `(no Opened: field)` — the label names
   whichever field is actually missing rather than defaulting to the first case's wording.
-- **idle minutes (footer)** — total time, across all records merged and timestamp-sorted
-  by their own `Log:` transitions, during which at least one record was `runnable` with
-  `Owner: none`. Two records idle at the same time are not double-counted (it is a union
-  over records, not a sum). An idle window with no later closing transition (a record
-  still sitting `runnable`/`none` with nothing after it) is never counted — there is no
-  `now` reference to close it against.
 
 No fixtures directory is committed for this tool (unlike `build-census.mjs`'s, which
 gate-10 runs the CLI against directly): `scripts/work-census.test.mjs` builds its

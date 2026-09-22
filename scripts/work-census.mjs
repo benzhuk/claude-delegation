@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-// work-census — dispatch-latency, elapsed, and idle-time census over docs/work/*.record.md
-// (spec.md L-C10). Reads through scripts/work-record.mjs's own `listRecords`/`parseRecord`
+// work-census — elapsed and rounds census over docs/work/*.record.md
+// (spec.md L-C10; dispatch latency and idle minutes retired per the M4 ruling,
+// docs/notes/skills-fable-loop-build-3.md:8-9 — both measured the lead's hand dispatch,
+// which the loop deletes by construction). Reads through scripts/work-record.mjs's own
+// `listRecords`/`parseRecord`
 // rather than re-parsing records; the Log grammar is `Log: <ISO> <status> <owner> <note>`
 // (work-record.mjs:78,86).
 //
@@ -50,30 +53,6 @@ function countRounds(fields, log) {
   return rounds;
 }
 
-// Dispatch latency (spec.md L-C10, revised): for each `delivered` Log line, the time to
-// the FIRST LATER Log line whose status is `reviewed` OR `rejected` — never simply "the
-// next line" (a real record's line right after `delivered` is routinely a same-second
-// `owned ... agent-exited` hand-back, which measures bookkeeping, not dispatch). A record
-// delivered more than once (fix rounds) gets one latency per round.
-function dispatchLatencies(log) {
-  const out = [];
-  for (let i = 0; i < log.length; i++) {
-    if (log[i].status !== 'delivered') continue;
-    for (let j = i + 1; j < log.length; j++) {
-      if (log[j].status === 'reviewed' || log[j].status === 'rejected') {
-        const ms = Date.parse(log[j].at) - Date.parse(log[i].at);
-        // Log: lines are hand-appended and can land out of chronological order (a
-        // backfilled or concurrently-appended line). A negative interval is not a
-        // latency — keep searching forward for a later candidate instead of reporting it.
-        if (ms < 0) continue;
-        out.push({ deliveredAt: log[i].at, respondedAt: log[j].at, respondedStatus: log[j].status, ms });
-        break;
-      }
-    }
-  }
-  return out;
-}
-
 // Elapsed (spec.md L-C10, revised): opened -> accepted. Most real records never reach
 // `accepted` (the common case, not an edge case) — fall back to opened -> the LAST
 // `reviewed` line, labeled "(to reviewed)" rather than left blank. The label names
@@ -97,11 +76,6 @@ function perWorkReport(entry) {
   const log = record.log ?? [];
   const work = fields.work || path.basename(recPath);
 
-  const latencies = dispatchLatencies(log);
-  const hasDelivered = log.some((l) => l.status === 'delivered');
-  const latencySumMs = latencies.length === 0 && hasDelivered
-    ? null
-    : latencies.reduce((s, d) => s + d.ms, 0);
   const elapsed = elapsedFor(fields.opened, log);
 
   return {
@@ -113,57 +87,10 @@ function perWorkReport(entry) {
     firstReviewed: firstOfStatus(log, 'reviewed'),
     firstAccepted: firstOfStatus(log, 'accepted'),
     rounds: countRounds(fields, log),
-    dispatchLatencies: latencies,
-    dispatchLatencySumMs: latencySumMs,
     elapsedMs: elapsed.ms,
     elapsedEndAt: elapsed.endAt,
     elapsedLabel: elapsed.label,
   };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Idle minutes footer
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Total idle time (ms) across all records during which at least one record was
-// `runnable` with `Owner: none`, computed from merged, timestamp-sorted status
-// transitions across every record's Log lines (spec.md L-C10 footer). A record with no
-// Log lines at all contributes no transitions and is never considered idle.
-export function idleMsAcrossRecords(records) {
-  const events = [];
-  for (const { path: recPath, record } of records) {
-    const work = (record.fields ?? {}).work || recPath;
-    for (const l of record.log ?? []) {
-      const t = Date.parse(l.at);
-      if (Number.isNaN(t)) continue;
-      events.push({ t, work, status: l.status, owner: l.owner });
-    }
-  }
-  events.sort((a, b) => a.t - b.t);
-
-  const state = new Map(); // work -> { status, owner }
-  const isIdle = () => {
-    for (const s of state.values()) {
-      if (s.status === 'runnable' && s.owner === 'none') return true;
-    }
-    return false;
-  };
-
-  let idleMs = 0;
-  let prevT = null;
-  let prevIdle = false;
-  let i = 0;
-  while (i < events.length) {
-    const t = events[i].t;
-    if (prevT !== null && t > prevT && prevIdle) idleMs += t - prevT;
-    while (i < events.length && events[i].t === t) {
-      state.set(events[i].work, { status: events[i].status, owner: events[i].owner });
-      i++;
-    }
-    prevIdle = isIdle();
-    prevT = t;
-  }
-  return idleMs;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,8 +99,7 @@ export function idleMsAcrossRecords(records) {
 
 export function computeWorkCensus(records) {
   const perWork = records.map(perWorkReport);
-  const idleMinutes = idleMsAcrossRecords(records) / 60000;
-  return { perWork, idleMinutes };
+  return { perWork };
 }
 
 function fmtMinutes(ms) {
@@ -191,20 +117,6 @@ export function formatText(report) {
     md.push(`| ${r.work} | ${r.opened || '(none)'} | ${r.firstOwned || '(none)'} | ${r.firstDelivered || '(none)'} | ${r.firstReviewed || '(none)'} | ${r.firstAccepted || '(none)'} | ${r.rounds} |`);
   }
   md.push('');
-  md.push('## Dispatch latency (delivered -> first later reviewed or rejected)');
-  md.push('');
-  md.push('| work | round | delivered at | responded at | status | latency |');
-  md.push('|---|---|---|---|---|---|');
-  for (const r of report.perWork) {
-    r.dispatchLatencies.forEach((d, i) => {
-      md.push(`| ${r.work} | ${i + 1} | ${d.deliveredAt} | ${d.respondedAt} | ${d.respondedStatus} | ${fmtMinutes(d.ms)} |`);
-    });
-  }
-  md.push('');
-  md.push('| work | latency sum (all rounds) |');
-  md.push('|---|---|');
-  for (const r of report.perWork) md.push(`| ${r.work} | ${fmtMinutes(r.dispatchLatencySumMs)} |`);
-  md.push('');
   md.push('## Elapsed (opened -> accepted, or opened -> last reviewed)');
   md.push('');
   md.push('| work | elapsed | ends at | label |');
@@ -212,10 +124,6 @@ export function formatText(report) {
   for (const r of report.perWork) {
     md.push(`| ${r.work} | ${fmtMinutes(r.elapsedMs)} | ${r.elapsedEndAt || '(none)'} | ${r.elapsedLabel} |`);
   }
-  md.push('');
-  md.push(`## Idle minutes (>=1 record runnable, Owner: none)`);
-  md.push('');
-  md.push(`Total idle: **${report.idleMinutes.toFixed(1)} minutes**`);
   return md.join('\n');
 }
 
