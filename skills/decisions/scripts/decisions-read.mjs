@@ -15,7 +15,9 @@ import { fileURLToPath } from 'node:url';
 const ESCAPED_BOLD = '\\*\\*';
 // Narrowed to the form the skill and template mandate ("Reply:" + a numeric date) so a
 // bare "Reply:" the OWNER happens to type does not clear his own comment (round-2 P6).
-const REPLY_RE = /^Reply:\s*\d{4}-\d{2}-\d{2}/;
+// The date is captured (group 1), not just matched: M1's hand-back archiving needs the
+// actual reply date to tell a just-answered pair from one the owner has already seen.
+const REPLY_RE = /^Reply:\s*(\d{4}-\d{2}-\d{2})/;
 const DEFAULT_AFTER_RE = /^Default after (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2}): (.+)$/;
 // A recognised no-op per R4 — tracked (not just ignored) so the post-loop N5 check can
 // tell "explicitly declared no default" apart from "never addressed the question".
@@ -181,7 +183,10 @@ export function parseDocument(text, { now = new Date() } = {}) {
     if (isCommentText(parsed.text)) {
       const commentText = stripCommentMarker(parsed.text);
       if (currentTitle) {
-        const comment = { text: commentText, line: lineNo, replied: false };
+        // `repliedAt` (v3, M1): the Reply line's own date, kept so a downstream tool (the
+        // hand-back check) can tell a JUST-answered pair from one the owner has already seen —
+        // never parsed back out of `text`, which never carries a date at all.
+        const comment = { text: commentText, line: lineNo, replied: false, repliedAt: null };
         currentTitle.comments.push(comment);
         currentTitle._openComment = comment;
       } else {
@@ -198,7 +203,9 @@ export function parseDocument(text, { now = new Date() } = {}) {
       // Closes only the nearest still-open comment (R1); once closed, it stays closed —
       // a later Reply: line never reaches back past the next comment.
       if (currentTitle._openComment) {
+        const replyMatch = REPLY_RE.exec(parsed.text);
         currentTitle._openComment.replied = true;
+        currentTitle._openComment.repliedAt = replyMatch ? replyMatch[1] : null;
         currentTitle._openComment = null;
       }
       continue; // a reply marker, never an option or a comment
@@ -321,7 +328,7 @@ export function toJsonObject(doc) {
       status: d.status,
       line: d.line,
       options: d.options.map((o) => ({ text: o.text, ticked: o.ticked, line: o.line })),
-      comments: d.comments.map((c) => ({ text: c.text, line: c.line, replied: c.replied })),
+      comments: d.comments.map((c) => ({ text: c.text, line: c.line, replied: c.replied, repliedAt: c.repliedAt })),
       default: d.default ? { text: d.default.text, at: d.default.at } : null,
     })),
     unattached: doc.unattached.map((u) => ({
