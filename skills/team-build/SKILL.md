@@ -54,6 +54,15 @@ mention says where to find it once mirrored.
    60–90 min; anything paying a prod build per iteration ≈ 2–3 h unless parallelized —
    that last shape gets its levers (parallel arms budget, cost-split iteration) granted
    AT SPAWN, in the mandate, not discovered at check-in.
+6. **Open one work record per territory before spawning it** — `docs/work/<work-id>.record.md`
+   (`docs/work-record.md`, shipped next to this skill as `../_docs/work-record.md` when
+   mirrored, and in the plugin repo's `docs/` otherwise, has the full field list): `Status:
+   runnable`, `Owner: none`, `Scope:` the spec or brief path and the commit it was read at,
+   `Authority:` what may happen without Ben and what may not. **You are this record's ONLY
+   writer, for its whole life** — builders and reviewers keep their own state file and
+   report to the path in their mandate; neither one ever touches `docs/work/`. Ownership
+   returns to you, recorded as a `Log:` line, the moment an agent reports, is stopped, or
+   dies.
 
 ## Roles
 
@@ -81,7 +90,10 @@ mention says where to find it once mirrored.
 - **Contract-test writer** (mid tier, optional but cheap): writes integration/contract
   tests from the spec while builders build — converts contract compliance from a
   judgment call into a mechanical gate. Upgrade to the high tier when the contracts ARE
-  the risk center: a wrong test is a false-green gate, worse than none.
+  the risk center: a wrong test is a false-green gate, worse than none. **Default, not
+  optional, whenever a territory's own tests are also what gates its own builder** — a
+  builder writing and grading its own contract test is a conflict of interest; someone
+  else writes that test.
 - **Reviewer** (high tier, fresh per phase, never the
   planner): read-only; spawns only after
   that builder's own gate is green. Its prompt is a **specific attack brief**, not
@@ -95,7 +107,10 @@ mention says where to find it once mirrored.
   PowerShell), so a mechanical check (running the gate, a revert-and-diff) needs no
   extra tool grant. Mid-tier reviewers
   only for genuinely low-risk territories; reviews are not optional for anything that
-  computes a number someone will act on.
+  computes a number someone will act on. **For a bug-fix territory**, the attack brief
+  also asks: is this fix the CAUSE, or a COMPENSATION for it (a guard that hides the
+  symptom without removing the defect) — and does the fix's landing let any existing
+  `WORKAROUND:` on the work record come out. Verdict still comes first.
 - **Seam reviewer** (high tier, after all territories land; worth it at ≥3 territories or
   any cross-territory data handoff): one pass scoped to the contract boundaries — call
   sites across territories, shared types in use, data handoffs. Per-territory reviewers
@@ -113,8 +128,9 @@ mention says where to find it once mirrored.
 ## Scheduling — maximize overlap
 
 - **Spawn all builders in one message**; never stagger territory launches.
-- **Pipeline reviews, no barrier**: spawn each territory's reviewer the moment that
-  builder reports — never hold reviews for the slowest builder.
+- **Pipeline reviews, no barrier**: spawn each territory's reviewer in the SAME turn its
+  builder's report lands — check every territory for a pending reviewer spawn before
+  that turn ends. Never hold reviews for the slowest builder.
 - **Parallel reviewer lenses** when wall-clock beats tokens: two reviewers per
   territory with distinct priorities (correctness vs. security/edge-cases), merge,
   dedupe, relay once. Fix rounds continue with a single reviewer.
@@ -122,6 +138,10 @@ mention says where to find it once mirrored.
   Splitting a territory that shares files trades token cost for serial merge-conflict
   resolution on your critical path — strictly worse. And mind the machine: agent count
   is free, concurrent local processes are not (`../_docs/concurrency-budget.md`).
+- **No new wave while any of this orchestrator's records show `delivered`, `rejected`, or
+  `reviewed` (approved but not yet integrated)** — except a workstream whose prerequisite
+  is met and whose own record says so. Starting a new wave before its predecessor's
+  records catch up builds the next wave on unintegrated, or already-rejected, work.
 
 ## Iteration mechanics
 
@@ -139,7 +159,22 @@ mention says where to find it once mirrored.
   agent killed mid-edit gets the standard recovery prompt
   (`docs/subagent-contract.md`, shipped next to this skill as
   `../_docs/subagent-contract.md` when mirrored, and in the plugin repo's `docs/`
-  otherwise), not blind trust in its memory.
+  otherwise), not blind trust in its memory. **A reviewer with no report file at its ETA
+  is stopped and respawned fresh — never waited on past ETA**, the same ladder as a
+  builder's.
+- **Round-3 Research line** (`docs/mandate-template.md`'s `Research:` field, required
+  from the third fix round on): its content is five diagnosis steps, in order — (1)
+  reproduce the failure reliably and record the exact repro; (2) isolate it to the
+  smallest failing input, or the specific commit that introduced or exhibits it; (3)
+  form one falsifiable hypothesis for the cause; (4) name a discriminating check whose
+  result would come out differently under that hypothesis than under any other
+  plausible cause; (5) run that check and record what it showed BEFORE writing the fix.
+  `not needed, <reason of 10+ chars>` is a good answer only after a genuine attempt at
+  these five turned up nothing to isolate.
+- **Best-of-two fix attempts**: a mandate-granted option, not a default. Grant it only
+  for a third-round-or-later territory, or one on the critical path, where two
+  independent fresh-builder attempts against the same findings path, reviewed and the
+  cleaner APPROVE kept, are cheaper than another serial round.
 - Report protocol, termination formula, notification idempotence, and TaskStop hygiene:
   `../_docs/subagent-contract.md`. Applies verbatim to every role here.
 
@@ -149,6 +184,15 @@ One builder commits at the end: conventional commits split by territory (respect
 user's attribution config). If a local production build is unsafe (dev server running),
 use the CI/preview build as the gate. The integrator runs deployment smoke checks; you
 read its verdict and own the ship decision.
+
+Move every territory's work record as it moves, in the same turn the event happens:
+`owned` when you spawn its builder, `delivered` when the builder reports, `rejected` on a
+`NEEDS_FIXES` verdict (`Next:` names the fix round), `reviewed` on `APPROVE`, `accepted`
+only once integrated within `Authority:` or by Ben's own quoted word — copy the deciding
+report to `docs/work/evidence/<work-id>-<lane>.md` at that moment, since `accepted`
+requires at least one evidence path inside the repo. You remain the only writer to
+`docs/work/` through to the end; a fresh orchestrator, or one that is woken, is shown its
+next runnable record by reading that directory, never by asking you to recall it.
 
 ## Peer sessions
 
