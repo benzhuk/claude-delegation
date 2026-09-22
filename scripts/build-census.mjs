@@ -243,13 +243,20 @@ export async function runCensus(opts, fsImpl = realFs()) {
   for (const f of files) {
     const full = path.join(opts.tasks, f);
     let size = 1;
+    let unreadable = false;
     try {
       size = fsImpl.statSync(full).size;
     } catch {
+      // A file that vanished or became unreadable between readdir and stat is not the
+      // same as a genuinely zero-byte one — reporting it as 0 turns would misattribute
+      // an unknown count as a real zero. Flagged through as unreadable instead, so
+      // formatText can render it `n/a`, the same idiom this file already uses for
+      // turnsPerHour and the latency sum whenever a real count can't be produced.
+      unreadable = true;
       size = 0;
     }
     if (size === 0) {
-      subFiles.push({ file: f, byId: new Map() });
+      subFiles.push({ file: f, byId: new Map(), unreadable });
       continue;
     }
     const r = await censusSubFile(full, { fsImpl });
@@ -263,7 +270,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
     const byModel = aggByModel(sf.byId);
     mergeAggInto(subTotalsByModel, byModel);
     subTotalTurns += sf.byId.size;
-    perFile.push({ file: sf.file, turns: sf.byId.size, byModel });
+    perFile.push({ file: sf.file, turns: sf.unreadable ? null : sf.byId.size, byModel });
   }
 
   const leadTotalByModel = aggByModel(lead.totalById);
@@ -345,7 +352,7 @@ export function formatText(report) {
   md.push('');
   md.push('| file | turns |');
   md.push('|---|---|');
-  for (const f of report.subagents.perFile) md.push(`| ${f.file} | ${f.turns} |`);
+  for (const f of report.subagents.perFile) md.push(`| ${f.file} | ${f.turns === null ? 'n/a' : f.turns} |`);
   md.push('');
   md.push('### Subagent tokens by model — totals (deduped)');
   md.push('');

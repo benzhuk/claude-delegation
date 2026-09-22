@@ -6,7 +6,7 @@
 // identity can no longer reach it by accident. See scripts/test-home.mjs for the home itself,
 // and docs/sealed-baseline.json for the ratchet: files that still fail under the seal at the
 // release this runner was introduced (out of scope for this territory to fix); from the next
-// release on this run IS the suite and that list must be empty.
+// release on this run IS the suite and that list must be empty. Full rationale: docs/sealed-tests.md
 //
 // Usage: `node scripts/run-tests.mjs` (walks the repo for every *.test.mjs, node_modules/.claude/.git
 // excluded) or `node scripts/run-tests.mjs <file> [file...]` (an explicit list, relative or absolute).

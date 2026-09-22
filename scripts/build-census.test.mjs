@@ -199,7 +199,7 @@ test('an UNREADABLE --tasks directory throws instead of reporting 0 subagent fil
 });
 
 test('an EMPTY but readable --tasks directory is still a legitimate zero and does not throw', async () => {
-  const empty = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), 'build-census-empty-'));
+  const empty = mkTmp('build-census-empty-');
   const report = await runCensus({ lead: FIXTURES_LEAD, tasks: empty, marker: null, out: null });
   assert.equal(report.subagents.fileCount, 0);
 });
@@ -220,6 +220,27 @@ test('zero-byte subagent files are treated as zero turns and never opened as a s
   assert.equal(report.subagents.fileCount, 2);
   assert.ok(!opened.some((p) => p.endsWith('empty.output')), 'a zero-byte file must never be opened as a stream');
   assert.ok(opened.some((p) => p.endsWith('split-request.output')), 'the non-empty file must still be opened');
+});
+
+test('a subagent file whose statSync throws (vanished/unreadable between readdir and stat) reports turns as n/a, never a silent 0 — n7', async () => {
+  const real = fs;
+  const fsImpl = {
+    readdirSync: (...a) => real.readdirSync(...a),
+    statSync: (p, ...rest) => {
+      if (p.endsWith('split-request.output')) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return real.statSync(p, ...rest);
+    },
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+  };
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasks: FIXTURES_TASKS, marker: null, out: null }, fsImpl);
+  const racedFile = report.subagents.perFile.find((f) => f.file === 'split-request.output');
+  assert.equal(racedFile.turns, null, 'a statSync failure must not render as a real zero-turn count');
+  const emptyFile = report.subagents.perFile.find((f) => f.file === 'empty.output');
+  assert.equal(emptyFile.turns, 0, 'a genuinely zero-byte file is still a real zero, unaffected by the guard');
+  const text = formatText(report);
+  assert.ok(text.includes('| split-request.output | n/a |'), `expected an n/a row for the raced file:\n${text}`);
+  assert.ok(!text.includes('| split-request.output | 0 |'), 'a raced file must never print as if it were a real zero');
 });
 
 test('a malformed JSON line is skipped, not thrown', async () => {
