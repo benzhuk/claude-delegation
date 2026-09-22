@@ -83,3 +83,41 @@ conflicts yourself (or spawn one high-tier adjudicator when two agents disagree 
 and state conclusions with each lane's evidence path. A confirmed absence or a proven
 limit reported by a lane is a first-class result — surface it, don't re-run the lane
 hoping for a positive.
+
+## Ladder, Opus orchestrator panes only
+
+**When**: a fixed three-rung escalation — cheap fast-tier reads, mid-tier research over
+what the reads surfaced, one high-tier judge rendering a single verdict — for a pane that
+wants that shape without hand-authoring a Workflow script each time. Run it ONLY from an
+Opus orchestrator pane; never from the lead pane, a builder pane, or a Sonnet-tier
+session. Ultracode is not used anywhere in this template — it is a fixed, deterministic
+ladder, not an open-ended exhaustive workflow.
+
+**Script**: `skills/delegate/references/ladder-workflow.js`, invoked with the Workflow
+tool as `{scriptPath: "skills/delegate/references/ladder-workflow.js"}` (or by name once
+registered) and an `args` object: `{ targets, question, readerType, maxAgents }`, all
+optional. Rungs: fast tier reads each target (`agentType: readerType ?? 'delegation:runner'`,
+`model: 'haiku'`, `effort: 'low'`) → mid tier researches what came back (`model: 'sonnet'`)
+→ high tier judges once (`model: 'opus'`, exactly one agent call). Returns one object:
+`{ verdict, evidence: [paths], cost: { agents } }` — intermediate rung output never leaves
+the script.
+
+**Cap**: `args.maxAgents`, default 12, enforced by counting every `agent()` call the
+script makes across all three rungs; the (maxAgents + 1)th call throws before it is made,
+never after.
+
+**Reader-type fallback**: the fast tier defaults to `agentType: 'delegation:runner'`. If
+that agent type is not registered on the caller's machine, the caller passes
+`readerType: 'general-purpose'` explicitly in `args` — the script does not detect this
+itself.
+
+**Headless-child fallback**: when the Workflow tool itself is not available in the
+calling context, the fast tier's job (a cheap, low-effort read) can be approximated with
+a headless child instead:
+`claude -p --model claude-haiku-4-5-20251001 --output-format text --max-turns 1 --allowedTools ""`.
+This is a fallback for the read rung only, not a replacement for the ladder script as a
+whole.
+
+**Status**: approved, not live, until one run from an Opus pane. Its acceptance is a
+single real run from an Opus orchestrator pane after merge, recorded on its work record —
+until then, treat it as reviewed template code, not a load-bearing tool.
