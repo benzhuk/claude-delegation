@@ -429,9 +429,17 @@ test('N2: no test file in this suite inherits the runner environment on its own'
     path.join(REPO, 'skills', 'multi', 'scripts'),
     path.join(REPO, 'hooks'),
     path.join(REPO, 'scripts'),
+    // L-C7 (addendum A2): scan the build-loop and ladder test directories too, so a new spawn
+    // site there is caught from the start rather than by policy alone.
+    path.join(REPO, 'skills', 'team-build', 'references'),
+    path.join(REPO, 'skills', 'delegate', 'references'),
   ];
   const offenders = [];
   for (const dir of roots) {
+    // A sibling territory's directory (e.g. skills/team-build/references) may not exist yet in
+    // an unmerged worktree - that is not a finding, it is nothing to scan yet; on the merged
+    // tree every root here exists.
+    if (!fs.existsSync(dir)) continue;
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith('.test.mjs')) continue;
       const text = fs.readFileSync(path.join(dir, name), 'utf8');
