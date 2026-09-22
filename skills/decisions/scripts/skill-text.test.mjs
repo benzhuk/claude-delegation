@@ -38,3 +38,7 @@ test('SKILL.md contains "decisions-handback.mjs --decisions"', () => {
 test('SKILL.md contains "goals-mirror.mjs publish"', () => {
   assert.equal(skillText.includes('goals-mirror.mjs publish'), true);
 });
+
+test('no SKILL.md line starts with ** (a pasted wrap would read back as an owner note)', () => {
+  assert.doesNotMatch(skillText, /^[ \t]*\*\*/m);
+});

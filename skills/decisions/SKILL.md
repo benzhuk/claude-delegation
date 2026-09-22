@@ -47,9 +47,9 @@ second comment that never clears (not checked). Write and read the page through 
 whole-page replace, read fresh seconds before writing, a multi-line edit built from a
 script with the old and new text loaded from files, not argv (not checked).
 
-The page callout's owner instruction reads: "Tick a box, or add a line starting with
-** anywhere; every such line is acted on and removed before this page comes back to
-you." (not checked)
+The page callout's owner instruction reads, written on the page as one line: "Tick a
+box, or add a line starting with ** anywhere; every such line is acted on and removed
+before this page comes back to you." (not checked)
 
 New items go inside the open section, never appended past the page-level `- [ ] Done`
 line (`append-md` must not be used for this) (not checked). Whoever adds an item
@@ -99,12 +99,16 @@ change nothing (checked by `scripts/decisions-read.mjs`).
     `Reply: <YYYY-MM-DD> made it an item above` (not checked). A follow-up from the
     owner under a reply is a new `\*\*` line and is COMMENTED again (checked by
     `scripts/decisions-read.mjs`).
-  - A question with no decision item around it (every goals-page heading, or a note
-    outside any `<details>` toggle) is not cleared by a Reply: the reader keeps
-    reporting it UNATTACHED (rule 9), which blocks the hand-back and the mirror publish
-    (checked by `scripts/decisions-handback.mjs` and `scripts/goals-mirror.mjs`).
-    Answer and archive it in the same pass: the `Your question, <M-D>: …` bullet under
-    the decisions page's `# Closed`, then delete the owner's line.
+  - A question whose nearest title above it has no options (every goals-page heading,
+    a section heading written as a toggle) or that has no title above it at all is not
+    cleared by a Reply: the reader keeps reporting it UNATTACHED (rule 9), which blocks
+    the hand-back (checked by `scripts/decisions-handback.mjs`) and, for a goals-page
+    note, the mirror publish (checked by `scripts/goals-mirror.mjs`). A note below an
+    item's closed toggle, with no new title between, still belongs to that item
+    (checked by `scripts/decisions-read.mjs`). Answer and archive an UNATTACHED question
+    in the same pass: the `Your question, <M-D>: …` bullet under the decisions page's
+    `# Closed` (not checked), then delete the owner's line (checked by
+    `scripts/decisions-handback.mjs`).
 - DUE: the item's `Default after …` deadline passed unanswered (reported by
   `scripts/decisions-read.mjs`). Apply the default, tell the owner in the same
   message, and close the item (not checked).
@@ -127,7 +131,8 @@ reads as a live OPEN item and nothing flags it).
 ## Handing the page back
 
 Before giving the owner the decisions URL, run the hand-back check on fresh reads of
-both pages (a read is two `notion.js read` calls, run through a Sonnet runner):
+both pages (a read is two `notion.js read` calls, run through a Sonnet runner; the
+runner choice is not checked):
 
 ```
 node ~/.claude/scripts/notion.js read <decisions-page-id> > <scratch>/decisions.md
