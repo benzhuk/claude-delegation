@@ -49,8 +49,8 @@ not a fix round.
 Research: <path to a research lane's report, or the words "not needed" then a comma and
 a reason of ten or more characters. Required from the third fix round onward.>
 
-Fix kind: bug — only on a bug-fix mandate; delete this and the next three lines
-otherwise.
+(Bug-fix mandates only — delete these four lines otherwise.)
+Fix kind: bug
 Class: <failure-class slug>
 Regression test: <path to the test that must fail before the fix and pass after it>
 Base sha: <the sha the regression test was proven failing at, for scripts/prefix-test.mjs>

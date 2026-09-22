@@ -30,7 +30,7 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | Label | Required | Meaning |
 |---|---|---|
 | `Work:` | yes | `wr-<yyyy-mm-dd>-<slug>`, unique, lowercase, `[a-z0-9-]` |
-| `Scope:` | yes | `<path>@<sha>` — the spec or brief and the commit it was read at |
+| `Scope:` | yes | `<path>@<sha>` — the spec or brief and the commit it was read at; the path uses forward slashes, always (a backslash resolves to nothing when `scope-drift` runs `git log` on macOS or Linux) |
 | `Owner:` | yes | `<slug>` or `none` |
 | `Status:` | yes | one of `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `accepted`, `blocked` |
 | `Authority:` | yes | what may happen without Ben, and what may not |
@@ -58,7 +58,12 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 
 ### `Log:` notes with fixed meaning
 
-- `artifact <sha>` — `Artifact:` changed in this edit.
+- `artifact <sha>` — `Artifact:` changed in this edit. Convention: the ownership-return
+  line written when an agent reports, is stopped, or dies (e.g. `delivered orchestrator
+  agent-exited`, or a plain `reviewed reviewer`) restates `artifact <sha>` for the
+  artifact that is still current, even though it did not change in that edit — so a
+  normal hand-back is not misread by `stale-result-candidate` as a result from a
+  superseded owner.
 - `review-rejected` — a reviewer's non-APPROVE verdict caused this status change.
 - `agent-exited` — the prior owner reported, was stopped, or died.
 - `ben: "<quoted word>"` — Ben's own word authorized this change.

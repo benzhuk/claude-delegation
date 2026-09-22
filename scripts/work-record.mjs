@@ -24,7 +24,7 @@ const FIELD_LABELS = [
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log"]);
-const HEADER_LINE_RE = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]*):\**[ \t]{0,20}(.+)$/;
+const HEADER_LINE_RE = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.+)$/;
 
 function rtrim(s) {
   return s.replace(/[\r \t]+$/, "");
@@ -67,14 +67,18 @@ export function parseRecord(text) {
   const workaroundRe = /^[ \t*+-]{0,20}WORKAROUND:\**[ \t]{0,20}(.+)$/gim;
   for (const wm of headerText.matchAll(workaroundRe)) {
     const parts = rtrim(wm[1]).trim().split(" / ").map((p) => rtrim(p).trim());
-    workarounds.push({ cause: parts[0] ?? "", blockedBy: parts[1] ?? "", removeWhen: parts[2] ?? "" });
+    // The last two segments are always <blocked by> and <remove when>; a cause that itself
+    // contains " / " folds back into the cause rather than shifting the date out of view.
+    workarounds.push(parts.length > 3
+      ? { cause: parts.slice(0, -2).join(" / "), blockedBy: parts.at(-2), removeWhen: parts.at(-1) }
+      : { cause: parts[0] ?? "", blockedBy: parts[1] ?? "", removeWhen: parts[2] ?? "" });
   }
 
   const log = [];
   const logRe = /^[ \t*+-]{0,20}Log:\**[ \t]{0,20}(.+)$/gim;
   for (const lm of headerText.matchAll(logRe)) {
     const value = rtrim(lm[1]).trim();
-    const parts = value.match(/^(\S+)[ \t]+(\S+)[ \t]+(\S+)(?:[ \t]+(.*))?$/);
+    const parts = value.match(/^(\S{1,64})[ \t]{1,20}(\S{1,64})[ \t]{1,20}(\S{1,64})(?:[ \t]{1,20}(.*))?$/);
     if (!parts) {
       errors.push(`malformed Log line: ${value}`);
       continue;
@@ -94,6 +98,9 @@ function isInsideRepo(repoRoot, evidencePath) {
 // opts: { fsImpl, now, repoRoot, gitDir, ref } -> [{ code, level: "finding"|"info", message }]
 export function validateRecord(record, opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
+  // execImpl mirrors fsImpl: the scope-drift git call is injectable so a test can prove it is
+  // NOT made when gitDir or ref is absent (the catch below would otherwise hide a lost guard).
+  const execImpl = opts.execImpl ?? execFileSync;
   const now = opts.now ?? new Date();
   const fields = record.fields ?? {};
   const log = record.log ?? [];
@@ -135,7 +142,9 @@ export function validateRecord(record, opts = {}) {
 
   // Evidence path checks only run when repoRoot is given (A4): without it we cannot tell
   // in-repo from unreachable, so we skip every evidence-path check rather than guess.
-  let hasInRepoEvidence = false;
+  // Without repoRoot we cannot tell in-repo from unreachable (A4), and we must NOT treat
+  // every path as outside the repo: any declared evidence path counts for `accepted`.
+  let hasInRepoEvidence = opts.repoRoot === undefined && evidence.length > 0;
   if (opts.repoRoot !== undefined) {
     for (const ev of evidence) {
       if (!isInsideRepo(opts.repoRoot, ev)) {
@@ -199,7 +208,7 @@ export function validateRecord(record, opts = {}) {
     if (m) {
       const [, scopePath, sha] = m;
       try {
-        const out = execFileSync("git", ["-C", opts.gitDir, "log", "-1", "--format=%H", opts.ref, "--", scopePath], {
+        const out = execImpl("git", ["-C", opts.gitDir, "log", "-1", "--format=%H", opts.ref, "--", scopePath], {
           encoding: "utf8",
         }).trim();
         if (out && !out.toLowerCase().startsWith(sha.toLowerCase())) {
@@ -259,7 +268,14 @@ export function listRecords(dir, opts = {}) {
     .sort()
     .map((f) => {
       const p = path.join(dir, f);
-      return { path: p, record: parseRecord(fsImpl.readFileSync(p, "utf8")) };
+      let text = "";
+      try {
+        text = fsImpl.readFileSync(p, "utf8");
+      } catch {
+        // Removed between readdir and read; treat as an unparseable-but-present entry
+        // rather than throwing through a caller like T2's hook or T4's janitor.
+      }
+      return { path: p, record: parseRecord(text) };
     });
 }
 

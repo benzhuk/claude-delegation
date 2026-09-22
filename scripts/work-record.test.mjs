@@ -137,7 +137,7 @@ test("validateRecord: a clean record with no repoRoot given produces zero findin
   assert.deepEqual(validateRecord(r), []);
 });
 
-test("validateRecord: every code in FINDING_CODES is reachable by at least one test in this file", () => {
+test("FINDING_CODES is exactly C2's twelve codes", () => {
   // Documents the full set this suite must cover; the individual tests below assert each one fires.
   assert.deepEqual(
     [...FINDING_CODES].sort(),
@@ -269,6 +269,17 @@ test("validateRecord: stale-result-candidate does not fire when Artifact: is non
   assert.ok(!codes(validateRecord(r)).includes("stale-result-candidate"));
 });
 
+test("validateRecord: a later Log line with the SAME owner is not an owner change (A4)", () => {
+  const r = parseRecord(
+    mkRecordText({ Status: "reviewed", Artifact: "integrate/next-build@abc1111" }, [
+      "Log: 2026-09-21T09:00:00Z owned t1",
+      "Log: 2026-09-21T10:00:00Z delivered t1 artifact abc1111",
+      "Log: 2026-09-21T11:00:00Z reviewed t1",
+    ]),
+  );
+  assert.ok(!codes(validateRecord(r)).includes("stale-result-candidate"));
+});
+
 // Named failure case 2 (T1 brief): "effect landed but result lost" -> Artifact: is set,
 // Evidence: none, and `accepted` is refused (accepted-without-evidence).
 test("validateRecord: effect landed but result lost -> accepted is refused (accepted-without-evidence)", () => {
@@ -307,6 +318,22 @@ test("validateRecord: scope-drift is not attempted without both gitDir and ref",
   const r = parseRecord(mkRecordText({ Scope: "docs/mandate-template.md@0000000" }));
   assert.ok(!codes(validateRecord(r)).includes("scope-drift"));
   assert.ok(!codes(validateRecord(r, { gitDir: process.cwd() })).includes("scope-drift"));
+});
+
+test("validateRecord: scope-drift never invokes git unless BOTH gitDir and ref are given", () => {
+  const calls = [];
+  const execImpl = (...a) => {
+    calls.push(a);
+    return "";
+  };
+  const r = parseRecord(mkRecordText({ Scope: "docs/mandate-template.md@0000000" }));
+  for (const partial of [{}, { gitDir: "/tmp/x" }, { ref: "HEAD" }]) {
+    validateRecord(r, { ...partial, execImpl });
+    assert.equal(calls.length, 0, `git was invoked with opts ${JSON.stringify(partial)}`);
+  }
+  validateRecord(r, { gitDir: "/tmp/x", ref: "HEAD", execImpl });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][1], ["-C", "/tmp/x", "log", "-1", "--format=%H", "HEAD", "--", "docs/mandate-template.md"]);
 });
 
 test("validateRecord: workaround-overdue fires for a past 'by <date>' removeWhen, in any status", () => {
