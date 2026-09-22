@@ -312,3 +312,10 @@ test("classifyRun: two real named tests, one failing, is reproduced (fail>0 with
   const r = classifyRun(dir, "two.test.mjs");
   assert.equal(r.category, "reproduced");
 });
+
+test("parseTapCounts: the ERR_ASSERTION literal inside a TEST NAME is not an assertion failure (MAJOR 3 regression)", () => {
+  const tap = ["TAP version 13", "# Subtest: regression for code: 'ERR_ASSERTION' handling",
+    "not ok 1 - regression for code: 'ERR_ASSERTION' handling", "  ---", "  error: 'boom'",
+    "  code: 'ERR_TEST_FAILURE'", "  ---", "1..1", "# tests 1", "# pass 0", "# fail 1", ""].join("\n");
+  assert.equal(parseTapCounts(tap, "spoof.test.mjs").hasAssertionFailure, false);
+});
