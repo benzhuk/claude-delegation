@@ -22,6 +22,7 @@
 //   file_absent   { file }                                  - ok / stale (still there)
 //   file_fresh    { file, maxAgeSeconds, whenMissing? }      - ok / stale (too old, or missing - default 'stale') / whenMissing overrides the missing case
 //   switch        { file }                                  - always 'info', why says ON or off
+//   env_presence  { var }                                   - always 'info', why says set or not set
 //   (anything else)                                         - 'info', why: "unknown check type" - never a crash
 //
 // A check whose `platforms` array does not include the current platform is skipped entirely (it does
@@ -187,6 +188,11 @@ function evalSwitch(check, { home, fsImpl }) {
   return { state: "info", why: `${check.why} (${on ? "ON" : "off"})` };
 }
 
+function evalEnvPresence(check, { env }) {
+  const on = Boolean(env[check.var]);
+  return { state: "info", why: `${check.why} (${on ? "set" : "not set"})` };
+}
+
 function evalCheck(check, ctx) {
   switch (check.type) {
     case "json_value":
@@ -203,6 +209,8 @@ function evalCheck(check, ctx) {
       return evalFileFresh(check, ctx);
     case "switch":
       return evalSwitch(check, ctx);
+    case "env_presence":
+      return evalEnvPresence(check, ctx);
     default:
       return { state: "info", why: "unknown check type" };
   }
@@ -218,9 +226,11 @@ function evalCheck(check, ctx) {
  * @param {Date} [opts.now] - defaults to new Date()
  * @param {{public?: object[], private?: object[]}} [opts.lists] - override either list; omit to
  *   read the plugin's own required-wiring.default.json and, if present, ~/.agents/required-wiring.json
+ * @param {object} [opts.env] - defaults to the process environment; the only environment input, and
+ *   only through this argument
  * @returns {{ ok: boolean, results: Array<{id: string, state: 'ok'|'missing'|'stale'|'info', why: string, fix: string}> }}
  */
-export function checkWiring({ home = homedir(), platform = process.platform, fsImpl = fs, now = new Date(), lists } = {}) {
+export function checkWiring({ home = homedir(), platform = process.platform, fsImpl = fs, now = new Date(), lists, env = process.env } = {}) {
   const publicList = lists?.public ?? loadCheckList(fsImpl, DEFAULT_LIST_PATH);
   let privateList = lists?.private;
   if (privateList === undefined) {
@@ -241,7 +251,7 @@ export function checkWiring({ home = homedir(), platform = process.platform, fsI
       outcome = { state: "info", why: "this check names the peer-note ledger, which wiring-check refuses to read" };
     } else {
       try {
-        outcome = evalCheck(check, { home, fsImpl, now });
+        outcome = evalCheck(check, { home, fsImpl, now, env });
       } catch (err) {
         outcome = { state: "info", why: `could not evaluate this check: ${String(err && err.message ? err.message : err)}` };
       }

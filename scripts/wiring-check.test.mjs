@@ -214,6 +214,81 @@ test("switch: always 'info', why reports ON when the file exists and off when it
   assert.ok(byId.off.why.includes("off"));
 });
 
+// ---------------------------------------------------------------------------
+// env_presence (package-build/P1, PB-C1): visibility-only, always 'info', both directions
+// ---------------------------------------------------------------------------
+
+test("env_presence: 'info' with the full why-string ending in (set) when the var is set, and (not set) when absent - never missing/stale either way", () => {
+  const home = mkHome();
+  const checks = [
+    { id: "pane-note-slug", type: "env_presence", var: "NOTE_SLUG", why: "this pane's peer-note inbox registers only when NOTE_SLUG is set", fix: "f" },
+  ];
+  const setResult = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] }, env: { NOTE_SLUG: "taxonomy" } });
+  assert.equal(setResult.results[0].state, "info");
+  // v1.1 red-team finding 8: the FULL why string must end in "(set)" - state === 'info' alone would
+  // pass against both the unwired-case bug (default: "unknown check type") and the missing-context
+  // bug (an undefined env making env[check.var] throw, caught into "could not evaluate this check").
+  assert.equal(setResult.results[0].why, "this pane's peer-note inbox registers only when NOTE_SLUG is set (set)");
+
+  const unsetResult = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] }, env: {} });
+  assert.equal(unsetResult.results[0].state, "info");
+  assert.equal(unsetResult.results[0].why, "this pane's peer-note inbox registers only when NOTE_SLUG is set (not set)");
+});
+
+test("env_presence: an empty string, '0' or 'false' in the var still counts as absent/present by Boolean() coercion, and never leaks into missing/stale", () => {
+  const home = mkHome();
+  const checks = [{ id: "e", type: "env_presence", var: "X", why: "w", fix: "f" }];
+  for (const [label, envValue] of [
+    ["empty string", { X: "" }],
+    ["the string 0", { X: "0" }],
+    ["the string false", { X: "false" }],
+    ["absent entirely", {}],
+  ]) {
+    const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] }, env: envValue });
+    assert.equal(results[0].state, "info", label);
+    assert.notEqual(results[0].state, "missing", label);
+    assert.notEqual(results[0].state, "stale", label);
+  }
+  // "0" and "false" are truthy strings, so Boolean() reports them as "set" - documented coercion,
+  // not a silent mis-read: the why string says exactly what happened.
+  const truthyStrings = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] }, env: { X: "0" } });
+  assert.match(truthyStrings.results[0].why, /\(set\)$/);
+  const empty = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] }, env: { X: "" } });
+  assert.match(empty.results[0].why, /\(not set\)$/);
+});
+
+test("checkWiring defaults env to process.env when a caller omits the argument entirely - an existing caller with no env key keeps working", () => {
+  const home = mkHome();
+  const varName = "WIRING_CHECK_P1_DEFAULT_ENV_PROBE";
+  const checks = [{ id: "probe", type: "env_presence", var: varName, why: "w", fix: "f" }];
+  delete process.env[varName];
+  try {
+    // No `env` key at all in this options object - exactly the shape every pre-existing test and
+    // caller in this file uses.
+    const before = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
+    assert.match(before.results[0].why, /\(not set\)$/);
+
+    process.env[varName] = "1";
+    const after = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
+    assert.match(after.results[0].why, /\(set\)$/, "checkWiring must default env to the real process.env, not an empty object");
+  } finally {
+    delete process.env[varName];
+  }
+});
+
+test("an existing caller passing no env key at all (the pre-P1 shape) still returns { ok, results } unchanged for non-env_presence checks", () => {
+  const home = mkHome();
+  const result = checkWiring({
+    home,
+    platform: "linux",
+    fsImpl: readOnlyFs(home),
+    now: new Date(),
+    lists: { public: [{ id: "a", type: "file_exists", file: "~/x", why: "w", fix: "f" }], private: [] },
+  });
+  assert.equal(typeof result.ok, "boolean");
+  assert.equal(result.results[0].id, "a");
+});
+
 test("an unknown check type is 'info: unknown check type', never a crash", () => {
   const home = mkHome();
   const checks = [{ id: "mystery", type: "teleport", why: "w", fix: "f" }];
@@ -366,6 +441,35 @@ test("the default list names nothing private to the owner's machines (no absolut
   assert.ok(!/C:\\\\Users/.test(text));
 });
 
+test("the shipped list's pane-note-slug row is env_presence over NOTE_SLUG, and stays info in both directions through checkWiring itself", () => {
+  const raw = JSON.parse(fs.readFileSync(path.join(HERE, "required-wiring.default.json"), "utf8"));
+  const list = Array.isArray(raw) ? raw : raw.checks;
+  const rows = list.filter((c) => c.id === "pane-note-slug");
+  assert.equal(rows.length, 1, "pane-note-slug must appear exactly once");
+  assert.equal(rows[0].type, "env_presence");
+  assert.equal(rows[0].var, "NOTE_SLUG");
+
+  const home = mkHome();
+  const set = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [rows[0]], private: [] }, env: { NOTE_SLUG: "taxonomy" } });
+  assert.equal(set.results[0].state, "info");
+  assert.match(set.results[0].why, /\(set\)$/);
+  const unset = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [rows[0]], private: [] }, env: {} });
+  assert.equal(unset.results[0].state, "info");
+  assert.match(unset.results[0].why, /\(not set\)$/);
+});
+
+test("CLI --line stays silent for pane-note-slug whether or not NOTE_SLUG is set - env_presence never reaches printLine's missing/stale path", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n"); // only other required item that would print
+  const withSlug = runCli(["--line"], home, { NOTE_SLUG: "taxonomy" });
+  assert.equal(withSlug.code, 0);
+  assert.equal(withSlug.stdout, "", "an env_presence row can never trigger --line's noisy path, even with NOTE_SLUG set");
+
+  const withoutSlug = runCli(["--line"], home, { NOTE_SLUG: "" });
+  assert.equal(withoutSlug.code, 0);
+  assert.equal(withoutSlug.stdout, "", "nor with NOTE_SLUG absent");
+});
+
 // ---------------------------------------------------------------------------
 // J4: CLI
 // ---------------------------------------------------------------------------
@@ -374,11 +478,11 @@ test("the default list names nothing private to the owner's machines (no absolut
  * reach a spawned wiring-check process, whatever else it needs to see (test-child-env.mjs).
  * AGENTS_HOME is pinned to this fixture's own .agents dir (goal-card.test.mjs:296 does the same),
  * so an ambient AGENTS_HOME on the machine running the suite can never leak into the child. */
-function runCli(args, home) {
+function runCli(args, home, over = {}) {
   try {
     const out = execFileSync(NODE, [SCRIPT, ...args], {
       encoding: "utf8",
-      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents") }),
+      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents"), ...over }),
     });
     return { code: 0, stdout: out, stderr: "" };
   } catch (err) {
