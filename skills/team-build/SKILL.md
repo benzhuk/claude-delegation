@@ -110,7 +110,11 @@ mention says where to find it once mirrored.
   computes a number someone will act on. **For a bug-fix territory**, the attack brief
   also asks: is this fix the CAUSE, or a COMPENSATION for it (a guard that hides the
   symptom without removing the defect) — and does the fix's landing let any existing
-  `WORKAROUND:` on the work record come out. Verdict still comes first.
+  `WORKAROUND:` on the work record come out. The brief also asks the builder for the
+  four fields the integrator's `bugfix-fields` gate and the reviewer mandate both
+  require: `Cause:`, `Discriminating check:`, `Fix location:`, `Simplification:` — name
+  them explicitly, since a builder who is never asked for them has no reason to supply
+  them and the gate then fails on fields nobody requested. Verdict still comes first.
 - **Seam reviewer** (high tier, after all territories land; worth it at ≥3 territories or
   any cross-territory data handoff): one pass scoped to the contract boundaries — call
   sites across territories, shared types in use, data handoffs. Per-territory reviewers
@@ -190,9 +194,14 @@ Move every territory's work record as it moves, in the same turn the event happe
 `NEEDS_FIXES` verdict (`Next:` names the fix round), `reviewed` on `APPROVE`, `accepted`
 only once integrated within `Authority:` or by Ben's own quoted word — copy the deciding
 report to `docs/work/evidence/<work-id>-<lane>.md` at that moment, since `accepted`
-requires at least one evidence path inside the repo. You remain the only writer to
-`docs/work/` through to the end; a fresh orchestrator, or one that is woken, is shown its
-next runnable record by reading that directory, never by asking you to recall it.
+requires at least one evidence path inside the repo. Every report copied into
+`docs/work/evidence/` starts with a `VERDICT:` line (`VERDICT: APPROVE <sha>`,
+`VERDICT: PASS`, …) — the reviewer's and builder's own bare-word verdict is not enough,
+since `validateRecord`'s `evidence-no-verdict` check reads only the copy in the repo; add
+the prefix at copy time if the original report didn't carry it. You remain the only
+writer to `docs/work/` through to the end; a fresh orchestrator, or one that is woken, is
+shown its next runnable record by reading that directory, never by asking you to recall
+it.
 
 ## Peer sessions
 
