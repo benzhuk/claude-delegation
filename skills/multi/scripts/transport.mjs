@@ -21,6 +21,8 @@ import { createHash } from 'node:crypto';
 import {
   NoteError, SLUG_RE, validateSlug, RESERVED_RECIPIENT, timeParts,
 } from './envelope.mjs';
+// D6 (rename-build spec): resolveSlug's new session-name rank, between --me and $NOTE_SLUG.
+import { readSessionName } from './session-name.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -1352,12 +1354,18 @@ function writeInboxesFile(home, inboxes, fsImpl) {
  * Never throws, and the RETURN IS TOKEN-FREE — `inbox` is a `describeInbox` projection, so a caller
  * that logs or JSON-prints the result cannot leak the token by accident.
  *
- * @returns {{ file: string|null, slug: string, inbox: object|null, error: string|null }}
+ * D3 (rename-build spec): `opts.removeSlug`, when given, is deleted from the SAME `inboxes` object
+ * before the one write below — this is the whole mechanism behind "a rename moves the inbox atomically":
+ * one read, one in-memory mutation of both the old and the new slug, one `writeInboxesFile` call. There
+ * is deliberately no second write path for the removal; a caller that wants the old entry gone must ask
+ * for it here, in the same call that registers the new one.
+ *
+ * @returns {{ file: string|null, slug: string, inbox: object|null, error: string|null, removedSlug: string|null, removedSlugs: string[] }}
  */
 export function writeInbox(home, slug, record, opts = {}) {
   const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
   const now = opts.now ?? Date.now();
-  const out = { file: null, slug: String(slug), inbox: null, error: null };
+  const out = { file: null, slug: String(slug), inbox: null, error: null, removedSlug: null, removedSlugs: [] };
   if (!SLUG_RE.test(String(slug))) {
     out.error = `"${slug}" is not a legal slug`;
     return out;
@@ -1371,6 +1379,20 @@ export function writeInbox(home, slug, record, opts = {}) {
   }
   const inboxes = readInboxes(home, fsImpl);
   const previous = inboxes[String(slug)] ?? null;
+  // `opts.removeSlug` may be a single slug (legacy shape) or an array — a pre-sweep `inboxes.json` can
+  // already carry more than one stale slug for the same session, and leaving any behind is the same
+  // stale-delivery D3 exists to stop. `removedSlug` stays the FIRST removal for every existing caller and
+  // test; `removedSlugs` is the honest count — never one confident name standing in for an unknown number.
+  const removeList = opts.removeSlug == null ? []
+    : (Array.isArray(opts.removeSlug) ? opts.removeSlug : [opts.removeSlug]).map(String);
+  const removed = [];
+  for (const dead of removeList) {
+    if (dead === String(slug) || !inboxes[dead]) continue;
+    delete inboxes[dead];
+    removed.push(dead);
+  }
+  out.removedSlug = removed[0] ?? null;
+  out.removedSlugs = removed;
   inboxes[String(slug)] = norm;
   try {
     out.file = writeInboxesFile(home, inboxes, fsImpl);
@@ -1513,27 +1535,52 @@ export function codexInboxRecord(env = process.env, { threadId, cwd = undefined,
  * costs one small JSON read. NEVER throws and never returns a token; a registration that cannot be
  * written costs one `no-inbox` deferral, and the note is already in the ledger.
  *
- * @returns {{ written: boolean, reason: string, slug: string, inbox: object|null, error: string|null }}
+ * D3/F4 (rename-build spec): before the freshness check, sweep `inboxes.json` for some OTHER slug whose
+ * record carries THIS SAME `sessionId` (a Claude session renamed since it last registered) — if found,
+ * that old entry moves here in the SAME write `writeInbox` makes for the new slug (never a second write).
+ * F4, specifically: this sweep runs even when the target slug's own record is already fresh — the
+ * freshness fast path below is skipped whenever a stale OTHER slug is found, precisely so a rename
+ * A→B→A inside the refresh window cannot leave B's entry live because the fast path never reached it.
+ * Codex records have no `sessionId` field at all (D7: Codex sessions are unchanged by this build), so
+ * this sweep is a no-op for them by construction.
+ *
+ * @returns {{ written: boolean, reason: string, slug: string, inbox: object|null, error: string|null, removedSlug: string|null, removedSlugs: string[] }}
  */
 export function registerInbox(home, slug, record, opts = {}) {
   const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
   const now = opts.now ?? Date.now();
   const refreshMs = opts.refreshMs ?? INBOX_REFRESH_MS;
-  const out = { written: false, reason: 'skipped', slug: String(slug ?? ''), inbox: null, error: null };
+  const out = {
+    written: false, reason: 'skipped', slug: String(slug ?? ''), inbox: null, error: null, removedSlug: null,
+    removedSlugs: [],
+  };
   try {
     if (!record) { out.reason = 'no-inbox-in-env'; return out; }
     if (!SLUG_RE.test(String(slug))) { out.reason = 'no-slug'; return out; }
-    const existing = readInboxes(home, fsImpl)[String(slug)];
-    if (existing && sameInbox(existing, record) && now - Number(existing.at ?? 0) < refreshMs) {
+    const inboxes = readInboxes(home, fsImpl);
+    const existing = inboxes[String(slug)];
+    const sessionId = record.sessionId ? String(record.sessionId) : null;
+    // EVERY other slug holding this session's id, not just the first: a pre-sweep inboxes.json can
+    // already carry two (or more), and leaving one behind is the same stale-delivery D3 exists to stop.
+    const staleSlugs = [];
+    if (sessionId) {
+      for (const [otherSlug, rec] of Object.entries(inboxes)) {
+        if (otherSlug === String(slug)) continue;
+        if (rec?.kind === 'claude-socket' && rec.sessionId === sessionId) staleSlugs.push(otherSlug);
+      }
+    }
+    if (!staleSlugs.length && existing && sameInbox(existing, record) && now - Number(existing.at ?? 0) < refreshMs) {
       out.reason = 'fresh';
       out.inbox = describeInbox(existing);
       return out;
     }
-    const res = writeInbox(home, slug, record, { fs: fsImpl, now });
+    const res = writeInbox(home, slug, record, { fs: fsImpl, now, removeSlug: staleSlugs });
     out.error = res.error;
     out.inbox = res.inbox;
     out.written = Boolean(res.file);
     out.reason = res.file ? 'written' : 'error';
+    out.removedSlug = res.removedSlug ?? null;
+    out.removedSlugs = res.removedSlugs ?? [];
     return out;
   } catch (err) {
     out.reason = 'error';
@@ -1719,6 +1766,17 @@ export async function resolveSlug(opts = {}) {
   const now = opts.now ?? Date.now();
 
   if (opts.explicit) return { slug: validateSlug('me', String(opts.explicit)), source: '--me' };
+
+  // D6: the session's own name (its /rename sidecar), ranked right after --me. Both opts.transcriptPath
+  // and opts.sessionId must be supplied by the CALLER — this never reads process.env itself, so a bare
+  // hand-typed note-inbox with no flags gets exactly today's behaviour (this source simply skipped).
+  if (opts.transcriptPath && opts.sessionId) {
+    const named = readSessionName({
+      transcriptPath: opts.transcriptPath, sessionId: opts.sessionId, fs: fsImpl,
+    });
+    if (named) return { slug: named.slug, source: 'session-name' };
+  }
+
   if (env.NOTE_SLUG) return { slug: validateSlug('me', String(env.NOTE_SLUG)), source: '$NOTE_SLUG' };
 
   const handle = env.ORCA_TERMINAL_HANDLE;

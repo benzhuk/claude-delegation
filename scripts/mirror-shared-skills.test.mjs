@@ -16,7 +16,9 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PLUGIN_SKILLS, CLAUDE_SKILLS, collectSources } from './mirror-shared-skills.mjs';
+import {
+  PLUGIN_SKILLS, CLAUDE_SKILLS, collectSources, isNewerVersion,
+} from './mirror-shared-skills.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -52,4 +54,44 @@ test('notion-writing and dev-server actually resolve to a source under <repo>/sk
       `${name} source must not come from ~/.claude/skills/, got ${entry.src}`,
     );
   }
+});
+
+// D11/F8 — `isNewerVersion` is a pure helper, so it is covered in-process here rather than through a
+// child-process fixture; `mirror-shim.test.mjs` (D12) covers the full guarded-run behaviour, which
+// needs HOME redirected via a real child process.
+test('isNewerVersion: clearly newer major', () => {
+  assert.equal(isNewerVersion('1.0.0', '0.9.9'), true);
+});
+
+test('isNewerVersion: clearly older major', () => {
+  assert.equal(isNewerVersion('0.9.9', '1.0.0'), false);
+});
+
+test('isNewerVersion: equal versions are not "newer"', () => {
+  assert.equal(isNewerVersion('0.12.0', '0.12.0'), false);
+});
+
+test('isNewerVersion: F8 table case — "0.13.0" vs "0.5.0" is newer as semver though not as a string', () => {
+  assert.equal('0.13.0' < '0.5.0', true, 'sanity: the naive string comparison gets this backwards');
+  assert.equal(isNewerVersion('0.13.0', '0.5.0'), true);
+});
+
+test('isNewerVersion: compares left to right — minor and patch decide when major ties', () => {
+  assert.equal(isNewerVersion('1.2.3', '1.3.0'), false);
+  assert.equal(isNewerVersion('1.3.0', '1.2.9'), true);
+  assert.equal(isNewerVersion('1.2.3', '1.2.4'), false);
+  assert.equal(isNewerVersion('1.2.4', '1.2.3'), true);
+});
+
+test('isNewerVersion: a prerelease/build suffix after the third component is ignored', () => {
+  assert.equal(isNewerVersion('1.2.3-beta.1', '1.2.3'), false);
+  assert.equal(isNewerVersion('1.2.4-beta.1', '1.2.3'), true);
+});
+
+test('isNewerVersion: malformed on either side is null, never true or false', () => {
+  assert.equal(isNewerVersion('not-a-version', '1.0.0'), null);
+  assert.equal(isNewerVersion('1.0.0', 'not-a-version'), null);
+  assert.equal(isNewerVersion('1.0', '1.0.0'), null, 'fewer than three dot-separated components fails to parse');
+  assert.equal(isNewerVersion(null, '1.0.0'), null, 'a missing pluginVersion (no manifest field) is null');
+  assert.equal(isNewerVersion(undefined, '1.0.0'), null);
 });

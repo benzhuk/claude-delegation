@@ -310,6 +310,98 @@ test('an unbound handle still falls through to the live title, and caches it', a
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// D6 (rename-build spec) — resolveSlug gains the session-name source, ranked right after --me
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A fixture sidecar, same layout session-name.mjs expects: `<projectDir>/<sessionId>/custom-title.json`,
+ * with `<projectDir>/<sessionId>.jsonl` as the transcript path (never opened). */
+function sidecarFixture(customTitle, sessionId = 'sess-resolve-0001') {
+  const projectDir = tmp();
+  const sidecarDir = path.join(projectDir, sessionId);
+  fs.mkdirSync(sidecarDir, { recursive: true });
+  fs.writeFileSync(path.join(sidecarDir, 'custom-title.json'), JSON.stringify({ customTitle }), 'utf8');
+  return { transcriptPath: path.join(projectDir, `${sessionId}.jsonl`), sessionId };
+}
+
+test('D6: the session name resolves, ranked right after --me — above $NOTE_SLUG and the binding', async () => {
+  const home = tmp();
+  const { transcriptPath, sessionId } = sidecarFixture('My Renamed Session');
+  const r = await resolveSlug({
+    env: { NOTE_SLUG: 'nucleus' }, home, now: NOW, transcriptPath, sessionId,
+  });
+  assert.equal(r.slug, 'my-renamed-session');
+  assert.equal(r.source, 'session-name');
+});
+
+test('D6: --me still outranks a resolved session name', async () => {
+  const home = tmp();
+  const { transcriptPath, sessionId } = sidecarFixture('My Renamed Session');
+  const r = await resolveSlug({
+    explicit: 'taxonomy', env: {}, home, now: NOW, transcriptPath, sessionId,
+  });
+  assert.equal(r.slug, 'taxonomy');
+  assert.equal(r.source, '--me');
+});
+
+test('D6: with no transcriptPath/sessionId, this source is simply skipped — never guessed', async () => {
+  const home = tmp();
+  const r = await resolveSlug({ env: { NOTE_SLUG: 'nucleus' }, home, now: NOW });
+  assert.equal(r.slug, 'nucleus');
+  assert.equal(r.source, '$NOTE_SLUG');
+});
+
+test('D6: only ONE of transcriptPath/sessionId present also skips the source (never partial-guesses)', async () => {
+  const home = tmp();
+  const { transcriptPath } = sidecarFixture('My Renamed Session');
+  const r1 = await resolveSlug({ env: { NOTE_SLUG: 'nucleus' }, home, now: NOW, transcriptPath });
+  assert.equal(r1.source, '$NOTE_SLUG');
+  const r2 = await resolveSlug({ env: { NOTE_SLUG: 'nucleus' }, home, now: NOW, sessionId: 'sess-only' });
+  assert.equal(r2.source, '$NOTE_SLUG');
+});
+
+test('D6: a session with no name at all (no sidecar) falls through to $NOTE_SLUG, unaffected', async () => {
+  const home = tmp();
+  const r = await resolveSlug({
+    env: { NOTE_SLUG: 'nucleus' }, home, now: NOW,
+    transcriptPath: path.join(tmp(), 'no-such-project', 'sess-none.jsonl'), sessionId: 'sess-none',
+  });
+  assert.equal(r.slug, 'nucleus');
+  assert.equal(r.source, '$NOTE_SLUG');
+});
+
+test('D6: resolveSlug never reads process.env for transcriptPath/sessionId — only opts', async () => {
+  // A bare hand-typed note-inbox with no --transcript-path/--session-id flags must get exactly today's
+  // behaviour, even if some OTHER mechanism happened to leave these names lying around in the shell.
+  const home = tmp();
+  sidecarFixture('Should Never Be Read');
+  const r = await resolveSlug({ env: { NOTE_SLUG: 'nucleus' }, home, now: NOW });
+  assert.equal(r.slug, 'nucleus');
+  assert.equal(r.source, '$NOTE_SLUG', 'no opts.transcriptPath/opts.sessionId means the source never fires');
+});
+
+test('D6: a copy-paste bug pointing transcriptPath/sessionId at a DIFFERENT session never leaks that session\'s name', async () => {
+  const home = tmp();
+  const mine = sidecarFixture('My Own Session', 'sess-mine-0001');
+  const theirs = sidecarFixture('Somebody Elses Session', 'sess-theirs-0002');
+  // Using MY transcriptPath's directory with THEIR sessionId must resolve to nobody's real name — the
+  // sidecar simply is not found at that combination, so this source is skipped rather than answering
+  // with a plausible-looking but wrong slug.
+  const r = await resolveSlug({
+    env: { NOTE_SLUG: 'fallback-slug' }, home, now: NOW,
+    transcriptPath: mine.transcriptPath, sessionId: theirs.sessionId,
+  });
+  assert.equal(r.slug, 'fallback-slug', 'a mismatched transcriptPath/sessionId pair must never resolve a name');
+  assert.equal(r.source, '$NOTE_SLUG');
+});
+
+test('D6: the session-name source never writes a panes.json binding (MINOR, addendum 2)', async () => {
+  const home = tmp();
+  const { transcriptPath, sessionId } = sidecarFixture('Bindless Session');
+  await resolveSlug({ env: { ORCA_TERMINAL_HANDLE: 'term_bbb' }, home, now: NOW, transcriptPath, sessionId });
+  assert.deepEqual(readBindings(home), {}, 'session-name is not in BINDING_SOURCES; resolveSlug itself never calls writeBinding');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // note-inbox
 // ─────────────────────────────────────────────────────────────────────────────
 

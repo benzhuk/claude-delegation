@@ -25,7 +25,7 @@
  * Everything it manages is recorded in ~/.agents/skills/.mirror-manifest.json so --uninstall can
  * remove exactly what it created and nothing else.
  *
- *   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json]
+ *   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json] [--allow-downgrade]
  *
  * Exit 0 on success (including a no-op), 1 on any refusal or error. Idempotent.
  */
@@ -47,7 +47,24 @@ const SHARED_DOCS = path.join(AGENTS_SKILLS, '_docs');
 const CODEX_AGENTS = path.join(HOME, '.codex', 'agents');
 const LOCAL_BIN = path.join(HOME, '.local', 'bin');
 const MANIFEST = path.join(AGENTS_SKILLS, '.mirror-manifest.json');
-const MANIFEST_VERSION = 2;
+// D10: v3 adds two top-level fields, `pluginVersion` and `sourcePath` — the running tree's own
+// identity, stamped on every write so D11's downgrade guard has something to compare against.
+const MANIFEST_VERSION = 3;
+
+/**
+ * D10/D11: this running tree's own version and root, read fresh from `.claude-plugin/plugin.json`
+ * under `REPO` — nothing in this script read that file before this build (scout R2, confirmed). Read
+ * once at module load, same as every other tree-identity constant here (`REPO`, `HOME`).
+ */
+function readOwnPluginVersion() {
+  try {
+    const raw = fs.readFileSync(path.join(REPO, '.claude-plugin', 'plugin.json'), 'utf8');
+    const version = JSON.parse(raw).version;
+    return typeof version === 'string' ? version : null;
+  } catch { return null; }
+}
+const OWN_PLUGIN_VERSION = readOwnPluginVersion();
+const OWN_SOURCE_PATH = REPO.split(path.sep).join('/');
 
 /**
  * The Codex hook entry point, by its path IN THIS REPO — not the mirrored copy. The mirror publishes
@@ -98,7 +115,7 @@ const opts = parseArgs(process.argv.slice(2));
 function parseArgs(argv) {
   const o = {
     dryRun: false, force: false, uninstall: false, json: false,
-    codexHooksOnly: false, codexHooks: false, codexHome: null,
+    codexHooksOnly: false, codexHooks: false, codexHome: null, allowDowngrade: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -112,14 +129,19 @@ function parseArgs(argv) {
     } else if (a === '--force') o.force = true;
     else if (a === '--uninstall') o.uninstall = true;
     else if (a === '--json') o.json = true;
+    else if (a === '--allow-downgrade') o.allowDowngrade = true;
     else if (a === '--help') o.help = true;
     else { refusals.push(`unknown flag ${a}`); }
   }
   return o;
 }
 
-/** "would " prefixes an action we are NOT taking; a no-op reads the same either way. */
-const NO_OP = /^(up to date|already|nothing)/;
+/**
+ * "would " prefixes an action we are NOT taking; a no-op reads the same either way. D11's refusal line
+ * is a statement of fact true in both modes (nothing is dropped or overwritten whether or not this is
+ * a dry run) rather than an action about to happen, so it reads the same "refusing to…" way too.
+ */
+const NO_OP = /^(up to date|already|nothing|refusing)/;
 function say(action, detail) {
   log.push(`${opts.dryRun && !NO_OP.test(action) ? 'would ' : ''}${action}: ${detail}`);
 }
@@ -172,16 +194,69 @@ function warnCrossSessionInbound() {
 
 // ── manifest ─────────────────────────────────────────────────────────────────
 
+/**
+ * D11/F8 — "semver-greater," pinned exactly (NOT a library call, NOT a string compare — that is the
+ * exact bug the Mac incident hit: `"0.13.0" < "0.5.0"` lexically). Split on `.`, parse the leading
+ * integer of each of the first three components with `/^\d+/`; a component that does not start with a
+ * digit, or a string that does not split into at least three `.`-separated components, fails to parse.
+ * Returns `true`/`false`/`null` — `null` means "unparseable on either side," and is treated exactly
+ * like "not newer" by every caller (the safe default: a malformed value never trips the guard, and
+ * never suppresses it by defaulting the other way either — it just behaves as if unguarded).
+ */
+function parseVersionTriplet(v) {
+  if (typeof v !== 'string') return null;
+  const parts = v.split('.');
+  if (parts.length < 3) return null;
+  const nums = [];
+  for (let i = 0; i < 3; i++) {
+    const m = /^\d+/.exec(parts[i]);
+    if (!m) return null;
+    nums.push(Number(m[0]));
+  }
+  return nums;
+}
+
+/** `true` when `a` is semver-greater than `b`, `false` when equal or lesser, `null` when unparseable. */
+export function isNewerVersion(a, b) {
+  const pa = parseVersionTriplet(a);
+  const pb = parseVersionTriplet(b);
+  if (!pa || !pb) return null;
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return true;
+    if (pa[i] < pb[i]) return false;
+  }
+  return false;
+}
+
+/**
+ * D10: a manifest whose `version` is below 3 never carried `pluginVersion`/`sourcePath` at all — read
+ * as `null` for both, for THIS run's comparison only. No migration write happens just from reading;
+ * the next `writeManifest` call is what upgrades it on disk.
+ */
 function readManifest() {
   try {
     const m = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
-    if (m && Array.isArray(m.managed)) return m;
+    if (m && Array.isArray(m.managed)) {
+      const version = typeof m.version === 'number' ? m.version : 0;
+      if (version < MANIFEST_VERSION) return { ...m, pluginVersion: null, sourcePath: null };
+      return m;
+    }
   } catch { /* no manifest yet */ }
-  return { version: MANIFEST_VERSION, updatedAt: null, managed: [] };
+  return {
+    version: MANIFEST_VERSION, updatedAt: null, managed: [], pluginVersion: null, sourcePath: null,
+  };
 }
 
-function writeManifest(managed) {
-  const m = { version: MANIFEST_VERSION, updatedAt: new Date().toISOString(), mode: MODE, managed };
+/**
+ * `pluginVersion`/`sourcePath` default to THIS tree's own identity (the normal case, D10). D11's guard
+ * overrides both to `prev`'s values on a guarded write (F7) so the on-disk manifest keeps reporting the
+ * newer tree's identity — writing our own (older) identity here would silently disarm the guard on the
+ * very next run.
+ */
+function writeManifest(managed, { pluginVersion = OWN_PLUGIN_VERSION, sourcePath = OWN_SOURCE_PATH } = {}) {
+  const m = {
+    version: MANIFEST_VERSION, updatedAt: new Date().toISOString(), mode: MODE, pluginVersion, sourcePath, managed,
+  };
   if (opts.dryRun) { say('write manifest', `${MANIFEST} (${managed.length} entries)`); return m; }
   fs.mkdirSync(path.dirname(MANIFEST), { recursive: true });
   fs.writeFileSync(MANIFEST, `${JSON.stringify(m, null, 2)}\n`, 'utf8');
@@ -517,7 +592,7 @@ function pruneIfEmpty(dir) {
 
 const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex roles and the note-send shim.
 
-  node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json]
+  node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json] [--allow-downgrade]
 
   --dry-run    print every action without touching anything
   --codex-hooks
@@ -530,6 +605,10 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
   --force      overwrite a destination that exists and is not in our manifest
   --uninstall  remove exactly what the manifest says we created, then the manifest
   --json       one JSON object instead of the human log
+  --allow-downgrade
+               drop and overwrite normally even when the on-disk manifest is from a NEWER tree
+               (D11). Without it, a manifest newer than this tree refuses to drop or overwrite
+               anything it manages, prints one line saying so, and still exits 0.
 
 Destinations: ~/.agents/skills/<name>, ~/.agents/skills/_docs/, ~/.codex/agents/, ~/.local/bin/.
 PATH shims: note-send, note-inbox, note-flush, note-notify (plus a .cmd for each on Windows).
@@ -716,6 +795,16 @@ function main() {
   if (opts.uninstall) {
     uninstall(prev);
   } else {
+    // D11: disk may be genuinely AHEAD of the tree running this mirror (a stale checkout, or a
+    // chezmoi apply racing an upgrade elsewhere). `newer` is `true`/`false`/`null` per F8 — `null`
+    // (unparseable on either side) behaves exactly like "not newer," today's unconditional behaviour.
+    const newer = isNewerVersion(prev.pluginVersion, OWN_PLUGIN_VERSION);
+    const guardActive = newer === true && !opts.allowDowngrade;
+    if (guardActive) {
+      say('refusing to drop or overwrite', `manifest is ${prev.pluginVersion} from ${prev.sourcePath ?? 'an unrecorded tree'}, `
+        + `this tree is ${OWN_PLUGIN_VERSION}; run the mirror from the newer tree or pass --allow-downgrade`);
+    }
+
     const sources = collectSources();
     if (!opts.dryRun) {
       fs.mkdirSync(AGENTS_SKILLS, { recursive: true });
@@ -724,19 +813,37 @@ function main() {
       if (sources.some((s) => s.kind === 'shim')) fs.mkdirSync(LOCAL_BIN, { recursive: true });
     }
     const managed = [];
+    const newlyInstalled = [];
     for (const entry of sources) {
+      // D11 additive-only: under the guard, anything already on disk is left exactly alone — only a
+      // genuinely MISSING entry is installed, since creating something absent can never un-publish
+      // anything a newer tree put there.
+      if (guardActive && lstat(entry.dest)) continue;
       const result = publish(entry, prev);
-      if (result) managed.push(result);
+      if (result) {
+        managed.push(result);
+        if (guardActive) newlyInstalled.push(result);
+      }
     }
-    // Anything we managed before and no longer have a source for is stale: drop it.
-    for (const old of prev.managed) {
-      if (managed.some((m) => path.resolve(m.dest) === path.resolve(old.dest))) continue;
-      const st = lstat(old.dest);
-      if (!st) continue;
-      say('drop no-longer-shared entry', old.dest);
-      if (!opts.dryRun && st.isSymbolicLink()) fs.unlinkSync(old.dest);
+    if (guardActive) {
+      // F7: preserve prev.managed/pluginVersion/sourcePath EXACTLY as read, merging in only entries
+      // this run genuinely newly installed. See writeManifest's own doc comment for why.
+      const preserved = [...prev.managed];
+      for (const entry of newlyInstalled) {
+        if (!preserved.some((e) => path.resolve(e.dest) === path.resolve(entry.dest))) preserved.push(entry);
+      }
+      writeManifest(preserved, { pluginVersion: prev.pluginVersion, sourcePath: prev.sourcePath });
+    } else {
+      // Anything we managed before and no longer have a source for is stale: drop it.
+      for (const old of prev.managed) {
+        if (managed.some((m) => path.resolve(m.dest) === path.resolve(old.dest))) continue;
+        const st = lstat(old.dest);
+        if (!st) continue;
+        say('drop no-longer-shared entry', old.dest);
+        if (!opts.dryRun && st.isSymbolicLink()) fs.unlinkSync(old.dest);
+      }
+      writeManifest(managed);
     }
-    writeManifest(managed);
     // C14: said on the way past, because this is the command a fourth machine is provisioned with.
     warnCrossSessionInbound();
     // OPT-IN (review BLOCKER 1). A plain run publishes skills and shims and touches no Codex home at
