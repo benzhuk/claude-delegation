@@ -19,6 +19,7 @@ import { childEnv } from './test-child-env.mjs';
 import { codexHookHash, trustKey } from '../../../scripts/codex-hook-trust.mjs';
 
 const MIRROR = fileURLToPath(new URL('../../../scripts/mirror-shared-skills.mjs', import.meta.url));
+const REPO_ROOT = path.dirname(path.dirname(MIRROR));
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
@@ -253,4 +254,217 @@ test('V4: a real install writes one shim per command, each naming ITS OWN comman
   // …and it removes exactly what it created.
   execFileSync(process.execPath, [MIRROR, '--uninstall'], { encoding: 'utf8', env: fakeEnv(home) });
   assert.equal(fs.existsSync(bin), false, 'uninstall left shims behind');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D10/D11/D12 — manifest v3 and the downgrade guard.
+//
+// F10: every case below reads THIS repo's real `.claude-plugin/plugin.json` version at TEST RUN TIME
+// (`ownPluginVersion()`) — no literal for the running tree's own version anywhere in this file. Only
+// the MANIFEST side of a fixture uses a literal (e.g. "99.0.0"), since that is the fixture's own
+// input, not a claim about the tree.
+//
+// The scout's own binding flag for this territory: no test anywhere wrote a fixture
+// `.mirror-manifest.json` before this build, so every case here is the FIRST proof the drop loop can
+// actually be skipped, not merely that the run exits 0 — and case 3 is the required POSITIVE CONTROL:
+// a same-version manifest with a genuinely stale entry must still get it dropped.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function manifestPath(home) {
+  return path.join(home, '.agents', 'skills', '.mirror-manifest.json');
+}
+
+function writeFixtureManifest(home, manifest) {
+  const p = manifestPath(home);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
+function ownPluginVersion() {
+  return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+}
+
+const OWN_SOURCE_PATH = REPO_ROOT.split(path.sep).join('/');
+
+/**
+ * A fake pre-existing managed entry: a real directory with one file in it, at a `dest` the real
+ * `collectSources()` will never reproduce (no skill by this name exists in the repo) — so it is
+ * genuinely stale from THIS tree's point of view, the exact shape a real "removed skill" would take.
+ * Used both as the guard's "must survive untouched" fixture and as case 3's positive control.
+ */
+function ghostEntry(home, name) {
+  const dest = path.join(home, '.agents', 'skills', name);
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, 'ghost.txt'), 'ghost', 'utf8');
+  return {
+    name, kind: 'skill', mode: IS_WINDOWS ? 'copy' : 'symlink',
+    source: `<ghost>/${name}`, dest: dest.split(path.sep).join('/'), files: ['ghost.txt'],
+  };
+}
+
+function baseManifest(pluginVersion, sourcePath, managed) {
+  return {
+    version: 3, updatedAt: null, mode: IS_WINDOWS ? 'copy' : 'symlink', pluginVersion, sourcePath, managed,
+  };
+}
+
+/** Runs the installer with `--json` and returns the parsed object, whether it exited 0 or refused. */
+function runMirrorJson(args, home, mirror = MIRROR) {
+  let stdout;
+  try {
+    stdout = execFileSync(process.execPath, [mirror, ...args, '--json'], { encoding: 'utf8', env: fakeEnv(home) });
+  } catch (err) {
+    stdout = String(err.stdout ?? '');
+  }
+  let json = null;
+  try { json = JSON.parse(stdout); } catch { /* assertion below reports the raw stdout */ }
+  assert.ok(json, `--json output did not parse:\n${stdout}`);
+  return json;
+}
+
+const dropped = (json, dest) => json.actions.some((a) => a.includes('drop no-longer-shared entry') && a.includes(dest));
+const refusalLine = (json) => json.actions.find((a) => a.includes('refusing to drop or overwrite'));
+
+test('D12 case 1: a manifest newer than this tree refuses to drop, keeps entries, exits 0, prints the refusal', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-newer-'));
+  const ghost = ghostEntry(home, 'r2-ghost-newer');
+  writeFixtureManifest(home, baseManifest('99.0.0', '/some/newer/tree', [ghost]));
+
+  const json = runMirrorJson([], home);
+
+  assert.equal(json.ok, true, JSON.stringify(json.refusals));
+  assert.ok(fs.existsSync(ghost.dest), 'the pre-existing managed entry must still be on disk');
+  assert.ok(!dropped(json, ghost.dest), 'F9: a guarded run must not drop the entry (must be absent from actions)');
+  const line = refusalLine(json);
+  assert.ok(line, `refusal line missing from actions:\n${json.actions.join('\n')}`);
+  assert.match(line, /manifest is 99\.0\.0 from \/some\/newer\/tree, this tree is/);
+  assert.ok(!json.refusals.some((r) => /refusing to drop or overwrite/.test(r)),
+    'F9: the refusal line must go through say()/actions only, never into the refusals array');
+});
+
+test('D12 case 2: --allow-downgrade restores unconditional drop even against a newer manifest', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-allow-'));
+  const ghost = ghostEntry(home, 'r2-ghost-allow');
+  writeFixtureManifest(home, baseManifest('99.0.0', '/some/newer/tree', [ghost]));
+
+  const json = runMirrorJson(['--allow-downgrade'], home);
+
+  assert.equal(json.ok, true, JSON.stringify(json.refusals));
+  assert.ok(dropped(json, ghost.dest), '--allow-downgrade must restore the drop that case 1 refused');
+});
+
+test('D12 case 3 (positive control): equal pluginVersion is unaffected — a genuinely stale entry is still dropped', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-equal-'));
+  const ghost = ghostEntry(home, 'r2-ghost-equal');
+  writeFixtureManifest(home, baseManifest(ownPluginVersion(), OWN_SOURCE_PATH, [ghost]));
+
+  const json = runMirrorJson([], home);
+
+  assert.equal(json.ok, true, JSON.stringify(json.refusals));
+  assert.ok(dropped(json, ghost.dest),
+    'an equal-version manifest must behave exactly like today: a genuinely stale entry is dropped');
+  assert.ok(!refusalLine(json), 'the guard must never fire when versions are equal');
+});
+
+test('D12 case 4: a version-2 manifest (no pluginVersion key) drops as today and upgrades to v3 on write', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-v2-'));
+  const ghost = ghostEntry(home, 'r2-ghost-v2');
+  const mPath = manifestPath(home);
+  fs.mkdirSync(path.dirname(mPath), { recursive: true });
+  fs.writeFileSync(mPath, `${JSON.stringify({
+    version: 2, updatedAt: null, mode: IS_WINDOWS ? 'copy' : 'symlink', managed: [ghost],
+  }, null, 2)}\n`, 'utf8');
+
+  const json = runMirrorJson([], home);
+
+  assert.equal(json.ok, true, JSON.stringify(json.refusals));
+  assert.ok(dropped(json, ghost.dest), 'pluginVersion: null (a v2 manifest) is never "newer" — drops proceed as today');
+  assert.ok(!refusalLine(json), 'a v2 manifest must never trip the guard');
+
+  const written = JSON.parse(fs.readFileSync(mPath, 'utf8'));
+  assert.equal(written.version, 3, 'D10: this run\'s own write must upgrade the manifest to v3');
+  assert.equal(written.pluginVersion, ownPluginVersion());
+  assert.equal(written.sourcePath, OWN_SOURCE_PATH);
+});
+
+test('D12 case 5 (F7): two consecutive guarded runs both refuse — the second read still sees the newer version', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-twice-'));
+  const ghost = ghostEntry(home, 'r2-ghost-twice');
+  writeFixtureManifest(home, baseManifest('99.0.0', '/some/newer/tree', [ghost]));
+  const mPath = manifestPath(home);
+
+  const first = runMirrorJson([], home);
+  assert.ok(!dropped(first, ghost.dest), 'run 1 must not drop');
+  assert.ok(refusalLine(first), 'run 1 must print the refusal line');
+
+  const afterFirst = JSON.parse(fs.readFileSync(mPath, 'utf8'));
+  assert.equal(afterFirst.pluginVersion, '99.0.0',
+    'F7: a guarded write must NOT stamp this (older) tree\'s own identity onto the manifest');
+  assert.equal(afterFirst.sourcePath, '/some/newer/tree');
+
+  const second = runMirrorJson([], home);
+  assert.ok(!dropped(second, ghost.dest),
+    'F7: run 2 must still refuse — the guard must not have disarmed itself after run 1\'s own write');
+  assert.ok(refusalLine(second), 'run 2 must still print the refusal line');
+  assert.ok(fs.existsSync(ghost.dest), 'the ghost entry must still be present after two guarded runs');
+});
+
+test('D12 case 6 (F8 table case): manifest "0.13.0" vs a running tree at "0.5.0" is a downgrade (guard fires)', () => {
+  // The real repo's own version does not exercise the string/semver disagreement (0.13.0 > 0.12.0 both
+  // ways), so this case needs the CHILD's own tree version under control too — a scratch copy of just
+  // the mirror script plus a fabricated .claude-plugin/plugin.json, never the real repo's own file
+  // (read-only, and F10 forbids a literal claim about the real tree's version anyway).
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-tree-'));
+  fs.mkdirSync(path.join(scratchRoot, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(scratchRoot, '.claude-plugin'), { recursive: true });
+  fs.copyFileSync(MIRROR, path.join(scratchRoot, 'scripts', 'mirror-shared-skills.mjs'));
+  fs.copyFileSync(
+    path.join(REPO_ROOT, 'scripts', 'codex-hook-trust.mjs'),
+    path.join(scratchRoot, 'scripts', 'codex-hook-trust.mjs'),
+  );
+  fs.writeFileSync(path.join(scratchRoot, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '0.5.0' }), 'utf8');
+  const scratchMirror = path.join(scratchRoot, 'scripts', 'mirror-shared-skills.mjs');
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-f8-'));
+  const ghost = ghostEntry(home, 'r2-ghost-f8');
+  writeFixtureManifest(home, baseManifest('0.13.0', '/some/newer/tree', [ghost]));
+
+  const json = runMirrorJson([], home, scratchMirror);
+
+  assert.ok(!dropped(json, ghost.dest),
+    'F8: "0.13.0" is semver-newer than "0.5.0" though lexically smaller — a naive string compare gets '
+    + 'this backwards, and the guard must still fire');
+  const line = refusalLine(json);
+  assert.ok(line, `refusal line missing from actions:\n${json.actions.join('\n')}`);
+  assert.match(line, /manifest is 0\.13\.0 from \/some\/newer\/tree, this tree is 0\.5\.0/);
+});
+
+test('D12 mutation check: additive-only still installs a genuinely missing entry even under the guard', () => {
+  // A fixture entry the manifest attributes to the newer tree, present in `managed[]`, but genuinely
+  // ABSENT from disk (e.g. a half-applied previous run) — creating it cannot un-publish anything newer,
+  // so it must still be installed even in downgrade mode (reviewer attack brief, R2).
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-additive-'));
+  writeFixtureManifest(home, baseManifest('99.0.0', '/some/newer/tree', []));
+
+  const json = runMirrorJson([], home);
+
+  assert.ok(refusalLine(json), 'the guard must still fire (manifest is newer)');
+  const bin = path.join(home, '.local', 'bin');
+  assert.ok(fs.existsSync(path.join(bin, 'note-send')), 'a genuinely missing shim must still be installed under the guard');
+});
+
+test('D12: --dry-run against a newer manifest still prints the refusal line (nothing written, but visible)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-dryrun-'));
+  const ghost = ghostEntry(home, 'r2-ghost-dryrun');
+  writeFixtureManifest(home, baseManifest('99.0.0', '/some/newer/tree', [ghost]));
+
+  const json = runMirrorJson(['--dry-run'], home);
+
+  assert.equal(json.dryRun, true);
+  assert.ok(!dropped(json, ghost.dest), '--dry-run must not drop under the guard either');
+  const line = refusalLine(json);
+  assert.ok(line, `--dry-run must still print the refusal line, got:\n${json.actions.join('\n')}`);
+  assert.match(line, /manifest is 99\.0\.0 from \/some\/newer\/tree, this tree is/);
+  // The manifest fixture must be untouched on disk: --dry-run never writes.
+  assert.equal(JSON.parse(fs.readFileSync(manifestPath(home), 'utf8')).pluginVersion, '99.0.0');
 });
