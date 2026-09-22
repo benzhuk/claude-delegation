@@ -20,7 +20,10 @@ node scripts/build-census.mjs --lead <session.jsonl> --tasks <dir> [--marker <te
   compatibility — `.output` is the extension real subagent task directories actually use).
 - `--marker` (optional) — a substring; the "window" starts at the first line containing
   it (a bounded-depth/width search — it is never printed) and runs to the end of the lead
-  file. Without `--marker`, the window is the whole file.
+  file. Without `--marker`, the window is the whole file. A `--marker` that matches
+  nothing in the lead file throws (`--marker text not found in <basename> (window would
+  be empty)`) rather than silently printing a confident zero for both the window turn
+  count and the combined split — the exact shape a reader skims first.
 - `--out` (optional) — write the full markdown report there; without it, the report goes
   to stdout. Nothing else reaches stdout (with `--out`, only a `wrote: <path>` line does).
 
@@ -30,8 +33,14 @@ sharing a `requestId` (or `message.id`) with `output_tokens` growing across the 
 while `input_tokens`/`cache_read_input_tokens` repeat. Naive per-line summing over-counted
 the dominant token category by roughly 1.8x on a real 813-line transcript. Both
 `build-census.mjs` and its test keep a `Map<id, entry>` per file (and, when `--marker` is
-given, a second map for the window, since a request can straddle the boundary), overwrite
-on every repeat, and count `Map.size` as the turn total — never a per-line increment.
+given, a second map for the window, since a request can straddle the boundary — each map
+does its own independent last-wins de-dup), overwrite on every repeat, and count
+`Map.size` as the turn total — never a per-line increment. A turn whose lines carry
+*mixed* id presence (one line has only `message.id`, another later carries both
+`requestId` and `message.id`) still resolves to one turn: the first line that carries
+both records an alias from that `message.id` to its `requestId`, and any line — earlier
+or later in the file — that carries only the `message.id` resolves through the alias to
+the same canonical key instead of splitting into a second turn.
 `scripts/build-census.fixtures/lead.jsonl` and `scripts/build-census.fixtures/tasks/`
 carry a request split over three lines with strictly growing `output_tokens`, specifically
 so a naive (buggy) implementation produces a different, wrong number on this fixture, not
@@ -61,17 +70,26 @@ file never re-parses a record. Per work id:
   `Opened:` field, and the earliest `Log:` line of each of the other four statuses, in
   file order.
 - **rounds** — the `Rounds:` field when present, else a count of `owned` -> `delivered`
-  transitions between adjacent `Log:` lines.
+  transitions, file order — not adjacency: an intervening line of some other status (an
+  interim `reviewed` note, a `rejected` verdict) between an `owned` and its eventual
+  `delivered` still counts as one transition, tracked with an "armed" flag that arms on
+  `owned` and fires (and disarms) on the next `delivered`.
 - **dispatch latency** — for each `delivered` `Log:` line, the time to the FIRST LATER
   `Log:` line whose status is `reviewed` or `rejected` — not simply the next line,
   whatever its status. A real record's line right after `delivered` is routinely a
   same-second `owned ... agent-exited` hand-back, which measures bookkeeping, not
   dispatch. A record delivered more than once (fix rounds) gets one latency per round,
-  plus their sum.
+  plus their sum. `Log:` lines are hand-appended and can land out of chronological order
+  (a backfilled or concurrently-appended line); a candidate whose interval would be
+  negative is skipped in favor of the next later candidate, so a negative latency is
+  never reported.
 - **elapsed** — `opened` -> `accepted`. Most real records never reach `accepted` (the
   common case, not an edge case): when no `accepted` line exists, elapsed falls back to
   `opened` -> the LAST `reviewed` line, labeled `(to reviewed)` in the report rather than
-  left blank. A record with neither line reports `null`, not a guess.
+  left blank. A record with neither line reports `null`, labeled
+  `(no reviewed or accepted line)`. A record that HAS a `reviewed`/`accepted` line but no
+  `Opened:` field also reports `null`, but labeled `(no Opened: field)` — the label names
+  whichever field is actually missing rather than defaulting to the first case's wording.
 - **idle minutes (footer)** — total time, across all records merged and timestamp-sorted
   by their own `Log:` transitions, during which at least one record was `runnable` with
   `Owner: none`. Two records idle at the same time are not double-counted (it is a union

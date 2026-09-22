@@ -93,10 +93,31 @@ async function openLines(fsImpl, filePath) {
   return readline.createInterface({ input: stream, crlfDelay: Infinity });
 }
 
-function idFor(obj, uniqueCounter) {
-  if (obj.requestId) return `req:${obj.requestId}`;
-  if (obj.message && obj.message.id) return `msg:${obj.message.id}`;
-  return `line:${uniqueCounter.n++}`;
+// Resolve the canonical id for one line and store it (last-line-wins) into idMap.
+// aliasByMsgId records, once a line carries BOTH a requestId and a message.id, that the
+// message.id belongs to that requestId — so a line that later (or earlier, in file
+// position) carries the SAME message.id but no requestId of its own resolves to the same
+// canonical `req:` key instead of splitting into a second turn (a mixed-id-presence line
+// pair would otherwise double-count the one logical turn L-C9 exists to collapse).
+function resolveAndStore(idMap, aliasByMsgId, obj, uniqueCounter, entry) {
+  const requestId = obj.requestId || null;
+  const msgId = (obj.message && obj.message.id) || null;
+  let canonicalKey;
+  if (requestId && msgId) {
+    canonicalKey = `req:${requestId}`;
+    if (!aliasByMsgId.has(msgId)) aliasByMsgId.set(msgId, canonicalKey);
+    // Migrate an entry that was filed under the bare msg: key before the alias was known
+    // (the message.id-only line arrived first in the stream).
+    const priorMsgKey = `msg:${msgId}`;
+    if (idMap.has(priorMsgKey)) idMap.delete(priorMsgKey);
+  } else if (requestId) {
+    canonicalKey = `req:${requestId}`;
+  } else if (msgId) {
+    canonicalKey = aliasByMsgId.get(msgId) || `msg:${msgId}`;
+  } else {
+    canonicalKey = `line:${uniqueCounter.n++}`;
+  }
+  idMap.set(canonicalKey, entry); // last-line-wins
 }
 
 /**
@@ -110,7 +131,9 @@ function idFor(obj, uniqueCounter) {
 export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
   const rl = await openLines(fsImpl, filePath);
   const totalById = new Map();
+  const totalAlias = new Map();
   const windowById = marker ? new Map() : totalById; // no marker: window == whole file
+  const windowAlias = marker ? new Map() : totalAlias;
   const uniqueCounter = { n: 0 };
 
   let windowStarted = !marker;
@@ -139,10 +162,9 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
 
     if (obj.type !== 'assistant' || !obj.message || !obj.message.usage) continue;
 
-    const id = idFor(obj, uniqueCounter);
     const entry = { model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt };
-    totalById.set(id, entry); // last-line-wins
-    if (marker && windowStarted) windowById.set(id, entry);
+    resolveAndStore(totalById, totalAlias, obj, uniqueCounter, entry);
+    if (marker && windowStarted) resolveAndStore(windowById, windowAlias, obj, uniqueCounter, entry);
   }
 
   if (!marker) windowStartAt = firstAt;
@@ -157,6 +179,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
 export async function censusSubFile(filePath, { fsImpl = fs } = {}) {
   const rl = await openLines(fsImpl, filePath);
   const byId = new Map();
+  const alias = new Map();
   const uniqueCounter = { n: 0 };
   let firstAt = null;
   let lastAt = null;
@@ -174,8 +197,8 @@ export async function censusSubFile(filePath, { fsImpl = fs } = {}) {
       lastAt = obj.timestamp;
     }
     if (obj.type !== 'assistant' || !obj.message || !obj.message.usage) continue;
-    const id = idFor(obj, uniqueCounter);
-    byId.set(id, { model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt });
+    const entry = { model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt };
+    resolveAndStore(byId, alias, obj, uniqueCounter, entry);
   }
 
   return { byId, firstAt, lastAt };
@@ -342,12 +365,18 @@ export function formatText(report) {
 
 export function parseArgs(argv) {
   const opts = { lead: null, tasks: null, marker: null, out: null };
-  for (let i = 0; i < argv.length; i++) {
+  const need = (flag) => {
+    const v = argv[++i];
+    if (!v) throw new Error(`${flag} needs a value`);
+    return v;
+  };
+  let i;
+  for (i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--lead') opts.lead = argv[++i];
-    else if (a === '--tasks') opts.tasks = argv[++i];
-    else if (a === '--marker') opts.marker = argv[++i];
-    else if (a === '--out') opts.out = argv[++i];
+    if (a === '--lead') opts.lead = need('--lead');
+    else if (a === '--tasks') opts.tasks = need('--tasks');
+    else if (a === '--marker') opts.marker = need('--marker');
+    else if (a === '--out') opts.out = need('--out');
     else throw new Error(`unknown argument: ${a}`);
   }
   if (!opts.lead) throw new Error('--lead <session.jsonl> is required');
@@ -355,9 +384,16 @@ export function parseArgs(argv) {
   return opts;
 }
 
-export async function main(argv = process.argv.slice(2), { fsImpl = realFs(), write = (s) => console.log(s) } = {}) {
+export async function main(argv = process.argv.slice(2), { fsImpl = realFs(), now = Date.now(), write = (s) => console.log(s) } = {}) {
   const opts = parseArgs(argv);
   const report = await runCensus(opts, fsImpl);
+  // M1: a --marker that matches nothing in the lead file leaves the window empty, which
+  // would otherwise print a confident VERDICT of 0 lead turns and a zeroed combined
+  // split — the exact shape spec.md's "Done" comparison depends on. Loud failure instead
+  // of a silent, plausible-looking zero. The marker text itself is never echoed.
+  if (opts.marker && report.lead.windowStartAt === null) {
+    throw new Error(`--marker text not found in ${path.basename(opts.lead)} (window would be empty)`);
+  }
   const text = formatText(report);
   if (opts.out) {
     fsImpl.writeFileSync(opts.out, text.endsWith('\n') ? text : `${text}\n`);

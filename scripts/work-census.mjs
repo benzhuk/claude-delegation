@@ -28,15 +28,24 @@ function lastOfStatus(log, status) {
 }
 
 // Rounds: the record's own Rounds: field when present, else a count of owned -> delivered
-// transitions (adjacent Log lines, file order).
+// transitions, file order. L-C10 says "a count of owned -> delivered transitions", not
+// "adjacent Log lines" — an intervening line of some other status (a reviewed interim
+// note, a rejected verdict) between an owned and its eventual delivered must still count
+// as one transition. Tracked with an "armed" flag rather than adjacency: arms on `owned`,
+// fires (and disarms) on the next `delivered`, ignoring everything else in between.
 function countRounds(fields, log) {
   if (fields.rounds !== undefined && fields.rounds !== '') {
     const n = Number(fields.rounds);
     if (!Number.isNaN(n)) return n;
   }
   let rounds = 0;
-  for (let i = 0; i < log.length - 1; i++) {
-    if (log[i].status === 'owned' && log[i + 1].status === 'delivered') rounds++;
+  let armed = false;
+  for (const l of log) {
+    if (l.status === 'owned') armed = true;
+    else if (l.status === 'delivered' && armed) {
+      rounds++;
+      armed = false;
+    }
   }
   return rounds;
 }
@@ -53,6 +62,10 @@ function dispatchLatencies(log) {
     for (let j = i + 1; j < log.length; j++) {
       if (log[j].status === 'reviewed' || log[j].status === 'rejected') {
         const ms = Date.parse(log[j].at) - Date.parse(log[i].at);
+        // Log: lines are hand-appended and can land out of chronological order (a
+        // backfilled or concurrently-appended line). A negative interval is not a
+        // latency — keep searching forward for a later candidate instead of reporting it.
+        if (ms < 0) continue;
         out.push({ deliveredAt: log[i].at, respondedAt: log[j].at, respondedStatus: log[j].status, ms });
         break;
       }
@@ -63,17 +76,19 @@ function dispatchLatencies(log) {
 
 // Elapsed (spec.md L-C10, revised): opened -> accepted. Most real records never reach
 // `accepted` (the common case, not an edge case) — fall back to opened -> the LAST
-// `reviewed` line, labeled "(to reviewed)" rather than left blank.
+// `reviewed` line, labeled "(to reviewed)" rather than left blank. The label names
+// whichever field is actually missing: a record with a reviewed/accepted line but no
+// `Opened:` field is a different problem than one with neither line at all, and a label
+// that names the wrong cause is worse than none in a tool whose job is credible numbers.
 function elapsedFor(openedAt, log) {
   const lastAccepted = lastOfStatus(log, 'accepted');
-  if (openedAt && lastAccepted) {
-    return { ms: Date.parse(lastAccepted) - Date.parse(openedAt), endAt: lastAccepted, label: '(to accepted)' };
-  }
   const lastReviewed = lastOfStatus(log, 'reviewed');
-  if (openedAt && lastReviewed) {
-    return { ms: Date.parse(lastReviewed) - Date.parse(openedAt), endAt: lastReviewed, label: '(to reviewed)' };
-  }
-  return { ms: null, endAt: null, label: '(no reviewed or accepted line)' };
+  const endAt = lastAccepted || lastReviewed;
+  const label = lastAccepted ? '(to accepted)' : lastReviewed ? '(to reviewed)' : null;
+
+  if (!endAt) return { ms: null, endAt: null, label: '(no reviewed or accepted line)' };
+  if (!openedAt) return { ms: null, endAt, label: '(no Opened: field)' };
+  return { ms: Date.parse(endAt) - Date.parse(openedAt), endAt, label };
 }
 
 function perWorkReport(entry) {
@@ -210,8 +225,11 @@ export function parseArgs(argv) {
   let sawPositional = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--out') opts.out = argv[++i];
-    else if (a.startsWith('--')) throw new Error(`unknown argument: ${a}`);
+    if (a === '--out') {
+      const v = argv[++i];
+      if (!v) throw new Error('--out needs a value');
+      opts.out = v;
+    } else if (a.startsWith('--')) throw new Error(`unknown argument: ${a}`);
     else if (!sawPositional) {
       opts.dir = a;
       sawPositional = true;
@@ -230,7 +248,7 @@ function realFs() {
   };
 }
 
-export async function main(argv = process.argv.slice(2), { fsImpl = realFs(), write = (s) => console.log(s) } = {}) {
+export async function main(argv = process.argv.slice(2), { fsImpl = realFs(), now = Date.now(), write = (s) => console.log(s) } = {}) {
   const opts = parseArgs(argv);
   const records = listRecords(opts.dir, { fsImpl });
   const report = computeWorkCensus(records);

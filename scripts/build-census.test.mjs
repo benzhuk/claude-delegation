@@ -67,6 +67,11 @@ test('parseArgs: an unknown flag throws', () => {
   assert.throws(() => parseArgs(['--lead', 'a', '--tasks', 'b', '--nope']), /unknown argument/);
 });
 
+test('parseArgs: a trailing flag with no value throws instead of silently swallowing the next flag', () => {
+  assert.throws(() => parseArgs(['--lead', 'a', '--tasks', 'b', '--marker']), /--marker needs a value/);
+  assert.throws(() => parseArgs(['--lead', 'a', '--tasks', 'b', '--out']), /--out needs a value/);
+});
+
 // ── de-duplication: the fixture that proves the fix ────────────────────────
 
 test('de-dup: a request split across 3 lines counts as 1 turn with the LAST output_tokens, not naive per-line summing', async () => {
@@ -118,6 +123,34 @@ test('id fallback chain: requestId, then message.id, then a per-line unique id',
   assert.ok(ids.some((k) => k === 'req:req-A'), 'requestId branch');
   assert.ok(ids.some((k) => k === 'msg:msg-B'), 'message.id fallback branch (msg-B carries no requestId)');
   assert.ok(ids.some((k) => k.startsWith('line:')), 'per-line-unique fallback branch (the final line has neither field)');
+});
+
+test('id resolution: a turn whose lines have MIXED id presence (one carries only message.id, another carries both) still counts as one turn', async () => {
+  const dir = mkTmp('build-census-mixed-id-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  // First line only has message.id (no requestId yet known) — this is the exact repro
+  // that split into 2 turns before the alias fix: 'msg:M' filed first, then 'req:RQ'
+  // filed separately once the requestId shows up on a later line for the SAME message.id.
+  writeJsonl(leadPath, [
+    asstLine({ id: 'M', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 1 } }),
+    asstLine({ requestId: 'RQ', id: 'M', ts: '2026-01-01T00:00:01.000Z', usageOpts: { output: 9, input: 1 } }),
+  ]);
+  const { totalById } = await censusLeadFile(leadPath, {});
+  assert.equal(totalById.size, 1, 'both lines belong to the same logical turn');
+  assert.equal([...totalById.keys()][0], 'req:RQ', 'once the alias is known, the canonical key is the requestId form');
+  assert.equal(totalById.get('req:RQ').usage.output_tokens, 9, 'last-line-wins across the alias migration too');
+});
+
+test('id resolution: the alias also resolves in the other order (both ids known first, message-id-only line arrives later)', async () => {
+  const dir = mkTmp('build-census-mixed-id-rev-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'RQ2', id: 'M2', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 1 } }),
+    asstLine({ id: 'M2', ts: '2026-01-01T00:00:01.000Z', usageOpts: { output: 9, input: 1 } }),
+  ]);
+  const { totalById } = await censusLeadFile(leadPath, {});
+  assert.equal(totalById.size, 1);
+  assert.equal(totalById.get('req:RQ2').usage.output_tokens, 9);
 });
 
 // ── the committed fixtures, end to end (this is gate-10's own invocation) ──
@@ -181,23 +214,36 @@ test('a malformed JSON line is skipped, not thrown', async () => {
 
 // ── --marker / window, including a request that straddles the boundary ─────
 
-test('--marker: window turns are deduped independently of the whole-file map, and a straddling request keeps only its post-marker value', async () => {
+test('--marker: window turns are deduped independently of the whole-file map, and a straddling request keeps only its LAST post-marker value (window map is last-wins, not first-wins)', async () => {
   const dir = mkTmp('build-census-marker-');
   const leadPath = path.join(dir, 'lead.jsonl');
   writeJsonl(leadPath, [
     asstLine({ requestId: 'pre', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 10 } }),
-    // straddling: first line before the marker, second (final) line after it
+    // straddling: first line before the marker, then TWO lines after it — this is what
+    // proves the window map applies its own last-wins de-dup rather than just keeping
+    // whichever post-marker line happens to arrive first.
     asstLine({ requestId: 'straddle', ts: '2026-01-01T00:01:00.000Z', usageOpts: { output: 10, input: 100 } }),
     { type: 'user', timestamp: '2026-01-01T00:02:00.000Z', message: { role: 'user', content: 'MARK-HERE now building' } },
     asstLine({ requestId: 'straddle', ts: '2026-01-01T00:03:00.000Z', usageOpts: { output: 99, input: 100 } }),
+    asstLine({ requestId: 'straddle', ts: '2026-01-01T00:03:30.000Z', usageOpts: { output: 150, input: 100 } }),
     asstLine({ requestId: 'post', ts: '2026-01-01T00:04:00.000Z', usageOpts: { output: 5, input: 20 } }),
   ]);
   const { totalById, windowById, windowStartAt } = await censusLeadFile(leadPath, { marker: 'MARK-HERE' });
   assert.equal(totalById.size, 3, 'pre, straddle, post — all deduped across the whole file');
   assert.equal(windowById.size, 2, 'straddle and post only; pre never entered the window');
-  assert.equal(windowById.get('req:straddle').usage.output_tokens, 99, 'the window keeps the straddling request\'s POST-marker (last) value');
-  assert.equal(totalById.get('req:straddle').usage.output_tokens, 99, 'the whole-file map also keeps the last value overall');
+  assert.equal(windowById.get('req:straddle').usage.output_tokens, 150, 'the window keeps straddle\'s LAST post-marker line, not its first');
+  assert.equal(totalById.get('req:straddle').usage.output_tokens, 150, 'the whole-file map also keeps the last value overall');
   assert.equal(windowStartAt, '2026-01-01T00:02:00.000Z');
+});
+
+test('--marker given but not found in the file throws loudly instead of printing a silent zero', async () => {
+  const dir = mkTmp('build-census-marker-missing-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 1 } })]);
+  await assert.rejects(
+    () => main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'NEVER-PRESENT'], { write: () => {} }),
+    /--marker text not found/,
+  );
 });
 
 // ── --out ────────────────────────────────────────────────────────────────
@@ -249,6 +295,8 @@ test('secrecy: message content and the --marker text itself never reach the repo
 
 test('secrecy: no direct node:fs call bypasses the injected fsImpl in the streaming/marker code paths', () => {
   const src = fs.readFileSync(new URL('./build-census.mjs', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('export async function censusLeadFile'), src.indexOf('// ─────────────────────────────────────────────────────────────────────────────\n// fsImpl'));
+  // Start at openLines, the ONLY createReadStream call site — starting later (e.g. at
+  // censusLeadFile) would miss a regression to a bare fs.createReadStream there (m6).
+  const body = src.slice(src.indexOf('async function openLines'), src.indexOf('// ─────────────────────────────────────────────────────────────────────────────\n// fsImpl'));
   assert.equal(/\bfs\s*\./.test(body), false, 'a direct node:fs call bypasses the containment wrapper');
 });

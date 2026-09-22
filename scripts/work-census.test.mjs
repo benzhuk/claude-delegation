@@ -35,7 +35,11 @@ Log: 2026-01-01T00:30:00.000Z accepted lead artifact abc123
 `;
 
 // t2: two rounds (Rounds: field given explicitly), never accepted; 5-minute idle gap
-// before its first `owned`.
+// before its first `owned`. Carries TWO `reviewed` lines — an interim one mid-log and the
+// final one — specifically so a fallback to the LAST reviewed line is distinguishable
+// from a fallback to the FIRST one (M3: with only one `reviewed` line, first and last are
+// the same timestamp and the elapsed test below could not tell a correct implementation
+// from a `firstOfStatus` mutant).
 const T2 = `Work: wr-2026-01-01-census-t2
 Opened: 2026-01-01T01:00:00.000Z
 Rounds: 2
@@ -45,6 +49,7 @@ Log: 2026-01-01T01:15:00.000Z delivered builder-2 artifact def456
 Log: 2026-01-01T01:15:01.000Z owned orchestrator agent-exited artifact def456
 Log: 2026-01-01T01:17:00.000Z rejected orchestrator needs-fixes
 Log: 2026-01-01T01:17:01.000Z owned builder-2 respawned
+Log: 2026-01-01T01:20:00.000Z reviewed orchestrator interim
 Log: 2026-01-01T01:25:00.000Z delivered builder-2 artifact ghi789
 Log: 2026-01-01T01:25:01.000Z owned orchestrator agent-exited artifact ghi789
 Log: 2026-01-01T01:30:00.000Z reviewed orchestrator artifact ghi789
@@ -55,6 +60,36 @@ Log: 2026-01-01T01:30:00.000Z reviewed orchestrator artifact ghi789
 const T3 = `Work: wr-2026-01-01-census-t3
 Opened: 2026-01-01T02:00:00.000Z
 Log: 2026-01-01T02:00:00.000Z runnable none
+`;
+
+// t4: rounds fallback with a NON-ADJACENT owned -> delivered pair (an interim `reviewed`
+// line sits between them). No `Rounds:` field, so the fallback path is exercised.
+const T4 = `Work: wr-2026-01-01-census-t4
+Opened: 2026-01-01T03:00:00.000Z
+Log: 2026-01-01T03:00:00.000Z runnable none
+Log: 2026-01-01T03:05:00.000Z owned builder-4 spawned
+Log: 2026-01-01T03:07:00.000Z reviewed orchestrator interim-note
+Log: 2026-01-01T03:10:00.000Z delivered builder-4 artifact xyz111
+`;
+
+// t5: an out-of-order Log line (04:10:00) sits, in FILE order, right after `delivered`
+// (04:20:00) but carries an EARLIER timestamp than it — a plausible backfilled or
+// concurrently-appended line. The real reviewed line (04:25:00) follows it.
+const T5 = `Work: wr-2026-01-01-census-t5
+Opened: 2026-01-01T04:00:00.000Z
+Log: 2026-01-01T04:00:00.000Z runnable none
+Log: 2026-01-01T04:05:00.000Z owned builder-5 spawned
+Log: 2026-01-01T04:20:00.000Z delivered builder-5 artifact aaa111
+Log: 2026-01-01T04:10:00.000Z reviewed orchestrator out-of-order-line
+Log: 2026-01-01T04:25:00.000Z reviewed orchestrator real-review
+`;
+
+// t6: has a `reviewed` line but no `Opened:` field at all.
+const T6_NO_OPENED = `Work: wr-2026-01-01-census-t6
+Log: 2026-01-01T05:00:00.000Z runnable none
+Log: 2026-01-01T05:05:00.000Z owned builder-6 spawned
+Log: 2026-01-01T05:10:00.000Z delivered builder-6 artifact bbb222
+Log: 2026-01-01T05:15:00.000Z reviewed orchestrator artifact bbb222
 `;
 
 function writeFixtures(dir, files) {
@@ -78,6 +113,10 @@ test('parseArgs: an unknown flag throws', () => {
 
 test('parseArgs: a second positional argument throws', () => {
   assert.throws(() => parseArgs(['a', 'b']), /unexpected argument/);
+});
+
+test('parseArgs: a trailing --out with no value throws instead of silently being ignored', () => {
+  assert.throws(() => parseArgs(['docs/work', '--out']), /--out needs a value/);
 });
 
 // ── per-record timings ───────────────────────────────────────────────────────
@@ -108,6 +147,13 @@ test('rounds: uses the Rounds: field when present, even though the fallback coun
   assert.equal(perWork[0].rounds, 2);
 });
 
+test('rounds: the fallback counts a NON-ADJACENT owned -> delivered transition (an interim status line in between), not just adjacent Log lines', () => {
+  const dir = mkTmp('work-census-rounds-nonadjacent-');
+  const records = writeFixtures(dir, { 't4.record.md': T4 });
+  const { perWork } = computeWorkCensus(records);
+  assert.equal(perWork[0].rounds, 1, 'owned -> reviewed(interim) -> delivered is still one round');
+});
+
 test('dispatch latency: skips the same-second "owned ... agent-exited" hand-back and measures to the first reviewed/rejected line, per round', () => {
   const dir = mkTmp('work-census-latency-');
   const records = writeFixtures(dir, { 't1.record.md': T1, 't2.record.md': T2 });
@@ -126,6 +172,17 @@ test('dispatch latency: skips the same-second "owned ... agent-exited" hand-back
   assert.equal(t2.dispatchLatencies[1].respondedStatus, 'reviewed');
   assert.equal(t2.dispatchLatencies[1].ms, 5 * 60 * 1000); // 01:25:00 -> 01:30:00
   assert.equal(t2.dispatchLatencySumMs, 7 * 60 * 1000);
+});
+
+test('dispatch latency: an out-of-order Log line (earlier timestamp than the delivered it follows in file order) never produces a negative latency', () => {
+  const dir = mkTmp('work-census-latency-outoforder-');
+  const records = writeFixtures(dir, { 't5.record.md': T5 });
+  const { perWork } = computeWorkCensus(records);
+  const t5 = perWork[0];
+  assert.equal(t5.dispatchLatencies.length, 1, 'the out-of-order candidate is skipped, not reported');
+  assert.ok(t5.dispatchLatencies.every((d) => d.ms >= 0), 'no negative latency is ever reported');
+  assert.equal(t5.dispatchLatencies[0].respondedAt, '2026-01-01T04:25:00.000Z', 'the real, later review is the one picked');
+  assert.equal(t5.dispatchLatencies[0].ms, 5 * 60 * 1000);
 });
 
 test('elapsed: opened -> accepted when an accepted line exists', () => {
@@ -153,6 +210,16 @@ test('elapsed: a record with neither a reviewed nor an accepted line reports nul
   const r = perWork[0];
   assert.equal(r.elapsedMs, null);
   assert.equal(r.elapsedLabel, '(no reviewed or accepted line)');
+});
+
+test('elapsed: a record with a reviewed line but no Opened: field is labeled for the field that is actually missing', () => {
+  const dir = mkTmp('work-census-elapsed-no-opened-');
+  const records = writeFixtures(dir, { 't6.record.md': T6_NO_OPENED });
+  const { perWork } = computeWorkCensus(records);
+  const r = perWork[0];
+  assert.equal(r.elapsedMs, null);
+  assert.equal(r.elapsedLabel, '(no Opened: field)', 'not "(no reviewed or accepted line)" — that line exists, Opened: does not');
+  assert.equal(r.elapsedEndAt, '2026-01-01T05:15:00.000Z');
 });
 
 // ── idle minutes footer ─────────────────────────────────────────────────────
