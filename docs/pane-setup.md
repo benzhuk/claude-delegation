@@ -46,13 +46,16 @@ vocabulary; don't re-derive the tier table here.
 ## Registering a pane's peer-note inbox
 
 The already-shipped `SessionStart` hook (`hooks/hooks.json` → `hooks/multi-inbox.js
-SessionStart` → `registerMyInbox`) registers this pane's inbox automatically, from
-`NOTE_SLUG` if the environment carries it, else a `panes.json` binding for
-`ORCA_TERMINAL_HANDLE`. It never guesses a slug from a title. When neither is present,
-nothing registers and the pane never appears in `inboxes.json` — it silently misses peer
-notes until something sets one of the two.
+SessionStart` → `registerMyInbox`) registers this pane's inbox automatically. The normal
+way to give it something to register: name the session — `/rename <slug>` mid-session, or
+`claude --name <slug>` at launch. Both write the same sidecar the hook now reads FIRST,
+above `NOTE_SLUG` and any `panes.json` binding — so a mid-session `/rename` takes effect at
+the very next hook event, even in a pane that was launched with `NOTE_SLUG` already set. It
+never guesses a slug from a title. When none of the three resolve, nothing registers and
+the pane never appears in `inboxes.json` — it silently misses peer notes until something
+sets one.
 
-The pre-flight fallback, when nothing else set the slug: state it in the `--command`
+The fallback, for when `/rename`/`--name` were not used: state the slug in the `--command`
 string `orca terminal create` already accepts —
 
 ```
@@ -75,8 +78,10 @@ quoted exactly from `skills/multi/scripts/note-flush.mjs:483,756,831`:
 
 `scripts/wiring-check.mjs`'s `pane-note-slug` row (`scripts/required-wiring.default.json`)
 reports whether `NOTE_SLUG` is set on this pane at the moment the check runs — always
-`info`, never `missing`/`stale`, since a pane may legitimately be bound instead of
-env-set; it exists to make the silent-miss case visible, not to flag it as wrong.
+`info`, never `missing`/`stale`. It only inspects `NOTE_SLUG`, so a pane named the new way
+(via `/rename`/`--name`) may correctly show "not set" here while still being fully
+registered; the row exists to make the silent-miss case visible for the env-only path, not
+to flag a session-named pane as wrong.
 
 ## Notes between panes
 

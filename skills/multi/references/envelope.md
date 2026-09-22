@@ -186,9 +186,10 @@ has not been shown, scanning `~/.agents/notes/*.md` (last 3 days) and the curren
 `docs/ledger/*.md` in its MAIN checkout. It reports whether each `Details:` packet is actually on disk.
 `--ack` advances `~/.agents/notes/.cursor-<slug>`. Exit 0 always.
 
-The slug is resolved in this order and **never guessed**: `--me`, then `$NOTE_SLUG`, then
-`orca terminal show --terminal $ORCA_TERMINAL_HANDLE` (every Orca pane exports that variable) with the
-title normalised the same way `--to` is. Nothing resolvable → a clear exit 2 telling you to pass `--me`.
+The slug is resolved in this order and **never guessed**: `--me`, then the session name set by
+`/rename` or `claude --name`, then `$NOTE_SLUG`, then `orca terminal show --terminal
+$ORCA_TERMINAL_HANDLE` (every Orca pane exports that variable) with the title normalised the same way
+`--to` is. Nothing resolvable → a clear exit 2 telling you to pass `--me`.
 
 Claude sessions do not run it by hand: the plugin's `UserPromptSubmit`, `Stop` and `PostToolUse` hooks
 run it, inject the new notes, and ack. Codex sessions run it at the start of every turn (AGENTS.md).

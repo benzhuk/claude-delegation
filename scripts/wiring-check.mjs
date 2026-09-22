@@ -4,7 +4,7 @@
 // 2026-09-20 that had to be worked out by hand, machine by machine. This never fixes anything: it
 // only reads and reports, so a caller (the janitor, a person, a script) can decide what to do.
 //
-// checkWiring() is pure with respect to its inputs (home, platform, fsImpl, now, lists are all
+// checkWiring() is pure with respect to its inputs (home, platform, fsImpl, now, lists, env are all
 // passed in with real defaults) and READS ONLY - it never edits settings.json, never installs a
 // hook, never deletes a file, never writes anything at all.
 //

@@ -111,9 +111,10 @@ every state a session can be in:
 ### What you have to do to be reachable: nothing
 
 Your own hook registers you. Every event it handles writes `{your slug → your inbox}` into
-`~/.agents/notes/inboxes.json` (mode 600), provided it knows your slug FIRST-HAND — from `--me`,
-`$NOTE_SLUG`, or the `panes.json` binding your pane wrote itself. A slug guessed from a pane title is
-never registered, because registering under a guess would divert another session's notes to you.
+`~/.agents/notes/inboxes.json` (mode 600), provided it knows your slug FIRST-HAND — from `--me`, the
+session name set by `/rename` or `claude --name`, `$NOTE_SLUG`, or the `panes.json` binding your pane
+wrote itself. A slug guessed from a pane title is never registered, because registering under a guess
+would divert another session's notes to you.
 
 That file is the one thing to look at when delivery is not happening:
 
@@ -239,9 +240,9 @@ the current repo's `docs/ledger/*.md` in its MAIN checkout, skips your own sends
 cursor has already shown, and says whether each `Details:` packet exists on this machine. Exit 0
 always — an inbox read never fails its caller.
 
-Your slug comes from `--me`, else `$NOTE_SLUG`, else the binding recorded for your pane's
-`$ORCA_TERMINAL_HANDLE`, else your pane title. It is never guessed: an inbox read under the wrong slug
-shows you another session's notes.
+Your slug comes from `--me`, else the session name set by `/rename` or `claude --name`, else
+`$NOTE_SLUG`, else the binding recorded for your pane's `$ORCA_TERMINAL_HANDLE`. It is never guessed
+from your pane title: an inbox read under the wrong slug shows you another session's notes.
 
 The first run in a pane shows only the last 12 hours and says how many older notes it marked seen
 (`--cold-start-hours 0` for everything). **Claude sessions:** the hooks do all of this. **Codex
