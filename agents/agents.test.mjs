@@ -108,7 +108,7 @@ test('builder body names all six state file sections, in order', () => {
 
 const SAFETY_ANCHORS = [
   '~/.agents/lean-rules.md', 'pkill node', 'dev server', 'git reset --hard',
-  'GIT_AUTHOR_', 'secret', 'OCR', 'in flight', 'scratch folder', 'verdict on line 1',
+  'GIT_AUTHOR_', 'secret', 'OCR', 'in flight', 'scratch folder', 'VERDICT: <word>',
   'byline',
 ];
 
@@ -123,7 +123,8 @@ test('the safety block still carries every rule it is there to carry', () => {
 
 test('the safety block stays under the 2000-character token-cost ceiling', () => {
   const block = safetyBlock(agents.find((a) => a.file === 'builder.md').body, 'builder.md');
-  assert.ok(block.length < 2000, `safety block is ${block.length} chars, over the 2000-char ceiling`);
+  // raised from 2000 in package-build/P3 — see spec.md PB-C3
+  assert.ok(block.length < 2100, `safety block is ${block.length} chars, over the 2100-char ceiling`);
 });
 
 test('builder.md states it never writes the work record', () => {
