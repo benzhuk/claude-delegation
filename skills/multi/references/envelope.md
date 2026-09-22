@@ -187,7 +187,7 @@ has not been shown, scanning `~/.agents/notes/*.md` (last 3 days) and the curren
 `--ack` advances `~/.agents/notes/.cursor-<slug>`. Exit 0 always.
 
 The slug is resolved in this order and **never guessed**: `--me`, then the session name set by
-`/rename` or `claude --name`, then `$NOTE_SLUG`, then `orca terminal show --terminal
+`/rename` or `claude --name`, then `$NOTE_SLUG`, then the `panes.json` binding for `$ORCA_TERMINAL_HANDLE`, then `orca terminal show --terminal
 $ORCA_TERMINAL_HANDLE` (every Orca pane exports that variable) with the title normalised the same way
 `--to` is. Nothing resolvable → a clear exit 2 telling you to pass `--me`.
 

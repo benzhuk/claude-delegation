@@ -52,8 +52,8 @@ way to give it something to register: name the session — `/rename <slug>` mid-
 above `NOTE_SLUG` and any `panes.json` binding — so a mid-session `/rename` takes effect at
 the very next hook event, even in a pane that was launched with `NOTE_SLUG` already set. It
 never guesses a slug from a title. When none of the three resolve, nothing registers and
-the pane never appears in `inboxes.json` — it silently misses peer notes until something
-sets one.
+the pane never appears in `inboxes.json` — it misses peer notes until something sets one;
+the `SessionStart` hook says so once, with the `/rename <slug>` fix.
 
 The fallback, for when `/rename`/`--name` were not used: state the slug in the `--command`
 string `orca terminal create` already accepts —

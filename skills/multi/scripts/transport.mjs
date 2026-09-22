@@ -1747,7 +1747,7 @@ export function pruneBindings(home, terminals, { fsImpl = fs, now = Date.now(), 
 }
 
 /**
- * Who am I? In order: `--me`, `$NOTE_SLUG`, `panes.json[handle]` (the binding), the cached title, then
+ * Who am I? In order: `--me`, the session's own name (`opts.transcriptPath` + `opts.sessionId`, D6), `$NOTE_SLUG`, `panes.json[handle]` (the binding), the cached title, then
  * the pane's live title.
  *
  * `ORCA_TERMINAL_HANDLE` is exported into every Orca pane's shell (verified live on Windows,
