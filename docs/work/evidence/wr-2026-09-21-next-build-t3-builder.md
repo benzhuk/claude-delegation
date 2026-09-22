@@ -187,4 +187,27 @@ Appended the reviewer's exact test verbatim to `scripts/prefix-test.test.mjs`. G
 re-run: 50 pass, 0 fail (was 49). Commit `f78474c` (`test(prefix-test): pin the anchored
 ERR_ASSERTION detection`).
 
+## Round 4
+
+Integrator's full-suite gate failed N2 (`skills/multi/scripts/hooks.test.mjs`) on `scripts/prefix-test.test.mjs`'s `makeFixtureGitEnv`, which spread the runner's full environment directly instead of going through the shared `childEnv()` helper; changed it to `childEnv(configDir, { GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM })` (configDir doubles as the fixture HOME), nothing else in the file changed. Own gate 50/50 pass; `node --test skills/multi/scripts/hooks.test.mjs` 26/26 pass, N2 green. Commit `6cac42dece755c0ae18da14c67e307d11ed96057` (`fix(prefix-test): build fixture env through the shared childEnv helper`).
+
+## Round 5
+
+Seam review (F1 BLOCKER, F4 MINOR, F6 MINOR). Merged T7's approved branch
+(`chore: bring T7 test-home helper into T3`, `c439be0` -> zero conflicts). F1: dropped
+`scripts/prefix-test.test.mjs`'s private `toPosix`/`makeFixtureGitEnv` (round 4's own
+`childEnv`-based version included) in favor of T7's shared `makeTempHome({ gitIdentity:
+true })` from `scripts/test-home.mjs` — `buildFixtureRepo` now gets both `home` (aliased
+`configDir`) and `env` from one call, closing the wr-dedupe-fixture-git-env follow-up.
+F4: the `git worktree list` spawn in the exit-0 fixture case now passes the sealed `env`
+instead of the runner's raw environment. F6: `skills/team-build/SKILL.md` now names the
+four C4 fields (`Cause:`, `Discriminating check:`, `Fix location:`, `Simplification:`)
+beside the cause-versus-compensation bullet, and the Ship section now states the
+`VERDICT:` line requirement for every report copied into `docs/work/evidence/`
+(agents/*.md left untouched — T1's territory). Gate: own 50/50 pass (same three
+prefix-test exit 0/1/2 cases still covered); `node --test
+skills/multi/scripts/hooks.test.mjs` 26/26 pass, N2 green. Commit
+`44f0c6b386f0bf202e49a5dd6572079c604209ec` (`fix(prefix-test): fixture identity through
+makeTempHome; team-build names the bug-fix fields`).
+
 State file: `scratchpad/next-build/reports/T3-state.md`.

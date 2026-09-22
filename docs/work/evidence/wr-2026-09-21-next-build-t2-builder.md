@@ -107,3 +107,20 @@ Gate re-run: `node --test hooks/backlog-notice.test.mjs skills/multi/scripts/hoo
 residual test). Log refreshed at the same path as before.
 
 Verdict: PASS.
+
+## Round 3 (seam review)
+
+Seam review at `…\reports\seam-review.md`, finding F5 (mine): `hooks/backlog-notice.js:301`
+restated the seven statuses as a literal fallback in `statuses = parser.STATUSES ||
+statuses`, a second copy of C2's vocabulary that could drift silently (unreachable
+in practice, since a failed import returns at the catch, but still a second
+source of truth). Fix on commit `17265e8`: deleted the literal; `statuses` is now
+declared bare and assigned only from `parser.STATUSES` inside the try, so the
+import is the only source. The failed-import path is unchanged (still returns at
+the existing catch). No test asserted the literal array, so no test needed
+changing.
+
+Gate re-run: `node --test hooks/backlog-notice.test.mjs skills/multi/scripts/hooks.test.mjs`
+-> 40 pass, 0 fail. Log refreshed at the same path.
+
+Verdict: PASS.
