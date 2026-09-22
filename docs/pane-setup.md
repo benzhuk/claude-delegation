@@ -38,8 +38,10 @@ vocabulary; don't re-derive the tier table here.
    applies Ship (work-record transitions, evidence copies), and reports the merge-ready
    state back to `<project>-fable` for the actual ship decision.
 5. If this build also uses the ladder for a bounded research/judge pass, `<project>-o`
-   launches it the same way — its own pane, never a subordinate one — and its status
-   stays approved-not-live until its own first real run, same as the build loop.
+   launches it the same way — its own pane, never a subordinate one. Both the ladder and
+   the build loop are live as of 2026-09-22, each having had its first real run from an
+   Opus orchestrator pane (`wf_4f009ac9-8aa` and `wf_a7f9c859-48a`); see
+   `wr-2026-09-22-package-build-p5`.
 
 ## Registering a pane's peer-note inbox
 
