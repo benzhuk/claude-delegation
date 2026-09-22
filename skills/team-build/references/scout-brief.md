@@ -11,8 +11,9 @@ One scout agent, mid tier (Claude Sonnet / OpenAI GPT-5.6-Terra), per BUILD — 
 territory. It surveys every territory in one pass and writes one output file per
 territory. Spawn it after the spec and territory map are written to disk and before any
 territory's worktree is created; its findings are folded into each territory's brief
-before that territory's builder is spawned (the plugin repo's `docs/pane-setup.md` names
-the pane and the turn this happens on).
+before that territory's builder is spawned (`docs/pane-setup.md`, shipped next to this
+skill as `../../_docs/pane-setup.md` when mirrored, and in the plugin repo's `docs/`
+otherwise, names the pane and the turn this happens on).
 
 ## Inputs (give the agent these paths, never inline their content)
 

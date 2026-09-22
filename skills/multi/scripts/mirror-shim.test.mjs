@@ -246,6 +246,10 @@ test('V4: a real install writes one shim per command, each naming ITS OWN comman
   const mirroredFiles = fs.readdirSync(path.join(home, '.agents', 'skills'), { recursive: true });
   assert.ok(!mirroredFiles.some((f) => f.endsWith('.test.mjs')),
     'SKILL_FILE_EXCLUDE let a .test.mjs file publish');
+  // Positive control: the assertion above must fail because the walk found real files and
+  // filtered one out, not because the walk (or the whole publish) silently did nothing.
+  assert.ok(mirroredFiles.some((f) => f.replace(/\\/g, '/').endsWith('multi/scripts/transport.mjs')),
+    'the skill file walk published nothing');
   // …and it removes exactly what it created.
   execFileSync(process.execPath, [MIRROR, '--uninstall'], { encoding: 'utf8', env: fakeEnv(home) });
   assert.equal(fs.existsSync(bin), false, 'uninstall left shims behind');

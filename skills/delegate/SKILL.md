@@ -123,7 +123,7 @@ single real run from an Opus orchestrator pane after merge, recorded on its work
 until then, treat it as reviewed template code, not a load-bearing tool.
 
 The build-review-fix loop is a sibling of this ladder, not part of it: it launches from
-the same Opus orchestrator pane, per `skills/team-build/SKILL.md`'s own new section on
-running it, and it carries the identical status — approved, not live, until its own first
+the same Opus orchestrator pane, per the team-build skill's own new section on running
+it, and it carries the identical status — approved, not live, until its own first
 real run from that pane after merge. Neither the loop nor the ladder is ever launched
 from the lead pane or a builder pane.
