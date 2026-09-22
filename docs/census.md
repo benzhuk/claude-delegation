@@ -53,6 +53,12 @@ and a combined split (the build-window lead cost plus every subagent's cost — 
 lead-side number actually comparable to subagent cost, since subagents only exist during
 the build). First line: `VERDICT: COUNTED <n> lead turns, <m> subagent files`.
 
+A subagent file that cannot be read shows `n/a` in the turns column rather than `0`; `0`
+is reserved for a file that was read and genuinely contained no turns (zero-byte
+transcripts are common — 65 of 145 in the reference corpus). When any file is unreadable
+the VERDICT line and the `## Subagents` header say so, and the subagent token table and
+the combined split are **incomplete by an unknown amount** — do not quote them.
+
 Secrecy: the file never reads `message.content` except to test membership of `--marker`
 inside a parsed line (a boolean-only, bounded-depth/width search) — output is numbers,
 model names and file basenames only.

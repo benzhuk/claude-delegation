@@ -243,6 +243,36 @@ test('a subagent file whose statSync throws (vanished/unreadable between readdir
   assert.ok(!text.includes('| split-request.output | 0 |'), 'a raced file must never print as if it were a real zero');
 });
 
+test('an unreadable subagent file is counted and surfaced at every quoted surface, not just its own row', async () => {
+  const real = fs;
+  const fsImpl = {
+    readdirSync: (...a) => real.readdirSync(...a),
+    statSync: (p, ...rest) => {
+      if (p.endsWith('split-request.output')) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return real.statSync(p, ...rest);
+    },
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+  };
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasks: FIXTURES_TASKS, marker: null, out: null }, fsImpl);
+  assert.equal(report.subagents.unreadable, 1, 'one raced file must be counted in subagents.unreadable');
+  const text = formatText(report);
+  assert.ok(text.startsWith('VERDICT: COUNTED 3 lead turns, 2 subagent files (1 UNREADABLE'),
+    `VERDICT line must flag the unreadable count, not read as a clean run:\n${text.split('\n')[0]}`);
+  assert.ok(text.includes('## Subagents (2 files, 1 unreadable, 0 turns total, deduped)'),
+    `Subagents header must carry the unreadable count:\n${text}`);
+  assert.ok(text.includes('_Incomplete: 1 subagent file(s) could not be read'),
+    `must print an Incomplete note when any file is unreadable:\n${text}`);
+});
+
+test('the healthy path (no unreadable files) prints no UNREADABLE/unreadable/Incomplete text anywhere', async () => {
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasks: FIXTURES_TASKS, marker: null, out: null });
+  assert.equal(report.subagents.unreadable, 0);
+  const text = formatText(report);
+  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead turns, 2 subagent files');
+  assert.ok(!/unreadable|UNREADABLE|Incomplete/.test(text), 'a clean run must never mention unreadable files');
+});
+
 test('a malformed JSON line is skipped, not thrown', async () => {
   // FIXTURES_LEAD itself contains one malformed line; censusLeadFile already ran over it
   // above without throwing. Confirm explicitly with a minimal dedicated fixture too.

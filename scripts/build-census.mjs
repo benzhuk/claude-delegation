@@ -265,11 +265,13 @@ export async function runCensus(opts, fsImpl = realFs()) {
 
   const subTotalsByModel = {};
   let subTotalTurns = 0;
+  let unreadableCount = 0;
   const perFile = [];
   for (const sf of subFiles) {
     const byModel = aggByModel(sf.byId);
     mergeAggInto(subTotalsByModel, byModel);
     subTotalTurns += sf.byId.size;
+    if (sf.unreadable) unreadableCount += 1;
     perFile.push({ file: sf.file, turns: sf.unreadable ? null : sf.byId.size, byModel });
   }
 
@@ -301,6 +303,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
     },
     subagents: {
       fileCount: files.length,
+      unreadable: unreadableCount,
       totalTurns: subTotalTurns,
       totalByModel: subTotalsByModel,
       perFile,
@@ -322,7 +325,8 @@ function sumAgg(a) {
 
 export function formatText(report) {
   const md = [];
-  md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead turns, ${report.subagents.fileCount} subagent files`);
+  const unread = report.subagents.unreadable || 0;
+  md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead turns, ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
   md.push('');
   md.push('# Build census');
   md.push('');
@@ -348,7 +352,8 @@ export function formatText(report) {
   md.push('|---|---|---|---|---|');
   for (const m of Object.keys(report.lead.windowByModel).sort()) md.push(tokenRow(m, report.lead.windowByModel[m]));
   md.push('');
-  md.push(`## Subagents (${report.subagents.fileCount} files, ${report.subagents.totalTurns} turns total, deduped)`);
+  md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
+  if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
   md.push('');
   md.push('| file | turns |');
   md.push('|---|---|');
