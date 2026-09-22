@@ -28,9 +28,9 @@ vocabulary; don't re-derive the tier table here.
 1. `<project>-fable` writes the spec and territory map, gets a high-tier red-team read,
    rules on any open questions, and hands the spec pack path to `<project>-o`.
 2. `<project>-o` runs `team-build`'s Setup: territory map, contract stubs at t0, the
-   Scout step (one Sonnet agent, one file per territory, `skills/team-build/references/
-   scout-brief.md`), work records opened, briefs written with the scout findings folded
-   in.
+   Scout step (one Sonnet agent, one file per territory,
+   `skills/team-build/references/scout-brief.md`), work records opened, briefs written
+   with the scout findings folded in.
 3. `<project>-o` launches the build loop (Build → Review → Fix → Integrate, one call per
    territory in parallel, `parallel()` as the barrier) from its own pane — never from
    `<project>-fable`, never from a builder or Sonnet-tier pane.
@@ -63,12 +63,13 @@ reviewers, the integrator); `multi` is for talking to the fable pane.
   work records' own `Log:` notes and findings files across builds; no dedicated script
   computes these yet, so read them by grepping `docs/work/` and past reports rather than
   expecting a census tool to surface them automatically.
-- **Lead turns, dispatch-vs-thinking split, tokens by model** (the speed-census numbers,
-  whole-file and windowed) — `scripts/build-census.mjs`, reading the lead's own
+- **Lead turns (total and windowed), turns/hour in the window, tokens by model for the
+  lead and for each subagent, and the combined lead+subagent split** (the speed-census
+  numbers) — `scripts/build-census.mjs`, reading the lead's own
   transcript plus each subagent's task-output directory. Its turn/token counts are
   de-duplicated per request id (Claude Code re-emits the same turn as multiple JSONL
-  lines while a response streams); mention that the fix exists here, its mechanism is
-  `scripts/build-census.mjs`'s own doc and test fixture, not restated in this file.
+  lines while a response streams); the mechanism lives in `scripts/build-census.mjs`'s own
+  doc and test fixture, and is deliberately not restated here.
 
 Run both census scripts from `<project>-o`'s pane once a build's Ship step completes
 (`skills/team-build/SKILL.md`'s Ship section names the exact moment); the numbers go into

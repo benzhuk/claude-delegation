@@ -65,9 +65,10 @@ mention says where to find it once mirrored.
    dies.
 7. **Scout** — one cheap (mid-tier) agent, per BUILD, not per territory: after the
    territory map exists and before any territory's worktree is created, it surveys every
-   territory in one pass and writes one output file per territory (`<spec-pack>/scout-
-   <territory-id>.md`, at most 40 lines each — files/symbols the territory will touch and
-   whether the spec's premise about them still holds, existing helpers to reuse, tests
+   territory in one pass and writes one output file per territory
+   (`<spec-pack>/scout-<territory-id>.md`, at most 40 lines each — files/symbols the
+   territory will touch and whether the spec's premise about them still holds, existing
+   helpers to reuse, tests
    that police the area, open questions for the spec). Full instructions, copyable
    verbatim into the scout's prompt: `references/scout-brief.md`. Fold each territory's
    scout file into that territory's brief (by path, as an addendum — never restate it)
@@ -213,12 +214,14 @@ writer to `docs/work/` through to the end; a fresh orchestrator, or one that is 
 shown its next runnable record by reading that directory, never by asking you to recall
 it.
 
-Once every territory is `accepted`, run `scripts/work-census.mjs` against `docs/work/`
-(and, if this build launched the loop from an Opus pane, `scripts/build-census.mjs`
-against the lead transcript) to get the measures — elapsed per work id, dispatch latency,
-idle minutes with a runnable unowned record — that make the build's speed a number
-instead of an impression. `docs/pane-setup.md` names what each measure means and which
-script reads it; don't restate that here.
+Once every territory is `reviewed` and the integrator's gates are green — before the merge
+ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
+— run `node <plugin>/scripts/work-census.mjs docs/work` (and, if this build launched the
+loop from an Opus pane, `node <plugin>/scripts/build-census.mjs --lead <lead-session.jsonl>
+--tasks <subagent-tasks-dir>`) to get the measures — elapsed per work id, dispatch latency,
+idle minutes with a runnable unowned record — that make the build's speed a number instead
+of an impression. The plugin repo's `docs/pane-setup.md` names what each measure means and
+which script reads it; don't restate that here.
 
 ## Peer sessions
 

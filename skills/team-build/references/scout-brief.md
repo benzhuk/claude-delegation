@@ -17,7 +17,10 @@ turn this happens on).
 ## Inputs (give the agent these paths, never inline their content)
 
 - The spec file (pinned contracts, territory map).
-- The base sha / branch its survey should read against.
+- The checkout to survey, and the base sha / branch to read it at — read-only; no
+  territory worktree exists yet.
+- The spec-pack directory the output files go in. Every `<spec-pack>/…` path below means
+  exactly that directory; never create a literal `<spec-pack>` folder.
 - The list of territory ids and, for each, the file list from the territory map.
 
 ## Output — exactly one file per territory
