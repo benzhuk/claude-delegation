@@ -282,3 +282,21 @@ test('(j) F2/BLOCKER 1: the session-name slug is first-hand, so PostToolUse writ
     'a per-SESSION name must never become a permanent panes.json binding for the pane it happened to run in',
   );
 });
+
+test('(k) MINOR 6: a broken CLAUDE_PLUGIN_ROOT never tells a bound pane "this session has no name"', () => {
+  const home = fixtureHome();
+  fs.mkdirSync(path.join(home, '.agents', 'notes'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.agents', 'notes', 'panes.json'),
+    JSON.stringify({ term_broken: { slug: 'bound-slug', at: Date.now() } }),
+    'utf8',
+  );
+  // rank 3 (the binding) is unreachable when transport.mjs cannot be imported at all, so `slug` is
+  // null for a reason that has nothing to do with the session's NAME — D4's line would be a lie.
+  const stdout = runSessionStart(home, {
+    CLAUDE_PLUGIN_ROOT: path.join(home, 'nowhere'),
+    NOTE_SLUG: '',
+    ORCA_TERMINAL_HANDLE: 'term_broken',
+  });
+  assert.equal(stdout.trim(), '', 'a broken plugin root is M1\'s message to deliver, not D4\'s');
+});
