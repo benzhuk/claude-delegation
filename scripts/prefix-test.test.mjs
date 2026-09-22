@@ -18,7 +18,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTapCounts, classifyRun } from "./prefix-test.mjs";
@@ -26,7 +25,13 @@ import { makeTempHome } from "./test-home.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, "prefix-test.mjs");
-const TMP_ROOT = fs.realpathSync(os.tmpdir());
+// L-C7: the seal's fixture identity is now scoped to `fixtureRoot`, not the whole system temp
+// dir - every mkdtemp in this file (git-identity-needing or not, for uniformity now that the
+// old TMP_ROOT constant is retired) is rooted here instead. This is a module-level home shared
+// by the tests below that don't build their own fixture repo (the classifyRun cases, which never
+// touch git and just need a scratch directory); `buildFixtureRepo()` below still gets its own
+// fresh `makeTempHome()` call per invocation, for its own isolated git identity/env.
+const { fixtureRoot: FIXTURE_ROOT } = makeTempHome({ gitIdentity: true });
 
 function git(args, cwd, env) {
   const r = spawnSync("git", args, { cwd, env, encoding: "utf8" });
@@ -40,8 +45,8 @@ function git(args, cwd, env) {
 // regression test math.test.mjs (used, as its own sha, for the "passes at base" case,
 // and always as the in-place fix revision).
 function buildFixtureRepo() {
-  const { home: configDir, env } = makeTempHome({ gitIdentity: true });
-  const repoDir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-repo-"));
+  const { home: configDir, env, fixtureRoot } = makeTempHome({ gitIdentity: true });
+  const repoDir = fs.mkdtempSync(path.join(fixtureRoot, "prefix-test-repo-"));
 
   git(["init", "-q"], repoDir, env);
   fs.writeFileSync(path.join(repoDir, "README.md"), "fixture repo\n");
@@ -234,7 +239,7 @@ test("parseTapCounts: skip/todo-only counts are captured so classifyRun can fold
 });
 
 test("classifyRun: a cancelled test is inconclusive, never passed (BLOCKER 1 regression)", () => {
-  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-slow-"));
+  const dir = fs.mkdtempSync(path.join(FIXTURE_ROOT, "prefix-test-slow-"));
   fs.writeFileSync(
     path.join(dir, "slow.test.mjs"),
     [
@@ -248,7 +253,7 @@ test("classifyRun: a cancelled test is inconclusive, never passed (BLOCKER 1 reg
 });
 
 test("classifyRun: a skip-only file is inconclusive, never passed (orchestrator ruling a)", () => {
-  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-skiponly-"));
+  const dir = fs.mkdtempSync(path.join(FIXTURE_ROOT, "prefix-test-skiponly-"));
   fs.writeFileSync(
     path.join(dir, "skiponly.test.mjs"),
     [
@@ -262,7 +267,7 @@ test("classifyRun: a skip-only file is inconclusive, never passed (orchestrator 
 });
 
 test("classifyRun: a real test in a subdirectory is not mistaken for the zero-test wrapper (MAJOR 4 regression)", () => {
-  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-subdir-"));
+  const dir = fs.mkdtempSync(path.join(FIXTURE_ROOT, "prefix-test-subdir-"));
   fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
   fs.writeFileSync(path.join(dir, "scripts", "empty.test.mjs"), "// no test() calls\nexport const x = 1;\n");
   const r = classifyRun(dir, path.join("scripts", "empty.test.mjs"));
@@ -270,14 +275,14 @@ test("classifyRun: a real test in a subdirectory is not mistaken for the zero-te
 });
 
 test("classifyRun: a file with zero real test() calls is inconclusive, never counted as passed", () => {
-  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-empty-"));
+  const dir = fs.mkdtempSync(path.join(FIXTURE_ROOT, "prefix-test-empty-"));
   fs.writeFileSync(path.join(dir, "empty.test.mjs"), "// no test() calls\nexport const x = 1;\n");
   const r = classifyRun(dir, "empty.test.mjs");
   assert.equal(r.category, "inconclusive");
 });
 
 test("classifyRun: two real named tests, one failing, is reproduced (fail>0 with ERR_ASSERTION)", () => {
-  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-two-"));
+  const dir = fs.mkdtempSync(path.join(FIXTURE_ROOT, "prefix-test-two-"));
   fs.writeFileSync(
     path.join(dir, "two.test.mjs"),
     [
