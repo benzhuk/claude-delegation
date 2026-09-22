@@ -227,7 +227,7 @@ function classify(entries, statuses) {
       malformed += 1;
       continue;
     }
-    if (status === 'runnable' && owner !== undefined && owner !== 'none') {
+    if (status === 'runnable' && owner !== undefined && owner !== '' && owner !== 'none') {
       malformed += 1;
       continue;
     }

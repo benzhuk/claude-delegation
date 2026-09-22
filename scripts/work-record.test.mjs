@@ -455,6 +455,27 @@ test("validateRecord: runnable-with-owner does not fire when Owner: is missing e
   assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));
 });
 
+// Round-2 review MINOR 1: a whitespace-only Owner: line parses to "" (not undefined, not
+// "none"), which used to fire runnable-with-owner and silently drop an unowned runnable
+// record out of the backlog notice - the one failure mode the hook exists to prevent.
+test("validateRecord: runnable-with-owner does not fire when Owner: is whitespace-only (parses to empty string)", () => {
+  const spaces = parseRecord(mkRecordText({ Status: "runnable", Owner: "   " }));
+  assert.equal(spaces.fields.owner, "");
+  assert.ok(!codes(validateRecord(spaces)).includes("runnable-with-owner"));
+});
+
+test("validateRecord: runnable-with-owner does not fire when Owner: is tab-only (parses to empty string)", () => {
+  const tab = parseRecord(mkRecordText({ Status: "runnable", Owner: "\t" }));
+  assert.equal(tab.fields.owner, "");
+  assert.ok(!codes(validateRecord(tab)).includes("runnable-with-owner"));
+});
+
+test("validateRecord: runnable-with-owner does not fire when Owner: has no value at all on the line", () => {
+  const r = parseRecord("Work: wr-2026-09-21-x\nStatus: runnable\nOwner:\n\nbody");
+  assert.equal(r.fields.owner, undefined, "no characters after the colon means the field regex never matches");
+  assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));
+});
+
 test("validateRecord: runnable-with-owner does not fire for a non-runnable status with an owner", () => {
   const r = parseRecord(mkRecordText({ Status: "owned", Owner: "t2" }));
   assert.ok(!codes(validateRecord(r)).includes("runnable-with-owner"));

@@ -122,7 +122,7 @@ export function validateRecord(record, opts = {}) {
     });
   }
 
-  if (fields.status === "runnable" && fields.owner !== undefined && fields.owner !== "none") {
+  if (fields.status === "runnable" && fields.owner !== undefined && fields.owner !== "" && fields.owner !== "none") {
     findings.push({
       code: "runnable-with-owner",
       level: "finding",

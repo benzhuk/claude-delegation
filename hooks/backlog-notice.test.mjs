@@ -78,6 +78,14 @@ function writeRecordNamed(cwd, filename, opts) {
   return file;
 }
 
+/** Full control over the header lines — needed for edge cases recordText's template
+ * cannot express, e.g. an `Owner:` line with nothing at all after the colon. */
+function writeRawRecord(cwd, filename, headerLines, body = 'Fixture record for hooks/backlog-notice.test.mjs.') {
+  const file = path.join(cwd, 'docs', 'work', `${filename}.record.md`);
+  fs.writeFileSync(file, [...headerLines, '', body, ''].join('\n'), 'utf8');
+  return file;
+}
+
 /**
  * A fixture plugin root whose scripts/work-record.mjs re-exports the REAL parser's
  * STATUSES/listRecords but replaces checkRecordSet with one that throws. Running the hook
@@ -414,4 +422,44 @@ test('L-C6: the malformed line and the duplicate line are independently triggera
   const both = runHook('UserPromptSubmit', home4, cwd4);
   assert.match(both.stderr, /malformed/i);
   assert.match(both.stderr, /duplicate work id\(s\): wr-2026-09-21-both-dup/);
+});
+
+// Round-2 review MINOR 1: a whitespace-only (or tab-only) Owner: line used to parse to ""
+// (not undefined, not "none"), firing runnable-with-owner and silently dropping an unowned
+// runnable record out of the notice — exactly the failure this hook exists to prevent.
+// Fixed at both call sites (scripts/work-record.mjs and hooks/backlog-notice.js) to also
+// exclude the empty string.
+
+test('L-C6 MINOR fix: a whitespace-only or tab-only Owner: does not hide a runnable record from the notice', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecord(cwd, { work: 'wr-2026-09-21-ws-owner', status: 'runnable', owner: '   ' });
+  writeRecord(cwd, { work: 'wr-2026-09-21-tab-owner', status: 'runnable', owner: '\t' });
+  const out = runHook('UserPromptSubmit', home, cwd);
+  assert.ok(out.json, 'both records are genuinely runnable and must still print');
+  const line = out.json.hookSpecificOutput.additionalContext;
+  assert.match(line, /^work: 2 runnable and unowned/);
+  assert.ok(line.includes('wr-2026-09-21-ws-owner'), 'the whitespace-only-owner record must not be dropped');
+  assert.ok(line.includes('wr-2026-09-21-tab-owner'), 'the tab-only-owner record must not be dropped');
+  assert.equal(out.stderr, '', 'neither record is malformed, so stderr must be empty');
+});
+
+test('L-C6 MINOR fix: an Owner: line with no value at all still parses to undefined and never fires the finding', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRawRecord(cwd, 'no-owner-value', [
+    'Work: wr-2026-09-21-no-owner-value',
+    'Scope: docs/fixture.md@abc123',
+    'Owner:',
+    'Status: runnable',
+    'Authority: fixture record, anything goes',
+    'Artifact: none',
+    'Evidence: none',
+    'Next: pull it',
+    'Opened: 2026-09-21T00:00:00Z',
+  ]);
+  const out = runHook('UserPromptSubmit', home, cwd);
+  assert.ok(out.json);
+  assert.match(out.json.hookSpecificOutput.additionalContext, /^work: 1 runnable and unowned \(wr-2026-09-21-no-owner-value\)/);
+  assert.equal(out.stderr, '', 'a record with no Owner: value at all was never malformed, before or after the fix');
 });
