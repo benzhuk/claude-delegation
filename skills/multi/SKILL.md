@@ -241,8 +241,8 @@ cursor has already shown, and says whether each `Details:` packet exists on this
 always — an inbox read never fails its caller.
 
 Your slug comes from `--me`, else the session name set by `/rename` or `claude --name`, else
-`$NOTE_SLUG`, else the binding recorded for your pane's `$ORCA_TERMINAL_HANDLE`. It is never guessed
-from your pane title: an inbox read under the wrong slug shows you another session's notes.
+`$NOTE_SLUG`, else the binding recorded for your pane's `$ORCA_TERMINAL_HANDLE`, else your pane title.
+It is never guessed: an inbox read under the wrong slug shows you another session's notes.
 
 The first run in a pane shows only the last 12 hours and says how many older notes it marked seen
 (`--cold-start-hours 0` for everything). **Claude sessions:** the hooks do all of this. **Codex
