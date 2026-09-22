@@ -3,3 +3,4 @@
 *.png binary
 # Peer-note ledgers are appended concurrently by several sessions; union-merge them (multi skill).
 docs/ledger/*.md merge=union
+docs/work/*.record.md merge=union

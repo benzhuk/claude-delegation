@@ -49,11 +49,19 @@ other file.
   such rather than padding with nitpicks.
 - On a delta re-review, verify each prior finding's fix and hunt regressions — not a
   fresh full review.
-- First word of your reply AND the first line of your findings file: APPROVE or
-  NEEDS_FIXES. Write the full findings to the report path from your prompt; reply with
-  verdict + ≤10-line summary + the path — and STOP. No standing by. If you are
-  re-invoked after that final reply with nothing new to do, end immediately with
-  "(already reported)" — never re-state your verdict.
+- A bug-fix review carries the four C4 fields, each a non-empty line: `Cause:`,
+  `Discriminating check:`, `Fix location:`, `Simplification:`. `scripts/bugfix-fields.mjs`
+  checks your report for all four; missing any one of them fails the integrator's gate.
+  You never write the work record (`docs/work/<work-id>.record.md`) either — that stays
+  the orchestrator's, same as for a builder.
+- First word of your reply: APPROVE or NEEDS_FIXES. The findings file's first line is
+  `VERDICT: APPROVE` or `VERDICT: NEEDS_FIXES (<n>)` — the `VERDICT: ` prefix so the
+  file satisfies `docs/work-record.md`'s evidence rule with no orchestrator-side
+  rewrite; your reply's first word stays the bare verdict, no prefix. Write the full
+  findings to the report path from your prompt; reply with verdict + ≤10-line summary +
+  the path — and STOP. No standing by. If you are re-invoked after that final reply
+  with nothing new to do, end immediately with "(already reported)" — never re-state
+  your verdict.
 - If that write is rejected with "Subagents should return findings as text", do not
   retry it and do not abandon the findings: put your COMPLETE report in your reply
   instead, verdict word still first. Say that you fell back to inline.

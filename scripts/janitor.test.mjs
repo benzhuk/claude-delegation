@@ -21,6 +21,7 @@ import {
   isBranchOnOrigin,
   isBranchMerged,
   applySafe,
+  gatherWorkarounds,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -50,6 +51,15 @@ function writeProjectConfig(root, overrides = {}) {
     path.join(root, ".agents", "project.json"),
     JSON.stringify({ name: "janitor-test", vcs: "git", main_branch: "main", ...overrides }),
   );
+}
+
+/** Writes a `docs/work/<filename>` record file (never `git add`ed - work records are, in this
+ * fixture, deliberately untracked; scratch_patterns defaults to [] in these tests so they never
+ * themselves become an untrackedFiles JUDGMENT row). */
+function writeWorkRecord(root, filename, lines) {
+  const dir = path.join(root, "docs", "work");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, filename), lines.join("\n"));
 }
 
 function addWorktree(root, branch, { fromBranch } = {}) {
@@ -1190,6 +1200,198 @@ test("round-5 MINOR: an abandoned worktree on a stale UNMERGED branch is reporte
   }
   assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-stale"), "unmerged work must survive --apply regardless");
   void code;
+});
+
+// ---------------------------------------------------------------------------
+// T4: workaround rows gathered from docs/work records (scripts/work-record.mjs's listRecords)
+// ---------------------------------------------------------------------------
+
+const WORK_RECORD_HEADER = [
+  "Scope: docs/x@abc123",
+  "Owner: none",
+  "Status: accepted",
+  "Authority: none",
+  "Artifact: none",
+  "Evidence: none",
+  "Next: nothing",
+  "Opened: 2026-01-01T00:00:00Z",
+];
+
+test("T4: no docs/work directory at all is not a finding - judgment.workarounds is simply empty", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.deepEqual(state.judgment.workarounds, []);
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+});
+
+test("T4: an overdue workaround (remove when a past 'by <date>') is a JUDGMENT row and a finding (exit 1)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  writeWorkRecord(root, "wr-2026-01-01-overdue.record.md", [
+    "Work: wr-2026-01-01-overdue",
+    ...WORK_RECORD_HEADER,
+    "WORKAROUND: manual review skipped / no reviewer available / by 2020-01-01",
+    "",
+    "Prose.",
+    "",
+  ]);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+
+  const row = state.judgment.workarounds.find((w) => w.ref === "wr-2026-01-01-overdue");
+  assert.ok(row, "the overdue workaround must appear as a JUDGMENT row");
+  assert.equal(row.overdue, true);
+  assert.match(row.reason, /^manual review skipped \/ remove when by 2020-01-01 \(overdue\)$/);
+
+  // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 1, "an overdue workaround must fail the run");
+});
+
+test("T4: an open workaround (not yet due, or a worded condition) is a JUDGMENT row but never a finding by itself, and prints after untracked files", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  writeWorkRecord(root, "wr-2026-01-01-open-a.record.md", [
+    "Work: wr-2026-01-01-open-a",
+    ...WORK_RECORD_HEADER,
+    "WORKAROUND: waiting on T1 / T1's parser lands / by 2099-01-01",
+    "",
+    "Prose.",
+    "",
+  ]);
+  writeWorkRecord(root, "wr-2026-01-01-open-b.record.md", [
+    "Work: wr-2026-01-01-open-b",
+    ...WORK_RECORD_HEADER,
+    "WORKAROUND: waiting on T3 / T3's fixture lands / T3 merges",
+    "",
+    "Prose.",
+    "",
+  ]);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+
+  const rowA = state.judgment.workarounds.find((w) => w.ref === "wr-2026-01-01-open-a");
+  const rowB = state.judgment.workarounds.find((w) => w.ref === "wr-2026-01-01-open-b");
+  assert.ok(rowA && rowB, "both open workarounds must appear as JUDGMENT rows");
+  assert.equal(rowA.overdue, false, "a future 'by <date>' is not overdue");
+  assert.equal(rowB.overdue, false, "a worded condition is never mechanically overdue");
+  assert.match(rowA.reason, /\(open\)$/);
+  assert.match(rowB.reason, /\(open\)$/);
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0, "open workarounds must never fail the run by themselves");
+  const text = lines.join("\n");
+  const untrackedIdx = text.indexOf("untracked files:");
+  const workaroundsIdx = text.indexOf("workarounds:");
+  assert.ok(untrackedIdx >= 0 && workaroundsIdx > untrackedIdx, "workarounds must print after untracked files");
+  assert.match(text, /waiting on T1/);
+  assert.match(text, /waiting on T3/);
+});
+
+test("T4: a record with no Work: id is skipped for workarounds, never guessed at, and never crashes", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  writeWorkRecord(root, "wr-broken.record.md", [
+    "Scope: docs/x@abc123",
+    "Owner: none",
+    "WORKAROUND: something / blocked / by 2020-01-01",
+    "",
+    "Prose.",
+    "",
+  ]);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.deepEqual(state.judgment.workarounds, []);
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    assert.equal(main([], { cwd: root }), 0);
+  } finally {
+    console.log = origLog;
+  }
+});
+
+test("T4: gatherWorkarounds is exported and pure (no I/O beyond listRecords) - repeatable WORKAROUND lines on one record each become their own row", () => {
+  const root = initRepo();
+  writeWorkRecord(root, "wr-2026-01-01-multi.record.md", [
+    "Work: wr-2026-01-01-multi",
+    ...WORK_RECORD_HEADER,
+    "WORKAROUND: cause one / blocked one / by 2020-01-01",
+    "WORKAROUND: cause two / blocked two / by 2099-01-01",
+    "WORKAROUND: cause three / blocked three / 2020-01-01",
+    "",
+    "Prose.",
+    "",
+  ]);
+  const rows = gatherWorkarounds(root, { now: new Date("2026-09-21T00:00:00Z") });
+  assert.equal(rows.length, 3);
+  assert.ok(rows.some((r) => r.ref === "wr-2026-01-01-multi" && r.overdue === true && /cause one/.test(r.reason)));
+  assert.ok(rows.some((r) => r.ref === "wr-2026-01-01-multi" && r.overdue === false && /cause two/.test(r.reason)));
+  assert.ok(
+    rows.some((r) => r.ref === "wr-2026-01-01-multi" && r.overdue === true && /cause three/.test(r.reason)),
+    "a bare yyyy-mm-dd (no 'by' prefix) in the past must also be judged overdue - C1 says ANY remove-when date in the past, in any status",
+  );
+});
+
+// MAJOR 2 (round-2 review): listRecords guards readdirSync but not readFileSync - a directory (or
+// a win32-locked file) named `x.record.md` throws EISDIR out of gatherWorkarounds, out of
+// gatherState, into main()'s fail-open catch, which used to print NOTHING and exit 0, hiding every
+// other finding. gatherWorkarounds now catches that read failure itself and returns [] with a
+// stderr line, so the rest of the report still prints.
+test("MAJOR 2: an unreadable docs/work entry (a directory named *.record.md) does not blind the whole report", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  fs.mkdirSync(path.join(root, "docs", "work", "x.record.md"), { recursive: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config });
+  assert.deepEqual(state.judgment.workarounds, [], "the unreadable entry yields no rows, but does not throw");
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main([], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0, "no other findings in this fixture - the report must still complete cleanly");
+  assert.ok(lines.join("\n").includes("SAFE:"), "the rest of the report must still print despite the unreadable record entry");
 });
 
 after(() => {

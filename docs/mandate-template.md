@@ -5,6 +5,8 @@ an agent starts here, whether it goes to a builder, a reviewer, or a one-off res
 
 Task: <the exact question or task, one or two sentences, no ambiguity about done>
 Goal: <the project goal line this task serves>
+Work: <the work id from docs/work/<id>.record.md this mandate serves, or the words "not
+tracked" and a reason>
 
 Inputs (by path):
 - <path to the spec, contract, or prior finding this agent needs>
@@ -47,5 +49,17 @@ not a fix round.
 Research: <path to a research lane's report, or the words "not needed" then a comma and
 a reason of ten or more characters. Required from the third fix round onward.>
 
-Termination: report to the path above, verdict on line 1, then stop. A bare "Done"
-means read the file; nothing is trusted from a final message alone.
+(Bug-fix mandates only — delete these four lines otherwise.)
+Fix kind: bug
+Class: <failure-class slug>
+Regression test: <path to the test that must fail before the fix and pass after it>
+Base sha: <the sha the regression test was proven failing at, for scripts/prefix-test.mjs>
+
+Review fields (bug-fix reviews only): your findings report must carry four non-empty
+lines — Cause:, Discriminating check:, Fix location:, Simplification: — checked by
+`scripts/bugfix-fields.mjs <your-report>`. A reviewer mandate for a bug fix states this
+requirement explicitly; a reviewer omits these four lines only when the mandate is not
+a bug-fix review.
+
+Termination: report to the path above, first line `VERDICT: <word>`, then stop. A bare
+"Done" means read the file; nothing is trusted from a final message alone.

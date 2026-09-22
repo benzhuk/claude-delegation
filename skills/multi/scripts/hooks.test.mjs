@@ -70,6 +70,15 @@ test('V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT
   }
   assert.ok(commands.some((c) => c.includes('delegation-reminder.js')), 'the existing routing hook survives');
   assert.equal(commands.filter((c) => c.includes('multi-inbox.js')).length, 4);
+  // T2/C3: the backlog notice rides UserPromptSubmit, PostToolUse and Stop alongside the existing
+  // handlers on each — never its own new event, never replacing another hook's entry.
+  assert.equal(commands.filter((c) => c.includes('backlog-notice.js')).length, 3);
+  for (const ev of ['UserPromptSubmit', 'PostToolUse', 'Stop']) {
+    assert.ok(
+      cfg.hooks[ev].flatMap((g) => g.hooks).some((h) => h.command.includes('backlog-notice.js')),
+      `${ev} must carry a backlog-notice.js entry`,
+    );
+  }
   // C4: SessionStart is what makes a session that starts and sits idle reachable at all.
   assert.match(cfg.hooks.SessionStart[0].hooks[0].command, /multi-inbox\.js" SessionStart/);
   // The dispatch guard must stay narrow: a catch-all matcher would put a node cold start on every tool call.
