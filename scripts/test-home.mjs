@@ -34,7 +34,9 @@ function toGitPath(p) {
  *
  * @param {object} [opts]
  * @param {Record<string,string>} [opts.files]  relative-path -> content, written under the new home
- *   before `env`/`cleanup` are handed back (e.g. seeding `.agents/...` state for a test).
+ *   before `env`/`cleanup` are handed back (e.g. seeding `.agents/...` state for a test). Written
+ *   BEFORE `.gitconfig`/`.gitconfig-fixture` are seeded, so a `files` entry at either of those paths
+ *   is silently overwritten by the identity seeding below - don't pass one.
  * @param {boolean} [opts.gitIdentity=true]  seed the fixture git identity scoped to the system temp
  *   dir. `false` leaves `GIT_CONFIG_GLOBAL` pointed at an empty file: any commit under the seal then
  *   has no identity and git refuses it, on purpose.
@@ -74,9 +76,19 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
   const env = {
     ...childEnv(home),
     AGENTS_HOME: agentsHome,
+    APPDATA: path.join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(home, "AppData", "Local"),
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    HOMEDRIVE: home.slice(0, 2),
+    HOMEPATH: home.slice(2),
     GIT_CONFIG_GLOBAL: gitConfigGlobal,
     GIT_CONFIG_NOSYSTEM: "1",
   };
+  // Removed rather than blanked: some callers branch on the KEY BEING ABSENT, not on its value
+  // being empty (e.g. codex-hook-trust.mjs falls back to process.env.CODEX_HOME only when the
+  // passed-in env has no such key at all) - an empty string would still count as "present".
+  for (const k of ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "ORCA_CODEX_HOME", "ORCA_USER_DATA_PATH",
+    "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_TAB_ID", "ORCA_WORKTREE_ID", "NOTE_SLUG"]) delete env[k];
 
   function cleanup() {
     try {
@@ -92,9 +104,13 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
 /**
  * The RT-18 canary, callable both in-process (by a test) and from a spawned child (by
  * `scripts/run-tests.mjs`, which runs it inside the sealed environment before trusting it with the
- * suite). Self-contained: it derives the expected home from `AGENTS_HOME` itself (`<home>/.agents`)
- * rather than trusting a second, separately-passed value, so the check is "does this process's own
- * view of its home agree with itself" - exactly the thing that breaks when a seal leaks.
+ * suite). Checks two independent things, both required: (1) internal self-consistency - `AGENTS_HOME`
+ * agrees with `os.homedir()` the way `<home>/.agents` should - and (2) that the home itself is
+ * actually sealed, i.e. `os.homedir()` resolves to a fresh directory somewhere under the realpath'd
+ * system temp dir, never the real profile. (1) alone is not enough: an UNSEALED child with
+ * `USERPROFILE=<real home>` and `AGENTS_HOME=<real home>/.agents` is perfectly self-consistent and
+ * would pass (1) while running the suite against Ben's real machine - the exact failure this canary
+ * exists to catch.
  *
  * @returns {{ ok: boolean, message: string }}
  */
@@ -111,6 +127,11 @@ export function checkSeal() {
   }
   if (path.resolve(agentsHome) !== path.resolve(path.join(actualHome, ".agents"))) {
     return { ok: false, message: `AGENTS_HOME = ${agentsHome} is not "<home>/.agents" for home ${actualHome}` };
+  }
+  const tempRoot = fs.realpathSync(os.tmpdir());
+  const rel = path.relative(tempRoot, path.resolve(actualHome));
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    return { ok: false, message: `os.homedir() = ${actualHome} is not a fresh dir inside ${tempRoot} - not a sealed home` };
   }
   return { ok: true, message: "sealed" };
 }

@@ -54,6 +54,7 @@ export function runSealed({ files, cwd = REPO_ROOT } = {}) {
   // <sealed> on its own first line, always - even if the canary or the suite then fails.
   console.log(home);
 
+  let code = 1;
   try {
     const canary = spawnSync(
       NODE,
@@ -62,32 +63,46 @@ export function runSealed({ files, cwd = REPO_ROOT } = {}) {
     );
     if (canary.error) {
       console.error(`run-tests: canary failed to start: ${canary.error.message}`);
-      return 1;
+      return code;
     }
     if (canary.status !== 0) {
       console.error("run-tests: canary failed - the seal is not holding, refusing to run the suite");
-      return canary.status ?? 1;
+      code = canary.status ?? 1;
+      return code;
     }
 
     const targets = files && files.length > 0 ? files.map((f) => path.resolve(cwd, f)) : walkTestFiles(cwd);
     if (targets.length === 0) {
       console.error("run-tests: no *.test.mjs files found");
-      return 1;
+      return code;
     }
 
     const result = spawnSync(NODE, ["--test", ...targets], { cwd, env, stdio: "inherit" });
     if (result.error) {
       console.error(`run-tests: suite failed to start: ${result.error.message}`);
-      return 1;
+      return code;
     }
-    return result.status ?? 1;
+    code = result.status ?? 1;
+    return code;
   } finally {
-    cleanup();
+    // Only clean up a home that finished clean (RT-18/F6): a non-zero exit means something
+    // needs inspecting, and the path printed on line 1 above is the only way back to it.
+    if (code === 0) {
+      cleanup();
+    } else {
+      console.error(`run-tests: leaving the sealed home for inspection: ${home}`);
+    }
   }
 }
 
 function main(argv = process.argv.slice(2)) {
-  const files = argv.filter((a) => !a.startsWith("-"));
+  if (argv.some((a) => a.startsWith("-"))) {
+    console.error("run-tests: flags are not supported");
+    process.exit(2);
+  }
+  // Resolved against the REAL invocation directory here, not inside runSealed (whose own
+  // `cwd` default is REPO_ROOT, correct for a programmatic/test caller but wrong for argv).
+  const files = argv.map((f) => path.resolve(process.cwd(), f));
   const code = runSealed({ files });
   process.exit(code);
 }

@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { makeTempHome, checkSeal } from "./test-home.mjs";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_URL = pathToFileURL(path.join(HERE, "test-home.mjs")).href;
@@ -139,14 +140,20 @@ test("a fixture commit succeeds under the seal with the fixture identity", () =>
 
 test("a commit attempted outside the system temp dir has no identity under the seal and is refused", () => {
   const { env } = tempHome({ gitIdentity: true });
-  // The repo running THIS test suite is not under os.tmpdir(): the includeIf pattern must not match it.
-  assert.throws(() => {
-    execFileSync("git", ["commit", "--allow-empty", "-m", "should be refused"], {
-      cwd: process.cwd(),
-      env,
-      stdio: "pipe",
-    });
-  }, /./);
+  // F4 (T7-review.md): this worktree's WORKING TREE is under the system temp dir (the whole build
+  // runs from a scratchpad under %TEMP%) - but its GITDIR is not: a `git worktree add` gitdir lives
+  // under the main checkout's `.git/worktrees/<name>`, which the includeIf pattern (matched against
+  // gitdir, not worktree) does not cover. That's what this test actually exercises: gitdir outside
+  // the temp dir -> no identity -> refused. (A DIFFERENT repo, e.g. one `git clone`d directly under
+  // %TEMP% instead of `worktree add`, would have its gitdir there too and WOULD get the identity -
+  // that's F4's flagged follow-up, not a bug in this assertion.)
+  //
+  // `git var GIT_COMMITTER_IDENT` resolves identity with no write - unlike `git commit`, which would
+  // actually create a real commit on this checked-out branch if identity ever resolved here.
+  assert.throws(
+    () => execFileSync("git", ["var", "GIT_COMMITTER_IDENT"], { cwd: process.cwd(), env, stdio: "pipe" }),
+    (e) => /identity unknown|unable to auto-detect email|empty ident/i.test(String(e.stderr ?? "")),
+  );
 });
 
 test("gitIdentity: false refuses a commit even under the system temp dir", () => {
@@ -164,17 +171,19 @@ test("gitIdentity: false refuses a commit even under the system temp dir", () =>
 // checkSeal / canary (RT-18): passes sealed, fails when the seal is broken on purpose
 // ---------------------------------------------------------------------------
 
-test("checkSeal passes in-process when AGENTS_HOME agrees with os.homedir()", () => {
-  const home = os.homedir();
-  const saved = process.env.AGENTS_HOME;
-  process.env.AGENTS_HOME = path.join(home, ".agents");
-  try {
-    const r = checkSeal();
-    assert.equal(r.ok, true);
-  } finally {
-    if (saved === undefined) delete process.env.AGENTS_HOME;
-    else process.env.AGENTS_HOME = saved;
-  }
+// F2 (T7-review.md): self-consistency (AGENTS_HOME === "<home>/.agents") is NOT sufficient - a
+// perfectly self-consistent but UNSEALED home (e.g. the real machine profile) must still fail.
+// NOT `os.homedir()` read live: this whole suite is itself one of the files `run-tests.mjs` runs
+// UNDER THE SEAL, so by the time this test executes, live `os.homedir()` may already be an OUTER
+// sealed home rather than the true machine profile - reading it here would make the test's outcome
+// depend on which runner invoked it. Instead, build a home that is unsealed BY CONSTRUCTION: the
+// realpath'd system temp dir's own PARENT can never be "inside" the temp dir, in any context.
+test("checkSeal fails in a child for an unsealed home, even when AGENTS_HOME is self-consistent", () => {
+  const outsideHome = path.dirname(fs.realpathSync(os.tmpdir()));
+  const env = childEnv(outsideHome, { AGENTS_HOME: path.join(outsideHome, ".agents") });
+  const r = checkSealInChild(env);
+  assert.equal(r.ok, false, r.message);
+  assert.match(r.message, /not a sealed home/);
 });
 
 test("checkSeal fails when AGENTS_HOME is unset", () => {
