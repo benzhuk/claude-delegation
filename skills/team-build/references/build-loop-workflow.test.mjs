@@ -103,26 +103,39 @@ test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail}
 // ---------------------------------------------------------------------------
 
 test("L-C4.3: every banned token is absent from the source, each checked by name", () => {
-  assert.ok(!/Date\.now\s*\(/.test(SOURCE), "Date.now( must be absent");
-  assert.ok(!/Math\.random\s*\(/.test(SOURCE), "Math.random( must be absent");
-  assert.ok(!/crypto\./.test(SOURCE), "crypto. must be absent");
-  assert.ok(!/performance\./.test(SOURCE), "performance. must be absent");
+  // Round 2 fix (reviewer L1-review-r1.md, BLOCKER): L-C4.3 pins the forbidden TOKENS
+  // `Date.now` and `Math.random`, not a call-site shape. The prior `/Date\.now\s*\(/` /
+  // `/Math\.random\s*\(/` regexes required the dot and the name adjacent with no space,
+  // so `Date .now()`, an aliased `const f = Date.now; f()`, and a formatter's
+  // `Date.\n  now()` all passed green. `\s*` between the dot and the name (and no
+  // trailing `\(` requirement, so a bare reference is caught even when never called)
+  // closes all of those with no false positive against this script (verified: the
+  // shipped script still passes clean).
+  assert.ok(!/Date\s*\.\s*now/.test(SOURCE), "Date.now must be absent");
+  assert.ok(!/Math\s*\.\s*random/.test(SOURCE), "Math.random must be absent");
+  // Same weakness class swept across every other dotted-token ban below: each now
+  // tolerates whitespace/line breaks between the identifier and the dot.
+  assert.ok(!/crypto\s*\./.test(SOURCE), "crypto. must be absent");
+  assert.ok(!/performance\s*\./.test(SOURCE), "performance. must be absent");
   assert.ok(!/new\s+Date(?!\s*\()/.test(SOURCE), "bare `new Date` not immediately followed by `(` must be absent");
-  assert.ok(!/require\(/.test(SOURCE), "require( must be absent");
+  assert.ok(!/require\s*\(/.test(SOURCE), "require( must be absent");
   assert.ok(!/\bimport\s/.test(SOURCE), "a static `import ` keyword must be absent");
   assert.ok(!/\bimport\(/.test(SOURCE), "dynamic import( must be absent");
-  assert.ok(!/process\./.test(SOURCE), "process. must be absent");
-  // \b, not a bare /fs\./ — a bare pattern false-positives on the word "briefs." in prose
-  // comments (b-r-i-e-"fs".), which is not the banned `fs.` filesystem-module token.
-  assert.ok(!/\bfs\./.test(SOURCE), "fs. must be absent");
+  assert.ok(!/process\s*\./.test(SOURCE), "process. must be absent");
+  // \b, not a bare /fs\s*\./ — a bare pattern false-positives on the word "briefs." in
+  // prose comments (b-r-i-e-"fs".), which is not the banned `fs.` filesystem-module
+  // token; \b still excludes it after adding \s* tolerance (no boundary between the "e"
+  // in "brie" and the "f" in "fs", so the word-boundary anchor never engages there).
+  assert.ok(!/\bfs\s*\./.test(SOURCE), "fs. must be absent");
   assert.ok(!/isolation/.test(SOURCE), "the literal token isolation must be absent, anywhere in the file");
 });
 
 // bonus, not one of the eight L-C4 items but pins L-C3's own shape rule directly: this
 // script never calls pipeline() at all (parallel() is the only cross-territory hook it
-// uses; behavioral coverage below in "never calls pipeline").
+// uses; behavioral coverage below in "never calls pipeline"). Same whitespace tolerance
+// as the sweep above.
 test("bonus: the source never calls pipeline( (L-C3: not used at the territory level, or anywhere, in this script)", () => {
-  assert.ok(!/\bpipeline\(/.test(SOURCE), "pipeline( must not appear in the source");
+  assert.ok(!/\bpipeline\s*\(/.test(SOURCE), "pipeline( must not appear in the source");
 });
 
 // ---------------------------------------------------------------------------
@@ -470,6 +483,13 @@ test("cross-territory concurrency uses parallel(), never pipeline(): two territo
   assert.equal(byId.T1.verdict, "APPROVE");
   assert.equal(byId.T2.rounds, 2);
   assert.equal(byId.T2.verdict, "APPROVE");
+
+  // Converse of the excluded-territory check below: two APPROVEd territories really do
+  // land in the approved-sha segment of the integrator prompt (id@sha, both of them),
+  // so that assertion can't pass merely by the prompt losing its approved list entirely.
+  const integrateCall = stub.calls.find((c) => c.opts.agentType === "delegation:integrator");
+  const approvedSegment = integrateCall.prompt.match(/Approved territories and shas: (.*?)\. Excluded/)[1];
+  assert.equal(approvedSegment, "T1@sha1, T2@sha2b");
 });
 
 test("the integrator prompt names excluded (blocked) territories and their reason, and result.blockers reflects them", async () => {
@@ -484,6 +504,15 @@ test("the integrator prompt names excluded (blocked) territories and their reaso
   assert.ok(integrateCall.prompt.includes("T1"));
   assert.ok(integrateCall.prompt.includes("rounds-exhausted"));
   assert.equal(integrateCall.opts.model, "sonnet", "the integrator never runs at opus");
+
+  // Round 2 fix (reviewer L1-review-r1.md, MAJOR): nothing previously pinned that a
+  // blocked territory is actually EXCLUDED from the approved-sha segment — mutating
+  // `const approved = results.filter((r) => !r.blocker)` to `const approved = results`
+  // still passed here, because T1's id appears in both the approved and excluded halves
+  // of the prompt and both prior asserts were plain `.includes("T1")` substring checks.
+  // Isolate the approved segment specifically and require it to read "none".
+  const approvedSegment = integrateCall.prompt.match(/Approved territories and shas: (.*?)\. Excluded/)[1];
+  assert.equal(approvedSegment, "none", "a blocked territory must never appear in the approved-sha list");
 });
 
 test("returns exactly { territories, integrator, blockers } and nothing else", async () => {

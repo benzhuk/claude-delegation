@@ -225,7 +225,7 @@ async function runTerritory(t) {
 
   if (review.verdict === 'NEEDS_FIXES') {
     log(`${t.id}: rounds-exhausted at round ${round}, still NEEDS_FIXES`)
-    return { ...state, blocker: 'rounds-exhausted' }
+    return { ...state, verdict: review.verdict, blocker: 'rounds-exhausted' }
   }
 
   return { ...state, verdict: review.verdict, blocker: null }
