@@ -31,7 +31,12 @@ function git(args, cwd) {
 
 const tracked = [];
 function mkTmp(prefix) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // L-C7: under a sealed run, the fixture identity resolves only under FIXTURE_ROOT now, not the
+  // whole system temp dir - and this file's `git()` helper below passes no env of its own, so
+  // every repo it builds needs to sit inside FIXTURE_ROOT to inherit the sealed, narrowed
+  // GIT_CONFIG_GLOBAL's includeIf match. Falls back to os.tmpdir() when run standalone, outside
+  // run-tests.mjs's sealed child (where FIXTURE_ROOT is unset).
+  const dir = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), prefix));
   tracked.push(dir);
   return dir;
 }

@@ -24,7 +24,11 @@ const TEST_HOME_MODULE = path.join(HERE, "test-home.mjs");
 
 const EXCLUDED_DIRS = new Set(["node_modules", ".claude", ".git"]);
 
-function walkTestFiles(dir, out = []) {
+// Exported (round 2, N2 review MAJOR 1) so `skills/multi/scripts/hooks.test.mjs`'s N2 test can
+// scan the SAME set of files this runner actually runs, instead of a hand-maintained root list
+// that can go stale (a mistyped or renamed root silently scans nothing and still passes) or miss
+// a directory nobody remembered to add.
+export function walkTestFiles(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (EXCLUDED_DIRS.has(entry.name)) continue;
@@ -51,6 +55,16 @@ function canarySource(testHomeModuleUrl) {
 
 export function runSealed({ files, cwd = REPO_ROOT } = {}) {
   const { home, env, cleanup } = makeTempHome({ gitIdentity: true });
+  // Round 2 (N2 review MAJOR 2): a caller may itself be running inside `node --test` (this
+  // runner is importable, not just a CLI - see test-home.test.mjs's wiring test). Node's own
+  // test runner marks that process, `childEnv()` spreads `process.env`, and without this strip
+  // the sealed grandchild `node --test` spawn below would silently SKIP the whole suite as a
+  // "recursive" run and still exit 0 - a sealed run that reports nothing and reports it as a
+  // pass. Proved on a scratch copy: a deliberately-failing probe returned exit 0 with the leak,
+  // exit 1 once these two are stripped. Same fix `scripts/prefix-test.mjs:117` already applies
+  // at its own `node --test` spawn site, for the same reason.
+  delete env.NODE_TEST_CONTEXT;
+  delete env.NODE_TEST_WORKER_ID;
   // <sealed> on its own first line, always - even if the canary or the suite then fails.
   console.log(home);
 
