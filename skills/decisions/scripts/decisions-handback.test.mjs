@@ -273,6 +273,45 @@ test('Test 4: a zero-item page with "- [x] Done" last is clean', () => {
   assert.match(stdout, /HANDBACK ok\n$/);
 });
 
+// Round-2 review M1: SHAPE only blocks on shapeless toggles inside "# Waiting on you now" (or
+// with no enclosing heading at all). Grouping toggles under other headings — "# Closed" record
+// keeping, or the kept Goals-ruling section — are written the same option-less way on purpose and
+// must not block a hand-back.
+test('SHAPE is scoped to "# Waiting on you now": grouping toggles in Closed and kept sections do not block', () => {
+  const decisions = L(
+    '# Waiting on you now {toggle="true"}',
+    '\t<details>', '\t<summary>Real</summary>', '\t\t- [ ] a', '\t\tNo default: x', '\t</details>',
+    '# Closed {toggle="true"}',
+    '\t<details>', '\t<summary>**Closed Sep 20**  (27 items)</summary>', '\t\t- an old record', '\t</details>',
+    '# Goals ruling after the research (Sep 20) {toggle="true"}',
+    '\t<details>', '\t<summary>**The design**</summary>', '\t\t- a note', '\t</details>',
+    '- [ ] Done',
+  );
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: decisions, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 0);
+  assert.doesNotMatch(stdout, /^SHAPE/m);
+  assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+test('SHAPE still blocks a bulleted item under "# Waiting on you now"', () => {
+  const decisions = L(
+    '# Waiting on you now {toggle="true"}',
+    '\t<details>', '\t<summary>Real</summary>', '\t\t- [ ] a', '\t\tNo default: x', '\t</details>',
+    '\t<details>', '\t<summary>Bulleted item</summary>', '\t\t- one', '\t\tNo default: y', '\t</details>',
+    '# Closed {toggle="true"}',
+    '- [ ] Done',
+  );
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: decisions, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^SHAPE\tline 8\tBulleted item\t/m);
+});
+
 // Round-2 m1: a zero-item page is clean ONLY because the fixture's "# Closed" is a toggle
 // heading (`{toggle="true"}`). A page whose "# Closed" is a plain heading has no titles at all
 // (`matchTitle` requires the toggle attribute) and is BLIND, not clean — pinned here so that
