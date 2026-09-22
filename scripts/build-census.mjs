@@ -228,11 +228,14 @@ function realFs() {
 export async function runCensus(opts, fsImpl = realFs()) {
   const lead = await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  let names = [];
+  let names;
   try {
     names = fsImpl.readdirSync(opts.tasks);
   } catch {
-    names = [];
+    // An unreadable --tasks dir is not "no subagents ran" — reporting 0 subagent files
+    // at exit 0 would silently drop the whole subagent half of the combined split.
+    // An EMPTY but readable dir is still a legitimate zero and passes through below.
+    throw new Error(`--tasks directory not readable: ${opts.tasks}`);
   }
   const files = names.filter((f) => f.endsWith('.output') || f.endsWith('.jsonl')).sort();
 

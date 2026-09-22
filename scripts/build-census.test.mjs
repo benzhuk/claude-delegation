@@ -184,6 +184,26 @@ test('runCensus over the committed fixtures matches the hand-computed expected v
   assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead turns, 2 subagent files');
 });
 
+test('an UNREADABLE --tasks directory throws instead of reporting 0 subagent files at exit 0', async () => {
+  const fsImpl = {
+    createReadStream: fs.createReadStream,
+    readdirSync: () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); },
+    statSync: fs.statSync,
+    writeFileSync: fs.writeFileSync,
+  };
+  await assert.rejects(
+    () => runCensus({ lead: FIXTURES_LEAD, tasks: 'C:/no/such/dir', marker: null, out: null }, fsImpl),
+    /--tasks directory not readable/,
+    'a mistyped or already-swept tasks dir must not render as a legitimate zero',
+  );
+});
+
+test('an EMPTY but readable --tasks directory is still a legitimate zero and does not throw', async () => {
+  const empty = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), 'build-census-empty-'));
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasks: empty, marker: null, out: null });
+  assert.equal(report.subagents.fileCount, 0);
+});
+
 test('zero-byte subagent files are treated as zero turns and never opened as a stream', async () => {
   const opened = [];
   const real = fs;

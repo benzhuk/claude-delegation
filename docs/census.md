@@ -82,7 +82,9 @@ file never re-parses a record. Per work id:
   plus their sum. `Log:` lines are hand-appended and can land out of chronological order
   (a backfilled or concurrently-appended line); a candidate whose interval would be
   negative is skipped in favor of the next later candidate, so a negative latency is
-  never reported.
+  never reported. A record that has a `delivered` line but no valid later
+  responder reports its latency sum as `n/a`, never `0.0m` — "not measurable" and
+  "dispatched instantly" must not render the same.
 - **elapsed** — `opened` -> `accepted`. Most real records never reach `accepted` (the
   common case, not an edge case): when no `accepted` line exists, elapsed falls back to
   `opened` -> the LAST `reviewed` line, labeled `(to reviewed)` in the report rather than
