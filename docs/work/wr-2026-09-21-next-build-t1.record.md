@@ -1,16 +1,19 @@
 Work: wr-2026-09-21-next-build-t1
 Scope: next-build/spec.md@95d5453
-Owner: builder-t1
-Status: owned
+Owner: orchestrator
+Status: reviewed
 Authority: build and self-gate in own worktree; review by an Opus reviewer; merge to integrate/next-build by the integrator after APPROVE; nothing to main or any machine without Ben's word
-Artifact: none
-Evidence: none
-Next: builder reports to next-build/reports/T1-report.md; orchestrator spawns the Opus reviewer in the same turn
+Artifact: feat/next-build-T1@8500d9a
+Evidence: docs/work/evidence/wr-2026-09-21-next-build-t1-review.md, docs/work/evidence/wr-2026-09-21-next-build-t1-builder.md
+Next: integrator merges after all six territories are reviewed
 Opened: 2026-09-22T00:23:42.447Z
 Builder: sonnet
-Rounds: 1
+Rounds: 3
 Log: 2026-09-22T00:23:42.447Z runnable none
 Log: 2026-09-22T00:23:42.447Z owned builder-t1 spawned
+Log: 2026-09-22T00:54:38.000Z delivered builder-t1 artifact 8500d9a
+Log: 2026-09-22T00:54:39.000Z owned orchestrator agent-exited artifact 8500d9a
+Log: 2026-09-22T00:54:40.000Z reviewed orchestrator artifact 8500d9a
 
 T1 covers record and fields: `scripts/work-record.mjs`, `scripts/work-record.test.mjs`,
 `docs/work-record.md`, `docs/mandate-template.md`, `agents/builder.md`, `agents/reviewer.md`,
