@@ -51,6 +51,19 @@ function doneRuleLine(doc) {
 }
 
 /**
+ * Round-2 M2: a `<summary>` toggle with zero checkbox options is written outside the template
+ * shape and is otherwise completely invisible to this check (and to the owner reading the
+ * rendered page) — the exact bug class named in the spec's audit. Decisions page only: the goals
+ * page's titles are all headings, per the shared render contract, so this never fires there.
+ * Blocking, so it counts toward `clean` the same way an UNATTACHED or WARN line does.
+ */
+function shapeLines(doc) {
+  return doc.shapeless.map(
+    (s) => `SHAPE\tline ${s.line}\t${s.title}\t(toggle with no checkbox options: the reader cannot see it)`,
+  );
+}
+
+/**
  * REPLIED pairs whose Reply date is before today: not blocking (M1 — "a REPLIED pair must never
  * block"), just listed so the lead does not forget to archive them to Closed at hand-back time.
  */
@@ -122,12 +135,18 @@ export function killSwitchActive(env = process.env) {
 // "Today", America/New_York — `--today <M-D>` overrides it for tests.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** @returns {{md: string, ymd: string}} `md` no leading zeros; `ymd` zero-padded, for sorting. */
-export function computeToday(overrideMD) {
+/**
+ * @param {string|null} [overrideMD] test override, `M-D`
+ * @param {Date} [now] the clock to read when there is no override — a seam (round-2 m2) so a
+ *   test can pin America/New_York against a UTC or a differently-zoned machine clock without
+ *   patching the global `Date`.
+ * @returns {{md: string, ymd: string}} `md` no leading zeros; `ymd` zero-padded, for sorting.
+ */
+export function computeToday(overrideMD, now = new Date()) {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(new Date()).map((p) => [p.type, p.value]),
+    }).formatToParts(now).map((p) => [p.type, p.value]),
   );
   const realYmd = `${parts.year}-${parts.month}-${parts.day}`;
   if (overrideMD === null || overrideMD === undefined) {
@@ -170,8 +189,11 @@ function parseArgs(argv) {
  * hand-back check.
  */
 function runConfig(args, writeOut, writeErr) {
-  if (!args.repo) throw new BlindError('--config needs --repo');
-  const { config, source } = loadProjectConfig(args.repo);
+  // Spec M3's Config section and Test 6 both write the bare form, `decisions-handback.mjs
+  // --config`, with no `--repo`; `loadProjectConfig` already defaults to `process.cwd()` and
+  // walks up to find `.agents/project.json`, so `--repo` is an override here, never a
+  // requirement (round-2 m5).
+  const { config, source } = loadProjectConfig(args.repo ?? process.cwd());
   if (source === 'unreadable') {
     writeErr('decisions-handback: BLIND (project config unreadable)\n');
     return 3;
@@ -226,18 +248,20 @@ function runCheck(args, env, readFile, execGit, writeOut) {
   else if (!shaMatch(pageSha, headSha)) shaWarnLine = `WARN\tgoals mirror stale: page ${pageSha}, head ${headSha}`;
 
   const decisionsOffending = objectionableLines(decisionsDoc);
+  const shapeOffending = shapeLines(decisionsDoc);
   const doneLine = doneRuleLine(decisionsDoc);
   const archive = archiveLines(decisionsDoc, today.ymd);
   const goalsOffending = objectionableLines(goalsDoc).map((l) => `goals\t${l}`);
 
-  const printed = [...decisionsOffending];
+  const printed = [...decisionsOffending, ...shapeOffending];
   if (doneLine) printed.push(doneLine);
   printed.push(...archive);
   printed.push(...goalsOffending);
   if (shaWarnLine) printed.push(shaWarnLine);
   for (const line of printed) writeOut(`${line}\n`);
 
-  const clean = decisionsOffending.length === 0 && !doneLine && goalsOffending.length === 0 && !shaWarnLine;
+  const clean = decisionsOffending.length === 0 && shapeOffending.length === 0 && !doneLine
+    && goalsOffending.length === 0 && !shaWarnLine;
   if (clean) {
     const notesToday = countNotesToday(decisionsText, today.md);
     writeOut(`Decisions waiting: ${decisionsDoc.decisions.length}, notes logged today: ${notesToday}, goals mirror at ${pageSha}\n`);

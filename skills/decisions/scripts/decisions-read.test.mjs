@@ -528,6 +528,30 @@ test('MINOR 6: a leading UTF-8 BOM does not hide a first-line title', () => {
   assert.equal(doc.decisions[0].title, 'First line title');
 });
 
+// Round-2 M2: a `<summary>` toggle with zero checkbox options is written outside the template
+// shape and would otherwise be completely invisible (no options -> not a decision; no comments
+// -> not unattached either). `shapeless` is a JS-API-only addition — stdout (formatText),
+// computeExitCode and toJsonObject are all unchanged, so the reader's pinned CLI contract holds.
+test('shapeless: a <summary> toggle with no checkbox options is reported, a heading with none is not', () => {
+  const doc = parseDocument(L(
+    '<summary>Item written with bullets</summary>',
+    '\t- option one (recommended)',
+    '\t- option two',
+    '# Closed {toggle="true"}',
+    '\t- an archived bullet, no checkbox, not a decision',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Item written with bullets', line: 1 }]);
+  // formatText, computeExitCode and toJsonObject are unchanged: the shapeless title is invisible
+  // to all three, exactly as it is today (this is the bug the hand-back check now catches).
+  assert.doesNotMatch(formatText(doc), /Item written with bullets/);
+  assert.equal(toJsonObject(doc).shapeless, undefined);
+});
+
+test('shapeless: a <summary> toggle WITH options is never reported as shapeless', () => {
+  const doc = parseDocument(L('<summary>t</summary>', '\t- [ ] a'));
+  assert.deepEqual(doc.shapeless, []);
+});
+
 test('MINOR 8: formatText and JSON report an explicit decision count', () => {
   const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
   assert.equal(zero.decisions.length, 0);

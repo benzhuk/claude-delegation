@@ -105,10 +105,24 @@ test('Test 6: --config with an unreadable (unparseable) project.json prints BLIN
   assert.match(stderr, /BLIND/);
 });
 
-test('--config without --repo is blind, exit 3, never HANDBACK-prefixed stdout', () => {
-  const { exitCode, stdout } = runWith({ argv: ['--config'] });
-  assert.equal(exitCode, 3);
-  assert.equal(stdout, '');
+// Round-2 m5: spec M3's Config section and Test 6 both write the bare form,
+// `decisions-handback.mjs --config`, with no `--repo` — `loadProjectConfig` already defaults to
+// `process.cwd()` and walks up to find `.agents/project.json`, so this is a real process test
+// (a fake `--repo` string can't stand in for "no flag given, use the CLI's own cwd").
+test('--config with no --repo defaults to the CLI\'s own cwd (spec\'s bare form)', () => {
+  const root = repoWithProjectJson(JSON.stringify({
+    decisions_url: '3e1da11277a18174bccfea187d5c3972',
+    goals_parent_page: '3e1da11277a1817db4c1f1038ccfdd5a',
+  }));
+  const home = tmpdir('decisions-handback-home-');
+  const result = spawnSync(process.execPath, [SCRIPT_PATH, '--config'], {
+    encoding: 'utf8', cwd: root, env: childEnv(home, { AGENTS_HOME: home }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, L(
+    'decisions_url\t3e1da11277a18174bccfea187d5c3972',
+    'goals_parent_page\t3e1da11277a1817db4c1f1038ccfdd5a',
+  ) + '\n');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,8 +130,10 @@ test('--config without --repo is blind, exit 3, never HANDBACK-prefixed stdout',
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('Test 4: a clean fixture exits 0 and prints "HANDBACK ok"', () => {
+  // round-2 N1: `--head` here is a genuine prefix of the page sha (889887a), distinct from the
+  // next test's exact match — the two were previously identical and one was redundant.
   const { exitCode, stdout } = runWith({
-    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887abcdef', '--today', '9-22'],
     files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
   });
   assert.equal(exitCode, 0);
@@ -200,6 +216,35 @@ const singleDefects = [
     files: { d: CLEAN_DECISIONS, g: fixture('goals-sha-outside-callout.md') },
     expect: /WARN\tgoals mirror missing sha line/,
   },
+  {
+    // Round-2 M2: a `<summary>` toggle written with plain bullets instead of checkboxes has no
+    // options at all, so it is invisible everywhere else in the pipeline — this is the past
+    // bug's twin ("items written outside the template shape were invisible") and it must block.
+    name: 'a toggle written outside the template shape (no checkbox options) is caught as SHAPE',
+    files: { d: fixture('decisions-shapeless.md'), g: CLEAN_GOALS },
+    expect: /^SHAPE\tline 2\tItem written with bullets\t\(toggle with no checkbox options: the reader cannot see it\)$/m,
+  },
+  {
+    name: 'an AMBIGUOUS item (two ticks)',
+    files: {
+      d: L(
+        '<details>', '<summary>Two ticks</summary>', '\t- [x] a', '\t- [x] b',
+        '\tNo default: x', '</details>', '- [ ] Done',
+      ),
+      g: CLEAN_GOALS,
+    },
+    expect: /^AMBIGUOUS\tTwo ticks\ta \| b$/m,
+  },
+  {
+    name: 'a WARN on the goals page',
+    files: { d: CLEAN_DECISIONS, g: `${CLEAN_GOALS}\n\tDefault if unanswered: x` },
+    expect: /^goals\tWARN\tdefault line is not in the required shape$/m,
+  },
+  {
+    name: 'a ticked checkbox on the goals page',
+    files: { d: CLEAN_DECISIONS, g: `${CLEAN_GOALS}\n\t- [x] a` },
+    expect: /^goals\tTICKED\t/m,
+  },
 ];
 
 for (const defect of singleDefects) {
@@ -226,6 +271,27 @@ test('Test 4: a zero-item page with "- [x] Done" last is clean', () => {
   assert.equal(exitCode, 0);
   assert.match(stdout, /Decisions waiting: 0, notes logged today: 0, goals mirror at 889887a/);
   assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+// Round-2 m1: a zero-item page is clean ONLY because the fixture's "# Closed" is a toggle
+// heading (`{toggle="true"}`). A page whose "# Closed" is a plain heading has no titles at all
+// (`matchTitle` requires the toggle attribute) and is BLIND, not clean — pinned here so that
+// dependency on "# Closed" staying a toggle heading (a T3/skill-text concern) is explicit and a
+// regression there shows up as a test failure, not a silent behaviour change.
+test('Test 4: a zero-item page whose sections are plain (non-toggle) headings is BLIND, not clean', () => {
+  const decisions = L(
+    '# Waiting on you now',
+    '# Closed',
+    '- Your note, 9-22: "x" — done.',
+    '- [x] Done',
+  );
+  const { exitCode, stdout, stderr } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: decisions, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+  assert.match(stderr, /no titles found/);
 });
 
 test('Test 4: BLIND (unparseable decisions page) exits 3 and prints "HANDBACK blind"', () => {
@@ -329,6 +395,57 @@ test('Test 2: two shas match when one is a prefix of the other (head shorter tha
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Round-2 M1: the head-sha half of the F6 staleness check, exercised with an injected `execGit`
+// and NO `--head`, so `computeHeadSha`'s real (non-override) branch actually runs. Every other
+// test above passes `--head`, which never touches this code path at all.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('head sha: git is asked for origin/main over the two goal sources, in --repo', () => {
+  const calls = [];
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'the-repo', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    execGit: (args, cwd) => { calls.push({ args, cwd }); return '889887a\n'; },
+  });
+  assert.deepEqual(calls, [{
+    args: ['log', '-1', '--format=%h', 'origin/main', '--', 'docs/GOALS.md', 'docs/goals/card.md'],
+    cwd: 'the-repo',
+  }]);
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+test('head sha: a git-derived head that differs from the page is stale', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    execGit: () => 'ddddddd\n',
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^WARN\tgoals mirror stale: page 889887a, head ddddddd$/m);
+});
+
+test('head sha: empty git output (no main commit touches the sources) is BLIND', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    execGit: () => '\n',
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+test('head sha: a failing git call is BLIND', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    execGit: () => { throw new Error('fatal: bad revision origin/main'); },
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Reviewer attack brief points not covered above
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -359,6 +476,24 @@ test('a REPLIED pair older than today is listed as ARCHIVE but does not block', 
   assert.equal(exitCode, 0);
   assert.match(stdout, /^ARCHIVE\tAnswered a while ago\tline 4\treplied 2026-09-10$/m);
   assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+test('a reply dated today is not listed as ARCHIVE (archived only on a later pass)', () => {
+  // Takes the year from the clock rather than hard-coding 2026: `--today` (M-D only) is combined
+  // with the real current year inside computeToday/archiveLines, so a hard-coded year would
+  // silently stop testing the boundary once the year turns (round-2 m3).
+  const { md, ymd } = computeToday();
+  const decisions = L(
+    '<details>', '<summary>Answered</summary>', '\t- [ ] a',
+    '\t- [ ] \\*\\* was this reversible?', `\tReply: ${ymd}, yes.`,
+    '\tNo default: not needed here', '</details>', '- [ ] Done',
+  );
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', md],
+    files: { d: decisions, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 0);
+  assert.doesNotMatch(stdout, /^ARCHIVE/m);
 });
 
 test('"notes logged today" counts only Your note bullets dated today (America/New_York, M-D)', () => {
@@ -414,6 +549,12 @@ test('computeToday: --today override drives both md and ymd; a malformed overrid
   assert.equal(t.md, '9-5');
   assert.match(t.ymd, /^\d{4}-09-05$/);
   assert.throws(() => computeToday('not-a-date'), /--today/);
+});
+
+test('computeToday: today is America/New_York, not UTC or the machine zone', () => {
+  const t = computeToday(null, new Date('2026-09-23T02:30:00Z')); // 22:30 on 9-22 in New York
+  assert.equal(t.md, '9-22');
+  assert.equal(t.ymd, '2026-09-22');
 });
 
 test('countNotesToday: only exact-dated "- Your note, <M-D>:" bullets count, anchored at line start', () => {
@@ -478,7 +619,12 @@ test('CLI: real process, without --head, calls real git for the head sha (does n
     '--today', '9-22',
   ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: home }) });
   assert.ok([0, 1, 3].includes(result.status), `unexpected exit code ${result.status}`);
-  assert.match(result.stdout + result.stderr, /HANDBACK (ok|blocked|blind)|BLIND/);
+  // Real git in this real repo always resolves origin/main and never throws — the point of
+  // this test is that the real (non-`--head`) code path runs end to end without crashing, not
+  // to assert which of the three outcomes it lands on. The in-process tests above (round-2 M1)
+  // pin the actual branching (match/stale/empty/failure) with an injected `execGit`.
+  assert.match(result.stdout, /HANDBACK (ok|blocked|blind)\n$/);
+  assert.doesNotMatch(result.stderr, /cannot determine/, 'a real repo must resolve origin/main, not fall through to BLIND for lack of a head sha');
 });
 
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {

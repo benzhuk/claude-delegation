@@ -42,12 +42,18 @@ function splitMarker(rawLine) {
   return { kind: 'plain', text: stripped };
 }
 
-/** A `<summary>…</summary>` line, or a toggleable heading `#`/`##`/`###` … `{toggle="true"}`. */
+/**
+ * A `<summary>…</summary>` line, or a toggleable heading `#`/`##`/`###` … `{toggle="true"}`.
+ * Returns `{ text, shape }` (shape is `'summary'` or `'heading'`) so a caller can tell the two
+ * title forms apart — round-2 M2: a `<summary>` toggle with no checkbox options underneath it
+ * is invisible to the owner reading the rendered page too (a plain-bullet "decision" nobody can
+ * tick), and that is a different, catchable defect from a heading used only to group items.
+ */
 function matchTitle(rawLine) {
   let m = /^[ \t]*<summary>(.*)<\/summary>[ \t]*$/.exec(rawLine);
-  if (m) return m[1];
+  if (m) return { text: m[1], shape: 'summary' };
   m = /^[ \t]*#{1,3}[ \t]+(.*?)[ \t]*\{[^}]*\btoggle="true"[^}]*\}[ \t]*$/.exec(rawLine);
-  if (m) return m[1];
+  if (m) return { text: m[1], shape: 'heading' };
   return null;
 }
 
@@ -153,15 +159,16 @@ export function parseDocument(text, { now = new Date() } = {}) {
     if (/<summary\b/i.test(raw) && matchTitle(raw) === null) {
       throw new BlindError(`unreadable <summary> at line ${lineNo}`);
     }
-    const titleText = matchTitle(raw);
-    if (titleText !== null) {
+    const titleMatch = matchTitle(raw);
+    if (titleMatch !== null) {
       currentTitle = {
-        title: normalizeTitle(titleText),
+        title: normalizeTitle(titleMatch.text),
         line: lineNo,
         options: [],
         comments: [],
         default: null,
         noDefaultLine: false,
+        shape: titleMatch.shape,
         _openComment: null,
       };
       titles.push(currentTitle);
@@ -290,11 +297,26 @@ export function parseDocument(text, { now = new Date() } = {}) {
   const decisions = titles
     .filter((t) => t.options.length > 0)
     .map((t) => {
-      const { _openComment, noDefaultLine, ...rest } = t;
+      const {
+        _openComment, noDefaultLine, shape, ...rest
+      } = t;
       return { ...rest, status: computeStatus(t, now) };
     });
 
-  return { decisions, unattached, done, warnings };
+  // Round-2 M2: a `<summary>`-form title with zero checkbox options is the past bug's twin —
+  // written outside the template shape, so no decision ever attaches to it and it is otherwise
+  // completely invisible (it has no options, so it is filtered out of `decisions` above, and it
+  // is not a comment or a tick so it never reaches `unattached` either). `shapeless` is a
+  // JS-API-only addition: `formatText`, `computeExitCode` and `toJsonObject` are unchanged, so the
+  // reader's stdout grammar and exit codes stay exactly as pinned; a downstream caller (the
+  // hand-back check) is what turns this into something the lead sees.
+  const shapeless = titles
+    .filter((t) => t.shape === 'summary' && t.options.length === 0)
+    .map((t) => ({ title: t.title, line: t.line }));
+
+  return {
+    decisions, unattached, done, warnings, shapeless,
+  };
 }
 
 function detailFor(d) {
