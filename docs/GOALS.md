@@ -1,12 +1,30 @@
 # Goals
 
-What Ben wants from the delegation plugin, written as he means it. Each goal has the statement, his own words that set it (with the date), the measure, and a status. Status changes only in a release commit, with evidence: MET, PARTIAL (mechanism exists, measure not passed), NONE (no mechanism), UNKNOWN (never measured).
+What Ben wants from the delegation plugin, written as decision rules an agent can apply. The aim and its four measures come first; each goal below has the statement, Ben's own words that set it (with the date), the measure, and a status. Status changes only in a release commit, with evidence: MET, PARTIAL (mechanism exists, measure not passed), NONE (no mechanism), UNKNOWN (never measured).
 
 The five-line card in `docs/goals/card.md` is the summary every session sees at start and during long stretches. This file is its source. Both are mirrored to the Notion Goals page, where Ben comments with lines starting `**`; the lead acts on or answers every one.
 
 ## The aim
 
-My agents do the work I have already authorized, well and fast, with little from me, at far fewer top-tier tokens than today. Every benefit of the current setup stays or grows. When something breaks, go back to this aim and find the simplest design that serves it.
+Agent work gets cheaper, faster and more reliable at equal or better quality. Nothing here is about waiting for Ben to spec work by hand: agents find and do valuable work on their own; the harness exists so that this costs less, finishes sooner and loses nothing.
+
+A change to the harness is made only if it improves one of these four measures and worsens none. Each has a definition, a baseline and a place it is read, so an agent can check a proposal against it:
+
+| Measure | Definition | Baseline (2026-09-22) | Read from |
+|---|---|---|---|
+| Top-tier tokens per build | Fable and Opus tokens spent from spec to accepted, all roles | hand-run next-build: lead 152 turns; loop package-build: 19 orchestrator turns | build-census (per Workflow run id) |
+| Hours ask to accepted | wall clock from Ben's go to integrator PASS accepted | package-build 50 min through the loop; rename-build 3 h 40 with 29 percent lead dispatch latency | docs/work records |
+| Rework after acceptance | fix commits and review rounds on a shipped territory within 7 days; recurrence of a named failure class | Co-Authored-By trailer class recurred across 87 commits | git log, records |
+| Work lost or stalled | admitted work ids without a result; loud notes unread over 30 min; orchestrators idle awaiting a nudge | two RESULT notes waited 6 h 54 and 57 min; 3 of 7 loud notes logged no-inbox | flush log, ledger, records |
+
+How the card's lines are applied:
+- NOT waiting to be asked: an agent that sees a change passing the four-measure test proposes and builds it; Ben's word is needed only to merge to main or touch a machine, never to start.
+- NOT more parts than the simplest design that meets the aim: when two designs meet the requirement, the one with fewer files, states and steps wins; a proposal names the aim it serves before its design.
+- NOT a fix aimed at a symptom: when something breaks, name the aim the broken thing serves and redesign for that; never add a retry, watcher or guard on top of the failing part.
+- NOT a new mechanism while an existing one is unfed or unmeasured: before building, check whether a shipped mechanism only lacks its input file, its schedule or its measure; feed it first.
+- NOT a rule no script checks: a rule enters a skill only with the script, test or guard that checks it, or it is a stated goal here.
+- NOT top-tier execution: Fable and Opus plan, adjudicate and review; Sonnet and Haiku run tools, pulls, censuses, builds and Notion writes.
+- DONE and KILL are tests, not slogans: DONE names the numbers a build must show; KILL names the two counts that stop building.
 
 ## Cut token cost hard, lose no benefit
 
