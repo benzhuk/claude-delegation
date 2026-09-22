@@ -4,7 +4,7 @@ Owner: orchestrator
 Status: reviewed
 Authority: build and self-gate in own worktree; review by an Opus reviewer; merge to integrate/next-build by the integrator after APPROVE; nothing to main or any machine without Ben's word
 Artifact: feat/next-build-T6@7b2cfd2
-Evidence: docs/work/evidence/wr-2026-09-21-next-build-t6-review.md docs/work/evidence/wr-2026-09-21-next-build-t6-builder.md
+Evidence: docs/work/evidence/wr-2026-09-21-next-build-t6-review.md, docs/work/evidence/wr-2026-09-21-next-build-t6-builder.md
 Next: integrator merges after all six territories are reviewed
 Opened: 2026-09-22T00:23:42.447Z
 Builder: sonnet
