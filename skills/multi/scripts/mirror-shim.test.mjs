@@ -337,7 +337,9 @@ test('D12 case 1: a manifest newer than this tree refuses to drop, keeps entries
   assert.ok(!dropped(json, ghost.dest), 'F9: a guarded run must not drop the entry (must be absent from actions)');
   const line = refusalLine(json);
   assert.ok(line, `refusal line missing from actions:\n${json.actions.join('\n')}`);
-  assert.match(line, /manifest is 99\.0\.0 from \/some\/newer\/tree, this tree is/);
+  assert.ok(line.startsWith('refusing to drop or overwrite: manifest is 99.0.0 from /some/newer/tree, this tree is '),
+    `the refusal line must be verbatim, with no "would " prefix even under --dry-run; got: ${line}`);
+  assert.ok(line.endsWith('; run the mirror from the newer tree or pass --allow-downgrade'), line);
   assert.ok(!json.refusals.some((r) => /refusing to drop or overwrite/.test(r)),
     'F9: the refusal line must go through say()/actions only, never into the refusals array');
 });
@@ -464,7 +466,37 @@ test('D12: --dry-run against a newer manifest still prints the refusal line (not
   assert.ok(!dropped(json, ghost.dest), '--dry-run must not drop under the guard either');
   const line = refusalLine(json);
   assert.ok(line, `--dry-run must still print the refusal line, got:\n${json.actions.join('\n')}`);
-  assert.match(line, /manifest is 99\.0\.0 from \/some\/newer\/tree, this tree is/);
+  assert.ok(line.startsWith('refusing to drop or overwrite: manifest is 99.0.0 from /some/newer/tree, this tree is '),
+    `the refusal line must be verbatim, with no "would " prefix even under --dry-run; got: ${line}`);
+  assert.ok(line.endsWith('; run the mirror from the newer tree or pass --allow-downgrade'), line);
   // The manifest fixture must be untouched on disk: --dry-run never writes.
   assert.equal(JSON.parse(fs.readFileSync(manifestPath(home), 'utf8')).pluginVersion, '99.0.0');
+});
+
+test('D12: the guard protects an EXISTING entry from being overwritten (the other half of D11)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-guard-overwrite-'));
+  // A normal, unguarded install first, so the home holds real, live, managed entries — every
+  // other guard case fixtures a STALE entry, which only ever exercises the drop half of D11.
+  runMirrorJson([], home);
+  const mPath = manifestPath(home);
+  const installed = JSON.parse(fs.readFileSync(mPath, 'utf8'));
+  const shim = installed.managed.find((e) => e.kind === 'shim');
+  assert.ok(shim, 'the first run must have installed at least one shim');
+  const victim = shim.dest;
+  const ours = fs.readFileSync(victim, 'utf8');
+  const newerContent = `${ours}\n:: NEWER TREE SENTINEL\n`;
+  fs.writeFileSync(victim, newerContent, 'utf8');
+  // Now claim that content came from a newer tree.
+  fs.writeFileSync(mPath, `${JSON.stringify({ ...installed, pluginVersion: '99.0.0', sourcePath: '/some/newer/tree' }, null, 2)}\n`, 'utf8');
+
+  const guarded = runMirrorJson([], home);
+  assert.ok(refusalLine(guarded), 'the guard must fire');
+  assert.equal(fs.readFileSync(victim, 'utf8'), newerContent,
+    'D11: an entry that already exists must NOT be overwritten by the older tree under the guard');
+
+  // Positive control: --allow-downgrade restores today's unconditional overwrite.
+  const allowed = runMirrorJson(['--allow-downgrade'], home);
+  assert.ok(!refusalLine(allowed), '--allow-downgrade must not print the refusal line');
+  assert.equal(fs.readFileSync(victim, 'utf8'), ours,
+    '--allow-downgrade must restore the overwrite the guard refused');
 });

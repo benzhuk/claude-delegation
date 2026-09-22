@@ -801,7 +801,7 @@ function main() {
     const newer = isNewerVersion(prev.pluginVersion, OWN_PLUGIN_VERSION);
     const guardActive = newer === true && !opts.allowDowngrade;
     if (guardActive) {
-      say('refusing to drop or overwrite', `manifest is ${prev.pluginVersion} from ${prev.sourcePath}, `
+      say('refusing to drop or overwrite', `manifest is ${prev.pluginVersion} from ${prev.sourcePath ?? 'an unrecorded tree'}, `
         + `this tree is ${OWN_PLUGIN_VERSION}; run the mirror from the newer tree or pass --allow-downgrade`);
     }
 
