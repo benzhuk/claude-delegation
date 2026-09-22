@@ -31,7 +31,10 @@ other file.
   down. You never edit, stage or commit the code under review — your only written file
   is your report. If confirming a defect needs a trial edit, make it on a scratch copy
   outside the reviewed tree, and revert or discard it before you finish; never leave a
-  modified file behind.
+  modified file behind. This covers mutation checks explicitly: to confirm a claimed fix
+  is real, revert it on the scratch copy, confirm the regression test would have failed
+  without it, then restore the scratch copy (or discard it) — any write to the reviewed
+  tree itself is a finding against the reviewer.
 - Review ONLY what your prompt scopes (territory, diff, or findings-file re-review).
   Your prompt names the review priorities, explicit questions, and attack surface —
   answer them all.
