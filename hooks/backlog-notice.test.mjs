@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 import { switchedOff } from '../scripts/project-config.mjs';
@@ -68,6 +68,39 @@ function writeRecord(cwd, opts) {
   const file = path.join(cwd, 'docs', 'work', `${opts.work}.record.md`);
   fs.writeFileSync(file, recordText(opts), 'utf8');
   return file;
+}
+
+/** Like writeRecord, but the filename is independent of Work: — needed to fixture two
+ * different records that deliberately share the same Work: id (duplicate-work-id). */
+function writeRecordNamed(cwd, filename, opts) {
+  const file = path.join(cwd, 'docs', 'work', `${filename}.record.md`);
+  fs.writeFileSync(file, recordText(opts), 'utf8');
+  return file;
+}
+
+/**
+ * A fixture plugin root whose scripts/work-record.mjs re-exports the REAL parser's
+ * STATUSES/listRecords but replaces checkRecordSet with one that throws. Running the hook
+ * against this root proves parser.checkRecordSet(entries) is called INSIDE main()'s existing
+ * try: if it were called after the try/catch, this would crash the process instead of being
+ * caught by the "could not load the parser" fail-open path.
+ */
+function fixturePluginRootWithThrowingCheckRecordSet() {
+  const root = tmpdir('backlog-throwing-parser-');
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  const realParserUrl = pathToFileURL(path.join(REPO, 'scripts', 'work-record.mjs')).href;
+  fs.writeFileSync(
+    path.join(root, 'scripts', 'work-record.mjs'),
+    [
+      `export { STATUSES, listRecords } from ${JSON.stringify(realParserUrl)};`,
+      'export function checkRecordSet() {',
+      "  throw new Error('boom-from-checkRecordSet');",
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  return root;
 }
 
 function writeMalformedRecord(cwd, name) {
@@ -301,4 +334,84 @@ test('MAJOR 1 residual: PostToolUse on an all-owned ledger imports the parser on
   const second = runHook('PostToolUse', home, cwd, { over: { CLAUDE_PLUGIN_ROOT: tmpdir('backlog-noplugin2-') } });
   assert.equal(second.json, null);
   assert.equal(second.stderr, '', 'the parser must not be imported on the second call');
+});
+
+// L-C6: record vocabulary follow-ups (runnable-with-owner folds into malformed;
+// checkRecordSet's duplicate-work-id gets its own, independent stderr line).
+
+test('L-C6: a runnable record with a non-none Owner: is malformed, not runnable', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecord(cwd, { work: 'wr-2026-09-21-good', status: 'runnable', owner: 'none' });
+  writeRecord(cwd, { work: 'wr-2026-09-21-owned-runnable', status: 'runnable', owner: 't2' });
+  const out = runHook('UserPromptSubmit', home, cwd);
+  assert.ok(out.json, 'the one genuinely runnable record still prints');
+  const line = out.json.hookSpecificOutput.additionalContext;
+  assert.match(line, /^work: 1 runnable and unowned \(wr-2026-09-21-good\)/);
+  assert.ok(!line.includes('wr-2026-09-21-owned-runnable'), 'the runnable-with-owner record must not appear in the runnable bucket');
+  assert.match(out.stderr, /backlog-notice: skipped 1 malformed record\(s\)/);
+});
+
+test('L-C6: parser.checkRecordSet(entries) runs inside main()\'s existing try, so a throwing export still fails open', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecord(cwd, { work: 'wr-2026-09-21-any', status: 'runnable' });
+  const throwingRoot = fixturePluginRootWithThrowingCheckRecordSet();
+  const out = runHook('UserPromptSubmit', home, cwd, { over: { CLAUDE_PLUGIN_ROOT: throwingRoot } });
+  assert.equal(out.status, 0, 'the hook process must still exit 0');
+  assert.equal(out.json, null, 'a parser failure prints no output line');
+  assert.match(out.stderr, /backlog-notice: could not load the parser/);
+  assert.match(out.stderr, /boom-from-checkRecordSet/, 'the existing fail-open catch must be the one that caught checkRecordSet\'s throw');
+});
+
+test('L-C6: two records sharing a Work: id print a second, independent stderr line and both keep their own bucket', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecordNamed(cwd, 'dup-a', { work: 'wr-2026-09-21-dup', status: 'runnable', owner: 'none' });
+  writeRecordNamed(cwd, 'dup-b', { work: 'wr-2026-09-21-dup', status: 'delivered', owner: 'none' });
+  const out = runHook('UserPromptSubmit', home, cwd);
+  assert.ok(out.json);
+  const line = out.json.hookSpecificOutput.additionalContext;
+  assert.match(line, /1 runnable and unowned \(wr-2026-09-21-dup\)/, 'the duplicated record still lands in runnable per its own Status:');
+  assert.match(line, /1 delivered and unreviewed \(wr-2026-09-21-dup\)/, 'and the other copy still lands in delivered per ITS own Status:');
+  assert.match(out.stderr, /^backlog-notice: duplicate work id\(s\): wr-2026-09-21-dup\n?$/m);
+  assert.ok(!/malformed/i.test(out.stderr), 'no malformed records exist here: the malformed line must not fire');
+});
+
+test('L-C6: the malformed line and the duplicate line are independently triggerable — both, only one, or neither', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+
+  // Neither: one clean, unique, genuinely runnable record.
+  writeRecordNamed(cwd, 'clean', { work: 'wr-2026-09-21-clean', status: 'runnable', owner: 'none' });
+  const neither = runHook('UserPromptSubmit', home, cwd);
+  assert.equal(neither.stderr, '', 'a clean ledger prints nothing on stderr');
+
+  // Only malformed: add a runnable-with-owner record (no duplicate work ids anywhere yet).
+  const home2 = fixtureHome();
+  const cwd2 = fixtureProject();
+  writeRecordNamed(cwd2, 'clean2', { work: 'wr-2026-09-21-clean2', status: 'runnable', owner: 'none' });
+  writeRecordNamed(cwd2, 'bad-owner', { work: 'wr-2026-09-21-bad-owner', status: 'runnable', owner: 't3' });
+  const onlyMalformed = runHook('UserPromptSubmit', home2, cwd2);
+  assert.match(onlyMalformed.stderr, /malformed/i);
+  assert.ok(!/duplicate work id/i.test(onlyMalformed.stderr));
+
+  // Only duplicate: two well-formed records that happen to share a Work: id.
+  const home3 = fixtureHome();
+  const cwd3 = fixtureProject();
+  writeRecordNamed(cwd3, 'dup3-a', { work: 'wr-2026-09-21-onlydup', status: 'runnable', owner: 'none' });
+  writeRecordNamed(cwd3, 'dup3-b', { work: 'wr-2026-09-21-onlydup', status: 'runnable', owner: 'none' });
+  const onlyDuplicate = runHook('UserPromptSubmit', home3, cwd3);
+  assert.match(onlyDuplicate.stderr, /duplicate work id\(s\): wr-2026-09-21-onlydup/);
+  assert.ok(!/malformed/i.test(onlyDuplicate.stderr));
+
+  // Both: a runnable-with-owner record AND a duplicated work id, together.
+  const home4 = fixtureHome();
+  const cwd4 = fixtureProject();
+  writeRecordNamed(cwd4, 'both-owner', { work: 'wr-2026-09-21-both-owner', status: 'runnable', owner: 't4' });
+  writeRecordNamed(cwd4, 'both-dup-a', { work: 'wr-2026-09-21-both-dup', status: 'runnable', owner: 'none' });
+  writeRecordNamed(cwd4, 'both-dup-b', { work: 'wr-2026-09-21-both-dup', status: 'delivered', owner: 'none' });
+  const both = runHook('UserPromptSubmit', home4, cwd4);
+  assert.match(both.stderr, /malformed/i);
+  assert.match(both.stderr, /duplicate work id\(s\): wr-2026-09-21-both-dup/);
 });
