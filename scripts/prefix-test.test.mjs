@@ -5,14 +5,15 @@
 // dir>/**"]` pointing at a `.gitconfig-fixture` carrying `[user] name = Fixture` /
 // `email = fixture@example.invalid`; GIT_CONFIG_GLOBAL and GIT_CONFIG_NOSYSTEM=1 are set
 // only in the child-process env used to build THIS test's fixture repo, never via
-// `-c user.*`, never GIT_AUTHOR_*, never touching a real repo. Every fixture repo is
-// created with fs.mkdtempSync(path.join(os.tmpdir(), ...)) (never in this repo or the
-// scratch dir), and both gitconfig files use forward slashes with the temp dir
-// realpath'd first (A3: a backslash in a git config value is an escape sequence). This
-// is T3's OWN copy of the pattern, duplicated deliberately — T7's makeTempHome
-// (scripts/test-home.mjs) does not exist at this territory's base commit; the seam
-// review is expected to dedupe the two once T7 lands (spec.md's "Gates and acceptance"
-// seam-review line).
+// `-c user.*`, never GIT_AUTHOR_*, never touching a real repo.
+//
+// This identity, and the sealed child env it rides in, are built by the ONE shared
+// `makeTempHome({ gitIdentity: true })` from `./test-home.mjs` (T7) — never a private
+// copy in this file, and never a spread of the runner's environment: doing either trips
+// `skills/multi/scripts/hooks.test.mjs`'s N2 guard, and a private copy is exactly the
+// duplication the seam review (F1, wr-dedupe-fixture-git-env) collapsed. `makeTempHome`
+// seeds the identical includeIf/realpath/forward-slash/NOSYSTEM shape this file used to
+// build by hand.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -21,32 +22,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTapCounts, classifyRun } from "./prefix-test.mjs";
+import { makeTempHome } from "./test-home.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, "prefix-test.mjs");
 const TMP_ROOT = fs.realpathSync(os.tmpdir());
-
-function toPosix(p) {
-  return p.replace(/\\/g, "/");
-}
-
-function makeFixtureGitEnv(configDir) {
-  const globalConfig = path.join(configDir, ".gitconfig");
-  const fixtureConfig = path.join(configDir, ".gitconfig-fixture");
-  fs.writeFileSync(
-    globalConfig,
-    `[includeIf "gitdir/i:${toPosix(TMP_ROOT)}/**"]\n\tpath = ${toPosix(fixtureConfig)}\n`
-  );
-  fs.writeFileSync(
-    fixtureConfig,
-    "[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n"
-  );
-  return {
-    ...process.env,
-    GIT_CONFIG_GLOBAL: globalConfig,
-    GIT_CONFIG_NOSYSTEM: "1",
-  };
-}
 
 function git(args, cwd, env) {
   const r = spawnSync("git", args, { cwd, env, encoding: "utf8" });
@@ -60,9 +40,8 @@ function git(args, cwd, env) {
 // regression test math.test.mjs (used, as its own sha, for the "passes at base" case,
 // and always as the in-place fix revision).
 function buildFixtureRepo() {
-  const configDir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-cfg-"));
+  const { home: configDir, env } = makeTempHome({ gitIdentity: true });
   const repoDir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-repo-"));
-  const env = makeFixtureGitEnv(configDir);
 
   git(["init", "-q"], repoDir, env);
   fs.writeFileSync(path.join(repoDir, "README.md"), "fixture repo\n");
@@ -111,10 +90,10 @@ function runPrefixTest(base, testPath, repoDir) {
 }
 
 test("case: reproduces at the bug commit and passes at the fix revision -> exit 0", () => {
-  const { repoDir, bugSha } = buildFixtureRepo();
+  const { repoDir, bugSha, env } = buildFixtureRepo();
   const r = runPrefixTest(bugSha, "math.test.mjs", repoDir);
   assert.equal(r.status, 0, `expected exit 0, got ${r.status}\n${r.stdout}\n${r.stderr}`);
-  const worktrees = git(["worktree", "list", "--porcelain"], repoDir, process.env);
+  const worktrees = git(["worktree", "list", "--porcelain"], repoDir, env);
   assert.equal(worktrees.split("worktree ").length, 2, "prefix-test must remove the worktree it created");
 });
 
