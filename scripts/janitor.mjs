@@ -25,7 +25,11 @@
 //   merged worktree whose branch is not confirmed on origin, an unmerged branch with no commit in 14
 //   days, a merged branch not confirmed on origin, a protected-name branch that happens to be
 //   merged, a merged branch checked out in a worktree this run is not removing, an untracked file
-//   matching the project's scratch_patterns.
+//   matching the project's scratch_patterns; also (T4) one row per `WORKAROUND:` line found across
+//   every `docs/work/*.record.md` (gathered via `listRecords`, scripts/work-record.mjs, never
+//   parsed here) - an OVERDUE one (`remove when` a past `by <yyyy-mm-dd>` date) is a finding, an
+//   open one (not yet due, or a worded condition this tool can't evaluate) is display-only; a
+//   missing `docs/work` directory is not a finding either way.
 //
 // round-1 fix note: the artifact registry (scripts/artifact-registry.mjs) and commit-check
 // (scripts/commit-check.mjs) were CUT from this build per review — the registry read a file nothing
@@ -65,6 +69,7 @@ import { fileURLToPath } from "node:url";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 import { checkWiring } from "./wiring-check.mjs";
+import { listRecords } from "./work-record.mjs";
 
 const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
@@ -458,6 +463,48 @@ function currentBranchOf(worktrees, root) {
   return mine ? mine.branch : null;
 }
 
+// ---------- workarounds (T4): a JUDGMENT row per open WORKAROUND: line in docs/work ----------
+
+/**
+ * `removeWhen` (C1's `WORKAROUND: <cause> / <blocked by> / <remove when>`, parsed by
+ * scripts/work-record.mjs) is either "by <yyyy-mm-dd>" or a condition in words. Only the dated
+ * shape can ever be judged mechanically overdue; a worded condition ("T1 lands") is never
+ * evaluated - it stays "open" until a person (or the orchestrator) says otherwise.
+ */
+function isWorkaroundOverdue(removeWhen, now) {
+  const m = /^by[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$/i.exec(String(removeWhen ?? "").trim());
+  if (!m) return false;
+  const due = new Date(`${m[1]}T00:00:00Z`);
+  if (Number.isNaN(due.getTime())) return false;
+  return due.getTime() < now.getTime();
+}
+
+/**
+ * Gathers the JUDGMENT `workarounds` sub-array from every `docs/work/*.record.md` record under
+ * `root`, via `listRecords` (scripts/work-record.mjs, C2) - never reads or parses a record file
+ * itself. A missing `docs/work` directory is not a finding: `listRecords` already returns `[]`
+ * when the directory can't be read (any project with none yet, or none at all). A record with no
+ * usable `Work:` id is skipped rather than guessed at - it can't make a `ref` for a row.
+ */
+export function gatherWorkarounds(root, { now = new Date(), fsImpl } = {}) {
+  const dir = path.join(root, "docs", "work");
+  const entries = listRecords(dir, fsImpl ? { fsImpl } : {});
+  const rows = [];
+  for (const { record } of entries) {
+    const workId = record?.fields?.work;
+    if (!workId) continue;
+    for (const wa of record.workarounds || []) {
+      const overdue = isWorkaroundOverdue(wa.removeWhen, now);
+      rows.push({
+        ref: workId,
+        reason: `${wa.cause} / remove when ${wa.removeWhen} (${overdue ? "overdue" : "open"})`,
+        overdue,
+      });
+    }
+  }
+  return rows;
+}
+
 // ---------- gathering (I/O layer that feeds classify()) ----------
 
 /**
@@ -501,6 +548,10 @@ export function gatherState({ root, config, now = new Date() }) {
     scratchPatterns: config.scratch_patterns || [],
   });
   result.drift.diskUsedKB = diskUsedKB;
+  // T4: workarounds are gathered independently of git state - a missing docs/work directory (no
+  // work records yet, or a project not using this build at all) is not a finding, so this never
+  // throws and never blocks the git-derived classification above.
+  result.judgment.workarounds = gatherWorkarounds(root, { now });
   result._raw = { root, mainBranch };
   return result;
 }
@@ -608,6 +659,8 @@ function printReport(state, wiring) {
   console.log(table(state.judgment.branches, ["ref", "reason"]));
   console.log("  untracked files:");
   console.log(table(state.judgment.untrackedFiles, ["ref", "reason"]));
+  console.log("  workarounds:");
+  console.log(table(state.judgment.workarounds, ["ref", "reason"]));
   console.log("");
   console.log("DRIFT:");
   console.log(`  disk used (project root): ${state.drift.diskUsedKB === null ? "unknown" : `${state.drift.diskUsedKB} KB`}`);
@@ -627,7 +680,9 @@ function hasFindings(state) {
     state.safe.branches.length > 0 ||
     state.judgment.worktrees.length > 0 ||
     state.judgment.branches.length > 0 ||
-    state.judgment.untrackedFiles.length > 0
+    state.judgment.untrackedFiles.length > 0 ||
+    // T4: only an OVERDUE workaround is a finding; an open one is display-only.
+    state.judgment.workarounds.some((w) => w.overdue)
   );
 }
 
@@ -703,7 +758,8 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       const judgmentRemains =
         state.judgment.worktrees.length > 0 ||
         state.judgment.branches.length > 0 ||
-        state.judgment.untrackedFiles.length > 0;
+        state.judgment.untrackedFiles.length > 0 ||
+        state.judgment.workarounds.some((w) => w.overdue);
       return applyFailed || judgmentRemains ? 1 : 0;
     }
     return hasFindings(state) ? 1 : 0;
