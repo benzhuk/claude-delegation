@@ -308,7 +308,7 @@ test("validateRecord: effect landed but result lost -> accepted is refused (acce
 // fixture repo (built under os.tmpdir() per addendum A3) where the scope file has a newer
 // commit than the sha recorded in Scope:.
 test("validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixture repo", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-scope-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-scope-"));
   const env = makeGitFixtureEnv();
   const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
   run(["init", "-q"]);
@@ -333,7 +333,7 @@ test("validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixtu
 // F7 (seam review): an unresolvable Scope: path (never tracked at ref) must be
 // distinguishable from an agreeing one - a silent [] either way hides the difference.
 test("validateRecord: scope-unresolvable (info) fires when the Scope: path has no history at ref, not when it does", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-scope-unresolvable-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-scope-unresolvable-"));
   const env = makeGitFixtureEnv();
   const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
   run(["init", "-q"]);
