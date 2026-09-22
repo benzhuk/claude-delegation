@@ -1,16 +1,19 @@
 Work: wr-2026-09-21-next-build-t2
 Scope: next-build/spec.md@95d5453
-Owner: builder-t2
-Status: owned
+Owner: orchestrator
+Status: reviewed
 Authority: build and self-gate in own worktree; review by an Opus reviewer; merge to integrate/next-build by the integrator after APPROVE; nothing to main or any machine without Ben's word
-Artifact: none
-Evidence: none
-Next: builder reports to next-build/reports/T2-report.md; orchestrator spawns the Opus reviewer in the same turn
+Artifact: feat/next-build-T2@d0737ce
+Evidence: docs/work/evidence/wr-2026-09-21-next-build-t2-review.md, docs/work/evidence/wr-2026-09-21-next-build-t2-builder.md
+Next: integrator merges after all six territories are reviewed
 Opened: 2026-09-22T00:23:42.447Z
 Builder: sonnet
-Rounds: 1
+Rounds: 2
 Log: 2026-09-22T00:23:42.447Z runnable none
 Log: 2026-09-22T00:23:42.447Z owned builder-t2 spawned
+Log: 2026-09-22T01:11:47.000Z delivered builder-t2 artifact d0737ce
+Log: 2026-09-22T01:11:48.000Z owned orchestrator agent-exited artifact d0737ce
+Log: 2026-09-22T01:11:49.000Z reviewed orchestrator artifact d0737ce
 
 T2 covers the backlog notice: `hooks/backlog-notice.js`, `hooks/backlog-notice.test.mjs`,
 `hooks/hooks.json`, `skills/multi/scripts/hooks.test.mjs` (only the "V3" test),
