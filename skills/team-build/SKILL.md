@@ -223,3 +223,70 @@ you spawned and own; a peer note goes to a session you don't.
 - Paraphrasing findings when relaying → drops file:line specifics; send the path.
 - Acting on a bare "Done." reply → read the report file; the reply is only a
   notification that it exists.
+
+## Running the loop from an Opus pane
+
+This section is the file's last section — it follows Common mistakes above, not the Ship
+section earlier in this file, even though Ship is where a reader might expect a "how the
+build actually runs" note to live.
+
+**When**: two or more territories, from an Opus orchestrator pane only — never Fable,
+never a builder or lead pane running at a lower tier. Below two territories, run the
+pipeline by hand as described in Setup through Ship above; the loop earns its keep on
+genuine fan-out, not a single-file fix.
+
+**What it is**: `skills/team-build/references/build-loop-workflow.js`, a Workflow script
+that runs the whole build → review → fix loop, for every territory, as one call. Inside
+it, one `runTerritory(t)` per territory drives that territory's own build/review/fix-round
+loop; every territory runs concurrently under `parallel()`, a barrier, so the script only
+moves on to the integrator once all of them have either reached `APPROVE`, exhausted
+`maxRounds`, or died twice. Static contract, tests, and the pinned agent-type/model pairs:
+`skills/team-build/references/build-loop-workflow.test.mjs`.
+
+**Pre-launch steps, in order** — the script does none of these itself:
+1. Spec pack on disk (spec, contracts, territory map) per Setup step 1 above.
+2. One scout agent per build — not per territory — writing one file per territory to
+   `<spec-pack>/scout-<territory>.md` (`skills/team-build/references/scout-brief.md` has
+   the brief). Fold each territory's scout findings into its brief before any builder
+   spawns; where a scout report and the spec disagree, the spec wins.
+3. Worktrees and branches, one per territory, ALL cut from the SAME shared `baseSha`:
+   `git worktree add <worktree> -b <branch> <baseSha>`. The script never creates a
+   worktree of its own — that concept doesn't exist inside it, by design; every worktree
+   decision happens here, before launch.
+4. Briefs written, one per territory, plus the reviewer brief and the integrator brief.
+5. Open one work record per territory, as in Setup step 6 above, before spawning.
+
+**The launch call**: invoke the Workflow tool with
+`{scriptPath: "skills/team-build/references/build-loop-workflow.js"}` and an `args`
+object shaped `{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, briefPath,
+worktree, branch, gate }], reviewerBriefPath, integratorBriefPath }` — see
+`skills/team-build/references/build-loop-args.example.json` for a worked example.
+`startedAt` is required: the script has no clock of its own (`Date.now()`/`new Date()`
+are unavailable inside a Workflow script), so stamp it yourself before calling. `maxRounds`
+defaults to 3.
+
+**Reading the return**: one object, `{ territories, integrator, blockers }`.
+`territories` is one row per territory — `{ id, sha, verdict, rounds, reportPath,
+findingsPath, blocker }` — read `verdict` for the outcome and `blocker` for why a
+territory never reached one (`'agent-died'`, `'builder-blocked'`, `'build-failed'`, or
+`'rounds-exhausted'`; `null` means it reached the loop's normal end). `blockers` is the
+same information again as a flat `[{ id, reason }]` list, for a quick scan without
+walking every territory row. `integrator` is that stage's own verdict object — read it
+last, since it only ran over the territories that weren't excluded for a blocker.
+
+**What breaks honestly**:
+- No warm-delta re-review across rounds — every fix round gets a full review, not a diff
+  against the prior one's findings.
+- No per-agent timeout. A hung agent is killed externally (outside the script) and the
+  run resumed with `resumeFromRunId`; the longest unchanged prefix of `agent()` calls
+  replays from cache, and only the stuck call and everything after it runs live.
+- Results return once, at the end — there is no partial/streaming read of a
+  still-running loop; `journal.jsonl` in the run's transcript directory is the durable,
+  inspectable record of every agent's actual return, read that before assuming a result
+  was empty.
+
+**Making this a measured change, not just a launched one**: record `startedAt` and the
+full return value in the work record's `Log:` line for this run, then run
+`scripts/build-census.mjs` (`docs/census.md` has the CLI) against this run's own lead
+transcript. Those two steps are what let a future build compare its own turns-and-tokens
+cost against this one, honestly, instead of by memory.
