@@ -24,11 +24,20 @@ function rtrim(s) {
   return s.replace(/[\r \t]+$/, "");
 }
 
+// Round-2 review MINOR 6: a fenced ```-block quoting an example (e.g. a template excerpt
+// pasted for illustration) must not itself satisfy the field check. Strips every fenced
+// block before matching; an unterminated fence (no closing ```) is left alone rather than
+// swallowing the rest of the report.
+function stripFencedBlocks(text) {
+  return text.replace(/```[\s\S]*?```/g, "");
+}
+
 // -> [<missing label>, ...] (empty when all four are present and non-empty)
 export function findMissingFields(text) {
+  const searchable = stripFencedBlocks(text);
   const missing = [];
   for (const label of REQUIRED_LABELS) {
-    const m = labelRegex(label).exec(text);
+    const m = labelRegex(label).exec(searchable);
     const value = m ? rtrim(m[1]).trim() : "";
     if (!value) missing.push(label);
   }

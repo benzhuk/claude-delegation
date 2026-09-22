@@ -54,12 +54,13 @@ with you, once per gate — that is the whole point of your role.
   `docs/work/evidence/<work-id>-prefix-test.md` (or the evidence path your brief names) so
   `bugfix-gate-missing` in the work-record validator (C2) can find it by its `prefix-test`
   basename.
-- **Sealed run**: run `node scripts/run-tests.mjs` (falls back to plain `node --test` over
-  every `*.test.mjs` if the script does not exist yet in your tree). It must fail in no file
-  outside the list in `docs/sealed-baseline.json` — a newly-failing file outside that list
-  is a gate failure, triaged to whichever territory owns the file; the sealed run existing
-  and passing this check is what keeps a test that reaches the real home from silently
-  passing the suite.
+- **Sealed run**: run `node scripts/run-tests.mjs`. A missing script is itself a gate
+  failure — triage it to T7, never fall back to a plain `node --test` in its place; the
+  sealed run existing and enforcing the seal is the whole point of C5, and an unsealed
+  substitute would silently reopen exactly the "test reaches the real home" class this
+  gate exists to close. Once it runs, it must fail in no file outside the list in
+  `docs/sealed-baseline.json` — a newly-failing file outside that list is a gate failure,
+  triaged to whichever territory owns the file.
 - **Stop-channel probe** (informational, never gating — see spec.md RT-1): confirm, once
   per build, whether a non-blocking `Stop` hook's `additionalContext` reaches the model on
   this CLI build. Two turns in one headless session: `claude -p` with a scratch settings

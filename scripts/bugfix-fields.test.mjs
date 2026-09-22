@@ -47,6 +47,20 @@ test("findMissingFields: a label present but only whitespace is still missing", 
   assert.deepEqual(findMissingFields(text), ["Cause"]);
 });
 
+test("findMissingFields: a label occurring only inside a fenced code block does not count (MINOR 6 regression)", () => {
+  const text = [
+    "Cause: the parser trimmed the wrong whitespace class",
+    "Discriminating check: a fixture with a tab-only trailer",
+    "Simplification: none needed, single-line fix",
+    "",
+    "Example of the missing field's shape, for illustration only:",
+    "```",
+    "Fix location: scripts/work-record.mjs:61",
+    "```",
+  ].join("\n");
+  assert.deepEqual(findMissingFields(text), ["Fix location"]);
+});
+
 test("findMissingFields: accepts markdown bullet/bold decoration (dispatch-guard shape)", () => {
   const text = [
     "- **Cause:** root cause here",

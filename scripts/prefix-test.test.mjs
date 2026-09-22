@@ -132,6 +132,16 @@ test("case: import error at a base before the module existed -> exit 2", () => {
   assert.match(r.stdout, /inconclusive/);
 });
 
+test("case: reproduces at base but the fix revision does not pass -> exit 1, never 0", () => {
+  const { repoDir, bugSha, env } = buildFixtureRepo();
+  fs.writeFileSync(path.join(repoDir, "math.mjs"), "export function add(a, b) {\n  return a * b;\n}\n");
+  git(["add", "."], repoDir, env);
+  git(["commit", "-q", "-m", "regress: add() multiplies"], repoDir, env);
+  const r = runPrefixTest(bugSha, "math.test.mjs", repoDir);
+  assert.equal(r.status, 1, `expected exit 1, got ${r.status}\n${r.stdout}\n${r.stderr}`);
+  assert.match(r.stdout, /does not pass at the fix revision/);
+});
+
 test("never exits 0 on the base run alone: a bad --base sha is inconclusive, not a pass", () => {
   const { repoDir } = buildFixtureRepo();
   const r = runPrefixTest("not-a-real-sha", "math.test.mjs", repoDir);
@@ -196,6 +206,88 @@ test("parseTapCounts: a real, uniquely named passing test is not mistaken for th
   ].join("\n");
   const counts = parseTapCounts(tap, "math.test.mjs");
   assert.equal(counts.zeroRealTests, false);
+});
+
+test("parseTapCounts: a cancelled/timed-out test is not counted as passed (fail 0, cancelled 1)", () => {
+  // node v24 reports a timeout/cancellation as "not ok" with `# fail 0` / `# cancelled 1` -
+  // round-2 review BLOCKER 1: a fail-count-only check let this fall through to "passed".
+  const tap = [
+    "TAP version 13",
+    "# Subtest: slow",
+    "not ok 1 - slow",
+    "  ---",
+    "  error: 'test timed out'",
+    "  code: 'ERR_TEST_FAILURE'",
+    "  ---",
+    "1..1",
+    "# tests 1",
+    "# pass 0",
+    "# fail 0",
+    "# cancelled 1",
+    "# skipped 0",
+    "# todo 0",
+    "",
+  ].join("\n");
+  const counts = parseTapCounts(tap, "slow.test.mjs");
+  assert.equal(counts.cancelled, 1);
+  assert.equal(counts.fail, 0);
+});
+
+test("parseTapCounts: skip/todo-only counts are captured so classifyRun can fold them in (orchestrator ruling a)", () => {
+  const tap = [
+    "TAP version 13",
+    "# Subtest: someday",
+    "ok 1 - someday # SKIP not ready",
+    "  ---",
+    "  ---",
+    "1..1",
+    "# tests 1",
+    "# pass 1",
+    "# fail 0",
+    "# cancelled 0",
+    "# skipped 1",
+    "# todo 0",
+    "",
+  ].join("\n");
+  const counts = parseTapCounts(tap, "someday.test.mjs");
+  assert.equal(counts.skipped, 1);
+  assert.equal(counts.tests, 1);
+});
+
+test("classifyRun: a cancelled test is inconclusive, never passed (BLOCKER 1 regression)", () => {
+  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-slow-"));
+  fs.writeFileSync(
+    path.join(dir, "slow.test.mjs"),
+    [
+      "import test from 'node:test';",
+      "test('slow', { timeout: 100 }, async () => { await new Promise((r) => setTimeout(r, 2000)); });",
+      "",
+    ].join("\n")
+  );
+  const r = classifyRun(dir, "slow.test.mjs");
+  assert.equal(r.category, "inconclusive");
+});
+
+test("classifyRun: a skip-only file is inconclusive, never passed (orchestrator ruling a)", () => {
+  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-skiponly-"));
+  fs.writeFileSync(
+    path.join(dir, "skiponly.test.mjs"),
+    [
+      "import test from 'node:test';",
+      "test('someday', { skip: true }, () => {});",
+      "",
+    ].join("\n")
+  );
+  const r = classifyRun(dir, "skiponly.test.mjs");
+  assert.equal(r.category, "inconclusive");
+});
+
+test("classifyRun: a real test in a subdirectory is not mistaken for the zero-test wrapper (MAJOR 4 regression)", () => {
+  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "prefix-test-subdir-"));
+  fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "scripts", "empty.test.mjs"), "// no test() calls\nexport const x = 1;\n");
+  const r = classifyRun(dir, path.join("scripts", "empty.test.mjs"));
+  assert.equal(r.category, "inconclusive", "a zero-test file in a subdirectory must still be inconclusive, not passed");
 });
 
 test("classifyRun: a file with zero real test() calls is inconclusive, never counted as passed", () => {
