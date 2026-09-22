@@ -193,8 +193,11 @@ function writeManifest(managed) {
 
 /**
  * Exported so tests can assert which real directory each mirrored skill resolves to (P4) without
- * running the CLI, which is guarded behind `isMainModule()` below and would touch the real HOME —
- * `HOME` is resolved from `os.homedir()` at module load and cannot be redirected by any env var.
+ * running the CLI, which is guarded behind `isMainModule()` below. `HOME` is `os.homedir()` resolved
+ * ONCE at module load, from this process's own environment: an importing test cannot retarget it
+ * afterwards, so an in-process check must never trigger a write. A CHILD process launched with
+ * HOME/USERPROFILE pre-set does get a different home — that is how
+ * `skills/multi/scripts/mirror-shim.test.mjs` drives the real installer against a throwaway home.
  */
 export function collectSources() {
   const out = [];

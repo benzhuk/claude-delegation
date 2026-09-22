@@ -2,11 +2,11 @@
 // ~/.claude/skills/<name>, silently skipped if absent) into PLUGIN_SKILLS (sourced from
 // <repo>/skills/<name>, hard-refused if SKILL.md is missing).
 //
-// `HOME` in mirror-shared-skills.mjs is `os.homedir()` resolved at module load — no environment
-// variable can redirect it (v1.1 red-team finding 12). So this file never runs the CLI (guarded
-// behind isMainModule() anyway) and never runs the script without --dry-run (common.md ban); it
-// imports the exported `collectSources()` and inspects the plain data it returns, which is the
-// only way to prove the two skills ACTUALLY resolve under <repo>/skills/ rather than merely
+// `HOME` in mirror-shared-skills.mjs is `os.homedir()` resolved once at module load from the
+// process's own environment, so an IMPORTING process cannot retarget it — this file therefore never
+// runs the CLI (guarded behind isMainModule() anyway) and never runs the script at all, dry-run or
+// not (common.md ban). It imports the exported `collectSources()` and inspects the plain data it
+// returns, which proves the two skills ACTUALLY resolve under <repo>/skills/ rather than merely
 // having their names present in the right array (the failure class this build watches for: a
 // copy-paste into the wrong array, or a typo in the directory name under skills/, would leave the
 // string present in PLUGIN_SKILLS but the mirror silently sourcing nothing or the wrong path).

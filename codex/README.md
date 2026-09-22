@@ -24,8 +24,9 @@ read-only", which is the same guarantee by a different mechanism.
 ## Installation
 
 `scripts/mirror-shared-skills.mjs` copies every `codex/agents/*.toml` to
-`~/.codex/agents/` and publishes `skills/{multi,delegate,team-build,decisions,notion-writing,
-dev-server}` (plus the chezmoi-managed `~/.claude/skills/{knowledge,triage,learn}` when
+`~/.codex/agents/` and publishes
+`skills/{multi,delegate,team-build,decisions,notion-writing,dev-server}`
+(plus the chezmoi-managed `~/.claude/skills/{knowledge,triage,learn}` when
 present) to `~/.agents/skills/<name>`, which Codex scans natively. It also publishes the docs those
 skills link to into `~/.agents/skills/_docs/` — without them `../_docs/model-tiers.md`
 would dangle for every Codex session — and installs a `note-send` shim on PATH

@@ -43,8 +43,8 @@ server he can't stop, and its process group is yours — a group-kill takes the 
 ```bash
 A=~/.local/bin/server-manager-agent
 $A list | python3 -c 'import json,sys; [print(r["project"], r["worktreeName"], r["port"], r["url"]) for r in json.load(sys.stdin)["rows"] if r["running"]]'
-$A start  <repo>/workspaces/cadma-app/fee-spec/app                     # auto-prepares if needed
-$A start  "~/Code/BTO/bto_team"                                        # port from band (4000s)
+$A start  <cadmaWorktree>/app                                          # cadma: the worktree's app/ subdir; auto-prepares if needed
+$A start  "$HOME/Code/BTO/bto_team"                                    # port from band (4000s)
 $A start  <dir> --port 4300                                             # explicit (non-locked projects)
 $A logs   4300 --lines 80                                               # the server's own log
 $A kill   4300
