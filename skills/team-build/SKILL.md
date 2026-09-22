@@ -118,7 +118,9 @@ mention says where to find it once mirrored.
   PowerShell), so a mechanical check (running the gate, a revert-and-diff) needs no
   extra tool grant. Mid-tier reviewers
   only for genuinely low-risk territories; reviews are not optional for anything that
-  computes a number someone will act on. **For a bug-fix territory**, the attack brief
+  computes a number someone will act on. Name this failure class explicitly when it fits:
+  **"a check that passes because it isn't looking, or an unknown rendered as a confident number."**
+  **For a bug-fix territory**, the attack brief
   also asks: is this fix the CAUSE, or a COMPENSATION for it (a guard that hides the
   symptom without removing the defect) — and does the fix's landing let any existing
   `WORKAROUND:` on the work record come out. The brief also asks the builder for the
@@ -218,10 +220,9 @@ Once every territory is `reviewed` and the integrator's gates are green — befo
 ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
 — run `node <plugin>/scripts/work-census.mjs docs/work` (and, if this build launched the
 loop from an Opus pane, `node <plugin>/scripts/build-census.mjs --lead <lead-session.jsonl>
---tasks <subagent-tasks-dir>`) to get the measures — elapsed per work id, dispatch latency,
-idle minutes with a runnable unowned record — that make the build's speed a number instead
-of an impression. The plugin repo's `docs/pane-setup.md` names what each measure means and
-which script reads it; don't restate that here.
+--tasks <subagent-tasks-dir>`) to get the measures — elapsed per work id — that make the
+build's speed a number instead of an impression. The plugin repo's `docs/pane-setup.md`
+names what each measure means and which script reads it; don't restate that here.
 
 ## Peer sessions
 

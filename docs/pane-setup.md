@@ -89,22 +89,21 @@ reviewers, the integrator); `multi` is for talking to the fable pane.
 - **Elapsed per work id** (`opened` → `accepted`, or `opened` → last `reviewed` when no
   `accepted` line exists yet, labeled `(to reviewed)`) — `scripts/work-census.mjs`,
   reading `docs/work/*.record.md`'s `Log:` lines.
-- **Dispatch latency** (each `delivered` line to the first later `reviewed`/`rejected`
-  line, per round, plus the sum) — `scripts/work-census.mjs`, same source.
-- **Idle minutes with a runnable unowned record** (time at least one record sat
-  `Status: runnable` / `Owner: none`) — `scripts/work-census.mjs`'s footer, computed
-  across every record's merged, timestamp-sorted transitions.
-- **Recurrence of a failure class** and **workarounds past removal** — read from the
-  work records' own `Log:` notes and findings files across builds; no dedicated script
-  computes these yet, so read them by grepping `docs/work/` and past reports rather than
-  expecting a census tool to surface them automatically.
-- **Lead turns (total and windowed), turns/hour in the window, tokens by model for the
-  lead and for each subagent, and the combined lead+subagent split** (the speed-census
-  numbers) — `scripts/build-census.mjs`, reading the lead's own
-  transcript plus each subagent's task-output directory. Its turn/token counts are
-  de-duplicated per request id (Claude Code re-emits the same turn as multiple JSONL
-  lines while a response streams); the mechanism lives in `scripts/build-census.mjs`'s own
-  doc and test fixture, and is deliberately not restated here.
+- **Rounds per territory** (the `Rounds:` field when present, else a count of `owned` ->
+  `delivered` transitions, file order) — `scripts/work-census.mjs`, same source.
+- **Lead turns and wall clock per build** (turns total and windowed, turns/hour in the
+  window, tokens by model for the lead and for each subagent, and the combined
+  lead+subagent split) — `scripts/build-census.mjs`, reading the lead's own transcript
+  plus each subagent's task-output directory. Its turn/token counts are de-duplicated per
+  request id (Claude Code re-emits the same turn as multiple JSONL lines while a response
+  streams); the mechanism lives in `scripts/build-census.mjs`'s own doc and test fixture,
+  and is deliberately not restated here.
+- **Recurrence of a labelled failure class** — read from the work records' own `Log:`
+  notes and findings files across builds; no dedicated script computes this yet, so read
+  it by grepping `docs/work/` and past reports rather than expecting a census tool to
+  surface it automatically.
+- **Workarounds past removal** — same source as above, same caveat: no dedicated script,
+  read from `docs/work/` and past reports.
 
 Run both census scripts from `<project>-o`'s pane once a build's Ship step completes
 (`skills/team-build/SKILL.md`'s Ship section names the exact moment); the numbers go into
