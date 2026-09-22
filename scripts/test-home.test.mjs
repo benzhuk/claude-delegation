@@ -203,7 +203,11 @@ test("a repo built under the system temp dir but OUTSIDE fixtureRoot gets no ide
   execFileSync("git", ["add", "a.txt"], { cwd: repo, env });
   assert.throws(
     () => execFileSync("git", ["commit", "-q", "-m", "should be refused"], { cwd: repo, env, stdio: "pipe" }),
-    /./,
+    // Round 2 (N2 review MAJOR 3): `/./` matches ANY execFileSync failure, including one that
+    // has nothing to do with identity (e.g. "nothing staged" if `git add` above hadn't run) -
+    // proved on a scratch copy. The strict predicate already used 40 lines below (the
+    // "outside the system temp dir" test) is the real check: it must be an identity refusal.
+    (e) => /identity unknown|unable to auto-detect email|empty ident/i.test(String(e.stderr ?? "") + String(e.message ?? "")),
     "a repo outside fixtureRoot must not resolve the fixture identity",
   );
 });
@@ -233,9 +237,11 @@ test("gitIdentity: false refuses a commit even under fixtureRoot", () => {
   execFileSync("git", ["init", "-q"], { cwd: repo, env });
   fs.writeFileSync(path.join(repo, "a.txt"), "hi");
   execFileSync("git", ["add", "a.txt"], { cwd: repo, env });
+  // Same tightening as the L-C7 canary above (round 2, N2 review MAJOR 3, applied here too for
+  // consistency - pre-existing, not introduced this round, but the same loose match either way).
   assert.throws(() => {
     execFileSync("git", ["commit", "-q", "-m", "no identity"], { cwd: repo, env, stdio: "pipe" });
-  }, /./);
+  }, (e) => /identity unknown|unable to auto-detect email|empty ident/i.test(String(e.stderr ?? "") + String(e.message ?? "")));
 });
 
 // ---------------------------------------------------------------------------
@@ -296,45 +302,53 @@ test("checkSeal fails in a child when AGENTS_HOME is not '<home>/.agents'", () =
 
 // ---------------------------------------------------------------------------
 // Class test (L-C7, unconditional - no carve-out): exactly ONE construction of an
-// `includeIf "gitdir` directive across scripts/, hooks/, and skills/multi/scripts/.
+// `includeIf "gitdir` directive anywhere in the repo.
 // ---------------------------------------------------------------------------
 
-test("class test: exactly one construction of the fixture includeIf gitdir-scope directive across scripts/, hooks/, and skills/multi/scripts/", () => {
+// Round 2 (N2 review minor 2): a hardcoded three-root list had drifted from N2's own scope (now
+// the whole repo, per MAJOR 1's fix) - a second construction under skills/delegate/references/,
+// skills/decisions/scripts/, or agents/ would not have been caught. Walking the whole repo (same
+// exclusions as run-tests.mjs's walkTestFiles) closes that, and closes the non-recursive gap too
+// (a construction under a future scripts/lib/ would previously have been missed).
+function walkSourceFiles(dir, out = []) {
+  const EXCLUDED = new Set(["node_modules", ".claude", ".git"]);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (EXCLUDED.has(entry.name)) continue;
+      walkSourceFiles(path.join(dir, entry.name), out);
+      continue;
+    }
+    if (entry.isFile() && /\.(mjs|js)$/.test(entry.name)) out.push(path.join(dir, entry.name));
+  }
+  return out;
+}
+
+test("class test: exactly one construction of the fixture includeIf gitdir-scope directive anywhere in the repo", () => {
   const REPO_ROOT = path.resolve(HERE, "..");
-  const roots = [
-    path.join(REPO_ROOT, "scripts"),
-    path.join(REPO_ROOT, "hooks"),
-    path.join(REPO_ROOT, "skills", "multi", "scripts"),
-  ];
   // Built, never written literally, so this test is never counted as its own second construction.
   const needle = ["includeIf ", '"gitdir'].join("");
   const constructions = [];
-  for (const dir of roots) {
-    if (!fs.existsSync(dir)) continue;
-    for (const name of fs.readdirSync(dir)) {
-      const full = path.join(dir, name);
-      if (!fs.statSync(full).isFile() || !/\.(mjs|js)$/.test(name)) continue;
-      const lines = fs.readFileSync(full, "utf8").split("\n");
-      let inBlockComment = false;
-      for (const [i, line] of lines.entries()) {
-        const trimmed = line.trim();
-        if (inBlockComment) {
-          if (trimmed.includes("*/")) inBlockComment = false;
-          continue; // the whole line lives inside the block comment
-        }
-        if (trimmed.startsWith("/*")) {
-          if (!trimmed.includes("*/")) inBlockComment = true;
-          continue;
-        }
-        if (!line.includes(needle)) continue;
-        if (trimmed.startsWith("//")) continue; // line comment
-        // A regex literal used only for matching (e.g. this file's own
-        // `assert.match(gitconfig, /\[includeIf "gitdir\/i:/)`) escapes the bracket and the
-        // slash the way a JS RegExp source does - a constructed value (a plain string or
-        // template literal actually written to a file) never contains those escapes.
-        if (line.includes('\\[includeIf') || line.includes("gitdir\\/")) continue;
-        constructions.push(`${path.relative(REPO_ROOT, full)}:${i + 1}`);
+  for (const full of walkSourceFiles(REPO_ROOT)) {
+    const lines = fs.readFileSync(full, "utf8").split("\n");
+    let inBlockComment = false;
+    for (const [i, line] of lines.entries()) {
+      const trimmed = line.trim();
+      if (inBlockComment) {
+        if (trimmed.includes("*/")) inBlockComment = false;
+        continue; // the whole line lives inside the block comment
       }
+      if (trimmed.startsWith("/*")) {
+        if (!trimmed.includes("*/")) inBlockComment = true;
+        continue;
+      }
+      if (!line.includes(needle)) continue;
+      if (trimmed.startsWith("//")) continue; // line comment
+      // A regex literal used only for matching (e.g. this file's own
+      // `assert.match(gitconfig, /\[includeIf "gitdir\/i:/)`) escapes the bracket and the
+      // slash the way a JS RegExp source does - a constructed value (a plain string or
+      // template literal actually written to a file) never contains those escapes.
+      if (line.includes('\\[includeIf') || line.includes("gitdir\\/")) continue;
+      constructions.push(`${path.relative(REPO_ROOT, full)}:${i + 1}`);
     }
   }
   assert.equal(
