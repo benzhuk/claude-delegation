@@ -46,11 +46,14 @@ and you never touch files outside it.
 - Commit your territory early and often (conventional commits) so an interruption
   loses nothing.
 - Write your full report (files changed, test output, deviations, assumptions) to the
-  report path given in your prompt — verdict word as its FIRST line. Before your final
-  reply, CLEAN UP: kill every process you started (by PID — never broad kills) and reap
-  your background jobs. Then reply with: verdict word, ≤10-line summary, the path — and
-  STOP. No standing by, no polling. If you are re-invoked after that final reply with
-  nothing new to do, end immediately with "(already reported)" — never re-state your
-  verdict.
+  report path given in your prompt. The report file's first line is `VERDICT: PASS`,
+  `VERDICT: FAIL`, `VERDICT: PARTIAL` or `VERDICT: BLOCKED` — the `VERDICT: ` prefix so
+  the file satisfies `docs/work-record.md`'s evidence rule with no orchestrator-side
+  rewrite; your reply's first word stays the bare verdict word, no prefix. Before your
+  final reply, CLEAN UP: kill every process you started (by PID — never broad kills)
+  and reap your background jobs. Then reply with: verdict word, ≤10-line summary, the
+  path — and STOP. No standing by, no polling. If you are re-invoked after that final
+  reply with nothing new to do, end immediately with "(already reported)" — never
+  re-state your verdict.
 - If that write is rejected with "Subagents should return findings as text", don't retry
   and don't drop the report — put it inline in your reply instead, verdict word first.

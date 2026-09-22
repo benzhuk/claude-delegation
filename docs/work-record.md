@@ -77,6 +77,14 @@ A path inside the repo is checked: it must exist and its first line must start
 orchestrator copies the deciding report to
 `docs/work/evidence/<work-id>-<lane>.md`.
 
+A builder's or reviewer's report file already satisfies this at the source, with no
+orchestrator-side rewrite: `agents/builder.md` and `agents/reviewer.md` both pin the
+report/findings FILE's first line as `VERDICT: <word>` (builders: `VERDICT: PASS` /
+`VERDICT: FAIL` / `VERDICT: PARTIAL` / `VERDICT: BLOCKED`; reviewers: `VERDICT: APPROVE`
+/ `VERDICT: NEEDS_FIXES (<n>)`) — the `VERDICT: ` prefix belongs to the file only. The
+agent's own REPLY still leads with the bare verdict word, no prefix; that word is what
+the orchestrator reads to update `Status:`, not what the validator checks.
+
 ## Validator (`scripts/work-record.mjs`, `validateRecord`)
 
 `validateRecord(record, opts)` returns `[{ code, level: "finding" | "info", message }]`.
@@ -98,6 +106,15 @@ only attempted when both `gitDir` and `ref` are given.
 | `scope-drift` | finding | `git log -1 --format=%H <ref> -- <scope path>` on the given ref differs from the `Scope:` sha; only attempted when `gitDir` and `ref` are both given |
 | `workaround-overdue` | finding | any `WORKAROUND:`'s `remove when` is `by <yyyy-mm-dd>` and that date is in the past, in any status |
 | `bugfix-gate-missing` | finding | `Class:` is set, `Status: accepted`, and no evidence path's basename contains `prefix-test` |
+
+`scope-drift`'s git check can also emit `scope-unresolvable`, level `info` — when
+`gitDir` and `ref` are both given but `git log -1` for the `Scope:` path returns no
+commit at all (never tracked at that ref, or the path itself is wrong). This is not one
+of C2's pinned twelve finding codes (that list is fixed); it exists so an unresolvable
+scope is distinguishable from an agreeing one instead of silently producing zero rows
+either way. A `git` invocation that fails outright (bad `gitDir`, not a repository)
+still produces neither a finding nor this info row — that failure mode is "could not
+run the check," not "ran the check and found nothing."
 
 ## Full example record
 

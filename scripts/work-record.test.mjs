@@ -4,10 +4,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 import { STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine } from "./work-record.mjs";
 
 function codes(findings) {
   return findings.map((f) => f.code);
+}
+
+// N2 ("no test file in this suite inherits the runner environment on its own"): every child this
+// file spawns to build a git fixture goes through childEnv(), never a bare process.env. The fixture
+// HOME carries its own .gitconfig so the commit has an identity without touching the real one.
+function makeGitFixtureEnv() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-git-home-"));
+  fs.writeFileSync(path.join(home, ".gitconfig"), "[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n");
+  return childEnv(home);
 }
 
 function mkRecordText(overrides = {}, extraLines = [], body = "Prose body.") {
@@ -317,6 +327,31 @@ test("validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixtu
   const fresh = parseRecord(mkRecordText({ Scope: `target.txt@${shaV2}` }));
   const freshFindings = validateRecord(fresh, { gitDir: repo, ref: "HEAD" });
   assert.ok(!codes(freshFindings).includes("scope-drift"));
+});
+
+// F7 (seam review): an unresolvable Scope: path (never tracked at ref) must be
+// distinguishable from an agreeing one - a silent [] either way hides the difference.
+test("validateRecord: scope-unresolvable (info) fires when the Scope: path has no history at ref, not when it does", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-scope-unresolvable-"));
+  const env = makeGitFixtureEnv();
+  const run = (args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
+  run(["init", "-q"]);
+  fs.writeFileSync(path.join(repo, "tracked.txt"), "v1\n");
+  run(["add", "-A"]);
+  run(["commit", "-q", "-m", "v1"]);
+  const sha = run(["rev-parse", "HEAD"]).trim();
+
+  const unresolvable = parseRecord(mkRecordText({ Scope: `never-committed.txt@${sha}` }));
+  const unresolvableFindings = validateRecord(unresolvable, { gitDir: repo, ref: "HEAD" });
+  const row = unresolvableFindings.find((f) => f.code === "scope-unresolvable");
+  assert.ok(row, "expected a scope-unresolvable row");
+  assert.equal(row.level, "info");
+  assert.ok(!codes(unresolvableFindings).includes("scope-drift"));
+
+  const resolvable = parseRecord(mkRecordText({ Scope: `tracked.txt@${sha}` }));
+  const resolvableFindings = validateRecord(resolvable, { gitDir: repo, ref: "HEAD" });
+  assert.ok(!codes(resolvableFindings).includes("scope-unresolvable"));
+  assert.ok(!codes(resolvableFindings).includes("scope-drift"));
 });
 
 test("validateRecord: scope-drift is not attempted without both gitDir and ref", () => {
