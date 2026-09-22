@@ -125,3 +125,17 @@ test('the safety block stays under the 2000-character token-cost ceiling', () =>
   const block = safetyBlock(agents.find((a) => a.file === 'builder.md').body, 'builder.md');
   assert.ok(block.length < 2000, `safety block is ${block.length} chars, over the 2000-char ceiling`);
 });
+
+test('builder.md states it never writes the work record', () => {
+  const builder = agents.find((a) => a.file === 'builder.md');
+  assert.match(builder.body, /never write the\s+work record/i);
+  assert.match(builder.body, /docs\/work\/<work-id>\.record\.md/);
+});
+
+test('reviewer.md states a bug-fix review carries the four C4 fields', () => {
+  const reviewer = agents.find((a) => a.file === 'reviewer.md');
+  assert.match(reviewer.body, /bug-fix review carries the four C4 fields/i);
+  for (const field of ['Cause:', 'Discriminating check:', 'Fix location:', 'Simplification:']) {
+    assert.ok(reviewer.body.includes(field), `reviewer.md missing review field "${field}"`);
+  }
+});

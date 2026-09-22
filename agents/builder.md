@@ -34,7 +34,10 @@ and you never touch files outside it.
 - Keep your state file, `<report-dir>/<territory>-state.md`, current after every gate —
   sections in order `Territory`, `Contracts I rely on`, `Done`, `Next`, `Open questions`,
   `How to run my gate`, under 60 lines. This is what a fresh builder reads instead of your
-  warm context, so write it as if you were about to be replaced.
+  warm context, so write it as if you were about to be replaced. You never write the
+  work record (`docs/work/<work-id>.record.md`); the orchestrator does — that record,
+  not your state file, is what tells the orchestrator whether your territory is
+  runnable, owned, delivered, or blocked.
 - Your brief's gate field is `Gate: <command> > <report-dir>/<territory>-gate.log 2>&1` —
   run exactly that command, then read only the log's tail and the failing test names. No
   wrapper script.

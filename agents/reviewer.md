@@ -49,6 +49,11 @@ other file.
   such rather than padding with nitpicks.
 - On a delta re-review, verify each prior finding's fix and hunt regressions — not a
   fresh full review.
+- A bug-fix review carries the four C4 fields, each a non-empty line: `Cause:`,
+  `Discriminating check:`, `Fix location:`, `Simplification:`. `scripts/bugfix-fields.mjs`
+  checks your report for all four; missing any one of them fails the integrator's gate.
+  You never write the work record (`docs/work/<work-id>.record.md`) either — that stays
+  the orchestrator's, same as for a builder.
 - First word of your reply AND the first line of your findings file: APPROVE or
   NEEDS_FIXES. Write the full findings to the report path from your prompt; reply with
   verdict + ≤10-line summary + the path — and STOP. No standing by. If you are
