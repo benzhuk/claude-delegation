@@ -86,8 +86,8 @@ hoping for a positive.
 
 ## Ladder, Opus orchestrator panes only
 
-**When**: a fixed three-rung escalation — cheap fast-tier reads, mid-tier research over
-what the reads surfaced, one high-tier judge rendering a single verdict — for a pane that
+**When**: a fixed three-rung escalation — cheap fast-tier reads, mid-tier research for
+every requested target, one high-tier judge rendering a single verdict — for a pane that
 wants that shape without hand-authoring a Workflow script each time. Run it ONLY from an
 Opus orchestrator pane; never from the lead pane, a builder pane, or a Sonnet-tier
 session. Ultracode is not used anywhere — not here and not in any other delegation path; this
@@ -97,14 +97,21 @@ is a fixed, deterministic ladder, not an open-ended exhaustive workflow.
 tool as `{scriptPath: "skills/delegate/references/ladder-workflow.js"}` (or by name once
 registered) and an `args` object: `{ targets, question, readerType, maxAgents }`, all
 optional. Rungs: fast tier reads each target (`agentType: readerType ?? 'delegation:runner'`,
-`model: 'haiku'`, `effort: 'low'`) → mid tier researches what came back (`model: 'sonnet'`)
-→ high tier judges once (`model: 'opus'`, exactly one agent call). Returns one object:
-`{ verdict, evidence: [paths], cost: { agents } }` — intermediate rung output never leaves
-the script.
+`model: 'haiku'`, `effort: 'low'`) → mid tier researches every target (`model: 'sonnet'`)
+→ high tier judges once (`model: 'opus'`, exactly one agent call). It returns
+`{ verdict, evidence: [paths], cost: { agents }, coverage }`. Coverage has one flat row per
+requested position (including duplicates): `{ index, target, read, research, sources }`.
+Each stage records `complete`, `unavailable`, `unverified`, or `not-run` with a reason.
+`complete` requires a finding and at least one attributable source reference; legacy free
+text, missing results, and access-failure prose are not evidence. The judge sees partial
+coverage and limitations, but the ladder returns `inconclusive` if no complete research is
+attributable or its evidence is missing/does not cite an attributable research source.
 
-**Cap**: `args.maxAgents`, default 12, enforced by counting every `agent()` call the
-script makes across all three rungs; the (maxAgents + 1)th call throws before it is made,
-never after.
+**Cap**: A nonempty input requires `2*N+1` calls, which is also the default cap. An explicit
+`args.maxAgents` must be a positive integer and at least `2*N+1`; malformed or insufficient
+caps fail before any dispatch and identify both required and provided values. Empty targets
+make zero calls and return `inconclusive`. `cost.agents` counts calls actually attempted,
+not reserved capacity.
 
 **Reader-type fallback**: the fast tier defaults to `agentType: 'delegation:runner'`. If
 that agent type is not registered on the caller's machine, the caller passes

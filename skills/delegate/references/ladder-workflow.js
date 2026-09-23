@@ -3,87 +3,130 @@ export const meta = {
   description: 'Fixed escalation ladder for Opus orchestrator panes: fast-tier reads, mid-tier research, one high-tier judge',
   phases: [
     { title: 'Read', detail: 'fast tier reads each target' },
-    { title: 'Research', detail: 'mid tier researches the read results' },
-    { title: 'Judge', detail: 'high tier renders one verdict' },
+    { title: 'Research', detail: 'mid tier researches every target' },
+    { title: 'Judge', detail: 'high tier renders one verdict from attributable evidence' },
   ],
 }
 
-// Ladder workflow template — Opus orchestrator panes only (see skills/delegate/SKILL.md,
-// section "Ladder, Opus orchestrator panes only"). Approved by the next-build spec, NOT
-// yet live: acceptance is one real run from an Opus orchestrator pane after merge,
-// recorded on its work record.
-//
-// args (may be omitted entirely — every field defaults):
-//   targets: string[]      what the fast tier reads (paths, questions, URLs); default []
-//   question: string       what the high-tier judge must decide; default a generic prompt
-//   readerType: string     agentType for the fast tier; default 'delegation:runner'
-//   maxAgents: number      per-run cap on agent() calls; default 12
-//
-// Returns exactly one object: { verdict, evidence: [paths], cost: { agents } }.
-// Intermediate rung output never leaves this script.
-
+// Returns { verdict, evidence, cost: { agents }, coverage }. A nonempty target set
+// always needs two calls per target plus one judge call, so an explicit cap is checked
+// before dispatch. `cost.agents` counts calls actually attempted, not that reservation.
 const a = args ?? {}
 const targets = Array.isArray(a.targets) ? a.targets : []
+const requiredAgents = targets.length * 2 + (targets.length ? 1 : 0)
+const capProvided = a.maxAgents != null
 const capArg = Number(a.maxAgents)
-const maxAgents = a.maxAgents != null && Number.isFinite(capArg) ? capArg : 12
+
+if (capProvided && (!Number.isInteger(capArg) || capArg < 1)) {
+  throw new Error(
+    `ladder-workflow: invalid maxAgents (required ${requiredAgents}, provided ${String(a.maxAgents)})`,
+  )
+}
+
+if (capProvided && capArg < requiredAgents) {
+  throw new Error(
+    `ladder-workflow: insufficient maxAgents (required ${requiredAgents}, provided ${capArg})`,
+  )
+}
+
 const readerType = a.readerType ?? 'delegation:runner'
 const question =
   typeof a.question === 'string' && a.question
     ? a.question
-    : 'Assess the read and research findings below and render one verdict.'
+    : 'Assess the attributable research evidence below and render one verdict.'
 
-// Per-run cap. Reserved BEFORE entering parallel()/pipeline() for a rung, never inside a
-// stage callback: parallel()/pipeline() may resolve a callback's own thrown error to null
-// for just that one item instead of rejecting the whole call, which would let an over-cap
-// rung slip through without ever hard-stopping the script. Reserving here means the throw
-// always happens at the top level, before any of that rung's agent() calls are made.
-let agentCalls = 0
-function reserve(n) {
-  const next = agentCalls + n
-  if (next > maxAgents) {
-    throw new Error(
-      `ladder-workflow: maxAgents cap of ${maxAgents} exceeded (this rung needs ${n} more agent() call(s), would reach ${next})`,
-    )
+const resultSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['complete', 'unavailable', 'unverified'] },
+    finding: { type: 'string' },
+    sources: { type: 'array', items: { type: 'string' } },
+    reason: { type: 'string' },
+  },
+  required: ['status', 'finding', 'sources', 'reason'],
+}
+
+function sourceList(value) {
+  return Array.isArray(value)
+    ? value.filter((source) => typeof source === 'string' && source.trim()).map((source) => source.trim())
+    : []
+}
+
+function normalizeStage(value) {
+  if (value == null) return { status: 'unavailable', finding: '', sources: [], reason: 'No result was available.' }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { status: 'unverified', finding: '', sources: [], reason: 'Result was not structured evidence.' }
   }
-  agentCalls = next
+  const finding = typeof value.finding === 'string' ? value.finding.trim() : ''
+  const sources = sourceList(value.sources)
+  const reason = typeof value.reason === 'string' ? value.reason.trim() : ''
+  if (value.status === 'unavailable') return { status: 'unavailable', finding: '', sources: [], reason: reason || 'Source was unavailable.' }
+  if (value.status === 'complete' && finding && sources.length) {
+    return { status: 'complete', finding, sources, reason }
+  }
+  return {
+    status: 'unverified',
+    finding,
+    sources: [],
+    reason: reason || 'Finding and an attributable source reference are required for complete evidence.',
+  }
+}
+
+function missingStage() {
+  return { status: 'not-run', finding: '', sources: [], reason: 'No result was returned for this target.' }
+}
+
+function stageAt(results, index) {
+  return index < results.length ? normalizeStage(results[index]) : missingStage()
+}
+
+if (!targets.length) {
+  return { verdict: 'inconclusive', evidence: [], cost: { agents: 0 }, coverage: [] }
+}
+
+let agentCalls = 0
+function attempt(prompt, options) {
+  agentCalls += 1
+  return agent(prompt, options)
 }
 
 phase('Read')
-let reads = []
-if (targets.length) {
-  reserve(targets.length)
-  reads = await parallel(
-    targets.map((target) => () =>
-      agent(
-        `Read ${target} and report only what is there, in under 10 lines. Facts, not a recommendation.`,
-        { agentType: readerType, model: 'haiku', effort: 'low', phase: 'Read', label: `read:${target}` },
-      ),
+const reads = await parallel(
+  targets.map((target, index) => () =>
+    attempt(
+      `Read ${target} and return a compact structured result. Use status complete only when you inspected a reference and can name it in sources; otherwise use unavailable or unverified. Do not claim that your model declaration proves access.`,
+      { agentType: readerType, model: 'haiku', effort: 'low', phase: 'Read', label: `read:${index}:${target}`, schema: resultSchema },
     ),
-  )
-}
-const readPairs = targets
-  .map((target, index) => ({ target, summary: reads[index] }))
-  .filter((pair) => pair.summary)
-const readFindings = readPairs.map((pair) => pair.summary)
+  ),
+)
 
 phase('Research')
-let researched = []
-if (readPairs.length) {
-  reserve(readPairs.length)
-  researched = await pipeline(readPairs, (pair) =>
-    agent(
-      `A fast-tier reader reported this about ${pair.target}:\n\n${pair.summary}\n\nInvestigate further and report findings with evidence paths, in under 20 lines.`,
-      { model: 'sonnet', phase: 'Research', label: `research:${pair.target}` },
-    ),
+const researched = await pipeline(targets.map((target, index) => ({ target, index })), ({ target, index }) => {
+  const read = stageAt(reads, index)
+  return attempt(
+    `Research ${target}. The read-stage result was:\n${JSON.stringify(read)}\n\nReturn a compact structured result. Complete requires an attributable finding and at least one inspected source reference. If access was unavailable, say so in status/reason; access-failure prose is not evidence.`,
+    { model: 'sonnet', phase: 'Research', label: `research:${index}:${target}`, schema: resultSchema },
   )
-}
-const researchFindings = researched.filter(Boolean)
+})
+
+const coverage = targets.map((target, index) => {
+  const read = stageAt(reads, index)
+  const research = stageAt(researched, index)
+  return {
+    index,
+    target,
+    read: { status: read.status, reason: read.reason },
+    research: { status: research.status, reason: research.reason },
+    sources: [...new Set([...read.sources, ...research.sources])],
+  }
+})
+const attributableResearchSources = coverage.flatMap((row, index) =>
+  stageAt(researched, index).status === 'complete' ? stageAt(researched, index).sources : [],
+)
 
 phase('Judge')
-reserve(1)
-const digest = (researchFindings.length ? researchFindings : readFindings).join('\n\n---\n\n')
-const judged = await agent(
-  `${question}\n\nFindings from the ladder below. Render one verdict and list the evidence paths that support it.\n\n${digest}`,
+const judged = await attempt(
+  `${question}\n\nCoverage and limitations, including partial failures, are below. Judge only from material references in the coverage sources; model declarations do not prove access. Return a verdict and evidence paths.\n\n${JSON.stringify(coverage)}`,
   {
     model: 'opus',
     phase: 'Judge',
@@ -99,8 +142,15 @@ const judged = await agent(
   },
 )
 
+const judgeEvidence = sourceList(judged?.evidence).filter((source) => attributableResearchSources.includes(source))
+const hasCompleteResearch = attributableResearchSources.length > 0
+const validJudgeEvidence = judgeEvidence.length > 0
+
 return {
-  verdict: judged?.verdict ?? 'inconclusive',
-  evidence: Array.isArray(judged?.evidence) ? judged.evidence : [],
+  verdict: hasCompleteResearch && validJudgeEvidence && typeof judged?.verdict === 'string' && judged.verdict.trim()
+    ? judged.verdict
+    : 'inconclusive',
+  evidence: judgeEvidence,
   cost: { agents: agentCalls },
+  coverage,
 }

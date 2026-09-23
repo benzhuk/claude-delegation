@@ -61,10 +61,15 @@ function makeAgentStub() {
   const calls = [];
   async function agentStub(prompt, opts) {
     calls.push({ prompt, opts });
-    if (opts && opts.schema) {
+    if (opts && opts.phase === "Judge") {
       return { verdict: "PASS", evidence: ["docs/work/example.record.md"] };
     }
-    return `stub summary for ${(opts && opts.label) || "call"}`;
+    return {
+      status: "complete",
+      finding: `finding for ${(opts && opts.label) || "call"}`,
+      sources: ["docs/work/example.record.md"],
+      reason: "inspected source",
+    };
   }
   agentStub.calls = calls;
   return agentStub;
@@ -186,19 +191,18 @@ test("runs with args undefined (every field defaults)", async () => {
   const stub = makeAgentStub();
   const result = await runScript(undefined, stub);
   assert.equal(typeof result, "object");
-  assert.equal(result.verdict, "PASS");
-  assert.deepEqual(result.evidence, ["docs/work/example.record.md"]);
-  // no targets by default -> only the one Judge call
-  assert.equal(result.cost.agents, 1);
-  assert.equal(stub.calls.length, 1);
-  assert.equal(stub.calls[0].opts.model, "opus");
+  assert.equal(result.verdict, "inconclusive");
+  assert.deepEqual(result.evidence, []);
+  assert.deepEqual(result.coverage, []);
+  assert.equal(result.cost.agents, 0);
+  assert.equal(stub.calls.length, 0);
 });
 
 test("runs with args = { maxAgents: 2 } and no targets", async () => {
   const stub = makeAgentStub();
   const result = await runScript({ maxAgents: 2 }, stub);
-  assert.equal(result.cost.agents, 1);
-  assert.equal(stub.calls.length, 1);
+  assert.equal(result.cost.agents, 0);
+  assert.equal(stub.calls.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -243,9 +247,9 @@ test("throws at maxAgents + 1 when a later rung tips the cumulative count over",
   // judge agent() call is made.
   await assert.rejects(
     () => runScript({ targets: ["a", "b"], maxAgents: 4 }, stub),
-    /maxAgents cap of 4 exceeded/,
+    /required 5, provided 4/,
   );
-  assert.equal(stub.calls.length, 4, "the over-cap rung must never reach agent()");
+  assert.equal(stub.calls.length, 0, "preflight rejects before any agent() call");
 });
 
 test("throws at maxAgents + 1 when the very first rung alone exceeds the cap", async () => {
@@ -253,17 +257,19 @@ test("throws at maxAgents + 1 when the very first rung alone exceeds the cap", a
   // 3 targets need 3 Read calls; cap 2 -> reserve(3) sees next = 3 = maxAgents + 1.
   await assert.rejects(
     () => runScript({ targets: ["a", "b", "c"], maxAgents: 2 }, stub),
-    /maxAgents cap of 2 exceeded/,
+    /required 7, provided 2/,
   );
   assert.equal(stub.calls.length, 0, "no agent() call happens once a rung is over cap");
 });
 
-test("default cap is 12", async () => {
+test("default cap is the required 2*N+1 calls", async () => {
   const stub = makeAgentStub();
   // 4 targets -> 4 + 4 + 1 = 9 calls, well under the default cap of 12; proves no cap
   // is silently applied lower than documented.
   const result = await runScript({ targets: ["a", "b", "c", "d"] }, stub);
   assert.equal(result.cost.agents, 9);
+  const larger = await runScript({ targets: ["a", "b", "c", "d", "e", "f"] }, makeAgentStub());
+  assert.equal(larger.cost.agents, 13, "the default cap grows with planned coverage");
 });
 
 test("a numeric-string maxAgents (e.g. from JSON-ish args) still honours the cap, not widen it to 12", async () => {
@@ -272,7 +278,7 @@ test("a numeric-string maxAgents (e.g. from JSON-ish args) still honours the cap
   // must throw at the Read rung, never run 11 agents against an unenforced cap.
   await assert.rejects(
     () => runScript({ targets: ["a", "b", "c", "d", "e"], maxAgents: "2" }, stub),
-    /maxAgents cap of 2 exceeded/,
+    /required 11, provided 2/,
   );
   assert.equal(stub.calls.length, 0, "no agent() call happens once a rung is over cap");
 });
@@ -281,13 +287,20 @@ test("a numeric-string maxAgents (e.g. from JSON-ish args) still honours the cap
 // return shape: exactly one object, intermediate output never leaves the script
 // ---------------------------------------------------------------------------
 
-test("returns exactly { verdict, evidence, cost: { agents } } and nothing else", async () => {
+test("returns coverage as an additive fourth top-level field", async () => {
   const stub = makeAgentStub();
   const result = await runScript({ targets: ["a"] }, stub);
-  assert.deepEqual(Object.keys(result).sort(), ["cost", "evidence", "verdict"]);
+  assert.deepEqual(Object.keys(result).sort(), ["cost", "coverage", "evidence", "verdict"]);
   assert.deepEqual(Object.keys(result.cost), ["agents"]);
   assert.equal(typeof result.verdict, "string");
   assert.ok(Array.isArray(result.evidence));
+  assert.deepEqual(result.coverage[0], {
+    index: 0,
+    target: "a",
+    read: { status: "complete", reason: "inspected source" },
+    research: { status: "complete", reason: "inspected source" },
+    sources: ["docs/work/example.record.md"],
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -295,17 +308,17 @@ test("returns exactly { verdict, evidence, cost: { agents } } and nothing else",
 // not a rejection, matching the real Workflow parallel()/pipeline() semantics
 // ---------------------------------------------------------------------------
 
-test("a per-item throw under runtime-faithful parallel()/pipeline() drops that item to null, without crashing or re-counting it downstream", async () => {
+test("a failed read preserves positional coverage and still receives research", async () => {
   const calls = [];
   async function agentStub(prompt, opts) {
     calls.push({ prompt, opts });
-    if (opts && opts.label === "read:b") {
+    if (opts && opts.label === "read:1:b") {
       throw new Error("simulated per-item failure");
     }
-    if (opts && opts.schema) {
+    if (opts && opts.phase === "Judge") {
       return { verdict: "PASS", evidence: ["docs/work/example.record.md"] };
     }
-    return `stub summary for ${(opts && opts.label) || "call"}`;
+    return { status: "complete", finding: "verified", sources: ["docs/work/example.record.md"], reason: "inspected" };
   }
 
   const result = await runScript(
@@ -317,14 +330,61 @@ test("a per-item throw under runtime-faithful parallel()/pipeline() drops that i
   const readCalls = calls.filter((c) => c.opts.phase === "Read");
   assert.equal(readCalls.length, 3, "all three reads are attempted");
   const researchCalls = calls.filter((c) => c.opts.phase === "Research");
-  assert.equal(researchCalls.length, 2, "only the two surviving reads go to research");
-  assert.ok(
-    researchCalls.every((c) => c.opts.label !== "research:b"),
-    "the dropped read is never paraphrased into a research call",
-  );
+  assert.equal(researchCalls.length, 3, "every planned target receives research");
+  assert.ok(researchCalls.some((c) => c.opts.label === "research:1:b"));
   const judgeCalls = calls.filter((c) => c.opts.phase === "Judge");
   assert.equal(judgeCalls.length, 1, "the judge still runs exactly once");
-  // 3 reads + 2 research + 1 judge = 6 actual agent() calls; cost.agents is the real
-  // count, not an inflated reservation against the dropped item.
-  assert.equal(result.cost.agents, 6);
+  assert.equal(result.cost.agents, 7, "cost counts actual attempted calls");
+  assert.equal(result.coverage[1].read.status, "unavailable");
+  assert.equal(result.coverage[1].research.status, "complete");
+});
+
+test("rejects insufficient or malformed explicit caps before any dispatch, with required and provided budgets", async () => {
+  const insufficient = makeAgentStub();
+  await assert.rejects(
+    () => runScript({ targets: ["a", "b"], maxAgents: 4 }, insufficient),
+    /required 5, provided 4/,
+  );
+  assert.equal(insufficient.calls.length, 0);
+  const malformed = makeAgentStub();
+  await assert.rejects(
+    () => runScript({ targets: ["a"], maxAgents: "nope" }, malformed),
+    /required 3, provided nope/,
+  );
+  assert.equal(malformed.calls.length, 0);
+});
+
+test("duplicate targets retain distinct positional coverage rows", async () => {
+  const result = await runScript({ targets: ["same", "same"] }, makeAgentStub());
+  assert.deepEqual(result.coverage.map((row) => [row.index, row.target]), [[0, "same"], [1, "same"]]);
+});
+
+test("legacy, null, or incomplete results are unverified or unavailable and cannot let a PASS judge override inconclusive", async () => {
+  const calls = [];
+  async function stub(prompt, opts) {
+    calls.push(opts);
+    if (opts.phase === "Judge") return { verdict: "PASS", evidence: ["invented.md"] };
+    if (opts.phase === "Read") return "I could access the source";
+    return { status: "complete", finding: "claim", sources: [], reason: "access failed but trust me" };
+  }
+  const result = await runScript({ targets: ["a"] }, stub);
+  assert.equal(result.verdict, "inconclusive");
+  assert.deepEqual(result.evidence, []);
+  assert.equal(result.coverage[0].read.status, "unverified");
+  assert.equal(result.coverage[0].research.status, "unverified");
+  assert.equal(result.cost.agents, 3);
+});
+
+test("judge evidence must cite attributable complete research, while partial coverage remains visible", async () => {
+  async function stub(prompt, opts) {
+    if (opts.phase === "Judge") return { verdict: "PASS", evidence: ["refs/good.md", "invented.md"] };
+    if (opts.phase === "Research" && opts.label === "research:0:a") {
+      return { status: "complete", finding: "verified", sources: ["refs/good.md"], reason: "inspected" };
+    }
+    return { status: "unavailable", finding: "", sources: [], reason: "not accessible" };
+  }
+  const result = await runScript({ targets: ["a", "b"] }, stub);
+  assert.equal(result.verdict, "PASS");
+  assert.deepEqual(result.evidence, ["refs/good.md"]);
+  assert.equal(result.coverage[1].research.status, "unavailable");
 });
