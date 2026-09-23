@@ -12,12 +12,13 @@ const VERSION = 1;
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const home = (env = process.env) => env.AGENTS_HOME || path.join(os.homedir(), '.agents');
 const absent = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+const canonicalPath = (file) => (fs.realpathSync.native || fs.realpathSync)(file);
 
 function fileBytes(file) {
   try {
     const stat = fs.statSync(file);
     if (!stat.isFile() || stat.size === 0) return { kind: 'invalid' };
-    return { kind: 'ok', bytes: fs.readFileSync(file), path: fs.realpathSync(file) };
+    return { kind: 'ok', bytes: fs.readFileSync(file), path: canonicalPath(file) };
   } catch (err) { return absent(err) ? { kind: 'missing' } : { kind: 'unreadable' }; }
 }
 
@@ -35,7 +36,7 @@ function resolvedDestination(file) {
   const parts = [];
   let current = path.resolve(file);
   while (true) {
-    try { return path.join(fs.realpathSync(current), ...parts.reverse()); }
+    try { return path.join(canonicalPath(current), ...parts.reverse()); }
     catch (err) {
       if (!absent(err)) throw err;
       const parent = path.dirname(current);
@@ -56,7 +57,7 @@ export function goalLocation(repo) {
   if (!loaded.root) return { kind: 'unconfigured' };
   if (loaded.source === 'unreadable') return { kind: 'unknown' };
   let projectRoot;
-  try { projectRoot = fs.realpathSync(loaded.root); } catch { return { kind: 'unknown' }; }
+  try { projectRoot = canonicalPath(loaded.root); } catch { return { kind: 'unknown' }; }
   const configured = loaded.config && loaded.config.goal_card;
   const candidate = configured && path.isAbsolute(configured) ? configured : path.join(projectRoot, configured || 'docs/goals/card.md');
   const goal = fileBytes(candidate);

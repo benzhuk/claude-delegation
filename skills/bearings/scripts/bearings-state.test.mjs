@@ -34,16 +34,21 @@ test('malformed publication URLs are rejected during completion and cannot suppr
   receipt.publication = 'https://'; fs.writeFileSync(receiptPath, JSON.stringify(receipt));
   assert.equal(check({ repo: root, env: e, now }).status, 'due');
 });
-test('receipt destination cannot replace report or response evidence through aliases', () => {
+test('receipt destination cannot replace report, response, or goal evidence through aliases', () => {
   const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
   complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', env: e, now });
   const receiptPath = receiptLocation(fs.realpathSync(root), e); const before = fs.readFileSync(receiptPath);
-  for (const evidence of [receiptPath, path.join(path.dirname(receiptPath), '.', path.basename(receiptPath))]) {
+  for (const evidence of [receiptPath, path.join(path.dirname(receiptPath), '.', path.basename(receiptPath)), receiptPath.toUpperCase()]) {
     assert.throws(() => complete({ repo: root, report: evidence, leadResponse: response, publication: 'https://example.test/decision', env: e, now }), /destination conflicts/);
     assert.deepEqual(fs.readFileSync(receiptPath), before);
     assert.throws(() => complete({ repo: root, report, leadResponse: evidence, publication: 'https://example.test/decision', env: e, now }), /destination conflicts/);
     assert.deepEqual(fs.readFileSync(receiptPath), before);
   }
+  const goalRoot = project(); const goalEnv = env(); const goalFiles = files(goalRoot);
+  const goalReceipt = receiptLocation(fs.realpathSync(goalRoot), goalEnv); fs.mkdirSync(path.dirname(goalReceipt), { recursive: true }); fs.writeFileSync(goalReceipt, 'goal card\n');
+  fs.writeFileSync(path.join(goalRoot, '.agents', 'project.json'), JSON.stringify({ vcs: 'none', goal_card: goalReceipt })); const goalBefore = fs.readFileSync(goalReceipt);
+  assert.throws(() => complete({ repo: goalRoot, report: goalFiles.report, leadResponse: goalFiles.response, publication: 'https://example.test/decision', env: goalEnv, now }), /destination conflicts/);
+  assert.deepEqual(fs.readFileSync(goalReceipt), goalBefore);
 });
 test('future, tampered, changed-goal and malformed receipts never suppress due', () => {
   const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
