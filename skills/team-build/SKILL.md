@@ -221,7 +221,10 @@ it.
 For a Git-backed team build, after authorized integration and successful integration
 gates, record the integration head and gate in existing `Log:`/`Evidence:` fields. Put
 new `Log:` lines before the first blank line and parse the result to verify they remain
-header lines. Then, immediately before the owner marks the record `accepted`, run:
+header lines. In the body, record an unindented top-level `Observed:` paragraph at body
+start, after a blank line, or immediately after an unindented `Predicts:` line; indented,
+quoted, fenced, or list-contained examples do not satisfy strict acceptance. Then,
+immediately before the owner marks the record `accepted`, run:
 
 ```
 node <verified-plugin-root>/scripts/work-record.mjs check-acceptance \

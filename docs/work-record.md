@@ -100,8 +100,11 @@ Exactly one delivery mode is required. Live mode resolves the current ref tip an
 with `Artifact:`; pinned mode is an explicit choice for a deliberately fixed artifact and is
 never inferred after a live ref moves. Short revisions work only when Git resolves them
 unambiguously to commit objects. The check also requires every singleton header exactly once,
-all required fields, a nonempty body `Observed:` outside quotes and fences, and every evidence
-path to be a readable regular file whose real path stays within the repository.
+all required fields, and a nonempty top-level body `Observed:` metadata paragraph. `Observed:`
+is unindented and begins at body start, after a blank line, or immediately after an unindented
+`Predicts:` line in the same metadata paragraph. Quoted, fenced, list-contained, and otherwise
+indented examples do not count. Every evidence path must be a readable regular file whose real
+path stays within the repository.
 
 At least one evidence file must begin exactly `VERDICT: APPROVE <sha>` or `VERDICT: APPROVE —
 <sha>` for the current artifact. A current `NEEDS_FIXES`, `FAIL`, or `REJECTED` refuses

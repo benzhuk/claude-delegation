@@ -658,8 +658,10 @@ test("check-acceptance CLI emits only the pinned success JSON", () => {
   assert.deepEqual(JSON.parse(stdout), { ok: true, work: "wr-2026-09-23-acceptance", artifact: f.sha, delivery: f.sha });
 });
 
-test("checkAcceptance excludes nested fence-like lines, lazy blockquotes, and indented code from Observed", () => {
+test("checkAcceptance requires a top-level Observed metadata paragraph", () => {
   const bodies = [
+    "- ```markdown\n  Observed: fenced list content.\n  ```",
+    " \tObserved: mixed indentation.",
     "```markdown\n~~~\nObserved: fenced only.\n```",
     "````markdown\n```\nObserved: fenced only.\n````",
     "> Example paragraph\nObserved: lazy quoted continuation.",
@@ -671,6 +673,20 @@ test("checkAcceptance excludes nested fence-like lines, lazy blockquotes, and in
     const text = fs.readFileSync(recordPath, "utf8");
     fs.writeFileSync(recordPath, text.replace("Predicts: acceptance identity agrees.\nObserved: pending integration measurement.", body));
     assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /requires a nonempty Observed/);
+  }
+});
+
+test("checkAcceptance accepts top-level Observed at body start, after blank, or after Predicts", () => {
+  for (const body of [
+    "Observed: pending.",
+    "Context paragraph.\n\nObserved: unknown.",
+    "Predicts: identity agreement.\nObserved: measured after integration.",
+  ]) {
+    const f = makeAcceptanceFixture();
+    const recordPath = path.join(f.repo, f.record);
+    const text = fs.readFileSync(recordPath, "utf8");
+    fs.writeFileSync(recordPath, text.replace("Predicts: acceptance identity agrees.\nObserved: pending integration measurement.", body));
+    assert.equal(checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }).ok, true);
   }
 });
 
@@ -692,6 +708,8 @@ test("checkAcceptance rejects an ambiguous branch/tag delivery name", () => {
   execFileSync("git", ["-C", f.repo, "commit", "--allow-empty", "-qm", "divergent branch tip"], { env: f.env });
   execFileSync("git", ["-C", f.repo, "branch", "collision", "HEAD"], { env: f.env });
   execFileSync("git", ["-C", f.repo, "tag", "collision", f.sha], { env: f.env });
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "collision" }), /ambiguous/);
+  execFileSync("git", ["-C", f.repo, "config", "core.warnAmbiguousRefs", "false"], { env: f.env });
   assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "collision" }), /ambiguous/);
 });
 

@@ -367,7 +367,7 @@ function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
 function resolveCommit(repoRoot, revision, label, spawnImpl) {
   if (!revision) throw acceptanceError(`${label} revision is missing`);
   try {
-    const result = spawnImpl("git", ["-C", repoRoot, "rev-parse", "--verify", `${revision}^{commit}`], {
+    const result = spawnImpl("git", ["-C", repoRoot, "-c", "core.warnAmbiguousRefs=true", "rev-parse", "--verify", `${revision}^{commit}`], {
       encoding: "utf8",
       stdio: "pipe",
     });
@@ -388,7 +388,8 @@ function requireObservedBody(text) {
   const body = blank === -1 ? [] : lines.slice(blank + 1);
   let fence = null;
   let quotedParagraph = false;
-  for (const line of body) {
+  for (let i = 0; i < body.length; i += 1) {
+    const line = body[i];
     if (fence) {
       const close = new RegExp(`^ {0,3}${fence.char}{${fence.length},}[ \\t]*$`);
       if (close.test(line)) fence = null;
@@ -408,11 +409,13 @@ function requireObservedBody(text) {
       quotedParagraph = true;
       continue;
     }
-    if (quotedParagraph || /^(?: {4}|\t)/.test(line)) continue;
-    const match = /^[ \t]*Observed:[ \t]*(.+?)[ \t]*$/i.exec(line);
-    if (match && match[1].trim()) return;
+    if (quotedParagraph) continue;
+    const match = /^Observed:[ \t]*(.+?)[ \t]*$/i.exec(line);
+    if (!match || !match[1].trim()) continue;
+    const previous = i === 0 ? null : body[i - 1];
+    if (i === 0 || /^[ \t]*$/.test(previous) || /^Predicts:[ \t]*\S.*$/i.test(previous)) return;
   }
-  throw acceptanceError("record body requires a nonempty Observed: line outside fences and blockquotes");
+  throw acceptanceError("record body requires a nonempty Observed: top-level paragraph at body start, after a blank line, or immediately after top-level Predicts:");
 }
 
 function requireStrictRecordShape(text, record) {
