@@ -141,7 +141,10 @@ node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.
 ```
 
 Run from the project root; `<skill-dir>` is this skill's folder (`skills/decisions` in
-this repo), `<scratch>` the session's scratch folder (not checked).
+this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the id on
+the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
+<goals_parent_page>`, the same parent-scoped list `goals-mirror.mjs publish` checks
+for `--current none` (not checked).
 
 Exit 0 only: give the owner the URL (the exit code is `scripts/decisions-handback.mjs`'s;
 that both reads were taken seconds earlier is not checked — the script reads whatever

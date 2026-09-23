@@ -12,6 +12,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from './decisions-read.mjs';
+import { extractPageSha } from './decisions-handback.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TEMPLATE_PATH = path.join(SCRIPT_DIR, '..', 'templates', 'goals-page.md');
@@ -300,6 +301,10 @@ export function run({
         if (notes.length > 0) {
           for (const l of notes) write(`${l}\n`);
           writeErr('goals-mirror: owner notes on the goals page; act on them and republish before this can proceed\n');
+          return 1;
+        }
+        if (extractPageSha(currentText) === null) {
+          writeErr('goals-mirror: --current has no "main at <sha>" on the first line of its first callout; it is not a read of the Goals mirror page\n');
           return 1;
         }
       }

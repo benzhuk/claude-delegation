@@ -666,6 +666,37 @@ test('CLI: real process, without --head, calls real git for the head sha (does n
   assert.doesNotMatch(result.stderr, /cannot determine/, 'a real repo must resolve origin/main, not fall through to BLIND for lack of a head sha');
 });
 
+// F1 (seam fix round): mirrored to `~/.agents/skills/decisions` (Codex's store; what
+// `scripts/mirror-shared-skills.mjs` produces), the script's own folder no longer has
+// `../../../scripts/project-config.mjs` beside it. The check path must still run (not crash),
+// and `--config` must fail closed with BLIND (exit 3), never a crash.
+test('CLI: mirrored to a home with no ../../../scripts beside the skill — check path runs, --config is BLIND', () => {
+  const home = tmpdir('decisions-handback-home-');
+  const mirroredSkillDir = path.join(home, '.agents', 'skills', 'decisions');
+  fs.mkdirSync(mirroredSkillDir, { recursive: true });
+  fs.cpSync(path.join(HERE, '..'), mirroredSkillDir, { recursive: true });
+  const mirroredScript = path.join(mirroredSkillDir, 'scripts', 'decisions-handback.mjs');
+
+  const checkResult = spawnSync(process.execPath, [
+    mirroredScript,
+    '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
+    '--goals', path.join(FIXTURES, 'goals-clean.md'),
+    '--repo', HERE,
+    '--head', '889887a',
+    '--today', '9-22',
+  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
+  assert.ok([0, 1].includes(checkResult.status), `expected 0 or 1, not a crash: ${checkResult.status} ${checkResult.stderr}`);
+  assert.match(checkResult.stdout, /HANDBACK ok\n$/);
+
+  const configResult = spawnSync(process.execPath, [
+    mirroredScript,
+    '--config',
+    '--repo', HERE,
+  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
+  assert.equal(configResult.status, 3, configResult.stderr);
+  assert.match(configResult.stderr, /BLIND/);
+});
+
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {
   const cases = [
     runWith({ argv: [] }).exitCode, // no --decisions/--goals/--repo -> blind

@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, formatText } from './decisions-read.mjs';
-import { loadProjectConfig } from '../../../scripts/project-config.mjs';
+import { createRequire } from 'node:module';
 
 /** Thrown for anything that leaves this check unable to trust its inputs (exit 3, never a crash). */
 class BlindError extends Error {}
@@ -213,6 +213,13 @@ function runConfig(args, writeOut, writeErr) {
   // --config`, with no `--repo`; `loadProjectConfig` already defaults to `process.cwd()` and
   // walks up to find `.agents/project.json`, so `--repo` is an override here, never a
   // requirement (round-2 m5).
+  let loadProjectConfig;
+  try {
+    ({ loadProjectConfig } = createRequire(import.meta.url)('../../../scripts/project-config.mjs'));
+  } catch {
+    writeErr('decisions-handback: BLIND (scripts/project-config.mjs not found beside this skill)\n');
+    return 3;
+  }
   const { config, source } = loadProjectConfig(args.repo ?? process.cwd());
   if (source === 'unreadable') {
     writeErr('decisions-handback: BLIND (project config unreadable)\n');

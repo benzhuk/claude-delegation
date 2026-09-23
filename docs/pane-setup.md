@@ -129,5 +129,6 @@ node skills/decisions/scripts/goals-mirror.mjs publish --repo . --parent <goals_
 
 paste the command's output line into the release report. `<goals_parent_page>` comes
 from `.agents/project.json`; `<read>` is a fresh `notion.js read` of the existing
-Goals child page, or `none` when no Goals child page exists yet. No runner brief
-template exists for this step; none is created here.
+Goals child page (its id is on the `[child page: Goals] (<id>)` line of `notion.js
+read-blocks <goals_parent_page>`), or `none` when no Goals child page exists yet. No
+runner brief template exists for this step; none is created here.

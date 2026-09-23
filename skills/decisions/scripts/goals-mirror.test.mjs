@@ -473,7 +473,7 @@ test('publish with a real --current file never calls checkGoalsPageAbsent (that 
   const spawnNotion = () => ({ status: 0, stdout: '', stderr: '' });
   let absentCalls = 0;
   const checkGoalsPageAbsent = () => { absentCalls += 1; return true; };
-  const currentRead = L('# Goals {toggle="true"}', '\t<empty-block/>');
+  const currentRead = L('<callout icon="x">', '\t**Mirror of … main at abc1234.**', '</callout>', '# Goals {toggle="true"}', '\t<empty-block/>');
   const files = fakeFiles(repo, content);
   const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
   const { write, writeErr } = collect();
@@ -483,6 +483,30 @@ test('publish with a real --current file never calls checkGoalsPageAbsent (that 
   });
   assert.equal(code, 0);
   assert.equal(absentCalls, 0);
+});
+
+// F3 (seam fix round): a decisions-page read passed as --current by mistake (the two files sit
+// side by side at hand-back time, SKILL.md:138-139) has no "main at <sha>" callout line, so it
+// is not a read of the Goals mirror page — refuse rather than publish over it.
+test('publish refuses (exit 1, zero notion.js calls) when --current is a decisions-page read, not a goals-page read', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const currentRead = fs.readFileSync(
+    path.join(HERE, 'fixtures', 'handback', 'decisions-clean.md'), 'utf8',
+  );
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { out, write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', '/current.md'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.equal(spawnCalls, 0);
+  assert.match(out.stderr, /has no "main at <sha>" on the first line of its first callout/);
 });
 
 test('publish with a --current TICKED decision holding one unreplied comment exits 1, zero notion.js calls (addendum patch a: every status, not just COMMENTED)', () => {
@@ -670,6 +694,9 @@ test('publish does NOT refuse on a mid-line escaped marker ("see \\*\\* here") �
   const git = cleanGit(content);
   const spawnNotion = () => ({ status: 0, stdout: '', stderr: '' });
   const currentRead = L(
+    '<callout icon="x">',
+    '\t**Mirror of … main at abc1234.**',
+    '</callout>',
     '# Ship the thing {toggle="true"}',
     '\t- [ ] do it',
     '\tNo default line stated.',
