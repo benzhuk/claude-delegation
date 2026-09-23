@@ -30,9 +30,13 @@ Whole-task cost, coordination, agent count, and mechanism count explain these ou
 
 A source candidate, an integrated result, a release, an installation, and a measured useful outcome are separate claims. The next useful proof is real authorized work and shared handoffs on Codex, Claude Code, and a mixed collaboration, with both code and non-code evidence where applicable. Automatic cadence, unattended Done pickup, and durable automatic memory upkeep are not yet demonstrated. Do not represent an instruction, source test, or local checkout as installed or automatic host behavior.
 
+## Active supporting outcomes
+
+The package coordinates its skills and host integrations around the same durable contracts. Actionable communication reaches its intended owner without gratuitous wakes; a human decision or comment is handled in its designated document and does not block independent work. Learning is durable, shared where the host supports it, and superseded lessons cease to govern. Safe cleanup has a named owner and acts only on the provably safe class. These outcomes remain requirements; their implementation, installation, and measurement status are explicit in the relevant work evidence and are not established by this document.
+
 ## Dated history and observations
 
-The following records preserve earlier observations; they do not override the current objective or operating rules.
+The following records preserve earlier observations; they do not override the current objective or operating rules. The complete original dated quotations and measurements are retained in [the 2026-09-22 historical appendix](goals/history-2026-09-22.md).
 
 - September 20–22, 2026: Ben emphasized token efficiency while maintaining quality, faster deliverables, root-cause work over patch castles, and agents doing valuable work without waiting to be asked.
 - September 21, 2026: prior records reported a 152-turn hand-run build and 19/67 orchestrator turns in loop builds; these are observations, not lead-turn targets or provider/model requirements.
