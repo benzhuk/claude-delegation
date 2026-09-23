@@ -208,13 +208,35 @@ Move every territory's work record as it moves, in the same turn the event happe
 only once integrated within `Authority:` or by Ben's own quoted word — copy the deciding
 report to `docs/work/evidence/<work-id>-<lane>.md` at that moment, since `accepted`
 requires at least one evidence path inside the repo. Every report copied into
-`docs/work/evidence/` starts with a `VERDICT:` line (`VERDICT: APPROVE <sha>`,
-`VERDICT: PASS`, …) — the reviewer's and builder's own bare-word verdict is not enough,
+`docs/work/evidence/` starts with its original `VERDICT:` line. The independent deciding
+review uses the exact first-line form `VERDICT: APPROVE <artifact-sha>` or `VERDICT:
+APPROVE — <artifact-sha>`; supporting reports may retain `VERDICT: PASS`, failures, and
+other-revision history. The reviewer's and builder's own bare-word verdict is not enough,
 since `validateRecord`'s `evidence-no-verdict` check reads only the copy in the repo; add
 the prefix at copy time if the original report didn't carry it. You remain the only
 writer to `docs/work/` through to the end; a fresh orchestrator, or one that is woken, is
 shown its next runnable record by reading that directory, never by asking you to recall
 it.
+
+For a Git-backed team build, after authorized integration and successful integration
+gates, record the integration head and gate in existing `Log:`/`Evidence:` fields. Put
+new `Log:` lines before the first blank line and parse the result to verify they remain
+header lines. Then, immediately before the owner marks the record `accepted`, run:
+
+```
+node <verified-plugin-root>/scripts/work-record.mjs check-acceptance \
+  --record <repo-relative-record> --repo <target-root> \
+  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
+```
+
+Use live mode for a branch/ref being delivered and pinned mode only when the caller
+deliberately selected a fixed artifact. Any intervening artifact, record, or report
+change requires a fresh check. The command is read-only and proves local review identity;
+the owner remains responsible for integration, authority, installed behavior, and goal
+satisfaction. A source artifact may differ from the merge head: unchanged reviewed source
+does not need ceremonial re-review, while integration changes or conflict resolutions do.
+Non-code outcomes keep their attributable evidence and owner judgment without inventing a
+Git commit for this Git-specific check.
 
 Once every territory is `reviewed` and the integrator's gates are green — before the merge
 ask, so its numbers go into it, not after `accepted`, which is downstream of that decision

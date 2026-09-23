@@ -85,6 +85,35 @@ report/findings FILE's first line as `VERDICT: <word>` (builders: `VERDICT: PASS
 agent's own REPLY still leads with the bare verdict word, no prefix; that word is what
 the orchestrator reads to update `Status:`, not what the validator checks.
 
+### Strict Git-backed acceptance check
+
+Historical structural validation remains permissive. Git-backed team builds add a
+read-only check immediately before the owner changes a reviewed record to `accepted`:
+
+```
+node <verified-plugin-root>/scripts/work-record.mjs check-acceptance \
+  --record <repo-relative-record> --repo <target-root> \
+  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
+```
+
+Exactly one delivery mode is required. Live mode resolves the current ref tip and compares it
+with `Artifact:`; pinned mode is an explicit choice for a deliberately fixed artifact and is
+never inferred after a live ref moves. Short revisions work only when Git resolves them
+unambiguously to commit objects. The check also requires every singleton header exactly once,
+all required fields, a nonempty body `Observed:` outside quotes and fences, and every evidence
+path to be a readable regular file whose real path stays within the repository.
+
+At least one evidence file must begin exactly `VERDICT: APPROVE <sha>` or `VERDICT: APPROVE —
+<sha>` for the current artifact. A current `NEEDS_FIXES`, `FAIL`, or `REJECTED` refuses
+acceptance. Supporting verdicts and verdicts for other revisions remain history. Success prints
+`{"ok":true,"work":"...","artifact":"<full-sha>","delivery":"<full-sha>"}`; failure is
+nonzero with a diagnostic. Neither outcome writes the record, evidence, repository, or Git refs.
+
+This command proves local record, review, and delivery identity only. The owner still verifies
+integration gates, authority, goal satisfaction, and installed behavior. A merge that preserves
+reviewed source needs no ceremonial re-review; content changes or conflict resolution require
+independent review. Non-code work does not invent a Git commit to use this Git-specific gate.
+
 ## Validator (`scripts/work-record.mjs`, `validateRecord`)
 
 `validateRecord(record, opts)` returns `[{ code, level: "finding" | "info", message }]`.

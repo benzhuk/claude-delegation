@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
-import { STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet } from "./work-record.mjs";
+import { STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet, checkAcceptance } from "./work-record.mjs";
 
 function codes(findings) {
   return findings.map((f) => f.code);
@@ -38,6 +39,32 @@ function mkRecordText(overrides = {}, extraLines = [], body = "Prose body.") {
     .map(([k, v]) => `${k}: ${v}`);
   lines.push(...extraLines);
   return [...lines, "", body].join("\n");
+}
+
+function makeAcceptanceFixture() {
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-acceptance-"));
+  const env = makeGitFixtureEnv();
+  execFileSync("git", ["init", "-q", repo], { env });
+  fs.writeFileSync(path.join(repo, "seed.txt"), "seed\n");
+  execFileSync("git", ["-C", repo, "add", "seed.txt"], { env });
+  execFileSync("git", ["-C", repo, "commit", "-qm", "seed"], { env });
+  const sha = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { env, encoding: "utf8" }).trim();
+  fs.mkdirSync(path.join(repo, "docs", "work", "evidence"), { recursive: true });
+  const evidence = "docs/work/evidence/review.md";
+  const record = "docs/work/example.record.md";
+  fs.writeFileSync(path.join(repo, evidence), `VERDICT: APPROVE — ${sha.slice(0, 12)}\nIndependent review.\n`);
+  fs.writeFileSync(path.join(repo, record), mkRecordText({
+    Work: "wr-2026-09-23-acceptance",
+    Scope: `docs/spec.md@${sha.slice(0, 12)}`,
+    Owner: "lead",
+    Status: "reviewed",
+    Authority: "may accept after authorized integration",
+    Artifact: `territory/a@${sha.slice(0, 12)}`,
+    Evidence: evidence,
+    Next: "run strict acceptance",
+    Opened: "2026-09-23T12:00:00Z",
+  }, [], "Predicts: acceptance identity agrees.\nObserved: pending integration measurement."));
+  return { repo, env, sha, evidence, record };
 }
 
 const EXAMPLE = [
@@ -531,4 +558,102 @@ test("checkRecordSet: works end to end against listRecords' own [{ path, record 
   assert.equal(findings.length, 1);
   assert.equal(findings[0].work, "wr-2026-09-21-live");
   assert.equal(findings[0].paths.length, 2);
+});
+
+// --- strict read-only acceptance --------------------------------------------------
+
+test("checkAcceptance accepts matching abbreviated approval in live and pinned modes", () => {
+  const f = makeAcceptanceFixture();
+  const live = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "HEAD" });
+  assert.deepEqual(live, { ok: true, work: "wr-2026-09-23-acceptance", artifact: f.sha, delivery: f.sha });
+  const pinned = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha.slice(0, 10) });
+  assert.equal(pinned.artifact, f.sha);
+});
+
+test("checkAcceptance refuses a moved live ref without falling back to the reviewed artifact", () => {
+  const f = makeAcceptanceFixture();
+  fs.writeFileSync(path.join(f.repo, "later.txt"), "later\n");
+  execFileSync("git", ["-C", f.repo, "add", "later.txt"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "later"], { env: f.env });
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "HEAD" }), /does not match delivery/);
+  assert.equal(checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }).ok, true);
+});
+
+test("checkAcceptance preserves historical failures but refuses a current contradictory review", () => {
+  const f = makeAcceptanceFixture();
+  const historical = "docs/work/evidence/historical.md";
+  execFileSync("git", ["-C", f.repo, "commit", "--allow-empty", "-qm", "historical other revision"], { env: f.env });
+  const otherSha = execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { env: f.env, encoding: "utf8" }).trim();
+  fs.writeFileSync(path.join(f.repo, historical), `VERDICT: FAIL ${otherSha.slice(0, 12)}\nOld failure.\n`);
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(`Evidence: ${f.evidence}`, `Evidence: ${f.evidence}, ${historical}`));
+  assert.equal(checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }).ok, true);
+  fs.writeFileSync(path.join(f.repo, historical), `VERDICT: NEEDS_FIXES ${f.sha.slice(0, 12)}\nCurrent objection.\n`);
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /refusing evidence/);
+});
+
+test("checkAcceptance rejects malformed identity, duplicate fields, and fake Observed examples", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const original = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, original.replace(/Artifact: territory\/a@[0-9a-f]+/, "Artifact: territory/a@ffffffff"));
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /missing, ambiguous, or not a commit/);
+  fs.writeFileSync(recordPath, original.replace("Status: reviewed", "Status: reviewed\nStatus: accepted"));
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /duplicate singleton field/);
+  fs.writeFileSync(recordPath, original.replace(
+    "Predicts: acceptance identity agrees.\nObserved: pending integration measurement.",
+    "Predicts: acceptance identity agrees.\n> Observed: quoted only.\n```\nObserved: fenced only.\n```",
+  ));
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /requires a nonempty Observed/);
+});
+
+test("checkAcceptance validates every evidence path and refuses realpath escapes", (t) => {
+  const f = makeAcceptanceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-acceptance-outside-"));
+  const outsideReport = path.join(outside, "review.md");
+  fs.writeFileSync(outsideReport, `VERDICT: APPROVE ${f.sha}\n`);
+  const link = path.join(f.repo, "docs", "work", "evidence", "escape.md");
+  try {
+    fs.symlinkSync(outsideReport, link, "file");
+  } catch (error) {
+    if (process.platform === "win32" && (error.code === "EPERM" || error.code === "EACCES")) {
+      t.skip("creating symlinks is not permitted on this Windows host");
+      return;
+    }
+    throw error;
+  }
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(`Evidence: ${f.evidence}`, "Evidence: docs/work/evidence/escape.md"));
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /resolves outside repository/);
+});
+
+test("checkAcceptance rejects noncommit objects and contradictory approval text", () => {
+  const f = makeAcceptanceFixture();
+  const blob = execFileSync("git", ["-C", f.repo, "hash-object", "seed.txt"], { env: f.env, encoding: "utf8" }).trim();
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: blob }), /not a commit/);
+  fs.writeFileSync(path.join(f.repo, f.evidence), `VERDICT: APPROVE ${f.sha} but NEEDS_FIXES\n`);
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /malformed deciding verdict/);
+});
+
+test("checkAcceptance requires exactly one delivery mode and leaves input bytes unchanged", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const evidencePath = path.join(f.repo, f.evidence);
+  const before = [fs.readFileSync(recordPath), fs.readFileSync(evidencePath)];
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record }), /exactly one/);
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "HEAD", pinnedArtifact: f.sha }), /exactly one/);
+  checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "HEAD" });
+  assert.deepEqual(fs.readFileSync(recordPath), before[0]);
+  assert.deepEqual(fs.readFileSync(evidencePath), before[1]);
+});
+
+test("check-acceptance CLI emits only the pinned success JSON", () => {
+  const f = makeAcceptanceFixture();
+  const stdout = execFileSync(process.execPath, [
+    fileURLToPath(new URL("./work-record.mjs", import.meta.url)), "check-acceptance",
+    "--record", f.record, "--repo", f.repo, "--delivery-ref", "HEAD",
+  ], { env: childEnv(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-cli-home-"))), encoding: "utf8" });
+  assert.deepEqual(JSON.parse(stdout), { ok: true, work: "wr-2026-09-23-acceptance", artifact: f.sha, delivery: f.sha });
 });
