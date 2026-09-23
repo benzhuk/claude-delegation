@@ -1,11 +1,11 @@
 Work: wr-2026-09-23-harness-e
 Scope: docs/specs/2026-09-23-decisions-repair.md@681c1e0
-Owner: build-e
-Status: rejected
+Owner: skills-a
+Status: delivered
 Authority: isolated repair and review; no main merge, push, live writes or rollout
-Artifact: benzhuk/astra-decisions-repair@80e3a763ed383b03e7d3848adcd9c7ea2c926a84
+Artifact: benzhuk/astra-decisions-repair@4a555118e9daac3aaf4fe6ba05138eeee1d15a7a
 Evidence: C:/Users/benzh/AppData/Local/Temp/astra-build-0923/E-report.md
-Next: fix all three independent review findings then delta review
+Next: independent delta review of corrected candidate
 Opened: 2026-09-23T20:55:20Z
 Log: 2026-09-23T20:55:20Z runnable none inherited candidate artifact 34fd10c9a5510402a4b823a3247c6c189245589b
 
@@ -17,3 +17,5 @@ Log: 2026-09-23T20:55:35Z owned build-e builder-spawned
 Log: 2026-09-23T21:02:29Z delivered skills-a agent-exited artifact 80e3a763ed383b03e7d3848adcd9c7ea2c926a84
 
 Log: 2026-09-23T21:03:34Z rejected build-e review-rejected round one
+
+Log: 2026-09-23T21:08:47Z delivered skills-a agent-exited artifact 4a555118e9daac3aaf4fe6ba05138eeee1d15a7a fix-round-delivered
