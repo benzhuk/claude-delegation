@@ -48,6 +48,22 @@ skills through the plugin cache, and a second copy would mean two skills with on
 Codex reads `SKILL.md` frontmatter for `name` and `description` only, which is exactly what
 these skills carry — no per-vendor skill format work is needed.
 
+## Native package discovery
+
+The root `plugin.json` and `.agents/plugins/marketplace.json` make this repository available to
+Codex as a native local marketplace package. The portable manifest explicitly selects
+`hooks/codex-hooks.json`, which is intentionally empty: it prevents Codex from treating the
+Claude-specific `hooks/hooks.json` as native hooks. Native discovery therefore provides skills
+only; it does not activate lifecycle hooks, role loading, or peer delivery.
+
+The mirror above remains a separate host integration for the existing Codex roles, shims, and
+trusted hook wiring. Do not treat installing the native package as a replacement for that route,
+or install both routes automatically.
+
+The current plugin-creator validator expects the older `.codex-plugin/plugin.json` layout and
+rejects this portable-only package. Validate this route with the sealed Codex CLI discovery check
+instead; do not add a duplicate compatibility manifest just to satisfy that stale validator.
+
 ## Spawning a role
 
 Codex subagents need `[features] multi_agent = true` in `~/.codex/config.toml`
