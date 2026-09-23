@@ -59,6 +59,13 @@ Repository evidence links should identify the reviewed revision whenever possibl
 - Publication status: `PUBLISHED` | `PENDING`
 - Published at: [date/time, or pending]
 - If pending: [attempted route and reason]
+
+## Completion receipt inputs
+
+- Assessment report path: [local readable, nonempty report path]
+- Lead response path: [local readable, nonempty lead response path]
+- Verified publication URL: [https URL]
+- Release/KILL condition considered: [cited condition or "none"]
 ```
 
 The assessment should be dated when it is created, and publication status should remain truthful if a later write fails. Token counts, seven-day rework, and other unavailable measures belong under unknown evidence until actual evidence exists.
