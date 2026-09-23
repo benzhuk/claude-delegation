@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { check, complete, receiptLocation } from './bearings-state.mjs';
+import { childEnv } from '../../multi/scripts/test-child-env.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./bearings-state.mjs', import.meta.url));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'bearings-state-'));
@@ -15,7 +16,7 @@ function project() {
   fs.writeFileSync(path.join(root, '.agents', 'project.json'), JSON.stringify({ vcs: 'none' })); fs.writeFileSync(path.join(root, 'docs', 'goals', 'card.md'), 'GOAL: fixture\n'); return root;
 }
 function files(root) { const report = path.join(root, 'report.md'); const response = path.join(root, 'response.md'); fs.writeFileSync(report, 'review\n'); fs.writeFileSync(response, 'lead\n'); return { report, response }; }
-function env() { return { ...process.env, AGENTS_HOME: tmp() }; }
+function env() { const home = tmp(); return childEnv(home, { AGENTS_HOME: home }); }
 
 test('missing goal is unconfigured and a missing receipt is due', () => {
   const root = project(); const e = env(); fs.unlinkSync(path.join(root, 'docs', 'goals', 'card.md'));
