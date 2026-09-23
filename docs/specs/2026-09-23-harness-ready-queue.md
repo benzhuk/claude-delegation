@@ -19,6 +19,17 @@ Owner: skills-a. Governing goal: turn intent into useful verified outcomes throu
 
 Three worker slots plus the lead. Reviews begin as territories deliver; useful ready work refills capacity. Full sealed suite has one owner while other lanes edit/review. The source release does not wait for unrelated rejected E work. Source accepted and installed/live validated remain separate states.
 
+## Active follow-through after the premature stop
+
+0.17.1 is merged at 49c1b64: continue now applies at ongoing wave/release/review/status closeout, with short team-build and delegate caller routes. Three skill validators, 11 mirror-inventory checks and independent seven-scenario review passed; strict acceptance checked the deliberately pinned bcbf466 source artifact. These instruction changes are not proof of installed behavior. The local mirror is still 0.13.0 and lacks continue.
+
+- Native Codex package: building from actual sealed install/discovery evidence under 2026-09-23-codex-native-package.md. An explicit OpenAI hook override is required to prevent accidental Claude-hook discovery. No persistent installation or trust changes.
+- Native Claude: a read-only review of the real skill patch is running through a launch method that passed a harmless 45-second lifetime probe. The prior attached runner yielded no attributable output; retain that failure. Codex independently reviewed and shipped the source correction while this lane continued.
+- Native coexistence: independently probe mirrored and plugin skills together in a sealed home; do not claim duplicate-free operation from clean-home discovery alone.
+- Non-code records: canonical work-record fields still describe only Git artifacts, although goals/team-build explicitly support non-code outcomes. Reconcile that documentation with the existing parser and owner-evidence path; do not create a new acceptance engine or require a fabricated commit for a report.
+
+The scoped cadence/recovery scout found no justified new scheduler or blind automatic owner replacement. That conclusion applies only to those mechanisms, not to the whole goal. The native package and skill correction are concrete useful independent work and proceed.
+
 ## Next available capacity
 
 | Requirement | Smallest next step | Actual dependency or boundary |

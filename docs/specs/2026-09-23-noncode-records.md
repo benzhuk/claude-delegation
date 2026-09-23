@@ -1,0 +1,9 @@
+# Record non-code outcomes without fabricated Git artifacts
+
+Observed seam: GOALS and team-build explicitly support research and documents, while docs/work-record.md still defines Scope only as path@SHA and Artifact only as branch@SHA. The existing structural parser/validator treats Artifact as a reference string; only the deliberately Git-backed check-acceptance command resolves it as Git. Our native Claude review and upcoming operator guide are real non-code artifacts and need accurate records.
+
+One narrow documentation territory: docs/work-record.md only. No executable changes, new artifact engine, new status/schema field, or changes to Git-backed strict acceptance. Clarify Scope/Artifact and artifact log descriptions to permit attributable stable file/URI references for non-code work, with the actual reviewed snapshot/digest or source/read time in existing body prose where needed. Never invent a Git commit requirement or call structural validation proof that an output is good. Owner verifies the actual deliverable and project-defined evidence; independent review is retained when the task requires it. Keep accepted evidence in the existing repository report location for this harness; publication links can be in that report. Do not imply the tooling manages remote artifact history.
+
+Include one concise non-code example or clear use instruction. Existing code acceptance still requires exact Git identity and its existing gate. A non-code path must not become a way to bypass Git-backed review for code.
+
+Validate the documented behavior with a disposable existing-parser/validator probe: accepted non-code report reference plus readable verdict evidence is structurally valid; missing artifact/evidence still fails; strict Git check refuses the non-Git artifact. No new wording-matching tests. Independent review checks the actual API and absence of code-acceptance weakening.
