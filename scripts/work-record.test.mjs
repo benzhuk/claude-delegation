@@ -657,3 +657,45 @@ test("check-acceptance CLI emits only the pinned success JSON", () => {
   ], { env: childEnv(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-cli-home-"))), encoding: "utf8" });
   assert.deepEqual(JSON.parse(stdout), { ok: true, work: "wr-2026-09-23-acceptance", artifact: f.sha, delivery: f.sha });
 });
+
+test("checkAcceptance excludes nested fence-like lines, lazy blockquotes, and indented code from Observed", () => {
+  const bodies = [
+    "```markdown\n~~~\nObserved: fenced only.\n```",
+    "````markdown\n```\nObserved: fenced only.\n````",
+    "> Example paragraph\nObserved: lazy quoted continuation.",
+    "    Observed: indented code only.",
+  ];
+  for (const body of bodies) {
+    const f = makeAcceptanceFixture();
+    const recordPath = path.join(f.repo, f.record);
+    const text = fs.readFileSync(recordPath, "utf8");
+    fs.writeFileSync(recordPath, text.replace("Predicts: acceptance identity agrees.\nObserved: pending integration measurement.", body));
+    assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /requires a nonempty Observed/);
+  }
+});
+
+test("checkAcceptance sees empty duplicate and unknown headers in its strict header pass", () => {
+  for (const extra of ["Owner:", "Surprise:"]) {
+    const f = makeAcceptanceFixture();
+    const recordPath = path.join(f.repo, f.record);
+    const text = fs.readFileSync(recordPath, "utf8");
+    fs.writeFileSync(recordPath, text.replace("Owner: lead", `Owner: lead\n${extra}`));
+    assert.throws(
+      () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }),
+      extra === "Owner:" ? /duplicate singleton field/ : /unknown label/,
+    );
+  }
+});
+
+test("checkAcceptance rejects an ambiguous branch/tag delivery name", () => {
+  const f = makeAcceptanceFixture();
+  execFileSync("git", ["-C", f.repo, "commit", "--allow-empty", "-qm", "divergent branch tip"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "branch", "collision", "HEAD"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "tag", "collision", f.sha], { env: f.env });
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "collision" }), /ambiguous/);
+});
+
+test("checkAcceptance pinned mode requires a hexadecimal commit identity", () => {
+  const f = makeAcceptanceFixture();
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: "HEAD" }), /explicit hexadecimal revision/);
+});

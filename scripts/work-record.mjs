@@ -5,7 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"];
@@ -364,13 +364,17 @@ function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
   }
 }
 
-function resolveCommit(repoRoot, revision, label, execImpl) {
+function resolveCommit(repoRoot, revision, label, spawnImpl) {
   if (!revision) throw acceptanceError(`${label} revision is missing`);
   try {
-    const resolved = execImpl("git", ["-C", repoRoot, "rev-parse", "--verify", `${revision}^{commit}`], {
+    const result = spawnImpl("git", ["-C", repoRoot, "rev-parse", "--verify", `${revision}^{commit}`], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+      stdio: "pipe",
+    });
+    if (result.error || result.status !== 0 || String(result.stderr ?? "").trim()) {
+      throw result.error ?? new Error(String(result.stderr ?? "Git could not resolve revision").trim());
+    }
+    const resolved = String(result.stdout ?? "").trim();
     if (!/^[0-9a-f]{40}$/i.test(resolved)) throw new Error("Git did not return a commit object");
     return resolved.toLowerCase();
   } catch {
@@ -382,13 +386,29 @@ function requireObservedBody(text) {
   const lines = text.split(/\r?\n/);
   const blank = lines.findIndex((line) => line.trim() === "");
   const body = blank === -1 ? [] : lines.slice(blank + 1);
-  let fenced = false;
+  let fence = null;
+  let quotedParagraph = false;
   for (const line of body) {
-    if (/^[ \t]*(```|~~~)/.test(line)) {
-      fenced = !fenced;
+    if (fence) {
+      const close = new RegExp(`^ {0,3}${fence.char}{${fence.length},}[ \\t]*$`);
+      if (close.test(line)) fence = null;
       continue;
     }
-    if (fenced || /^[ \t]*>/.test(line)) continue;
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (opening && !(opening[1][0] === "`" && opening[2].includes("`"))) {
+      fence = { char: opening[1][0], length: opening[1].length };
+      quotedParagraph = false;
+      continue;
+    }
+    if (/^[ \t]*$/.test(line)) {
+      quotedParagraph = false;
+      continue;
+    }
+    if (/^ {0,3}>/.test(line)) {
+      quotedParagraph = true;
+      continue;
+    }
+    if (quotedParagraph || /^(?: {4}|\t)/.test(line)) continue;
     const match = /^[ \t]*Observed:[ \t]*(.+?)[ \t]*$/i.exec(line);
     if (match && match[1].trim()) return;
   }
@@ -401,10 +421,13 @@ function requireStrictRecordShape(text, record) {
   const blank = lines.findIndex((line) => line.trim() === "");
   const header = blank === -1 ? lines : lines.slice(0, blank);
   const counts = new Map();
+  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.*)$/;
   for (const line of header) {
-    const match = line.match(HEADER_LINE_RE);
+    const match = line.match(strictHeaderRe);
     if (!match) continue;
-    const key = SINGLETON_LABELS.get(match[1].trim().toLowerCase());
+    const label = match[1].trim().toLowerCase();
+    if (!KNOWN_LABELS.has(label)) throw acceptanceError(`unknown label: ${match[1].trim()}`);
+    const key = SINGLETON_LABELS.get(label);
     if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   for (const [key, count] of counts) {
@@ -433,11 +456,19 @@ function artifactRevision(artifact) {
 
 /**
  * Strict, read-only Git-backed acceptance check. Historical validateRecord behavior remains
- * deliberately separate. opts: { repoRoot, recordPath, deliveryRef?, pinnedArtifact?, fsImpl?, execImpl? }
+ * deliberately separate. opts: { repoRoot, recordPath, deliveryRef?, pinnedArtifact?, fsImpl?, spawnImpl?, execImpl? }
  */
 export function checkAcceptance(opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
-  const execImpl = opts.execImpl ?? execFileSync;
+  const spawnImpl = opts.spawnImpl ?? (opts.execImpl
+    ? (command, args, childOpts) => {
+        try {
+          return { status: 0, stdout: opts.execImpl(command, args, childOpts), stderr: "" };
+        } catch (error) {
+          return { status: 1, stdout: "", stderr: error.message, error };
+        }
+      }
+    : spawnSync);
   if (!opts.repoRoot) throw acceptanceError("--repo is required");
   if (!opts.recordPath) throw acceptanceError("--record is required");
   const modes = Number(opts.deliveryRef !== undefined) + Number(opts.pinnedArtifact !== undefined);
@@ -455,9 +486,12 @@ export function checkAcceptance(opts = {}) {
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
 
-  const artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", execImpl);
+  const artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
   const deliveryInput = opts.deliveryRef !== undefined ? opts.deliveryRef : opts.pinnedArtifact;
-  const delivery = resolveCommit(repoRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", execImpl);
+  if (opts.pinnedArtifact !== undefined && !/^[0-9a-fA-F]{4,64}$/.test(opts.pinnedArtifact)) {
+    throw acceptanceError(`pinned artifact must be an explicit hexadecimal revision: ${opts.pinnedArtifact}`);
+  }
+  const delivery = resolveCommit(repoRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
   if (artifact !== delivery) {
     throw acceptanceError(`Artifact ${artifact} does not match delivery ${delivery}`);
   }
@@ -476,7 +510,7 @@ export function checkAcceptance(opts = {}) {
       if (verdict[1] === "APPROVE") throw acceptanceError(`approval omits a revision: ${evidencePath}`);
       continue;
     }
-    const reportCommit = resolveCommit(repoRoot, verdict[2], `evidence ${evidencePath}`, execImpl);
+    const reportCommit = resolveCommit(repoRoot, verdict[2], `evidence ${evidencePath}`, spawnImpl);
     if (reportCommit !== artifact) continue;
     if (verdict[1] === "APPROVE") approved = true;
     else blockers.push(`${verdict[1]} in ${evidencePath}`);
