@@ -85,10 +85,11 @@ function buildPrompt(t, round, findingsPath) {
   return `Build territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. ${BUILD_MANDATE}`
 }
 
-function reviewPrompt(reviewerBriefPath, t, round, build, priorFindingsPath) {
+function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath) {
   let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Delivered sha: ${build.sha}. Builder report: ${build.reportPath}. ${REVIEW_MANDATE}`
-  if (round >= 2 && priorFindingsPath) {
-    p += ` Prior findings: ${priorFindingsPath}. Commit range: prior sha..${build.sha}.`
+  if (round >= 2 && priorBuildSha) {
+    if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
+    p += ` Commit range: ${priorBuildSha}..${build.sha}.`
   }
   return p
 }
@@ -96,7 +97,7 @@ function reviewPrompt(reviewerBriefPath, t, round, build, priorFindingsPath) {
 function integratePrompt(integratorBriefPath, baseSha, approved, excluded) {
   const approvedText = approved.length ? approved.map((r) => `${r.id}@${r.sha}`).join(', ') : 'none'
   const excludedText = excluded.length ? excluded.map((r) => `${r.id} (${r.blocker})`).join(', ') : 'none'
-  return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}. ${INTEGRATE_MANDATE}`
+  return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}. Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. ${INTEGRATE_MANDATE}`
 }
 
 const a = args ?? {}
@@ -143,7 +144,7 @@ async function runTerritory(t) {
   }
 
   phase('Review')
-  let review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, null), {
+  let review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, null, null), {
     agentType: 'delegation:reviewer',
     model: 'opus',
     schema: REVIEW,
@@ -152,7 +153,7 @@ async function runTerritory(t) {
   })
   if (review === null) {
     log(`${t.id}: review agent died in round ${round}, respawning once`)
-    review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, null), {
+    review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, null, null), {
       agentType: 'delegation:reviewer',
       model: 'opus',
       schema: REVIEW,
@@ -165,11 +166,16 @@ async function runTerritory(t) {
     return { ...state, blocker: 'agent-died' }
   }
   state = { ...state, findingsPath: review.findingsPath }
+  if (review.sha !== build.sha) {
+    log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
+    return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
+  }
 
   while (review.verdict === 'NEEDS_FIXES' && round < maxRounds) {
     round += 1
     state = { ...state, rounds: round }
     const priorFindingsPath = review.findingsPath
+    const priorBuildSha = build.sha
 
     phase('Fix')
     build = await agent(buildPrompt(t, round, priorFindingsPath), {
@@ -199,7 +205,7 @@ async function runTerritory(t) {
     }
 
     phase('Review')
-    review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, priorFindingsPath), {
+    review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath), {
       agentType: 'delegation:reviewer',
       model: 'opus',
       schema: REVIEW,
@@ -208,7 +214,7 @@ async function runTerritory(t) {
     })
     if (review === null) {
       log(`${t.id}: review agent died in round ${round}, respawning once`)
-      review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, priorFindingsPath), {
+      review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath), {
         agentType: 'delegation:reviewer',
         model: 'opus',
         schema: REVIEW,
@@ -221,6 +227,10 @@ async function runTerritory(t) {
       return { ...state, blocker: 'agent-died' }
     }
     state = { ...state, findingsPath: review.findingsPath }
+    if (review.sha !== build.sha) {
+      log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
+      return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
+    }
   }
 
   if (review.verdict === 'NEEDS_FIXES') {
@@ -228,13 +238,31 @@ async function runTerritory(t) {
     return { ...state, verdict: review.verdict, blocker: 'rounds-exhausted' }
   }
 
-  return { ...state, verdict: review.verdict, blocker: null }
+  if (review.verdict !== 'APPROVE') {
+    return { ...state, verdict: 'BLOCKED', blocker: 'review-not-approved' }
+  }
+
+  return { ...state, verdict: 'APPROVE', blocker: null }
 }
 
-const results = await parallel(territories.map((t) => () => runTerritory(t)))
+const parallelResults = await parallel(territories.map((t) => () => runTerritory(t)))
+const results = territories.map((t, index) => {
+  const result = Array.isArray(parallelResults) ? parallelResults[index] : null
+  if (result != null) return result
+  return {
+    id: t.id,
+    sha: null,
+    verdict: 'BLOCKED',
+    rounds: 0,
+    reportPath: null,
+    findingsPath: null,
+    blocker: 'parallel-result-missing',
+    failure: { stage: 'parallel', reason: 'missing-result', index },
+  }
+})
 
 phase('Integrate')
-const approved = results.filter((r) => !r.blocker)
+const approved = results.filter((r) => r.verdict === 'APPROVE' && !r.blocker)
 const excluded = results.filter((r) => r.blocker)
 let integrate = await agent(integratePrompt(integratorBriefPath, baseSha, approved, excluded), {
   agentType: 'delegation:integrator',

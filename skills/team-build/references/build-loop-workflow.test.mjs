@@ -371,6 +371,54 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   assert.equal(fixBuildCall.opts.agentType, "delegation:builder");
   assert.equal(fixBuildCall.opts.model, "sonnet");
   assert.ok(fixBuildCall.prompt.includes("docs/work/t1-r1-findings.md"), "the fix prompt must reference the prior findingsPath");
+
+  const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
+  assert.ok(fixReviewCall.prompt.includes("Commit range: sha1..sha2"), "the fix review must compare the captured prior builder sha to the replacement build sha");
+});
+
+test("a fix review always receives the captured artifact range, even with an empty findings path and a retry", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", ""),
+    "build:T1:r2": buildResult("sha2"),
+    "review:T1:r2": [null, reviewResult("APPROVE", "sha2")],
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  const retryingReviewCalls = stub.calls.filter((c) => c.opts.label === "review:T1:r2");
+  assert.equal(retryingReviewCalls.length, 2, "the fix review retries once after a null response");
+  for (const call of retryingReviewCalls) {
+    assert.ok(call.prompt.includes("Commit range: sha1..sha2"), "each fix-review attempt receives the captured artifact range");
+  }
+});
+
+test("a review only approves the build sha it reviewed, including after a fix round", async () => {
+  const initialMismatch = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("APPROVE", "other-sha"),
+    integrate: integrateResult(),
+  });
+  const initialResult = await runScript({ territories: [T1] }, initialMismatch);
+  assert.deepEqual(initialResult.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+  assert.match(
+    initialMismatch.calls.find((c) => c.opts.label === "integrate").prompt,
+    /Approved territories and shas: none/,
+  );
+
+  const fixMismatch = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
+    "build:T1:r2": buildResult("sha2"),
+    "review:T1:r2": reviewResult("APPROVE", "sha1"),
+    integrate: integrateResult(),
+  });
+  const fixResult = await runScript({ territories: [T1] }, fixMismatch);
+  assert.deepEqual(fixResult.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+  assert.match(
+    fixMismatch.calls.find((c) => c.opts.label === "integrate").prompt,
+    /Approved territories and shas: none/,
+  );
 });
 
 test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, log() fires, no round beyond maxRounds is attempted", async () => {
@@ -513,6 +561,49 @@ test("the integrator prompt names excluded (blocked) territories and their reaso
   // Isolate the approved segment specifically and require it to read "none".
   const approvedSegment = integrateCall.prompt.match(/Approved territories and shas: (.*?)\. Excluded/)[1];
   assert.equal(approvedSegment, "none", "a blocked territory must never appear in the approved-sha list");
+});
+
+test("parallel null and omitted slots retain every planned territory as a blocked result", async () => {
+  const stub = makeAgentStub({ integrate: integrateResult() });
+  const result = await runScript(
+    { territories: [T1, T2] },
+    stub,
+    { parallelImpl: async () => [null] },
+  );
+  assert.deepEqual(result.territories.map((r) => r.id), ["T1", "T2"]);
+  assert.deepEqual(result.blockers, [
+    { id: "T1", reason: "parallel-result-missing" },
+    { id: "T2", reason: "parallel-result-missing" },
+  ]);
+  assert.deepEqual(result.territories.map((r) => r.failure), [
+    { stage: "parallel", reason: "missing-result", index: 0 },
+    { stage: "parallel", reason: "missing-result", index: 1 },
+  ]);
+  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
+  assert.match(integrateCall.prompt, /T1 \(parallel-result-missing\), T2 \(parallel-result-missing\)/);
+});
+
+test("the integration prompt requires explicit matching reviewer approval", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("APPROVE", "sha1"),
+    integrate: integrateResult(),
+  });
+  await runScript({ territories: [T1] }, stub);
+  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
+  assert.match(integrateCall.prompt, /explicitly returned APPROVE for that exact sha/);
+});
+
+test("a review without explicit APPROVE is excluded even if a runtime bypasses the review schema", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("UNKNOWN", "sha1"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-not-approved" }]);
+  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
+  assert.match(integrateCall.prompt, /Approved territories and shas: none/);
 });
 
 test("returns exactly { territories, integrator, blockers } and nothing else", async () => {
