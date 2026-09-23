@@ -2,10 +2,10 @@
 	**Mirror of `docs/GOALS.md` and `docs/goals/card.md` in the plugin repo, main at {{sha}}.** To comment, add a line starting with ** anywhere on this page. The lead acts on every such line, changes the repo, then uses a fresh targeted attended update and readback. Surrounding human content is preserved.
 </callout>
 <callout icon="🃏" color="blue_background">
-	**The card every session sees** (five lines, injected at session start and every 40 tool batches)
+	**Five-line project card** (rendered from source; installed host injection coverage is unknown)
 {{card}}
-	GOAL and NOT are your words. DONE and KILL are mine, for your edit. The card is capped at 800 bytes by a constant in the plugin; say so if you want it longer.
+	GOAL, NOT, DONE, and KILL are source labels, not attributed quotations. Verify the source and `main at` version before an attended publication; the card is capped at 800 bytes by a plugin constant.
 </callout>
-Quoted lines below are yours, with the date you said them. Lines marked *(mine)* are the lead's wording where you have not stated one. Status changes only in a release commit: MET, PARTIAL (mechanism exists, measure not passed), NONE (no mechanism), UNKNOWN (never measured).
+Source lines labeled as quotations retain their source attribution and date. Other lines are project wording. Status styling reflects the source text: MET, PARTIAL, NONE, or UNKNOWN; it does not establish installed behavior or release state.
 
 {{sections}}

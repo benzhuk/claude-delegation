@@ -37,16 +37,6 @@ function checkForbidden(text, lineNo, sourceLabel) {
   }
 }
 
-/** Rule 5: every full `YYYY-MM-DD` becomes `M-D`, no leading zeros. Any other date is untouched. */
-function convertDates(text) {
-  return text.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_m, _y, mo, d) => `${Number(mo)}-${Number(d)}`);
-}
-
-/** Rule 6: one trailing ` (…)` group at the very end of the line is dropped whole. */
-function stripTrailingParen(text) {
-  return text.replace(/\s*\([^()]*\)\.?\s*$/, '');
-}
-
 function splitLines(text) {
   return text.split(/\r\n|\n/);
 }
@@ -58,23 +48,22 @@ function buildCardBlock(cardText) {
   return lines.map((l) => `\t${l}`).join('\n');
 }
 
-/** Rules 3-4-5-6-7: one `# X {toggle="true"}` block per `## ` section of GOALS.md. */
+/** Rules 3-4-7: one `# X {toggle="true"}` block per `## ` section of GOALS.md. */
 function renderSection(headingText, sectionLines) {
   const out = [`# ${headingText} {toggle="true"}`];
   let sawStatus = false;
   for (const { text, lineNo } of sectionLines) {
     if (text.trim() === '') continue;
     checkForbidden(text, lineNo, 'docs/GOALS.md');
-    const converted = convertDates(text);
-    const statusMatch = /^Status:\s*([A-Za-z]+)\.\s*([\s\S]*)$/.exec(converted);
+    const statusMatch = /^Status:\s*([A-Za-z]+)\.\s*([\s\S]*)$/.exec(text);
     if (statusMatch) {
       sawStatus = true;
       const word = statusMatch[1];
-      const rest = stripTrailingParen(statusMatch[2]);
+      const rest = statusMatch[2];
       const color = STATUS_COLOR[word] || 'red';
       out.push(`\t<span color="${color}">**${word}**</span>${rest ? ` ${rest}` : ''}`);
     } else {
-      out.push(`\t${converted}`);
+      out.push(`\t${text}`);
     }
   }
   if (!sawStatus) out.push('\t<span color="red">**UNKNOWN**</span>');
@@ -191,6 +180,12 @@ export function run({
     if (opts.cmd === 'render') {
       if (!opts.repo) throw new RefusedError('render requires --repo');
       const sha = opts.sha || computeSha({ repo: opts.repo, git });
+      if (!opts.sha) {
+        const freshness = checkDirty({ repo: opts.repo, readFile, git });
+        if (freshness.dirty) {
+          throw new RefusedError(`render refuses local ${freshness.path} that differs from origin/main; use --sha only for a caller-attested preview`);
+        }
+      }
       const page = renderPage({ repo: opts.repo, sha, readFile });
       write(page);
       return 0;

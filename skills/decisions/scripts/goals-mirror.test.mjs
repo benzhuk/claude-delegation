@@ -41,6 +41,30 @@ test('render uses a supplied sha and never needs a git write', () => {
   assert.equal((page.match(/main at abc1234/g) ?? []).length, 1);
 });
 
+test('render preserves exact dated paths, URLs, years, and parenthetical source context', () => {
+  const context = 'See docs/specs/2026-09-23-harness-next.md (reviewed 2026-09-23) and https://example.test/2026-09-23?context=(source).';
+  const source = `Status: PARTIAL. ${context}\n`;
+  const readFile = (file) => {
+    if (file.endsWith('GOALS.md')) return `# Goals\n\n## Source\n${source}`;
+    if (file.endsWith('card.md')) return 'GOAL: g\nNOT: n\nDONE: d\nKILL: k\nSOURCE: s\n';
+    return fs.readFileSync(file, 'utf8');
+  };
+  const page = renderPage({ repo: fixtureRepo, sha: 'test', readFile });
+  assert.match(page, new RegExp(`\\*\\*PARTIAL\\*\\*</span> ${context.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+});
+
+test('default render refuses a local goals source that differs from origin/main', () => {
+  let err = '';
+  const code = run({
+    argv: ['render', '--repo', '/fixture'],
+    readFile: () => 'local\n',
+    git: (_repo, args) => args[0] === 'log' ? 'abc1234\n' : 'origin\n',
+    writeErr: (s) => { err += s; },
+  });
+  assert.equal(code, 1);
+  assert.match(err, /docs\/GOALS\.md.*differs from origin\/main/);
+});
+
 test('computeSha and checkDirty remain pure source helpers', () => {
   const git = (_repo, args) => args[0] === 'log' ? 'abc1234\n' : fs.readFileSync(path.join(fixtureRepo, ...args[1].slice('origin/main:'.length).split('/')), 'utf8');
   assert.equal(computeSha({ repo: fixtureRepo, git }), 'abc1234');

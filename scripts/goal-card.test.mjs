@@ -426,6 +426,9 @@ test('MAJOR 5: isMainModule is true for the real path and survives a path contai
   const copy = path.join(spaced, 'goal-card.mjs');
   fs.copyFileSync(CLI, copy);
   fs.copyFileSync(path.join(REPO, 'scripts', 'project-config.mjs'), path.join(spaced, 'project-config.mjs'));
+  const canonicalConfig = path.join(path.dirname(spaced), 'skills', 'decisions', 'scripts', 'project-config.mjs');
+  fs.mkdirSync(path.dirname(canonicalConfig), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'skills', 'decisions', 'scripts', 'project-config.mjs'), canonicalConfig);
   const root = project({ card: GOOD });
   const home = tmpdir('goal-card-home-');
   const stdout = execFileSync(process.execPath, [copy, 'check'], {

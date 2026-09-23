@@ -2,15 +2,15 @@
 	**Mirror of `docs/GOALS.md` and `docs/goals/card.md` in the plugin repo, main at test.** To comment, add a line starting with ** anywhere on this page. The lead acts on every such line, changes the repo, then uses a fresh targeted attended update and readback. Surrounding human content is preserved.
 </callout>
 <callout icon="🃏" color="blue_background">
-	**The card every session sees** (five lines, injected at session start and every 40 tool batches)
+	**Five-line project card** (rendered from source; installed host injection coverage is unknown)
 	GOAL: My agents do the work I have already authorized, well and fast, with little from me, at far fewer top-tier tokens than today. Every benefit of the current setup stays or grows.
 	NOT: patching symptoms into a house of cards. NOT: a second engine. NOT: waiting a week to test; the best plan goes to every machine at once.
 	DONE: one package on every machine; a build runs through it with few lead turns and tools in the cheapest agent; nothing stalls silently; decisions and goals live where I read them; tokens, time and rework beat the hand-run build.
 	KILL: a third fix release in a row on one surface, or two weeks on a goal with no mechanism: stop and rethink from the aim. Budget: the Fable bar.
 	SOURCE: docs/GOALS.md (mirrored to the Notion Goals page)
-	GOAL and NOT are your words. DONE and KILL are mine, for your edit. The card is capped at 800 bytes by a constant in the plugin; say so if you want it longer.
+	GOAL, NOT, DONE, and KILL are source labels, not attributed quotations. Verify the source and `main at` version before an attended publication; the card is capped at 800 bytes by a plugin constant.
 </callout>
-Quoted lines below are yours, with the date you said them. Lines marked *(mine)* are the lead's wording where you have not stated one. Status changes only in a release commit: MET, PARTIAL (mechanism exists, measure not passed), NONE (no mechanism), UNKNOWN (never measured).
+Source lines labeled as quotations retain their source attribution and date. Other lines are project wording. Status styling reflects the source text: MET, PARTIAL, NONE, or UNKNOWN; it does not establish installed behavior or release state.
 
 # The aim {toggle="true"}
 	My agents do the work I have already authorized, well and fast, with little from me, at far fewer top-tier tokens than today. Every benefit of the current setup stays or grows. When something breaks, go back to this aim and find the simplest design that serves it.
@@ -20,7 +20,7 @@ Quoted lines below are yours, with the date you said them. Lines marked *(mine)*
 	The agents already work well. What is wrong is the price: top-tier tokens spent on wakes, re-read context and execution work a cheaper model could do. Cut that cost a lot, keep every hook, wake and unblocked piece of work that earns its place, and never slow or gate work because a meter is high.
 	In Ben's words: "They work great but are too expensive in tokens. We want to significantly improve token use while maintaining or increasing all the benefits." (9-21) "i don't want to gate work, just optimize token use for maximum quality output." (9-20)
 	Measure: token census per build by model and role, before and after each change; wakes and Stop-blocks per build.
-	<span color="orange">**PARTIAL**</span> The ladder runs (Fable spec, Opus loop, Sonnet builders). Savings unmeasured against quality: the census counted the wrong agents, and wakes are not counted.
+	<span color="orange">**PARTIAL**</span> The ladder runs (Fable spec, Opus loop, Sonnet builders). Savings unmeasured against quality: the census counted the wrong agents, and wakes are not counted. (2026-09-22 audit)
 	<empty-block/>
 # Speed and quality count as much as tokens {toggle="true"}
 	Deliverables should arrive faster and better, not just cheaper. Measure the time from ask to accepted result and the rework after it with the same rigor as tokens, and stop a token saving that costs either.
@@ -38,7 +38,7 @@ Quoted lines below are yours, with the date you said them. Lines marked *(mine)*
 	When something breaks, do not patch the symptom, add a watcher to a watcher, or build a second engine. Go back to the aim, research what others do, and pick the simplest design that serves it. The goal stays in view over long autonomous stretches.
 	In Ben's words: two weeks "lost to house of cards patch style castles." (9-20) "as always, do research with subagents, don't just jump to conclusions!" (9-21)
 	Measure: the goal card in every session; consecutive releases on one surface is the drift warning; every change names the goal it serves.
-	<span color="orange">**PARTIAL**</span> The card hook shipped in 0.8.0; the card was first written 9-22. Five of eleven releases went to one surface before that.
+	<span color="orange">**PARTIAL**</span> The card hook shipped in 0.8.0; the card was first written 2026-09-22. Five of eleven releases went to one surface before that.
 	<empty-block/>
 # One package, the same on every machine, tested everywhere at once {toggle="true"}
 	Every building skill lives in this one plugin and works as one system: delegate, team-build, multi, decisions, janitor, notion-writing, and the pane setup Ben actually runs. A change goes to every machine at once with hooks on; no canary week. Every rule is mechanical or a stated goal, every hook has a kill switch and fails open.
@@ -56,7 +56,7 @@ Quoted lines below are yours, with the date you said them. Lines marked *(mine)*
 	Ben's decisions live on one Notion page, in a shape the reader checks, never handed back in chat. His notes there (lines starting `**`) are acted on and closed, or answered in place and archived. The goals are kept current on their own page from this file, at every release.
 	In Ben's words: "any note from me in notion is a line prefaced with **, this should be in our skill already, and all the notes must be acted on and removed from the doc for when you next hand it to me." (9-22) "the decisions notion skill should make sure the goals are kept up to date!" (9-22)
 	Measure: the hand-back check passes (zero unanswered notes, zero page warnings, goals mirror at the current commit) before any link is given; zero decisions in chat.
-	<span color="red">**NONE**</span> The reader exists but nothing ran it; the page was repaired by hand on 9-22; the mechanism is specced
+	<span color="red">**NONE**</span> The reader exists but nothing ran it; the page was repaired by hand on 2026-09-22; the mechanism is specced (docs/specs/2026-09-22-decisions-current.md).
 	<empty-block/>
 # What one session learns reaches every machine {toggle="true"}
 	A lesson learned on one machine is available on all of them without hand-carrying, and a lesson that is superseded stops governing. Corrections over volume.
@@ -68,5 +68,5 @@ Quoted lines below are yours, with the date you said them. Lines marked *(mine)*
 	Stale worktrees, branches and leftovers are removed by a mechanical janitor that acts only on the provably safe class, daily, and shows Ben the table.
 	In Ben's words: "The janitor may apply its safe class daily and show you the table. Yes." (9-20)
 	Measure: the safe-class run scheduled daily, its table shown.
-	<span color="orange">**PARTIAL**</span> Janitor reports (48 SAFE, 5 JUDGMENT on 9-22) but is unscheduled and has never acted.
+	<span color="orange">**PARTIAL**</span> Janitor reports (48 SAFE, 5 JUDGMENT on 2026-09-22) but is unscheduled and has never acted.
 	<empty-block/>
