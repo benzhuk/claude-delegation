@@ -17,6 +17,7 @@ import { parseDocument } from './decisions-read.mjs';
 import { loadProjectConfig } from './project-config.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
 import { parseEnvelope } from '../../multi/scripts/envelope.mjs';
+import { gitRunner, mainCheckout } from '../../multi/scripts/transport.mjs';
 
 export const RECEIPT_VERSION = 1;
 export const READER_TIMEOUT_MS = 15_000;
@@ -67,10 +68,12 @@ function agentsHome(env = process.env) {
 }
 
 export function receiptPaths({ agentsHome: base, project, page }) {
-  const key = sha256(`${project}\0${normalizedPage(page)}`);
+  const key = sha256(normalizedPage(page));
+  const projectScope = sha256(`${project}\0${normalizedPage(page)}`);
   const directory = path.join(base, 'ws', 'decisions-pickup');
   return {
     key,
+    projectScope,
     directory,
     receipt: path.join(directory, `${key}.json`),
     claim: path.join(directory, `${key}.claim`),
@@ -126,6 +129,8 @@ function writeCaptureExclusive(file, capture, fsImpl = fs) {
     }
     if (existing.version !== RECEIPT_VERSION || existing.page !== capture.page
         || existing.project !== capture.project || existing.digest !== capture.digest
+        || existing.projectScope !== capture.projectScope
+        || existing.transportRepo !== capture.transportRepo
         || (existing.owner !== capture.owner && existing.owner !== null) || existing.from !== capture.from) {
       throw new PickupError(`orphan capture conflicts with this pickup and needs reconciliation: ${file}`);
     }
@@ -162,28 +167,28 @@ function capturedItems(doc) {
   return items;
 }
 
-function captureRelative(page, round) {
-  const pageKey = sha256(normalizedPage(page)).slice(0, 12);
-  return `docs/notes/decisions-pickup-${pageKey}-r${round}.json`;
+function captureRelative(projectScope, round) {
+  return `docs/notes/decisions-pickup-${projectScope}-r${round}.json`;
 }
 
-function changedCaptureRelative(page, round, digest) {
-  const pageKey = sha256(normalizedPage(page)).slice(0, 12);
-  return `docs/notes/decisions-pickup-${pageKey}-r${round}-changed-${digest.slice(0, 12)}.json`;
+function changedCaptureRelative(projectScope, round, digest) {
+  return `docs/notes/decisions-pickup-${projectScope}-r${round}-changed-${digest}.json`;
 }
 
 function verifyOneCapture(receipt, relative, expectedDigest, fsImpl = fs) {
   if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {
     return { status: 'INVALID_PATH', path: relative ?? null };
   }
-  const full = path.resolve(receipt.project, ...relative.split('/'));
-  const rel = path.relative(receipt.project, full);
+  const full = path.resolve(receipt.transportRepo, ...relative.split('/'));
+  const rel = path.relative(receipt.transportRepo, full);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return { status: 'INVALID_PATH', path: relative };
   try {
     const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
     const bytes = Buffer.from(String(capture.originalBytes ?? ''), 'base64');
     if (capture.version !== RECEIPT_VERSION || capture.page !== receipt.page
         || capture.project !== receipt.project || capture.round !== receipt.round
+        || capture.projectScope !== receipt.projectScope
+        || capture.transportRepo !== receipt.transportRepo
         || capture.digest !== expectedDigest || sha256(bytes) !== expectedDigest) {
       return { status: 'TAMPERED', path: relative };
     }
@@ -212,14 +217,21 @@ function verifyReceiptEvidence(receipt, fsImpl = fs) {
   return { status: 'OK', capture };
 }
 
-function sendInputs({ from, owner, page, round, capturePath, repo }) {
-  const topic = `decisions-${sha256(normalizedPage(page)).slice(0, 10)}`;
+function requiredItemsFromCapture(receipt, now, fsImpl = fs) {
+  const full = path.join(receipt.transportRepo, ...receipt.capturePath.split('/'));
+  const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
+  const raw = Buffer.from(capture.originalBytes, 'base64').toString('utf8');
+  return capturedItems(parseDocument(raw, { now }));
+}
+
+function sendInputs({ from, owner, projectScope, round, capturePath, transportRepo }) {
+  const topic = `decisions-${projectScope}`;
   const id = `${from}-${topic}-${round}`;
   const text = `Owner decisions pickup round ${round} is ready`;
   const argv = [
     '--from', from, '--to', owner, '--kind', NOTE_KIND, '--topic', topic,
     '--text', text, '--details', capturePath, '--needs', NOTE_NEEDS,
-    '--recipient-repo', repo, '--sender-repo', repo, '--id', id, '--no-type',
+    '--recipient-repo', transportRepo, '--sender-repo', transportRepo, '--id', id, '--no-type',
   ];
   return { id, topic, text, details: capturePath, kind: NOTE_KIND, needs: NOTE_NEEDS, argv };
 }
@@ -231,8 +243,8 @@ function lineMatchesSend(parsed, receipt) {
     && parsed.details === send.details && parsed.needs === send.needs;
 }
 
-function ledgerFiles({ project, agentsHome: base }, fsImpl = fs) {
-  const dirs = [path.join(project, 'docs', 'ledger'), path.join(base, 'notes')];
+function ledgerFiles({ transportRepo, agentsHome: base }, fsImpl = fs) {
+  const dirs = [path.join(transportRepo, 'docs', 'ledger'), path.join(base, 'notes')];
   const files = [];
   for (const directory of dirs) {
     let entries;
@@ -250,7 +262,7 @@ export function inspectTransport(receipt, { fsImpl = fs, agentsHome: base = agen
   try {
     const same = new Set();
     const conflicts = new Set();
-    for (const file of ledgerFiles({ project: receipt.project, agentsHome: base }, fsImpl)) {
+    for (const file of ledgerFiles({ transportRepo: receipt.transportRepo, agentsHome: base }, fsImpl)) {
       const lines = fsImpl.readFileSync(file, 'utf8').split(/\r?\n/);
       for (const line of lines) {
         const parsed = parseEnvelope(line);
@@ -294,6 +306,12 @@ function registeredProject(repo, page, fsImpl = fs) {
   return project;
 }
 
+function durableTransportRepo(project, git = gitRunner, fsImpl = fs) {
+  const resolved = mainCheckout(project, git);
+  if (!resolved) throw new PickupError(`cannot resolve durable transport repo for ${project}`);
+  return canonicalProject(resolved, fsImpl);
+}
+
 function receiptStatus(receipt, claim, fsImpl = fs, claimed = fsImpl.existsSync(claim)) {
   const evidenceIntegrity = verifyReceiptEvidence(receipt, fsImpl);
   return {
@@ -307,12 +325,14 @@ function receiptStatus(receipt, claim, fsImpl = fs, claimed = fsImpl.existsSync(
 
 function changedReceipt(receipt, raw, doc, now, fsImpl) {
   const observedDigest = sha256(Buffer.from(raw, 'utf8'));
-  const relativeCapture = changedCaptureRelative(receipt.page, receipt.round, observedDigest);
-  const capturePath = path.join(receipt.project, ...relativeCapture.split('/'));
+  const relativeCapture = changedCaptureRelative(receipt.projectScope, receipt.round, observedDigest);
+  const capturePath = path.join(receipt.transportRepo, ...relativeCapture.split('/'));
   writeCaptureExclusive(capturePath, {
     version: RECEIPT_VERSION,
     page: receipt.page,
     project: receipt.project,
+    projectScope: receipt.projectScope,
+    transportRepo: receipt.transportRepo,
     round: receipt.round,
     readAt: now.toISOString(),
     owner: receipt.owner,
@@ -394,6 +414,25 @@ export async function pickupOnce(options, deps = {}) {
   const paths = receiptPaths({ agentsHome: base, project, page: options.page });
   acquireClaim(paths.claim, fsImpl);
   try {
+    let receipt = readJson(paths.receipt, fsImpl);
+    if (receipt && receipt.project !== project) {
+      return {
+        ...receiptStatus(receipt, paths.claim, fsImpl, false),
+        status: 'PENDING_MANUAL_HANDOFF',
+        reason: 'this page is already bound to a different authorization project; no read or send was attempted',
+        requestedProject: project,
+        boundProject: receipt.project,
+      };
+    }
+    const transportRepo = durableTransportRepo(project, deps.git ?? gitRunner, fsImpl);
+    if (receipt && receipt.transportRepo !== transportRepo) {
+      return {
+        ...receiptStatus(receipt, paths.claim, fsImpl, false),
+        status: 'NEEDS_RECONCILIATION',
+        reason: 'the durable transport repository changed for this bound project',
+        observedTransportRepo: transportRepo,
+      };
+    }
     const raw = deps.readPage
       ? await deps.readPage({ reader: options.reader, page: options.page, timeoutMs: READER_TIMEOUT_MS })
       : readPageWithCli({ reader: options.reader, page: options.page });
@@ -401,7 +440,6 @@ export async function pickupOnce(options, deps = {}) {
     try { doc = parseDocument(raw, { now }); } catch (error) {
       throw new PickupError(`registered page is BLIND: ${error.message}`, 3);
     }
-    let receipt = readJson(paths.receipt, fsImpl);
     if (receipt && verifyReceiptEvidence(receipt, fsImpl).status !== 'OK') {
       return receiptStatus(receipt, paths.claim, fsImpl, false);
     }
@@ -418,12 +456,19 @@ export async function pickupOnce(options, deps = {}) {
       return { status: 'INVALID', reason: 'registered page has reader warnings or invisible toggles', warnings: doc.warnings, shapeless: doc.shapeless };
     }
 
-    if (receipt && receipt.state === 'ACCOUNTED' && doc.done !== true) {
+    if (receipt && receipt.state === 'ACCOUNTED' && doc.done === false) {
       if (!receipt.observedUncheckedAt) {
         receipt = { ...receipt, observedUncheckedAt: now.toISOString() };
         atomicJson(paths.receipt, receipt, fsImpl);
       }
       return receiptStatus(receipt, paths.claim, fsImpl, false);
+    }
+
+    if (receipt && receipt.state === 'ACCOUNTED' && doc.done === null) {
+      return {
+        ...receiptStatus(receipt, paths.claim, fsImpl, false),
+        reason: 'Done is absent; the submission episode remains accounted but not reset',
+      };
     }
 
     if (doc.done !== true) return { status: 'UNCHANGED', done: doc.done, sent: false };
@@ -464,8 +509,8 @@ export async function pickupOnce(options, deps = {}) {
       if (!options.owner) return receiptStatus(receipt, paths.claim, fsImpl, false);
       const owner = validateSlug('owner', options.owner);
       const exact = sendInputs({
-        from: receipt.from, owner, page: options.page, round: receipt.round,
-        capturePath: receipt.capturePath, repo: project,
+        from: receipt.from, owner, projectScope: receipt.projectScope, round: receipt.round,
+        capturePath: receipt.capturePath, transportRepo: receipt.transportRepo,
       });
       const prepared = {
         ...receipt,
@@ -487,13 +532,15 @@ export async function pickupOnce(options, deps = {}) {
     const owner = options.owner ? validateSlug('owner', options.owner) : null;
     const from = validateSlug('from', options.from);
     const round = (receipt?.round ?? 0) + 1;
-    const relativeCapture = captureRelative(options.page, round);
-    const capturePath = path.join(project, ...relativeCapture.split('/'));
+    const relativeCapture = captureRelative(paths.projectScope, round);
+    const capturePath = path.join(transportRepo, ...relativeCapture.split('/'));
     const items = capturedItems(doc);
     const capture = {
       version: RECEIPT_VERSION,
       page: normalizedPage(options.page),
       project,
+      projectScope: paths.projectScope,
+      transportRepo,
       round,
       readAt: now.toISOString(),
       owner,
@@ -508,20 +555,25 @@ export async function pickupOnce(options, deps = {}) {
 
     if (!owner) {
       const waiting = {
-        version: RECEIPT_VERSION, page: capture.page, project, round, capturePath: relativeCapture,
+        version: RECEIPT_VERSION, page: capture.page, project, projectScope: paths.projectScope,
+        transportRepo, round, capturePath: relativeCapture,
         digest, owner: null, from, noteId: null, exactSendInputs: null, state: 'WAITING_OWNER',
-        accountingOutcome: null, preparedAt: now.toISOString(), capturedItems: items,
+        accountingOutcome: null, preparedAt: now.toISOString(),
       };
       atomicJson(paths.receipt, waiting, fsImpl);
       deps.onTransition?.('WAITING_OWNER', waiting);
       return receiptStatus(waiting, paths.claim, fsImpl, false);
     }
 
-    const exact = sendInputs({ from, owner, page: options.page, round, capturePath: relativeCapture, repo: project });
+    const exact = sendInputs({
+      from, owner, projectScope: paths.projectScope, round, capturePath: relativeCapture, transportRepo,
+    });
     const prepared = {
       version: RECEIPT_VERSION,
       page: capture.page,
       project,
+      projectScope: paths.projectScope,
+      transportRepo,
       round,
       capturePath: relativeCapture,
       digest,
@@ -532,7 +584,6 @@ export async function pickupOnce(options, deps = {}) {
       state: 'PREPARED',
       accountingOutcome: null,
       preparedAt: now.toISOString(),
-      capturedItems: items,
     };
     atomicJson(paths.receipt, prepared, fsImpl);
     deps.onTransition?.('PREPARED', prepared);
@@ -552,11 +603,24 @@ export function status(options, deps = {}) {
   const paths = receiptPaths({ agentsHome: deps.agentsHome ?? agentsHome(deps.env), project, page: options.page });
   const receipt = readJson(paths.receipt, fsImpl);
   const result = receiptStatus(receipt, paths.claim, fsImpl);
+  if (receipt && receipt.project !== project) {
+    return {
+      ...result,
+      status: 'PENDING_MANUAL_HANDOFF',
+      reason: 'this page is bound to a different authorization project',
+      requestedProject: project,
+      boundProject: receipt.project,
+    };
+  }
+  const transportRepo = receipt?.transportRepo ?? durableTransportRepo(project, deps.git ?? gitRunner, fsImpl);
+  if (receipt && durableTransportRepo(project, deps.git ?? gitRunner, fsImpl) !== receipt.transportRepo) {
+    return { ...result, status: 'NEEDS_RECONCILIATION', reason: 'the durable transport repository changed for this bound project' };
+  }
   const orphanRound = !receipt ? 1
     : (receipt.state === 'ACCOUNTED' && receipt.observedUncheckedAt ? receipt.round + 1 : null);
   if (orphanRound !== null) {
-    const relative = captureRelative(options.page, orphanRound);
-    const full = path.join(project, ...relative.split('/'));
+    const relative = captureRelative(receipt?.projectScope ?? paths.projectScope, orphanRound);
+    const full = path.join(transportRepo, ...relative.split('/'));
     if (fsImpl.existsSync(full)) {
       return { ...result, status: 'ORPHAN_CAPTURE', orphanCapturePath: relative, orphanRound };
     }
@@ -573,6 +637,9 @@ export function account(options, deps = {}) {
   try {
     const receipt = readJson(paths.receipt, fsImpl);
     if (!receipt) throw new PickupError('no active round to account');
+    if (receipt.project !== project) throw new PickupError(`page is bound to another authorization project: ${receipt.project}`);
+    const transportRepo = durableTransportRepo(project, deps.git ?? gitRunner, fsImpl);
+    if (receipt.transportRepo !== transportRepo) throw new PickupError('durable transport repository changed; reconcile before accounting');
     const integrity = verifyReceiptEvidence(receipt, fsImpl);
     if (integrity.status !== 'OK') throw new PickupError(`cannot account a round with ${integrity.status}`);
     if (receipt.state !== 'RECORDED') throw new PickupError(`cannot account a round in ${receipt.state}; uncertain delivery never becomes repeat-safe`);
@@ -588,7 +655,8 @@ export function account(options, deps = {}) {
     if (!/^Fresh-page-reconciliation:\s*\S.+$/mi.test(outcome)) {
       throw new PickupError('accounting outcome must contain a nonempty Fresh-page-reconciliation line');
     }
-    const missing = receipt.capturedItems
+    const requiredItems = requiredItemsFromCapture(receipt, now, fsImpl);
+    const missing = requiredItems
       .map((item) => item.ref)
       .filter((ref) => !new RegExp(`^Accounted-ref:\\s*${ref}(?:\\s|$)`, 'mi').test(outcome));
     if (missing.length) throw new PickupError(`accounting outcome is missing captured refs: ${missing.join(', ')}`);

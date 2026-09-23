@@ -82,13 +82,21 @@ node <skill-dir>/scripts/decisions-pickup.mjs --once --page <id> --repo <project
 
 This command invokes the reader itself; a saved export is only a test seam, not automatic
 pickup. It never edits the page or clears Done. The immutable capture lives under
-`docs/notes`; the small local receipt under `AGENTS_HOME/ws/decisions-pickup` records
+the note transport's durable main-checkout `docs/notes`; the small local receipt under
+`AGENTS_HOME/ws/decisions-pickup` records
 dispatch recovery state only. Inspect it with `decisions-pickup.mjs status --page <id>
 --repo <project-root>`. `PREPARED` may resume its saved note ID once. `SENDING` resumes
 only from positive matching transport evidence; `UNKNOWN` and `NEEDS_RECONCILIATION`
 must not be resent. `RECORDED` means the peer note exists, not that the choices were
 carried out. A stopped or replacement owner remains a visible pending manual handoff;
 do not resurrect it or dispatch the same round again.
+
+The receipt and exclusive claim are global to the registered page on this one pickup
+host. The first round binds that page to its authorization project. A second project or
+worktree registration is `PENDING_MANUAL_HANDOFF`: it does not read, dispatch, or create
+an independent round. Authorization project identity remains separate from the saved
+durable transport repository; the project scope is part of every note ID and capture
+name so old shared-mirror evidence cannot satisfy another scope.
 
 After the attended owner has handled every captured `selection-NNN` and `comment-NNN`
 reference and reconciled a fresh page read, write an outcome report containing

@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { buildEnvelope } from '../../multi/scripts/envelope.mjs';
+import { runNoteSend } from '../../multi/scripts/note-send.mjs';
 import {
   account, inspectTransport, pickupOnce, readPageWithCli, receiptPaths, status,
 } from './decisions-pickup.mjs';
@@ -215,6 +216,18 @@ test('account requires explicit owner, reconciliation, and every captured ref', 
   assert.equal(result.receipt.accountingOutcome.ownerAttested, true);
 });
 
+test('account derives required refs from immutable bytes, not mutable receipt metadata', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await pickupOnce(fx.options, deps(fx));
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fx.repo, page: fx.options.page });
+  const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+  receipt.capturedItems = [];
+  fs.writeFileSync(paths.receipt, JSON.stringify(receipt));
+  const report = path.join(fx.repo, 'empty-outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: fresh read\n');
+  assert.throws(() => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }), /selection-001.*comment-001/);
+});
+
 test('capture digest is enforced before recovery or accounting', async (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   let sends = 0;
@@ -235,12 +248,64 @@ test('ACCOUNTED requires an observed unchecked page before one new checked round
   const report = path.join(fx.repo, 'outcome.md');
   fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: fresh and checked\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
   account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
+  const missing = await pickupOnce(fx.options, deps(fx, { readPage: async () => '# Group {toggle="true"}\n' }));
+  assert.equal(missing.receipt.observedUncheckedAt, null, 'missing Done is not an observed unchecked episode');
   await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
   assert.equal(sends, 1, 'a still-checked page cannot become round 2');
   await pickupOnce(fx.options, deps(fx, { readPage: async () => UNCHECKED }));
   const second = await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
   assert.equal(second.receipt.round, 2);
   assert.equal(sends, 2);
+});
+
+test('one page is globally bound to one authorization project and second binding sends zero', async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const makeProject = (name) => {
+    const repo = path.join(sealed.fixtureRoot, name);
+    fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: 'shared-page' }));
+    return { repo, page: 'shared-page', from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js' };
+  };
+  const first = makeProject('first');
+  const second = makeProject('second');
+  let sends = 0;
+  let secondReads = 0;
+  await pickupOnce(first, {
+    agentsHome: sealed.agentsHome, readPage: async () => PAGE,
+    send: async () => { sends += 1; return {}; },
+  });
+  const rejected = await pickupOnce(second, {
+    agentsHome: sealed.agentsHome,
+    readPage: async () => { secondReads += 1; return PAGE; },
+    send: async () => { sends += 1; return {}; },
+  });
+  assert.equal(rejected.status, 'PENDING_MANUAL_HANDOFF');
+  assert.equal(rejected.boundProject, fs.realpathSync(first.repo));
+  assert.equal(secondReads, 0);
+  assert.equal(sends, 1);
+});
+
+test('capture and Details use the same durable main-checkout repository as actual note transport', async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const worktree = path.join(sealed.fixtureRoot, 'worktree');
+  const main = path.join(sealed.fixtureRoot, 'main');
+  fs.mkdirSync(path.join(worktree, '.agents'), { recursive: true });
+  fs.mkdirSync(main, { recursive: true });
+  fs.writeFileSync(path.join(worktree, '.agents', 'project.json'), JSON.stringify({ decisions_url: 'page-main' }));
+  const git = () => path.join(main, '.git');
+  const options = { repo: worktree, page: 'page-main', from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js' };
+  const result = await pickupOnce(options, {
+    agentsHome: sealed.agentsHome,
+    env: sealed.env,
+    git,
+    readPage: async () => PAGE,
+    send: (argv) => runNoteSend(argv, { git, home: sealed.home, env: sealed.env }),
+  });
+  assert.equal(result.status, 'RECORDED');
+  assert.equal(result.receipt.transportRepo, fs.realpathSync(main));
+  assert.equal(fs.existsSync(path.join(main, ...result.receipt.capturePath.split('/'))), true);
+  assert.equal(fs.existsSync(path.join(worktree, ...result.receipt.capturePath.split('/'))), false);
+  assert.equal(fs.existsSync(path.join(main, 'docs', 'ledger')), true);
 });
 
 test('exclusive per-page claim rejects concurrency and is never stale-broken', async (t) => {
