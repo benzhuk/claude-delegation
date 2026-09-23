@@ -68,7 +68,19 @@ Red-teamed by an Opus reviewer 2026-09-22 (18 findings, 16 accepted, F8 and F18 
 
   The expected output `skills/decisions/scripts/fixtures/goals-page.expected.md` is the renderer's output over `fixtures/goals-src/` (committed copies of today's two source files), with `--sha test`. The T2 review lists every line where it differs from the reference. Differences (a) for `07-28`, (b) and (d) are accepted.
 
-## Territories
+## Current active E contract (2026-09-23)
+
+This section supersedes the historical territory/test plan below. `Done` is a submission
+signal: checked means account choices/comments and clear it; unchecked is valid for an
+empty or open page. A disabled handback always prints only `HANDBACK disabled` and no
+green summary. The renderer is pure; `publish` always refuses before any operation.
+For an attended update, render, fresh-read the stable Goals target, use the existing
+writer's anchored targeted edit for agent-owned content, and verify readback. Gate 5 is
+pending that live workflow. Use the existing model tiers to select a mid-tier native
+provider runner. Focused tests cover parser/handback state, pure render/CLI/errors, and
+publication refusal; no mutation-publisher tests remain.
+
+## Historical territory plan — superseded by current active E contract
 
 - T1 (Sonnet): `skills/decisions/scripts/decisions-read.mjs`, `decisions-read.test.mjs`, new `decisions-handback.mjs` + test. M1 and M3, plus the goals-page WARN check moved from the reader (F12), and Test 6 (`--config`).
 - T2 (Sonnet): new `skills/decisions/scripts/goals-mirror.mjs` + test, `templates/goals-page.md`, fixtures, `.agents/project.json` (new file at repo root with the two ids and the existing `goal_card` default left implicit).
@@ -76,7 +88,7 @@ Red-teamed by an Opus reviewer 2026-09-22 (18 findings, 16 accepted, F8 and F18 
 - Reviewers: Opus, one per territory, attack briefs: (T1) a `Reply:` line must turn COMMENTED into REPLIED and nothing else; a REPLIED pair must never block; an owner note on the goals page must report; a page with zero items and `- [x] Done` last must be clean; Done mid-page must WARN; kill switch must exit 0 but still print. (T2) render must be byte-stable against the fixture; dirty-tree refusal; sha override; a GOALS.md section with no Status line must render UNKNOWN red and not crash. (T3) every instruction in the skill either names the script that checks it or ends with `(not checked)`, and no "in chat too" wording anywhere.
 - Integrator: plain and sealed suites; `node skills/decisions/scripts/goals-mirror.mjs render --repo skills/decisions/scripts/fixtures/goals-src --sha test` matches `goals-page.expected.md` byte for byte; `render --repo . --sha test` exits 0 and contains `main at test` exactly once; `decisions-handback.mjs` against the fixtures exits as pinned.
 
-## Tests (mechanical, named)
+## Historical numbered tests — superseded by current active E contract
 
 1. reader: `**` line with no Reply is COMMENTED; with a `Reply: <date>` line under it is REPLIED; a second `**` line under the Reply is COMMENTED again.
 2. handback: `--goals` with matching sha, no WARN; mismatched sha, exact WARN text; missing line, exact WARN text; two shas match when one is a prefix of the other.

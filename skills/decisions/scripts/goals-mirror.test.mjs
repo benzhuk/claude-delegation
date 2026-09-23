@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { renderPage, computeSha, checkDirty, run } from './goals-mirror.mjs';
+import { parseDocument } from './decisions-read.mjs';
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const fixtureRepo = path.join(FIXTURES, 'goals-src');
@@ -12,6 +14,26 @@ const expected = fs.readFileSync(path.join(FIXTURES, 'goals-page.expected.md'), 
 
 test('render remains byte-stable for the goals fixture', () => {
   assert.equal(renderPage({ repo: fixtureRepo, sha: 'test' }), expected);
+});
+
+test('real CLI render matches the fixture byte for byte', () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'goals-mirror.mjs');
+  const result = spawnSync(process.execPath, [script, 'render', '--repo', fixtureRepo, '--sha', 'test'], { encoding: 'utf8' });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, expected);
+});
+
+test('rendered fixture remains invisible to the decisions reader', () => {
+  const doc = parseDocument(renderPage({ repo: fixtureRepo, sha: 'test' }));
+  assert.equal(doc.decisions.length, 0);
+  assert.equal(doc.warnings.length, 0);
+  assert.equal(doc.unattached.length, 0);
+});
+
+test('render reports a git failure as BLIND', () => {
+  let err = '';
+  assert.equal(run({ argv: ['render', '--repo', fixtureRepo], git: () => { throw new Error('git failed'); }, writeErr: (s) => { err += s; } }), 3);
+  assert.match(err, /BLIND.*git log failed/);
 });
 
 test('render uses a supplied sha and never needs a git write', () => {
