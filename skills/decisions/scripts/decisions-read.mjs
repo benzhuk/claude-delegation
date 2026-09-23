@@ -15,7 +15,9 @@ import { fileURLToPath } from 'node:url';
 const ESCAPED_BOLD = '\\*\\*';
 // Narrowed to the form the skill and template mandate ("Reply:" + a numeric date) so a
 // bare "Reply:" the OWNER happens to type does not clear his own comment (round-2 P6).
-const REPLY_RE = /^Reply:\s*\d{4}-\d{2}-\d{2}/;
+// The date is captured (group 1), not just matched: M1's hand-back archiving needs the
+// actual reply date to tell a just-answered pair from one the owner has already seen.
+const REPLY_RE = /^Reply:\s*(\d{4}-\d{2}-\d{2})/;
 const DEFAULT_AFTER_RE = /^Default after (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2}): (.+)$/;
 // A recognised no-op per R4 — tracked (not just ignored) so the post-loop N5 check can
 // tell "explicitly declared no default" apart from "never addressed the question".
@@ -40,12 +42,18 @@ function splitMarker(rawLine) {
   return { kind: 'plain', text: stripped };
 }
 
-/** A `<summary>…</summary>` line, or a toggleable heading `#`/`##`/`###` … `{toggle="true"}`. */
+/**
+ * A `<summary>…</summary>` line, or a toggleable heading `#`/`##`/`###` … `{toggle="true"}`.
+ * Returns `{ text, shape }` (shape is `'summary'` or `'heading'`) so a caller can tell the two
+ * title forms apart — round-2 M2: a `<summary>` toggle with no checkbox options underneath it
+ * is invisible to the owner reading the rendered page too (a plain-bullet "decision" nobody can
+ * tick), and that is a different, catchable defect from a heading used only to group items.
+ */
 function matchTitle(rawLine) {
   let m = /^[ \t]*<summary>(.*)<\/summary>[ \t]*$/.exec(rawLine);
-  if (m) return m[1];
+  if (m) return { text: m[1], shape: 'summary' };
   m = /^[ \t]*#{1,3}[ \t]+(.*?)[ \t]*\{[^}]*\btoggle="true"[^}]*\}[ \t]*$/.exec(rawLine);
-  if (m) return m[1];
+  if (m) return { text: m[1], shape: 'heading' };
   return null;
 }
 
@@ -151,15 +159,16 @@ export function parseDocument(text, { now = new Date() } = {}) {
     if (/<summary\b/i.test(raw) && matchTitle(raw) === null) {
       throw new BlindError(`unreadable <summary> at line ${lineNo}`);
     }
-    const titleText = matchTitle(raw);
-    if (titleText !== null) {
+    const titleMatch = matchTitle(raw);
+    if (titleMatch !== null) {
       currentTitle = {
-        title: normalizeTitle(titleText),
+        title: normalizeTitle(titleMatch.text),
         line: lineNo,
         options: [],
         comments: [],
         default: null,
         noDefaultLine: false,
+        shape: titleMatch.shape,
         _openComment: null,
       };
       titles.push(currentTitle);
@@ -181,7 +190,10 @@ export function parseDocument(text, { now = new Date() } = {}) {
     if (isCommentText(parsed.text)) {
       const commentText = stripCommentMarker(parsed.text);
       if (currentTitle) {
-        const comment = { text: commentText, line: lineNo, replied: false };
+        // `repliedAt` (v3, M1): the Reply line's own date, kept so a downstream tool (the
+        // hand-back check) can tell a JUST-answered pair from one the owner has already seen —
+        // never parsed back out of `text`, which never carries a date at all.
+        const comment = { text: commentText, line: lineNo, replied: false, repliedAt: null };
         currentTitle.comments.push(comment);
         currentTitle._openComment = comment;
       } else {
@@ -198,7 +210,9 @@ export function parseDocument(text, { now = new Date() } = {}) {
       // Closes only the nearest still-open comment (R1); once closed, it stays closed —
       // a later Reply: line never reaches back past the next comment.
       if (currentTitle._openComment) {
+        const replyMatch = REPLY_RE.exec(parsed.text);
         currentTitle._openComment.replied = true;
+        currentTitle._openComment.repliedAt = replyMatch ? replyMatch[1] : null;
         currentTitle._openComment = null;
       }
       continue; // a reply marker, never an option or a comment
@@ -283,11 +297,26 @@ export function parseDocument(text, { now = new Date() } = {}) {
   const decisions = titles
     .filter((t) => t.options.length > 0)
     .map((t) => {
-      const { _openComment, noDefaultLine, ...rest } = t;
+      const {
+        _openComment, noDefaultLine, shape, ...rest
+      } = t;
       return { ...rest, status: computeStatus(t, now) };
     });
 
-  return { decisions, unattached, done, warnings };
+  // Round-2 M2: a `<summary>`-form title with zero checkbox options is the past bug's twin —
+  // written outside the template shape, so no decision ever attaches to it and it is otherwise
+  // completely invisible (it has no options, so it is filtered out of `decisions` above, and it
+  // is not a comment or a tick so it never reaches `unattached` either). `shapeless` is a
+  // JS-API-only addition: `formatText`, `computeExitCode` and `toJsonObject` are unchanged, so the
+  // reader's stdout grammar and exit codes stay exactly as pinned; a downstream caller (the
+  // hand-back check) is what turns this into something the lead sees.
+  const shapeless = titles
+    .filter((t) => t.shape === 'summary' && t.options.length === 0)
+    .map((t) => ({ title: t.title, line: t.line }));
+
+  return {
+    decisions, unattached, done, warnings, shapeless,
+  };
 }
 
 function detailFor(d) {
@@ -321,7 +350,7 @@ export function toJsonObject(doc) {
       status: d.status,
       line: d.line,
       options: d.options.map((o) => ({ text: o.text, ticked: o.ticked, line: o.line })),
-      comments: d.comments.map((c) => ({ text: c.text, line: c.line, replied: c.replied })),
+      comments: d.comments.map((c) => ({ text: c.text, line: c.line, replied: c.replied, repliedAt: c.repliedAt })),
       default: d.default ? { text: d.default.text, at: d.default.at } : null,
     })),
     unattached: doc.unattached.map((u) => ({

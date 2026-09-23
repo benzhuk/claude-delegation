@@ -271,7 +271,7 @@ test('formatJson / toJsonObject: full shape', () => {
       status: 'TICKED',
       line: 1,
       options: [{ text: 'yes', ticked: true, line: 2 }],
-      comments: [{ text: 'a comment too', line: 3, replied: false }],
+      comments: [{ text: 'a comment too', line: 3, replied: false, repliedAt: null }],
       default: null,
     }],
     unattached: [],
@@ -528,6 +528,30 @@ test('MINOR 6: a leading UTF-8 BOM does not hide a first-line title', () => {
   assert.equal(doc.decisions[0].title, 'First line title');
 });
 
+// Round-2 M2: a `<summary>` toggle with zero checkbox options is written outside the template
+// shape and would otherwise be completely invisible (no options -> not a decision; no comments
+// -> not unattached either). `shapeless` is a JS-API-only addition — stdout (formatText),
+// computeExitCode and toJsonObject are all unchanged, so the reader's pinned CLI contract holds.
+test('shapeless: a <summary> toggle with no checkbox options is reported, a heading with none is not', () => {
+  const doc = parseDocument(L(
+    '<summary>Item written with bullets</summary>',
+    '\t- option one (recommended)',
+    '\t- option two',
+    '# Closed {toggle="true"}',
+    '\t- an archived bullet, no checkbox, not a decision',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Item written with bullets', line: 1 }]);
+  // formatText, computeExitCode and toJsonObject are unchanged: the shapeless title is invisible
+  // to all three, exactly as it is today (this is the bug the hand-back check now catches).
+  assert.doesNotMatch(formatText(doc), /Item written with bullets/);
+  assert.equal(toJsonObject(doc).shapeless, undefined);
+});
+
+test('shapeless: a <summary> toggle WITH options is never reported as shapeless', () => {
+  const doc = parseDocument(L('<summary>t</summary>', '\t- [ ] a'));
+  assert.deepEqual(doc.shapeless, []);
+});
+
 test('MINOR 8: formatText and JSON report an explicit decision count', () => {
   const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
   assert.equal(zero.decisions.length, 0);
@@ -567,14 +591,15 @@ test('R1: a comment followed by a Reply: line is replied; JSON carries replied p
   const d = doc.decisions[0];
   assert.equal(d.comments[0].replied, true);
   assert.deepEqual(toJsonObject(doc).decisions[0].comments[0], {
-    text: 'is this cheaper to undo?', line: 2, replied: true,
+    text: 'is this cheaper to undo?', line: 2, replied: true, repliedAt: '2026-09-20',
   });
 });
 
-test('R1: a comment with no Reply: line after it stays unreplied', () => {
+test('R1: a comment with no Reply: line after it stays unreplied, and repliedAt stays null', () => {
   const md = L('<summary>t</summary>', '\t- [ ] \\*\\* unanswered?', '\t- [ ] a');
   const doc = parseDocument(md);
   assert.equal(doc.decisions[0].comments[0].replied, false);
+  assert.equal(doc.decisions[0].comments[0].repliedAt, null);
 });
 
 test('R1: a Reply: only closes the nearest preceding open comment, never a later or earlier one', () => {
@@ -588,7 +613,116 @@ test('R1: a Reply: only closes the nearest preceding open comment, never a later
   const doc = parseDocument(md);
   const [first, second] = doc.decisions[0].comments;
   assert.equal(first.replied, false, 'the Reply: line came after the second comment opened, not the first');
+  assert.equal(first.repliedAt, null);
   assert.equal(second.replied, true);
+  assert.equal(second.repliedAt, '2026-09-20');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M1 (decisions-current spec) — reply/comment status, and goals-page-shaped input
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Reviewer attack brief: "a Reply: line must turn COMMENTED into REPLIED and nothing else."
+test('M1: a Reply: line turns COMMENTED into REPLIED and changes nothing else about the decision', () => {
+  const before = parseDocument(L(
+    '<summary>Ship the thing</summary>',
+    '\t- [ ] a',
+    '\t- [ ] b',
+    '\t- [ ] \\*\\* is this reversible?',
+  ));
+  const after = parseDocument(L(
+    '<summary>Ship the thing</summary>',
+    '\t- [ ] a',
+    '\t- [ ] b',
+    '\t- [ ] \\*\\* is this reversible?',
+    '\tReply: 2026-09-22, yes.',
+  ));
+  assert.equal(before.decisions[0].status, 'COMMENTED');
+  assert.equal(after.decisions[0].status, 'REPLIED');
+  // nothing else about the decision changed: same title, same options, same option order/text
+  assert.equal(after.decisions[0].title, before.decisions[0].title);
+  assert.deepEqual(after.decisions[0].options, before.decisions[0].options);
+  assert.equal(after.decisions[0].comments.length, before.decisions[0].comments.length);
+  assert.equal(after.decisions[0].comments[0].text, before.decisions[0].comments[0].text);
+});
+
+// Reviewer attack brief: "a REPLIED pair must never block" — REPLIED is not in the actionable set.
+test('M1: a REPLIED pair is not actionable (exit 0), same as OPEN', () => {
+  const doc = parseDocument(L(
+    '<summary>t</summary>',
+    '\t- [ ] \\*\\* q',
+    '\tReply: 2026-09-22, a.',
+    '\t- [ ] a',
+    '\tNo default: not needed here',
+    '- [ ] Done',
+  ));
+  assert.equal(doc.decisions[0].status, 'REPLIED');
+  assert.equal(computeExitCode(doc), 0);
+});
+
+// Test 1 (spec): a `**` line with no Reply is COMMENTED; with a Reply: line under it, REPLIED;
+// a second `**` line under the Reply (a follow-up, M1's "COMMENTED again") is COMMENTED again.
+test('Test 1: no Reply -> COMMENTED; Reply -> REPLIED; a follow-up ** line after that -> COMMENTED again', () => {
+  const commented = parseDocument(L(
+    '<summary>t</summary>', '\t- [ ] a', '\t- [ ] \\*\\* first question',
+  ));
+  assert.equal(commented.decisions[0].status, 'COMMENTED');
+
+  const replied = parseDocument(L(
+    '<summary>t</summary>', '\t- [ ] a', '\t- [ ] \\*\\* first question', '\tReply: 2026-09-22, answered.',
+  ));
+  assert.equal(replied.decisions[0].status, 'REPLIED');
+
+  const followUp = parseDocument(L(
+    '<summary>t</summary>', '\t- [ ] a', '\t- [ ] \\*\\* first question', '\tReply: 2026-09-22, answered.',
+    '\t- [ ] \\*\\* follow-up from the owner',
+  ));
+  assert.equal(followUp.decisions[0].status, 'COMMENTED', 'a follow-up ** line reopens the item');
+  assert.equal(followUp.decisions[0].comments.length, 2);
+  assert.equal(followUp.decisions[0].comments[0].replied, true, 'the first comment stays replied');
+  assert.equal(followUp.decisions[0].comments[1].replied, false, 'the follow-up is the new, unreplied one');
+});
+
+// Test 3 (spec): an owner note on the goals page — under a heading, and inside the mirror callout —
+// is reported the same way as any other UNATTACHED note. Modelled on the goals-page shape (a
+// `<callout>` block, then toggleable `# X {toggle="true"}` sections), not copied from a real page.
+test('Test 3: an owner note under a goals-page heading reports UNATTACHED with "(under <heading>)"', () => {
+  const md = L(
+    '<callout icon="🪞">',
+    '\t**Mirror of **[**GOALS.md**](http://GOALS.md)** and **[**card.md**](http://card.md)**, generated. main at 889887a.**',
+    '</callout>',
+    '# Decisions have one home and are kept current {toggle="true"}', // line 4
+    '\t\\*\\* is this still true?', // line 5
+    '\tMeasure: something measurable.',
+  );
+  const doc = parseDocument(md);
+  const note = doc.unattached.find((u) => u.kind === 'comment');
+  assert.ok(note, 'the goals-page note must not vanish');
+  assert.equal(note.line, 5);
+  assert.equal(note.under, 'Decisions have one home and are kept current');
+  assert.equal(
+    formatText(doc).split('\n').find((l) => l.startsWith('UNATTACHED')),
+    'UNATTACHED\tline 5\tis this still true?\t(under Decisions have one home and are kept current)',
+  );
+});
+
+test('Test 3: an owner note inside the mirror callout (before any title) reports UNATTACHED with no "(under …)"', () => {
+  const md = L(
+    '<callout icon="🪞">',
+    '\t**Mirror of **[**GOALS.md**](http://GOALS.md)** and **[**card.md**](http://card.md)**, generated. main at 889887a.**', // line 2
+    '\t\\*\\* a note from the owner right inside the mirror callout', // line 3
+    '</callout>',
+    '# Decisions have one home and are kept current {toggle="true"}',
+    '\tMeasure: something measurable.',
+  );
+  const doc = parseDocument(md);
+  assert.deepEqual(doc.unattached, [
+    { text: 'a note from the owner right inside the mirror callout', line: 3, kind: 'comment' },
+  ]);
+  assert.equal(
+    formatText(doc).split('\n').find((l) => l.startsWith('UNATTACHED')),
+    'UNATTACHED\tline 3\ta note from the owner right inside the mirror callout',
+  );
 });
 
 test('R2: all comments replied and no tick -> REPLIED, not COMMENTED, and not actionable', () => {
