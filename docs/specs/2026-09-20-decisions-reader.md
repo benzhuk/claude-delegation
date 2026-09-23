@@ -61,10 +61,10 @@ arrives as plain `**`.
    decision. A checkbox inside a callout that sits inside a decision is read as
    one of that decision's options, so callouts inside a decision must not
    contain checkboxes.
-6. The page-level DONE line: ANY checkbox whose text is exactly `Done`
-   (case-sensitive), AT ANY INDENTATION (column 0, tabs, or spaces) and wherever in
+6. The page-level DONE line: ANY checkbox whose text is exactly legacy `Done` or
+   `Done (last cleared: <text>)` (case-sensitive), AT ANY INDENTATION (column 0, tabs, or spaces) and wherever in
    the document it sits, is the page-level Done marker and is NEVER an option of any
-   decision. `done` is read from the LAST such line found (`true`/`false`; `null` when
+   decision. `done` and its supported label are read from the LAST such line found (`true`/`false`; `null` when
    none exist). Three independent anomalies, each its own WARN (rule 11), none of them
    silent: (a) the line is indented (not column 0) — `Done line is indented`; (b) the
    last such line is not the true last non-empty line of the document (ignoring
@@ -72,7 +72,7 @@ arrives as plain `**`.
    line`; (c) more than one such line exists — `more than one Done line`. A page that
    contains at least one real decision (rule 5) but no Done line at all is itself an
    anomaly (rule 11's `no Done line found`) — the skill leans on Done to assert
-   "nothing open," so its total absence must not be silent either. A page with no real
+   "submission control," so its total absence must not be silent either. A page with no real
    decisions (grouping titles only) needs no Done line and is not warned.
 7. Status of each decision, in priority order: `AMBIGUOUS` if two or more options are
    ticked; otherwise `TICKED` if exactly one is; otherwise `COMMENTED` if it has at
@@ -136,10 +136,10 @@ arrives as plain `**`.
 12. Lines inside a fenced code block (``` … ```), at any indentation, are ignored
     entirely. An unterminated fence means the rest of the document cannot be trusted:
     FAIL CLOSED, exit 3.
-13. Exit codes: `0` = parsed, nothing for an agent to act on (every decision OPEN or
+13. Exit codes: `0` = parsed, nothing for an agent to act on (unchecked Done and every decision OPEN or
     REPLIED, nothing unattached, no warnings); `1` = parsed, something to act on (any
     AMBIGUOUS, TICKED, COMMENTED or DUE decision, any UNATTACHED entry, or any
-    warning); `3` = blind (empty input, unreadable file, unterminated fence, or zero
+   warning, and Done is unchecked); `1` also includes a checked Done submission; `3` = blind (empty input, unreadable file, unterminated fence, or zero
     titles found). NEVER exit 2 (hook harnesses read 2 as "block") — including an
     internal crash (wrap main; a crash is exit 3 with a one-line stderr message).
 
@@ -217,3 +217,11 @@ enforced. New rule 10a makes it mechanical: any decision ending its parse with n
 is now a WARN naming the decision's title. This is additive only — it changes no
 decision's `status`, and follows the same exit-code behavior every other WARN already
 has (rule 13).
+
+## Addendum, 2026-09-22
+
+This reader stays a pure parser: no rule above changes. The owner-note handling
+(instruction vs. question, act/log/delete vs. Reply/archive), the goals-mirror
+renderer and staleness check, and the hand-back check that gates the URL going back
+to the owner are specified separately in `docs/specs/2026-09-22-decisions-current.md`
+— read that spec for anything past this file's own rules 1-13.

@@ -32,6 +32,10 @@ The reply is its own line starting with `Reply:` plus the date. Never quote the
 owner's line back when writing it — a copied `\*\*` prefix would be read as a
 brand-new comment, and the item would never stop reporting as answered again.
 
+A replied pair is archived to Closed on the first hand-back pass after the reply
+date; an owner instruction (not a question) is done, logged in Closed and its line
+deleted.
+
 ## Example (synthetic, filled in)
 
 <details>

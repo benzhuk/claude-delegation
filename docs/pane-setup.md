@@ -116,3 +116,20 @@ Run both census scripts from `<project>-o`'s pane once a build's Ship step compl
 (`skills/team-build/SKILL.md`'s Ship section names the exact moment); the numbers go into
 the merge ask `<project>-fable` puts on the decisions page, not into a pane's own
 transcript alone.
+
+## Releasing
+
+A release that changes `docs/GOALS.md` or `docs/goals/card.md` (status lines change
+only in a release commit) keeps the Notion goals mirror current as its last step:
+bump, commit, push, then
+
+```
+node skills/decisions/scripts/goals-mirror.mjs render --repo . > <scratch>/goals-render.md
+```
+
+Read the existing Goals child fresh, then use the existing `notion-writing` skill for
+anchored targeted edits of agent-owned mirror sections only and verify the readback.
+Preserve surrounding human content; reconcile a changed anchor or uncertain write from
+a fresh read. Initial creation uses the existing writer under normal authority.
+`goals-mirror.mjs publish` is intentionally disabled. No runner brief template exists
+for this step; none is created here.
