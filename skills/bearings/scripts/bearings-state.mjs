@@ -21,6 +21,31 @@ function fileBytes(file) {
   } catch (err) { return absent(err) ? { kind: 'missing' } : { kind: 'unreadable' }; }
 }
 
+function validPublication(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+  } catch { return false; }
+}
+
+// `realpath` needs a leaf that exists. For a new receipt, preserve the real
+// existing ancestor so aliases through a symlink cannot bypass role checks.
+function resolvedDestination(file) {
+  const parts = [];
+  let current = path.resolve(file);
+  while (true) {
+    try { return path.join(fs.realpathSync(current), ...parts.reverse()); }
+    catch (err) {
+      if (!absent(err)) throw err;
+      const parent = path.dirname(current);
+      if (parent === current) throw err;
+      parts.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 export function receiptLocation(projectRoot, env = process.env) {
   return path.join(home(env), 'ws', 'bearings', `${sha256(projectRoot)}.json`);
 }
@@ -66,7 +91,7 @@ export function check({ repo = process.cwd(), env = process.env, now = Date.now(
   }
   const completedAt = Date.parse(receipt.completedAt);
   if (!Number.isFinite(completedAt) || completedAt > now) return result('due', 'completion receipt has an invalid or future completion time', { ...goal, receiptFile });
-  if (typeof receipt.publication !== 'string' || !/^https?:\/\//i.test(receipt.publication)) return result('due', 'completion receipt lacks a verified publication URL', { ...goal, receiptFile });
+  if (!validPublication(receipt.publication)) return result('due', 'completion receipt lacks a verified publication URL', { ...goal, receiptFile });
   for (const [field, digest] of [['reportPath', 'reportDigest'], ['leadResponsePath', 'leadResponseDigest']]) {
     if (typeof receipt[field] !== 'string' || typeof receipt[digest] !== 'string') return result('due', 'completion receipt lacks required evidence', { ...goal, receiptFile });
     const evidence = fileBytes(receipt[field]);
@@ -80,7 +105,7 @@ export function complete({ repo = process.cwd(), report, leadResponse, publicati
   if (disabled(env)) throw new Error('bearings is disabled by a switch');
   const goal = goalLocation(repo);
   if (goal.kind !== 'ok') throw new Error(goal.kind === 'unconfigured' ? 'current goal card is missing' : 'project root or current goal card is unreadable');
-  if (typeof publication !== 'string' || !/^https?:\/\//i.test(publication)) throw new Error('publication must be an http(s) URL');
+  if (!validPublication(publication)) throw new Error('publication must be an http(s) URL');
   const reportFile = fileBytes(report);
   const responseFile = fileBytes(leadResponse);
   if (reportFile.kind !== 'ok' || responseFile.kind !== 'ok') throw new Error('report and lead response must be readable, nonempty regular files');
@@ -88,6 +113,10 @@ export function complete({ repo = process.cwd(), report, leadResponse, publicati
     completedAt: new Date(now).toISOString(), reportPath: reportFile.path, reportDigest: sha256(reportFile.bytes),
     leadResponsePath: responseFile.path, leadResponseDigest: sha256(responseFile.bytes), publication };
   const target = receiptLocation(goal.projectRoot, env);
+  const resolvedTarget = resolvedDestination(target);
+  if ([reportFile.path, responseFile.path, goal.goalPath].includes(resolvedTarget)) {
+    throw new Error('completion receipt destination conflicts with required evidence or goal card');
+  }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const temp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   try { fs.writeFileSync(temp, `${JSON.stringify(receipt)}\n`, { encoding: 'utf8', mode: 0o600 }); fs.renameSync(temp, target); }

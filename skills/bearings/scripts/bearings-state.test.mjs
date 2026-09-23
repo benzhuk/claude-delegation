@@ -26,6 +26,25 @@ test('complete creates an attested receipt current for less than 24 hours and du
   assert.equal(complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', env: e, now }).version, 1);
   assert.equal(check({ repo: root, env: e, now: now + 23 * 60 * 60 * 1000 }).status, 'current'); assert.equal(check({ repo: root, env: e, now: now + 24 * 60 * 60 * 1000 }).status, 'due');
 });
+test('malformed publication URLs are rejected during completion and cannot suppress due', () => {
+  const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
+  assert.throws(() => complete({ repo: root, report, leadResponse: response, publication: 'https://', env: e, now }), /http\(s\) URL/);
+  complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', env: e, now });
+  const receiptPath = receiptLocation(fs.realpathSync(root), e); const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+  receipt.publication = 'https://'; fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+  assert.equal(check({ repo: root, env: e, now }).status, 'due');
+});
+test('receipt destination cannot replace report or response evidence through aliases', () => {
+  const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
+  complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', env: e, now });
+  const receiptPath = receiptLocation(fs.realpathSync(root), e); const before = fs.readFileSync(receiptPath);
+  for (const evidence of [receiptPath, path.join(path.dirname(receiptPath), '.', path.basename(receiptPath))]) {
+    assert.throws(() => complete({ repo: root, report: evidence, leadResponse: response, publication: 'https://example.test/decision', env: e, now }), /destination conflicts/);
+    assert.deepEqual(fs.readFileSync(receiptPath), before);
+    assert.throws(() => complete({ repo: root, report, leadResponse: evidence, publication: 'https://example.test/decision', env: e, now }), /destination conflicts/);
+    assert.deepEqual(fs.readFileSync(receiptPath), before);
+  }
+});
 test('future, tampered, changed-goal and malformed receipts never suppress due', () => {
   const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
   complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', env: e, now: now + 1 }); assert.equal(check({ repo: root, env: e, now }).status, 'due');
