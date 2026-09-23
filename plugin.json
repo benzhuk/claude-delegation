@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "delegation",
+  "version": "0.17.1",
+  "description": "Shared work-management skills and host integrations for Codex and Claude Code.",
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/codex-hooks.json"
+    }
+  }
+}

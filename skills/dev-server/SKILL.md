@@ -1,6 +1,7 @@
 ---
 name: dev-server
-description: Start, prepare, find, or stop a local dev server (Next.js/Vite/any `npm run dev`) — ALWAYS through `server-manager-agent`, never `npm run dev &`/nohup. Use whenever you are about to run a dev server, need a worktree's node_modules (fresh git/Orca worktree = clone deps, don't `npm install`), need to know what's running on which port/worktree, or need to stop a server. This makes the server visible, killable, and switchable in Ben's `accounts` app, keeps it out of your own process group (so it survives you and can't take Claude down when killed), and enforces the port bands (3000 = cadma only). Triggers: "start the dev server", "run the app", "spin up next dev", "which port is X on", "kill the server", "restart the server", "install deps in this worktree", "npm install", "node_modules missing", "sh: next: command not found".
+description: >-
+  Start, prepare, find, or stop a local dev server (Next.js/Vite/any `npm run dev`) — ALWAYS through `server-manager-agent`, never `npm run dev &`/nohup. Use whenever you are about to run a dev server, need a worktree's node_modules (fresh git/Orca worktree = clone deps, don't `npm install`), need to know what's running on which port/worktree, or need to stop a server. This makes the server visible, killable, and switchable in Ben's `accounts` app, keeps it out of your own process group (so it survives you and can't take Claude down when killed), and enforces the port bands (3000 = cadma only). Triggers: "start the dev server", "run the app", "spin up next dev", "which port is X on", "kill the server", "restart the server", "install deps in this worktree", "npm install", "node_modules missing", "sh: next: command not found".
 ---
 
 # dev-server
