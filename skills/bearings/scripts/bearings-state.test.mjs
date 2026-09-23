@@ -38,7 +38,10 @@ test('receipt destination cannot replace report, response, or goal evidence thro
   const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
   complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', env: e, now });
   const receiptPath = receiptLocation(fs.realpathSync(root), e); const before = fs.readFileSync(receiptPath);
-  for (const evidence of [receiptPath, path.join(path.dirname(receiptPath), '.', path.basename(receiptPath)), receiptPath.toUpperCase()]) {
+  const aliases = [receiptPath, path.join(path.dirname(receiptPath), '.', path.basename(receiptPath))];
+  const caseAlias = receiptPath.toUpperCase();
+  if (fs.existsSync(caseAlias) && fs.realpathSync.native(caseAlias) === fs.realpathSync.native(receiptPath)) aliases.push(caseAlias);
+  for (const evidence of aliases) {
     assert.throws(() => complete({ repo: root, report: evidence, leadResponse: response, publication: 'https://example.test/decision', env: e, now }), /destination conflicts/);
     assert.deepEqual(fs.readFileSync(receiptPath), before);
     assert.throws(() => complete({ repo: root, report, leadResponse: evidence, publication: 'https://example.test/decision', env: e, now }), /destination conflicts/);
