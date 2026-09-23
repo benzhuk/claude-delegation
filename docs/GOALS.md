@@ -36,7 +36,7 @@ The package coordinates its skills and host integrations around the same durable
 
 ## Dated history and observations
 
-The following records preserve earlier observations; they do not override the current objective or operating rules. The complete original dated quotations and measurements are retained in [the 2026-09-22 historical appendix](goals/history-2026-09-22.md).
+The following records preserve earlier observations; they do not override the current objective or operating rules. Original dated quotations and measurements are retained in [the 2026-09-22 historical appendix](goals/history-2026-09-22.md).
 
 - September 20–22, 2026: Ben emphasized token efficiency while maintaining quality, faster deliverables, root-cause work over patch castles, and agents doing valuable work without waiting to be asked.
 - September 21, 2026: prior records reported a 152-turn hand-run build and 19/67 orchestrator turns in loop builds; these are observations, not lead-turn targets or provider/model requirements.
