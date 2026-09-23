@@ -60,10 +60,10 @@ claude plugin install delegation@benzhuk
   automatic daily triggering, idle execution, and unattended `Done` pickup are not
   included. Codex cadence, installed-host discovery/parity, mixed-host validation, and
   live Goals preservation/readback remain pending release gates.
-- **`/delegation:continue`** — continue finite authorized work after a pause or decision
-  wait: select useful ready work, preserve its evidence identity, refill genuinely free
-  capacity, and use verified native host resume paths. It is guidance, not an unattended
-  scheduler, automatic restart, or authority grant.
+- **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
+  wave closeout, or status turn: select useful ready work, preserve its evidence identity,
+  refill genuinely free capacity, and use verified native host resume paths. It is guidance,
+  not an unattended scheduler, automatic restart, or authority grant.
 - **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
   default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
   a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
