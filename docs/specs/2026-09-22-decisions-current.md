@@ -51,8 +51,8 @@ Red-teamed by an Opus reviewer 2026-09-22 (18 findings, 16 accepted, F8 and F18 
 ## Contracts (pinned)
 
 - `decisions-read.mjs` stdout grammar unchanged: `STATUS\tTITLE\tDETAIL` lines, then `DECISIONS\t<n>`, `DONE\ttrue|false|absent`. Exit codes unchanged (1 act, 0 nothing, 3 BLIND).
-- `decisions-handback.mjs` exit: 0 clean, 1 not clean, 3 BLIND. Stdout: the reader lines it objects to, then `HANDBACK ok|blocked|blind`. WARN texts exactly: `goals mirror stale: page <a>, head <b>`, `goals mirror missing sha line`.
-- `goals-mirror.mjs render` stdout: the page markdown; the first line is the callout opener; `main at <sha>` appears exactly once. Exit 1 on dirty source files (publish only).
+- `decisions-handback.mjs` exit: 0 clean or disabled, 1 not clean, 3 BLIND. Stdout ends `HANDBACK ok|blocked|disabled|blind`; disabled never emits a green summary or `ok`.
+- `goals-mirror.mjs render` stdout: the page markdown; the first line is the callout opener; `main at <sha>` appears exactly once. `publish` exits 1 before live operations.
 - Sha line (shared T1/T2 contract): the page sha is the first match of `/\bmain at ([0-9A-Za-z]+)/` on the first line inside the page's first `<callout` … `</callout>` block. No match there means `goals mirror missing sha line`; a match anywhere else on the page does not count.
 - The template writes file names in backticks (`` `docs/GOALS.md` ``, `` `docs/goals/card.md` ``) so Notion does not turn them into http links.
 - T1's goals fixtures use the read-back shape, bold split around a link, e.g. `\t**Mirror of **[**GOALS.md**](http://GOALS.md)** … main at 889887a.**`, and include one fixture whose Status prose contains "main at abc1234" outside the callout.
@@ -98,4 +98,4 @@ Red-teamed by an Opus reviewer 2026-09-22 (18 findings, 16 accepted, F8 and F18 
 
 Reader output on the live page before the repair, 2026-09-22 16:55 NY: 6 decisions seen (3 new items invisible), `WARN Done is not the last line`, 2 closed toggles without default lines, `DONE true` with items open. After the repair by hand (runner, same day): a fresh read at 17:40 NY through the reader gives `OPEN What done is tested against next`, `DECISIONS 1`, `DONE false`, exit 0, no WARN.
 
-Ship as one release with the goal-card commit already on main. Gate 5 (live smoke) for this build is: a Sonnet runner runs `goals-mirror.mjs publish` against the real plan page and `decisions-handback.mjs` against fresh reads, and pastes both outputs.
+Gate 5 is pending: a mid-tier native-provider runner, selected through the existing model tiers, renders, fresh-reads the stable Goals target, uses the existing writer for targeted edits, verifies readback, and runs handback on fresh reads. No synthetic suite proves that installed-host flow.

@@ -366,6 +366,18 @@ test('Test 4: kill-switch file makes a blocked result exit 0 and print "HANDBACK
   assert.doesNotMatch(stdout, /Decisions waiting:/, 'the waiting line is tied to "HANDBACK ok", not to exit 0 alone');
 });
 
+test('disabled enforcement never prints a clean summary or HANDBACK ok', () => {
+  const home = tmpdir('decisions-handback-home-');
+  fs.writeFileSync(path.join(home, 'ws-off-decisions'), '', 'utf8');
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS }, env: { AGENTS_HOME: home },
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /HANDBACK disabled\n$/);
+  assert.doesNotMatch(stdout, /HANDBACK ok|Decisions waiting:/);
+});
+
 test('Test 4: the master ws-off switch also forces a blocked result to exit 0', () => {
   const home = tmpdir('decisions-handback-home-');
   fs.writeFileSync(path.join(home, 'ws-off'), '', 'utf8');

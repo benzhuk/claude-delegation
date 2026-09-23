@@ -348,6 +348,10 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
 
   const clean = decisionsOffending.length === 0 && shapeOffending.length === 0 && !doneLine
     && goalsOffending.length === 0 && !shaWarnLine;
+  if (killSwitchActive(env)) {
+    writeOut('HANDBACK disabled\n');
+    return 0;
+  }
   if (clean) {
     const notesToday = countNotesToday(decisionsText, today.md);
     writeOut(`Decisions waiting: ${decisionsDoc.decisions.length}, notes logged today: ${notesToday}, ${mirrorSummary}\n`);
@@ -355,10 +359,6 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
     return 0;
   }
 
-  if (killSwitchActive(env)) {
-    writeOut('HANDBACK disabled\n');
-    return 0;
-  }
   writeOut('HANDBACK blocked\n');
   return 1;
 }

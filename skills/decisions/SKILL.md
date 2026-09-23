@@ -110,7 +110,7 @@ change nothing (checked by `scripts/decisions-read.mjs`).
     a section heading written as a toggle) or that has no title above it at all is not
     cleared by a Reply: the reader keeps reporting it UNATTACHED (rule 9), which blocks
     the hand-back (checked by `scripts/decisions-handback.mjs`) and, for a goals-page
-    note, the mirror publish (checked by `scripts/goals-mirror.mjs`). A note below an
+    note, an attended goals update (not checked). A note below an
     item's closed toggle, with no new title between, still belongs to that item
     (checked by `scripts/decisions-read.mjs`). Answer and archive an UNATTACHED question
     in the same pass: the `Your question, <M-D>: …` bullet under the decisions page's

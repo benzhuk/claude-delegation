@@ -57,3 +57,39 @@ test('render rejects a source line that would become a decision checkbox', () =>
   };
   assert.throws(() => renderPage({ repo: fixtureRepo, sha: 'test', readFile }), /would render as a checkbox/);
 });
+
+test('render marks a section without Status UNKNOWN and preserves dollar text', () => {
+  const readFile = (file) => {
+    if (file.endsWith('GOALS.md')) return '# Goals\n\n## A\nCosts $& remain.\n';
+    if (file.endsWith('card.md')) return 'GOAL: g\nNOT: n\nDONE: d\nKILL: k\nSOURCE: s\n';
+    return fs.readFileSync(file, 'utf8');
+  };
+  const page = renderPage({ repo: fixtureRepo, sha: 'test', readFile });
+  assert.match(page, /UNKNOWN/);
+  assert.match(page, /Costs \$& remain/);
+});
+
+test('render reads sources directly under the supplied repo and fails blind through the CLI on missing input', () => {
+  const seen = [];
+  assert.throws(() => renderPage({ repo: '/direct', sha: 't', readFile: (file) => { seen.push(file); throw new Error('missing'); } }), /cannot read/);
+  assert.equal(seen[0], path.join('/direct', 'docs', 'GOALS.md'));
+  let err = '';
+  assert.equal(run({ argv: ['render', '--repo', '/missing', '--sha', 't'], readFile: () => { throw new Error('ENOENT'); }, writeErr: (s) => { err += s; } }), 3);
+  assert.match(err, /BLIND/);
+});
+
+test('render refuses every retained unsafe source form', () => {
+  for (const line of ['<summary>x</summary>', 'Default after 2026-01-01 00:00 +00:00: x', '```js', '* [ ] x']) {
+    const readFile = (file) => {
+      if (file.endsWith('GOALS.md')) return `# Goals\n\n## A\n${line}\n`;
+      if (file.endsWith('card.md')) return 'GOAL: g\nNOT: n\nDONE: d\nKILL: k\nSOURCE: s\n';
+      return fs.readFileSync(file, 'utf8');
+    };
+    assert.throws(() => renderPage({ repo: fixtureRepo, sha: 't', readFile }));
+  }
+});
+
+test('checkDirty reports dirty and blind git failures', () => {
+  assert.deepEqual(checkDirty({ repo: '/r', readFile: () => 'local\n', git: () => 'origin\n' }), { dirty: true, path: 'docs/GOALS.md' });
+  assert.throws(() => checkDirty({ repo: '/r', readFile: () => 'x', git: () => { throw new Error('git'); } }), /cannot read origin/);
+});
