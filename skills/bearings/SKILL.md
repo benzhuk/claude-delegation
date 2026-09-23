@@ -9,7 +9,7 @@ Use this skill to obtain an independent, evidence-based answer about whether a p
 
 ## Prepare the assessment
 
-1. Gather a bounded packet: the current goal/card revision, completed and in-flight work with their results, relevant commit or artifact links, earlier predictions, and available measures. State the date, assessment window, and what evidence was unavailable. Do not make the reviewer rediscover the whole project.
+1. Gather a bounded packet: the current goal/card revision, completed and in-flight work with their results, relevant commit or artifact links, earlier predictions, and available measures. State the date, assessment window, and what evidence was unavailable. If current sources or owner direction conflict, surface the conflict and authority rather than silently choosing a definition of success. Do not make the reviewer rediscover the whole project.
 2. Give the packet to a fresh **high-tier** reviewer through the host's native delegation mechanism. Both Codex and Claude Code use the same request and output requirements below; host-specific discovery, execution, or wake-up behavior is not assumed.
 3. Have the reviewer answer all four questions:
 
@@ -18,7 +18,9 @@ Use this skill to obtain an independent, evidence-based answer about whether a p
    - Have we spent time on a castle of patches instead of going back to the architecture and simplifying?
    - Are we still building towards the simplest possible solution that solves our actual core problem?
 
-   Require cited observations, explicit unknowns, one next action, one falsifiable prediction, and exactly one decision: `CONTINUE`, `RE-PLAN`, or `CUT`. A reviewer may report that the evidence cannot support a confident decision; that is an unknown, never a reason to invent progress or regression.
+   Require cited observations, explicit unknowns, one next action, one falsifiable prediction, and exactly one decision: `CONTINUE`, `RE-PLAN`, or `CUT`. Require a short list of material failures or gaps in priority order, each with its impact, confidence or unknowns, and why the first item selects the next action. Keep independently authorized work distinct from that single selected next build so the ranking does not serialize it; that work may continue in parallel. A reviewer may report that the evidence cannot support a confident decision; that is an unknown, never a reason to invent progress or regression.
+
+   Spot-check accessible source evidence behind material claims. Label each observation as directly verified, attributed to a report, or an inference; a citation alone does not establish that its claim is true.
 
 Read [references/evidence-template.md](references/evidence-template.md) before preparing or publishing an assessment.
 

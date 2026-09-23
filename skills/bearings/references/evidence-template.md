@@ -8,18 +8,18 @@ Use this template for the bounded packet sent to the fresh high-tier reviewer an
 ## Scope
 
 - Assessment window: [start date] to [end date]
-- Goal revision: [repository link to the exact goal/card revision]
+- Goal revision: [repository link, stable source, or dated snapshot of the goal/card]
 - Reviewed by: [host and high-tier role]
 - Evidence boundary: [what was included and why]
 - Unknown or unavailable evidence: [measure, report, access limitation, or "none known"]
 
 ## Evidence
 
-| Observation | Repository evidence | What it supports | Limitation |
-| --- | --- | --- | --- |
-| [dated fact] | [commit, file, report, or artifact permalink] | [claim] | [missing context or measurement] |
+| Observation | Evidence | Basis | What it supports | Limitation |
+| --- | --- | --- | --- | --- |
+| [dated fact] | [commit, stable goal/card source, report, or artifact permalink] | [directly verified \| attributed report \| inference] | [claim] | [missing context or measurement] |
 
-Repository evidence links should identify the reviewed revision whenever possible. A path without a reachable repository link is still useful evidence, but label it as local/unlinked rather than implying that it was published or independently reachable.
+Repository evidence links should identify the reviewed revision whenever possible. A stable goal/card source or dated snapshot is valid when the goal is not repository-versioned. A path without a reachable repository link is still useful evidence, but label it as local/unlinked rather than implying that it was published or independently reachable. Spot-check accessible source evidence for material claims; attributed reports and inferences must stay labeled.
 
 ## Reviewer assessment
 
@@ -32,6 +32,16 @@ Repository evidence links should identify the reviewed revision whenever possibl
 - Missing evidence that could change the decision: [items]
 - Next action: [one concrete action or owner decision]
 - Prediction: [observable result and when it will be checked]
+
+## Ranked failures or gaps
+
+| Priority | Failure or gap | Evidence | Impact | Confidence or unknown | Why this rank |
+| --- | --- | --- | --- | --- | --- |
+| 1 | [material gap, or "none established"] | [linked evidence] | [effect on the goal] | [confidence/unknown] | [why it is first] |
+
+- Selected next build: [the action addressing priority 1, or no build]
+- Selection rationale: [why priority 1 determines this action]
+- Independently authorized work continuing in parallel: [work and boundary, or "none"]
 
 ## Lead response
 
