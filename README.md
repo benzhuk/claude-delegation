@@ -231,6 +231,10 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.18.0 — adds native Codex package discovery through a portable manifest and local
+  marketplace. An explicit empty Codex hook configuration prevents importing Claude
+  hooks. All nine skills are discoverable; installed hook activation, role loading and
+  mirror/native precedence remain separate checks. See `codex/README.md` for the routes.
 - 0.17.1 — makes continuation checks apply at wave, release, review and status closeout
   during ongoing authorized work. Completed waves and isolated blockers do not end the
   goal; explicit stops, completion evidence and concrete external dependencies still do.
