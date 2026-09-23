@@ -152,6 +152,30 @@ this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the 
 the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
 <goals_parent_page>` (not checked).
 
+### Copied-layout fallback
+
+A copied Codex skill at `~/.agents/skills/decisions` has no sibling repository
+`scripts/project-config.mjs`, so it cannot determine whether a goals mirror is
+configured. Keep the current directory at the project root. First use the existing
+mirror manifest's `sourcePath`, when available, to find the actual installed
+plugin/repository root and verify both required paths before invoking its helper:
+
+```powershell
+$manifest = Join-Path $env:USERPROFILE '.agents/skills/.mirror-manifest.json'
+$sourcePath = if (Test-Path -LiteralPath $manifest) { (Get-Content -Raw -LiteralPath $manifest | ConvertFrom-Json).sourcePath }
+$helper = if ($sourcePath) { Join-Path $sourcePath 'skills/decisions/scripts/decisions-handback.mjs' }
+if (-not $helper -or -not (Test-Path -LiteralPath $helper) -or -not (Test-Path -LiteralPath (Join-Path $sourcePath 'scripts/project-config.mjs'))) { throw 'Find and verify the actual installed plugin or repository root before continuing.' }
+node $helper --config --repo .
+node $helper --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
+```
+
+If the manifest lacks `sourcePath`, use the actual installed plugin/repository root
+instead, after the same two path checks. Do not change into that root: `--repo .` must
+remain the project directory so the helper reads the project's `.agents/project.json`,
+not the plugin's. An explicit `--goals` still permits a copied-layout check when that
+page is known. Without it, missing `project-config.mjs` is `BLIND` (unknown), never
+evidence that no goals mirror is configured.
+
 In a project whose `.agents/project.json` has no `goals_parent_page`
 (`scripts/decisions-handback.mjs --config` prints no such line), skip the goals read and
 drop `--goals`; the check then prints `goals mirror at none (not configured)` (checked
