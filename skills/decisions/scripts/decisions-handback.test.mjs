@@ -792,67 +792,72 @@ test('CLI: real process, without --head, calls real git for the head sha (does n
   assert.doesNotMatch(result.stderr, /cannot determine/, 'a real repo must resolve origin/main, not fall through to BLIND for lack of a head sha');
 });
 
-// F1 (seam fix round): mirrored to `~/.agents/skills/decisions` (Codex's store; what
-// `scripts/mirror-shared-skills.mjs` produces), the script's own folder no longer has
-// `../../../scripts/project-config.mjs` beside it. The check path must still run (not crash),
-// and `--config` must fail closed with BLIND (exit 3), never a crash.
-//
-// R2-1 (round-3 seam fix): the mirrored copy cannot tell whether a goals mirror is configured
-// (its `readGoalsParentPage` sees `configured: null`, not `false`) — it must never render that
-// unknown as a confident "not configured" and hand back over a stale mirror or an unresolved
-// owner note. With `--goals` given, it must run the full mirror check (same as a normal
-// checkout); with no `--goals` at all, it must BLIND, never silently skip.
-test('CLI: mirrored to a home with no ../../../scripts beside the skill — check path runs, --config is BLIND', () => {
+// The mirrored skill must be self-contained: this test executes only a copied skill under a
+// synthetic home, with projects and page inputs outside the checkout. It covers both supported
+// config roots (`--repo` from an unrelated cwd and cwd default), unconfigured and malformed
+// projects, explicit goals, and the fail-closed missing local dependency path.
+test('CLI: detached copied skill resolves only its skill-local project config', () => {
   const home = tmpdir('decisions-handback-home-');
   const mirroredSkillDir = path.join(home, '.agents', 'skills', 'decisions');
+  const unrelated = tmpdir('decisions-handback-unrelated-');
+  const configured = repoWithProjectJson(JSON.stringify({
+    decisions_url: 'decisions-page', goals_parent_page: 'goals-page',
+  }));
+  const unconfigured = repoWithProjectJson(undefined);
   fs.mkdirSync(mirroredSkillDir, { recursive: true });
   fs.cpSync(path.join(HERE, '..'), mirroredSkillDir, { recursive: true });
   const mirroredScript = path.join(mirroredSkillDir, 'scripts', 'decisions-handback.mjs');
-
-  const checkResult = spawnSync(process.execPath, [
-    mirroredScript,
-    '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
-    '--goals', path.join(FIXTURES, 'goals-clean.md'),
-    '--repo', HERE,
-    '--head', '889887a',
-    '--today', '9-22',
-  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
-  assert.ok([0, 1].includes(checkResult.status), `expected 0 or 1, not a crash: ${checkResult.status} ${checkResult.stderr}`);
-  assert.match(checkResult.stdout, /HANDBACK ok\n$/);
+  const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents') });
 
   const configResult = spawnSync(process.execPath, [
     mirroredScript,
     '--config',
-    '--repo', HERE,
-  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
-  assert.equal(configResult.status, 3, configResult.stderr);
-  assert.match(configResult.stderr, /BLIND/);
+    '--repo', configured,
+  ], { encoding: 'utf8', cwd: unrelated, env });
+  assert.equal(configResult.status, 0, configResult.stderr);
+  assert.match(configResult.stdout, /decisions_url\tdecisions-page/);
+  assert.match(configResult.stdout, /goals_parent_page\tgoals-page/);
 
-  // R2-1: --goals given, with a real defect on the goals page (an UNATTACHED note) — the
-  // mirrored copy must still catch it and block, never hand back over it.
-  const unattachedResult = spawnSync(process.execPath, [
+  const cwdDefault = spawnSync(process.execPath, [mirroredScript, '--config'], {
+    encoding: 'utf8', cwd: configured, env,
+  });
+  assert.equal(cwdDefault.status, 0, cwdDefault.stderr);
+  assert.match(cwdDefault.stdout, /goals_parent_page\tgoals-page/);
+
+  const unconfiguredResult = spawnSync(process.execPath, [
     mirroredScript,
     '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
-    '--goals', path.join(FIXTURES, 'goals-unattached-heading.md'),
-    '--repo', HERE,
+    '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
-  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
-  assert.equal(unattachedResult.status, 1, unattachedResult.stderr);
-  assert.match(unattachedResult.stdout, /goals\tUNATTACHED/);
-  assert.match(unattachedResult.stdout, /HANDBACK blocked\n$/);
+  ], { encoding: 'utf8', cwd: unrelated, env });
+  assert.equal(unconfiguredResult.status, 0, unconfiguredResult.stderr);
+  assert.match(unconfiguredResult.stdout, /goals mirror at none \(not configured\)/);
 
-  // R2-1: no --goals at all, mirrored copy — cannot tell whether a mirror is configured, so
-  // BLIND, never a silent "not configured" skip.
-  const noGoalsResult = spawnSync(process.execPath, [
+  const explicitGoalsResult = spawnSync(process.execPath, [
     mirroredScript,
     '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
-    '--repo', HERE,
+    '--goals', path.join(FIXTURES, 'goals-clean.md'),
+    '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
-  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
-  assert.equal(noGoalsResult.status, 3, noGoalsResult.stderr);
-  assert.match(noGoalsResult.stdout, /HANDBACK blind\n$/);
+  ], { encoding: 'utf8', cwd: unrelated, env });
+  assert.equal(explicitGoalsResult.status, 0, explicitGoalsResult.stderr);
+  assert.match(explicitGoalsResult.stdout, /HANDBACK ok\n$/);
+
+  fs.writeFileSync(path.join(configured, '.agents', 'project.json'), '{ malformed', 'utf8');
+  const malformedResult = spawnSync(process.execPath, [mirroredScript, '--config', '--repo', configured], {
+    encoding: 'utf8', cwd: unrelated, env,
+  });
+  assert.equal(malformedResult.status, 3, malformedResult.stderr);
+  assert.match(malformedResult.stderr, /BLIND/);
+
+  fs.rmSync(path.join(mirroredSkillDir, 'scripts', 'project-config.mjs'));
+  const missingDependency = spawnSync(process.execPath, [mirroredScript, '--config', '--repo', unconfigured], {
+    encoding: 'utf8', cwd: unrelated, env,
+  });
+  assert.equal(missingDependency.status, 3, missingDependency.stderr);
+  assert.match(missingDependency.stderr, /BLIND/);
 });
 
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {
