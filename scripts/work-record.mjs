@@ -5,7 +5,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"];
 export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority", "artifact", "evidence", "next", "opened"];
@@ -322,4 +323,235 @@ export function checkRecordSet(records) {
 export function formatLogLine(at, status, owner, note) {
   const base = `Log: ${at} ${status} ${owner}`;
   return note ? `${base} ${note}` : base;
+}
+
+const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLowerCase(), key]));
+const DECIDING_VERDICTS = new Set(["APPROVE", "NEEDS_FIXES", "FAIL", "REJECTED"]);
+const VERDICT_RE = /^VERDICT:[ \t]*(APPROVE|NEEDS_FIXES|FAIL|REJECTED)(?:[ \t]+(?:—[ \t]+)?([0-9a-fA-F]{4,64}))?[ \t]*$/;
+
+function acceptanceError(message) {
+  const error = new Error(message);
+  error.code = "acceptance-failed";
+  return error;
+}
+
+function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
+  if (!relativePath || path.isAbsolute(relativePath)) {
+    throw acceptanceError(`path must be repository-relative: ${relativePath || "<empty>"}`);
+  }
+  const candidate = path.resolve(repoRoot, relativePath);
+  const lexical = path.relative(repoRoot, candidate);
+  if (lexical.startsWith("..") || path.isAbsolute(lexical)) {
+    throw acceptanceError(`path escapes repository: ${relativePath}`);
+  }
+  let real;
+  let stat;
+  try {
+    real = fsImpl.realpathSync(candidate);
+    stat = fsImpl.statSync(real);
+  } catch (error) {
+    throw acceptanceError(`unreadable path: ${relativePath} (${error.message})`);
+  }
+  const realRelative = path.relative(repoReal, real);
+  if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+    throw acceptanceError(`path resolves outside repository: ${relativePath}`);
+  }
+  if (!stat.isFile()) throw acceptanceError(`path is not a regular file: ${relativePath}`);
+  try {
+    return fsImpl.readFileSync(real, "utf8");
+  } catch (error) {
+    throw acceptanceError(`unreadable path: ${relativePath} (${error.message})`);
+  }
+}
+
+function resolveCommit(repoRoot, revision, label, spawnImpl) {
+  if (!revision) throw acceptanceError(`${label} revision is missing`);
+  try {
+    const result = spawnImpl("git", ["-C", repoRoot, "-c", "core.warnAmbiguousRefs=true", "rev-parse", "--verify", `${revision}^{commit}`], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    if (result.error || result.status !== 0 || String(result.stderr ?? "").trim()) {
+      throw result.error ?? new Error(String(result.stderr ?? "Git could not resolve revision").trim());
+    }
+    const resolved = String(result.stdout ?? "").trim();
+    if (!/^[0-9a-f]{40}$/i.test(resolved)) throw new Error("Git did not return a commit object");
+    return resolved.toLowerCase();
+  } catch {
+    throw acceptanceError(`${label} revision is missing, ambiguous, or not a commit: ${revision}`);
+  }
+}
+
+function requireObservedBody(text) {
+  const lines = text.split(/\r?\n/);
+  const blank = lines.findIndex((line) => line.trim() === "");
+  const body = blank === -1 ? [] : lines.slice(blank + 1);
+  let fence = null;
+  let quotedParagraph = false;
+  for (let i = 0; i < body.length; i += 1) {
+    const line = body[i];
+    if (fence) {
+      const close = new RegExp(`^ {0,3}${fence.char}{${fence.length},}[ \\t]*$`);
+      if (close.test(line)) fence = null;
+      continue;
+    }
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (opening && !(opening[1][0] === "`" && opening[2].includes("`"))) {
+      fence = { char: opening[1][0], length: opening[1].length };
+      quotedParagraph = false;
+      continue;
+    }
+    if (/^[ \t]*$/.test(line)) {
+      quotedParagraph = false;
+      continue;
+    }
+    if (/^ {0,3}>/.test(line)) {
+      quotedParagraph = true;
+      continue;
+    }
+    if (quotedParagraph) continue;
+    const match = /^Observed:[ \t]*(.+?)[ \t]*$/i.exec(line);
+    if (!match || !match[1].trim()) continue;
+    const previous = i === 0 ? null : body[i - 1];
+    const predictsStartsParagraph = i >= 1 && /^Predicts:[ \t]*\S.*$/i.test(previous)
+      && (i === 1 || /^[ \t]*$/.test(body[i - 2]));
+    if (i === 0 || /^[ \t]*$/.test(previous) || predictsStartsParagraph) return;
+  }
+  throw acceptanceError("record body requires a nonempty Observed: top-level paragraph at body start, after a blank line, or immediately after top-level Predicts:");
+}
+
+function requireStrictRecordShape(text, record) {
+  if (record.errors.length > 0) throw acceptanceError(`record parse error: ${record.errors.join("; ")}`);
+  const lines = text.split(/\r?\n/);
+  const blank = lines.findIndex((line) => line.trim() === "");
+  const header = blank === -1 ? lines : lines.slice(0, blank);
+  const counts = new Map();
+  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.*)$/;
+  for (const line of header) {
+    const match = line.match(strictHeaderRe);
+    if (!match) continue;
+    const label = match[1].trim().toLowerCase();
+    if (!KNOWN_LABELS.has(label)) throw acceptanceError(`unknown label: ${match[1].trim()}`);
+    const key = SINGLETON_LABELS.get(label);
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const [key, count] of counts) {
+    if (count > 1) throw acceptanceError(`duplicate singleton field: ${key}`);
+  }
+  for (const key of REQUIRED_FIELDS) {
+    const value = record.fields[key];
+    if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {
+      throw acceptanceError(`missing required field: ${key}`);
+    }
+  }
+  if (!/^wr-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/.test(record.fields.work)) {
+    throw acceptanceError(`invalid Work: ${record.fields.work}`);
+  }
+  if (record.fields.status !== "reviewed") {
+    throw acceptanceError(`Status must be reviewed immediately before acceptance, got: ${record.fields.status}`);
+  }
+  requireObservedBody(text);
+}
+
+function artifactRevision(artifact) {
+  const match = /(?:^|@)([0-9a-fA-F]{4,64})$/.exec(artifact ?? "");
+  if (!match) throw acceptanceError(`Artifact does not end in a Git revision: ${artifact ?? "<missing>"}`);
+  return match[1];
+}
+
+/**
+ * Strict, read-only Git-backed acceptance check. Historical validateRecord behavior remains
+ * deliberately separate. opts: { repoRoot, recordPath, deliveryRef?, pinnedArtifact?, fsImpl?, spawnImpl?, execImpl? }
+ */
+export function checkAcceptance(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+  const spawnImpl = opts.spawnImpl ?? (opts.execImpl
+    ? (command, args, childOpts) => {
+        try {
+          return { status: 0, stdout: opts.execImpl(command, args, childOpts), stderr: "" };
+        } catch (error) {
+          return { status: 1, stdout: "", stderr: error.message, error };
+        }
+      }
+    : spawnSync);
+  if (!opts.repoRoot) throw acceptanceError("--repo is required");
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+  const modes = Number(opts.deliveryRef !== undefined) + Number(opts.pinnedArtifact !== undefined);
+  if (modes !== 1) throw acceptanceError("exactly one of --delivery-ref or --pinned-artifact is required");
+
+  let repoRoot;
+  let repoReal;
+  try {
+    repoRoot = path.resolve(opts.repoRoot);
+    repoReal = fsImpl.realpathSync(repoRoot);
+  } catch (error) {
+    throw acceptanceError(`repository is unreadable: ${error.message}`);
+  }
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  const record = parseRecord(text);
+  requireStrictRecordShape(text, record);
+
+  const artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+  const deliveryInput = opts.deliveryRef !== undefined ? opts.deliveryRef : opts.pinnedArtifact;
+  if (opts.pinnedArtifact !== undefined && !/^[0-9a-fA-F]{4,64}$/.test(opts.pinnedArtifact)) {
+    throw acceptanceError(`pinned artifact must be an explicit hexadecimal revision: ${opts.pinnedArtifact}`);
+  }
+  const delivery = resolveCommit(repoRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
+  if (artifact !== delivery) {
+    throw acceptanceError(`Artifact ${artifact} does not match delivery ${delivery}`);
+  }
+
+  let approved = false;
+  const blockers = [];
+  for (const evidencePath of record.fields.evidence) {
+    const evidence = readConfinedRegularFile(repoReal, repoRoot, evidencePath, fsImpl);
+    const firstLine = (evidence.split(/\r?\n/, 1)[0] ?? "").trim();
+    const verdict = VERDICT_RE.exec(firstLine);
+    if (!verdict && /^VERDICT:[ \t]*(?:APPROVE|NEEDS_FIXES|FAIL|REJECTED)\b/.test(firstLine)) {
+      throw acceptanceError(`malformed deciding verdict: ${evidencePath}`);
+    }
+    if (!verdict || !DECIDING_VERDICTS.has(verdict[1])) continue;
+    if (!verdict[2]) {
+      if (verdict[1] === "APPROVE") throw acceptanceError(`approval omits a revision: ${evidencePath}`);
+      continue;
+    }
+    const reportCommit = resolveCommit(repoRoot, verdict[2], `evidence ${evidencePath}`, spawnImpl);
+    if (reportCommit !== artifact) continue;
+    if (verdict[1] === "APPROVE") approved = true;
+    else blockers.push(`${verdict[1]} in ${evidencePath}`);
+  }
+  if (blockers.length > 0) throw acceptanceError(`current artifact has refusing evidence: ${blockers.join(", ")}`);
+  if (!approved) throw acceptanceError("no evidence has an exact APPROVE verdict for the current artifact");
+
+  return { ok: true, work: record.fields.work, artifact, delivery };
+}
+
+export function parseAcceptanceArgs(argv) {
+  if (argv[0] !== "check-acceptance") throw acceptanceError("expected command: check-acceptance");
+  const opts = {};
+  const names = new Map([
+    ["--record", "recordPath"], ["--repo", "repoRoot"],
+    ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
+  ]);
+  for (let i = 1; i < argv.length; i += 2) {
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+  }
+  return opts;
+}
+
+export function acceptanceMain(argv = process.argv.slice(2), io = process) {
+  try {
+    const result = checkAcceptance(parseAcceptanceArgs(argv));
+    io.stdout.write(`${JSON.stringify(result)}\n`);
+    return 0;
+  } catch (error) {
+    io.stderr.write(`work-record: ${error.message}\n`);
+    return 1;
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = acceptanceMain();
 }
