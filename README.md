@@ -32,7 +32,7 @@ claude plugin install delegation@benzhuk
 
 ## What you get
 
-**Six skills** (auto-suggested by task shape, or invoke directly):
+**Seven skills** (auto-suggested by task shape, or invoke directly):
 
 - **`/delegation:delegate`** — parallel fan-out orchestration for independent
   research / review / audit lanes: decompose, tier the models, budget the concurrency,
@@ -51,6 +51,10 @@ claude plugin install delegation@benzhuk
   decisions/goals update; automatic daily triggering and unattended `Done` pickup are
   not included. Installed Claude/Codex discovery, mixed-host validation, and live Goals
   preservation/readback remain pending release gates.
+- **`/delegation:continue`** — continue finite authorized work after a pause or decision
+  wait: select useful ready work, preserve its evidence identity, refill genuinely free
+  capacity, and use verified native host resume paths. It is guidance, not an unattended
+  scheduler, automatic restart, or authority grant.
 - **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
   default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
   a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
@@ -60,8 +64,26 @@ Neither `delegate` nor `team-build` is for talking to a session you don't own �
 [`multi`](#multi--peer-sessions) below for that.
 
 The plugin also ships `notion-writing` and `dev-server` as utility skills (`skills/`),
-distinct from the six orchestration skills above — mirrored the same way for Codex by
+distinct from the seven orchestration skills above — mirrored the same way for Codex by
 `mirror-shared-skills.mjs`.
+
+The current goal is a provider-neutral harness for useful, verified work: Codex and
+Claude Code are equal initial hosts, and mixed-agent collaboration remains a required
+baseline. See [GOALS.md](docs/GOALS.md) for the active objective, measures, unknowns,
+and acceptance boundary.
+
+For work records, the source checker has a strict read-only acceptance mode: it resolves
+the stated artifact and either a live delivery ref or an explicitly pinned artifact,
+then requires an in-repository independent `VERDICT: APPROVE <sha>` for that exact
+artifact. It refuses ambiguous revisions, malformed records, unreadable evidence, path
+escapes, and a current matching refusal; it never changes its inputs. This proves local
+review identity only, so it does not claim integration authority, installed behavior, or
+goal satisfaction.
+
+The portable `decisions` helper uses its canonical skill-local configuration when
+mirrored, including an explicit `--goals` path. Configured and genuinely unconfigured
+projects work from a copied layout; malformed, unreadable, or unknown configuration stays
+BLIND and blocks an unsafe handback.
 
 **Shared mechanics** (`docs/`, referenced by both skills — these links are repo-relative;
 if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
@@ -198,6 +220,7 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.15.0 — adds `continue` to the shared mirror inventory and release guidance. It keeps continuation finite, evidence-backed, and provider-neutral, with explicit native resume limits. This release also adds strict read-only acceptance checking for exact review identity and makes copied-layout decisions handback resolve its canonical local configuration, including explicit goals paths. Source checks do not establish installation, automatic cadence, unattended Done pickup, or host parity.
 - 0.14.0 — adds `bearings`, a callable, evidence-bounded goal assessment that records a `CONTINUE`, `RE-PLAN`, or `CUT` decision with explicit unknowns and a dated, repository-linked publication. Its source/callable scope uses the `decisions` helper for an attended render; installed Claude/Codex discovery, mixed-host validation, and live Goals preservation/readback remain release gates. Automatic daily triggering and unattended `Done` pickup are not included.
 - 0.13.0 — multi: a session is reachable by its own name, no launch flag required. `/rename <slug>` mid-session or `claude --name <slug>` at launch now writes the same sidecar the `SessionStart` hook reads FIRST, ahead of `NOTE_SLUG` and any `panes.json` binding, so a pane named after it was already running registers its inbox at the very next hook event instead of staying invisible until restarted with the env var set. And on 2026-09-22, on the Mac, a checkout left on an old branch ran `mirror-shared-skills.mjs`'s 0.5.0 build and its drop loop unlinked four already-mirrored 0.12.0 entries it no longer recognized as its own, because the manifest recorded no plugin version at all. The manifest now stamps `pluginVersion` and `sourcePath` on every write, and a mirror run refuses to drop or overwrite a newer-versioned target from an older source tree unless `--allow-downgrade` is passed.
 - 0.5.0 — multi: delivery goes to your peer's INBOX, not your peer's keyboard. On 2026-09-17 the flusher typed a peer note into the middle of a sentence Ben was writing and submitted it; `classifyPane` judges idleness from the transcript and can say nothing about whether the input box is empty. Every session now registers its own inbox from the hook that already runs in it — Claude Code's per-session messaging socket, Codex's on-disk queue — in `~/.agents/notes/inboxes.json` (mode 600; the socket entry holds a per-session token, which is key material and is never logged, printed or returned). note-flush posts there: no orca call, no keystroke, and a composer somebody is using stays exactly as they left it. A recipient with no registered inbox leaves its entry queued with one `no-inbox` line and no attempt counted — the note is in the ledger, which is the channel. Typing survives only as an explicit last resort behind `MULTI_ALLOW_TYPING=1`, with `~/.agents/notes/no-type` still a hard off switch on top of it; the pane classification, `panes.json` and the two-phase send stay in the tree and stay tested, and a later version removes them once inbox delivery has run for a while. Two prerequisites, both verified live: the receiving Claude session needs `crossSessionInbound: "accept"` (without it a bypass-permissions session HOLDS the message behind a modal dialog), and a Codex thread needs one persisted turn before its queue accepts anything. And no, Orca has no non-keystroke wake path at all — every route into a running pane ends in a PTY write, and `orchestration.send` is a mailbox the recipient must poll, so do not propose it again.

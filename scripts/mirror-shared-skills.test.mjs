@@ -24,21 +24,22 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 
-test('PLUGIN_SKILLS includes notion-writing, dev-server, and bearings', () => {
+test('PLUGIN_SKILLS includes notion-writing, dev-server, bearings, and continue', () => {
   assert.ok(PLUGIN_SKILLS.includes('notion-writing'), 'notion-writing must be in PLUGIN_SKILLS');
   assert.ok(PLUGIN_SKILLS.includes('dev-server'), 'dev-server must be in PLUGIN_SKILLS');
   assert.ok(PLUGIN_SKILLS.includes('bearings'), 'bearings must be in PLUGIN_SKILLS');
+  assert.ok(PLUGIN_SKILLS.includes('continue'), 'continue must be in PLUGIN_SKILLS');
 });
 
 test('CLAUDE_SKILLS no longer includes dev-server', () => {
   assert.ok(!CLAUDE_SKILLS.includes('dev-server'), 'dev-server must be removed from CLAUDE_SKILLS');
 });
 
-test('notion-writing and dev-server actually resolve to a source under <repo>/skills/, not ~/.claude/skills/', () => {
+test('plugin skills actually resolve to sources under <repo>/skills/, not ~/.claude/skills/', () => {
   const sources = collectSources();
   const byName = Object.fromEntries(sources.filter((s) => s.kind === 'skill').map((s) => [s.name, s]));
 
-  for (const name of ['notion-writing', 'dev-server', 'bearings']) {
+  for (const name of ['notion-writing', 'dev-server', 'bearings', 'continue']) {
     const entry = byName[name];
     assert.ok(entry, `${name} did not resolve to any skill source at all`);
     const expected = path.join(REPO, 'skills', name);
