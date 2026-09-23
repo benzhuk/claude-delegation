@@ -47,7 +47,9 @@ second comment that never clears (not checked). Write and read the page through 
 whole-page replace, read fresh seconds before writing, a multi-line edit built from a
 script with the old and new text loaded from files, not argv (not checked). On the
 decisions page and the goals page, write only with anchored edits, `notion.js edit
---safe` — never `publish` or `replace-md`. Exit 3 or exit 4 from that edit stops the
+--safe` — never `publish` or `replace-md` by hand; the one whole-page write is the
+scripted mirror refresh, `goals-mirror.mjs publish` (below), which refuses first on any
+owner note. Exit 3 or exit 4 from that edit stops the
 pass: reread the page fresh, do not retry the same edit blind (checked by
 `skill-text.test.mjs` that this rule is written down; the stop itself is not checked
 by any script).
@@ -150,6 +152,11 @@ this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the 
 the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
 <goals_parent_page>`, the same parent-scoped list `goals-mirror.mjs publish` checks
 for `--current none` (not checked).
+
+In a project whose `.agents/project.json` has no `goals_parent_page`
+(`scripts/decisions-handback.mjs --config` prints no such line), skip the goals read and
+drop `--goals`; the check then prints `goals mirror at none (not configured)` (checked
+by `scripts/decisions-handback.mjs`).
 
 Exit 0 only: give the owner the URL (the exit code is `scripts/decisions-handback.mjs`'s;
 that both reads were taken seconds earlier is not checked — the script reads whatever

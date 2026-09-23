@@ -252,20 +252,23 @@ function runConfig(args, writeOut, writeErr) {
  * F2 (round-2 seam fix, ruling in docs/notes/skills-fable-decisions-current-4.md): whether this
  * project's goals mirror is configured at all, read from `.agents/project.json`'s
  * `goals_parent_page` key via the same lazy loader `--config` uses. Injectable (the
- * `readGoalsParentPage` param on `run`/`runCheck`) so tests pin both new outcomes without
- * touching the real filesystem or any existing fixture.
+ * `readGoalsParentPage` param on `run`/`runCheck`) so tests pin every outcome without touching
+ * the real filesystem or any existing fixture.
  *
  * Ruling: "configured and the goals page cannot be read" stays BLIND (thrown here, or by the
  * goals-page read/parse in `runCheck`) — that is a real defect the check could not look past.
  * A project.json that itself fails to parse is the same kind of "cannot look": also BLIND.
- * A loader module that cannot be found at all (this skill folder mirrored to Codex's store,
- * round-1 F1) is reported as NOT configured rather than BLIND — the fail-open choice F1 already
- * made for the whole check path: BLIND-ing every hand-back run from a mirrored copy, configured
- * or not, would undo F1's fix outright. Documented tradeoff, not an oversight.
+ *
+ * Round-2 R2-1: a loader module that cannot be found at all (this skill folder mirrored to
+ * Codex's store, round-1 F1) returns `configured: null` — UNKNOWN, never a stated `false`.
+ * Reporting `false` here rendered an unknown as a confident "not configured" and let a hand-back
+ * pass over a stale mirror or an unresolved owner note in exactly the environment F1 fixed.
+ * `runCheck` resolves the unknown: if the caller passed `--goals`, run the full mirror check
+ * (which needs nothing from this function); if not, BLIND — never a silent skip.
  */
 function defaultReadGoalsParentPage(repo) {
   const mod = tryLoadProjectConfigModule();
-  if (!mod) return { configured: false };
+  if (!mod) return { configured: null };
   const { config, source } = mod.loadProjectConfig(repo);
   if (source === 'unreadable') throw new BlindError('project config unreadable');
   const page = config.goals_parent_page;
@@ -313,10 +316,13 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
   // no goals read is required, no sha check, no goals-page objections; the exit code follows the
   // decisions-page checks alone.
   const mirror = readGoalsParentPage(args.repo);
+  if (mirror.configured === null && !args.goals) {
+    throw new BlindError('cannot tell whether a goals mirror is configured (scripts/project-config.mjs not found beside this skill); pass --goals');
+  }
   let goalsOffending = [];
   let shaWarnLine = null;
   let mirrorSummary;
-  if (mirror.configured) {
+  if (mirror.configured !== false) {
     if (!args.goals) throw new BlindError('missing required --goals (goals_parent_page is configured for this project)');
     let goalsText;
     let goalsDoc;

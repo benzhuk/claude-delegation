@@ -789,6 +789,12 @@ test('CLI: real process, without --head, calls real git for the head sha (does n
 // `scripts/mirror-shared-skills.mjs` produces), the script's own folder no longer has
 // `../../../scripts/project-config.mjs` beside it. The check path must still run (not crash),
 // and `--config` must fail closed with BLIND (exit 3), never a crash.
+//
+// R2-1 (round-3 seam fix): the mirrored copy cannot tell whether a goals mirror is configured
+// (its `readGoalsParentPage` sees `configured: null`, not `false`) — it must never render that
+// unknown as a confident "not configured" and hand back over a stale mirror or an unresolved
+// owner note. With `--goals` given, it must run the full mirror check (same as a normal
+// checkout); with no `--goals` at all, it must BLIND, never silently skip.
 test('CLI: mirrored to a home with no ../../../scripts beside the skill — check path runs, --config is BLIND', () => {
   const home = tmpdir('decisions-handback-home-');
   const mirroredSkillDir = path.join(home, '.agents', 'skills', 'decisions');
@@ -814,6 +820,32 @@ test('CLI: mirrored to a home with no ../../../scripts beside the skill — chec
   ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
   assert.equal(configResult.status, 3, configResult.stderr);
   assert.match(configResult.stderr, /BLIND/);
+
+  // R2-1: --goals given, with a real defect on the goals page (an UNATTACHED note) — the
+  // mirrored copy must still catch it and block, never hand back over it.
+  const unattachedResult = spawnSync(process.execPath, [
+    mirroredScript,
+    '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
+    '--goals', path.join(FIXTURES, 'goals-unattached-heading.md'),
+    '--repo', HERE,
+    '--head', '889887a',
+    '--today', '9-22',
+  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
+  assert.equal(unattachedResult.status, 1, unattachedResult.stderr);
+  assert.match(unattachedResult.stdout, /goals\tUNATTACHED/);
+  assert.match(unattachedResult.stdout, /HANDBACK blocked\n$/);
+
+  // R2-1: no --goals at all, mirrored copy — cannot tell whether a mirror is configured, so
+  // BLIND, never a silent "not configured" skip.
+  const noGoalsResult = spawnSync(process.execPath, [
+    mirroredScript,
+    '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
+    '--repo', HERE,
+    '--head', '889887a',
+    '--today', '9-22',
+  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }) });
+  assert.equal(noGoalsResult.status, 3, noGoalsResult.stderr);
+  assert.match(noGoalsResult.stdout, /HANDBACK blind\n$/);
 });
 
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {
