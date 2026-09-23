@@ -1,6 +1,6 @@
 ---
 name: team-build
-description: Use when building a substantial multi-file feature with an agent team — builder/reviewer pipeline, tiered execution (mid tier writes, high tier verifies), spec-driven parallel implementation. This is the DEFAULT build method for any substantial multi-file feature unless the user instructs otherwise. NOT for research/review/audit fan-out without a build: that is delegate. NOT for messaging, briefing, or handing off to an EQUAL session you do not own: that is the multi skill.
+description: "Use when building a substantial multi-file feature with an agent team — builder/reviewer pipeline, tiered execution (mid tier writes, high tier verifies), spec-driven parallel implementation. This is the DEFAULT build method for any substantial multi-file feature unless the user instructs otherwise. NOT for research/review/audit fan-out without a build: that is delegate. NOT for messaging, briefing, or handing off to an EQUAL session you do not own: that is the multi skill."
 ---
 
 # Team build — builder/reviewer orchestration
@@ -248,6 +248,10 @@ loop from an Opus pane, `node <plugin>/scripts/build-census.mjs --lead <lead-ses
 --tasks <subagent-tasks-dir>`) to get the measures — elapsed per work id — that make the
 build's speed a number instead of an impression. The plugin repo's `docs/pane-setup.md`
 names what each measure means and which script reads it; don't restate that here.
+
+After a release or review closeout in an ongoing goal, apply the `continue` skill before
+declaring the wave complete. Its canonical decision checks remaining outcomes and blockers;
+start independent ready work without waiting for unrelated work to finish.
 
 ## Peer sessions
 

@@ -1,24 +1,24 @@
 ---
 name: continue
-description: Continue authorized project work after a pause or decision wait by selecting finite useful ready work, preserving evidence, and using verified native host resume paths. Use when work needs to progress without serializing independent lanes; not for unattended scheduling or new authority.
+description: Continue authorized ongoing project work through pauses, wave closeout, and status turns by selecting finite useful ready work and preserving evidence. Use when work needs to progress without serializing independent lanes; not for unattended scheduling or new authority.
 ---
 
-# Continue useful work
+# Continue ongoing useful work
 
-This skill is instruction, not a runtime scheduler, wake-up promise, or authority grant. Read the project's current goal, active bearings, and existing work records before choosing work. Keep the shared workflow provider-neutral; use each host's native execution only after its behavior is identified.
+This skill is instruction, not a runtime scheduler, wake-up promise, or authority grant. Apply it when work resumes and before ending an ongoing-goal turn, closing a wave, or treating a status reply as a stopping point. Read the project's current goal, active bearings, and existing work records before choosing work. Keep the shared workflow provider-neutral; use each host's native execution only after its behavior is identified.
 
 ## Select and run work
 
-1. Identify finite, authorized work that advances the goal and has evidence for completion. Prefer existing runnable records, a current bearings next action, or a clearly scoped goal item. Open an ordinary record when needed; never fabricate activity to fill capacity.
-2. Separate pending owner decisions from work in flight, review, or integration. A decision blocks only its dependent item. Start or continue independent ready lanes and refill genuinely free capacity with useful work, subject to disjoint ownership and the project's concurrency constraints.
-3. Before an expected permission boundary, prepare reversible work and ask for the needed authority. An unanswered request does not authorize merge, installation, machine change, external communication, or a new objective.
-4. Preserve the work/evidence identity and report observed results, inferences, failures, and unknowns. For code, use applicable tests, review, and artifact evidence. For non-code work, use the project's stated acceptance evidence and owner judgment.
+1. Reconcile the goal and acceptance evidence with owned work, pending review or integration, known unmet requirements, and actual external blockers. A shipped release, exhausted wave, failed trial, or status reply does not by itself complete the ongoing goal.
+2. Separate pending owner decisions from work in flight, review, or integration. A decision blocks only its dependent item. Select and start independent, finite, authorized ready work; refill genuinely free disjoint capacity subject to the project's concurrency constraints. Prefer existing runnable records, a current bearings next action, or a clearly scoped goal item; never fabricate activity or recursively expand scope.
+3. If the ready queue is empty while required outcomes are unmet, inspect their dependencies to find finite useful work or establish concrete blockers. Before an expected permission boundary, prepare reversible work and ask for the needed authority. An unanswered request or elapsed time grants no merge, installation, machine change, external communication, or new objective.
+4. Preserve the work/evidence identity and report observed results, inferences, failures, and unknowns. For code, use applicable tests, review, and artifact evidence. For non-code work, use the project's stated acceptance evidence and owner judgment. Answer a status question concisely, then continue active work unless the user pauses, stops, or changes scope.
 
 ## Resume and stop
 
 Resume an interrupted native session only when the host session is identified and the surrounding harness scope is already authorized. Local installed CLI evidence is limited to Codex `resume` (including `--last`) and Claude Code `--continue` or `--resume <session-id>`; it does not establish unattended restart, cross-host continuation, child ancestry, or a portable loop. Do not alias an unverified `/loop` mechanism.
 
-Do not wait on a human while independent authorized work remains. An empty ready queue is not a completed goal when owned work is still running, awaiting review, or integration is pending. Stop and state the boundary when the objective is met, or when every remaining useful item genuinely depends on an external decision or unavailable dependency. Record the specific blocker and the session/work identity needed for a later resume.
+Do not wait on a human while independent authorized work remains. Stop only when the user requests it, the authorized objective has completion evidence, or every remaining useful authorized item genuinely depends on an external decision or unavailable dependency. Record those specific blockers and the session/work identity needed for a later resume.
 
 ## Bearings seam
 

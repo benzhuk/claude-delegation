@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: Use when a prompt decomposes into independent research, review, audit, or analysis lanes that should run as parallel subagents — "investigate these three", "review this from several angles", "audit all X", "sweep the codebase for Y" — or when deciding whether and how to delegate any task to subagents. NOT for multi-file feature builds: that is team-build. NOT for messaging, briefing, or handing off to an EQUAL session you do not own: that is the multi skill.
+description: "Use when a prompt decomposes into independent research, review, audit, or analysis lanes that should run as parallel subagents — 'investigate these three', 'review this from several angles', 'audit all X', 'sweep the codebase for Y' — or when deciding whether and how to delegate any task to subagents. NOT for multi-file feature builds: that is team-build. NOT for messaging, briefing, or handing off to an EQUAL session you do not own: that is the multi skill."
 ---
 
 # Delegate — parallel fan-out orchestration
@@ -83,6 +83,10 @@ conflicts yourself (or spawn one high-tier adjudicator when two agents disagree 
 and state conclusions with each lane's evidence path. A confirmed absence or a proven
 limit reported by a lane is a first-class result — surface it, don't re-run the lane
 hoping for a positive.
+
+At synthesis or status closeout for an ongoing goal, use the `continue` skill's canonical
+decision before treating this fan-out as a stopping point. Continue independent ready work;
+one blocked lane does not end the goal.
 
 ## Practical delta research
 
