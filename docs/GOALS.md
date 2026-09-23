@@ -1,108 +1,42 @@
 # Goals
 
-What Ben wants from the delegation plugin, written as decision rules an agent can apply. The aim and its four measures come first; each goal below has the statement, Ben's own words that set it (with the date), the measure, and a status. Status changes only in a release commit, with evidence: MET, PARTIAL (mechanism exists, measure not passed), NONE (no mechanism), UNKNOWN (never measured).
+## Current objective — September 23, 2026 (America/New_York)
 
-The five-line card in `docs/goals/card.md` is the summary every session sees at start and during long stretches. This file is its source. Both are mirrored to the Notion Goals page, where Ben comments with lines starting `**`; the lead acts on or answers every one.
+Deliver a usable plugin that helps LLM agents manage work on any project: turn authorized user intent into useful, verified outcomes autonomously and in parallel, while learning from evidence and simplifying the systems they work on. Codex and Claude Code are first-class initial hosts; mixed-agent collaboration is part of that baseline. The shared goal, work/evidence identity, skill, memory, and communication contracts stay provider-neutral. Host integrations are thin and verified; an unsupported host capability remains explicit.
 
-## The aim
+This applies to software, research, documents, and other project work. A commit or test suite is one kind of evidence, not the definition of a useful outcome. Each project supplies its outcome, acceptance evidence, constraints, and authorization.
 
-Agent work gets cheaper, faster and more reliable at equal or better quality. Nothing here is about waiting for Ben to spec work by hand: agents find and do valuable work on their own; the harness exists so that this costs less, finishes sooner and loses nothing.
+## Operating rules
 
-A change to the harness is made only if it improves one of these four measures and worsens none. Each has a definition, a baseline and a place it is read, so an agent can check a proposal against it:
+- Optimize time to useful, verified delivery and outcome quality first. Use the fastest capable work at an appropriate total cost, including research, coordination, review, integration, and rework. Cost measurements guide routing; they neither invent a budget nor stop authorized work. Honor a project-supplied limit.
+- Connect each item to the current goal and the evidence that would establish progress. Reassess when evidence, scope, or assumptions change; propose clearer goals, but never silently redefine success.
+- Diagnose the first broken contract and address its cause. Repeated failure triggers an architectural reassessment. Prefer the simplest design with fewer independent mechanisms, special cases, duplicate responsibilities, and sources of truth.
+- Use a hypothesis and discriminating observation for important uncertainty. Preserve negative results and unknowns; routine work may inherit its parent hypothesis.
+- Start independent ready lanes promptly, agree interfaces early, and refill free capacity with finite useful work. A human decision blocks only dependent items; request likely permissions in advance, but an unanswered request is not authorization.
+- Completion requires relevant evidence. Code acceptance uses applicable tests, review, and artifact evidence; non-code acceptance uses the project-defined evidence and owner judgment. State what was observed, inferred, and not checked. Stop when the objective is met or all remaining useful work genuinely waits on an external dependency.
 
-| Measure | Definition | Baseline (2026-09-22) | Read from |
-|---|---|---|---|
-| Top-tier tokens per build | Fable and Opus tokens spent from spec to accepted, all roles | hand-run next-build: lead 152 turns; loop package-build: 19 orchestrator turns | build-census (per Workflow run id) |
-| Hours ask to accepted | wall clock from Ben's go to integrator PASS accepted | package-build 50 min through the loop; rename-build 3 h 40 with 29 percent lead dispatch latency | docs/work records |
-| Rework after acceptance | fix commits and review rounds on a shipped territory within 7 days; recurrence of a named failure class | Co-Authored-By trailer class recurred across 87 commits | git log, records |
-| Work lost or stalled | admitted work ids without a result; loud notes unread over 30 min; orchestrators idle awaiting a nudge | two RESULT notes waited 6 h 54 and 57 min; 3 of 7 loud notes logged no-inbox | flush log, ledger, records |
+## Measures and current evidence
 
-How the card's lines are applied:
-- NOT waiting to be asked: an agent that sees a change passing the four-measure test proposes and builds it; Ben's word is needed only to merge to main or touch a machine, never to start.
-- NOT more parts than the simplest design that meets the aim: when two designs meet the requirement, the one with fewer files, states and steps wins; a proposal names the aim it serves before its design.
-- NOT a fix aimed at a symptom: when something breaks, name the aim the broken thing serves and redesign for that; never add a retry, watcher or guard on top of the failing part.
-- NOT a new mechanism while an existing one is unfed or unmeasured: before building, check whether a shipped mechanism only lacks its input file, its schedule or its measure; feed it first.
-- NOT a rule no script checks: a rule enters a skill only with the script, test or guard that checks it, or it is a stated goal here.
-- NOT top-tier execution: Fable and Opus plan, adjudicate and review; Sonnet and Haiku run tools, pulls, censuses, builds and Notion writes.
-- DONE and KILL are tests, not slogans: DONE names the numbers a build must show; KILL names the two counts that stop building.
+| Measure | Definition | Current evidence / unknown |
+| --- | --- | --- |
+| Top-tier tokens per accepted deliverable | Whole-task top-tier token cost | Unknown; prior census did not cover the right agents or wakes. |
+| Elapsed ask-to-accepted time | Wall time from authorized ask to accepted outcome | Five records show 8.4–18.6 minutes from admission to reviewed, not accepted or comparative performance. |
+| Rework after acceptance | Fixes, review rounds, and recurring failure classes in seven days | Unknown; an earlier trailer failure class recurred but was not counted as this measure. |
+| Work lost or stalled | Admitted work without result and actionable messages left unread | Earlier observations found delayed results and missing inbox logging; current rate is unknown. |
 
-## Cut token cost hard, lose no benefit
+Whole-task cost, coordination, agent count, and mechanism count explain these outcomes; they do not replace them. No claimed improvement is valid without its comparison evidence.
 
-The agents already work well. What is wrong is the price: top-tier tokens spent on wakes, re-read context and execution work a cheaper model could do. Cut that cost a lot, keep every hook, wake and unblocked piece of work that earns its place, and never slow or gate work because a meter is high.
+## Active acceptance boundary
 
-In Ben's words: "They work great but are too expensive in tokens. We want to significantly improve token use while maintaining or increasing all the benefits." (9-21) "i don't want to gate work, just optimize token use for maximum quality output." (9-20)
+A source candidate, an integrated result, a release, an installation, and a measured useful outcome are separate claims. The next useful proof is real authorized work and shared handoffs on Codex, Claude Code, and a mixed collaboration, with both code and non-code evidence where applicable. Automatic cadence, unattended Done pickup, and durable automatic memory upkeep are not yet demonstrated. Do not represent an instruction, source test, or local checkout as installed or automatic host behavior.
 
-Measure: token census per build by model and role, before and after each change; wakes and Stop-blocks per build.
-Status: PARTIAL. The ladder runs (Fable spec, Opus loop, Sonnet builders). Savings unmeasured against quality: the census counted the wrong agents, and wakes are not counted. (2026-09-22 audit)
+## Dated history and observations
 
-## Speed and quality count as much as tokens
+The following records preserve earlier observations; they do not override the current objective or operating rules.
 
-Deliverables should arrive faster and better, not just cheaper. Measure the time from ask to accepted result and the rework after it with the same rigor as tokens, and stop a token saving that costs either.
-
-In Ben's words: "we are doing a lot of work to cut tokens, which is good, but it's time to turn our attention to speed of deliverables and quality." (9-21) "We need to maximize our chances of quality." (9-21)
-
-Measure: wall clock spec to accepted, dispatch latency per handoff, review rounds, fix-after-feat rate, recurring failure classes, per build.
-Status: PARTIAL. One speed census: the lead's dispatch latency was 29 percent of a build's wall clock. No per-build tracking; the trailer failure class recurred uncounted.
-
-## The lead spends judgment, not turns
-
-The top-tier lead plans, adjudicates and synthesizes. Tools run in the cheapest agent that can do the job and their results are read one tier up. The lead takes few, large turns and never a turn per subagent completion.
-
-In Ben's words: "I think you are taking too many turns, at least from what I can see! Think about our plan and how to fix this." (9-21) "one major tooling direction is to run tools in the cheapest subagent that achieves the goal and read the results in a higher level agent." (9-21)
-
-Measure: lead turns per build; share of tool output read by the top tier.
-Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 hand-run.
-
-## Simplest architecture, rethought from the aim
-
-When something breaks, do not patch the symptom, add a watcher to a watcher, or build a second engine. Go back to the aim, research what others do, and pick the simplest design that serves it. The goal stays in view over long autonomous stretches.
-
-In Ben's words: two weeks "lost to house of cards patch style castles." (9-20) "as always, do research with subagents, don't just jump to conclusions!" (9-21)
-
-Measure: the goal card in every session; consecutive releases on one surface is the drift warning; every change names the goal it serves.
-Status: PARTIAL. The card hook shipped in 0.8.0; the card was first written 2026-09-22. Five of eleven releases went to one surface before that.
-
-## One package, the same on every machine, tested everywhere at once
-
-Every building skill lives in this one plugin and works as one system: delegate, team-build, multi, decisions, janitor, notion-writing, and the pane setup Ben actually runs. A change goes to every machine at once with hooks on; no canary week. Every rule is mechanical or a stated goal, every hook has a kill switch and fails open.
-
-In Ben's words: all building skills "fold into this one package, coordinated and working together." (9-21) "canary not worth a week of bad work! ... Plus I do very different work on the diff machines so it's a bad test. So let's implement our best plan and test it everywhere." (9-21)
-
-Measure: a wiring check per machine that can actually fail; a pane setup backed by the census; zero prose-only rules.
-Status: PARTIAL. 0.13.0 on four machines. Wiring check cannot go red; two hooks lack a kill switch; pane-setup.md describes a setup Ben does not run.
-
-## Nothing stalls silently
-
-No session waits unnoticed and no piece of work is lost. Peer notes reach their reader, asks get answered, an orchestrator that stops gets moved. Idle panes are woken only when there is something to act on: FYI and ACK are read from the ledger, never a wake.
-
-In Ben's words: solving orchestrator stalling "is part of the skills work and important." (9-21) "i think fyi and ack shouldn't wake ... it was a good arch decision in the first place to save tokens!" (9-22)
-
-Measure: delivery outcomes per machine per week; asks answered vs open; wakes per build.
-Status: PARTIAL. Delivery works but is not logged on the direct path; two results waited hours unread; subagent hook events consume the lead's notes.
-
-## Decisions and goals have one home that Ben reads
-
-Ben's decisions live on one Notion page, in a shape the reader checks, never handed back in chat. His notes there (lines starting `**`) are acted on and closed, or answered in place and archived. The goals are kept current on their own page from this file, at every release.
-
-In Ben's words: "any note from me in notion is a line prefaced with **, this should be in our skill already, and all the notes must be acted on and removed from the doc for when you next hand it to me." (9-22) "the decisions notion skill should make sure the goals are kept up to date!" (9-22)
-
-Measure: the hand-back check passes (zero unanswered notes, zero page warnings, goals mirror at the current commit) before any link is given; zero decisions in chat.
-Status: NONE. The reader exists but nothing ran it; the page was repaired by hand on 2026-09-22; the mechanism is specced (docs/specs/2026-09-22-decisions-current.md).
-
-## What one session learns reaches every machine
-
-A lesson learned on one machine is available on all of them without hand-carrying, and a lesson that is superseded stops governing. Corrections over volume.
-
-In Ben's words: none yet; this is the lead's statement of his intent from the 09-20 plan. Edit it.
-
-Measure: sessions that open a topic file; inbox notes pending; superseded lessons linked to their replacement.
-Status: NONE. Memory never syncs; knowledge inboxes untriaged since 07-28; topic files opened 0 times by either lead session.
-
-## Cleanup has an owner
-
-Stale worktrees, branches and leftovers are removed by a mechanical janitor that acts only on the provably safe class, daily, and shows Ben the table.
-
-In Ben's words: "The janitor may apply its safe class daily and show you the table. Yes." (9-20)
-
-Measure: the safe-class run scheduled daily, its table shown.
-Status: PARTIAL. Janitor reports (48 SAFE, 5 JUDGMENT on 2026-09-22) but is unscheduled and has never acted.
+- September 20–22, 2026: Ben emphasized token efficiency while maintaining quality, faster deliverables, root-cause work over patch castles, and agents doing valuable work without waiting to be asked.
+- September 21, 2026: prior records reported a 152-turn hand-run build and 19/67 orchestrator turns in loop builds; these are observations, not lead-turn targets or provider/model requirements.
+- September 22, 2026: the card hook had shipped, five of eleven releases had focused on one surface, and a janitor report listed 48 SAFE and 5 JUDGMENT items. Earlier machine, hook, Notion, and memory status statements remain historical evidence rather than current release requirements.
+- September 22, 2026: earlier audits reported 0.13.0 on four machines, a wiring check that could not fail, two hooks without a kill switch, two result notes unread for hours, a direct delivery path without logging, a hand-repaired decisions page, and unsynchronized/untriaged memory. These findings are retained for prioritization; none proves current installed behavior.
+- September 22, 2026: an earlier token census omitted wakes and the intended agents; a speed census found 29 percent lead dispatch latency in one build; the recurring trailer failure class was not counted per build. Those baselines are incomplete, so the corresponding measures remain unknown.
+- September 23, 2026: the first source/callable candidate was reviewed as 0.14.0 at `9adb6253f83ffecac7cfb8fbe539f8c48caa2cb1`; no main merge, push, installation, or live host validation was thereby proven. The current delivery is recorded in `docs/specs/2026-09-23-harness-next.md`.
