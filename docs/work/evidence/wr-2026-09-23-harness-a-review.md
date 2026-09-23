@@ -1,4 +1,4 @@
-VERDICT: APPROVE — c94f4b21f68f34adf975372770cf34c4c97cd9e8
+VERDICT: APPROVE c94f4b21f68f34adf975372770cf34c4c97cd9e8
 
 Independent delta review A; no outstanding findings in assigned scope.
 
