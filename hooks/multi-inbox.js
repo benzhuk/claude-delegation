@@ -258,7 +258,7 @@ async function main() {
   const input = await readInput();
   // A Claude Code child inherits the lead's hook environment. It must never register, poll, or
   // acknowledge the lead's inbox: the lead remains the sole consumer of its peer notes. `agent_id`
-  // is the host's positive child signal (as in reminder.js); absence says nothing about other hosts.
+  // is the host's positive child signal (as in delegation-reminder.js); absence says nothing about other hosts.
   // Keep this immediately after parsing so no identity lookup or hook branch can create a registry,
   // cursor, stamp, or binding side effect first.
   if (typeof input.agent_id === "string" && input.agent_id.length > 0) return;

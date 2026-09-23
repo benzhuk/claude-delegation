@@ -60,6 +60,43 @@ function runHook(home, event, input = {}, over = {}) {
   });
 }
 
+function snapshotTree(root) {
+  const entries = [];
+  const visit = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(dir, entry.name);
+      const relative = path.relative(root, file);
+      if (entry.isDirectory()) visit(file);
+      else entries.push([relative, fs.readFileSync(file).toString('base64')]);
+    }
+  };
+  visit(root);
+  return entries;
+}
+
+function seedPopulatedLeadState(home) {
+  const notes = path.join(home, '.agents', 'notes');
+  fs.mkdirSync(notes, { recursive: true });
+  fs.writeFileSync(path.join(notes, 'inboxes.json'), JSON.stringify({
+    version: 1,
+    inboxes: {
+      'lead-pane': {
+        kind: 'claude-socket', at: 1, pid: 2, host: 'fixture-host', cwd: home,
+        socket: SOCKET, token: TOKEN, sessionId: SESSION_ID,
+      },
+    },
+  }), 'utf8');
+  fs.writeFileSync(path.join(notes, '.cursor-lead-pane'), JSON.stringify({
+    version: 1, slug: 'lead-pane', updatedAt: new Date().toISOString(), seen: { earlier: TODAY }, cold: {},
+  }), 'utf8');
+  fs.writeFileSync(path.join(notes, '.poll-lead-pane'), '123456', 'utf8');
+  fs.writeFileSync(path.join(notes, 'panes.json'), JSON.stringify({
+    fixture_handle: { slug: 'lead-pane', at: 1 },
+  }), 'utf8');
+  mirrorNoteFor(home, 'child-populated-state-1', 'lead-pane');
+  return notes;
+}
+
 test('(a) SessionStart with NOTE_SLUG set registers an entry addressable by that slug under the fixture home', () => {
   const home = fixtureHome();
   const stdout = runSessionStart(home, {
@@ -309,7 +346,21 @@ test('(k) MINOR 6: a broken CLAUDE_PLUGIN_ROOT never tells a bound pane "this se
   assert.equal(stdout.trim(), '', 'a broken plugin root is M1\'s message to deliver, not D4\'s');
 });
 
-test('(l) a positive child agent_id leaves the lead registry, cursor, stamp, and binding untouched, so the lead receives its pending note', () => {
+test('(l) positive child agent_id preserves populated lead state across every delivery event', () => {
+  for (const event of ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']) {
+    const home = fixtureHome();
+    const notes = seedPopulatedLeadState(home);
+    const before = snapshotTree(notes);
+    const output = runHook(home, event, { agent_id: 'child-agent-42' }, {
+      NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: 'fixture_handle',
+      CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+    });
+    assert.equal(output.trim(), '', `${event}: a child receives no lead context`);
+    assert.deepEqual(snapshotTree(notes), before, `${event}: registry, cursor, stamp, binding, and inventory stay byte-for-byte unchanged`);
+  }
+});
+
+test('(m) a positive child agent_id leaves absent lead state untouched, so the lead receives its pending note', () => {
   const home = fixtureHome();
   const notes = path.join(home, '.agents', 'notes');
   fs.mkdirSync(notes, { recursive: true });
