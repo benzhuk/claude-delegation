@@ -13,6 +13,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,9 +24,10 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 
-test('PLUGIN_SKILLS includes notion-writing and dev-server', () => {
+test('PLUGIN_SKILLS includes notion-writing, dev-server, and bearings', () => {
   assert.ok(PLUGIN_SKILLS.includes('notion-writing'), 'notion-writing must be in PLUGIN_SKILLS');
   assert.ok(PLUGIN_SKILLS.includes('dev-server'), 'dev-server must be in PLUGIN_SKILLS');
+  assert.ok(PLUGIN_SKILLS.includes('bearings'), 'bearings must be in PLUGIN_SKILLS');
 });
 
 test('CLAUDE_SKILLS no longer includes dev-server', () => {
@@ -36,7 +38,7 @@ test('notion-writing and dev-server actually resolve to a source under <repo>/sk
   const sources = collectSources();
   const byName = Object.fromEntries(sources.filter((s) => s.kind === 'skill').map((s) => [s.name, s]));
 
-  for (const name of ['notion-writing', 'dev-server']) {
+  for (const name of ['notion-writing', 'dev-server', 'bearings']) {
     const entry = byName[name];
     assert.ok(entry, `${name} did not resolve to any skill source at all`);
     const expected = path.join(REPO, 'skills', name);
@@ -54,6 +56,17 @@ test('notion-writing and dev-server actually resolve to a source under <repo>/sk
       `${name} source must not come from ~/.claude/skills/, got ${entry.src}`,
     );
   }
+});
+
+test('work-record.md resolves as a shared document into the synthetic Codex docs home', () => {
+  const source = collectSources().find((entry) => entry.kind === 'doc' && entry.name === 'work-record.md');
+  assert.ok(source, 'work-record.md must be a shared document source');
+  assert.equal(path.resolve(source.src), path.join(REPO, 'docs', 'work-record.md'));
+  assert.equal(
+    path.resolve(source.dest),
+    path.join(os.homedir(), '.agents', 'skills', '_docs', 'work-record.md'),
+    'shared document must be copied into the synthetic Codex docs home',
+  );
 });
 
 // D11/F8 — `isNewerVersion` is a pure helper, so it is covered in-process here rather than through a
