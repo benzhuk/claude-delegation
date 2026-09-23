@@ -1,5 +1,5 @@
-GOAL: Agent work gets cheaper, faster and more reliable at equal or better quality. Change only what improves one of these and worsens none: top-tier tokens per build, hours ask to accepted, rework after acceptance, work lost or stalled.
-NOT: waiting to be asked. NOT: more parts than the simplest design that meets the aim; a symptom fix. NOT: a new mechanism while an existing one is unfed or unmeasured. NOT: a rule no script checks. NOT: top-tier execution.
-DONE: a build goes spec to accepted through the plugin: lead under 20 turns, Sonnet builds, Opus reviews, nothing lost or stalled, census beats the hand-run build on all four measures.
-KILL: a third release in a row on one surface, or a mechanism two weeks without its measure: stop and re-plan with Ben.
+GOAL: Turn authorized intent into useful, verified outcomes autonomously and in parallel; learn and simplify. Codex and Claude Code are initial equal hosts.
+NOT: provider-bound shared contracts; symptom patches; invented work, budgets, or automatic-host claims.
+DONE: Code and non-code outcomes have project-relevant evidence; Codex, Claude, and mixed handoffs are demonstrated.
+KILL: Stop when the goal is met or all remaining useful work awaits an external dependency; record unknowns and blockers.
 SOURCE: docs/GOALS.md
