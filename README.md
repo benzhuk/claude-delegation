@@ -44,7 +44,12 @@ claude plugin install delegation@benzhuk
 - **`/delegation:multi`** — peer-session notes: one-line envelopes to an EQUAL session
   you don't own (see below).
 - **`/delegation:decisions`** — record a question only the owner can answer on their
-  Notion decisions page and keep working, instead of blocking on a reply.
+  Notion decisions page and keep working, instead of blocking on a reply. An explicitly
+  configured pickup host can call the one-shot registered-page pickup with the existing
+  reader and note transport. It preserves immutable captures, binds a page to one host
+  and authorization project, recovers uncertainty conservatively, and requires explicit
+  owner accounting. It does not activate a scheduler, revive an owner, clear `Done`, or
+  establish two-host behavior.
 - **`/delegation:bearings`** — assess a goal from bounded evidence, choose `CONTINUE`,
   `RE-PLAN`, or `CUT`, then publish a dated assessment with linked repository evidence.
   Its callable per-project receipt helper reports whether a matching completed assessment
@@ -226,6 +231,11 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.17.0 — adds callable, one-shot pickup for one registered decisions page through the
+  existing reader and note transport. It persists immutable capture evidence, binds the
+  page to one pickup host and authorization project, refuses uncertain resend/recovery,
+  and requires explicit owner accounting before a later round. This is not scheduler
+  activation, automatic owner revival or `Done` clearing, or two-host validation.
 - 0.16.0 — adds a callable, per-project bearings receipt helper that reports due/current
   state and records an explicit completion attestation for the assessment report, lead
   response, and publication URL. Claude Code's existing SessionStart and active-session

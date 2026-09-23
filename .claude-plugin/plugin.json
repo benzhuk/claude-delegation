@@ -1,8 +1,8 @@
 {
   "name": "delegation",
   "displayName": "Delegation",
-  "description": "Multi-agent orchestration for Claude Code and Codex: delegate/team-build/multi skills, vendor-neutral model tiers, shared subagent mechanics, prompt routing, portable decisions configuration, audience routing, and callable per-project bearings receipts. Claude can show an active-session due notice; it never runs an assessment automatically, and Codex cadence and installed-host parity remain unverified.",
-  "version": "0.16.0",
+  "description": "Multi-agent orchestration for Claude Code and Codex: delegate/team-build/multi skills, vendor-neutral tiers, shared mechanics, prompt routing, portable decisions configuration, audience routing, bearings receipts, and callable one-shot registered-page decision pickup with immutable captures, single-host page binding, conservative recovery, and owner accounting. No scheduler, automatic owner recovery/clearing, or two-host validation is claimed.",
+  "version": "0.17.0",
   "author": { "name": "Ben Zhuk", "url": "https://github.com/benzhuk" },
   "repository": "https://github.com/benzhuk/claude-delegation",
   "license": "MIT",
