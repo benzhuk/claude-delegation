@@ -231,6 +231,10 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.17.1 — makes continuation checks apply at wave, release, review and status closeout
+  during ongoing authorized work. Completed waves and isolated blockers do not end the
+  goal; explicit stops, completion evidence and concrete external dependencies still do.
+  This changes skills, not runtime scheduling or installation.
 - 0.17.0 — adds callable, one-shot pickup for one registered decisions page through the
   existing reader and note transport. It persists immutable capture evidence, binds the
   page to one pickup host and authorization project, refuses uncertain resend/recovery,
