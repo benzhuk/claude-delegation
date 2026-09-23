@@ -1,5 +1,5 @@
 <callout icon="🎯" color="gray_background">
-	**Mirror of docs/GOALS.md and docs/goals/card.md in the plugin repo, main at {{sha}}.** To comment, add a line starting with ** anywhere on this page. The lead acts on every such line, changes the repo, republishes this page and removes your line. Any other edit here is overwritten at the next publish.
+	**Mirror of `docs/GOALS.md` and `docs/goals/card.md` in the plugin repo, main at {{sha}}.** To comment, add a line starting with ** anywhere on this page. The lead acts on every such line, changes the repo, republishes this page and removes your line. Any other edit here is overwritten at the next publish.
 </callout>
 <callout icon="🃏" color="blue_background">
 	**The card every session sees** (five lines, injected at session start and every 40 tool batches)

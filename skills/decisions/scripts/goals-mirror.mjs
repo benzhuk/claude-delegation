@@ -25,13 +25,14 @@ export class BlindError extends Error {}
 
 function checkForbidden(text, lineNo, sourceLabel) {
   const t = text.trim();
-  if (t.startsWith('- [')) {
+  const body = t.replace(/^[-*+]\s+/, ''); // what the reader tests after splitMarker strips a bullet
+  if (/^[-*+]\s+\[/.test(t)) {
     throw new RefusedError(`${sourceLabel}:${lineNo} would render as a checkbox ("- ["): ${t}`);
   }
-  if (/^<summary\b/i.test(t)) {
+  if (/<summary\b/i.test(t)) {
     throw new RefusedError(`${sourceLabel}:${lineNo} would render as a <summary> toggle: ${t}`);
   }
-  if (/^Default\b/.test(t) && t.includes(':')) {
+  if (/^Default\b/.test(body) && body.includes(':')) {
     throw new RefusedError(`${sourceLabel}:${lineNo} would render as a Default line: ${t}`);
   }
   if (/^`{3,}/.test(t)) {
@@ -111,15 +112,20 @@ const defaultReadFile = (f) => fs.readFileSync(f, 'utf8');
  * walk-up). Never touches git; `sha` is supplied by the caller (CLI resolves `--sha` or git).
  */
 export function renderPage({ repo, sha, readFile = defaultReadFile, templatePath = DEFAULT_TEMPLATE_PATH }) {
-  const goalsText = readFile(path.join(repo, 'docs', 'GOALS.md'));
-  const cardText = readFile(path.join(repo, 'docs', 'goals', 'card.md'));
-  const template = readFile(templatePath);
+  const readOrBlind = (f) => {
+    try {
+      return readFile(f);
+    } catch (e) {
+      throw new BlindError(`cannot read ${f}: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+  const goalsText = readOrBlind(path.join(repo, 'docs', 'GOALS.md'));
+  const cardText = readOrBlind(path.join(repo, 'docs', 'goals', 'card.md'));
+  const template = readOrBlind(templatePath);
   const cardBlock = buildCardBlock(cardText);
   const sectionsBlock = buildSections(goalsText);
-  let page = template
-    .replace('{{sha}}', sha)
-    .replace('{{card}}', cardBlock)
-    .replace('{{sections}}', sectionsBlock);
+  const values = { sha, card: cardBlock, sections: sectionsBlock };
+  let page = template.replace(/\{\{(sha|card|sections)\}\}/g, (_m, key) => values[key]);
   if (!page.endsWith('\n')) page += '\n';
   return page;
 }
@@ -130,7 +136,12 @@ function defaultGit(repo, args) {
 
 /** `git log -1 --format=%h origin/main -- <sources>` in `--repo` — the last commit that changed either. */
 export function computeSha({ repo, git = defaultGit }) {
-  const out = git(repo, ['log', '-1', '--format=%h', 'origin/main', '--', 'docs/GOALS.md', 'docs/goals/card.md']);
+  let out;
+  try {
+    out = git(repo, ['log', '-1', '--format=%h', 'origin/main', '--', 'docs/GOALS.md', 'docs/goals/card.md']);
+  } catch (e) {
+    throw new BlindError(`git log failed in ${repo}: ${e instanceof Error ? e.message : e}`);
+  }
   const sha = out.trim();
   if (!sha) throw new BlindError('git log gave no sha for the goals sources on origin/main');
   return sha;
@@ -154,13 +165,19 @@ export function checkDirty({ repo, readFile = defaultReadFile, git = defaultGit 
   return { dirty: false, path: null };
 }
 
-/** Owner notes blocking a publish: COMMENTED decisions plus any UNATTACHED comment line. */
+/**
+ * Owner notes blocking a publish: any decision carrying an unreplied comment, on EVERY
+ * status (not only when `d.status === 'COMMENTED'` — the status priority AMBIGUOUS >
+ * TICKED > COMMENTED > DUE > REPLIED > OPEN means a ticked option with an unanswered
+ * comment reports as TICKED, not COMMENTED, and would otherwise slip past this check),
+ * plus any UNATTACHED comment line.
+ */
 function ownerNoteLines(doc) {
   const lines = [];
   for (const d of doc.decisions) {
-    if (d.status !== 'COMMENTED') continue;
-    const unreplied = d.comments.filter((c) => !c.replied).map((c) => c.text).join(' | ');
-    lines.push(`COMMENTED\t${d.title}\t${unreplied}`);
+    const unreplied = d.comments.filter((c) => !c.replied);
+    if (unreplied.length === 0) continue;
+    lines.push(`COMMENTED\t${d.title}\t${unreplied.map((c) => c.text).join(' | ')}`);
   }
   for (const u of doc.unattached) {
     if (u.kind !== 'comment') continue;
@@ -173,6 +190,28 @@ function defaultSpawnNotion({ parent, title, file }) {
   const script = path.join(os.homedir(), '.claude', 'scripts', 'notion.js');
   const res = spawnSync(process.execPath, [script, 'publish', parent, title, file], { encoding: 'utf8' });
   return { status: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+}
+
+/**
+ * `--current none` claims no Goals child page exists yet, which is the one condition
+ * allowed to skip the owner-note check (there is nothing on Notion to have a note on).
+ * Never trust that claim blindly: best-effort real check via `notion.js search <title>`.
+ * Any doubt (a non-zero exit, unparsable output) is BLIND, never treated as "absent" —
+ * the owner-note check must never be silently skipped by a spawn hiccup.
+ */
+function defaultCheckGoalsPageAbsent({ title }) {
+  const script = path.join(os.homedir(), '.claude', 'scripts', 'notion.js');
+  const res = spawnSync(process.execPath, [script, 'search', title], { encoding: 'utf8' });
+  if (res.status !== 0) {
+    throw new BlindError(`cannot check whether the Goals page exists: notion.js search exited ${res.status}: ${res.stderr || ''}`);
+  }
+  let results;
+  try {
+    results = JSON.parse(res.stdout);
+  } catch (e) {
+    throw new BlindError(`cannot parse notion.js search output: ${e instanceof Error ? e.message : e}`);
+  }
+  return !results.some((r) => r.type === 'page' && r.title === title);
 }
 
 function parseArgs(argv) {
@@ -200,6 +239,7 @@ export function run({
   writeErr = (s) => process.stderr.write(s),
   git = defaultGit,
   spawnNotion = defaultSpawnNotion,
+  checkGoalsPageAbsent = defaultCheckGoalsPageAbsent,
   tmpFile = () => path.join(os.tmpdir(), `goals-mirror-${process.pid}-${Date.now()}.md`),
 } = {}) {
   try {
@@ -222,7 +262,21 @@ export function run({
         return 1;
       }
 
-      if (opts.current !== 'none') {
+      if (opts.current === 'none') {
+        // The owner-note check must never be skippable just by claiming --current none:
+        // refuse unless we can positively confirm the target Goals page does not exist yet.
+        let absent;
+        try {
+          absent = checkGoalsPageAbsent({ parent: opts.parent, title: 'Goals' });
+        } catch (e) {
+          if (e instanceof BlindError) throw e;
+          throw new BlindError(`cannot check whether the Goals page exists: ${e instanceof Error ? e.message : e}`);
+        }
+        if (!absent) {
+          writeErr('goals-mirror: --current none requires the Goals page to be absent, but one was found; pass a --current read of it instead\n');
+          return 1;
+        }
+      } else {
         let currentText;
         try {
           currentText = readFile(opts.current);

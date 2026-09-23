@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { renderPage, computeSha, checkDirty, run } from './goals-mirror.mjs';
 import { parseDocument } from './decisions-read.mjs';
+import { childEnv, scratchHome } from '../../multi/scripts/test-child-env.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(HERE, 'fixtures');
@@ -53,12 +54,17 @@ test('render output carries no CR and ends with exactly one trailing LF', () => 
 
 test('the CLI render command matches the fixture byte for byte (spawned, real entry point)', () => {
   const scriptPath = path.join(HERE, 'goals-mirror.mjs');
-  const res = spawnSync(process.execPath, [
-    scriptPath, 'render', '--repo', FIXTURE_REPO, '--sha', 'test',
-  ], { encoding: 'utf8' });
-  const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
-  assert.equal(res.status, 0);
-  assert.equal(res.stdout, expected);
+  const home = scratchHome(fs, 'goals-mirror-');
+  try {
+    const res = spawnSync(process.execPath, [
+      scriptPath, 'render', '--repo', FIXTURE_REPO, '--sha', 'test',
+    ], { encoding: 'utf8', env: childEnv(home) });
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, expected);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test('--sha override lands in the callout exactly once', () => {
@@ -68,6 +74,13 @@ test('--sha override lands in the callout exactly once', () => {
   // and it is inside the first line of the page's first callout, per the shared sha-line contract
   const firstCalloutBody = page.split('\n')[1];
   assert.match(firstCalloutBody, /\bmain at abc1234\b/);
+});
+
+test('the mirror callout backticks docs/GOALS.md and docs/goals/card.md, per the pinned contract', () => {
+  const page = renderPage({ repo: FIXTURE_REPO, sha: 'test' });
+  const firstCalloutBody = page.split('\n')[1];
+  assert.match(firstCalloutBody, /`docs\/GOALS\.md`/);
+  assert.match(firstCalloutBody, /`docs\/goals\/card\.md`/);
 });
 
 test('the fixture render, fed to parseDocument, gives zero decisions, warnings and unattached', () => {
@@ -137,6 +150,7 @@ test('render exits 1 naming the line for a "- [" checkbox-shaped source line', (
   assert.equal(code, 1);
   assert.match(out.stderr, /- \[/);
   assert.match(out.stderr, /GOALS\.md/);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
 });
 
 test('render exits 1 naming the line for a "<summary" source line', () => {
@@ -150,6 +164,7 @@ test('render exits 1 naming the line for a "<summary" source line', () => {
   });
   assert.equal(code, 1);
   assert.match(out.stderr, /<summary/);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
 });
 
 test('render exits 1 naming the line for a "Default…:" source line', () => {
@@ -163,6 +178,7 @@ test('render exits 1 naming the line for a "Default…:" source line', () => {
   });
   assert.equal(code, 1);
   assert.match(out.stderr, /Default/);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
 });
 
 test('render exits 1 naming the line for a code fence', () => {
@@ -176,6 +192,48 @@ test('render exits 1 naming the line for a code fence', () => {
   });
   assert.equal(code, 1);
   assert.match(out.stderr, /code fence/);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
+});
+
+test('render exits 1 naming the line for a mid-line "<summary>" not at line start', () => {
+  const { out, write, writeErr } = collect();
+  const readFile = repoWithGoalsLine('Items use a <summary> toggle, not a bullet.');
+  const code = run({
+    argv: ['render', '--repo', '/fake', '--sha', 't'],
+    readFile: (f) => (f === path.join('/fake', 'docs', 'GOALS.md') || f === path.join('/fake', 'docs', 'goals', 'card.md'))
+      ? readFile(f) : fs.readFileSync(f, 'utf8'),
+    write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.match(out.stderr, /<summary/);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
+});
+
+test('render exits 1 for a "- Default…:" line with a leading bullet stripped, as the reader does', () => {
+  const { out, write, writeErr } = collect();
+  const readFile = repoWithGoalsLine('- Default after tomorrow: ship it');
+  const code = run({
+    argv: ['render', '--repo', '/fake', '--sha', 't'],
+    readFile: (f) => (f === path.join('/fake', 'docs', 'GOALS.md') || f === path.join('/fake', 'docs', 'goals', 'card.md'))
+      ? readFile(f) : fs.readFileSync(f, 'utf8'),
+    write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.match(out.stderr, /Default/);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
+});
+
+test('render exits 1 for a "* [ ]" bullet, which Notion turns into a to-do block like "- [ ]"', () => {
+  const { out, write, writeErr } = collect();
+  const readFile = repoWithGoalsLine('* [ ] x');
+  const code = run({
+    argv: ['render', '--repo', '/fake', '--sha', 't'],
+    readFile: (f) => (f === path.join('/fake', 'docs', 'GOALS.md') || f === path.join('/fake', 'docs', 'goals', 'card.md'))
+      ? readFile(f) : fs.readFileSync(f, 'utf8'),
+    write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.match(out.stderr, /docs\/GOALS\.md:5\b/);
 });
 
 test('a line starting "Default" with no colon is NOT refused (ordinary prose)', () => {
@@ -183,6 +241,13 @@ test('a line starting "Default" with no colon is NOT refused (ordinary prose)', 
   const readFile = (f) => (f === TEMPLATE_PATH ? fs.readFileSync(TEMPLATE_PATH, 'utf8') : base(f));
   const page = renderPage({ repo: '/fake', sha: 't', readFile, templatePath: TEMPLATE_PATH });
   assert.match(page, /Default behaviour has not changed/);
+});
+
+test('a "$" in the sources renders verbatim, not as a replace() special pattern (reviewer attack)', () => {
+  const base = repoWithGoalsLine("Costs $' and $& and $$ and $` stay");
+  const readFile = (f) => (f === TEMPLATE_PATH ? fs.readFileSync(TEMPLATE_PATH, 'utf8') : base(f));
+  const page = renderPage({ repo: '/fake', sha: 't', readFile, templatePath: TEMPLATE_PATH });
+  assert.match(page, /\tCosts \$' and \$& and \$\$ and \$` stay/);
 });
 
 // ---------------------------------------------------------------------------
@@ -198,6 +263,25 @@ test('computeSha runs the pinned git log command and trims its output', () => {
   assert.deepEqual(calls[0].args, ['log', '-1', '--format=%h', 'origin/main', '--', 'docs/GOALS.md', 'docs/goals/card.md']);
 });
 
+test('computeSha is BLIND (rethrows) when git fails, not a silent 1', () => {
+  const git = () => { throw new Error('git not found'); };
+  assert.throws(() => computeSha({ repo: '/repo', git }), /BlindError|git log failed/);
+});
+
+test('render is BLIND (exit 3) when git log fails, not exit 1', () => {
+  const { write, writeErr } = collect();
+  const git = () => { throw new Error('git not found'); };
+  const code = run({ argv: ['render', '--repo', '/fake'], git, write, writeErr });
+  assert.equal(code, 3);
+});
+
+test('render is BLIND (exit 3) when a source read fails, not exit 1', () => {
+  const { write, writeErr } = collect();
+  const readFile = () => { throw new Error('ENOENT'); };
+  const code = run({ argv: ['render', '--repo', '/fake', '--sha', 't'], readFile, write, writeErr });
+  assert.equal(code, 3);
+});
+
 test('checkDirty: clean when the working tree matches origin/main for both sources', () => {
   const readFile = (f) => (f.endsWith('GOALS.md') ? 'goals content\n' : 'card content\n');
   const git = (_repo, args) => (args[1].includes('GOALS.md') ? 'goals content\n' : 'card content\n');
@@ -211,6 +295,27 @@ test('checkDirty: dirty when the working tree differs from origin/main (mocked g
   const result = checkDirty({ repo: '/repo', readFile, git });
   assert.equal(result.dirty, true);
   assert.equal(result.path, 'docs/GOALS.md');
+});
+
+test('checkDirty is BLIND (throws) when "git show" fails, never reported as clean', () => {
+  const readFile = () => 'content\n';
+  const git = () => { throw new Error('git show failed'); };
+  assert.throws(() => checkDirty({ repo: '/repo', readFile, git }));
+});
+
+test('publish is BLIND (exit 3) when checkDirty\'s "git show" fails, not a false-clean publish', () => {
+  const repo = '/repo';
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const git = () => { throw new Error('git show failed'); };
+  const readFile = () => { throw new Error('should not be reached: dirty check refuses first'); };
+  const { write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'p1', '--current', 'none'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 3);
+  assert.equal(spawnCalls, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -278,25 +383,130 @@ test('publish with a --current carrying one ** note exits 1 with zero notion.js 
   assert.match(out.stdout, /UNATTACHED/);
 });
 
-test('publish with --current none and a clean tree renders and calls notion.js exactly once', () => {
+test('publish with a --current decision holding one unreplied comment exits 1 as COMMENTED, zero notion.js calls', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const currentRead = L(
+    '# Ship the thing {toggle="true"}',
+    '\t- [ ] do it',
+    '\tNo default line stated.',
+    '\t\\*\\* comment needs answer',
+  );
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { out, write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'p1', '--current', '/current.md'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.equal(spawnCalls, 0);
+  assert.match(out.stdout, /^COMMENTED\t/m);
+});
+
+test('publish with --current none and a clean tree renders and calls notion.js exactly once, when the Goals page is confirmed absent', () => {
   const repo = '/repo';
   const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
   const git = cleanGit(content);
   const calls = [];
   const spawnNotion = (args) => { calls.push(args); return { status: 0, stdout: 'published\n', stderr: '' }; };
   const written = {};
+  let absentCalls = 0;
+  const checkGoalsPageAbsent = () => { absentCalls += 1; return true; };
   const { out, write, writeErr } = collect();
   const code = run({
     argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', 'none'],
     readFile: fakeFiles(repo, content),
     writeFile: (f, s) => { written[f] = s; },
-    git, spawnNotion, write, writeErr,
+    git, spawnNotion, checkGoalsPageAbsent, write, writeErr,
   });
   assert.equal(code, 0);
+  assert.equal(absentCalls, 1);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].parent, 'goal-page-id');
   assert.equal(calls[0].title, 'Goals');
   assert.ok(written[calls[0].file].includes('main at test1234'));
+});
+
+test('publish with --current none is refused (exit 1) when the Goals page is found to exist, zero notion.js calls (addendum patch b)', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const checkGoalsPageAbsent = () => false;
+  const { out, write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', 'none'],
+    readFile: fakeFiles(repo, content),
+    git, spawnNotion, checkGoalsPageAbsent, write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.equal(spawnCalls, 0);
+  assert.match(out.stderr, /--current none requires the Goals page to be absent/);
+});
+
+test('publish with --current none is BLIND (exit 3) when checkGoalsPageAbsent cannot tell, never a silent bypass', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const checkGoalsPageAbsent = () => { throw new Error('notion.js search failed'); };
+  const { write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', 'none'],
+    readFile: fakeFiles(repo, content),
+    git, spawnNotion, checkGoalsPageAbsent, write, writeErr,
+  });
+  assert.equal(code, 3);
+  assert.equal(spawnCalls, 0);
+});
+
+test('publish with a real --current file never calls checkGoalsPageAbsent (that bypass gate applies only to --current none)', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  const spawnNotion = () => ({ status: 0, stdout: '', stderr: '' });
+  let absentCalls = 0;
+  const checkGoalsPageAbsent = () => { absentCalls += 1; return true; };
+  const currentRead = L('# Goals {toggle="true"}', '\t<empty-block/>');
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', '/current.md'],
+    readFile, git, spawnNotion, checkGoalsPageAbsent, write, writeErr,
+  });
+  assert.equal(code, 0);
+  assert.equal(absentCalls, 0);
+});
+
+test('publish with a --current TICKED decision holding one unreplied comment exits 1, zero notion.js calls (addendum patch a: every status, not just COMMENTED)', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const currentRead = L(
+    '# Ship the thing {toggle="true"}',
+    '\t- [x] do it',
+    '\tNo default line stated.',
+    '\t\\*\\* wait, are we sure?',
+  );
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { out, write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'p1', '--current', '/current.md'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.equal(spawnCalls, 0);
+  assert.match(out.stdout, /^COMMENTED\t/m);
 });
 
 test('publish requires --repo, --parent and --current; missing any is refused, not crashed', () => {
