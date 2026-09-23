@@ -30,11 +30,11 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | Label | Required | Meaning |
 |---|---|---|
 | `Work:` | yes | `wr-<yyyy-mm-dd>-<slug>`, unique, lowercase, `[a-z0-9-]` |
-| `Scope:` | yes | `<path>@<sha>` — the spec or brief and the commit it was read at; the path uses forward slashes, always (a backslash resolves to nothing when `scope-drift` runs `git log` on macOS or Linux) |
+| `Scope:` | yes | For Git-backed work, `<path>@<sha>` — the spec or brief and the commit it was read at; the path uses forward slashes, always. For non-code work, an attributable stable file or URI reference; record the reviewed snapshot, digest, or source/read time in the body. |
 | `Owner:` | yes | `<slug>` or `none` |
 | `Status:` | yes | one of `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `accepted`, `blocked` |
 | `Authority:` | yes | what may happen without Ben, and what may not |
-| `Artifact:` | yes | `<branch>@<sha>` or `none` |
+| `Artifact:` | yes | For Git-backed work, `<branch>@<sha>`; for non-code work, an attributable stable file or URI reference; or `none` before an artifact exists. |
 | `Evidence:` | yes | comma-separated report paths, or `none`; each path's first line must start `VERDICT:` |
 | `Next:` | yes | the next action, or the blocker and its owner |
 | `Opened:` | yes | ISO-8601 UTC |
@@ -58,9 +58,9 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 
 ### `Log:` notes with fixed meaning
 
-- `artifact <sha>` — `Artifact:` changed in this edit. Convention: the ownership-return
+- `artifact <reference>` — `Artifact:` changed in this edit. Convention: the ownership-return
   line written when an agent reports, is stopped, or dies (e.g. `delivered orchestrator
-  agent-exited`, or a plain `reviewed reviewer`) restates `artifact <sha>` for the
+  agent-exited`, or a plain `reviewed reviewer`) restates `artifact <reference>` for the
   artifact that is still current, even though it did not change in that edit — so a
   normal hand-back is not misread by `stale-result-candidate` as a result from a
   superseded owner.
@@ -85,10 +85,29 @@ report/findings FILE's first line as `VERDICT: <word>` (builders: `VERDICT: PASS
 agent's own REPLY still leads with the bare verdict word, no prefix; that word is what
 the orchestrator reads to update `Status:`, not what the validator checks.
 
+### Non-code outcomes
+
+For research, documents, or other non-code work, use stable in-repository files or URIs in
+`Scope:` and `Artifact:` rather than fabricating a Git revision. In the existing body prose,
+state the reviewed snapshot or digest, source/read time when relevant, the project-defined
+acceptance evidence, and the owner's judgment. For example:
+
+```
+Scope: https://example.invalid/brief (read 2026-09-23T16:00:00Z)
+Artifact: docs/reports/native-review.md#sha256:<digest>
+
+Observed: owner reviewed this snapshot against the cited sources and report evidence.
+```
+
+Structural validation checks the record shape and in-repository verdict evidence; it does not
+prove that a non-code outcome is good or manage remote artifact history. Keep the deciding report
+under `docs/work/evidence/` for this harness, and retain independent review when the task requires it.
+
 ### Strict Git-backed acceptance check
 
-Historical structural validation remains permissive. Git-backed team builds add a
-read-only check immediately before the owner changes a reviewed record to `accepted`:
+Historical structural validation remains permissive. Code delivery and other Git-backed team
+builds must add this read-only check immediately before the owner changes a reviewed record to
+`accepted`:
 
 ```
 node <verified-plugin-root>/scripts/work-record.mjs check-acceptance \
@@ -115,7 +134,8 @@ nonzero with a diagnostic. Neither outcome writes the record, evidence, reposito
 This command proves local record, review, and delivery identity only. The owner still verifies
 integration gates, authority, goal satisfaction, and installed behavior. A merge that preserves
 reviewed source needs no ceremonial re-review; content changes or conflict resolution require
-independent review. Non-code work does not invent a Git commit to use this Git-specific gate.
+independent review. Non-code work does not invent a Git commit to use this Git-specific gate;
+an Artifact URI is not a way to bypass it for code.
 
 ## Validator (`scripts/work-record.mjs`, `validateRecord`)
 
