@@ -91,7 +91,7 @@ function seedPopulatedLeadState(home) {
   }), 'utf8');
   fs.writeFileSync(path.join(notes, '.poll-lead-pane'), '123456', 'utf8');
   fs.writeFileSync(path.join(notes, 'panes.json'), JSON.stringify({
-    fixture_handle: { slug: 'lead-pane', at: 1 },
+    term_fixture: { slug: 'lead-pane', at: 1 },
   }), 'utf8');
   mirrorNoteFor(home, 'child-populated-state-1', 'lead-pane');
   return notes;
@@ -352,7 +352,7 @@ test('(l) positive child agent_id preserves populated lead state across every de
     const notes = seedPopulatedLeadState(home);
     const before = snapshotTree(notes);
     const output = runHook(home, event, { agent_id: 'child-agent-42' }, {
-      NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: 'fixture_handle',
+      NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: 'term_fixture',
       CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
     });
     assert.equal(output.trim(), '', `${event}: a child receives no lead context`);
