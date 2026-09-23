@@ -403,3 +403,40 @@ test('a crash after RECORDED persistence cannot cause a repeated send', async (t
   await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
   assert.equal(sends, 1);
 });
+
+
+test('every dispatch verifies original capture bytes and round before sending', async (t) => {
+  for (const mode of ['first-admission', 'intent-resume']) {
+    for (const corruption of ['originalBytes', 'round']) {
+      const fx = fixture(); t.after(fx.cleanup);
+      const corrupt = () => {
+        const receipt = status(fx.options, { agentsHome: fx.agentsHome }).receipt;
+        const file = path.join(receipt.transportRepo, ...receipt.capturePath.split('/'));
+        const capture = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (corruption === 'originalBytes') capture.originalBytes = Buffer.from('different human content').toString('base64');
+        else capture.round += 1;
+        fs.writeFileSync(file, JSON.stringify(capture));
+      };
+      if (mode === 'intent-resume') {
+        await assert.rejects(pickupOnce(fx.options, deps(fx, {
+          onTransition(state) { if (state === 'CAPTURED') throw new Error('interrupted capture'); },
+        })), /interrupted capture/);
+        corrupt();
+      }
+      let sends = 0; const transitions = [];
+      const result = await pickupOnce(fx.options, deps(fx, {
+        send: async () => { sends += 1; return {}; },
+        onTransition(state) {
+          transitions.push(state);
+          if (mode === 'first-admission' && state === 'CAPTURED') corrupt();
+        },
+      }));
+      assert.equal(result.status, 'NEEDS_RECONCILIATION');
+      assert.equal(sends, 0, mode + '/' + corruption);
+      assert.equal(transitions.includes('SENDING'), false);
+      assert.equal(result.receipt.state, 'NEEDS_RECONCILIATION');
+      await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
+      assert.equal(sends, 0);
+    }
+  }
+});

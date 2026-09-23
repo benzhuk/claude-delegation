@@ -381,6 +381,16 @@ async function recoverSending(receipt, ctx) {
 }
 
 async function dispatchPrepared(receipt, ctx) {
+  // All admission and recovery paths meet this same pre-send integrity contract.
+  if (verifyReceiptEvidence(receipt, ctx.fsImpl).status !== 'OK') {
+    const blocked = {
+      ...receipt, previousState: receipt.state, state: 'NEEDS_RECONCILIATION',
+      reconciliationReason: 'capture integrity failed before dispatch; sending is forbidden',
+    };
+    atomicJson(ctx.paths.receipt, blocked, ctx.fsImpl);
+    ctx.onTransition?.('NEEDS_RECONCILIATION', blocked);
+    return blocked;
+  }
   const sending = { ...receipt, state: 'SENDING', sendingAt: ctx.now.toISOString() };
   atomicJson(ctx.paths.receipt, sending, ctx.fsImpl);
   ctx.onTransition?.('SENDING', sending);
