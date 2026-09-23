@@ -6,8 +6,8 @@
     {
       "name": "delegation",
       "source": "./",
-      "description": "Multi-agent orchestration: delegate (parallel fan-out), team-build (builder/reviewer pipeline), and multi (ledger-backed peer-session notes) skills, vendor-neutral model tiers, shared subagent mechanics, and a prompt-routing hook.",
-      "version": "0.15.0",
+      "description": "Multi-agent orchestration: delegate/team-build/multi skills, vendor-neutral model tiers, shared mechanics, prompt routing, portable decisions configuration, audience routing, and callable per-project bearings receipts. Claude due notices do not assess automatically; Codex cadence and installed-host parity remain unverified.",
+      "version": "0.16.0",
       "author": { "name": "Ben Zhuk" }
     }
   ]

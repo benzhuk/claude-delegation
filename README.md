@@ -47,10 +47,14 @@ claude plugin install delegation@benzhuk
   Notion decisions page and keep working, instead of blocking on a reply.
 - **`/delegation:bearings`** — assess a goal from bounded evidence, choose `CONTINUE`,
   `RE-PLAN`, or `CUT`, then publish a dated assessment with linked repository evidence.
-  Its source/callable scope asks the existing `decisions` helper to render an attended
-  decisions/goals update; automatic daily triggering and unattended `Done` pickup are
-  not included. Installed Claude/Codex discovery, mixed-host validation, and live Goals
-  preservation/readback remain pending release gates.
+  Its callable per-project receipt helper reports whether a matching completed assessment
+  is due or current. A completion receipt requires the lead's explicit attestation of the
+  report, lead response, and published URL; it does not mechanically prove their content.
+  Claude Code can show a bounded due/unknown notice at SessionStart and during an active
+  session's existing periodic reminder route. That notice never starts an assessment;
+  automatic daily triggering, idle execution, and unattended `Done` pickup are not
+  included. Codex cadence, installed-host discovery/parity, mixed-host validation, and
+  live Goals preservation/readback remain pending release gates.
 - **`/delegation:continue`** — continue finite authorized work after a pause or decision
   wait: select useful ready work, preserve its evidence identity, refill genuinely free
   capacity, and use verified native host resume paths. It is guidance, not an unattended
@@ -65,7 +69,9 @@ Neither `delegate` nor `team-build` is for talking to a session you don't own �
 
 The plugin also ships `notion-writing` and `dev-server` as utility skills (`skills/`),
 distinct from the seven orchestration skills above — mirrored the same way for Codex by
-`mirror-shared-skills.mjs`.
+`mirror-shared-skills.mjs`. `notion-writing` keeps builder/owner work state in the
+canonical Goals-page and Decisions documents, including the existing multiple-choice
+decision-item template; it does not create a duplicate status page or automatic update.
 
 The current goal is a provider-neutral harness for useful, verified work: Codex and
 Claude Code are equal initial hosts, and mixed-agent collaboration remains a required
@@ -220,6 +226,14 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.16.0 — adds a callable, per-project bearings receipt helper that reports due/current
+  state and records an explicit completion attestation for the assessment report, lead
+  response, and publication URL. Claude Code's existing SessionStart and active-session
+  reminder path can surface a bounded due/unknown notice only; it does not run an
+  assessment, schedule idle work, or establish completion. Codex cadence and
+  installed-host parity remain unverified. The release also routes builder/owner state
+  through the existing Goals-page and Decisions canonical pair, with no copied status
+  policy or automatic Notion update.
 - 0.15.0 — adds `continue` to the shared mirror inventory and release guidance. It keeps continuation finite, evidence-backed, and provider-neutral, with explicit native resume limits. This release also adds strict read-only acceptance checking for exact review identity and makes copied-layout decisions handback resolve its canonical local configuration, including explicit goals paths. Source checks do not establish installation, automatic cadence, unattended Done pickup, or host parity.
 - 0.14.0 — adds `bearings`, a callable, evidence-bounded goal assessment that records a `CONTINUE`, `RE-PLAN`, or `CUT` decision with explicit unknowns and a dated, repository-linked publication. Its source/callable scope uses the `decisions` helper for an attended render; installed Claude/Codex discovery, mixed-host validation, and live Goals preservation/readback remain release gates. Automatic daily triggering and unattended `Done` pickup are not included.
 - 0.13.0 — multi: a session is reachable by its own name, no launch flag required. `/rename <slug>` mid-session or `claude --name <slug>` at launch now writes the same sidecar the `SessionStart` hook reads FIRST, ahead of `NOTE_SLUG` and any `panes.json` binding, so a pane named after it was already running registers its inbox at the very next hook event instead of staying invisible until restarted with the env var set. And on 2026-09-22, on the Mac, a checkout left on an old branch ran `mirror-shared-skills.mjs`'s 0.5.0 build and its drop loop unlinked four already-mirrored 0.12.0 entries it no longer recognized as its own, because the manifest recorded no plugin version at all. The manifest now stamps `pluginVersion` and `sourcePath` on every write, and a mirror run refuses to drop or overwrite a newer-versioned target from an older source tree unless `--allow-downgrade` is passed.
