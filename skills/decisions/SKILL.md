@@ -71,6 +71,41 @@ remove one is the lead's call with the owner (not checked).
 
 ## Reading answers
 
+### One-shot pickup and owner accounting
+
+An explicitly configured single pickup host may run one bounded read of the registered
+decisions page and capture a checked Done with:
+
+```
+node <skill-dir>/scripts/decisions-pickup.mjs --once --page <id> --repo <project-root> --from <pickup-slug> --owner <owner-slug> --reader <notion-cli-path>
+```
+
+This command invokes the reader itself; a saved export is only a test seam, not automatic
+pickup. It never edits the page or clears Done. The immutable capture lives under
+`docs/notes`; the small local receipt under `AGENTS_HOME/ws/decisions-pickup` records
+dispatch recovery state only. Inspect it with `decisions-pickup.mjs status --page <id>
+--repo <project-root>`. `PREPARED` may resume its saved note ID once. `SENDING` resumes
+only from positive matching transport evidence; `UNKNOWN` and `NEEDS_RECONCILIATION`
+must not be resent. `RECORDED` means the peer note exists, not that the choices were
+carried out. A stopped or replacement owner remains a visible pending manual handoff;
+do not resurrect it or dispatch the same round again.
+
+After the attended owner has handled every captured `selection-NNN` and `comment-NNN`
+reference and reconciled a fresh page read, write an outcome report containing
+`Owner-attestation: <owner>`, a nonempty `Fresh-page-reconciliation: ...` line, and one
+`Accounted-ref: <ref> ...` line for every capture reference. Then record that explicit
+attestation with:
+
+```
+node <skill-dir>/scripts/decisions-pickup.mjs account --page <id> --repo <project-root> --outcome <existing-report-path>
+```
+
+Accounting does not mechanically prove the consequences and does not clear Done. Use the
+existing attended fresh-read and anchored-edit route below to clear it. A later round is
+admitted only after this host has observed a valid unchecked page; an invisible same-byte
+uncheck/recheck between reads cannot be detected. `UNKNOWN` has no automatic repair in
+this first slice.
+
 `node ~/.claude/scripts/notion.js read <page-id> | node scripts/decisions-read.mjs`
 (path per above; page id from `.agents/project.json`'s `decisions_url`, else from the
 owner — never search, it's fuzzy). Exit 1: act, below. Exit 0: OPEN/REPLIED only —
