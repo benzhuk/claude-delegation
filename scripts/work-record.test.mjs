@@ -661,6 +661,7 @@ test("check-acceptance CLI emits only the pinned success JSON", () => {
 test("checkAcceptance requires a top-level Observed metadata paragraph", () => {
   const bodies = [
     "- ```markdown\n  Observed: fenced list content.\n  ```",
+    "- Example paragraph\nPredicts: example only.\nObserved: example only.",
     " \tObserved: mixed indentation.",
     "```markdown\n~~~\nObserved: fenced only.\n```",
     "````markdown\n```\nObserved: fenced only.\n````",

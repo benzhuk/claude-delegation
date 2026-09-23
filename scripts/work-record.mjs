@@ -413,7 +413,9 @@ function requireObservedBody(text) {
     const match = /^Observed:[ \t]*(.+?)[ \t]*$/i.exec(line);
     if (!match || !match[1].trim()) continue;
     const previous = i === 0 ? null : body[i - 1];
-    if (i === 0 || /^[ \t]*$/.test(previous) || /^Predicts:[ \t]*\S.*$/i.test(previous)) return;
+    const predictsStartsParagraph = i >= 1 && /^Predicts:[ \t]*\S.*$/i.test(previous)
+      && (i === 1 || /^[ \t]*$/.test(body[i - 2]));
+    if (i === 0 || /^[ \t]*$/.test(previous) || predictsStartsParagraph) return;
   }
   throw acceptanceError("record body requires a nonempty Observed: top-level paragraph at body start, after a blank line, or immediately after top-level Predicts:");
 }
