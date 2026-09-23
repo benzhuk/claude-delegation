@@ -1,0 +1,3 @@
+VERDICT: APPROVE bounded Codex capability scout findings
+
+Owner judgment 2026-09-23T23:24:14.037Z. The preserved scout identified the real native packaging gap and correctly left child ancestry unknown. Its suggested direct native hook port was not accepted: subsequent real package probing showed that an explicit empty OpenAI hook declaration is the warranted initial boundary. Source package 24667ebb and integration candidate dddb546 were independently reviewed and passed 1,315 sealed tests; their separate accepted record is wr-2026-09-23-codex-native-package. Historical scout language about the missing package describes its inspection date, not current source.
