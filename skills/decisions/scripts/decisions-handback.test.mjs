@@ -804,6 +804,12 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
     decisions_url: 'decisions-page', goals_parent_page: 'goals-page',
   }));
   const unconfigured = repoWithProjectJson(undefined);
+  const decisionsPath = path.join(unrelated, 'decisions.md');
+  const cleanGoalsPath = path.join(unrelated, 'goals-clean.md');
+  const defectiveGoalsPath = path.join(unrelated, 'goals-defective.md');
+  fs.writeFileSync(decisionsPath, CLEAN_DECISIONS, 'utf8');
+  fs.writeFileSync(cleanGoalsPath, CLEAN_GOALS, 'utf8');
+  fs.writeFileSync(defectiveGoalsPath, fixture('goals-unattached-heading.md'), 'utf8');
   fs.mkdirSync(mirroredSkillDir, { recursive: true });
   fs.cpSync(path.join(HERE, '..'), mirroredSkillDir, { recursive: true });
   const mirroredScript = path.join(mirroredSkillDir, 'scripts', 'decisions-handback.mjs');
@@ -826,7 +832,7 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
 
   const unconfiguredResult = spawnSync(process.execPath, [
     mirroredScript,
-    '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
+    '--decisions', decisionsPath,
     '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
@@ -836,14 +842,37 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
 
   const explicitGoalsResult = spawnSync(process.execPath, [
     mirroredScript,
-    '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
-    '--goals', path.join(FIXTURES, 'goals-clean.md'),
+    '--decisions', decisionsPath,
+    '--goals', cleanGoalsPath,
     '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
   ], { encoding: 'utf8', cwd: unrelated, env });
   assert.equal(explicitGoalsResult.status, 0, explicitGoalsResult.stderr);
   assert.match(explicitGoalsResult.stdout, /HANDBACK ok\n$/);
+
+  const defectiveExplicitGoals = spawnSync(process.execPath, [
+    mirroredScript,
+    '--decisions', decisionsPath,
+    '--goals', defectiveGoalsPath,
+    '--repo', unconfigured,
+    '--head', '889887a',
+    '--today', '9-22',
+  ], { encoding: 'utf8', cwd: unrelated, env });
+  assert.equal(defectiveExplicitGoals.status, 1, defectiveExplicitGoals.stderr);
+  assert.match(defectiveExplicitGoals.stdout, /goals\tUNATTACHED/);
+  assert.match(defectiveExplicitGoals.stdout, /HANDBACK blocked\n$/);
+
+  const missingExplicitGoals = spawnSync(process.execPath, [
+    mirroredScript,
+    '--decisions', decisionsPath,
+    '--goals', path.join(unrelated, 'does-not-exist.md'),
+    '--repo', unconfigured,
+    '--head', '889887a',
+    '--today', '9-22',
+  ], { encoding: 'utf8', cwd: unrelated, env });
+  assert.equal(missingExplicitGoals.status, 3, missingExplicitGoals.stderr);
+  assert.match(missingExplicitGoals.stdout, /HANDBACK blind\n$/);
 
   fs.writeFileSync(path.join(configured, '.agents', 'project.json'), '{ malformed', 'utf8');
   const malformedResult = spawnSync(process.execPath, [mirroredScript, '--config', '--repo', configured], {
@@ -858,6 +887,17 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
   });
   assert.equal(missingDependency.status, 3, missingDependency.stderr);
   assert.match(missingDependency.stderr, /BLIND/);
+
+  const missingDependencyExplicitGoals = spawnSync(process.execPath, [
+    mirroredScript,
+    '--decisions', decisionsPath,
+    '--goals', cleanGoalsPath,
+    '--repo', unconfigured,
+    '--head', '889887a',
+    '--today', '9-22',
+  ], { encoding: 'utf8', cwd: unrelated, env });
+  assert.equal(missingDependencyExplicitGoals.status, 0, missingDependencyExplicitGoals.stderr);
+  assert.match(missingDependencyExplicitGoals.stdout, /HANDBACK ok\n$/);
 });
 
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {

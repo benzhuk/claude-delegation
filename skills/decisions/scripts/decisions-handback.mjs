@@ -317,7 +317,9 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
   let goalsOffending = [];
   let shaWarnLine = null;
   let mirrorSummary;
-  if (mirror.configured !== false) {
+  // An explicit goals file is a caller assertion that it must be checked. A genuinely
+  // unconfigured project still skips the mirror only when the caller supplied no goals input.
+  if (args.goals || mirror.configured !== false) {
     if (!args.goals) throw new BlindError('missing required --goals (goals_parent_page is configured for this project)');
     let goalsText;
     let goalsDoc;

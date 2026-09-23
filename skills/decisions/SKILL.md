@@ -164,8 +164,10 @@ node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --config --repo .
 node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
 ```
 
-An explicit `--goals` remains safe when a page is already known. A missing or malformed
-project config is `BLIND` (unknown), never evidence that no goals mirror is configured.
+An explicit `--goals` remains safe when a page is already known. An absent project config uses
+the normal unconfigured defaults; without explicit `--goals`, a missing loader dependency or
+malformed/unreadable project config is `BLIND` (unknown), never evidence that no goals mirror is
+configured.
 
 In a project whose `.agents/project.json` has no `goals_parent_page`
 (`scripts/decisions-handback.mjs --config` prints no such line), skip the goals read and
