@@ -95,6 +95,12 @@ Gotchas: plain `#` headings can NOT have children (only `{toggle="true"}` ones);
   directly with the content — no methodology preamble, no internal process
   (judges/contracts/model names/rejected drafts/char counts). Process detail belongs
   only in Ben-facing docs. Determine the audience before building.
+- **Builder-facing work state**: keep the canonical state in the existing pair, rather
+  than copying it into another status document. The [Goals-page template](../decisions/templates/goals-page.md)
+  presents the current goal and subgoals; the [Decisions skill](../decisions/SKILL.md)
+  owns decisions, `To Decide` items, `Done`, and comment accounting. Create a
+  multiple-choice `To Decide` item only with its [decision-item template](../decisions/templates/decision-item.md).
+  These are writing and hand-back conventions, not an automatic update or pickup.
 
 ## Surgical edits
 
