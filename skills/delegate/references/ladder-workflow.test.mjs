@@ -438,11 +438,11 @@ test("missing parallel or pipeline result slots remain not-run without removing 
     { targets: ["a", "b"] },
     makeAgentStub(),
     {
-      parallelImpl: async (thunks) => [await thunks[0]],
+      parallelImpl: async (thunks) => [await thunks[0]()],
       pipelineImpl: async (items, stage) => [await stage(items[0])],
     },
   );
   assert.equal(result.coverage[1].read.status, "not-run");
   assert.equal(result.coverage[1].research.status, "not-run");
-  assert.equal(result.cost.agents, 2, "only dispatched callbacks count as attempted calls");
+  assert.equal(result.cost.agents, 3, "only dispatched callbacks count as attempted calls");
 });
