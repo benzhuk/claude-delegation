@@ -96,7 +96,11 @@ host. The first round binds that page to its authorization project. A second pro
 worktree registration is `PENDING_MANUAL_HANDOFF`: it does not read, dispatch, or create
 an independent round. Authorization project identity remains separate from the saved
 durable transport repository; the project scope is part of every note ID and capture
-name so old shared-mirror evidence cannot satisfy another scope.
+name so old shared-mirror evidence cannot satisfy another scope. The page binding is
+persisted as `CAPTURE_INTENT` before the first project-scoped capture write. A complete
+capture resumes only that saved round; a missing capture may be recreated only from the
+same unchanged checked bytes, while a partial, conflicting, or changed capture requires
+manual reconciliation.
 
 After the attended owner has handled every captured `selection-NNN` and `comment-NNN`
 reference and reconciled a fresh page read, write an outcome report containing

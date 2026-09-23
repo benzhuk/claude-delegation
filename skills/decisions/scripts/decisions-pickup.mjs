@@ -314,8 +314,11 @@ function durableTransportRepo(project, git = gitRunner, fsImpl = fs) {
 
 function receiptStatus(receipt, claim, fsImpl = fs, claimed = fsImpl.existsSync(claim)) {
   const evidenceIntegrity = verifyReceiptEvidence(receipt, fsImpl);
+  const effectiveStatus = receipt?.state === 'CAPTURE_INTENT'
+    ? (evidenceIntegrity.status === 'OK' ? 'ORPHAN_CAPTURE' : 'NEEDS_RECONCILIATION')
+    : (receipt && evidenceIntegrity.status !== 'OK' ? 'NEEDS_RECONCILIATION' : (receipt?.state ?? 'IDLE'));
   return {
-    status: receipt && evidenceIntegrity.status !== 'OK' ? 'NEEDS_RECONCILIATION' : (receipt?.state ?? 'IDLE'),
+    status: effectiveStatus,
     receipt,
     claimed,
     authoritative: false,
@@ -440,10 +443,73 @@ export async function pickupOnce(options, deps = {}) {
     try { doc = parseDocument(raw, { now }); } catch (error) {
       throw new PickupError(`registered page is BLIND: ${error.message}`, 3);
     }
-    if (receipt && verifyReceiptEvidence(receipt, fsImpl).status !== 'OK') {
+    if (receipt && receipt.state !== 'CAPTURE_INTENT' && verifyReceiptEvidence(receipt, fsImpl).status !== 'OK') {
       return receiptStatus(receipt, paths.claim, fsImpl, false);
     }
     const digest = sha256(Buffer.from(raw, 'utf8'));
+
+    if (receipt?.state === 'CAPTURE_INTENT') {
+      if (doc.done !== true || doc.warnings.length || doc.shapeless.length || digest !== receipt.digest) {
+        let interrupted;
+        if (doc.done === true && digest !== receipt.digest) {
+          interrupted = changedReceipt(receipt, raw, doc, now, fsImpl);
+        } else {
+          interrupted = {
+            ...receipt,
+            previousState: receipt.state,
+            state: 'NEEDS_RECONCILIATION',
+            reconciliationReason: 'capture intent no longer matches a valid checked page; dispatch is forbidden',
+            observedDigest: digest,
+            observedAt: now.toISOString(),
+          };
+        }
+        atomicJson(paths.receipt, interrupted, fsImpl);
+        return receiptStatus(interrupted, paths.claim, fsImpl, false);
+      }
+      const capture = {
+        version: RECEIPT_VERSION,
+        page: receipt.page,
+        project: receipt.project,
+        projectScope: receipt.projectScope,
+        transportRepo: receipt.transportRepo,
+        round: receipt.round,
+        readAt: receipt.captureReadAt,
+        owner: receipt.owner,
+        from: receipt.from,
+        digest: receipt.digest,
+        originalEncoding: 'utf8-base64',
+        originalBytes: Buffer.from(raw, 'utf8').toString('base64'),
+        items: capturedItems(doc),
+      };
+      try {
+        writeCaptureExclusive(path.join(receipt.transportRepo, ...receipt.capturePath.split('/')), capture, fsImpl);
+      } catch (error) {
+        const interrupted = {
+          ...receipt,
+          previousState: receipt.state,
+          state: 'NEEDS_RECONCILIATION',
+          reconciliationReason: `capture is missing, partial, or conflicting: ${error.message}`,
+          observedAt: now.toISOString(),
+        };
+        atomicJson(paths.receipt, interrupted, fsImpl);
+        return receiptStatus(interrupted, paths.claim, fsImpl, false);
+      }
+      deps.onTransition?.('CAPTURED', capture);
+      if (!receipt.owner) {
+        const waiting = { ...receipt, state: 'WAITING_OWNER', ownerBoundAt: null };
+        atomicJson(paths.receipt, waiting, fsImpl);
+        deps.onTransition?.('WAITING_OWNER', waiting);
+        return receiptStatus(waiting, paths.claim, fsImpl, false);
+      }
+      const prepared = { ...receipt, state: 'PREPARED', preparedAt: now.toISOString() };
+      atomicJson(paths.receipt, prepared, fsImpl);
+      deps.onTransition?.('PREPARED', prepared);
+      const recorded = await dispatchPrepared(prepared, {
+        fsImpl, agentsHome: base, now, paths, send: deps.send, sendDeps: deps.sendDeps,
+        inspectTransport: deps.inspectTransport, onTransition: deps.onTransition,
+      });
+      return receiptStatus(recorded, paths.claim, fsImpl, false);
+    }
 
     if (receipt && doc.done === true && receipt.digest !== digest
         && (receipt.state !== 'ACCOUNTED' || !receipt.observedUncheckedAt)) {
@@ -550,25 +616,10 @@ export async function pickupOnce(options, deps = {}) {
       originalBytes: Buffer.from(raw, 'utf8').toString('base64'),
       items,
     };
-    writeCaptureExclusive(capturePath, capture, fsImpl);
-    deps.onTransition?.('CAPTURED', capture);
-
-    if (!owner) {
-      const waiting = {
-        version: RECEIPT_VERSION, page: capture.page, project, projectScope: paths.projectScope,
-        transportRepo, round, capturePath: relativeCapture,
-        digest, owner: null, from, noteId: null, exactSendInputs: null, state: 'WAITING_OWNER',
-        accountingOutcome: null, preparedAt: now.toISOString(),
-      };
-      atomicJson(paths.receipt, waiting, fsImpl);
-      deps.onTransition?.('WAITING_OWNER', waiting);
-      return receiptStatus(waiting, paths.claim, fsImpl, false);
-    }
-
-    const exact = sendInputs({
+    const exact = owner ? sendInputs({
       from, owner, projectScope: paths.projectScope, round, capturePath: relativeCapture, transportRepo,
-    });
-    const prepared = {
+    }) : null;
+    const intent = {
       version: RECEIPT_VERSION,
       page: capture.page,
       project,
@@ -576,13 +627,34 @@ export async function pickupOnce(options, deps = {}) {
       transportRepo,
       round,
       capturePath: relativeCapture,
+      captureReadAt: now.toISOString(),
       digest,
       owner,
       from,
-      noteId: exact.id,
+      noteId: exact?.id ?? null,
       exactSendInputs: exact,
-      state: 'PREPARED',
+      state: 'CAPTURE_INTENT',
       accountingOutcome: null,
+      preparedAt: null,
+    };
+    atomicJson(paths.receipt, intent, fsImpl);
+    deps.onTransition?.('CAPTURE_INTENT', intent);
+    writeCaptureExclusive(capturePath, capture, fsImpl);
+    deps.onTransition?.('CAPTURED', capture);
+
+    if (!owner) {
+      const waiting = {
+        ...intent,
+        state: 'WAITING_OWNER',
+      };
+      atomicJson(paths.receipt, waiting, fsImpl);
+      deps.onTransition?.('WAITING_OWNER', waiting);
+      return receiptStatus(waiting, paths.claim, fsImpl, false);
+    }
+
+    const prepared = {
+      ...intent,
+      state: 'PREPARED',
       preparedAt: now.toISOString(),
     };
     atomicJson(paths.receipt, prepared, fsImpl);

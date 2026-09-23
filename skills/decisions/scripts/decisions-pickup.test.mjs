@@ -285,6 +285,74 @@ test('one page is globally bound to one authorization project and second binding
   assert.equal(sends, 1);
 });
 
+test('CAPTURED interruption keeps the global project binding and A resumes original round', async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const makeProject = (name) => {
+    const repo = path.join(sealed.fixtureRoot, name);
+    fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: 'shared-page' }));
+    return { repo, page: 'shared-page', from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js' };
+  };
+  const a = makeProject('capture-a');
+  const b = makeProject('capture-b');
+  await assert.rejects(pickupOnce(a, {
+    agentsHome: sealed.agentsHome,
+    readPage: async () => PAGE,
+    send: async () => { throw new Error('send must not start before CAPTURED interruption'); },
+    onTransition(state) { if (state === 'CAPTURED') throw new Error('captured interruption'); },
+  }), /captured interruption/);
+  assert.equal(status(a, { agentsHome: sealed.agentsHome }).status, 'ORPHAN_CAPTURE');
+  assert.equal(status(b, { agentsHome: sealed.agentsHome }).status, 'PENDING_MANUAL_HANDOFF');
+  let bReads = 0;
+  let sends = 0;
+  const refused = await pickupOnce(b, {
+    agentsHome: sealed.agentsHome,
+    readPage: async () => { bReads += 1; return PAGE; },
+    send: async () => { sends += 1; return {}; },
+  });
+  assert.equal(refused.status, 'PENDING_MANUAL_HANDOFF');
+  assert.equal(bReads, 0);
+  assert.throws(() => account({ ...b, outcome: path.join(b.repo, 'unused.md') }, { agentsHome: sealed.agentsHome }), /bound to another authorization project/);
+  const resumed = await pickupOnce(a, {
+    agentsHome: sealed.agentsHome,
+    readPage: async () => PAGE,
+    send: async () => { sends += 1; return {}; },
+  });
+  assert.equal(resumed.status, 'RECORDED');
+  assert.equal(resumed.receipt.round, 1);
+  assert.equal(sends, 1);
+});
+
+test('missing capture intent resumes safely; partial capture reconciles without send', async (t) => {
+  const missing = fixture(); t.after(missing.cleanup);
+  await assert.rejects(pickupOnce(missing.options, deps(missing, {
+    onTransition(state) { if (state === 'CAPTURE_INTENT') throw new Error('intent interruption'); },
+  })), /intent interruption/);
+  assert.equal(status(missing.options, { agentsHome: missing.agentsHome }).status, 'NEEDS_RECONCILIATION');
+  let missingSends = 0;
+  const resumed = await pickupOnce(missing.options, deps(missing, {
+    send: async () => { missingSends += 1; return {}; },
+  }));
+  assert.equal(resumed.status, 'RECORDED');
+  assert.equal(resumed.receipt.round, 1);
+  assert.equal(missingSends, 1);
+
+  const partial = fixture(); t.after(partial.cleanup);
+  await assert.rejects(pickupOnce(partial.options, deps(partial, {
+    onTransition(state) { if (state === 'CAPTURE_INTENT') throw new Error('intent interruption'); },
+  })), /intent interruption/);
+  const saved = status(partial.options, { agentsHome: partial.agentsHome }).receipt;
+  const capture = path.join(saved.transportRepo, ...saved.capturePath.split('/'));
+  fs.mkdirSync(path.dirname(capture), { recursive: true });
+  fs.writeFileSync(capture, '{partial');
+  let partialSends = 0;
+  const reconciled = await pickupOnce(partial.options, deps(partial, {
+    send: async () => { partialSends += 1; return {}; },
+  }));
+  assert.equal(reconciled.status, 'NEEDS_RECONCILIATION');
+  assert.equal(partialSends, 0);
+});
+
 test('capture and Details use the same durable main-checkout repository as actual note transport', async (t) => {
   const sealed = makeTempHome(); t.after(sealed.cleanup);
   const worktree = path.join(sealed.fixtureRoot, 'worktree');
