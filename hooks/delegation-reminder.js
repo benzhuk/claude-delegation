@@ -181,6 +181,7 @@ function activeSwitch() {
     const base = agentsHome();
     if (switchPresent(path.join(base, "ws-off"))) return "ws-off";
     if (switchPresent(path.join(base, "ws-off-goalcard"))) return "ws-off-goalcard";
+    if (switchPresent(path.join(base, "ws-off-bearings"))) return "ws-off-bearings";
     return null;
   } catch {
     return null;
@@ -325,6 +326,23 @@ async function rejectionNotice(result) {
   }
 }
 
+// Bearings stays an explicit skill invocation. The hook only asks its local, packaged helper whether
+// a completed assessment is due; it never starts a review, calls a model, or contacts publication.
+function bearingsState() {
+  return import(pathToFileURL(path.join(__dirname, "..", "skills", "bearings", "scripts", "bearings-state.mjs")).href);
+}
+
+async function bearingsNotice(cwd) {
+  try {
+    const checked = (await bearingsState()).check({ repo: cwd });
+    if (checked.status === "due") return "Bearings are due. Run `/delegation:bearings` to assess the current goal and publish the result.";
+    if (checked.status === "unknown") return "Bearings status is unknown. Run `/delegation:bearings` to inspect the current goal and completion evidence.";
+  } catch {}
+  return null;
+}
+
+const joinContext = (...parts) => parts.filter(Boolean).join("\n\n") || null;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Event handling
 // ─────────────────────────────────────────────────────────────────────────────
@@ -343,7 +361,8 @@ async function handle(event, input) {
   // feature and survives, as it did before this build existed.
   const off = activeSwitch();
   if (off === "ws-off") return nothing;
-  const cardOff = off !== null;
+  const cardOff = off === "ws-off-goalcard";
+  const bearingsOff = off !== null;
 
   if (event === "UserPromptSubmit") {
     // The card is deliberately NOT here. Every-prompt injection is what made the last standing text
@@ -352,16 +371,22 @@ async function handle(event, input) {
   }
 
   if (event === "SessionStart") {
-    if (cardOff) return nothing;
-    markFired(sessionId, agentId); // a session start IS an injection point: reset count and clock
-    sweepState();
-    const result = await cardResult(cwd, input && input.agent_type);
-    if (result.status === "rejected") {
+    let card = null;
+    let systemMessage = null;
+    let cardUsable = false;
+    if (!cardOff) {
+      markFired(sessionId, agentId); // a session start IS an injection point: reset count and clock
+      sweepState();
+      const result = await cardResult(cwd, input && input.agent_type);
+      if (result.status === "rejected") {
       // NEVER SILENT. Once per session, to the human, outside the conversation — not to the model,
       // where it would become the wallpaper this build exists to remove (review D, MAJOR 4).
-      return { text: null, systemMessage: await rejectionNotice(result) };
+        systemMessage = await rejectionNotice(result);
+      } else { card = result.text; cardUsable = result.status === "ok"; }
     }
-    return { text: result.text, systemMessage: null };
+    // Positive Claude child identity excludes only bearings. Child goal-card behaviour remains intact.
+    const bearings = !bearingsOff && !agentId && cardUsable ? await bearingsNotice(cwd) : null;
+    return { text: joinContext(card, bearings), systemMessage };
   }
 
   if (event === "PostCompact") {
@@ -388,7 +413,10 @@ async function handle(event, input) {
     }
     markFired(sessionId, agentId);
     const result = await cardResult(cwd, input && input.agent_type);
-    return { text: result.text, systemMessage: null }; // a rejection is reported at session start only
+    // The existing bounded reinjection cadence is the only active-session cadence. Completion is
+    // independent of this per-session clock, and a child never opens bearings state.
+    const bearings = !bearingsOff && !agentId && result.status === "ok" ? await bearingsNotice(cwd) : null;
+    return { text: joinContext(result.text, bearings), systemMessage: null }; // a rejection is reported at session start only
   }
 
   return nothing; // an event nobody wired for this hook: silence, exit 0

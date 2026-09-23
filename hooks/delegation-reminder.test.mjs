@@ -149,7 +149,8 @@ test('SessionStart injects the card, on every source', () => {
     const text = context(r);
     assert.match(text, /^Goal card for this project:\n/, source);
     assert.match(text, /NOT: a second execution engine/, source);
-    assert.match(text, / — as of \d{4}-\d{2}-\d{2} \d{2}:\d{2} NYC$/, source);
+    assert.match(text, / — as of \d{4}-\d{2}-\d{2} \d{2}:\d{2} NYC/, source);
+    assert.match(text, /Bearings are due/, source);
   }
 });
 
@@ -419,6 +420,23 @@ test('MAJOR 4: a valid card and a missing card both produce no systemMessage', (
   }
 });
 
+test('bearings due is advisory, completion is only the explicit helper receipt, and child bearings writes nothing', () => {
+  const home = fixtureHome(); const root = project();
+  const first = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  assert.match(context(first), /Bearings are due/, 'missing receipt is due, not complete');
+  const child = runHook('SessionStart', home, { cwd: root, input: { source: 'startup', agent_id: 'child-1' } });
+  assert.doesNotMatch(context(child), /Bearings (are due|status is unknown)/);
+  assert.equal(fs.existsSync(path.join(agentsOf(home), 'ws', 'bearings')), false, 'child identity prevents all bearings state I/O');
+});
+
+test('bearings switch preserves the existing goal card and master/goalcard switches silence cadence', () => {
+  const root = project();
+  const bearings = fixtureHome(); fs.writeFileSync(path.join(agentsOf(bearings), 'ws-off-bearings'), '');
+  assert.doesNotMatch(context(runHook('SessionStart', bearings, { cwd: root, input: { source: 'startup' } })), /Bearings/);
+  const goal = fixtureHome(); fs.writeFileSync(path.join(agentsOf(goal), 'ws-off-goalcard'), '');
+  assert.equal(runHook('SessionStart', goal, { cwd: root, input: { source: 'startup' } }).stdout, '');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAJOR 1 — the switch stops every side effect
 // ─────────────────────────────────────────────────────────────────────────────
@@ -605,7 +623,9 @@ test('MINOR 2: the whole payload reaches stdout over a pipe, never a half-writte
     const r = await runHookAsync('SessionStart', home, { cwd: root, input: { source: 'startup' } });
     assert.equal(r.status, 0);
     assert.equal(r.stdout.endsWith('}'), true, 'a payload cut short would start with { and not end with }');
-    assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, expected);
+    const text = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(text.startsWith(expected), 'the card bytes arrive before the advisory');
+    assert.match(text, /Bearings are due/, 'the complete response arrives over the pipe');
   }
 });
 
