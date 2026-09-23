@@ -84,10 +84,28 @@ and state conclusions with each lane's evidence path. A confirmed absence or a p
 limit reported by a lane is a first-class result — surface it, don't re-run the lane
 hoping for a positive.
 
+## Practical delta research
+
+Start by retrieving the prior report, decision, or implementation evidence that bears on
+the question. Define the unresolved delta: what remains unknown or contested after that
+material, and what observation could change the decision. A known local lookup stays local;
+do not repeat settled research or require a fixed number of sources.
+
+Investigate the underlying/common problem as well as the proposed fix, including practical
+alternatives. Record source provenance and versions where they matter, counterevidence and
+limits, and whether an item was merely discovered or actually validated for this project.
+Do not promote a provider/model declaration, search hit, or another agent's prose into proof
+of access or correctness. Preserve attributable observations for the final judge to inspect.
+
+Use each host's native delegation facility for the required research lanes. Claude may use the
+optional Workflow ladder below when its adapter is available; Codex uses its native agent and
+tool path with the same evidence, delta, and validation discipline. The adapter changes
+execution mechanics, never the research claim.
+
 ## Ladder, Opus orchestrator panes only
 
-**When**: a fixed three-rung escalation — cheap fast-tier reads, mid-tier research over
-what the reads surfaced, one high-tier judge rendering a single verdict — for a pane that
+**When**: a fixed three-rung escalation — cheap fast-tier reads, mid-tier research for
+every requested target, one high-tier judge rendering a single verdict — for a pane that
 wants that shape without hand-authoring a Workflow script each time. Run it ONLY from an
 Opus orchestrator pane; never from the lead pane, a builder pane, or a Sonnet-tier
 session. Ultracode is not used anywhere — not here and not in any other delegation path; this
@@ -97,14 +115,22 @@ is a fixed, deterministic ladder, not an open-ended exhaustive workflow.
 tool as `{scriptPath: "skills/delegate/references/ladder-workflow.js"}` (or by name once
 registered) and an `args` object: `{ targets, question, readerType, maxAgents }`, all
 optional. Rungs: fast tier reads each target (`agentType: readerType ?? 'delegation:runner'`,
-`model: 'haiku'`, `effort: 'low'`) → mid tier researches what came back (`model: 'sonnet'`)
-→ high tier judges once (`model: 'opus'`, exactly one agent call). Returns one object:
-`{ verdict, evidence: [paths], cost: { agents } }` — intermediate rung output never leaves
-the script.
+`model: 'haiku'`, `effort: 'low'`) → mid tier researches every target (`model: 'sonnet'`)
+→ high tier judges once (`model: 'opus'`, exactly one agent call). It returns
+`{ verdict, evidence: [paths], cost: { agents }, coverage }`. Coverage has one flat row per
+requested position (including duplicates): `{ index, target, read, research, sources }`.
+Each stage records a schema-reported `complete`, `unavailable`, `unverified`, or `not-run`
+with a reason. `complete` requires a finding and at least one attributable source reference;
+it does not mechanically verify access. Legacy free text and missing results are not evidence.
+The judge receives the reported findings, sources, and limitations, and must inspect material
+references. The ladder returns `inconclusive` if no complete research is attributable, the
+judge evidence is missing, or any cited reference is outside attributable research sources.
 
-**Cap**: `args.maxAgents`, default 12, enforced by counting every `agent()` call the
-script makes across all three rungs; the (maxAgents + 1)th call throws before it is made,
-never after.
+**Cap**: A nonempty input requires `2*N+1` calls, which is also the default cap. An explicit
+`args.maxAgents` must be a positive integer and at least `2*N+1`; malformed or insufficient
+caps fail before any dispatch and identify both required and provided values. Empty targets
+make zero calls and return `inconclusive`. `cost.agents` counts calls actually attempted,
+not reserved capacity.
 
 **Reader-type fallback**: the fast tier defaults to `agentType: 'delegation:runner'`. If
 that agent type is not registered on the caller's machine, the caller passes
