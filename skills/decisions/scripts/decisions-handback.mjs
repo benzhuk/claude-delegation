@@ -15,7 +15,13 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, formatText } from './decisions-read.mjs';
-import { createRequire } from 'node:module';
+
+// This module is deliberately skill-local: mirroring copies the entire skill directory. A failed
+// load remains BLIND, but there is no repository-relative fallback or second config parser.
+let loadProjectConfig = null;
+try {
+  ({ loadProjectConfig } = await import('./project-config.mjs'));
+} catch { /* surfaced as BLIND by the callers below */ }
 
 /** Thrown for anything that leaves this check unable to trust its inputs (exit 3, never a crash). */
 class BlindError extends Error {}
@@ -202,19 +208,11 @@ function parseArgs(argv) {
 }
 
 /**
- * Lazy, synchronous load of `scripts/project-config.mjs` beside this skill folder (round-1 F1):
- * resolved relative to THIS script's own file, so it is absent whenever this skill folder is a
- * mirrored copy with no sibling `scripts/` three levels up (Codex's store; `--config` and the
- * F2 mirror-configured lookup below share this one lazy load — never a top-level import, which
- * is what crashed every invocation, check path included, before F1). Returns null, never
- * throws, when the loader module itself cannot be found; callers decide what "unknown" means.
+ * The canonical loader lives beside this helper and is copied with the skill. Returns null only
+ * when that deterministic dependency cannot be loaded; callers decide what "unknown" means.
  */
 function tryLoadProjectConfigModule() {
-  try {
-    return createRequire(import.meta.url)('../../../scripts/project-config.mjs');
-  } catch {
-    return null;
-  }
+  return loadProjectConfig ? { loadProjectConfig } : null;
 }
 
 /**
@@ -319,7 +317,9 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
   let goalsOffending = [];
   let shaWarnLine = null;
   let mirrorSummary;
-  if (mirror.configured !== false) {
+  // An explicit goals file is a caller assertion that it must be checked. A genuinely
+  // unconfigured project still skips the mirror only when the caller supplied no goals input.
+  if (args.goals || mirror.configured !== false) {
     if (!args.goals) throw new BlindError('missing required --goals (goals_parent_page is configured for this project)');
     let goalsText;
     let goalsDoc;
