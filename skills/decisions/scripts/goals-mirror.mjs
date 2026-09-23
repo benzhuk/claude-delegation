@@ -186,6 +186,15 @@ function ownerNoteLines(doc) {
   return lines;
 }
 
+/**
+ * Backstop for the reader: any line whose text, past indentation and block markers
+ * (bullet, number, quote, heading, to-do box, inline tags), starts with the escaped marker.
+ */
+const RAW_NOTE_RE = /^[\t ]*(?:(?:[-*+>]|\d+[.)]|#{1,6})[\t ]+|\[[ xX]\][\t ]*|<[^>]+>)*\\\*\\\*/;
+function rawNoteLines(text) {
+  return text.split(/\r\n|\n/).flatMap((l, i) => (RAW_NOTE_RE.test(l) ? [`NOTE\tline ${i + 1}\t${l.trim()}`] : []));
+}
+
 function defaultSpawnNotion({ parent, title, file }) {
   const script = path.join(os.homedir(), '.claude', 'scripts', 'notion.js');
   const res = spawnSync(process.execPath, [script, 'publish', parent, title, file], { encoding: 'utf8' });
@@ -193,25 +202,22 @@ function defaultSpawnNotion({ parent, title, file }) {
 }
 
 /**
- * `--current none` claims no Goals child page exists yet, which is the one condition
- * allowed to skip the owner-note check (there is nothing on Notion to have a note on).
- * Never trust that claim blindly: best-effort real check via `notion.js search <title>`.
- * Any doubt (a non-zero exit, unparsable output) is BLIND, never treated as "absent" —
- * the owner-note check must never be silently skipped by a spawn hiccup.
+ * `--current none` is allowed only when `--parent` has no child page titled `title`. This lists
+ * the parent's children with `notion.js read-blocks <parent>` (paginated, parent-scoped: the same
+ * set `notion.js publish` searches with findChildPageByTitle). Any doubt is BLIND, never "absent".
  */
-function defaultCheckGoalsPageAbsent({ title }) {
+export function defaultCheckGoalsPageAbsent({ parent, title, spawn = spawnSync }) {
   const script = path.join(os.homedir(), '.claude', 'scripts', 'notion.js');
-  const res = spawnSync(process.execPath, [script, 'search', title], { encoding: 'utf8' });
-  if (res.status !== 0) {
-    throw new BlindError(`cannot check whether the Goals page exists: notion.js search exited ${res.status}: ${res.stderr || ''}`);
+  const res = spawn(process.execPath, [script, 'read-blocks', parent], { encoding: 'utf8' });
+  if (!res || res.status !== 0) {
+    throw new BlindError(`cannot list the children of ${parent}: notion.js read-blocks exited ${res ? res.status : 'no result'}`);
   }
-  let results;
-  try {
-    results = JSON.parse(res.stdout);
-  } catch (e) {
-    throw new BlindError(`cannot parse notion.js search output: ${e instanceof Error ? e.message : e}`);
+  const out = typeof res.stdout === 'string' ? res.stdout : '';
+  if (!/^# /.test(out)) {
+    throw new BlindError('notion.js read-blocks gave no page header; cannot tell whether the Goals page exists');
   }
-  return !results.some((r) => r.type === 'page' && r.title === title);
+  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return !new RegExp(`^[ \\t]*\\[child page: ${esc}\\] \\(`, 'm').test(out);
 }
 
 function parseArgs(argv) {
@@ -272,7 +278,7 @@ export function run({
           if (e instanceof BlindError) throw e;
           throw new BlindError(`cannot check whether the Goals page exists: ${e instanceof Error ? e.message : e}`);
         }
-        if (!absent) {
+        if (absent !== true) {
           writeErr('goals-mirror: --current none requires the Goals page to be absent, but one was found; pass a --current read of it instead\n');
           return 1;
         }
@@ -289,7 +295,8 @@ export function run({
         } catch (e) {
           throw new BlindError(`cannot parse --current: ${e instanceof Error ? e.message : e}`);
         }
-        const notes = ownerNoteLines(doc);
+        const readerNotes = ownerNoteLines(doc);
+        const notes = readerNotes.length > 0 ? readerNotes : rawNoteLines(currentText);
         if (notes.length > 0) {
           for (const l of notes) write(`${l}\n`);
           writeErr('goals-mirror: owner notes on the goals page; act on them and republish before this can proceed\n');

@@ -10,7 +10,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { renderPage, computeSha, checkDirty, run } from './goals-mirror.mjs';
+import { renderPage, computeSha, checkDirty, run, defaultCheckGoalsPageAbsent } from './goals-mirror.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { childEnv, scratchHome } from '../../multi/scripts/test-child-env.mjs';
 
@@ -536,4 +536,151 @@ test('an unreadable --current is BLIND (exit 3), not a false-clean publish', () 
   });
   assert.equal(code, 3);
   assert.equal(spawnCalls, 0);
+});
+
+// ---------------------------------------------------------------------------
+// r2 review: defaultCheckGoalsPageAbsent must be parent-scoped (MAJOR 1), the "absent"
+// gate must be a strict boolean (MINOR 2), and a note shape the reader misses must still
+// block publish (MINOR 3). Every case here injects a fake `spawn`/`checkGoalsPageAbsent`
+// — never the real notion.js.
+// ---------------------------------------------------------------------------
+
+test('defaultCheckGoalsPageAbsent: a "Goals" child page under --parent is found -> not absent', () => {
+  const spawn = () => ({ status: 0, stdout: '# Plan\n\n[child page: Goals] (abc)\n' });
+  const absent = defaultCheckGoalsPageAbsent({ parent: 'P', title: 'Goals', spawn });
+  assert.equal(absent, false);
+});
+
+test('defaultCheckGoalsPageAbsent: only a similarly-titled child page -> absent (parent-scoped, not a fuzzy match)', () => {
+  const spawn = () => ({ status: 0, stdout: '# Plan\n\n[child page: Goals ruling] (x)\n' });
+  const absent = defaultCheckGoalsPageAbsent({ parent: 'P', title: 'Goals', spawn });
+  assert.equal(absent, true);
+});
+
+test('defaultCheckGoalsPageAbsent: no children at all -> absent', () => {
+  const spawn = () => ({ status: 0, stdout: '# Plan\n\nnothing here\n' });
+  const absent = defaultCheckGoalsPageAbsent({ parent: 'P', title: 'Goals', spawn });
+  assert.equal(absent, true);
+});
+
+test('defaultCheckGoalsPageAbsent: a non-zero exit is BLIND, never "absent"', () => {
+  const spawn = () => ({ status: 1, stdout: '', stderr: 'boom' });
+  assert.throws(() => defaultCheckGoalsPageAbsent({ parent: 'P', title: 'Goals', spawn }), /BlindError|cannot list/);
+});
+
+test('defaultCheckGoalsPageAbsent: exit 0 with no page header is BLIND, never "absent"', () => {
+  const spawn = () => ({ status: 0, stdout: '' });
+  assert.throws(() => defaultCheckGoalsPageAbsent({ parent: 'P', title: 'Goals', spawn }), /BlindError|page header/);
+});
+
+test('defaultCheckGoalsPageAbsent: spawns notion.js read-blocks scoped to --parent, not a global search', () => {
+  const calls = [];
+  const spawn = (cmd, args) => { calls.push(args); return { status: 0, stdout: '# Plan\n\nnothing\n' }; };
+  defaultCheckGoalsPageAbsent({ parent: 'P', title: 'Goals', spawn });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].slice(-2), ['read-blocks', 'P']);
+});
+
+test('publish with --current none refuses (exit 1) unless checkGoalsPageAbsent returns exactly true (MINOR 2: no truthy shortcuts)', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  const truthyNonTrue = [Promise.resolve(false), 'false', 1, 'no', {}];
+  for (const val of truthyNonTrue) {
+    let spawnCalls = 0;
+    const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+    const checkGoalsPageAbsent = () => val;
+    const { write, writeErr } = collect();
+    const code = run({
+      argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', 'none'],
+      readFile: fakeFiles(repo, content),
+      git, spawnNotion, checkGoalsPageAbsent, write, writeErr,
+    });
+    assert.equal(code, 1, `expected refusal for checkGoalsPageAbsent() === ${JSON.stringify(val)}`);
+    assert.equal(spawnCalls, 0);
+  }
+});
+
+test('publish with --current none proceeds only when checkGoalsPageAbsent returns the literal boolean true', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  const spawnNotion = () => ({ status: 0, stdout: '', stderr: '' });
+  const checkGoalsPageAbsent = () => true;
+  const { write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'goal-page-id', '--current', 'none'],
+    readFile: fakeFiles(repo, content),
+    git, spawnNotion, checkGoalsPageAbsent, write, writeErr,
+  });
+  assert.equal(code, 0);
+});
+
+test('publish refuses (exit 1) a quoted "> \\*\\* note" the reader silently drops, via the raw-note backstop', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const currentRead = L(
+    '# Ship the thing {toggle="true"}',
+    '\t- [ ] do it',
+    '\tNo default line stated.',
+    '\t> \\*\\* quoted note the reader silently drops',
+  );
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { out, write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'p1', '--current', '/current.md'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.equal(spawnCalls, 0);
+  assert.match(out.stdout, /^NOTE\tline \d+\t/m);
+});
+
+test('publish refuses (exit 1) a numbered "1. \\*\\* note" the reader silently drops, via the raw-note backstop', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  let spawnCalls = 0;
+  const spawnNotion = () => { spawnCalls += 1; return { status: 0, stdout: '', stderr: '' }; };
+  const currentRead = L(
+    '# Ship the thing {toggle="true"}',
+    '\t- [ ] do it',
+    '\tNo default line stated.',
+    '\t1. \\*\\* numbered note the reader silently drops',
+  );
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { out, write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'p1', '--current', '/current.md'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 1);
+  assert.equal(spawnCalls, 0);
+  assert.match(out.stdout, /^NOTE\tline \d+\t/m);
+});
+
+test('publish does NOT refuse on a mid-line escaped marker ("see \\*\\* here") — the backstop only matches a note at line start', () => {
+  const repo = '/repo';
+  const content = { goals: L('# Goals', '', '## S', '', 'Status: MET. ok', ''), card: L('GOAL: g', 'NOT: n', 'DONE: d', 'KILL: k', 'SOURCE: s.md', '') };
+  const git = cleanGit(content);
+  const spawnNotion = () => ({ status: 0, stdout: '', stderr: '' });
+  const currentRead = L(
+    '# Ship the thing {toggle="true"}',
+    '\t- [ ] do it',
+    '\tNo default line stated.',
+    '\tsee \\*\\* here for the convention, not a note',
+  );
+  const files = fakeFiles(repo, content);
+  const readFile = (f) => (f === '/current.md' ? currentRead : files(f));
+  const { write, writeErr } = collect();
+  const code = run({
+    argv: ['publish', '--repo', repo, '--parent', 'p1', '--current', '/current.md'],
+    readFile, git, spawnNotion, write, writeErr,
+  });
+  assert.equal(code, 0);
 });
