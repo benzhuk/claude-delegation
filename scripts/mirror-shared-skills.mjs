@@ -16,7 +16,7 @@
  * and on Windows the copy would silently drift from the repo (red-team M11).
  *
  * Sources:
- *   <repo>/skills/{multi,delegate,team-build,decisions,notion-writing,dev-server}  — always
+ *   <repo>/skills/{multi,delegate,team-build,decisions,notion-writing,dev-server,bearings}  — always
  *   ~/.claude/skills/{knowledge,triage,learn}                — when present (chezmoi-managed)
  *   <repo>/docs/{model-tiers,subagent-contract,…}.md         — always, to _docs/
  *   <repo>/codex/agents/*.toml                               — always
@@ -74,12 +74,13 @@ const OWN_SOURCE_PATH = REPO.split(path.sep).join('/');
  */
 const CODEX_HOOK_SCRIPT = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
 
-export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server'];
+export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server', 'bearings'];
 export const CLAUDE_SKILLS = ['knowledge', 'triage', 'learn'];
 /** The docs every mirrored skill links to. Without these, `../_docs/model-tiers.md` dangles (S1). */
 const SHARED_DOC_FILES = [
   'model-tiers.md', 'subagent-contract.md', 'concurrency-budget.md',
   'agent-pacing.md', 'mandate-standards.md', 'mandate-template.md', 'pane-setup.md',
+  'work-record.md',
 ];
 /** Never publish a skill's own test files into Codex's skill store (review M6). */
 const SKILL_FILE_EXCLUDE = /\.test\.mjs$/;

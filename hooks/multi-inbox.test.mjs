@@ -52,6 +52,14 @@ function runSessionStart(home, over = {}) {
   return stdout;
 }
 
+function runHook(home, event, input = {}, over = {}) {
+  return execFileSync(process.execPath, [HOOK, event], {
+    input: JSON.stringify({ hook_event_name: event, cwd: home, session_id: SESSION_ID, ...input }),
+    encoding: 'utf8',
+    env: childEnv(home, { CLAUDE_PLUGIN_ROOT: REPO, ...over }),
+  });
+}
+
 test('(a) SessionStart with NOTE_SLUG set registers an entry addressable by that slug under the fixture home', () => {
   const home = fixtureHome();
   const stdout = runSessionStart(home, {
@@ -299,4 +307,31 @@ test('(k) MINOR 6: a broken CLAUDE_PLUGIN_ROOT never tells a bound pane "this se
     ORCA_TERMINAL_HANDLE: 'term_broken',
   });
   assert.equal(stdout.trim(), '', 'a broken plugin root is M1\'s message to deliver, not D4\'s');
+});
+
+test('(l) a positive child agent_id leaves the lead registry, cursor, stamp, and binding untouched, so the lead receives its pending note', () => {
+  const home = fixtureHome();
+  const notes = path.join(home, '.agents', 'notes');
+  fs.mkdirSync(notes, { recursive: true });
+  const guarded = [
+    path.join(notes, 'inboxes.json'),
+    path.join(notes, '.cursor-lead-pane'),
+    path.join(notes, '.poll-lead-pane'),
+    path.join(notes, 'panes.json'),
+  ];
+  mirrorNoteFor(home, 'child-must-not-consume-1', 'lead-pane');
+  const before = new Map(guarded.map((file) => [file, fs.existsSync(file)]));
+
+  const childOutput = runHook(home, 'PostToolUse', { agent_id: 'child-agent-42' }, {
+    NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '',
+  });
+  assert.equal(childOutput.trim(), '', 'a child receives no lead context');
+  for (const [file, exists] of before) {
+    assert.equal(fs.existsSync(file), exists, `${path.basename(file)} must not change for a child`);
+  }
+
+  const leadOutput = runHook(home, 'UserPromptSubmit', {}, {
+    NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '',
+  });
+  assert.match(leadOutput, /\[child-must-not-consume-1\]/, 'the lead still receives the pending note');
 });

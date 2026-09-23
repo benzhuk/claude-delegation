@@ -256,6 +256,12 @@ async function main() {
   // from input.transcript_path + input.session_id. Only when NONE of the three is true does main()
   // return early, exactly as before this build.
   const input = await readInput();
+  // A Claude Code child inherits the lead's hook environment. It must never register, poll, or
+  // acknowledge the lead's inbox: the lead remains the sole consumer of its peer notes. `agent_id`
+  // is the host's positive child signal (as in reminder.js); absence says nothing about other hosts.
+  // Keep this immediately after parsing so no identity lookup or hook branch can create a registry,
+  // cursor, stamp, or binding side effect first.
+  if (typeof input.agent_id === "string" && input.agent_id.length > 0) return;
   const event = input.hook_event_name || process.argv[2] || "";
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const sessionId = input.session_id;
