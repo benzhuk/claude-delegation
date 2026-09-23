@@ -217,3 +217,11 @@ enforced. New rule 10a makes it mechanical: any decision ending its parse with n
 is now a WARN naming the decision's title. This is additive only — it changes no
 decision's `status`, and follows the same exit-code behavior every other WARN already
 has (rule 13).
+
+## Addendum, 2026-09-22
+
+This reader stays a pure parser: no rule above changes. The owner-note handling
+(instruction vs. question, act/log/delete vs. Reply/archive), the goals-mirror
+renderer and staleness check, and the hand-back check that gates the URL going back
+to the owner are specified separately in `docs/specs/2026-09-22-decisions-current.md`
+— read that spec for anything past this file's own rules 1-13.
