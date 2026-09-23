@@ -14,7 +14,7 @@ Owner: skills-a. Governing goal: turn intent into useful verified outcomes throu
 |---|---|---|
 | A/B/C | Source accepted in 0.15.0 | Useful host pilots and outcome measurements |
 | D | Daily bearings notices and explicit completion receipts independently approved and integrated | Source accepted in 0.16.0; full corrected candidate passed 1,290 checks |
-| E | One-shot human submission pickup after third independent review | Parent intervention: apply existing integrity verification before dispatch; independent review, then integration |
+| E | Source accepted in 0.17.0 after independent integrity and package reviews; full gate 1,312/1,312 | Useful native trials, reader deployment and separately scoped activation; full unattended owner recovery remains |
 | F | Audience routing independently approved and integrated | Source accepted in 0.16.0; no extra template system |
 
 Three worker slots plus the lead. Reviews begin as territories deliver; useful ready work refills capacity. Full sealed suite has one owner while other lanes edit/review. The source release does not wait for unrelated rejected E work. Source accepted and installed/live validated remain separate states.
@@ -24,7 +24,7 @@ Three worker slots plus the lead. Reviews begin as territories deliver; useful r
 | Requirement | Smallest next step | Actual dependency or boundary |
 |---|---|---|
 | Bearings daily/release/KILL cadence | D source approved: Claude event notices plus explicit completion; run installed/live assessment after scoped authority | A notice is not completion. Codex event support and idle-host automatic assessment remain unproved; no new scheduler. |
-| Unattended Done pickup | E implements bounded one-shot reader, existing transport, page binding and conservative recovery; source review still in progress | Existing note-send is not idempotent merely because --id is repeated. No silent duplicate consequential actions; no second mutable open-decisions store. Full owner recovery and activation remain separate. |
+| Unattended Done pickup | E source accepted: bounded one-shot reader, existing transport, page binding and conservative recovery | Existing note-send is not idempotent merely because --id is repeated. No silent duplicate consequential actions; no second mutable open-decisions store. Full owner recovery and activation remain separate. |
 | Codex child inbox isolation | Inspect authentic event/source evidence before choosing discriminator; add focused fixture if supported | Do not guess Claude field parity or disable unknown lead events. Existing working delivery stays usable. No installation needed for read-only evidence inspection. |
 | Two-provider useful pilot | Prepare and exercise native Codex/Claude work, review and strict acceptance on real useful artifacts | A/B/C source readiness; installed discovery/activation is its own gate. Neither provider must spawn the other; independent peers use multi. |
 | Non-code outcome pilot | Use a useful research/document deliverable with attributable evidence and owner judgment | No invented Git commit prerequisite. No generic new acceptance engine. |
