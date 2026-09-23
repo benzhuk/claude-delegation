@@ -1,6 +1,6 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes released `delegation` 0.18 source (main `686e778`). No persistent installation has been performed. Choose one route deliberately for each Codex host; installing both is not an automatic upgrade path.
+This guide describes released `delegation` 0.18 source (main `686e778`). On September 23, 2026, the current Windows shared-skill mirror was updated to 0.18 with source-byte and fresh Codex discovery checks; configuration and hooks were unchanged. See [local update evidence](work/evidence/local-mirror-continuation-update.md). Native package installation and broader rollout remain separate. Choose one route deliberately for each Codex host; installing both is not an automatic upgrade path.
 
 ## Choose the route
 

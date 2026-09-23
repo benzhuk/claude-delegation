@@ -12,3 +12,5 @@ Log: 2026-09-23T23:24:14.037Z accepted skills-a artifact docs/native-use.md#sha2
 
 Predicts: An operator can distinguish native skill discovery from the existing mirror integration and select a supported installation route.
 Observed: Codex mid-tier author produced a usable guide; independent Astra review corrected one overstated Claude review attribution and approved the exact revised snapshot. This is non-code content acceptance by the owner, not a live installation test. Two earlier native Sonnet authoring attempts delivered no guide and are not counted as success.
+
+Historical reviewed snapshot: https://github.com/benzhuk/claude-delegation/blob/9270303/docs/native-use.md. Later factual deployment updates do not change that accepted snapshot or its recorded digest.

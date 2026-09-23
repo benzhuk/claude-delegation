@@ -24,4 +24,4 @@ The guide and completed scout records are already integrated. No new mechanism i
 
 Previous unresolved concern: the older trial response also prioritized useful delivery. This new response removes the duplicate trial argument definition, closes further setup experiments and uses the existing queue for the actual next artifact. Do not claim a two-failure formal re-plan history without evidence.
 
-Publication: PENDING until the assessment and this response are published together to the configured Notion plan page and read back. No completion receipt has yet been asserted.
+Publication: PUBLISHED and read back at 2026-09-23T23:38:21.654Z (7:38 PM America/New_York, September 23, 2026): https://app.notion.com/p/3e4da11277a18154afacff155d111293. The new Astra bearings toggle contains the dated assessment, linked evidence, lead response, failed one-pass prediction and current next actions. Earlier source snapshots retain their then-pending publication status. Completion attestation follows this verified publication; it is not installed or automatic cadence.
