@@ -45,7 +45,12 @@ re-type or quote the owner's line when answering it: a copied `\*\*` prefix forg
 second comment that never clears (not checked). Write and read the page through the
 `notion-writing` skill: markdown endpoints only, one request per page, never a
 whole-page replace, read fresh seconds before writing, a multi-line edit built from a
-script with the old and new text loaded from files, not argv (not checked).
+script with the old and new text loaded from files, not argv (not checked). On the
+decisions page and the goals page, write only with anchored edits, `notion.js edit
+--safe` — never `publish` or `replace-md`. Exit 3 or exit 4 from that edit stops the
+pass: reread the page fresh, do not retry the same edit blind (checked by
+`skill-text.test.mjs` that this rule is written down; the stop itself is not checked
+by any script).
 
 The page callout's owner instruction reads, written on the page as one line: "Tick a
 box, or add a line starting with ** anywhere; every such line is acted on and removed
@@ -152,7 +157,9 @@ files it is given, so rerun both reads every time). The check prints, just befor
 `HANDBACK ok`, a `Decisions waiting: <n>, notes logged today: <n>, goals mirror at
 <sha>` line — paste it verbatim as the last line of the hand-back message, so the line
 cannot exist unless the check ran (not checked by any script: the owner sees whether
-the line is there).
+the line is there). Exit 3 means a page could not be read: do not hand back, fix the
+read first — rerun both `notion.js read` calls and the check (checked by
+`scripts/decisions-handback.mjs`'s exit code).
 
 ## Keeping the goals mirror current
 

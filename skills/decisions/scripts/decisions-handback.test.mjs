@@ -35,9 +35,14 @@ function readFileStub(map) {
   };
 }
 
-/** In-process run(), with fs/git stubbed and AGENTS_HOME pointed at a scratch dir by default. */
+/**
+ * In-process run(), with fs/git stubbed and AGENTS_HOME pointed at a scratch dir by default.
+ * `readGoalsParentPage` defaults to "configured" (round-2 F2) so every pre-F2 test in this file
+ * keeps exercising the full mirror check unchanged, exactly as before F2 landed; the F2-specific
+ * tests below override it explicitly to pin the two new outcomes.
+ */
 function runWith({
-  argv = [], files = {}, head = 'aaaaaaa', env, execGit,
+  argv = [], files = {}, head = 'aaaaaaa', env, execGit, readGoalsParentPage,
 } = {}) {
   const out = [];
   const err = [];
@@ -49,6 +54,7 @@ function runWith({
     write: (s) => out.push(s),
     writeErr: (s) => err.push(s),
     env: env || { AGENTS_HOME: home },
+    readGoalsParentPage: readGoalsParentPage || (() => ({ configured: true })),
   });
   return { exitCode, stdout: out.join(''), stderr: err.join(''), home };
 }
@@ -482,6 +488,119 @@ test('head sha: a failing git call is BLIND', () => {
   });
   assert.equal(exitCode, 3);
   assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F2 (round-2 seam fix, ruling: docs/notes/skills-fable-decisions-current-4.md) — skip, not
+// narrowing: goals_parent_page unset skips the goals-mirror check entirely (exit follows the
+// decisions-page checks alone); configured but unreadable stays BLIND.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('F2: goals_parent_page unset — mirror check skipped, no --goals needed, exit follows the decisions page alone', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--repo', 'r', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS },
+    readGoalsParentPage: () => ({ configured: false }),
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /Decisions waiting: 1, notes logged today: 0, goals mirror at none \(not configured\)\n/);
+  assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+test('F2: goals_parent_page unset and the decisions page has a real defect — still exits 1, decisions-only', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--repo', 'r', '--today', '9-22'],
+    files: { d: fixture('decisions-commented.md') },
+    readGoalsParentPage: () => ({ configured: false }),
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /COMMENTED\tSomething waiting\twhat about this\?/);
+  assert.doesNotMatch(stdout, /goals mirror/);
+  assert.match(stdout, /HANDBACK blocked\n$/);
+});
+
+test('F2: goals_parent_page unset — execGit is never called (no head sha needed with no mirror to compare)', () => {
+  const { exitCode } = runWith({
+    argv: ['--decisions', 'd', '--repo', 'r', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS },
+    readGoalsParentPage: () => ({ configured: false }),
+    execGit: () => { throw new Error('execGit should not be called when the mirror is not configured'); },
+  });
+  assert.equal(exitCode, 0);
+});
+
+test('F2: goals_parent_page configured but --goals is not given — BLIND, not a silent skip', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--repo', 'r', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS },
+    readGoalsParentPage: () => ({ configured: true }),
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+test('F2: goals_parent_page configured and the goals read is missing — BLIND', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'missing.md', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS },
+    readGoalsParentPage: () => ({ configured: true }),
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+test('F2: goals_parent_page configured and the goals read is empty — BLIND', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: '' },
+    readGoalsParentPage: () => ({ configured: true }),
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+test('F2: goals_parent_page configured, both pages clean — behaves exactly as the pre-F2 check (mirror sha in the summary)', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readGoalsParentPage: () => ({ configured: true }),
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /Decisions waiting: 1, notes logged today: 0, goals mirror at 889887a\n/);
+  assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+// End-to-end, real project.json, real CLI process — no stub, the real defaultReadGoalsParentPage.
+test('F2 CLI: a real project.json with no goals_parent_page key — mirror check skipped end to end', () => {
+  const root = repoWithProjectJson(JSON.stringify({ decisions_url: 'abc' }));
+  const decisionsPath = path.join(root, 'decisions.md');
+  fs.writeFileSync(decisionsPath, CLEAN_DECISIONS, 'utf8');
+  const home = tmpdir('decisions-handback-home-');
+  const result = spawnSync(process.execPath, [
+    SCRIPT_PATH, '--decisions', decisionsPath, '--repo', root, '--today', '9-22',
+  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: home }) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /goals mirror at none \(not configured\)/);
+  assert.match(result.stdout, /HANDBACK ok\n$/);
+});
+
+test('F2 CLI: a real project.json WITH goals_parent_page, but the goals read is missing — BLIND end to end', () => {
+  const root = repoWithProjectJson(JSON.stringify({
+    decisions_url: 'abc',
+    goals_parent_page: '3e1da11277a1817db4c1f1038ccfdd5a',
+  }));
+  const decisionsPath = path.join(root, 'decisions.md');
+  fs.writeFileSync(decisionsPath, CLEAN_DECISIONS, 'utf8');
+  const home = tmpdir('decisions-handback-home-');
+  const result = spawnSync(process.execPath, [
+    SCRIPT_PATH,
+    '--decisions', decisionsPath,
+    '--goals', path.join(root, 'does-not-exist.md'),
+    '--repo', root,
+    '--today', '9-22',
+  ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: home }) });
+  assert.equal(result.status, 3, result.stdout + result.stderr);
+  assert.match(result.stdout, /HANDBACK blind\n$/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

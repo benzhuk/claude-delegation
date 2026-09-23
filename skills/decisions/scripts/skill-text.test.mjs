@@ -42,3 +42,21 @@ test('SKILL.md contains "goals-mirror.mjs publish"', () => {
 test('no SKILL.md line starts with ** (a pasted wrap would read back as an owner note)', () => {
   assert.doesNotMatch(skillText, /^[ \t]*\*\*/m);
 });
+
+// Round-2 F2 ruling (docs/notes/skills-fable-decisions-current-4.md): the hand-back check's
+// exit 3 tells the lead to stop, not hand back, and fix the read.
+test('SKILL.md says exit 3 from the hand-back check means do not hand back, fix the read first', () => {
+  assert.match(skillText, /Exit 3 means a page could not be read: do not hand back, fix the\nread first/);
+});
+
+// Item e (docs/notes/skills-fable-decisions-current-2.md addendum, restated in the round-2
+// ruling): human pages are written only with anchored `edit --safe`; publish and replace-md are
+// banned there; exit 3 or 4 stops the pass.
+test('SKILL.md bans publish/replace-md on the decisions and goals pages, anchored edits only', () => {
+  assert.match(skillText, /write only with anchored edits, `notion\.js edit\n--safe`/);
+  assert.equal(skillText.includes('never `publish` or `replace-md`'), true);
+});
+
+test('SKILL.md says exit 3 or exit 4 from that edit stops the pass', () => {
+  assert.equal(skillText.includes('Exit 3 or exit 4 from that edit stops the'), true);
+});

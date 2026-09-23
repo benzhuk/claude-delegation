@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
  * decisions-handback — the check the lead runs before handing the decisions page back to the
- * owner (spec M3). Runs `decisions-read.mjs`'s parser over both the decisions page and the
- * goals-mirror page, checks the goals-mirror sha against the repo's actual head (F6), and
- * exits 0 only when there is nothing left for the owner to react to. Pure except for one `git`
- * call to learn the head sha (skipped when `--head` overrides it) and the two file reads;
- * nothing here writes anything or calls Notion. Full design: docs/specs/2026-09-22-decisions-current.md
+ * owner (spec M3). Runs `decisions-read.mjs`'s parser over the decisions page and, when this
+ * project's `goals_parent_page` is configured, the goals-mirror page too, checking the
+ * goals-mirror sha against the repo's actual head (F6). Exits 0 only when there is nothing left
+ * for the owner to react to. Pure except for one `git` call to learn the head sha (skipped when
+ * `--head` overrides it), the decisions/goals file reads, and a read of this project's config
+ * (to learn whether a goals mirror is configured at all — round-2 F2); nothing here writes
+ * anything or calls Notion. Full design: docs/specs/2026-09-22-decisions-current.md
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -203,6 +205,22 @@ function parseArgs(argv) {
 }
 
 /**
+ * Lazy, synchronous load of `scripts/project-config.mjs` beside this skill folder (round-1 F1):
+ * resolved relative to THIS script's own file, so it is absent whenever this skill folder is a
+ * mirrored copy with no sibling `scripts/` three levels up (Codex's store; `--config` and the
+ * F2 mirror-configured lookup below share this one lazy load — never a top-level import, which
+ * is what crashed every invocation, check path included, before F1). Returns null, never
+ * throws, when the loader module itself cannot be found; callers decide what "unknown" means.
+ */
+function tryLoadProjectConfigModule() {
+  try {
+    return createRequire(import.meta.url)('../../../scripts/project-config.mjs');
+  } catch {
+    return null;
+  }
+}
+
+/**
  * `--config`: the two project.json keys this build adds/uses, one per set key, nothing for an
  * unset one, exit 0; an unreadable project.json (bad JSON) prints BLIND on stderr and exits 3.
  * Deliberately does not touch stdout's `HANDBACK …` vocabulary — this is a config lookup, not a
@@ -213,14 +231,12 @@ function runConfig(args, writeOut, writeErr) {
   // --config`, with no `--repo`; `loadProjectConfig` already defaults to `process.cwd()` and
   // walks up to find `.agents/project.json`, so `--repo` is an override here, never a
   // requirement (round-2 m5).
-  let loadProjectConfig;
-  try {
-    ({ loadProjectConfig } = createRequire(import.meta.url)('../../../scripts/project-config.mjs'));
-  } catch {
+  const mod = tryLoadProjectConfigModule();
+  if (!mod) {
     writeErr('decisions-handback: BLIND (scripts/project-config.mjs not found beside this skill)\n');
     return 3;
   }
-  const { config, source } = loadProjectConfig(args.repo ?? process.cwd());
+  const { config, source } = mod.loadProjectConfig(args.repo ?? process.cwd());
   if (source === 'unreadable') {
     writeErr('decisions-handback: BLIND (project config unreadable)\n');
     return 3;
@@ -230,6 +246,30 @@ function runConfig(args, writeOut, writeErr) {
     if (v !== null && v !== undefined && v !== '') writeOut(`${key}\t${v}\n`);
   }
   return 0;
+}
+
+/**
+ * F2 (round-2 seam fix, ruling in docs/notes/skills-fable-decisions-current-4.md): whether this
+ * project's goals mirror is configured at all, read from `.agents/project.json`'s
+ * `goals_parent_page` key via the same lazy loader `--config` uses. Injectable (the
+ * `readGoalsParentPage` param on `run`/`runCheck`) so tests pin both new outcomes without
+ * touching the real filesystem or any existing fixture.
+ *
+ * Ruling: "configured and the goals page cannot be read" stays BLIND (thrown here, or by the
+ * goals-page read/parse in `runCheck`) — that is a real defect the check could not look past.
+ * A project.json that itself fails to parse is the same kind of "cannot look": also BLIND.
+ * A loader module that cannot be found at all (this skill folder mirrored to Codex's store,
+ * round-1 F1) is reported as NOT configured rather than BLIND — the fail-open choice F1 already
+ * made for the whole check path: BLIND-ing every hand-back run from a mirrored copy, configured
+ * or not, would undo F1's fix outright. Documented tradeoff, not an oversight.
+ */
+function defaultReadGoalsParentPage(repo) {
+  const mod = tryLoadProjectConfigModule();
+  if (!mod) return { configured: false };
+  const { config, source } = mod.loadProjectConfig(repo);
+  if (source === 'unreadable') throw new BlindError('project config unreadable');
+  const page = config.goals_parent_page;
+  return { configured: page !== null && page !== undefined && page !== '' };
 }
 
 function computeHeadSha(repo, head, execGit) {
@@ -248,37 +288,53 @@ function computeHeadSha(repo, head, execGit) {
 }
 
 /** The whole check. Never throws past this: caller's try/catch turns anything into BLIND, exit 3. */
-function runCheck(args, env, readFile, execGit, writeOut) {
-  if (!args.decisions || !args.goals || !args.repo) {
-    throw new BlindError('missing required --decisions/--goals/--repo');
+function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
+  if (!args.decisions || !args.repo) {
+    throw new BlindError('missing required --decisions/--repo');
   }
 
   let decisionsText;
-  let goalsText;
   let decisionsDoc;
-  let goalsDoc;
   try {
     decisionsText = readFile(args.decisions);
-    goalsText = readFile(args.goals);
     decisionsDoc = parseDocument(decisionsText);
-    goalsDoc = parseDocument(goalsText);
   } catch (e) {
-    throw new BlindError(e instanceof Error ? e.message : 'failed to read or parse a page');
+    throw new BlindError(e instanceof Error ? e.message : 'failed to read or parse the decisions page');
   }
 
-  const headSha = computeHeadSha(args.repo, args.head, execGit);
   const today = computeToday(args.today);
-
-  const pageSha = extractPageSha(goalsText);
-  let shaWarnLine = null;
-  if (pageSha === null) shaWarnLine = 'WARN\tgoals mirror missing sha line';
-  else if (!shaMatch(pageSha, headSha)) shaWarnLine = `WARN\tgoals mirror stale: page ${pageSha}, head ${headSha}`;
-
   const decisionsOffending = objectionableLines(decisionsDoc);
   const shapeOffending = shapeLines(decisionsDoc, decisionsText);
   const doneLine = doneRuleLine(decisionsDoc);
   const archive = archiveLines(decisionsDoc, today.ymd);
-  const goalsOffending = objectionableLines(goalsDoc).map((l) => `goals\t${l}`);
+
+  // F2 (round-2): the goals-mirror half of the check runs only when this project has a
+  // goals_parent_page configured at all — "skip, not narrowing" (the ruling). Unconfigured means
+  // no goals read is required, no sha check, no goals-page objections; the exit code follows the
+  // decisions-page checks alone.
+  const mirror = readGoalsParentPage(args.repo);
+  let goalsOffending = [];
+  let shaWarnLine = null;
+  let mirrorSummary;
+  if (mirror.configured) {
+    if (!args.goals) throw new BlindError('missing required --goals (goals_parent_page is configured for this project)');
+    let goalsText;
+    let goalsDoc;
+    try {
+      goalsText = readFile(args.goals);
+      goalsDoc = parseDocument(goalsText);
+    } catch (e) {
+      throw new BlindError(e instanceof Error ? e.message : 'failed to read or parse the goals page');
+    }
+    const headSha = computeHeadSha(args.repo, args.head, execGit);
+    const pageSha = extractPageSha(goalsText);
+    if (pageSha === null) shaWarnLine = 'WARN\tgoals mirror missing sha line';
+    else if (!shaMatch(pageSha, headSha)) shaWarnLine = `WARN\tgoals mirror stale: page ${pageSha}, head ${headSha}`;
+    goalsOffending = objectionableLines(goalsDoc).map((l) => `goals\t${l}`);
+    mirrorSummary = `goals mirror at ${pageSha}`;
+  } else {
+    mirrorSummary = 'goals mirror at none (not configured)';
+  }
 
   const printed = [...decisionsOffending, ...shapeOffending];
   if (doneLine) printed.push(doneLine);
@@ -291,7 +347,7 @@ function runCheck(args, env, readFile, execGit, writeOut) {
     && goalsOffending.length === 0 && !shaWarnLine;
   if (clean) {
     const notesToday = countNotesToday(decisionsText, today.md);
-    writeOut(`Decisions waiting: ${decisionsDoc.decisions.length}, notes logged today: ${notesToday}, goals mirror at ${pageSha}\n`);
+    writeOut(`Decisions waiting: ${decisionsDoc.decisions.length}, notes logged today: ${notesToday}, ${mirrorSummary}\n`);
     writeOut('HANDBACK ok\n');
     return 0;
   }
@@ -312,6 +368,7 @@ export function run({
   write = (s) => process.stdout.write(s),
   writeErr = (s) => process.stderr.write(s),
   env = process.env,
+  readGoalsParentPage = defaultReadGoalsParentPage,
 } = {}) {
   let args;
   try {
@@ -331,7 +388,7 @@ export function run({
   }
 
   try {
-    return runCheck(args, env, readFile, execGit, write);
+    return runCheck(args, env, readFile, execGit, write, readGoalsParentPage);
   } catch (e) {
     writeErr(`decisions-handback: ${e instanceof Error ? e.message : 'failed'}\n`);
     write('HANDBACK blind\n');
