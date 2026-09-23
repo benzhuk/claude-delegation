@@ -84,6 +84,24 @@ and state conclusions with each lane's evidence path. A confirmed absence or a p
 limit reported by a lane is a first-class result — surface it, don't re-run the lane
 hoping for a positive.
 
+## Practical delta research
+
+Start by retrieving the prior report, decision, or implementation evidence that bears on
+the question. Define the unresolved delta: what remains unknown or contested after that
+material, and what observation could change the decision. A known local lookup stays local;
+do not repeat settled research or require a fixed number of sources.
+
+Investigate the underlying/common problem as well as the proposed fix, including practical
+alternatives. Record source provenance and versions where they matter, counterevidence and
+limits, and whether an item was merely discovered or actually validated for this project.
+Do not promote a provider/model declaration, search hit, or another agent's prose into proof
+of access or correctness. Preserve attributable observations for the final judge to inspect.
+
+Use each host's native delegation facility for the required research lanes. Claude may use the
+optional Workflow ladder below when its adapter is available; Codex uses its native agent and
+tool path with the same evidence, delta, and validation discipline. The adapter changes
+execution mechanics, never the research claim.
+
 ## Ladder, Opus orchestrator panes only
 
 **When**: a fixed three-rung escalation — cheap fast-tier reads, mid-tier research for
@@ -101,11 +119,12 @@ optional. Rungs: fast tier reads each target (`agentType: readerType ?? 'delegat
 → high tier judges once (`model: 'opus'`, exactly one agent call). It returns
 `{ verdict, evidence: [paths], cost: { agents }, coverage }`. Coverage has one flat row per
 requested position (including duplicates): `{ index, target, read, research, sources }`.
-Each stage records `complete`, `unavailable`, `unverified`, or `not-run` with a reason.
-`complete` requires a finding and at least one attributable source reference; legacy free
-text, missing results, and access-failure prose are not evidence. The judge sees partial
-coverage and limitations, but the ladder returns `inconclusive` if no complete research is
-attributable or its evidence is missing/does not cite an attributable research source.
+Each stage records a schema-reported `complete`, `unavailable`, `unverified`, or `not-run`
+with a reason. `complete` requires a finding and at least one attributable source reference;
+it does not mechanically verify access. Legacy free text and missing results are not evidence.
+The judge receives the reported findings, sources, and limitations, and must inspect material
+references. The ladder returns `inconclusive` if no complete research is attributable, the
+judge evidence is missing, or any cited reference is outside attributable research sources.
 
 **Cap**: A nonempty input requires `2*N+1` calls, which is also the default cap. An explicit
 `args.maxAgents` must be a positive integer and at least `2*N+1`; malformed or insufficient

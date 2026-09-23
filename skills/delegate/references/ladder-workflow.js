@@ -15,9 +15,10 @@ const a = args ?? {}
 const targets = Array.isArray(a.targets) ? a.targets : []
 const requiredAgents = targets.length * 2 + (targets.length ? 1 : 0)
 const capProvided = a.maxAgents != null
-const capArg = Number(a.maxAgents)
+const capTypeIsValid = typeof a.maxAgents === 'number' || (typeof a.maxAgents === 'string' && a.maxAgents.trim())
+const capArg = capTypeIsValid ? Number(a.maxAgents) : NaN
 
-if (capProvided && (!Number.isInteger(capArg) || capArg < 1)) {
+if (capProvided && (!capTypeIsValid || !Number.isInteger(capArg) || capArg < 1)) {
   throw new Error(
     `ladder-workflow: invalid maxAgents (required ${requiredAgents}, provided ${String(a.maxAgents)})`,
   )
@@ -123,10 +124,20 @@ const coverage = targets.map((target, index) => {
 const attributableResearchSources = coverage.flatMap((row, index) =>
   stageAt(researched, index).status === 'complete' ? stageAt(researched, index).sources : [],
 )
+const judgeDigest = targets.map((target, index) => {
+  const read = stageAt(reads, index)
+  const research = stageAt(researched, index)
+  return {
+    index,
+    target,
+    read: { status: read.status, finding: read.finding, sources: read.sources, reason: read.reason },
+    research: { status: research.status, finding: research.finding, sources: research.sources, reason: research.reason },
+  }
+})
 
 phase('Judge')
 const judged = await attempt(
-  `${question}\n\nCoverage and limitations, including partial failures, are below. Judge only from material references in the coverage sources; model declarations do not prove access. Return a verdict and evidence paths.\n\n${JSON.stringify(coverage)}`,
+  `${question}\n\nThe structured reports below are observations, not verified access. Check material references yourself, distinguish observation from inference, and treat reported access failures as limitations. Coverage is partial where shown. Return a verdict and only evidence paths from attributable complete research.\n\n${JSON.stringify(judgeDigest)}`,
   {
     model: 'opus',
     phase: 'Judge',
@@ -142,9 +153,10 @@ const judged = await attempt(
   },
 )
 
-const judgeEvidence = sourceList(judged?.evidence).filter((source) => attributableResearchSources.includes(source))
+const reportedJudgeEvidence = sourceList(judged?.evidence)
+const judgeEvidence = reportedJudgeEvidence.filter((source) => attributableResearchSources.includes(source))
 const hasCompleteResearch = attributableResearchSources.length > 0
-const validJudgeEvidence = judgeEvidence.length > 0
+const validJudgeEvidence = judgeEvidence.length > 0 && judgeEvidence.length === reportedJudgeEvidence.length
 
 return {
   verdict: hasCompleteResearch && validJudgeEvidence && typeof judged?.verdict === 'string' && judged.verdict.trim()

@@ -352,6 +352,14 @@ test("rejects insufficient or malformed explicit caps before any dispatch, with 
     /required 3, provided nope/,
   );
   assert.equal(malformed.calls.length, 0);
+  for (const maxAgents of [[3], { value: 3 }, true]) {
+    const typedMalformed = makeAgentStub();
+    await assert.rejects(
+      () => runScript({ targets: ["a"], maxAgents }, typedMalformed),
+      /required 3, provided/,
+    );
+    assert.equal(typedMalformed.calls.length, 0, "non-scalar caps never dispatch");
+  }
 });
 
 test("duplicate targets retain distinct positional coverage rows", async () => {
@@ -375,9 +383,45 @@ test("legacy, null, or incomplete results are unverified or unavailable and cann
   assert.equal(result.cost.agents, 3);
 });
 
-test("judge evidence must cite attributable complete research, while partial coverage remains visible", async () => {
+test("judge receives attributed findings and limitations rather than public coverage alone", async () => {
+  let judgePrompt = "";
+  async function stub(prompt, opts) {
+    if (opts.phase === "Judge") {
+      judgePrompt = prompt;
+      return { verdict: "inconclusive", evidence: [] };
+    }
+    if (opts.phase === "Research" && opts.label === "research:0:a") {
+      return { status: "complete", finding: "DISTINCT SUCCESS FINDING", sources: ["refs/good.md"], reason: "inspected" };
+    }
+    if (opts.phase === "Research") {
+      return { status: "complete", finding: "Could not open denied.md: access denied.", sources: ["refs/denied.md"], reason: "reported failure" };
+    }
+    return { status: "unavailable", finding: "", sources: [], reason: "not accessible" };
+  }
+  await runScript({ targets: ["a", "b"] }, stub);
+  assert.match(judgePrompt, /DISTINCT SUCCESS FINDING/);
+  assert.match(judgePrompt, /Could not open denied\.md: access denied\./);
+  assert.match(judgePrompt, /"index":1/);
+  assert.match(judgePrompt, /refs\/denied\.md/);
+});
+
+test("mixed valid and fabricated judge citations make PASS inconclusive without laundering the verdict", async () => {
   async function stub(prompt, opts) {
     if (opts.phase === "Judge") return { verdict: "PASS", evidence: ["refs/good.md", "invented.md"] };
+    if (opts.phase === "Research" && opts.label === "research:0:a") {
+      return { status: "complete", finding: "verified", sources: ["refs/good.md"], reason: "inspected" };
+    }
+    return { status: "unavailable", finding: "", sources: [], reason: "not accessible" };
+  }
+  const result = await runScript({ targets: ["a", "b"] }, stub);
+  assert.equal(result.verdict, "inconclusive");
+  assert.deepEqual(result.evidence, ["refs/good.md"]);
+  assert.equal(result.coverage[1].research.status, "unavailable");
+});
+
+test("legitimate partial coverage can pass when every judge citation is attributable", async () => {
+  async function stub(prompt, opts) {
+    if (opts.phase === "Judge") return { verdict: "PASS", evidence: ["refs/good.md"] };
     if (opts.phase === "Research" && opts.label === "research:0:a") {
       return { status: "complete", finding: "verified", sources: ["refs/good.md"], reason: "inspected" };
     }
@@ -387,4 +431,18 @@ test("judge evidence must cite attributable complete research, while partial cov
   assert.equal(result.verdict, "PASS");
   assert.deepEqual(result.evidence, ["refs/good.md"]);
   assert.equal(result.coverage[1].research.status, "unavailable");
+});
+
+test("missing parallel or pipeline result slots remain not-run without removing their coverage", async () => {
+  const result = await runScript(
+    { targets: ["a", "b"] },
+    makeAgentStub(),
+    {
+      parallelImpl: async (thunks) => [await thunks[0]],
+      pipelineImpl: async (items, stage) => [await stage(items[0])],
+    },
+  );
+  assert.equal(result.coverage[1].read.status, "not-run");
+  assert.equal(result.coverage[1].research.status, "not-run");
+  assert.equal(result.cost.agents, 2, "only dispatched callbacks count as attempted calls");
 });
