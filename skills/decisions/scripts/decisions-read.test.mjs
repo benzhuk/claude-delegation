@@ -131,8 +131,20 @@ test('Done: true, false, and absent', () => {
   const falseDoc = parseDocument(L('<summary>t</summary>', '\t- [ ] a', '- [ ] Done'));
   const absentDoc = parseDocument(L('<summary>t</summary>', '\t- [ ] a', 'just a closing paragraph'));
   assert.equal(trueDoc.done, true);
+  assert.equal(trueDoc.doneLabel, 'Done');
   assert.equal(falseDoc.done, false);
+  assert.equal(falseDoc.doneLabel, 'Done');
   assert.equal(absentDoc.done, null);
+  assert.equal(absentDoc.doneLabel, null);
+});
+
+test('Done with a last-cleared label remains a page control and a checked submission is actionable', () => {
+  const cleared = parseDocument(L('<summary>t</summary>', '\t- [ ] a', '\tNo default: x', '- [ ] Done (last cleared: 2026-09-23 4:00 PM America/New_York)'));
+  const submitted = parseDocument(L('<summary>t</summary>', '\t- [ ] a', '\tNo default: x', '- [x] Done (last cleared: pending)'));
+  assert.equal(cleared.done, false);
+  assert.equal(cleared.doneLabel, 'Done (last cleared: 2026-09-23 4:00 PM America/New_York)');
+  assert.equal(computeExitCode(cleared), 0);
+  assert.equal(computeExitCode(submitted), 1);
 });
 
 test('Done detected past trailing <empty-block/> and blank lines', () => {
@@ -278,6 +290,7 @@ test('formatJson / toJsonObject: full shape', () => {
     warnings: [],
     decisionCount: 1,
     done: true,
+    doneLabel: 'Done',
   });
   assert.deepEqual(JSON.parse(formatJson(doc)), obj);
 });

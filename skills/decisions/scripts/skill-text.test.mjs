@@ -18,9 +18,9 @@ test('no file in the skill dir contains the stale chat wording', () => {
   for (const f of files) assert.equal(fs.readFileSync(path.join(dir, f), 'utf8').includes(STALE), false, f);
 });
 
-test('SKILL.md pins the full hand-back and publish flag sequences', () => {
+test('SKILL.md pins the hand-back and attended renderer sequences', () => {
   assert.match(skillText, /decisions-handback\.mjs --decisions \S+ --goals \S+ --repo \S+/);
-  assert.match(skillText, /goals-mirror\.mjs publish --repo \. --parent \S+ --current \S+/);
+  assert.match(skillText, /goals-mirror\.mjs render --repo \. > <scratch>\/goals-render\.md/);
 });
 
 test('SKILL.md contains "notion.js read"', () => {
@@ -35,8 +35,9 @@ test('SKILL.md contains "decisions-handback.mjs --decisions"', () => {
   assert.equal(skillText.includes('decisions-handback.mjs --decisions'), true);
 });
 
-test('SKILL.md contains "goals-mirror.mjs publish"', () => {
-  assert.equal(skillText.includes('goals-mirror.mjs publish'), true);
+test('SKILL.md names disabled publication and targeted writer edits', () => {
+  assert.match(skillText, /goals-mirror\.mjs publish` is intentionally disabled/);
+  assert.match(skillText, /fresh read and targeted edits of agent-owned sections/);
 });
 
 test('no SKILL.md line starts with ** (a pasted wrap would read back as an owner note)', () => {

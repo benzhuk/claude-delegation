@@ -47,9 +47,8 @@ second comment that never clears (not checked). Write and read the page through 
 whole-page replace, read fresh seconds before writing, a multi-line edit built from a
 script with the old and new text loaded from files, not argv (not checked). On the
 decisions page and the goals page, write only with anchored edits, `notion.js edit
---safe` — never `publish` or `replace-md` by hand; the one whole-page write is the
-scripted mirror refresh, `goals-mirror.mjs publish` (below), which refuses first on any
-owner note. Exit 3 or exit 4 from that edit stops the
+--safe` — never `publish` or `replace-md`; render Goals with `goals-mirror.mjs render`,
+then use a fresh read and targeted edits of agent-owned sections. Exit 3 or exit 4 from that edit stops the
 pass: reread the page fresh, do not retry the same edit blind (checked by
 `skill-text.test.mjs` that this rule is written down; the stop itself is not checked
 by any script).
@@ -58,11 +57,12 @@ The page callout's owner instruction reads, written on the page as one line: "Ti
 box, or add a line starting with ** anywhere; every such line is acted on and removed
 before this page comes back to you." (not checked)
 
-New items go inside the open section, never appended past the page-level `- [ ] Done`
-line (`append-md` must not be used for this) (not checked). Whoever adds an item
-unticks Done in the same pass; whoever closes the last open item ticks it back —
-`scripts/decisions-handback.mjs` checks that DONE is `false` when DECISIONS is greater
-than 0 and `true` when DECISIONS is 0 (an absent Done line blocks the hand-back).
+New items go inside the open section, never appended past the page-level Done control
+(`append-md` must not be used for this) (not checked). A checked `Done` means the owner
+has submitted choices/comments for accounting; it grants no authority by itself. Account
+those inputs, reconcile a changed fresh read if necessary, then clear it as `- [ ] Done
+(last cleared: <America/New_York timestamp>)`. An unchecked Done is valid with zero or
+open decisions; an absent Done line blocks the hand-back.
 
 Keep the page in two sections the owner reads, `# Waiting on you now` and `# Closed`;
 status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this
@@ -138,7 +138,7 @@ reads as a live OPEN item and nothing flags it).
 ## Handing the page back
 
 Before giving the owner the decisions URL, run the hand-back check on fresh reads of
-both pages (a read is two `notion.js read` calls, run through a Sonnet runner; the
+both pages (a read is two `notion.js read` calls, run through a mid-tier native-provider
 runner choice is not checked):
 
 ```
@@ -150,15 +150,15 @@ node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.
 Run from the project root; `<skill-dir>` is this skill's folder (`skills/decisions` in
 this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the id on
 the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
-<goals_parent_page>`, the same parent-scoped list `goals-mirror.mjs publish` checks
-for `--current none` (not checked).
+<goals_parent_page>` (not checked).
 
 In a project whose `.agents/project.json` has no `goals_parent_page`
 (`scripts/decisions-handback.mjs --config` prints no such line), skip the goals read and
 drop `--goals`; the check then prints `goals mirror at none (not configured)` (checked
 by `scripts/decisions-handback.mjs`).
 
-Exit 0 only: give the owner the URL (the exit code is `scripts/decisions-handback.mjs`'s;
+Give the owner the URL only when output includes `HANDBACK ok` and its preceding summary;
+exit 0 alone can mean enforcement is disabled (the exit code is `scripts/decisions-handback.mjs`'s;
 that both reads were taken seconds earlier is not checked — the script reads whatever
 files it is given, so rerun both reads every time). The check prints, just before
 `HANDBACK ok`, a `Decisions waiting: <n>, notes logged today: <n>, goals mirror at
@@ -170,20 +170,21 @@ read first — rerun both `notion.js read` calls and the check (checked by
 
 ## Keeping the goals mirror current
 
-After a release changes `docs/GOALS.md` or `docs/goals/card.md`, publish the mirror
+After a release changes `docs/GOALS.md` or `docs/goals/card.md`, render the mirror source
 before the next hand-back (a stale mirror blocks the hand-back:
 `scripts/decisions-handback.mjs`, stale-sha WARN):
 
 ```
-node <skill-dir>/scripts/goals-mirror.mjs publish --repo . --parent <goals_parent_page> --current <read>
+node <skill-dir>/scripts/goals-mirror.mjs render --repo . > <scratch>/goals-render.md
 ```
 
-`<goals_parent_page>` comes from `.agents/project.json`; `<read>` is a fresh
-`notion.js read` of the existing Goals child page (or `none` when it does not exist
-yet). The command refuses (exit 1) if the read carries any unresolved owner note, or
-if a source file differs from its `origin/main` blob (checked by
-`scripts/goals-mirror.mjs`). `docs/pane-setup.md`'s `## Releasing` section is where
-this step lives in a release's own checklist.
+Read the existing Goals child fresh, use the existing `notion-writing` skill to make
+anchored targeted edits only in agent-owned mirror sections, and read it back. Preserve
+surrounding human content; if a write is uncertain or an anchor changed, reconcile from
+a fresh read before retrying. Initial creation uses the existing writer under normal
+authority. `goals-mirror.mjs publish` is intentionally disabled and never creates or
+replaces a page. `docs/pane-setup.md`'s `## Releasing` section is where this attended
+step lives in a release's own checklist.
 
 ## Sub-sessions
 

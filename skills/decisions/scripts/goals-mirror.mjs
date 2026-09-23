@@ -1,25 +1,21 @@
 #!/usr/bin/env node
 /**
  * goals-mirror — renders `docs/GOALS.md` and `docs/goals/card.md` into the Notion-flavoured
- * markdown shape of `templates/goals-page.md`, and publishes that render to the Goals page.
- * `render` is pure: no network, no git write, sources read straight off `--repo`. `publish`
- * refuses (exit 1) on a dirty source file or an un-acted owner note, and only then calls
- * `notion.js publish` — a whole-page replace. Full rules: docs/specs/2026-09-22-decisions-current.md.
+ * markdown shape of `templates/goals-page.md`. `render` is pure: no network, no git write,
+ * sources read straight off `--repo`. Publication is deliberately disabled: use the existing
+ * notion-writing skill's fresh targeted edits and readback for an attended update.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parseDocument } from './decisions-read.mjs';
-import { extractPageSha } from './decisions-handback.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TEMPLATE_PATH = path.join(SCRIPT_DIR, '..', 'templates', 'goals-page.md');
 
 const STATUS_COLOR = { MET: 'green', PARTIAL: 'orange', NONE: 'red', UNKNOWN: 'red' };
 
-/** Refuses the render/publish outright (exit 1): a dirty source, an owner note, a bad CLI use. */
+/** Refuses an unsupported command or malformed render request (exit 1). */
 export class RefusedError extends Error {}
 /** A read or parse failure the caller cannot trust (exit 3), never a silent false-clean. */
 export class BlindError extends Error {}
@@ -148,7 +144,7 @@ export function computeSha({ repo, git = defaultGit }) {
   return sha;
 }
 
-/** F6: publish refuses unless the working tree's sources equal their origin/main blob. */
+/** Retained pure helper for callers that compare local goals sources with origin/main. */
 export function checkDirty({ repo, readFile = defaultReadFile, git = defaultGit }) {
   const sources = ['docs/GOALS.md', 'docs/goals/card.md'];
   for (const rel of sources) {
@@ -164,61 +160,6 @@ export function checkDirty({ repo, readFile = defaultReadFile, git = defaultGit 
     }
   }
   return { dirty: false, path: null };
-}
-
-/**
- * Owner notes blocking a publish: any decision carrying an unreplied comment, on EVERY
- * status (not only when `d.status === 'COMMENTED'` — the status priority AMBIGUOUS >
- * TICKED > COMMENTED > DUE > REPLIED > OPEN means a ticked option with an unanswered
- * comment reports as TICKED, not COMMENTED, and would otherwise slip past this check),
- * plus any UNATTACHED comment line.
- */
-function ownerNoteLines(doc) {
-  const lines = [];
-  for (const d of doc.decisions) {
-    const unreplied = d.comments.filter((c) => !c.replied);
-    if (unreplied.length === 0) continue;
-    lines.push(`COMMENTED\t${d.title}\t${unreplied.map((c) => c.text).join(' | ')}`);
-  }
-  for (const u of doc.unattached) {
-    if (u.kind !== 'comment') continue;
-    lines.push(`UNATTACHED\tline ${u.line}\t${u.text}${u.under !== undefined ? `\t(under ${u.under})` : ''}`);
-  }
-  return lines;
-}
-
-/**
- * Backstop for the reader: any line whose text, past indentation and block markers
- * (bullet, number, quote, heading, to-do box, inline tags), starts with the escaped marker.
- */
-const RAW_NOTE_RE = /^[\t ]*(?:(?:[-*+>]|\d+[.)]|#{1,6})[\t ]+|\[[ xX]\][\t ]*|<[^>]+>)*\\\*\\\*/;
-function rawNoteLines(text) {
-  return text.split(/\r\n|\n/).flatMap((l, i) => (RAW_NOTE_RE.test(l) ? [`NOTE\tline ${i + 1}\t${l.trim()}`] : []));
-}
-
-function defaultSpawnNotion({ parent, title, file }) {
-  const script = path.join(os.homedir(), '.claude', 'scripts', 'notion.js');
-  const res = spawnSync(process.execPath, [script, 'publish', parent, title, file], { encoding: 'utf8' });
-  return { status: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
-}
-
-/**
- * `--current none` is allowed only when `--parent` has no child page titled `title`. This lists
- * the parent's children with `notion.js read-blocks <parent>` (paginated, parent-scoped: the same
- * set `notion.js publish` searches with findChildPageByTitle). Any doubt is BLIND, never "absent".
- */
-export function defaultCheckGoalsPageAbsent({ parent, title, spawn = spawnSync }) {
-  const script = path.join(os.homedir(), '.claude', 'scripts', 'notion.js');
-  const res = spawn(process.execPath, [script, 'read-blocks', parent], { encoding: 'utf8' });
-  if (!res || res.status !== 0) {
-    throw new BlindError(`cannot list the children of ${parent}: notion.js read-blocks exited ${res ? res.status : 'no result'}`);
-  }
-  const out = typeof res.stdout === 'string' ? res.stdout : '';
-  if (!/^# /.test(out)) {
-    throw new BlindError('notion.js read-blocks gave no page header; cannot tell whether the Goals page exists');
-  }
-  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return !new RegExp(`^[ \\t]*\\[child page: ${esc}\\] \\(`, 'm').test(out);
 }
 
 function parseArgs(argv) {
@@ -241,13 +182,9 @@ function parseArgs(argv) {
 export function run({
   argv = process.argv.slice(2),
   readFile = defaultReadFile,
-  writeFile = (f, s) => fs.writeFileSync(f, s),
   write = (s) => process.stdout.write(s),
   writeErr = (s) => process.stderr.write(s),
   git = defaultGit,
-  spawnNotion = defaultSpawnNotion,
-  checkGoalsPageAbsent = defaultCheckGoalsPageAbsent,
-  tmpFile = () => path.join(os.tmpdir(), `goals-mirror-${process.pid}-${Date.now()}.md`),
 } = {}) {
   try {
     const opts = parseArgs(argv);
@@ -259,67 +196,8 @@ export function run({
       return 0;
     }
     if (opts.cmd === 'publish') {
-      if (!opts.repo) throw new RefusedError('publish requires --repo');
-      if (!opts.parent) throw new RefusedError('publish requires --parent');
-      if (opts.current === undefined) throw new RefusedError('publish requires --current');
-
-      const dirty = checkDirty({ repo: opts.repo, readFile, git });
-      if (dirty.dirty) {
-        writeErr(`goals-mirror: working tree ${dirty.path} differs from origin/main; commit and push before publish\n`);
-        return 1;
-      }
-
-      if (opts.current === 'none') {
-        // The owner-note check must never be skippable just by claiming --current none:
-        // refuse unless we can positively confirm the target Goals page does not exist yet.
-        let absent;
-        try {
-          absent = checkGoalsPageAbsent({ parent: opts.parent, title: 'Goals' });
-        } catch (e) {
-          if (e instanceof BlindError) throw e;
-          throw new BlindError(`cannot check whether the Goals page exists: ${e instanceof Error ? e.message : e}`);
-        }
-        if (absent !== true) {
-          writeErr('goals-mirror: --current none requires the Goals page to be absent, but one was found; pass a --current read of it instead\n');
-          return 1;
-        }
-      } else {
-        let currentText;
-        try {
-          currentText = readFile(opts.current);
-        } catch (e) {
-          throw new BlindError(`cannot read --current ${opts.current}: ${e instanceof Error ? e.message : e}`);
-        }
-        let doc;
-        try {
-          doc = parseDocument(currentText);
-        } catch (e) {
-          throw new BlindError(`cannot parse --current: ${e instanceof Error ? e.message : e}`);
-        }
-        const readerNotes = ownerNoteLines(doc);
-        const notes = readerNotes.length > 0 ? readerNotes : rawNoteLines(currentText);
-        if (notes.length > 0) {
-          for (const l of notes) write(`${l}\n`);
-          writeErr('goals-mirror: owner notes on the goals page; act on them and republish before this can proceed\n');
-          return 1;
-        }
-        if (extractPageSha(currentText) === null) {
-          writeErr('goals-mirror: --current has no "main at <sha>" on the first line of its first callout; it is not a read of the Goals mirror page\n');
-          return 1;
-        }
-      }
-
-      const sha = opts.sha || computeSha({ repo: opts.repo, git });
-      const page = renderPage({ repo: opts.repo, sha, readFile });
-      const tmp = tmpFile();
-      writeFile(tmp, page);
-      const result = spawnNotion({ parent: opts.parent, title: 'Goals', file: tmp });
-      if (result.stdout) write(result.stdout);
-      if (result.status && result.status !== 0) {
-        if (result.stderr) writeErr(result.stderr);
-        return 1;
-      }
-      return 0;
+      writeErr('goals-mirror: publish is disabled; run render, read the Goals page fresh, then use notion-writing targeted anchored edits and verify readback\n');
+      return 1;
     }
     throw new RefusedError(`unknown command: ${opts.cmd ?? '(none)'}`);
   } catch (err) {

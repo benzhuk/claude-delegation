@@ -104,13 +104,13 @@ function lastContentLineIndex(lines) {
  * silent, and it never fails the parse (this is still all inside "parsed, but look").
  */
 function finalizeDone(candidates, lines) {
-  if (candidates.length === 0) return { done: null, warnings: [] };
+  if (candidates.length === 0) return { done: null, doneLabel: null, warnings: [] };
   const last = candidates[candidates.length - 1];
   const warnings = [];
   const trueLastIdx = lastContentLineIndex(lines);
   if (last.line - 1 !== trueLastIdx) warnings.push({ text: 'Done is not the last line', line: last.line });
   if (candidates.length > 1) warnings.push({ text: 'more than one Done line', line: last.line });
-  return { done: last.ticked, warnings };
+  return { done: last.ticked, doneLabel: last.label, warnings };
 }
 
 /** Status priority (R2): AMBIGUOUS > TICKED > COMMENTED > DUE > REPLIED > OPEN. */
@@ -177,12 +177,11 @@ export function parseDocument(text, { now = new Date() } = {}) {
 
     const parsed = splitMarker(raw);
 
-    // R3/round-2 P1: a checkbox whose text is EXACTLY "Done" is the page-level Done at
-    // ANY indentation, never an option — checked first, ahead of everything else a
-    // checkbox line could otherwise be read as (round-2 P2's ordering).
-    if (parsed.kind === 'checkbox' && parsed.text.trim() === 'Done') {
+    // Done is a page-level human submission signal, never an option. Retain its exact
+    // supported label so callers can distinguish legacy Done from a cleared timestamp.
+    if (parsed.kind === 'checkbox' && /^Done(?: \(last cleared: .+\))?$/.test(parsed.text.trim())) {
       const indented = /^[ \t]/.test(raw);
-      doneCandidates.push({ line: lineNo, ticked: parsed.ticked, attachedTitle: currentTitle });
+      doneCandidates.push({ line: lineNo, ticked: parsed.ticked, label: parsed.text.trim(), attachedTitle: currentTitle });
       if (indented) warnings.push({ text: 'Done line is indented', line: lineNo });
       continue;
     }
@@ -255,7 +254,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
   if (inFence) throw new BlindError('unterminated fenced code block');
   if (titles.length === 0) throw new BlindError('no titles found');
 
-  const { done, warnings: doneWarnings } = finalizeDone(doneCandidates, lines);
+  const { done, doneLabel, warnings: doneWarnings } = finalizeDone(doneCandidates, lines);
   warnings.push(...doneWarnings);
   // Round-2 P8: a page that has at least one real decision but no Done line at all is a
   // page defect too — the skill leans on Done to assert "nothing open" — so it WARNs. A
@@ -315,7 +314,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
     .map((t) => ({ title: t.title, line: t.line }));
 
   return {
-    decisions, unattached, done, warnings, shapeless,
+    decisions, unattached, done, doneLabel, warnings, shapeless,
   };
 }
 
@@ -362,6 +361,7 @@ export function toJsonObject(doc) {
     warnings: doc.warnings.map((w) => ({ text: w.text, line: w.line })),
     decisionCount: doc.decisions.length,
     done: doc.done,
+    doneLabel: doc.doneLabel,
   };
 }
 
@@ -373,7 +373,7 @@ export function formatJson(doc) {
 export function computeExitCode(doc) {
   const actionableStatuses = new Set(['AMBIGUOUS', 'TICKED', 'COMMENTED', 'DUE']);
   const hasActionableDecision = doc.decisions.some((d) => actionableStatuses.has(d.status));
-  return (hasActionableDecision || doc.unattached.length > 0 || doc.warnings.length > 0) ? 1 : 0;
+  return (doc.done === true || hasActionableDecision || doc.unattached.length > 0 || doc.warnings.length > 0) ? 1 : 0;
 }
 
 function parseArgs(argv) {

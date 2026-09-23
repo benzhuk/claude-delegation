@@ -174,7 +174,7 @@ const singleDefects = [
   {
     name: 'Done ticked while an item is still open',
     files: { d: fixture('decisions-done-mismatch-open.md'), g: CLEAN_GOALS },
-    expect: /DONE\ttrue\t\(expected false with DECISIONS 1\)/,
+    expect: /DONE\ttrue\t\(account submitted input, then clear Done before hand-back\)/,
   },
   {
     name: 'Done not the last line',
@@ -205,12 +205,7 @@ const singleDefects = [
   {
     name: 'Done absent (no Done line at all, with a real decision)',
     files: { d: fixture('decisions-done-absent.md'), g: CLEAN_GOALS },
-    expect: /DONE\tabsent\t\(expected false with DECISIONS 1\)/,
-  },
-  {
-    name: 'zero items with an unticked (false) Done line',
-    files: { d: fixture('decisions-zero-items-unticked.md'), g: CLEAN_GOALS },
-    expect: /DONE\tfalse\t\(expected true with DECISIONS 0\)/,
+    expect: /DONE\tabsent\t\(expected a page-level Done control\)/,
   },
   {
     name: 'the goals-mirror sha line is missing entirely',
@@ -269,14 +264,14 @@ for (const defect of singleDefects) {
   });
 }
 
-test('Test 4: a zero-item page with "- [x] Done" last is clean', () => {
+test('Test 4: a zero-item page with "- [x] Done" is pending submission, not hand-back clean', () => {
   const { exitCode, stdout } = runWith({
     argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
     files: { d: fixture('decisions-zero-items-done.md'), g: CLEAN_GOALS },
   });
-  assert.equal(exitCode, 0);
-  assert.match(stdout, /Decisions waiting: 0, notes logged today: 0, goals mirror at 889887a/);
-  assert.match(stdout, /HANDBACK ok\n$/);
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /DONE\ttrue\t\(account submitted input, then clear Done before hand-back\)/);
+  assert.match(stdout, /HANDBACK blocked\n$/);
 });
 
 // Round-2 review M1: SHAPE only blocks on shapeless toggles inside "# Waiting on you now" (or
@@ -358,7 +353,7 @@ test('Test 4: BLIND (unparseable goals page) exits 3 and prints "HANDBACK blind"
   assert.match(stdout, /HANDBACK blind\n$/);
 });
 
-test('Test 4: kill-switch file makes a blocked result exit 0 and still print "HANDBACK blocked"', () => {
+test('Test 4: kill-switch file makes a blocked result exit 0 and print "HANDBACK disabled"', () => {
   const home = tmpdir('decisions-handback-home-');
   fs.writeFileSync(path.join(home, 'ws-off-decisions'), '', 'utf8');
   const { exitCode, stdout } = runWith({
@@ -367,7 +362,7 @@ test('Test 4: kill-switch file makes a blocked result exit 0 and still print "HA
     env: { AGENTS_HOME: home },
   });
   assert.equal(exitCode, 0);
-  assert.match(stdout, /HANDBACK blocked\n$/);
+  assert.match(stdout, /HANDBACK disabled\n$/);
   assert.doesNotMatch(stdout, /Decisions waiting:/, 'the waiting line is tied to "HANDBACK ok", not to exit 0 alone');
 });
 
@@ -380,7 +375,7 @@ test('Test 4: the master ws-off switch also forces a blocked result to exit 0', 
     env: { AGENTS_HOME: home },
   });
   assert.equal(exitCode, 0);
-  assert.match(stdout, /HANDBACK blocked\n$/);
+  assert.match(stdout, /HANDBACK disabled\n$/);
 });
 
 test('the kill switch never affects a BLIND result: still exits 3', () => {
@@ -763,7 +758,7 @@ test('CLI: real process, a defect on the decisions page, plus the kill-switch fi
     '--today', '9-22',
   ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: home }) });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /HANDBACK blocked\n$/);
+  assert.match(result.stdout, /HANDBACK disabled\n$/);
 });
 
 test('CLI: real process, without --head, calls real git for the head sha (does not crash; exit is 0, 1, or 3)', () => {

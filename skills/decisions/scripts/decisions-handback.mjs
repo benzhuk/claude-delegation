@@ -40,15 +40,12 @@ function objectionableLines(doc) {
 }
 
 /**
- * M3's Done rule, decisions page only ("the goals page is exempt from the Done rule"): DONE must
- * be false while any decision is open, true when none are, never absent. Returns a printable
- * line naming the mismatch, or null when the rule is satisfied.
+ * Done is a human submission signal. An unchecked Done (including an empty page) is a valid
+ * hand-back shape; a checked Done tells the agent to account the submission and clear it first.
  */
 function doneRuleLine(doc) {
-  const count = doc.decisions.length;
-  const expected = count === 0; // expect true with zero decisions, false with any open
-  if (doc.done === null) return `DONE\tabsent\t(expected ${expected ? 'true' : 'false'} with DECISIONS ${count})`;
-  if (doc.done !== expected) return `DONE\t${doc.done}\t(expected ${expected ? 'true' : 'false'} with DECISIONS ${count})`;
+  if (doc.done === null) return 'DONE\tabsent\t(expected a page-level Done control)';
+  if (doc.done === true) return 'DONE\ttrue\t(account submitted input, then clear Done before hand-back)';
   return null;
 }
 
@@ -358,8 +355,12 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
     return 0;
   }
 
+  if (killSwitchActive(env)) {
+    writeOut('HANDBACK disabled\n');
+    return 0;
+  }
   writeOut('HANDBACK blocked\n');
-  return killSwitchActive(env) ? 0 : 1;
+  return 1;
 }
 
 /**

@@ -124,11 +124,12 @@ only in a release commit) keeps the Notion goals mirror current as its last step
 bump, commit, push, then
 
 ```
-node skills/decisions/scripts/goals-mirror.mjs publish --repo . --parent <goals_parent_page> --current <read>
+node skills/decisions/scripts/goals-mirror.mjs render --repo . > <scratch>/goals-render.md
 ```
 
-paste the command's output line into the release report. `<goals_parent_page>` comes
-from `.agents/project.json`; `<read>` is a fresh `notion.js read` of the existing
-Goals child page (its id is on the `[child page: Goals] (<id>)` line of `notion.js
-read-blocks <goals_parent_page>`), or `none` when no Goals child page exists yet. No
-runner brief template exists for this step; none is created here.
+Read the existing Goals child fresh, then use the existing `notion-writing` skill for
+anchored targeted edits of agent-owned mirror sections only and verify the readback.
+Preserve surrounding human content; reconcile a changed anchor or uncertain write from
+a fresh read. Initial creation uses the existing writer under normal authority.
+`goals-mirror.mjs publish` is intentionally disabled. No runner brief template exists
+for this step; none is created here.
