@@ -87,8 +87,9 @@ function buildPrompt(t, round, findingsPath) {
 
 function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath) {
   let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Delivered sha: ${build.sha}. Builder report: ${build.reportPath}. ${REVIEW_MANDATE}`
-  if (round >= 2 && priorBuildSha && priorFindingsPath) {
-    p += ` Prior findings: ${priorFindingsPath}. Commit range: ${priorBuildSha}..${build.sha}.`
+  if (round >= 2 && priorBuildSha) {
+    if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
+    p += ` Commit range: ${priorBuildSha}..${build.sha}.`
   }
   return p
 }

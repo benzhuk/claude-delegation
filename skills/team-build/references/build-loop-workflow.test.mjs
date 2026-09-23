@@ -376,6 +376,23 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   assert.ok(fixReviewCall.prompt.includes("Commit range: sha1..sha2"), "the fix review must compare the captured prior builder sha to the replacement build sha");
 });
 
+test("a fix review always receives the captured artifact range, even with an empty findings path and a retry", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", ""),
+    "build:T1:r2": buildResult("sha2"),
+    "review:T1:r2": [null, reviewResult("APPROVE", "sha2")],
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  const retryingReviewCalls = stub.calls.filter((c) => c.opts.label === "review:T1:r2");
+  assert.equal(retryingReviewCalls.length, 2, "the fix review retries once after a null response");
+  for (const call of retryingReviewCalls) {
+    assert.ok(call.prompt.includes("Commit range: sha1..sha2"), "each fix-review attempt receives the captured artifact range");
+  }
+});
+
 test("a review only approves the build sha it reviewed, including after a fix round", async () => {
   const initialMismatch = makeAgentStub({
     "build:T1:r1": buildResult("sha1"),
