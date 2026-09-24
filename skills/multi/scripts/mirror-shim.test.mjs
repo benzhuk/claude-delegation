@@ -212,6 +212,38 @@ test('R4: --dry-run plans the shims without creating anything', () => {
   assert.ok(!fs.existsSync(path.join(plan.home, '.agents')));
 });
 
+test('optional source omissions are named, nonfatal, and dry-run writes nothing', () => {
+  const plan = dryRunPlan();
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plan.refusals, []);
+  for (const name of ['knowledge', 'triage', 'learn']) {
+    assert.ok(plan.actions.some((line) => line.includes(`optional source skill not sourced: ${name} (source missing)`)),
+      `missing source diagnostic for ${name}:\n${plan.actions.join('\n')}`);
+  }
+  assert.deepEqual(fs.readdirSync(plan.home), [], '--dry-run must not create a home entry');
+});
+
+test('optional source without SKILL.md is named while a usable optional source remains selected', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-optional-source-'));
+  const root = path.join(home, '.claude', 'skills');
+  fs.mkdirSync(path.join(root, 'knowledge'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'triage'), 'not a skill directory', 'utf8');
+  fs.mkdirSync(path.join(root, 'learn'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'learn', 'SKILL.md'), '# learn\n', 'utf8');
+
+  const plan = runMirrorJson(['--dry-run'], home);
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plan.refusals, []);
+  assert.ok(plan.actions.some((line) => line.includes('optional source skill not sourced: knowledge (SKILL.md missing)')),
+    plan.actions.join('\n'));
+  assert.ok(plan.actions.some((line) => line.includes('optional source skill not sourced: triage (wrong file type: source is not a directory)')),
+    plan.actions.join('\n'));
+  assert.ok(plan.actions.some((line) => /would copy: .*\.agents[\\/]skills[\\/]learn/.test(line)),
+    `usable optional source was not selected:\n${plan.actions.join('\n')}`);
+  assert.deepEqual(fs.readdirSync(path.join(home, '.claude', 'skills', 'learn')), ['SKILL.md']);
+  assert.ok(!fs.existsSync(path.join(home, '.agents')), '--dry-run must not publish optional sources');
+});
+
 test('R4: the plan still covers the skills, the shared docs and the Codex roles', () => {
   const plan = dryRunPlan();
   assert.match(plan.sharedDocs, /\.agents\/skills\/_docs$/);

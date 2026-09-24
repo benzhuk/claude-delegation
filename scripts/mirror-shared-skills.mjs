@@ -284,7 +284,9 @@ export function collectSources() {
   }
   for (const name of CLAUDE_SKILLS) {
     const src = path.join(HOME, '.claude', 'skills', name);
-    if (isSkillDir(src)) out.push({ kind: 'skill', name, src, dest: path.join(AGENTS_SKILLS, name) });
+    const inspected = inspectOptionalSkillSource(src);
+    if (inspected.usable) out.push({ kind: 'skill', name, src, dest: path.join(AGENTS_SKILLS, name) });
+    else say('optional source skill not sourced', `${name} (${inspected.reason})`);
   }
   // S1: the docs the mirrored skills link to. Without them `../_docs/model-tiers.md` dangles for
   // every Codex session, while AGENTS.md calls that file the single source of truth.
@@ -362,6 +364,25 @@ function shimContent(flavour, command) {
 
 function isSkillDir(dir) {
   try { return fs.statSync(dir).isDirectory() && fs.existsSync(path.join(dir, 'SKILL.md')); } catch { return false; }
+}
+
+/** Optional sources are informative only: diagnose their local input without making any claim about a destination. */
+function inspectOptionalSkillSource(dir) {
+  let source;
+  try { source = fs.statSync(dir); }
+  catch (error) { return { usable: false, reason: inspectionReason(error, 'source missing') }; }
+  if (!source.isDirectory()) return { usable: false, reason: 'wrong file type: source is not a directory' };
+
+  let skill;
+  try { skill = fs.statSync(path.join(dir, 'SKILL.md')); }
+  catch (error) { return { usable: false, reason: inspectionReason(error, 'SKILL.md missing') }; }
+  if (!skill.isFile()) return { usable: false, reason: 'wrong file type: SKILL.md is not a file' };
+  return { usable: true };
+}
+
+function inspectionReason(error, missing) {
+  if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return missing;
+  return `inspection failed: ${error?.code ?? error?.name ?? 'unknown filesystem error'}`;
 }
 
 function safeReaddir(dir) {
