@@ -23,7 +23,7 @@
 //   file_fresh    { file, maxAgeSeconds, whenMissing? }      - ok / stale (too old, or missing - default 'stale') / whenMissing overrides the missing case
 //   switch        { file }                                  - always 'info', why says ON or off
 //   env_presence  { var }                                   - always 'info', why says set or not set
-//   (anything else)                                         - 'info', why: "unknown check type" - never a crash
+//   (anything else)                                         - 'unknown' - never a crash
 //
 // A check whose `platforms` array does not include the current platform is skipped entirely (it does
 // not apply here, so it is not a finding either way).
@@ -54,11 +54,28 @@ export function expandHome(p, home) {
   return p;
 }
 
-function readJsonSafe(fsImpl, file) {
+function isKnownAbsent(error) {
+  return error?.code === "ENOENT" || error?.code === "ENOTDIR";
+}
+
+function readJsonEvidence(fsImpl, file) {
   try {
-    return JSON.parse(fsImpl.readFileSync(file, "utf8"));
-  } catch {
-    return null;
+    const text = fsImpl.readFileSync(file, "utf8");
+    try {
+      return { kind: "present", value: JSON.parse(text) };
+    } catch {
+      return { kind: "unknown" };
+    }
+  } catch (error) {
+    return isKnownAbsent(error) ? { kind: "absent" } : { kind: "unknown" };
+  }
+}
+
+function statEvidence(fsImpl, file) {
+  try {
+    return { kind: "present", value: fsImpl.statSync(file) };
+  } catch (error) {
+    return isKnownAbsent(error) ? { kind: "absent" } : { kind: "unknown" };
   }
 }
 
@@ -118,10 +135,10 @@ function namesInboxesJson(check, home) {
 
 function evalJsonValue(check, { home, fsImpl }) {
   const file = expandHome(check.file, home);
-  if (!fsImpl.existsSync(file)) return { state: "missing", why: `${check.why} (${file} does not exist)` };
-  const data = readJsonSafe(fsImpl, file);
-  if (data === null) return { state: "missing", why: `${check.why} (${file} is not valid JSON)` };
-  const actual = getDotted(data, check.path);
+  const evidence = readJsonEvidence(fsImpl, file);
+  if (evidence.kind === "absent") return { state: "missing", why: `${check.why} (${file} does not exist)` };
+  if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
+  const actual = getDotted(evidence.value, check.path);
   if (actual === undefined) return { state: "missing", why: `${check.why} (${file}#${check.path} is not set)` };
   if (actual === check.expected) return { state: "ok" };
   // J6: never print the actual or expected value unless it is a boolean or a number - neither can be
@@ -148,15 +165,15 @@ function hookGroupHasSubstring(hooksSection, event, substring) {
 
 function evalHookPresence(check, { home, fsImpl }, wantPresent) {
   const file = expandHome(check.file, home);
-  if (!fsImpl.existsSync(file)) {
+  const evidence = readJsonEvidence(fsImpl, file);
+  if (evidence.kind === "absent") {
     // No settings file at all: nothing is wired, either desired direction is answered by that fact.
     return wantPresent
       ? { state: "missing", why: `${check.why} (${file} does not exist)` }
       : { state: "ok" };
   }
-  const data = readJsonSafe(fsImpl, file);
-  if (data === null) return { state: "missing", why: `${check.why} (${file} is not valid JSON)` };
-  const present = hookGroupHasSubstring(data?.hooks, check.event, check.substring);
+  if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
+  const present = hookGroupHasSubstring(evidence.value?.hooks, check.event, check.substring);
   const eventLabel = check.event ?? "(unspecified event)";
   const substringLabel = check.substring ?? "(unspecified substring)";
   if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (no ${eventLabel} hook in ${file} contains "${substringLabel}")` };
@@ -165,23 +182,22 @@ function evalHookPresence(check, { home, fsImpl }, wantPresent) {
 
 function evalFileExistence(check, { home, fsImpl }, wantPresent) {
   const file = expandHome(check.file, home);
-  const present = fsImpl.existsSync(file);
+  const evidence = statEvidence(fsImpl, file);
+  if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
+  const present = evidence.kind === "present";
   if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (${file} does not exist)` };
   return present ? { state: "stale", why: `${check.why} (${file} still exists)` } : { state: "ok" };
 }
 
 function evalFileFresh(check, { home, fsImpl, now }) {
   const file = expandHome(check.file, home);
-  if (!fsImpl.existsSync(file)) {
+  const evidence = statEvidence(fsImpl, file);
+  if (evidence.kind === "absent") {
     const state = check.whenMissing === "info" ? "info" : "stale";
     return { state, why: `${check.why} (${file} has never been created)` };
   }
-  let mtimeMs;
-  try {
-    mtimeMs = fsImpl.statSync(file).mtimeMs;
-  } catch {
-    return { state: "info", why: `${check.why} (could not read the mtime of ${file})` };
-  }
+  if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
+  const mtimeMs = evidence.value.mtimeMs;
   const ageSeconds = Math.max(0, (now.getTime() - mtimeMs) / 1000);
   if (ageSeconds <= check.maxAgeSeconds) return { state: "ok" };
   const maxLabel = typeof check.maxAgeSeconds === "number" ? `${check.maxAgeSeconds}s` : "(unspecified)";
@@ -234,7 +250,7 @@ function evalCheck(check, ctx) {
  *   read the plugin's own required-wiring.default.json and, if present, ~/.agents/required-wiring.json
  * @param {object} [opts.env] - defaults to the process environment; the only environment input, and
  *   only through this argument
- * @returns {{ ok: boolean, results: Array<{id: string, state: 'ok'|'missing'|'stale'|'info', why: string, fix: string}> }}
+ * @returns {{ ok: boolean, results: Array<{id: string, state: 'ok'|'missing'|'stale'|'info'|'unknown', why: string, fix: string}> }}
  */
 export function checkWiring({ home = homedir(), platform = process.platform, fsImpl = fs, now = new Date(), lists, env = process.env } = {}) {
   const publicInput = lists?.public === undefined
@@ -250,10 +266,14 @@ export function checkWiring({ home = homedir(), platform = process.platform, fsI
   const results = [];
   if (publicInput.unknown) results.push({ id: "wiring-default-input", state: "unknown", why: "could not inspect the required wiring check list", fix: "repair the wiring check list" });
   if (privateInput.unknown) results.push({ id: "wiring-private-input", state: "unknown", why: "could not inspect the private wiring check list", fix: "repair or remove the private wiring check list" });
+  if (publicList.some((check) => !check || typeof check !== "object" || typeof check.id !== "string" || check.id.length === 0)) {
+    results.push({ id: "wiring-default-row", state: "unknown", why: "the required wiring check list contains an invalid row", fix: "repair the wiring check list" });
+  }
+  if (privateList.some((check) => !check || typeof check !== "object" || typeof check.id !== "string" || check.id.length === 0)) {
+    results.push({ id: "wiring-private-row", state: "unknown", why: "the private wiring check list contains an invalid row", fix: "repair or remove the private wiring check list" });
+  }
   for (const check of merged) {
-    // J2: a check missing (or with a non-string) `type` gets the same "unknown check type" info row
-    // as an unrecognized one - round-1 review found it was silently dropped instead, the exact
-    // failure mode this tool exists to prevent.
+    // A valid-id row with a missing or unsupported type remains selected and reports unknown.
     if (!check || typeof check.id !== "string") {
       results.push({ id: "wiring-invalid-row", state: "unknown", why: "a wiring check row could not be identified", fix: "repair the wiring check list" });
       continue;
@@ -348,9 +368,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   let result;
   try {
     result = checkWiring(opts);
-  } catch (err) {
-    // A wiring check never fails its caller: an unexpected throw is reported as one blind info line.
-    result = { ok: false, results: [{ id: "wiring-check", state: "info", why: `could not run: ${String(err && err.message ? err.message : err)}`, fix: "" }] };
+  } catch {
+    // Keep unexpected dependency failures visible without copying exception text into output.
+    result = { ok: false, results: [{ id: "wiring-check", state: "unknown", why: "could not inspect required wiring", fix: "inspect the wiring-check inputs and filesystem access" }] };
   }
 
   if (argv.includes("--json")) printJson(result);

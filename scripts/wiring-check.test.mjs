@@ -64,7 +64,7 @@ test("checkWiring returns { ok, results } and each result has id/state/why/fix",
   assert.ok(Array.isArray(result.results));
   const r = result.results[0];
   assert.equal(r.id, "a");
-  assert.ok(["ok", "missing", "stale", "info"].includes(r.state));
+  assert.ok(["ok", "missing", "stale", "info", "unknown"].includes(r.state));
   assert.equal(typeof r.why, "string");
   assert.equal(typeof r.fix, "string");
 });
@@ -198,6 +198,45 @@ test("file_fresh: ok within the window, stale once past it, missing file is 'sta
   assert.equal(byId["missing-info"].state, "info");
 });
 
+test("required file evidence distinguishes known absence from inaccessible or corrupt evidence", () => {
+  const home = mkHome();
+  const denied = path.join(home, "denied");
+  const corrupt = write(home, "corrupt.json", "{not-json");
+  const absent = path.join(home, "absent");
+  const deniedError = Object.assign(new Error("PRIVATE-DISK-DETAIL"), { code: "EACCES" });
+  const fsImpl = {
+    readFileSync: (p, enc) => {
+      if (p === denied) throw deniedError;
+      return fs.readFileSync(p, enc);
+    },
+    statSync: (p) => {
+      if (p === denied) throw deniedError;
+      return fs.statSync(p);
+    },
+    existsSync: (p) => fs.existsSync(p),
+  };
+  const checks = [
+    { id: "denied-exists", type: "file_exists", file: denied, why: "w", fix: "f" },
+    { id: "denied-absent", type: "file_absent", file: denied, why: "w", fix: "f" },
+    { id: "denied-fresh", type: "file_fresh", file: denied, maxAgeSeconds: 1, whenMissing: "info", why: "w", fix: "f" },
+    { id: "denied-json", type: "json_value", file: denied, path: "x", expected: 1, why: "w", fix: "f" },
+    { id: "denied-hook", type: "hook_absent", file: denied, event: "Stop", substring: "x", why: "w", fix: "f" },
+    { id: "corrupt-json", type: "json_value", file: corrupt, path: "x", expected: 1, why: "w", fix: "f" },
+    { id: "corrupt-hook", type: "hook_absent", file: corrupt, event: "Stop", substring: "x", why: "w", fix: "f" },
+    { id: "known-absent", type: "file_absent", file: absent, why: "w", fix: "f" },
+    { id: "known-missing", type: "file_exists", file: absent, why: "w", fix: "f" },
+  ];
+  const result = checkWiring({ home, platform: "linux", fsImpl, lists: { public: checks, private: [] } });
+  const byId = Object.fromEntries(result.results.map((r) => [r.id, r]));
+  for (const id of ["denied-exists", "denied-absent", "denied-fresh", "denied-json", "denied-hook", "corrupt-json", "corrupt-hook"]) {
+    assert.equal(byId[id].state, "unknown", id);
+    assert.doesNotMatch(byId[id].why, /PRIVATE-DISK-DETAIL/, id);
+  }
+  assert.equal(byId["known-absent"].state, "ok");
+  assert.equal(byId["known-missing"].state, "missing");
+  assert.equal(result.ok, false);
+});
+
 test("switch: always 'info', why reports ON when the file exists and off when it does not", () => {
   const home = mkHome();
   const onFile = write(home, "on-switch", "");
@@ -293,23 +332,41 @@ test("an unknown check type is unknown and prevents green", () => {
   const home = mkHome();
   const checks = [{ id: "mystery", type: "teleport", why: "w", fix: "f" }];
   const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
-  assert.equal(results[0].state, "info");
+  assert.equal(results[0].state, "unknown");
   assert.match(results[0].why, /unsupported check type/);
 });
 
 test("a check whose evaluation throws is unknown, private, and not a crash", () => {
   const home = mkHome();
   const throwingFs = {
-    existsSync: () => {
+    existsSync: () => false,
+    readFileSync: () => "",
+    statSync: () => {
       throw new Error("disk exploded");
     },
-    readFileSync: () => "",
-    statSync: () => ({ mtimeMs: 0 }),
   };
   const checks = [{ id: "boom", type: "file_exists", file: "~/x", why: "w", fix: "f" }];
   const { results } = checkWiring({ home, platform: "linux", fsImpl: throwingFs, lists: { public: checks, private: [] } });
-  assert.equal(results[0].state, "info");
-  assert.match(results[0].why, /disk exploded/);
+  assert.equal(results[0].state, "unknown");
+  assert.doesNotMatch(results[0].why, /disk exploded/);
+});
+
+test("invalid rows produce bounded input uncertainty before valid rows are merged", () => {
+  const home = mkHome();
+  const result = checkWiring({
+    home,
+    platform: "linux",
+    fsImpl: readOnlyFs(home),
+    lists: {
+      public: [null, { type: "file_exists", file: "~/missing" }, { id: "kept", type: "switch", file: "~/x", why: "w", fix: "f" }],
+      private: [{ id: "kept", type: "switch", file: "~/private", why: "private", fix: "f" }],
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.results.filter((r) => r.id === "wiring-default-row").length, 1);
+  assert.equal(result.results.find((r) => r.id === "wiring-default-row").state, "unknown");
+  assert.equal(result.results.find((r) => r.id === "kept").why, "private (off)");
+  assert.equal(result.results.some((r) => String(r.why).includes("missing")), false, "invalid row contents are not echoed");
 });
 
 // ---------------------------------------------------------------------------
@@ -622,6 +679,31 @@ test("main() as a function (not a subprocess) returns 0 for known flags and 1 fo
   }
 });
 
+test("main reports an unexpected dependency failure as bounded unknown without leaking its error", () => {
+  const home = mkHome();
+  const opts = { home, fsImpl: readOnlyFs(home) };
+  Object.defineProperty(opts, "lists", {
+    get() { throw new Error("SECRET_SENTINEL"); },
+  });
+  const origLog = console.log;
+  const lines = [];
+  console.log = (value) => { lines.push(String(value)); };
+  try {
+    assert.equal(main(["--json"], opts), 0);
+    const parsed = JSON.parse(lines.shift());
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.results[0].state, "unknown");
+    assert.doesNotMatch(JSON.stringify(parsed), /SECRET_SENTINEL/);
+
+    assert.equal(main(["--line"], opts), 0);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /wiring: 1 flagged \(wiring check\)/);
+    assert.doesNotMatch(lines[0], /SECRET_SENTINEL/);
+  } finally {
+    console.log = origLog;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // round-1 findings: a missing type is not silently dropped, and inboxes.json is refused
 // ---------------------------------------------------------------------------
@@ -635,10 +717,10 @@ test("a check with NO type field is unknown and never silently dropped", () => {
   const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
   const byId = Object.fromEntries(results.map((r) => [r.id, r]));
   assert.ok(byId["no-type-at-all"], "a check with a missing type must still produce a result row");
-  assert.equal(byId["no-type-at-all"].state, "info");
+  assert.equal(byId["no-type-at-all"].state, "unknown");
   assert.match(byId["no-type-at-all"].why, /unsupported check type/);
   assert.ok(byId["null-type"], "a check with type: null must still produce a result row");
-  assert.equal(byId["null-type"].state, "info");
+  assert.equal(byId["null-type"].state, "unknown");
 });
 
 test("a private-list entry naming inboxes.json is refused before any fs call, whatever type it claims", () => {
@@ -666,7 +748,7 @@ test("a private-list entry naming inboxes.json is refused before any fs call, wh
   ];
   const { results } = checkWiring({ home, platform: "linux", fsImpl: spyFs, lists: { public: hostile, private: [] } });
   for (const r of results) {
-    assert.equal(r.state, "info", `${r.id} must be refused as unknown, not evaluated`);
+    assert.equal(r.state, "unknown", `${r.id} must be refused as unknown, not evaluated`);
     assert.match(r.why, /protected peer-note ledger/);
   }
   assert.ok(!touched.some((p) => p === inboxesPath), "inboxes.json must never be opened or stat'ed, even though it never exists in this fixture yet");
@@ -708,7 +790,7 @@ test("a check naming inboxes.json in ANY letter case is refused before any fs ca
   }));
   const { results } = checkWiring({ home, platform: "linux", fsImpl: spyFs, lists: { public: hostile, private: [] } });
   for (const r of results) {
-    assert.equal(r.state, "info", `${r.id} must be refused as unknown, not evaluated`);
+    assert.equal(r.state, "unknown", `${r.id} must be refused as unknown, not evaluated`);
     assert.match(r.why, /protected peer-note ledger/);
     assert.doesNotMatch(r.why, /LEDGER-CONTENT-MUST-NEVER-APPEAR/, `${r.id}'s message must never contain the ledger's actual content`);
   }
