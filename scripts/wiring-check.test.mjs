@@ -165,11 +165,16 @@ test("hook checks distinguish valid absence from malformed selected hook contain
     ["root-number", "42"],
     ["event-not-array", JSON.stringify({ hooks: { Stop: "bad-shape" } })],
     ["handlers-not-array", JSON.stringify({ hooks: { Stop: [{ hooks: {} }] } })],
+    ["command-missing", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command" }] }] } })],
+    ["command-null", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: null }] }] } })],
+    ["command-number", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: 42 }] }] } })],
     ["valid-empty-root", "{}"],
     ["valid-unrelated", JSON.stringify({ unrelated: true })],
     ["valid-no-event", JSON.stringify({ hooks: { SessionStart: [] } })],
     ["valid-empty-event", JSON.stringify({ hooks: { Stop: [] } })],
     ["valid-noncommand", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "prompt", prompt: "review" }] }] } })],
+    ["valid-command-match", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "node test-hook.mjs" }] }] } })],
+    ["valid-command-no-match", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "node other.mjs" }] }] } })],
   ]);
   const checks = [];
   for (const [id, payload] of payloads) {
@@ -178,12 +183,13 @@ test("hook checks distinguish valid absence from malformed selected hook contain
   }
   const result = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
   const byId = Object.fromEntries(result.results.map((row) => [row.id, row]));
-  for (const id of ["root-null", "root-number", "event-not-array", "handlers-not-array"]) {
+  for (const id of ["root-null", "root-number", "event-not-array", "handlers-not-array", "command-missing", "command-null", "command-number"]) {
     assert.equal(byId[id].state, "unknown", id);
   }
-  for (const id of ["valid-empty-root", "valid-unrelated", "valid-no-event", "valid-empty-event", "valid-noncommand"]) {
+  for (const id of ["valid-empty-root", "valid-unrelated", "valid-no-event", "valid-empty-event", "valid-noncommand", "valid-command-no-match"]) {
     assert.equal(byId[id].state, "ok", id);
   }
+  assert.equal(byId["valid-command-match"].state, "stale");
   assert.equal(result.ok, false);
 });
 

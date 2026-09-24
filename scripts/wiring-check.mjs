@@ -164,6 +164,8 @@ function inspectHookGroup(data, event, substring) {
     const list = entry.hooks;
     for (const h of list) {
       if (h === null || typeof h !== "object" || Array.isArray(h)) return { kind: "unknown" };
+      const hasCommand = Object.hasOwn(h, "command");
+      if ((h.type === "command" && !hasCommand) || (hasCommand && typeof h.command !== "string")) return { kind: "unknown" };
       if (typeof h.command === "string" && h.command.includes(substring)) return { kind: "known", present: true };
     }
   }
