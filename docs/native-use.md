@@ -1,6 +1,6 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes the 0.20 source candidate. Release and current-machine update evidence belongs in the work records; a checkout is not an installed runtime. The current Windows plain skill mirror was last verified at 0.19. Choose one hook route for a Codex host, then verify actual execution on that host.
+This guide describes released 0.20.0 at 8b4ea6f. The current Windows plain skill mirror was updated and byte-verified at 0.20 on September 23, 10:55 PM America/New_York; configuration and hook registration were unchanged. See [local update evidence](work/evidence/local-mirror-0200-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
 
 ## Choose the route
 

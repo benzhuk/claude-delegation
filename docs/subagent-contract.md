@@ -35,6 +35,13 @@ ready, nothing more.
 - For anything load-bearing, **read the report file (at least its first lines), never
   the reply**.
 - Never spawn a follow-up action off a bare `Done.` — grep the report first.
+- A passing gate needs its actual process exit, test counts and retained output at the
+  stated artifact. Preserve a returned process/session ID until completion. An empty
+  tool wrapper, successful commit, or later shell command is not evidence that tests
+  passed. In PowerShell, capture `$LASTEXITCODE` immediately after the native test
+  command and stop that gate on a nonzero result; `Set-StrictMode` alone does not do it.
+  Missing exit/output means unknown, never PASS. Independent review and integration
+  must check the evidence rather than copy the builder's label.
 - If the reply is bare and the report path never appears on disk, the write was
   rejected — almost always a blocked-prefix filename. Ask that SAME agent for the
   report inline; do not re-grant tools, do not redesign the pipeline, and use a
