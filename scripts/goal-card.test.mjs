@@ -110,6 +110,24 @@ test('an over-cap card is REJECTED, never truncated', () => {
   assert.match(wv.error, new RegExp(`over the ${CARD_MAX_BYTES}-byte cap`));
 });
 
+test('the fourth line may read STOP instead of KILL, but not any other word', () => {
+  const withStop = GOOD.split('\n');
+  withStop[3] = 'STOP: if recovery still needs a human after two weeks, stop and buy a durable engine.';
+  const v = validateCard(withStop.join('\n'));
+  assert.equal(v.ok, true, v.error || '');
+  assert.deepEqual(Object.keys(v.fields), [...LABELS], 'fields stay keyed by the canonical KILL label');
+  assert.match(v.fields.KILL, /durable engine/);
+  assert.equal(v.lines[3].startsWith('STOP: '), true, 'the rendered line keeps the word the file used');
+  const injected = renderInjection(withStop.join('\n'), Date.now());
+  assert.match(injected, /^STOP: /m, 'SessionStart output reads STOP for a card that wrote STOP');
+
+  const withHalt = GOOD.split('\n');
+  withHalt[3] = 'HALT: if recovery still needs a human after two weeks, stop and buy a durable engine.';
+  const hv = validateCard(withHalt.join('\n'));
+  assert.equal(hv.ok, false, 'HALT is not an accepted word for the fourth line');
+  assert.match(hv.error, /line 4/);
+});
+
 test('the caps are ordered so a valid card can always render', () => {
   assert.ok(CARD_MAX_BYTES < RENDER_MAX_BYTES, 'a card at the cap must still fit once rendered');
   assert.ok(RENDER_MAX_BYTES - CARD_MAX_BYTES > CARD_HEADER.length + 40, 'header and stamp need headroom');

@@ -31,8 +31,18 @@ export const MASTER_SWITCH = "ws-off";
 export const CONFIG_KEY = "goal_card";
 export const DEFAULT_CARD_PATH = "docs/goals/card.md";
 
-/** The five labels, in the one order a card may use them. */
+/** The five labels, in the one order a card may use them. Canonical keys for `fields` below. */
 export const LABELS = Object.freeze(["GOAL", "NOT", "DONE", "KILL", "SOURCE"]);
+
+/**
+ * The word(s) accepted on each line, by position. Only the fourth line has a choice: `KILL` or
+ * `STOP` both mean "when to stop" — the card file decides which word appears, on Ben's word
+ * 2026-09-24. `fields` is still keyed by the canonical `LABELS` word regardless of which one a
+ * card used; `lines` (and the render) keep the word the file actually wrote.
+ */
+export const LABEL_ALTERNATES = Object.freeze(
+  LABELS.map((label) => Object.freeze(label === "KILL" ? ["KILL", "STOP"] : [label]))
+);
 
 /**
  * Byte caps. Deliberately tight: the whole argument for a card over a goals document is that it is
@@ -246,17 +256,18 @@ export function validateCard(text) {
   const lines = [];
   const fields = {};
   for (let i = 0; i < LABELS.length; i++) {
-    const label = LABELS[i];
-    const m = content[i].match(new RegExp(`^${label}:\\s*(\\S.*)$`));
-    if (!m) return fail(`line ${i + 1} is not a non-empty \`${label}:\` line`);
-    const value = m[1].trim();
+    const alts = LABEL_ALTERNATES[i];
+    const m = content[i].match(new RegExp(`^(${alts.join("|")}):\\s*(\\S.*)$`));
+    if (!m) return fail(`line ${i + 1} is not a non-empty \`${alts.join("/")}:\` line`);
+    const label = m[1]; // the word the card actually used (KILL or STOP on line 4)
+    const value = m[2].trim();
     const normalised = `${label}: ${value}`;
     const bytes = Buffer.byteLength(normalised, "utf8");
     if (bytes > LINE_MAX_BYTES) {
       return fail(`${label} line is ${bytes} bytes, over the ${LINE_MAX_BYTES}-byte line cap`);
     }
     lines.push(normalised);
-    fields[label] = value;
+    fields[LABELS[i]] = value; // keyed by the canonical label regardless of which word appeared
   }
 
   const size = Buffer.byteLength(lines.join("\n"), "utf8");
