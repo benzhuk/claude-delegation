@@ -34,16 +34,45 @@ async function prepareOutput(value) {
   catch (error) { if (error.code === 'ENOENT') await mkdir(output, { recursive: true }); else throw error; }
   return output;
 }
-async function runChild(executable, args, options, timeout = TIMEOUT_MS) {
+export async function runChild(executable, args, options, timeout = TIMEOUT_MS) {
   return new Promise((done, reject) => {
-    const child = spawn(executable, args, { ...options, windowsHide: true });
+    const child = spawn(executable, args, { ...options, windowsHide: true, detached: process.platform !== 'win32' });
     let stdout = '', stderr = '', settled = false;
     child.stdout?.on('data', (chunk) => { stdout += chunk; options.onStdout?.(chunk, child); });
     child.stderr?.on('data', (chunk) => { stderr += chunk; });
-    const timer = setTimeout(() => { if (!settled) { child.kill(); reject(new Error(`child timeout after ${timeout}ms`)); } }, timeout); timer.unref?.();
+    let timer;
+    async function terminateOwnedTree() {
+      if (!child.pid) return;
+      if (process.platform === 'win32') {
+        await new Promise((resolveKill) => {
+          const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+          const bound = setTimeout(() => { killer.kill(); resolveKill(); }, 3000); bound.unref?.();
+          killer.once('error', () => { clearTimeout(bound); try { child.kill(); } catch {} resolveKill(); });
+          killer.once('close', () => { clearTimeout(bound); resolveKill(); });
+        });
+      } else {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} }
+      }
+    }
+    timer = setTimeout(async () => {
+      if (settled) return;
+      settled = true; await terminateOwnedTree(); reject(new Error(`child timeout after ${timeout}ms`));
+    }, timeout); timer.unref?.();
     child.once('error', (error) => { if (!settled) { settled = true; clearTimeout(timer); reject(error); } });
     child.once('close', (code, signal) => { if (!settled) { settled = true; clearTimeout(timer); done({ code, signal, stdout, stderr }); } });
     options.onSpawn?.(child);
+  });
+}
+async function closeOwnedServer(server, sockets, timeout = 2000) {
+  return new Promise((resolveClose) => {
+    let complete = false;
+    const finish = () => { if (!complete) { complete = true; clearTimeout(timer); resolveClose(); } };
+    const timer = setTimeout(() => {
+      server.closeAllConnections?.();
+      for (const socket of sockets) socket.destroy();
+      finish();
+    }, timeout); timer.unref?.();
+    server.close(finish); server.closeIdleConnections?.();
   });
 }
 function walkStrings(value, out = []) {
@@ -52,15 +81,20 @@ function walkStrings(value, out = []) {
   else if (value && typeof value === 'object') for (const item of Object.values(value)) walkStrings(item, out);
   return out;
 }
+export { closeOwnedServer };
 function visibleFacts(request) {
   const strings = walkStrings(request.messages ?? []); const joined = strings.join('\n');
   const context = /Continuation epoch ([A-Za-z0-9_-]+)\. Host: ([a-z]+); session: ([^.\s]+)\./.exec(joined);
-  let bind = null;
+  let bind = null, account = null;
   for (const text of strings) {
-    if (!text.includes('continuationBind')) continue;
-    try { const parsed = JSON.parse(text.trim()); if (parsed?.continuationBind?.requestId && parsed?.revision) bind = { epoch: parsed.continuationBind.epoch, revision: parsed.revision }; } catch {}
+    if (!text.includes('continuationBind') && !text.includes('"status":"accounted"')) continue;
+    try {
+      const parsed = JSON.parse(text.trim());
+      if (parsed?.continuationBind?.requestId && parsed?.revision) bind = { epoch: parsed.continuationBind.epoch, revision: parsed.revision };
+      if (parsed?.status === 'accounted' && /^[0-9a-f]{64}$/.test(parsed?.revision)) account = { revision: parsed.revision };
+    } catch {}
   }
-  return { epoch: context?.[1] ?? null, host: context?.[2] ?? null, sessionId: context?.[3] ?? null, bind };
+  return { epoch: context?.[1] ?? null, host: context?.[2] ?? null, sessionId: context?.[3] ?? null, bind, account };
 }
 function assistantMessage(command, n) {
   const content = command ? [{ type: 'tool_use', id: `toolu_${n}`, name: 'Bash', input: { command } }] : [{ type: 'text', text: 'fixture done' }];
@@ -81,7 +115,7 @@ async function writeFixture(root) {
   await writeFile(events, ''); await writeFile(join(repo, 'authority.md'), 'authorized ongoing fixture scope\n'); await writeFile(join(repo, 'docs', 'work', 'evidence', 'proof.md'), 'VERDICT: APPROVE deadbeef\nproof\n');
   await writeFile(join(repo, 'docs', 'work', 'root.record.md'), ['Work: wr-2026-09-23-root', 'Scope: scripts/example.mjs@deadbeef', 'Owner: worker', 'Status: owned', 'Authority: authority.md', 'Artifact: integrate/example@deadbeef', 'Evidence: docs/work/evidence/proof.md', 'Next: continue useful work', 'Opened: 2026-09-23T00:00:00Z', 'Children: none', '', 'Observed: fixture'].join('\n'));
   const wrapper = join(root, 'hook-wrapper.mjs');
-  await writeFile(wrapper, `import{spawn}from'node:child_process';import{appendFile,stat}from'node:fs/promises';import{normalizeClaudeContinuation}from${JSON.stringify(pathToFileURL(NORMALIZER).href)};let raw='';for await(const c of process.stdin)raw+=c;const j=JSON.parse(raw);const c=spawn(process.execPath,[${JSON.stringify(HOOK)}],{env:process.env,stdio:['pipe','pipe','pipe'],windowsHide:true});let out='',err='';c.stdout.on('data',x=>out+=x);c.stderr.on('data',x=>err+=x);c.stdin.end(raw);const code=await new Promise((r,k)=>{c.on('error',k);c.on('close',r)});let parsed=null;try{parsed=JSON.parse(out)}catch{}await appendFile(${JSON.stringify(events)},JSON.stringify({event:j.hook_event_name,active:j.stop_hook_active===true,size:await stat(j.transcript_path).then(x=>x.size).catch(()=>null),normalized:normalizeClaudeContinuation(j),output:parsed,hookCode:code,hookStderr:Boolean(err)})+'\\n');if(j.hook_event_name==='Stop'&&parsed?.decision==='block')await new Promise(r=>setTimeout(r,750));process.stdout.write(out);`);
+  await writeFile(wrapper, `import{spawn}from'node:child_process';import{appendFile,stat}from'node:fs/promises';import{normalizeClaudeContinuation}from${JSON.stringify(pathToFileURL(NORMALIZER).href)};let raw='';for await(const c of process.stdin)raw+=c;const j=JSON.parse(raw);const c=spawn(process.execPath,[${JSON.stringify(HOOK)}],{env:process.env,stdio:['pipe','pipe','pipe'],windowsHide:true});let out='',err='';c.stdout.on('data',x=>out+=x);c.stderr.on('data',x=>err+=x);c.stdin.end(raw);const code=await new Promise((r,k)=>{const t=setTimeout(()=>c.kill(),10000);c.on('error',e=>{clearTimeout(t);k(e)});c.on('close',x=>{clearTimeout(t);r(x)})});let parsed=null;try{parsed=JSON.parse(out)}catch{}await appendFile(${JSON.stringify(events)},JSON.stringify({event:j.hook_event_name,active:j.stop_hook_active===true,size:await stat(j.transcript_path).then(x=>x.size).catch(()=>null),normalized:normalizeClaudeContinuation(j),output:parsed,hookCode:code,hookStderr:Boolean(err)})+'\\n');if(j.hook_event_name==='Stop'&&parsed?.decision==='block')await new Promise(r=>setTimeout(r,750));process.stdout.write(out);`);
   const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(wrapper)}`; const settings = join(root, 'settings.json');
   await writeFile(settings, JSON.stringify({ hooks: Object.fromEntries(['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop'].map((event) => [event, [{ hooks: [{ type: 'command', command }] }]])) }));
   return { config, home, agents, repo, events, settings };
@@ -91,10 +125,10 @@ async function readStates(agents) { const dir = join(agents, 'ws', 'continuation
 
 async function scenario(name, claude, output) {
   const root = join(output, name); await mkdir(root); const fixture = await writeFixture(root), sid = randomUUID(); let calls = 0, oldEpoch = null; const requestBytes = [], visible = [];
-  const server = createServer(async (req, res) => {
+  const sockets = new Set(); const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk; let request = {}; try { request = JSON.parse(body); } catch {}
     if (!request.messages) { res.end('{}'); return; }
-    calls += 1; requestBytes.push(Buffer.byteLength(body)); const facts = visibleFacts(request); visible.push({ call: calls, host: facts.host, epoch: Boolean(facts.epoch), session: Boolean(facts.sessionId), bindResult: Boolean(facts.bind) }); if (facts.epoch && !oldEpoch) oldEpoch = facts.epoch;
+    calls += 1; requestBytes.push(Buffer.byteLength(body)); const facts = visibleFacts(request); visible.push({ call: calls, host: facts.host, epoch: Boolean(facts.epoch), session: Boolean(facts.sessionId), bindResult: Boolean(facts.bind), accountResult: Boolean(facts.account), accountRevision: facts.account?.revision ?? null }); if (facts.epoch && !oldEpoch) oldEpoch = facts.epoch;
     let command = null;
     if (!facts.epoch) command = 'echo fixture-bootstrap';
     else if (!facts.bind && calls <= 2) command = [q(process.execPath), q(CONTINUATION), 'bind', '--host', q(facts.host), '--session-id', q(facts.sessionId), '--expected-epoch', q(facts.epoch), '--repo', q(fixture.repo), '--root', 'wr-2026-09-23-root', '--authority-ref', 'authority.md'].join(' ');
@@ -102,6 +136,7 @@ async function scenario(name, claude, output) {
     else if (name === 'interrupt' && calls === 4) command = [q(process.execPath), q(CONTINUATION), 'bind', '--host', q(facts.host), '--session-id', q(facts.sessionId), '--expected-epoch', q(oldEpoch), '--repo', q(fixture.repo), '--root', 'wr-2026-09-23-root', '--authority-ref', 'authority.md'].join(' ');
     sendMessage(res, assistantMessage(command, calls), request.stream === true);
   });
+  server.on('connection', (socket) => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); });
   await new Promise((ok, no) => { server.once('error', no); server.listen(0, '127.0.0.1', ok); });
   const env = cleanEnv({ CLAUDE_CONFIG_DIR: fixture.config, HOME: fixture.home, USERPROFILE: fixture.home, AGENTS_HOME: fixture.agents, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', ANTHROPIC_API_KEY: 'fixture-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}` });
   const base = ['-p', '--verbose', '--output-format', 'stream-json', '--include-hook-events', '--settings', fixture.settings, '--setting-sources', '', '--permission-mode', 'dontAsk', '--permission-prompts', 'none', '--tools', 'Bash', '--allowedTools', 'Bash', '--model', 'sonnet', '--session-id', sid]; let native, watcher;
@@ -116,16 +151,24 @@ async function scenario(name, claude, output) {
         pending += chunk; for (;;) { const at = pending.indexOf('\n'); if (at < 0) break; const line = pending.slice(0, at); pending = pending.slice(at + 1); try { const row = JSON.parse(line); if (row.type === 'result') { results += 1; if (results === 1) child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: 'REPLACEMENT_FINITE_REQUEST' }, session_id: sid, parent_tool_use_id: null }) + '\n'); else child.stdin.end(); } } catch {} }
       } });
     }
-  } finally { clearInterval(watcher); await new Promise((ok) => server.close(ok)); }
+  } finally { clearInterval(watcher); await closeOwnedServer(server, sockets); }
   const events = await readJsonLines(fixture.events), states = await readStates(fixture.agents), stream = native.stdout.split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
   const stops = events.filter((event) => event.event === 'Stop'), blocks = stops.filter((event) => event.output?.decision === 'block');
-  const result = { name, child: { code: native.code, signal: native.signal }, requests: calls, maxRequestBytes: Math.max(0, ...requestBytes), maxTranscriptBytes: Math.max(0, ...events.map((event) => event.size ?? 0)), visible, hooks: Object.fromEntries(['UserPromptSubmit', 'PostToolUse', 'Stop'].map((event) => [event, events.filter((row) => row.event === event).length])), blocks: blocks.length, refires: stops.filter((event) => event.active).length, interruptAcknowledged: stream.some((row) => row.type === 'control_response' && row.response?.subtype === 'success'), staleEpochObserved: stream.some((row) => row.type === 'user' && JSON.stringify(row.message?.content).includes('STALE_EPOCH')), finalPhase: states[0]?.current?.phase ?? null };
+  const accountRevision = visible.findLast((item) => item.accountResult)?.accountRevision ?? null; const current = states.length === 1 ? states[0].current : null;
+  const result = { name, child: { code: native.code, signal: native.signal }, requests: calls, maxRequestBytes: Math.max(0, ...requestBytes), maxTranscriptBytes: Math.max(0, ...events.map((event) => event.size ?? 0)), visible, hooks: Object.fromEntries(['UserPromptSubmit', 'PostToolUse', 'Stop'].map((event) => [event, events.filter((row) => row.event === event).length])), blocks: blocks.length, refires: stops.filter((event) => event.active).length, interruptAcknowledged: stream.some((row) => row.type === 'control_response' && row.response?.subtype === 'success'), staleEpochObserved: stream.some((row) => row.type === 'user' && JSON.stringify(row.message?.content).includes('STALE_EPOCH')), finalPhase: current?.phase ?? null, accountRevision, stateAccountedRevision: current?.accountedRevision ?? null, bindingPresent: Boolean(current?.binding), attempted: current?.attempted ?? null };
   await writeFile(join(root, 'summary.json'), JSON.stringify({ ...result, stderr: native.stderr }, null, 2));
   if (native.code !== 0 || native.signal || result.hooks.PostToolUse < 1 || result.hooks.Stop < 1) fail(`${name}: native process/hook assertion failed`);
   if (name === 'unaccounted' && (result.blocks !== 1 || result.refires < 1 || result.maxTranscriptBytes <= 64 * 1024)) fail('unaccounted: expected one correction/refire and >64KiB default-prompt transcript');
-  if (name === 'accounted' && result.blocks !== 0) fail('accounted: Stop was not quiet');
+  if (name === 'accounted' && (result.blocks !== 0 || result.requests < 4 || result.hooks.PostToolUse < 3 || !result.accountRevision || result.finalPhase !== 'active' || !result.bindingPresent || result.attempted !== false || result.stateAccountedRevision !== result.accountRevision)) fail('accounted: successful visible account and matching active unattempted state required');
   if (name === 'interrupt' && (!result.interruptAcknowledged || !result.staleEpochObserved || result.finalPhase !== 'unbound')) fail('interrupt: acknowledgement, STALE_EPOCH, or replacement disarm missing');
   return result;
+}
+
+export function assertScenario(name, native, result) {
+  if (native.code !== 0 || native.signal || result.hooks.PostToolUse < 1 || result.hooks.Stop < 1) fail(`${name}: native process/hook assertion failed`);
+  if (name === 'unaccounted' && (result.blocks !== 1 || result.refires < 1 || result.maxTranscriptBytes <= 64 * 1024)) fail('unaccounted: expected one correction/refire and >64KiB default-prompt transcript');
+  if (name === 'accounted' && (result.blocks !== 0 || result.requests < 4 || result.hooks.PostToolUse < 3 || !result.accountRevision || result.finalPhase !== 'active' || !result.bindingPresent || result.attempted !== false || result.stateAccountedRevision !== result.accountRevision)) fail('accounted: successful visible account and matching active unattempted state required');
+  if (name === 'interrupt' && (!result.interruptAcknowledged || !result.staleEpochObserved || result.finalPhase !== 'unbound')) fail('interrupt: acknowledgement, STALE_EPOCH, or replacement disarm missing');
 }
 
 async function main() {
@@ -134,4 +177,4 @@ async function main() {
   try { const scenarios = {}; for (const name of ['unaccounted', 'accounted', 'interrupt']) scenarios[name] = await scenario(name, args.claude, output); const summary = { verdict: 'PASS', executable: resolve(args.claude), executableName: basename(args.claude), version: versionRun.stdout.trim(), output, scenarios, limits: ['Synthetic local provider responses prove native mechanics, not model judgment.', 'Codex and universal-host behavior are outside this opt-in Claude gate.'] }; await writeFile(join(output, 'summary.json'), JSON.stringify(summary, null, 2)); process.stdout.write(`${JSON.stringify(summary)}\n`); }
   catch (error) { await writeFile(join(output, 'summary.json'), JSON.stringify({ verdict: 'FAIL', executable: resolve(args.claude), version: versionRun.stdout.trim(), output, error: error.message }, null, 2)); throw error; }
 }
-main().catch((error) => { process.stderr.write(`native-continuation-smoke: ${error.message}\n`); process.exitCode = 1; });
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) main().catch((error) => { process.stderr.write(`native-continuation-smoke: ${error.message}\n`); process.exitCode = 1; });

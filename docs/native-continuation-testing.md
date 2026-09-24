@@ -14,6 +14,8 @@ The runner invokes the exact absolute `--claude` executable and records its vers
 
 The response server derives host, session, epoch, and accounting revision only from hook context and tool-result JSON visible in actual Messages requests. Continuation state is read only after the native process exits, for assertions. Processes and servers have bounded lifetimes; failures return nonzero and preserve the output tree.
 
-Success requires native hook counts, one correction/refire, quiet accounted completion, interrupt acknowledgement, replacement disarming, `STALE_EPOCH`, and a default-prompt transcript larger than 64 KiB. `summary.json` contains structural counts and flags rather than prompt or environment contents.
+Success requires native hook counts, one correction/refire, interrupt acknowledgement, replacement disarming, `STALE_EPOCH`, and a default-prompt transcript larger than 64 KiB. Accounted completion must include a successful account JSON result visible in the native Messages history and one matching active, bound, unattempted state whose `accountedRevision` equals that result; a merely quiet Stop cannot pass. `summary.json` contains structural counts and flags rather than prompt or environment contents.
+
+On timeout the runner terminates and awaits the exact process tree it spawned. It also tracks sockets accepted by its own loopback server and force-closes only those sockets if normal server shutdown exceeds its separate deadline. This cleanup path is infrastructure failure handling and is not used as interruption evidence; the interrupt scenario still requires Claude’s native control acknowledgement.
 
 This smoke is intentionally excluded from the regular sealed suite. It proves observed Claude mechanics against synthetic responses; it does not prove model judgment, useful outcomes, token cost, Codex behavior, or universal host support.
