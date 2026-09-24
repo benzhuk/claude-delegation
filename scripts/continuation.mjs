@@ -66,7 +66,7 @@ function validEvent(event) {
 }
 function profileSupported(event) { return validOpaque(event.profile) && event.cancellationVerified === true; }
 function currentMatches(state, event) { return validOpaque(event.episodeKey) && state?.current?.episodeKey === event.episodeKey; }
-function epochContext(epoch) { return `Continuation epoch ${epoch}. Ongoing scope remains inactive until bind is confirmed by this episode's PostToolUse.`; }
+function epochContext(epoch, event) { return `Continuation epoch ${epoch}. Host: ${event.host}; session: ${event.sessionId}. Ongoing scope remains inactive until bind is confirmed by this episode's PostToolUse.`; }
 function suspendCurrent(state) {
   if (!state?.current) return;
   state.current.phase = "suspended"; state.current.binding = null; state.generation += 1;
@@ -228,12 +228,12 @@ export async function handleContinuationEvent(event, deps = {}) {
   if (event.event === "UserPromptSubmit") {
     const claimed = withClaim(paths, d, () => {
       const state = readState(paths, d) ?? { version: VERSION, generation: 0, host: event.host, profile: event.profile, history: [], current: null };
-      if (state.current?.promptEventKey === event.eventKey && (state.current.episodeKey === event.episodeKey || claudePromptBootstrap)) return { context: epochContext(state.current.epoch) };
+      if (state.current?.promptEventKey === event.eventKey && (state.current.episodeKey === event.episodeKey || claudePromptBootstrap)) return { context: epochContext(state.current.epoch, event) };
       if (recordSeen(state, event)) { suspendCurrent(state); writeState(paths, state, d); return null; }
       const history = state.current ? [...(state.history ?? []), { episodeKey: state.current.episodeKey, eventKey: state.current.promptEventKey }] : (state.history ?? []);
       state.history = history.slice(-HISTORY_LIMIT); state.profile = event.profile;
       state.current = { episodeKey: event.episodeKey, promptEventKey: event.eventKey, epoch: d.epoch(), phase: "unbound", binding: null, attempted: false, emitted: false, accountedRevision: null };
-      state.generation += 1; writeState(paths, state, d); return { context: epochContext(state.current.epoch) };
+      state.generation += 1; writeState(paths, state, d); return { context: epochContext(state.current.epoch, event) };
     });
     return claimed.claimed ? claimed.value : null;
   }
@@ -246,7 +246,7 @@ export async function handleContinuationEvent(event, deps = {}) {
         current: { episodeKey: event.episodeKey, promptEventKey: event.eventKey, epoch: d.epoch(), phase: "unbound", binding: null, attempted: false, emitted: false, accountedRevision: null },
       };
       writeState(paths, state, d);
-      return { context: epochContext(state.current.epoch) };
+      return { context: epochContext(state.current.epoch, event) };
     }
     if (!state || state.profile !== event.profile) return null;
     if (event.event === "PostToolUse") {

@@ -40,6 +40,7 @@ function cliArgs(command, epoch, f, extra = []) {
 
 async function arm(f, { host = "codex", episodeKey = "episode-1", profile = `${host}-native-v1` } = {}) {
   const prompt = await handleContinuationEvent(ev({ host, profile, episodeKey, eventKey: "prompt-1" }), f.deps);
+  assert.ok(prompt.context.includes(`Host: ${host}; session: session-1.`), "the agent receives the native identity needed by bind, without out-of-band fixture knowledge");
   const epoch = epochFrom(prompt);
   const bind = await runContinuationCli(cliArgs("bind", epoch, f, ["--repo", f.root, "--root", "wr-2026-09-23-root", "--authority-ref", "authority.md"]), f.deps);
   assert.equal(bind.exitCode, 0, bind.stderr);
@@ -150,6 +151,7 @@ test("Claude null-prompt bootstrap requires structured current bind request id",
 test("a positively identified current PostToolUse can issue an unbound epoch after installation", async (t) => {
   const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
   const result = await handleContinuationEvent(ev({ event: "PostToolUse", eventKey: "first-tool" }), f.deps);
+  assert.match(result.context, /Host: codex; session: session-1\./);
   const epoch = epochFrom(result);
   const status = JSON.parse((await runContinuationCli(cliArgs("status", null, f), f.deps)).stdout);
   assert.equal(status.status, "unbound"); assert.equal(status.epoch, epoch);
