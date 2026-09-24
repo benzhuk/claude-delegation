@@ -49,9 +49,10 @@ export function classifyCodexRole(input = {}, fsImpl = fs) {
   if (spawn !== undefined) {
     // Child callbacks carry the parent session id and an agent_id naming the child transcript.
     // Bind that explicit identity to the persisted spawn record; ancestry may be deeper than one.
-    const validSpawn = opaque(spawn?.parent_thread_id)
-      && CODEX_SESSION_ID_RE.test(spawn.parent_thread_id)
-      && spawn.parent_thread_id !== payload.id
+    const parentThreadId = spawn?.parent_thread_id;
+    const validSpawn = opaque(parentThreadId)
+      && CODEX_SESSION_ID_RE.test(parentThreadId)
+      && parentThreadId !== payload.id
       && Number.isInteger(spawn.depth)
       && spawn.depth >= 1;
     const nativeParentSession = payload.session_id === input.session_id
@@ -61,7 +62,7 @@ export function classifyCodexRole(input = {}, fsImpl = fs) {
     const legacyOwnSession = payload.id === input.session_id
       && input.agent_id == null
       && (payload.session_id == null || payload.session_id === input.session_id)
-      && spawn.parent_thread_id !== input.session_id;
+      && parentThreadId !== input.session_id;
     return CODEX_SESSION_ID_RE.test(payload.id)
       && CODEX_SESSION_ID_RE.test(input.session_id)
       && validSpawn

@@ -71,6 +71,7 @@ test('lead, missing metadata, corrupt metadata, and mismatched metadata preserve
     ['missing', CHILD, null],
     ['corrupt', CHILD, '{not json}\n'],
     ['mismatched', CHILD, metadata({ id: LEAD })],
+    ['null-spawn', CHILD, metadata({ id: CHILD, sessionId: null, source: { subagent: { thread_spawn: null } } })],
   ];
   for (const [name, sessionId, content] of cases) {
     const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));

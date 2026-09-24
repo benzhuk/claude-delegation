@@ -120,6 +120,8 @@ test('Codex role is tri-state and inherited/mismatched metadata never proves lea
   assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'unknown');
   write({ id: uuid(11), session_id: session, source: { subagent: { thread_spawn: { parent_thread_id: uuid(11), depth: 2 } } } });
   assert.equal(classifyCodexRole({ session_id: session, agent_id: uuid(11), transcript_path: file }), 'unknown');
+  write({ id: session, source: { subagent: { thread_spawn: null } } });
+  assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'unknown');
   write({ id: uuid(12), session_id: uuid(12), source: 'cli' });
   assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'unknown');
 });
