@@ -28,7 +28,7 @@ Whole-task cost, coordination, agent count, and mechanism count explain these ou
 
 ## Active acceptance boundary
 
-A source candidate, an integrated result, a release, an installation, and a measured useful outcome are separate claims. The next useful proof is real authorized work and shared handoffs on Codex, Claude Code, and a mixed collaboration, with both code and non-code evidence where applicable. Automatic cadence, unattended Done pickup, and durable automatic memory upkeep are not yet demonstrated. Do not represent an instruction, source test, or local checkout as installed or automatic host behavior.
+A source candidate, an integrated result, a release, an installation, and a measured useful outcome are separate claims. Actual Windows Claude/Codex, Linux Claude and Netcup Codex work now has bounded artifact evidence; native Claude review integrated by Codex demonstrates useful mixed-provider work. Release0.20.6 is installed on all four configured hosts, and the existing Windows timer has read the real unchecked decisions page successfully without creating work. Checked human-submission delivery/accounting and the native peer-communication seam remain separate unproved outcomes. The existing memory updater has preserved94 files through invoked and ordinary scheduled runs; automatic curation is not enabled. See [current installed observations](work/evidence/four-host-0206-and-live-pickup.md) and their explicit host/version limits. Do not represent an instruction, source test, installation or idle check as complete product success.
 
 ## Active supporting outcomes
 
