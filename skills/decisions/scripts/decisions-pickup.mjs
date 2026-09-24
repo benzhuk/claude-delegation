@@ -37,21 +37,26 @@ function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+const SAFE_ERROR_CODES = new Set([
+  'EACCES', 'EEXIST', 'EIO', 'EISDIR', 'EINVAL', 'EMFILE', 'ENFILE', 'ENOENT',
+  'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS', 'ETIMEDOUT', 'EXDEV', 'INVALID_JSON', 'UNKNOWN',
+]);
+
 function safeErrorCode(error) {
   if (error instanceof SyntaxError) return 'INVALID_JSON';
   const code = String(error?.code ?? 'UNKNOWN');
-  return /^[A-Z0-9_]+$/.test(code) ? code : 'UNKNOWN';
+  return SAFE_ERROR_CODES.has(code) ? code : 'UNKNOWN';
 }
 
 function canonicalProject(repo, fsImpl = fs) {
   const absolute = path.resolve(repo);
   try {
     const real = fsImpl.realpathSync(absolute);
-    if (!fsImpl.statSync(real).isDirectory()) throw new PickupError(`repo is not a directory: ${repo}`);
+    if (!fsImpl.statSync(real).isDirectory()) throw new PickupError('repo is not a directory');
     return real;
   } catch (error) {
     if (error instanceof PickupError) throw error;
-    throw new PickupError(`cannot resolve repo ${repo}: ${error.message}`);
+    throw new PickupError(`cannot resolve repo (${safeErrorCode(error)})`);
   }
 }
 
@@ -68,6 +73,10 @@ function validateSlug(label, value) {
   const slug = String(value ?? '');
   if (!/^[a-z0-9-]+$/.test(slug)) throw new PickupError(`${label} must match [a-z0-9-]+`);
   return slug;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function agentsHome(env = process.env) {
@@ -111,7 +120,7 @@ function readJson(file, fsImpl = fs) {
     return parsed;
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
-    throw new PickupError(`receipt unreadable at ${file} (${safeErrorCode(error)})`);
+    throw new PickupError(`receipt unreadable (${safeErrorCode(error)})`);
   }
 }
 
@@ -136,7 +145,7 @@ function acquireClaim(claim, fsImpl = fs) {
     fsImpl.mkdirSync(claim, { mode: 0o700 });
   } catch (error) {
     if (error?.code === 'EEXIST') {
-      throw new PickupError(`page already has an exclusive pickup claim: ${claim}`);
+      throw new PickupError('page already has an exclusive pickup claim');
     }
     throw error;
   }
@@ -185,7 +194,7 @@ function canonicalThroughExistingAncestor(target, fsImpl = fs) {
       return path.resolve(existing, ...tail.reverse());
     } catch (error) {
       if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') {
-        throw new PickupError(`private capture location cannot be resolved: ${error.message}`);
+        throw new PickupError(`private capture location cannot be resolved (${safeErrorCode(error)})`);
       }
       const parent = path.dirname(cursor);
       if (parent === cursor) throw new PickupError('private capture location has no resolvable ancestor');
@@ -314,6 +323,26 @@ function capturedItems(doc) {
   return items;
 }
 
+function pageWarningCode(text) {
+  if (text === 'Done is not the last line') return 'DONE_NOT_LAST';
+  if (text === 'more than one Done line') return 'DONE_DUPLICATE';
+  if (text === 'Done line is indented') return 'DONE_INDENTED';
+  if (text === 'default line is not in the required shape') return 'DEFAULT_INVALID';
+  if (text === 'no Done line found') return 'DONE_MISSING';
+  if (text.startsWith('no default or "No default" line:')) return 'DECISION_DEFAULT_MISSING';
+  return 'PAGE_WARNING';
+}
+
+function invalidPageSummary(doc) {
+  const warnings = doc.warnings.map((entry) => ({ code: pageWarningCode(entry.text), line: entry.line }));
+  const shapeless = doc.shapeless.map((entry) => ({ code: 'SHAPELESS_TOGGLE', line: entry.line }));
+  return {
+    warningCount: warnings.length,
+    shapelessCount: shapeless.length,
+    issues: [...warnings, ...shapeless],
+  };
+}
+
 function verifyOnePrivateCapture(receipt, privateRef, expectedDigest, base, fsImpl = fs) {
   let full;
   try {
@@ -325,14 +354,16 @@ function verifyOnePrivateCapture(receipt, privateRef, expectedDigest, base, fsIm
         || capture.project !== receipt.project || capture.round !== receipt.round
         || capture.projectScope !== receipt.projectScope
         || capture.transportRepo !== receipt.transportRepo
+        || capture.from !== receipt.from
+        || (capture.owner !== receipt.owner && capture.owner !== null)
         || capture.digest !== expectedDigest || sha256(bytes) !== expectedDigest) {
-      return { status: 'TAMPERED', privateCaptureRef: privateRef };
+      return { status: 'TAMPERED' };
     }
-    return { status: 'OK', privateCaptureRef: privateRef };
+    return { status: 'OK' };
   } catch (error) {
     const status = error?.code === 'ENOENT' ? 'MISSING'
-      : (error instanceof PickupError && /reference|UNSAFE|escapes/.test(error.message) ? 'INVALID_PATH' : 'UNREADABLE');
-    return { status, privateCaptureRef: privateRef, errorCode: safeErrorCode(error) };
+      : (error instanceof PickupError ? 'INVALID_PATH' : 'UNREADABLE');
+    return { status, errorCode: safeErrorCode(error) };
   }
 }
 
@@ -341,12 +372,10 @@ function verifyPointer(receipt, fsImpl = fs) {
     const full = resolveDetails(receipt, receipt.detailsPath, fsImpl);
     const expected = `${JSON.stringify(pointerPacket(receipt), null, 2)}\n`;
     const actual = fsImpl.readFileSync(full, 'utf8');
-    return actual === expected ? { status: 'OK', detailsPath: receipt.detailsPath }
-      : { status: 'TAMPERED', detailsPath: receipt.detailsPath };
+    return actual === expected ? { status: 'OK' } : { status: 'TAMPERED' };
   } catch (error) {
     return {
       status: error?.code === 'ENOENT' ? 'MISSING' : 'UNREADABLE',
-      detailsPath: receipt.detailsPath ?? null,
       errorCode: safeErrorCode(error),
     };
   }
@@ -354,25 +383,26 @@ function verifyPointer(receipt, fsImpl = fs) {
 
 function verifyLegacyCapture(receipt, relative, expectedDigest, fsImpl = fs) {
   if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {
-    return { status: 'INVALID_PATH', path: relative ?? null };
+    return { status: 'INVALID_PATH' };
   }
   try {
     const transportRoot = canonicalThroughExistingAncestor(receipt.transportRepo, fsImpl);
     const full = canonicalThroughExistingAncestor(path.resolve(transportRoot, ...relative.split('/')), fsImpl);
-    if (!sameOrInside(full, transportRoot)) return { status: 'INVALID_PATH', path: relative };
+    if (!sameOrInside(full, transportRoot)) return { status: 'INVALID_PATH' };
     const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
     const bytes = Buffer.from(String(capture.originalBytes ?? ''), 'base64');
     if (capture.version !== LEGACY_RECEIPT_VERSION || capture.page !== receipt.page
         || capture.project !== receipt.project || capture.round !== receipt.round
         || capture.projectScope !== receipt.projectScope || capture.transportRepo !== receipt.transportRepo
+        || capture.from !== receipt.from
+        || (capture.owner !== receipt.owner && capture.owner !== null)
         || capture.digest !== expectedDigest || sha256(bytes) !== expectedDigest) {
-      return { status: 'TAMPERED', path: relative };
+      return { status: 'TAMPERED' };
     }
-    return { status: 'OK', path: relative };
+    return { status: 'OK' };
   } catch (error) {
     return {
       status: error?.code === 'ENOENT' ? 'MISSING' : 'UNREADABLE',
-      path: relative,
       errorCode: safeErrorCode(error),
     };
   }
@@ -478,12 +508,27 @@ export function inspectTransport(receipt, { fsImpl = fs, agentsHome: base = agen
         else conflicts.add(line);
       }
     }
-    if (conflicts.size) return { status: 'CONFLICT', matches: [...same], conflicts: [...conflicts] };
-    if (same.size) return { status: 'MATCH', matches: [...same], conflicts: [] };
-    return { status: 'ABSENT', matches: [], conflicts: [] };
+    if (conflicts.size) return { status: 'CONFLICT', matchCount: same.size, conflictCount: conflicts.size };
+    if (same.size) return { status: 'MATCH', matchCount: same.size, conflictCount: 0 };
+    return { status: 'ABSENT', matchCount: 0, conflictCount: 0 };
   } catch (error) {
-    return { status: 'UNREADABLE', error: error.message, matches: [], conflicts: [] };
+    return { status: 'UNREADABLE', errorCode: safeErrorCode(error), matchCount: 0, conflictCount: 0 };
   }
+}
+
+function safeTransportEvidence(value) {
+  const allowed = new Set(['ABSENT', 'CONFLICT', 'MATCH', 'UNREADABLE']);
+  const status = allowed.has(value?.status) ? value.status : 'UNREADABLE';
+  const count = (direct, entries) => {
+    if (Number.isSafeInteger(direct) && direct >= 0) return direct;
+    return Array.isArray(entries) ? entries.length : 0;
+  };
+  return {
+    status,
+    matchCount: count(value?.matchCount, value?.matches),
+    conflictCount: count(value?.conflictCount, value?.conflicts),
+    ...(status === 'UNREADABLE' ? { errorCode: safeErrorCode({ code: value?.errorCode }) } : {}),
+  };
 }
 
 /** The production reader: one bounded invocation of the supplied Notion CLI. */
@@ -496,9 +541,18 @@ export function readPageWithCli({ reader, page, timeoutMs = READER_TIMEOUT_MS, s
   const result = spawn(command, args, {
     encoding: 'utf8', timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024,
   });
-  if (result.error) throw new PickupError(`reader failed: ${result.error.message}`);
-  if (result.status !== 0) throw new PickupError(`reader exited ${result.status}: ${String(result.stderr ?? '').trim() || 'no error text'}`);
-  if (!String(result.stdout ?? '').trim()) throw new PickupError('reader returned an empty page');
+  if (result.error) {
+    const code = safeErrorCode(result.error);
+    const category = code === 'ETIMEDOUT' ? 'READER_TIMEOUT'
+      : code === 'ENOENT' ? 'READER_NOT_FOUND'
+        : (code === 'EACCES' || code === 'EPERM') ? 'READER_ACCESS_DENIED' : 'READER_SPAWN_FAILED';
+    throw new PickupError(`reader failed (${category})`);
+  }
+  if (result.status !== 0) {
+    const exitCode = Number.isSafeInteger(result.status) && result.status >= 0 ? result.status : 'UNKNOWN';
+    throw new PickupError(`reader failed (READER_EXIT_${exitCode})`);
+  }
+  if (!String(result.stdout ?? '').trim()) throw new PickupError('reader failed (READER_EMPTY_OUTPUT)');
   return String(result.stdout);
 }
 
@@ -508,14 +562,14 @@ function registeredProject(repo, page, fsImpl = fs) {
   if (loaded.source === 'unreadable') throw new PickupError('project config is unreadable');
   if (!loaded.config.decisions_url) throw new PickupError('project has no registered decisions_url');
   if (normalizedPage(loaded.config.decisions_url) !== normalizedPage(page)) {
-    throw new PickupError(`page ${page} is not this project's registered decisions_url`);
+    throw new PickupError('page is not this project\'s registered decisions_url');
   }
   return project;
 }
 
 function durableTransportRepo(project, git = gitRunner, fsImpl = fs) {
   const resolved = mainCheckout(project, git);
-  if (!resolved) throw new PickupError(`cannot resolve durable transport repo for ${project}`);
+  if (!resolved) throw new PickupError('cannot resolve durable transport repo');
   return canonicalProject(resolved, fsImpl);
 }
 
@@ -579,7 +633,7 @@ function changedReceipt(receipt, raw, doc, now, base, fsImpl) {
 }
 
 async function recoverSending(receipt, ctx) {
-  const evidence = (ctx.inspectTransport ?? inspectTransport)(receipt, ctx);
+  const evidence = safeTransportEvidence((ctx.inspectTransport ?? inspectTransport)(receipt, ctx));
   if (evidence.status === 'MATCH') {
     const updated = { ...receipt, state: 'RECORDED', recordedAt: ctx.now.toISOString(), transportEvidence: evidence };
     atomicJson(ctx.paths.receipt, updated, ctx.fsImpl);
@@ -615,9 +669,8 @@ async function dispatchPrepared(receipt, ctx) {
   const sending = { ...receipt, state: 'SENDING', sendingAt: ctx.now.toISOString() };
   atomicJson(ctx.paths.receipt, sending, ctx.fsImpl);
   ctx.onTransition?.('SENDING', sending);
-  let result;
   try {
-    result = await (ctx.send ?? runNoteSend)(sending.exactSendInputs.argv, ctx.sendDeps ?? {});
+    await (ctx.send ?? runNoteSend)(sending.exactSendInputs.argv, ctx.sendDeps ?? {});
   } catch (error) {
     // note-send can throw after recording. Only an independently observed exact envelope resolves it.
     return recoverSending(sending, ctx);
@@ -626,7 +679,7 @@ async function dispatchPrepared(receipt, ctx) {
     ...sending,
     state: 'RECORDED',
     recordedAt: ctx.now.toISOString(),
-    transportResult: { id: result?.id ?? sending.noteId, envelope: result?.envelope ?? null },
+    transportResult: { id: sending.noteId, recorded: true },
   };
   try {
     atomicJson(ctx.paths.receipt, recorded, ctx.fsImpl);
@@ -709,8 +762,8 @@ export async function pickupOnce(options, deps = {}) {
       ? await deps.readPage({ reader: options.reader, page: options.page, timeoutMs: READER_TIMEOUT_MS })
       : readPageWithCli({ reader: options.reader, page: options.page });
     let doc;
-    try { doc = parseDocument(raw, { now }); } catch (error) {
-      throw new PickupError(`registered page is BLIND: ${error.message}`, 3);
+    try { doc = parseDocument(raw, { now }); } catch {
+      throw new PickupError('registered page is BLIND (INVALID_PAGE)', 3);
     }
     const digest = sha256(Buffer.from(raw, 'utf8'));
 
@@ -801,7 +854,11 @@ export async function pickupOnce(options, deps = {}) {
     }
 
     if (doc.warnings.length || doc.shapeless.length) {
-      return { status: 'INVALID', reason: 'registered page has reader warnings or invisible toggles', warnings: doc.warnings, shapeless: doc.shapeless };
+      return {
+        status: 'INVALID',
+        reason: 'registered page has reader warnings or invisible toggles',
+        invalidPage: invalidPageSummary(doc),
+      };
     }
 
     if (receipt && receipt.state === 'ACCOUNTED' && doc.done === false) {
@@ -1002,20 +1059,23 @@ export function account(options, deps = {}) {
   try {
     const receipt = readJson(paths.receipt, fsImpl);
     if (!receipt) throw new PickupError('no active round to account');
-    if (receipt.project !== project) throw new PickupError(`page is bound to another authorization project: ${receipt.project}`);
+    if (receipt.project !== project) throw new PickupError('page is bound to another authorization project');
     const transportRepo = durableTransportRepo(project, deps.git ?? gitRunner, fsImpl);
     if (receipt.transportRepo !== transportRepo) throw new PickupError('durable transport repository changed; reconcile before accounting');
     const integrity = verifyReceiptEvidence(receipt, base, fsImpl);
     if (integrity.status !== 'OK') throw new PickupError(`cannot account a round with ${integrity.status}`);
-    if (receipt.state !== 'RECORDED') throw new PickupError(`cannot account a round in ${receipt.state}; uncertain delivery never becomes repeat-safe`);
+    if (receipt.state !== 'RECORDED') throw new PickupError('cannot account a round outside RECORDED; uncertain delivery never becomes repeat-safe');
+    if (typeof receipt.owner !== 'string' || !/^[a-z0-9-]+$/.test(receipt.owner)) {
+      throw new PickupError('saved owner binding is invalid');
+    }
     const outcomePath = path.resolve(options.outcome ?? '');
     let outcome;
     try { outcome = fsImpl.readFileSync(outcomePath, 'utf8'); } catch (error) {
-      throw new PickupError(`accounting outcome is unreadable: ${error.message}`);
+      throw new PickupError(`accounting outcome is unreadable (${safeErrorCode(error)})`);
     }
     if (!outcome.trim()) throw new PickupError('accounting outcome is empty');
-    if (!new RegExp(`^Owner-attestation:\\s*${receipt.owner}\\s*$`, 'mi').test(outcome)) {
-      throw new PickupError(`accounting outcome must contain "Owner-attestation: ${receipt.owner}"`);
+    if (!new RegExp(`^Owner-attestation:\\s*${escapeRegExp(receipt.owner)}\\s*$`, 'mi').test(outcome)) {
+      throw new PickupError('accounting outcome must contain the required owner attestation');
     }
     if (!/^Fresh-page-reconciliation:\s*\S.+$/mi.test(outcome)) {
       throw new PickupError('accounting outcome must contain a nonempty Fresh-page-reconciliation line');
@@ -1069,10 +1129,10 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--once') continue;
-    if (!arg.startsWith('--')) throw new PickupError(`unexpected argument ${arg}`);
+    if (!arg.startsWith('--')) throw new PickupError('unexpected positional argument');
     const key = arg.slice(2);
     const value = argv[i + 1];
-    if (value === undefined || value.startsWith('--')) throw new PickupError(`${arg} needs a value`);
+    if (value === undefined || value.startsWith('--')) throw new PickupError('an option needs a value');
     options[key] = value;
     i += 1;
   }
@@ -1097,7 +1157,10 @@ export async function runCli({ argv = process.argv.slice(2), write = (text) => p
     write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } catch (error) {
-    writeErr(`decisions-pickup: ${error.message}\n`);
+    const message = error instanceof PickupError
+      ? error.message
+      : `internal failure (${safeErrorCode(error)})`;
+    writeErr(`decisions-pickup: ${message}\n`);
     return error instanceof PickupError ? error.exitCode : 1;
   }
 }

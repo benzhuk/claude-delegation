@@ -787,3 +787,90 @@ test('legacy ACCOUNTED status verifies the saved outcome digest and existence', 
   assert.equal(missing.evidenceIntegrity.status, 'OUTCOME_MISSING');
   assert.equal(missing.evidenceIntegrity.errorCode, 'ENOENT');
 });
+
+test('invalid-page diagnostics expose only categories, counts, and line numbers', async (t) => {
+  const warningFx = fixture(); t.after(warningFx.cleanup);
+  const warningCanary = 'PRIVATE-WARNING-TITLE-CANARY-90415';
+  const warningPage = `<summary>${warningCanary}</summary>
+- [ ] Option
+- [x] Done
+`;
+  const warning = await pickupOnce(warningFx.options, deps(warningFx, { readPage: async () => warningPage }));
+  assert.equal(warning.status, 'INVALID');
+  assert.deepEqual(warning.invalidPage, {
+    warningCount: 1,
+    shapelessCount: 0,
+    issues: [{ code: 'DECISION_DEFAULT_MISSING', line: 1 }],
+  });
+  assert.equal(JSON.stringify(warning).includes(warningCanary), false);
+  assert.equal('warnings' in warning, false);
+
+  const shapelessFx = fixture(); t.after(shapelessFx.cleanup);
+  const shapelessCanary = 'PRIVATE-SHAPELESS-TITLE-CANARY-65120';
+  const shapelessPage = `<summary>${shapelessCanary}</summary>
+- [x] Done
+`;
+  const shapeless = await pickupOnce(shapelessFx.options, deps(shapelessFx, { readPage: async () => shapelessPage }));
+  assert.equal(shapeless.status, 'INVALID');
+  assert.deepEqual(shapeless.invalidPage, {
+    warningCount: 0,
+    shapelessCount: 1,
+    issues: [{ code: 'SHAPELESS_TOGGLE', line: 1 }],
+  });
+  assert.equal(JSON.stringify(shapeless).includes(shapelessCanary), false);
+  assert.equal('shapeless' in shapeless, false);
+});
+
+test('reader and malformed-page failures never forward external diagnostic text', async (t) => {
+  const stderrCanary = 'PRIVATE-READER-STDERR-CANARY-23174';
+  assert.throws(() => readPageWithCli({
+    reader: 'synthetic-reader.js', page: 'page-registered',
+    spawn: () => ({ status: 7, stdout: '', stderr: stderrCanary }),
+  }), (error) => error.message === 'reader failed (READER_EXIT_7)' && !error.message.includes(stderrCanary));
+
+  const spawnCanary = 'PRIVATE-SPAWN-MESSAGE-CANARY-11209';
+  assert.throws(() => readPageWithCli({
+    reader: 'synthetic-reader.js', page: 'page-registered',
+    spawn: () => {
+      const error = new Error(spawnCanary);
+      error.code = `LEAK_${spawnCanary}`;
+      return { error, status: null, stdout: '', stderr: '' };
+    },
+  }), (error) => error.message === 'reader failed (READER_SPAWN_FAILED)' && !error.message.includes(spawnCanary));
+
+  assert.throws(() => readPageWithCli({
+    reader: 'synthetic-reader.js', page: 'page-registered',
+    spawn: () => ({ error: Object.assign(new Error(stderrCanary), { code: 'ETIMEDOUT' }) }),
+  }), /reader failed \(READER_TIMEOUT\)/);
+
+  const malformedFx = fixture(); t.after(malformedFx.cleanup);
+  const parseCanary = 'PRIVATE-MALFORMED-PAGE-CANARY-44803';
+  await assert.rejects(pickupOnce(malformedFx.options, deps(malformedFx, {
+    readPage: async () => `<summary>${parseCanary}`,
+  })), (error) => error.message === 'registered page is BLIND (INVALID_PAGE)'
+    && !error.message.includes(parseCanary));
+});
+
+test('transport recovery and success receipts discard external envelope diagnostics', async (t) => {
+  const conflictFx = fixture(); t.after(conflictFx.cleanup);
+  await assert.rejects(pickupOnce(conflictFx.options, deps(conflictFx, {
+    onTransition(state) { if (state === 'SENDING') throw new Error('sending stop'); },
+  })), /sending stop/);
+  const conflictCanary = 'PRIVATE-LEDGER-CONFLICT-CANARY-77391';
+  const conflict = await pickupOnce(conflictFx.options, deps(conflictFx, {
+    inspectTransport: () => ({ status: 'CONFLICT', matches: [], conflicts: [conflictCanary] }),
+  }));
+  assert.equal(conflict.status, 'NEEDS_RECONCILIATION');
+  assert.deepEqual(conflict.receipt.transportEvidence, {
+    status: 'CONFLICT', matchCount: 0, conflictCount: 1,
+  });
+  assert.equal(JSON.stringify(conflict).includes(conflictCanary), false);
+
+  const successFx = fixture(); t.after(successFx.cleanup);
+  const senderCanary = 'PRIVATE-SENDER-ENVELOPE-CANARY-38642';
+  const success = await pickupOnce(successFx.options, deps(successFx, {
+    send: async () => ({ id: senderCanary, envelope: senderCanary }),
+  }));
+  assert.deepEqual(success.receipt.transportResult, { id: success.receipt.noteId, recorded: true });
+  assert.equal(JSON.stringify(success).includes(senderCanary), false);
+});
