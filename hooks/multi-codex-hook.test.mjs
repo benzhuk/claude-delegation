@@ -14,9 +14,11 @@ const NOW = Date.UTC(2026, 8, 23, 19, 30);
 function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'codex-child-hook-')); }
 
 function metadata({ id = CHILD, sessionId = LEAD, parent = LEAD, depth = 1, source, padding = '' } = {}) {
+  const payload = { id, source: source ?? { subagent: { thread_spawn: { parent_thread_id: parent, depth } } }, padding };
+  if (sessionId !== null) payload.session_id = sessionId;
   return `${JSON.stringify({
     type: 'session_meta',
-    payload: { id, session_id: sessionId, source: source ?? { subagent: { thread_spawn: { parent_thread_id: parent, depth } } }, padding },
+    payload,
   })}\n`;
 }
 
@@ -42,6 +44,22 @@ test('confirmed child metadata suppresses inherited parent handle registration a
     { hook_event_name: 'UserPromptSubmit', session_id: LEAD, agent_id: CHILD, transcript_path: transcript(home, metadata({ padding: 'x'.repeat(24 * 1024) })), cwd: '/project' },
     { home, env: { NOTE_SLUG: 'lead', ORCA_TERMINAL_HANDLE: 'term_parent', CODEX_HOME: '/codex-parent' }, now: NOW, inbox: async () => { reads += 1; return notes(); } },
   );
+  assert.equal(out, null);
+  assert.equal(reads, 0);
+  assert.deepEqual(readInboxes(home), {});
+});
+
+test('legacy own-session child metadata still suppresses inherited inbox work and registration', async (t) => {
+  const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  let reads = 0;
+  const out = await runCodexHook({
+    hook_event_name: 'UserPromptSubmit', session_id: CHILD,
+    transcript_path: transcript(home, metadata({ id: CHILD, sessionId: null, parent: LEAD, depth: 2 })),
+    cwd: '/project',
+  }, {
+    home, env: { NOTE_SLUG: 'lead', ORCA_TERMINAL_HANDLE: 'term_parent' }, now: NOW,
+    inbox: async () => { reads += 1; return notes(); },
+  });
   assert.equal(out, null);
   assert.equal(reads, 0);
   assert.deepEqual(readInboxes(home), {});

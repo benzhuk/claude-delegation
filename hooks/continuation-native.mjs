@@ -44,23 +44,31 @@ export function classifyCodexRole(input = {}, fsImpl = fs) {
   if (!opaque(input.session_id) || !opaque(input.transcript_path)) return 'unknown';
   const meta = readFirstJsonLine(input.transcript_path, fsImpl);
   const payload = meta?.payload;
-  if (meta?.type !== 'session_meta' || !opaque(payload?.id) || payload?.session_id !== input.session_id) return 'unknown';
+  if (meta?.type !== 'session_meta' || !opaque(payload?.id)) return 'unknown';
   const spawn = payload?.source?.subagent?.thread_spawn;
   if (spawn !== undefined) {
     // Child callbacks carry the parent session id and an agent_id naming the child transcript.
     // Bind that explicit identity to the persisted spawn record; ancestry may be deeper than one.
-    return CODEX_SESSION_ID_RE.test(payload.id)
-      && CODEX_SESSION_ID_RE.test(input.session_id)
-      && opaque(input.agent_id)
-      && input.agent_id === payload.id
-      && payload.id !== input.session_id
-      && opaque(spawn?.parent_thread_id)
+    const validSpawn = opaque(spawn?.parent_thread_id)
       && CODEX_SESSION_ID_RE.test(spawn.parent_thread_id)
       && spawn.parent_thread_id !== payload.id
       && Number.isInteger(spawn.depth)
-      && spawn.depth >= 1 ? 'child' : 'unknown';
+      && spawn.depth >= 1;
+    const nativeParentSession = payload.session_id === input.session_id
+      && opaque(input.agent_id)
+      && input.agent_id === payload.id
+      && payload.id !== input.session_id;
+    const legacyOwnSession = payload.id === input.session_id
+      && input.agent_id == null
+      && (payload.session_id == null || payload.session_id === input.session_id)
+      && spawn.parent_thread_id !== input.session_id;
+    return CODEX_SESSION_ID_RE.test(payload.id)
+      && CODEX_SESSION_ID_RE.test(input.session_id)
+      && validSpawn
+      && (nativeParentSession || legacyOwnSession) ? 'child' : 'unknown';
   }
-  return input.agent_id == null && payload.id === input.session_id && ['cli', 'vscode'].includes(payload?.source)
+  return (payload.session_id == null || payload.session_id === input.session_id)
+    && input.agent_id == null && payload.id === input.session_id && ['cli', 'vscode'].includes(payload?.source)
     ? 'lead' : 'unknown';
 }
 
