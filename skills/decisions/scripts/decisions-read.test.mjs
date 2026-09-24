@@ -565,6 +565,74 @@ test('shapeless: a <summary> toggle WITH options is never reported as shapeless'
   assert.deepEqual(doc.shapeless, []);
 });
 
+test('archive scope omits only optionless summaries below exact top-level Closed and ends at the next top-level H1', () => {
+  const doc = parseDocument(L(
+    '<summary>Active malformed before</summary>',
+    '\t- prose only',
+    '# Closed {toggle="true"}',
+    '<summary>Historical summary</summary>',
+    '\t- historical prose',
+    '# Waiting on you now',
+    '<summary>Active malformed after</summary>',
+    '\t- prose only',
+  ));
+  assert.deepEqual(doc.shapeless, [
+    { title: 'Active malformed before', line: 1 },
+    { title: 'Active malformed after', line: 7 },
+  ]);
+  assert.deepEqual(Object.keys(doc).sort(), ['decisions', 'done', 'doneLabel', 'shapeless', 'unattached', 'warnings']);
+});
+
+test('archive scope rejects suffix, level, indentation, fence, and nested-details lookalikes', () => {
+  const cases = [
+    L('# Closed (8) {toggle="true"}', '<summary>suffix</summary>'),
+    L('## Closed {toggle="true"}', '<summary>level two</summary>'),
+    L(' # Closed {toggle="true"}', '<summary>indented</summary>'),
+    L('```md', '# Closed {toggle="true"}', '```', '<summary>fenced</summary>'),
+    L('<details>', '# Closed {toggle="true"}', '<summary>nested</summary>', '</details>'),
+  ];
+  for (const md of cases) assert.equal(parseDocument(md).shapeless.length, 1);
+  for (const heading of ['# Closed', '# **Closed** {toggle="true"}']) {
+    assert.deepEqual(parseDocument(L(heading, '<summary>historical</summary>')).shapeless, []);
+  }
+  assert.throws(
+    () => parseDocument(L('# Closed {toggle="true"}', '<summary>malformed')),
+    /summary/i,
+  );
+});
+
+test('a nested H1 cannot end real archive scope, while archive comments and checkbox decisions remain signals', () => {
+  const doc = parseDocument(L(
+    '# Closed {toggle="true"}',
+    '\t\\*\\* direct archive comment',
+    '<details>',
+    '# Nested heading',
+    '<summary>Historical question</summary>',
+    '\t\\*\\* archived comment',
+    '</details>',
+    '<summary>Historical actionable item</summary>',
+    '\t- [x] preserve this selection',
+    '\tNo default: already historical',
+    '- [ ] Done',
+  ));
+  assert.deepEqual(doc.shapeless, []);
+  assert.deepEqual(doc.unattached.map((entry) => ({ text: entry.text, under: entry.under })), [
+    { text: 'direct archive comment', under: 'Closed' },
+    { text: 'archived comment', under: 'Historical question' },
+  ]);
+  assert.equal(doc.decisions.length, 1);
+  assert.equal(doc.decisions[0].status, 'TICKED');
+  assert.deepEqual(Object.keys(doc.decisions[0]).sort(), ['comments', 'default', 'line', 'options', 'status', 'title']);
+
+  const directTick = parseDocument(L(
+    '# Closed {toggle="true"}',
+    '- [x] direct archived checkbox',
+    'No default: historical',
+    '- [ ] Done',
+  ));
+  assert.equal(directTick.decisions[0].status, 'TICKED');
+});
+
 test('MINOR 8: formatText and JSON report an explicit decision count', () => {
   const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
   assert.equal(zero.decisions.length, 0);

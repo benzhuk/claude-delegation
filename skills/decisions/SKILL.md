@@ -69,6 +69,10 @@ status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on 
 page (not checked). Existing extra sections are not deleted by this skill; whether to
 remove one is the lead's call with the owner (not checked).
 
+An optionless summary below the exact, top-level `# Closed` heading is historical rather
+than a malformed active decision. Its owner comments and any checkbox options remain live
+reader signals; archive scope never hides them. The scope ends at the next top-level heading.
+
 ## Reading answers
 
 ### One-shot pickup and owner accounting

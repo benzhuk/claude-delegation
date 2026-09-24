@@ -65,6 +65,22 @@ function normalizeTitle(raw) {
 }
 
 /**
+ * Return the visible text of a column-zero level-one heading. This is deliberately
+ * narrower than `matchTitle`: archive scope is a page-level structural boundary, not
+ * another decision title, and numeric suffix normalization must never turn a different
+ * heading into the canonical `Closed` heading.
+ */
+function matchTopLevelHeading(rawLine) {
+  const match = /^#[ \t]+(.+?)[ \t]*$/.exec(rawLine);
+  if (!match) return null;
+  let text = match[1].trim();
+  const toggle = /^(.*?)[ \t]+\{[^}]*\btoggle="true"[^}]*\}[ \t]*$/.exec(text);
+  if (toggle) text = toggle[1].trim();
+  if (text.startsWith('**') && text.endsWith('**') && text.length >= 4) text = text.slice(2, -2).trim();
+  return text;
+}
+
+/**
  * `Default after YYYY-MM-DD HH:MM ±HH:MM: <text>` (rule R4). Returns the parsed payload,
  * or null when the shape, or the date/time itself, is invalid — the caller turns that into
  * a WARN, since a malformed deadline must never be silent.
@@ -146,7 +162,10 @@ export function parseDocument(text, { now = new Date() } = {}) {
   const unattached = [];
   const warnings = [];
   const doneCandidates = [];
+  const archivedTitles = new Set();
   let currentTitle = null;
+  let detailsDepth = 0;
+  let inArchive = false;
 
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i];
@@ -155,6 +174,22 @@ export function parseDocument(text, { now = new Date() } = {}) {
 
     if (/^`{3,}/.test(trimmed)) { inFence = !inFence; continue; }
     if (inFence) continue;
+
+    if (/^<details(?:\s[^>]*)?>[ \t]*$/i.test(trimmed)) {
+      detailsDepth += 1;
+      continue;
+    }
+    if (/^<\/details>[ \t]*$/i.test(trimmed)) {
+      if (detailsDepth > 0) detailsDepth -= 1;
+      continue;
+    }
+
+    // Only a real page-level H1 enters or leaves archive scope. A column-zero H1 inside
+    // `<details>` is still nested, and headings in fences were already skipped above.
+    if (detailsDepth === 0) {
+      const topLevelHeading = matchTopLevelHeading(raw);
+      if (topLevelHeading !== null) inArchive = topLevelHeading === 'Closed';
+    }
 
     if (/<summary\b/i.test(raw) && matchTitle(raw) === null) {
       throw new BlindError(`unreadable <summary> at line ${lineNo}`);
@@ -172,6 +207,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
         _openComment: null,
       };
       titles.push(currentTitle);
+      if (inArchive) archivedTitles.add(currentTitle);
       continue;
     }
 
@@ -310,7 +346,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
   // reader's stdout grammar and exit codes stay exactly as pinned; a downstream caller (the
   // hand-back check) is what turns this into something the lead sees.
   const shapeless = titles
-    .filter((t) => t.shape === 'summary' && t.options.length === 0)
+    .filter((t) => t.shape === 'summary' && t.options.length === 0 && !archivedTitles.has(t))
     .map((t) => ({ title: t.title, line: t.line }));
 
   return {
