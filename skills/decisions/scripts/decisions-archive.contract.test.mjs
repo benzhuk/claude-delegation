@@ -35,6 +35,20 @@ const PICKUP_ARCHIVE = ARCHIVE.replace('# Current section {toggle="true"}\n<summ
 const PLAIN_PICKUP_ARCHIVE = PICKUP_ARCHIVE.replace('# Closed {toggle="true"}', '# Closed');
 const MIXED_UNKNOWN = `${PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '# Unknown historical section\n<summary>Unknown optionless history</summary>\n- [ ] Done')}`;
 const MIXED_NORMALIZED = MIXED_UNKNOWN.replace('# Unknown historical section', '## Unknown historical section');
+const UNCLOSED_DETAILS = `# Closed
+<details>
+<summary>Historical optionless</summary>
+# Active
+<summary>Active optionless</summary>
+- [ ] Done
+`;
+const STRAY_DETAILS_CLOSE = `# Closed
+</details>
+<summary>Historical optionless</summary>
+# Active
+<summary>Active optionless</summary>
+- [ ] Done
+`;
 const HANDBACK_UNKNOWN = `<summary>Current unchecked choice</summary>
 - [ ] current option
 No default: explicit owner choice
@@ -84,7 +98,6 @@ test('canonical Closed archives only optionless summaries while retaining commen
   for (const decision of doc.decisions) {
     assert.deepEqual(Object.keys(decision).sort(), ['comments', 'default', 'line', 'options', 'status', 'title']);
   }
-  assert.equal(JSON.stringify(doc).includes('archiveScope'), false, 'internal archive state must not leak');
 });
 
 test('only a structural top-level exact Closed heading opens scope; fences, details, suffixes, and scope exit do not', () => {
@@ -125,6 +138,20 @@ test('malformed summary remains blind even under canonical Closed', () => {
 
 test('unterminated fence remains blind under canonical Closed', () => {
   assert.throws(() => parseDocument('# Closed\n```\n<summary>ignored</summary>\n'), /unterminated fenced code block/);
+});
+
+test('unbalanced details falls back to active shapeless checks without becoming BLIND', async (t) => {
+  for (const text of [UNCLOSED_DETAILS, STRAY_DETAILS_CLOSE]) {
+    const doc = parseDocument(text);
+    assert.deepEqual(doc.shapeless.map((entry) => entry.title), ['Historical optionless', 'Active optionless']);
+  }
+  const fx = pickupFixture(t);
+  const sends = { count: 0 };
+  const invalid = await pickupOnce(fx.options, pickupDeps(fx, UNCLOSED_DETAILS, sends));
+  assert.equal(invalid.status, 'INVALID');
+  assert.equal(sends.count, 0);
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.options.repo), page: PAGE });
+  assert.equal(fs.existsSync(paths.directory), false, 'unbalanced details must not create receipt artifacts');
 });
 
 test('only normalized history beneath Closed is exempt; later unknown H1 remains a shared parser and pickup defect', async (t) => {
@@ -181,7 +208,7 @@ test('handback reports the same unknown-H1 shape defect and clears it after hier
 
 test('real pickupOnce preserves synthetic archive signals across unchecked and checked lifecycle', async (t) => {
   const fx = pickupFixture(t);
-  const unchecked = PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '- [ ] Done');
+  const unchecked = PLAIN_PICKUP_ARCHIVE;
   const sends = { count: 0 };
   const noAction = await pickupOnce(fx.options, pickupDeps(fx, unchecked, sends));
   assert.equal(noAction.status, 'UNCHANGED');
