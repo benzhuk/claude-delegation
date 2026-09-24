@@ -238,7 +238,8 @@ test('optional source without SKILL.md is named while a usable optional source r
     plan.actions.join('\n'));
   assert.ok(plan.actions.some((line) => line.includes('optional source skill not sourced: triage (wrong file type: source is not a directory)')),
     plan.actions.join('\n'));
-  assert.ok(plan.actions.some((line) => /would copy: .*\.agents[\\/]skills[\\/]learn/.test(line)),
+  const publishVerb = IS_WINDOWS ? 'copy' : 'symlink';
+  assert.ok(plan.actions.some((line) => new RegExp(`would ${publishVerb}: .*\\.agents[\\\\/]skills[\\\\/]learn`).test(line)),
     `usable optional source was not selected:\n${plan.actions.join('\n')}`);
   assert.deepEqual(fs.readdirSync(path.join(home, '.claude', 'skills', 'learn')), ['SKILL.md']);
   assert.ok(!fs.existsSync(path.join(home, '.agents')), '--dry-run must not publish optional sources');
