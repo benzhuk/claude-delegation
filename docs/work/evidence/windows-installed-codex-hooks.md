@@ -1,0 +1,13 @@
+# Installed Codex useful work and native hooks
+
+VERDICT: PASS for observed normal Windows app-server route; other host/event outcomes remain partial.
+
+September 24, 2026, America/New_York. After release 0.20.4 installation, a fresh authenticated Codex app-server session used the normal existing user configuration, trusted shared-mirror hooks, and source checkout at eedf895. No hook-trust bypass, plugin replacement, fabricated pane identity, synthetic provider, or copied credentials. Invocation-only PATH selected Windows system PowerShell; windows.sandbox=elevated retained read-only sandbox enforcement with approval policy never. The prior ephemeral exec result established useful work but did not expose these events; absence in that output was not proof of failure.
+
+Actual native thread `01a0d31c-772a-7a92-b473-b9588aef7344` completed its finite source-reading and release-note task in 10.259 seconds (provider turn duration), with Terra/medium. All nine configured hook invocations completed: five existing Orca handlers and four delegation handlers. Delegation SessionStart, UserPromptSubmit, PostToolUse and Stop completed in 195, 208, 210 and 208 milliseconds respectively. The prompt handler emitted an actual continuation epoch into native context. This finite editorial task intentionally did not bind ongoing work. Interrupt was not exercised.
+
+Before the turn, native hooks/list reported all five delegation registrations enabled and trusted, without warnings/errors. Actual command execution read the specified rollout evidence, and the model produced an accurate compact note. The original note's statement that native execution was unproved describes its source document before this new observation; this evidence now supersedes that specific uncertainty for this route.
+
+Private receipts: Temp/astra-followthrough-0923/0924-current-native-use/{events.jsonl,summary.json}, launcher 0924-current-native-use.mjs and prior 0924-current-hook-list.json. Readbacks expose native completion and context, not merely installed JSON. The stale diagnosis that missing NOTE_SLUG prevents continuation was retracted: current adapter code handles continuation independently of peer identity.
+
+This establishes real hook execution alongside useful work on one installed Windows route. It does not establish automatic cross-provider peer delivery, bound completion enforcement in this finite task, all event kinds on all machines, unattended restart, or complete project outcomes. SDK issue [47810](https://github.com/openai/codex/issues/47810) remains a separate launch-path report; work does not depend on its resolution.
