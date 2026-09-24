@@ -204,6 +204,67 @@ test('elapsed: a record with a reviewed line but no Opened: field is labeled for
   assert.equal(r.elapsedEndAt, '2026-01-01T05:15:00.000Z');
 });
 
+test('timing evidence: shared parsing preserves malformed Log text but census renders its first delivered time unknown', () => {
+  const dir = mkTmp('work-census-malformed-log-');
+  const records = writeFixtures(dir, { 'malformed.record.md': `Work: wr-2026-01-01-census-malformed
+Opened: 2026-01-01T00:00:00Z
+Log: Sol delivered builder malformed-prose-timestamp
+` });
+  assert.equal(records[0].record.log[0].at, 'Sol', 'the fixture must reach census through the shared parser');
+  const r = computeWorkCensus(records).perWork[0];
+  assert.equal(r.firstDelivered, null);
+  assert.equal(r.elapsedMs, null);
+  assert.match(formatText({ perWork: [r] }), /\(none\)/);
+});
+
+test('timing evidence: an invalid latest accepted timestamp governs and never falls back to an older accepted or reviewed timestamp', () => {
+  const dir = mkTmp('work-census-invalid-latest-accepted-');
+  const records = writeFixtures(dir, { 'invalid-accepted.record.md': `Work: wr-2026-01-01-census-invalid-accepted
+Opened: 2026-01-01T00:00:00Z
+Log: 2026-01-01T00:10:00Z reviewed lead earlier-review
+Log: 2026-01-01T00:20:00Z accepted lead earlier-accepted
+Log: invalid-latest accepted lead malformed-latest-accepted
+` });
+  const r = computeWorkCensus(records).perWork[0];
+  assert.equal(r.firstAccepted, '2026-01-01T00:20:00Z');
+  assert.equal(r.elapsedMs, null);
+  assert.equal(r.elapsedEndAt, null);
+  assert.equal(r.elapsedLabel, '(invalid accepted timestamp)');
+});
+
+test('timing evidence: invalid Opened and reversed chronology remain unknown with explanatory labels', () => {
+  const dir = mkTmp('work-census-invalid-endpoints-');
+  const records = writeFixtures(dir, {
+    'invalid-opened.record.md': `Work: wr-2026-01-01-census-invalid-opened
+Opened: 2026-02-30T00:00:00Z
+Log: 2026-01-01T00:10:00Z accepted lead artifact
+`,
+    'reversed.record.md': `Work: wr-2026-01-01-census-reversed
+Opened: 2026-01-01T01:00:00Z
+Log: 2026-01-01T00:10:00Z accepted lead artifact
+`,
+  });
+  const [invalidOpened, reversed] = computeWorkCensus(records).perWork;
+  assert.equal(invalidOpened.opened, null);
+  assert.equal(invalidOpened.elapsedMs, null);
+  assert.equal(invalidOpened.elapsedLabel, '(invalid Opened: field)');
+  assert.equal(reversed.elapsedMs, null);
+  assert.equal(reversed.elapsedLabel, '(end precedes Opened: field)');
+});
+
+test('timing evidence: valid Z, explicit offsets, and fractional seconds retain ordinary elapsed measurements', () => {
+  const dir = mkTmp('work-census-valid-offset-');
+  const records = writeFixtures(dir, { 'offset.record.md': `Work: wr-2026-01-01-census-offset
+Opened: 2026-01-01T00:00:00.250+01:00
+Log: 2025-12-31T23:30:00.750Z accepted lead artifact
+` });
+  const r = computeWorkCensus(records).perWork[0];
+  assert.equal(r.opened, '2026-01-01T00:00:00.250+01:00');
+  assert.equal(r.firstAccepted, '2025-12-31T23:30:00.750Z');
+  assert.equal(r.elapsedMs, 30 * 60 * 1000 + 500);
+  assert.equal(r.elapsedLabel, '(to accepted)');
+});
+
 // ── CLI ──────────────────────────────────────────────────────────────────
 
 test('main(): reads the given dir, writes a report to --out, and prints only "wrote: <path>"', async () => {

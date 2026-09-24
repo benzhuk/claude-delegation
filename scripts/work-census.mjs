@@ -30,6 +30,26 @@ function lastOfStatus(log, status) {
   return last;
 }
 
+// Timing evidence is deliberately admitted at the measurement boundary, after the shared
+// record parser has preserved the raw Log fields. This accepts the ISO forms records use
+// (Z or explicit offsets, with optional fractional seconds) without promoting prose such
+// as `Sol delivered ...` into a timestamp.
+function parseTimingEvidence(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return null;
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond, rawOffsetHour, rawOffsetMinute] = match;
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = [rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond, rawOffsetHour, rawOffsetMinute].map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()
+    || hour > 23 || minute > 59 || second > 59 || (rawOffsetHour !== undefined && (offsetHour > 23 || offsetMinute > 59))) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? { value, ms } : null;
+}
+
+function timingValue(value) {
+  return parseTimingEvidence(value)?.value ?? null;
+}
+
 // Rounds: the record's own Rounds: field when present, else a count of owned -> delivered
 // transitions, file order. L-C10 says "a count of owned -> delivered transitions", not
 // "adjacent Log lines" — an intervening line of some other status (a reviewed interim
@@ -62,12 +82,18 @@ function countRounds(fields, log) {
 function elapsedFor(openedAt, log) {
   const lastAccepted = lastOfStatus(log, 'accepted');
   const lastReviewed = lastOfStatus(log, 'reviewed');
-  const endAt = lastAccepted || lastReviewed;
-  const label = lastAccepted ? '(to accepted)' : lastReviewed ? '(to reviewed)' : null;
+  const rawEndAt = lastAccepted || lastReviewed;
+  const kind = lastAccepted ? 'accepted' : lastReviewed ? 'reviewed' : null;
 
-  if (!endAt) return { ms: null, endAt: null, label: '(no reviewed or accepted line)' };
-  if (!openedAt) return { ms: null, endAt, label: '(no Opened: field)' };
-  return { ms: Date.parse(endAt) - Date.parse(openedAt), endAt, label };
+  if (!rawEndAt) return { ms: null, endAt: null, label: '(no reviewed or accepted line)' };
+  const end = parseTimingEvidence(rawEndAt);
+  if (!end) return { ms: null, endAt: null, label: `(invalid ${kind} timestamp)` };
+  if (!openedAt) return { ms: null, endAt: end.value, label: '(no Opened: field)' };
+  const start = parseTimingEvidence(openedAt);
+  if (!start) return { ms: null, endAt: end.value, label: '(invalid Opened: field)' };
+  const ms = end.ms - start.ms;
+  if (!Number.isFinite(ms) || ms < 0) return { ms: null, endAt: end.value, label: '(end precedes Opened: field)' };
+  return { ms, endAt: end.value, label: `(to ${kind})` };
 }
 
 function perWorkReport(entry) {
@@ -81,11 +107,11 @@ function perWorkReport(entry) {
   return {
     work,
     path: recPath,
-    opened: fields.opened || null,
-    firstOwned: firstOfStatus(log, 'owned'),
-    firstDelivered: firstOfStatus(log, 'delivered'),
-    firstReviewed: firstOfStatus(log, 'reviewed'),
-    firstAccepted: firstOfStatus(log, 'accepted'),
+    opened: timingValue(fields.opened),
+    firstOwned: timingValue(firstOfStatus(log, 'owned')),
+    firstDelivered: timingValue(firstOfStatus(log, 'delivered')),
+    firstReviewed: timingValue(firstOfStatus(log, 'reviewed')),
+    firstAccepted: timingValue(firstOfStatus(log, 'accepted')),
     rounds: countRounds(fields, log),
     elapsedMs: elapsed.ms,
     elapsedEndAt: elapsed.endAt,
