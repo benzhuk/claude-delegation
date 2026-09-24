@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  TRANSCRIPT_TAIL_MAX_BYTES, classifyCodexRole, continuationBindMarker,
+  TRANSCRIPT_ROW_MAX_BYTES, TRANSCRIPT_SCAN_MAX_BYTES, TRANSCRIPT_TAIL_MAX_BYTES,
+  classifyCodexRole, continuationBindMarker,
   latestClaudeUser, normalizeClaudeContinuation, normalizeCodexContinuation,
 } from './continuation-native.mjs';
 
@@ -24,20 +25,56 @@ test('Claude tail classifier excludes meta/tool_result rows and selects the late
   assert.deepEqual(latestClaudeUser({ transcript_path: file }), { uuid: uuid(4), parentUuid: null });
 });
 
-test('Claude transcript IO is a positioned bounded read and fails closed without a complete row', () => {
-  let allocated = 0; let positioned = null; let closed = 0;
+test('Claude backward scan uses positioned chunks and enforces the hard aggregate byte cap', () => {
+  let largest = 0; let total = 0; let closed = 0;
   const fakeFs = {
     openSync: () => 7,
-    fstatSync: () => ({ isFile: () => true, size: TRANSCRIPT_TAIL_MAX_BYTES * 4 }),
-    readSync: (_fd, buffer, _offset, length, position) => {
-      allocated = buffer.length; positioned = position; buffer.fill(0x78, 0, length); return length;
+    fstatSync: () => ({ isFile: () => true, size: TRANSCRIPT_SCAN_MAX_BYTES + TRANSCRIPT_TAIL_MAX_BYTES }),
+    readSync: (_fd, buffer, _offset, length) => {
+      largest = Math.max(largest, buffer.length); total += length; buffer.fill(0x0a, 0, length); return length;
     },
     closeSync: () => { closed += 1; },
   };
   assert.equal(latestClaudeUser({ transcript_path: '/private/transcript' }, fakeFs), null);
-  assert.equal(allocated, TRANSCRIPT_TAIL_MAX_BYTES);
-  assert.equal(positioned, TRANSCRIPT_TAIL_MAX_BYTES * 3);
+  assert.equal(largest, TRANSCRIPT_TAIL_MAX_BYTES);
+  assert.equal(total, TRANSCRIPT_SCAN_MAX_BYTES);
   assert.equal(closed, 1);
+});
+
+test('Claude scan reaches the true user beyond the old 64 KiB tail in an actual-sized transcript', () => {
+  const file = path.join(tmp(), 'transcript.jsonl');
+  const target = { type: 'user', uuid: uuid(5), isMeta: false, message: { role: 'user', content: 'continue' } };
+  const padding = Array.from({ length: 90 }, (_, i) => ({ type: 'assistant', uuid: uuid(100 + i), message: { role: 'assistant', content: 'x'.repeat(980) } }));
+  const later = [
+    { type: 'user', uuid: uuid(6), isMeta: false, message: { role: 'user', content: [{ type: 'tool_result' }] } },
+    { type: 'user', uuid: uuid(7), isMeta: true, message: { role: 'user', content: 'hidden' } },
+  ];
+  fs.writeFileSync(file, [...[target], ...padding, ...later].map(JSON.stringify).join('\n'));
+  assert.ok(fs.statSync(file).size > TRANSCRIPT_TAIL_MAX_BYTES);
+  assert.deepEqual(latestClaudeUser({ transcript_path: file }), { uuid: uuid(5), parentUuid: null });
+});
+
+test('Claude backward scan returns the latest true user, not an older valid episode', () => {
+  const file = path.join(tmp(), 'transcript.jsonl');
+  const rows = [
+    { type: 'user', uuid: uuid(20), isMeta: false, message: { role: 'user', content: 'old' } },
+    ...Array.from({ length: 70 }, () => ({ type: 'assistant', message: { role: 'assistant', content: 'x'.repeat(980) } })),
+    { type: 'user', uuid: uuid(21), isMeta: false, message: { role: 'user', content: 'new' } },
+    { type: 'assistant', message: { role: 'assistant', content: 'done' } },
+  ];
+  fs.writeFileSync(file, rows.map(JSON.stringify).join('\n'));
+  assert.deepEqual(latestClaudeUser({ transcript_path: file }), { uuid: uuid(21), parentUuid: null });
+});
+
+test('Claude scan fails closed on an oversized or truncated row', () => {
+  const dir = tmp();
+  const oversized = path.join(dir, 'oversized.jsonl');
+  fs.writeFileSync(oversized, `${JSON.stringify({ type: 'user', uuid: uuid(30), isMeta: false, message: { role: 'user', content: 'old' } })}\n${'x'.repeat(TRANSCRIPT_ROW_MAX_BYTES + 1)}`);
+  assert.equal(latestClaudeUser({ transcript_path: oversized }), null);
+
+  const truncated = path.join(dir, 'truncated.jsonl');
+  fs.writeFileSync(truncated, `${JSON.stringify({ type: 'user', uuid: uuid(31), isMeta: false, message: { role: 'user', content: 'old' } })}\n{"type":"user"`);
+  assert.equal(latestClaudeUser({ transcript_path: truncated }), null);
 });
 
 test('Claude normalizer bootstraps at prompt and keys tool/Stop to the true user UUID', () => {

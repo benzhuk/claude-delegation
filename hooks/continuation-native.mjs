@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 
 export const TRANSCRIPT_TAIL_MAX_BYTES = 64 * 1024;
+export const TRANSCRIPT_SCAN_MAX_BYTES = 8 * 1024 * 1024;
+export const TRANSCRIPT_ROW_MAX_BYTES = 1024 * 1024;
 const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const OPAQUE_RE = /^[^\r\n\0]{1,512}$/;
 
@@ -54,7 +56,18 @@ export function classifyCodexRole(input = {}, fsImpl = fs) {
   return payload?.source === 'cli' ? 'lead' : 'unknown';
 }
 
-/** Read a bounded byte tail and return only the latest structural true-user UUID. */
+function trueClaudeUser(line) {
+  if (!line.length) return undefined;
+  if (line.length > TRANSCRIPT_ROW_MAX_BYTES) return null;
+  if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
+  let row;
+  try { row = JSON.parse(line.toString('utf8')); } catch { return null; }
+  if (row?.type !== 'user' || row?.message?.role !== 'user' || row?.isMeta === true) return undefined;
+  if (typeof row.message.content !== 'string' || !opaque(row.uuid)) return undefined;
+  return { uuid: row.uuid, parentUuid: opaque(row.parentUuid) ? row.parentUuid : null };
+}
+
+/** Scan backward in bounded chunks and return only the latest structural true-user UUID. */
 export function latestClaudeUser(input = {}, fsImpl = fs) {
   if (!opaque(input.transcript_path)) return null;
   let fd;
@@ -62,26 +75,32 @@ export function latestClaudeUser(input = {}, fsImpl = fs) {
     fd = fsImpl.openSync(input.transcript_path, 'r');
     const stat = fsImpl.fstatSync(fd);
     if (!stat.isFile() || !Number.isSafeInteger(stat.size) || stat.size < 0) return null;
-    const length = Math.min(stat.size, TRANSCRIPT_TAIL_MAX_BYTES);
-    const bytes = Buffer.alloc(length);
-    const bytesRead = fsImpl.readSync(fd, bytes, 0, length, stat.size - length);
-    let text = bytes.subarray(0, bytesRead).toString('utf8');
-    if (stat.size > length) {
-      const newline = text.indexOf('\n');
-      if (newline < 0) return null;
-      text = text.slice(newline + 1);
+    let position = stat.size;
+    let scanned = 0;
+    let carry = Buffer.alloc(0);
+    while (position > 0 && scanned < TRANSCRIPT_SCAN_MAX_BYTES) {
+      const length = Math.min(TRANSCRIPT_TAIL_MAX_BYTES, position, TRANSCRIPT_SCAN_MAX_BYTES - scanned);
+      position -= length;
+      const bytes = Buffer.alloc(length);
+      const bytesRead = fsImpl.readSync(fd, bytes, 0, length, position);
+      if (bytesRead !== length) return null;
+      scanned += bytesRead;
+      const joined = carry.length ? Buffer.concat([bytes, carry]) : bytes;
+      let end = joined.length;
+      while (end > 0) {
+        const newline = joined.lastIndexOf(0x0a, end - 1);
+        if (newline < 0) break;
+        const found = trueClaudeUser(joined.subarray(newline + 1, end));
+        if (found === null) return null;
+        if (found) return found;
+        end = newline;
+      }
+      carry = joined.subarray(0, end);
+      if (carry.length > TRANSCRIPT_ROW_MAX_BYTES) return null;
     }
-    let latest = null;
-    for (const line of text.split(/\r?\n/)) {
-      if (!line || Buffer.byteLength(line) > TRANSCRIPT_TAIL_MAX_BYTES) continue;
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
-      if (row?.type !== 'user' || row?.message?.role !== 'user' || row?.isMeta === true) continue;
-      const content = row.message.content;
-      if (typeof content !== 'string' || !opaque(row.uuid)) continue;
-      latest = { uuid: row.uuid, parentUuid: opaque(row.parentUuid) ? row.parentUuid : null };
-    }
-    return latest;
+    if (position !== 0) return null;
+    const found = trueClaudeUser(carry);
+    return found ?? null;
   } catch {
     return null;
   } finally {
