@@ -1062,6 +1062,11 @@ export async function runNoteFlush(argv, deps = {}) {
  * The piggyback drain: note-send and note-notify call this instead of spawning a process. It swallows
  * everything — a drain that throws must never take down the send or the turn-end hook that invoked it.
  */
+/** Pinned standalone CLI interface; no production call until implemented. */
+export async function runPostFlushPickup(argv, context, deps = {}) {
+  throw new Error('REGISTERED_PICKUP_NOT_IMPLEMENTED');
+}
+
 export async function drainQuietly(deps = {}, opts = {}) {
   const argv = [];
   if (opts.to) argv.push('--to', String(opts.to));

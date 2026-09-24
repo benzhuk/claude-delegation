@@ -22,6 +22,10 @@ import { gitRunner, mainCheckout } from '../../multi/scripts/transport.mjs';
 export const RECEIPT_VERSION = 2;
 const LEGACY_RECEIPT_VERSION = 1;
 export const READER_TIMEOUT_MS = 15_000;
+/** Pinned registered-pickup interface; implementation belongs to the admitted build. */
+export async function runRegisteredPickup(options = {}, deps = {}) {
+  throw new Error('REGISTERED_PICKUP_NOT_IMPLEMENTED');
+}
 const NOTE_KIND = 'ASK';
 const NOTE_NEEDS = 'ack';
 
