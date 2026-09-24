@@ -1,0 +1,19 @@
+VERDICT: NEEDS_FIXES 519da165f2c8716994c62e6b98a8c1595fc9eb23
+
+Independent source delta review, September 23, 2026, America/New_York. No repository edits. The prior legacy-child isolation regression is fixed, but a malformed structured metadata case now throws before peer delivery.
+
+Finding (four fields)
+1. Severity/location: MEDIUM compatibility/availability, hooks/continuation-native.mjs classifyCodexRole, legacyOwnSession expression reading spawn.parent_thread_id.
+2. Trigger/evidence: session_meta payload.id equals callback.session_id, callback has no agent_id, source.subagent.thread_spawn is explicitly null. validSpawn computes false using optional chaining, but legacyOwnSession is independently evaluated before validSpawn guards the return and dereferences null. Independent temporary reproducer C:/Users/benzh/AppData/Local/Temp/astra-followthrough-0923/codex-child-round2-review.mjs records throws: Cannot read properties of null (reading parent_thread_id). Summary C:/Users/benzh/AppData/Local/Temp/codex-child-round2-review-vW05aY/summary.json.
+3. Impact: classifyCodexRole violates the tri-state unknown contract. runCodexHook invokes isConfirmedCodexChild before its continuation exception guard; the top-level catch suppresses the entire hook. A malformed transcript that should preserve the existing unknown-identity peer path instead silently drops that delivery opportunity. It does not authorize continuation or expose parent state, but contradicts the required malformed-metadata compatibility behavior.
+4. Fix/check: return unknown immediately when validSpawn is false, or use optional chaining in legacyOwnSession while retaining the final validSpawn guard. Add null thread_spawn regression asserting classify unknown and the ordinary unknown peer path still executes. Rerun the independent 20 positive-child cases below and focused suite.
+
+Prior finding resolution independently confirmed
+Executed both legacy own-session/no-agent-id and native parent-session/agent-id forms, each with absent and populated parent registry, across SessionStart/UserPromptSubmit/PostToolUse/Stop/Interrupt: 20 passing combinations. Native depth2 uses intermediate parent_thread_id distinct from root session and child, matching the actual relation. Each asserts classifier child, null adapter result/no ACK slice, zero injected inbox calls, zero continuation-core calls, no registry creation when absent, and byte-for-byte unchanged registry when populated. These are positive assertions; absence of a file/ENOENT is not used as an implicit pass. No real peer contacted.
+
+Other source seams
+- Legacy supplied conflicting payload.session_id is rejected; exact own-session legacy branch does not use inherited slug. Native branch still binds payload.session_id to callback.session_id and callback.agent_id to distinct child payload.id; valid UUIDs/depth and distinct parent required.
+- Lead remains exact payload.id/callback.session_id, absent agent_id, source cli/vscode. Legacy absent session alias is restored; conflicting non-null supplied alias is unknown. No spawn-structured payload is promoted to lead.
+- Manifest and production profile are unchanged from e3d7ff7: compatibility manifest selects five native lifecycle handlers into the shared adapter, root portable manifest removed intentionally, Claude configuration untouched. No new source issue there. Production default codex-native-turn-v1 remains contingent on separate actual native full-core/package qualification; this review does not grant runtime acceptance.
+
+Focused executable gate independently passed 17/17, zero failures/skips: node scripts/run-tests.mjs hooks/continuation-native.test.mjs hooks/multi-codex-hook.test.mjs scripts/native-package.test.mjs. Those tests omit the null structured spawn case. Earlier rejected evidence and all temporary fixtures remain preserved.

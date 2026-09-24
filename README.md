@@ -63,7 +63,7 @@ claude plugin install delegation@benzhuk
 - **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
   wave closeout, or status turn: select useful ready work, preserve its evidence identity,
   refill genuinely free capacity, and use verified native host resume paths. On supported
-  Claude Code hooks, explicitly bind the current native episode to selected existing work
+  Claude Code and Codex hooks, explicitly bind the current native episode to selected existing work
   records for one bounded completion correction. Accounting uses current evidence;
   a new prompt suspends the prior binding. This does not grant authority or schedule idle work.
 - **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
@@ -207,7 +207,7 @@ Receiving is automatic on both vendors:
 | | how a note reaches the session |
 |---|---|
 | **Claude Code** | the plugin's `UserPromptSubmit`, `Stop` and `PostToolUse` hooks run `note-inbox`, inject the new notes, and ack. `Stop` blocks the stop when something is waiting. |
-| **Codex** | `note-inbox --me <slug>` at the start of every turn (AGENTS.md), plus the `notify` drain above. Codex does not queue typed input mid-turn, so it is never typed at while working. |
+| **Codex** | Configured and trusted native hooks deliver on prompt/tool/Stop events. If hooks are absent, use `note-inbox --me <slug>` at turn start. The existing queue transport handles wake-up; no typing into an active composer. See [installation boundaries](docs/native-use.md). |
 
 ## Install (mirror for Codex)
 
@@ -239,8 +239,12 @@ MIT
   Claude's actual default-session bind, accounting, interrupt and replacement paths
   passed native SDK fixtures with a local synthetic provider. Bounded transcript scanning
   fixes a real two-tool activation failure; unknown evidence remains nonblocking.
-  Codex lifecycle fields are observed, but its command-launch integration is still under
-  qualification and automatic continuation remains inactive there. No idle scheduler,
+  Real Codex app-server command hooks also pass bind, accounting, one correction and
+  explicit interruption. The native package now uses the supported Codex manifest;
+  the preceding root manifest exposed skills but its loader skipped hooks. Both positive
+  child identity forms are isolated, and mirror hook wiring includes Interrupt. A Windows
+  Store PowerShell launch defect remains a host prerequisite: tests used system PowerShell
+  in disposable processes, without changing production PATH or configuration. No idle scheduler,
   sustained model-compliance guarantee or cross-machine rollout is implied.
 - 0.19.0 — keeps new private decisions snapshots outside Git in the existing local
   receipt store, with sanitized repository Details pointers and verified local `open`.

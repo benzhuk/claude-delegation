@@ -1,59 +1,61 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes released `delegation` 0.18 source (main `686e778`). On September 23, 2026, the current Windows shared-skill mirror was updated to 0.18 with source-byte and fresh Codex discovery checks; configuration and hooks were unchanged. See [local update evidence](work/evidence/local-mirror-continuation-update.md). Native package installation and broader rollout remain separate. Choose one route deliberately for each Codex host; installing both is not an automatic upgrade path.
+This guide describes the 0.20 source candidate. Release and current-machine update evidence belongs in the work records; a checkout is not an installed runtime. The current Windows plain skill mirror was last verified at 0.19. Choose one hook route for a Codex host, then verify actual execution on that host.
 
 ## Choose the route
 
-Use the **native package** when the goal is Codex plugin skill discovery. From a chosen 0.18 release checkout, a builder can add its marketplace and package, then confirm it:
+The native Codex package exposes the same nine skills as Claude Code, using `.codex-plugin/plugin.json` and the local marketplace. From a chosen release checkout:
 
 ```powershell
-# Run from the selected 0.18 release checkout; do not run during review.
 codex plugin marketplace add .
 codex plugin add delegation@delegation
 codex plugin list
 ```
 
-Observed in disposable Codex 0.156.1 checks: this route discovers these nine namespaced skills:
+Review and trust the installed hooks through the host's supported workflow. The native hook file registers SessionStart, UserPromptSubmit, PostToolUse, Stop and Interrupt; commands resolve the shared adapter through `PLUGIN_ROOT`. Namespaced skill discovery and actual hook execution are separate checks. The expected skills are `delegation:bearings`, `delegation:continue`, `delegation:decisions`, `delegation:delegate`, `delegation:dev-server`, `delegation:janitor`, `delegation:multi`, `delegation:notion-writing`, and `delegation:team-build`.
 
-`delegation:bearings`, `delegation:continue`, `delegation:decisions`, `delegation:delegate`, `delegation:dev-server`, `delegation:janitor`, `delegation:multi`, `delegation:notion-writing`, and `delegation:team-build`.
-
-Use the **mirror** when the host also needs the existing Codex role files, note-command shims, shared documentation, and trusted mirror hook wiring. Its published plugin inventory is eight skills: `bearings`, `continue`, `decisions`, `delegate`, `dev-server`, `multi`, `notion-writing`, and `team-build`. A builder can preview and then run the whole mirror from the selected 0.18 source:
+Use the mirror when the host needs the existing role files, note-command shims and shared documentation. It publishes eight orchestration/utility skills, excluding janitor. Preview the whole package from the selected durable release checkout:
 
 ```powershell
 node scripts/mirror-shared-skills.mjs --dry-run --json
 node scripts/mirror-shared-skills.mjs
 ```
 
-The mirror is whole-package only: do not hand-copy individual skills or edit an old cache. It does not change Codex hooks by default. Native package installation does not automatically install the mirror, and mirroring does not install the native package.
-
-## Keep the host boundary intact
-
-The native package has an explicit empty Codex hook declaration. Observed sealed-package checks listed zero native hooks and zero errors while retaining the Claude hook file unchanged. This prevents Codex from treating the Claude hook configuration as native hooks.
-
-That boundary is intentional. Native package discovery currently proves skill discovery only. It does not prove installed custom roles, peer wake-up, cadence/continuation behavior, trusted hook activation, or mixed-host collaboration. Do not infer those capabilities from a package listing.
-
-## Review a released two-host update
-
-For the released 0.18 source, keep the Claude update and Codex mirror alignment as separate, reviewable actions:
+A plain mirror run does not edit Codex configuration or hook registration. Under authorization to configure that host, the existing opt-in route is:
 
 ```powershell
-# Claude plugin cache update; the CLI reports that a restart is required.
+node scripts/mirror-shared-skills.mjs --codex-hooks-only --dry-run --json
+node scripts/mirror-shared-skills.mjs --codex-hooks-only
+```
+
+The installer merges its handlers with existing hooks and updates their trust identities. An older four-event installation needs this wiring update to gain Interrupt; merely updating adapter source does not add an event registration. Without that event, native cancellation bypasses Stop, but the stored binding is not immediately disarmed until the next prompt/session event.
+
+Do not activate both native-package and mirrored hook routes automatically. Their shared implementation does not prevent duplicated registrations. Existing personal and namespaced skills can both be discovered; live precedence and duplicate-free coexistence need a chosen-host observation.
+
+## Verify the native boundary
+
+Codex 0.156.1 accepts a root Agent Plugins manifest for skills but skips its hooks. A colocated compatibility manifest is shadowed by that root. Version 0.20 therefore replaces the root manifest with `.codex-plugin/plugin.json`, alongside the separate Claude manifest, over one shared implementation. This is an observed loader requirement at that version. The older plugin-creator validator rejects fields accepted by the actual runtime; its output is not native execution evidence.
+
+On the tested Windows host, Codex selected Store/MSIX PowerShell as its outer hook shell and failed before starting any handler with OS error 5. Changing an inner `commandWindows` string does not repair that boundary. The identical disposable fixture worked when its PATH selected system Windows PowerShell. [The diagnosis](work/evidence/codex-command-hook-diagnosis.md) identifies an existing SDK shell fallback that the hook configuration path omits. Production shell selection must be qualified; these tests did not change production PATH or repair the installed SDK.
+
+For Claude, the existing update path is:
+
+```powershell
 claude plugin marketplace update benzhuk
 claude plugin update delegation@benzhuk
 claude plugin list
-
-# Then, from the selected 0.18 source, preview the Codex mirror before applying it.
-node scripts/mirror-shared-skills.mjs --dry-run --json
 ```
 
-Only run the non-dry-run mirror command after the preview is accepted. Start a new Claude session after its plugin update. Start a fresh Codex session or deliberately reload skills after mirroring, since an existing session may retain prior instructions.
+Use a fresh session after updating so previously loaded instructions do not mask the result. The reusable [native continuation test](native-continuation-testing.md) runs against an explicitly selected Claude executable, disposable configuration and a local synthetic provider. It proves native mechanics without copying authentication or using a paid model.
 
-For native package verification, use the namespaced form `delegation:<skill>` in a prompt-input or skill listing check. A disposable coexistence check observed both an unnamespaced local `multi` and `delegation:multi`; the namespace identifies the installed native package. It does not establish which same-named personal skill wins during live execution.
+## Use the bounded continuation contract
 
-## Limits to carry into a rollout
+The continue skill connects an explicitly authorized ongoing scope to selected existing work records. A native prompt/tool event supplies the host, session and opaque epoch needed by the bind command. Execute the documented bind in that same episode; the actual PostToolUse callback confirms it. Never substitute a guessed identity or read the newest epoch to make an old command pass.
 
-The current Windows Codex probe still read a personal skill root even with redirected disposable-home variables. It made no real configuration changes, but it means personal-mirror precedence and duplicate-free live coexistence remain unproven. Keep native and mirror installation choices separate until an authorized real-host coexistence trial resolves that question.
+After working, account using the current work/evidence revision. An overlooked unaccounted scope gets at most one Stop correction, shared with actionable peer delivery. A new prompt suspends the old scope; interruption disarms it where its event is registered. Explicit stop remains authoritative. Missing or malformed evidence is unknown, not success. The binding grants no new authority and does not schedule idle work.
 
-The current plugin-creator validator expects the older `.codex-plugin/plugin.json` layout. The portable root manifest was instead verified by actual Codex 0.156.1 marketplace installation, package listing, skill discovery, and read-only hook enumeration. Do not add a duplicate compatibility manifest solely for that validator.
+Actual Claude Code 2.1.281 SDK/print and Codex 0.156.1 app-server tests exercised bind, accounted silence, one corrective Stop/refire and native interruption using synthetic provider responses. Claude additionally exercised replacement with direct stale-epoch rejection. Positive Codex child isolation covers both child-own-session metadata and the observed parent-session plus child-agent-ID form. Source tests, synthetic native scenarios and useful-model outcomes remain distinct evidence.
 
-An independent native Claude review approved the three-skill continuation patch at `bcbf4660e4d3c833ab549c86580e59324fc1cb18` in 66 seconds; it did not review the native packaging changes. Two bounded Sonnet attempts to author this guide returned intent concerns rather than a guide; they are non-deliveries, not content approval or rejection. This Codex-authored draft is therefore based on the recorded package, coexistence, rollout, and review evidence.
+## What still requires live observation
+
+The Windows disposable Codex probe can still read the personal skill root, so redirected-home discovery is not complete profile read isolation. Custom role discovery/use, live mirror/native precedence, other-machine installation and actual mixed-provider peer handling are not established by a package listing. Useful accepted deliverables, whole-task cost, comparative speed and later rework require real tasks and their observation windows. Track these in the existing work records instead of interpreting a passing hook as goal completion.
