@@ -1,0 +1,9 @@
+VERDICT: SOURCE_RELEASE_AND_LOCAL_MIRROR_COMPLETE; PRODUCT_GOALS_NOT_FULLY_DEMONSTRATED
+
+September23,2026 late evening America/New_York. Released0.20.3 at2187116 after exact independent reviews, strict pinned acceptance and full1393/1393sealed gate on frozenb800882. Source code/hook/skill/manifest bytes remain unchanged after that gate. Main and origin were synchronized; unrelated main untracked work was preserved. Current local plain mirror is0.20.3, all8skillsmatch, no pending actions, personal configuration and hook registration unchanged.
+
+Useful actual Claude review produced written findings, accepted delta and exact public revision accounting. Native Codex authored a limited useful draft but shell policy blocked its grounding; corrected guidance was independently reviewed. Failed attempts, rejected source candidates and original report bytes remain in the evidence. Timing-census repair prevents malformed evidence becoming ordinary measured time; no missing historic acceptance timestamps were reconstructed.
+
+The new Astra Notion toggle was appended and read back, then surgically updated to0.20.3. Latest plan snapshots: `2026-09-24T03-55-38-308Z.after.md` under the local backup directory for page3e4da11277a18154afacff155d111293. Decisions page updates were read back and all checkbox lines compared unchanged, including unchecked Done. Neither owner choices nor unrelated content were selected/removed.
+
+All admitted source/local-mirror work is complete. Remaining useful outcomes are explicitly dependent on chosen production host/activation and policy qualification, the owner knowledge-publication choice, authority for external SDK issue posting, actual submitted human decisions/reader feedback, and longitudinal comparative observations. The current queue records each one. No idle schedule, broader deployment, credential copy, policy bypass or background completion promise was added. This disposition is not acceptance of all product goals.
