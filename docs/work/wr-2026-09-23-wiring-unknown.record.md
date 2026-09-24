@@ -1,11 +1,11 @@
 Work: wr-2026-09-23-wiring-unknown
 Scope: docs/specs/2026-09-23-wiring-unknown-evidence.md
 Owner: skills-a
-Status: reviewed
+Status: accepted
 Authority: Ben authorizes continued useful source development and merges; read-only diagnostic repair only, no production configuration or activation
 Artifact: ae613fc2bdd216078bda740d6a9f16599d819d85
-Evidence: docs/work/evidence/wiring-unknown-rejected-f57b2ec.md, docs/work/evidence/wiring-unknown-gate-correction.md, docs/work/evidence/wiring-unknown-rejected-e39f851.md, docs/work/evidence/wiring-unknown-approved-ae613fc.md
-Next: stable full sealed gate and source acceptance; actual native pilot reports independently against its immutable e39 snapshot
+Evidence: docs/work/evidence/wiring-unknown-rejected-f57b2ec.md, docs/work/evidence/wiring-unknown-gate-correction.md, docs/work/evidence/wiring-unknown-rejected-e39f851.md, docs/work/evidence/wiring-unknown-rejected-1b54bbd.md, docs/work/evidence/wiring-unknown-approved-ae613fc.md, docs/work/evidence/wiring-unknown-integration.md
+Next: release approved source and local shared-document update; actual native pilot reports independently against its immutable e39 snapshot
 Opened: 2026-09-24T02:55:19Z
 Builder: GPT-5.6-Terra initial; GPT-5.6-Sol boundary repair
 Rounds: 4
