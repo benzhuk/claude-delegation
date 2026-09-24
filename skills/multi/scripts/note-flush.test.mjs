@@ -22,6 +22,7 @@ import {
   DEFAULT_MAX_MS, DEFAULT_PER_ENTRY_MS, DEFAULT_PHASE2_RESERVE_MS,
   DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_AGE_HOURS, UNKNOWN_RECIPIENT_DEADLETTER_MS,
   flushLastPath, readHeartbeat, buildFlushStatus, HEARTBEAT_STALE_MS,
+  runPostFlushPickup, PICKUP_ADMISSION_MS,
 } from './note-flush.mjs';
 import { runNoteNotify, parseNotifyArgs, parseChain, slugFromCwd } from './note-notify.mjs';
 
@@ -1478,4 +1479,154 @@ test('F3: --status --json includes the raw heartbeat plus age_s and stale', asyn
   assert.equal(status.json.stale, false);
   assert.equal(typeof status.json.host, 'string');
   assert.equal(typeof status.json.at, 'string');
+});
+
+function pickupRegistrationPath(home) {
+  return path.join(home, '.agents', 'ws', 'decisions-pickup', 'registrations.json');
+}
+
+function enableRegisteredPickup(home) {
+  const file = pickupRegistrationPath(home);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{"version":1,"entries":[]}\n', 'utf8');
+  return file;
+}
+
+function postPickupDeps(home, overrides = {}) {
+  return {
+    homedir: home,
+    env: { AGENTS_HOME: path.join(home, '.agents') },
+    now: NOW + 1_000,
+    ...overrides,
+  };
+}
+
+test('registered post-flush admission excludes every non-normal path before registration inspection', async () => {
+  const home = tmp();
+  let registrationProbes = 0;
+  const fsImpl = {
+    ...fs,
+    lstatSync(file, ...rest) {
+      if (path.resolve(file) === path.resolve(pickupRegistrationPath(home))) registrationProbes += 1;
+      return fs.lstatSync(file, ...rest);
+    },
+  };
+  const context = { result: { ok: true, home }, elapsedMs: 1 };
+  for (const argv of [
+    ['--help'], ['--help=true'], ['--status'], ['--status=true'], ['--dry-run'], ['--dry-run=true'],
+    ['--to', 'astra'], ['--to=astra'], ['--home', home], [`--home=${home}`],
+  ]) {
+    // eslint-disable-next-line no-await-in-loop
+    assert.equal(await runPostFlushPickup(argv, context, postPickupDeps(home, { fsImpl })), null);
+  }
+  assert.equal(registrationProbes, 0);
+});
+
+test('unconfigured post-flush admission is one existence probe and no import or annotation', async () => {
+  const home = tmp();
+  const result = await runNoteFlush([], { home, now: NOW, orca: mockOrca({ panes: [] }) });
+  let probes = 0;
+  let imports = 0;
+  const fsImpl = {
+    ...fs,
+    lstatSync(file, ...rest) {
+      if (path.resolve(file) === path.resolve(pickupRegistrationPath(home))) probes += 1;
+      return fs.lstatSync(file, ...rest);
+    },
+  };
+  const summary = await runPostFlushPickup([], { result, elapsedMs: 1 }, postPickupDeps(home, {
+    fsImpl,
+    importer: async () => { imports += 1; return {}; },
+  }));
+  assert.equal(summary, null);
+  assert.equal(probes, 1);
+  assert.equal(imports, 0);
+  assert.equal('pickup' in readHeartbeat(home), false);
+});
+
+test('registered post-flush run occurs after the normal heartbeat and writes only a safe annotation', async () => {
+  const home = tmp();
+  enableRegisteredPickup(home);
+  const result = await runNoteFlush([], { home, now: NOW, orca: mockOrca({ panes: [] }) });
+  const before = readHeartbeat(home);
+  let calls = 0;
+  const summary = await runPostFlushPickup([], { result, elapsedMs: 10 }, postPickupDeps(home, {
+    importer: async () => ({
+      runRegisteredPickup: async (options) => {
+        calls += 1;
+        assert.equal(options.registrationPath, pickupRegistrationPath(home));
+        assert.equal(readHeartbeat(home).at, before.at, 'normal flush heartbeat exists before pickup');
+        return { code: 'PICKUP_RECORDED', ordinal: 3, private: 'must not escape' };
+      },
+    }),
+  }));
+  assert.deepEqual(summary, { code: 'PICKUP_RECORDED', ordinal: 3 });
+  assert.equal(calls, 1);
+  const after = readHeartbeat(home);
+  assert.deepEqual(after.pickup, {
+    at: new Date(NOW + 1_000).toISOString(), code: 'PICKUP_RECORDED', ordinal: 3,
+  });
+  assert.equal(JSON.stringify(after).includes('must not escape'), false);
+  assert.equal(after.queued, before.queued);
+  assert.equal(after.delivered, before.delivered);
+});
+
+test('budget, switch, and alternate-home admission never import the pickup module', async () => {
+  for (const scenario of ['budget', 'switch', 'alternate-home']) {
+    const home = tmp();
+    enableRegisteredPickup(home);
+    const result = await runNoteFlush([], { home, now: NOW, orca: mockOrca({ panes: [] }) });
+    if (scenario === 'switch') fs.writeFileSync(path.join(home, '.agents', 'ws-off-decisions'), '', 'utf8');
+    let imports = 0;
+    const overrides = {
+      importer: async () => { imports += 1; return {}; },
+      ...(scenario === 'alternate-home' ? { env: { AGENTS_HOME: path.join(home, 'other-agents') } } : {}),
+    };
+    // eslint-disable-next-line no-await-in-loop
+    const summary = await runPostFlushPickup([], {
+      result, elapsedMs: scenario === 'budget' ? PICKUP_ADMISSION_MS : 1,
+    }, postPickupDeps(home, overrides));
+    const expected = scenario === 'budget' ? 'PICKUP_SKIPPED_BUDGET'
+      : scenario === 'switch' ? 'PICKUP_DISABLED' : 'PICKUP_CONFIG_INVALID';
+    assert.deepEqual(summary, { code: expected, ordinal: null });
+    assert.equal(imports, 0);
+    assert.equal(readHeartbeat(home).pickup.code, expected);
+  }
+});
+
+test('valid pickup annotations survive ordinary and piggyback heartbeats while corrupt ones do not', async () => {
+  const home = tmp();
+  enableRegisteredPickup(home);
+  const result = await runNoteFlush([], { home, now: NOW, orca: mockOrca({ panes: [] }) });
+  await runPostFlushPickup([], { result, elapsedMs: 1 }, postPickupDeps(home, {
+    importer: async () => ({ runRegisteredPickup: async () => ({ code: 'PICKUP_NO_ACTION', ordinal: 0 }) }),
+  }));
+  const annotation = readHeartbeat(home).pickup;
+  await runNoteFlush([], { home, now: NOW + 2_000, orca: mockOrca({ panes: [] }) });
+  assert.deepEqual(readHeartbeat(home).pickup, annotation);
+  queue(home);
+  await drainQuietly({ home, now: NOW + 3_000, orca: mockOrca({ panes: [] }) });
+  assert.deepEqual(readHeartbeat(home).pickup, annotation);
+
+  const corrupt = { ...readHeartbeat(home), pickup: { at: 'today', code: 'PRIVATE_CANARY', ordinal: 99 } };
+  fs.writeFileSync(flushLastPath(home), `${JSON.stringify(corrupt)}\n`, 'utf8');
+  await runNoteFlush([], { home, now: NOW + 4_000, orca: mockOrca({ panes: [] }) });
+  assert.equal('pickup' in readHeartbeat(home), false);
+});
+
+test('a newer heartbeat observed after pickup wins over the optional annotation', async () => {
+  const home = tmp();
+  enableRegisteredPickup(home);
+  const result = await runNoteFlush([], { home, now: NOW, orca: mockOrca({ panes: [] }) });
+  const newer = { ...readHeartbeat(home), at: new Date(NOW + 5_000).toISOString(), pid: process.pid + 1, queued: 77 };
+  const summary = await runPostFlushPickup([], { result, elapsedMs: 1 }, postPickupDeps(home, {
+    importer: async () => ({
+      runRegisteredPickup: async () => {
+        fs.writeFileSync(flushLastPath(home), `${JSON.stringify(newer)}\n`, 'utf8');
+        return { code: 'PICKUP_RECORDED', ordinal: 0 };
+      },
+    }),
+  }));
+  assert.deepEqual(summary, { code: 'PICKUP_RECORDED', ordinal: 0 });
+  assert.deepEqual(readHeartbeat(home), newer);
 });

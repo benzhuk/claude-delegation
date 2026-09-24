@@ -8,7 +8,8 @@ import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { buildEnvelope } from '../../multi/scripts/envelope.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
 import {
-  account, inspectTransport, openPrivateCapture, pickupOnce, readPageWithCli, receiptPaths, status,
+  account, inspectTransport, openPrivateCapture, pickupOnce, readPageWithCli, receiptPaths,
+  runRegisteredPickup, status, PickupError,
 } from './decisions-pickup.mjs';
 
 const PAGE = `<summary>Choose transport</summary>
@@ -25,6 +26,7 @@ No default: owner action is required
 - [x] Done
 `;
 const NOW = '2026-09-23T16:00:00.000Z';
+const REGISTERED_PAGE = '1234567890abcdef1234567890abcdef';
 
 function fixture() {
   const sealed = makeTempHome();
@@ -46,6 +48,23 @@ function deps(fx, overrides = {}) {
     send: async () => ({ id: 'saved-id', envelope: 'recorded' }),
     ...overrides,
   };
+}
+
+function registeredFixture() {
+  const sealed = makeTempHome();
+  const repo = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'registered-project-'));
+  fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: REGISTERED_PAGE }));
+  const reader = path.join(sealed.fixtureRoot, 'notion-reader.mjs');
+  fs.writeFileSync(reader, '#!/usr/bin/env node\n', 'utf8');
+  const registrationPath = path.join(sealed.agentsHome, 'ws', 'decisions-pickup', 'registrations.json');
+  fs.mkdirSync(path.dirname(registrationPath), { recursive: true });
+  const entry = { repo, page: REGISTERED_PAGE, from: 'pickup-host', owner: 'decision-owner', reader };
+  const write = (entries = [entry], over = {}) => fs.writeFileSync(
+    registrationPath, JSON.stringify({ version: 1, entries, ...over }), 'utf8',
+  );
+  write();
+  return { ...sealed, repo, reader, entry, registrationPath, write, cleanup: sealed.cleanup };
 }
 
 function privateFile(fx, receipt, ref = receipt.privateCaptureRef) {
@@ -136,6 +155,97 @@ test('production reader invokes the supplied CLI once with a bound and page id',
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].args.slice(-2), ['read', 'page-registered']);
   assert.equal(calls[0].options.timeout, 15_000);
+});
+
+test('registered pickup validates the finite set, sorts canonically, and selects exactly one entry', async (t) => {
+  const fx = registeredFixture(); t.after(fx.cleanup);
+  const repo2 = fs.mkdtempSync(path.join(fx.fixtureRoot, 'aaa-project-'));
+  const page2 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  fs.mkdirSync(path.join(repo2, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(repo2, '.agents', 'project.json'), JSON.stringify({ decisions_url: page2 }));
+  fx.write([{ ...fx.entry }, { ...fx.entry, repo: repo2, page: page2 }]);
+  const calls = [];
+  const result = await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+    agentsHome: fx.agentsHome,
+    selectIndex: (count) => { assert.equal(count, 2); return 0; },
+    pickupOnce: async (options) => { calls.push(options); return { status: 'RECORDED' }; },
+  });
+  assert.deepEqual(result, { code: 'PICKUP_RECORDED', ordinal: 0 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].page, page2, 'stable canonical ordering is independent of registration order');
+});
+
+test('registered pickup maps every receipt outcome to one safe public code', async (t) => {
+  const fx = registeredFixture(); t.after(fx.cleanup);
+  const cases = [
+    [{ status: 'DISABLED' }, 'PICKUP_DISABLED'],
+    [{ status: 'UNCHANGED' }, 'PICKUP_NO_ACTION'],
+    [{ status: 'NO_ACTION' }, 'PICKUP_NO_ACTION'],
+    [{ status: 'IDLE' }, 'PICKUP_NO_ACTION'],
+    [{ status: 'ACCOUNTED' }, 'PICKUP_NO_ACTION'],
+    [{ status: 'RECORDED' }, 'PICKUP_RECORDED'],
+    [{ status: 'WAITING_OWNER' }, 'PICKUP_PENDING_OWNER'],
+    [{ status: 'INVALID' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'NEEDS_RECONCILIATION' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'PENDING_MANUAL_HANDOFF' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'ORPHAN_CAPTURE' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'CAPTURE_INTENT' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'PREPARED' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'SENDING' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'RECORDED', manualReconciliationRequired: true }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'UNKNOWN' }, 'PICKUP_FAILED'],
+    [{ status: 'FUTURE_PRIVATE_STATE' }, 'PICKUP_FAILED'],
+  ];
+  for (const [pickupResult, code] of cases) {
+    // eslint-disable-next-line no-await-in-loop
+    const result = await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+      agentsHome: fx.agentsHome, selectIndex: () => 0, pickupOnce: async () => pickupResult,
+    });
+    assert.deepEqual(result, { code, ordinal: 0 });
+  }
+  const claimed = await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+    agentsHome: fx.agentsHome, selectIndex: () => 0,
+    pickupOnce: async () => { throw new PickupError('private claim path canary', 1, 'PICKUP_CLAIM_HELD'); },
+  });
+  assert.deepEqual(claimed, { code: 'PICKUP_CLAIM_HELD', ordinal: 0 });
+});
+
+test('registered pickup refuses an invalid full set before selection, page read, or send', async (t) => {
+  const fx = registeredFixture(); t.after(fx.cleanup);
+  let selections = 0;
+  let pickups = 0;
+  fx.write([fx.entry, { ...fx.entry, repo: fs.realpathSync(fx.repo) }]);
+  const duplicate = await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+    agentsHome: fx.agentsHome,
+    selectIndex: () => { selections += 1; return 0; },
+    pickupOnce: async () => { pickups += 1; return { status: 'RECORDED' }; },
+  });
+  assert.deepEqual(duplicate, { code: 'PICKUP_CONFIG_INVALID', ordinal: null });
+  assert.equal(selections, 0);
+  assert.equal(pickups, 0);
+
+  fs.mkdirSync(path.join(fx.repo, '.git'));
+  const gitReader = path.join(fx.repo, 'reader.mjs');
+  fs.writeFileSync(gitReader, '', 'utf8');
+  fx.write([{ ...fx.entry, reader: gitReader }]);
+  const readerInsideGit = await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+    agentsHome: fx.agentsHome, selectIndex: () => 0,
+    pickupOnce: async () => { pickups += 1; return { status: 'RECORDED' }; },
+  });
+  assert.deepEqual(readerInsideGit, { code: 'PICKUP_CONFIG_INVALID', ordinal: null });
+  assert.equal(pickups, 0);
+});
+
+test('registered pickup off switches precede registration access and missing registration is unconfigured', async (t) => {
+  const fx = registeredFixture(); t.after(fx.cleanup);
+  fs.rmSync(fx.registrationPath);
+  assert.deepEqual(await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+    agentsHome: fx.agentsHome,
+  }), { code: 'PICKUP_UNCONFIGURED', ordinal: null });
+  fs.writeFileSync(path.join(fx.agentsHome, 'ws-off-decisions'), '', 'utf8');
+  assert.deepEqual(await runRegisteredPickup({ registrationPath: fx.registrationPath }, {
+    agentsHome: fx.agentsHome,
+  }), { code: 'PICKUP_DISABLED', ordinal: null });
 });
 
 test('unchecked and unchanged reads use no send and create no receipt', async (t) => {

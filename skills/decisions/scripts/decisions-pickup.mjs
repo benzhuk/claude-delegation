@@ -22,18 +22,17 @@ import { gitRunner, mainCheckout } from '../../multi/scripts/transport.mjs';
 export const RECEIPT_VERSION = 2;
 const LEGACY_RECEIPT_VERSION = 1;
 export const READER_TIMEOUT_MS = 15_000;
-/** Pinned registered-pickup interface; implementation belongs to the admitted build. */
-export async function runRegisteredPickup(options = {}, deps = {}) {
-  throw new Error('REGISTERED_PICKUP_NOT_IMPLEMENTED');
-}
+export const REGISTRATION_MAX_BYTES = 64 * 1024;
+export const REGISTRATION_MAX_ENTRIES = 16;
 const NOTE_KIND = 'ASK';
 const NOTE_NEEDS = 'ack';
 
 export class PickupError extends Error {
-  constructor(message, exitCode = 1) {
+  constructor(message, exitCode = 1, pickupCode = 'PICKUP_FAILED') {
     super(message);
     this.name = 'PickupError';
     this.exitCode = exitCode;
+    this.pickupCode = pickupCode;
   }
 }
 
@@ -149,7 +148,7 @@ function acquireClaim(claim, fsImpl = fs) {
     fsImpl.mkdirSync(claim, { mode: 0o700 });
   } catch (error) {
     if (error?.code === 'EEXIST') {
-      throw new PickupError('page already has an exclusive pickup claim');
+      throw new PickupError('page already has an exclusive pickup claim', 1, 'PICKUP_CLAIM_HELD');
     }
     throw error;
   }
@@ -569,6 +568,151 @@ function registeredProject(repo, page, fsImpl = fs) {
     throw new PickupError('page is not this project\'s registered decisions_url');
   }
   return project;
+}
+
+function canonicalPathKey(value) {
+  const normalized = path.normalize(value);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function exactKeys(value, expected) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function registrationPath(base) {
+  return path.join(base, 'ws', 'decisions-pickup', 'registrations.json');
+}
+
+function readRegistration(file, fsImpl = fs) {
+  let info;
+  try { info = fsImpl.lstatSync(file); } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
+      throw new PickupError('registered pickup is not configured', 1, 'PICKUP_UNCONFIGURED');
+    }
+    throw new PickupError('registered pickup configuration is unavailable');
+  }
+  if (info.isSymbolicLink() || !info.isFile() || info.size > REGISTRATION_MAX_BYTES) {
+    throw new PickupError('registered pickup configuration is invalid');
+  }
+  let parsed;
+  try { parsed = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch {
+    throw new PickupError('registered pickup configuration is invalid');
+  }
+  if (!exactKeys(parsed, ['entries', 'version']) || parsed.version !== 1
+      || !Array.isArray(parsed.entries) || parsed.entries.length < 1
+      || parsed.entries.length > REGISTRATION_MAX_ENTRIES) {
+    throw new PickupError('registered pickup configuration is invalid');
+  }
+
+  const pages = new Set();
+  const repos = new Set();
+  const entries = parsed.entries.map((entry) => {
+    if (!exactKeys(entry, ['from', 'owner', 'page', 'reader', 'repo'])) {
+      throw new PickupError('registered pickup entry is invalid');
+    }
+    const page = normalizedPage(entry.page);
+    if (!/^[0-9a-f]{32}$/.test(page)) throw new PickupError('registered pickup page is invalid');
+    const from = validateSlug('from', entry.from);
+    const owner = validateSlug('owner', entry.owner);
+    if (!path.isAbsolute(String(entry.repo ?? '')) || !path.isAbsolute(String(entry.reader ?? ''))) {
+      throw new PickupError('registered pickup paths must be absolute');
+    }
+    const repo = canonicalProject(entry.repo, fsImpl);
+    let readerInfo;
+    let reader;
+    try {
+      readerInfo = fsImpl.lstatSync(entry.reader);
+      if (readerInfo.isSymbolicLink() || !readerInfo.isFile()) throw new Error('invalid reader');
+      reader = fsImpl.realpathSync(entry.reader);
+      if (!fsImpl.statSync(reader).isFile()) throw new Error('invalid reader');
+    } catch {
+      throw new PickupError('registered pickup reader is invalid');
+    }
+    if (detectedGitRoot(path.dirname(reader), fsImpl)) {
+      throw new PickupError('registered pickup reader must be outside Git');
+    }
+    // This is deliberately run for every entry before selection. One invalid project/page binding
+    // invalidates the finite host registration and cannot leave a subset silently active.
+    const boundRepo = registeredProject(repo, page, fsImpl);
+    const pageKey = page;
+    const repoKey = canonicalPathKey(boundRepo);
+    if (pages.has(pageKey) || repos.has(repoKey)) {
+      throw new PickupError('registered pickup entries must have unique pages and projects');
+    }
+    pages.add(pageKey);
+    repos.add(repoKey);
+    return { repo: boundRepo, page, from, owner, reader };
+  });
+
+  return entries.sort((left, right) => {
+    const a = `${canonicalPathKey(left.repo)}\0${left.page}`;
+    const b = `${canonicalPathKey(right.repo)}\0${right.page}`;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
+function registeredResultCode(result) {
+  const statusValue = String(result?.status ?? '');
+  if (result?.manualReconciliationRequired === true) return 'PICKUP_RECONCILIATION_REQUIRED';
+  if (statusValue === 'DISABLED') return 'PICKUP_DISABLED';
+  if (statusValue === 'UNCHANGED' || statusValue === 'NO_ACTION' || statusValue === 'IDLE'
+      || statusValue === 'ACCOUNTED') return 'PICKUP_NO_ACTION';
+  if (statusValue === 'RECORDED') return 'PICKUP_RECORDED';
+  if (statusValue === 'WAITING_OWNER') return 'PICKUP_PENDING_OWNER';
+  if (statusValue === 'UNKNOWN') return 'PICKUP_FAILED';
+  if (['INVALID', 'NEEDS_RECONCILIATION', 'PENDING_MANUAL_HANDOFF', 'ORPHAN_CAPTURE',
+    'CAPTURE_INTENT', 'PREPARED', 'SENDING'].includes(statusValue)) {
+    return 'PICKUP_RECONCILIATION_REQUIRED';
+  }
+  return 'PICKUP_FAILED';
+}
+
+/**
+ * Run one randomly selected entry from the finite, private host registration. The return value is safe
+ * for heartbeat diagnostics: it contains no registered identity, page content, path, or error text.
+ */
+export async function runRegisteredPickup(options = {}, deps = {}) {
+  const fsImpl = deps.fsImpl ?? fs;
+  const env = deps.env ?? process.env;
+  const base = deps.agentsHome ?? agentsHome(env);
+  if (pickupSwitchActive(base, fsImpl)) return { code: 'PICKUP_DISABLED', ordinal: null };
+
+  let entries;
+  try {
+    entries = readRegistration(options.registrationPath ?? registrationPath(base), fsImpl);
+  } catch (error) {
+    return {
+      code: error instanceof PickupError && error.pickupCode === 'PICKUP_UNCONFIGURED'
+        ? 'PICKUP_UNCONFIGURED' : 'PICKUP_CONFIG_INVALID',
+      ordinal: null,
+    };
+  }
+
+  let ordinal;
+  try {
+    const selectIndex = deps.selectIndex ?? ((count) => crypto.randomInt(count));
+    ordinal = selectIndex(entries.length);
+    if (!Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= entries.length) {
+      return { code: 'PICKUP_FAILED', ordinal: null };
+    }
+  } catch {
+    return { code: 'PICKUP_FAILED', ordinal: null };
+  }
+
+  try {
+    const runOne = deps.pickupOnce ?? pickupOnce;
+    const pickupNow = typeof deps.now === 'function' ? deps.now() : deps.now;
+    const result = await runOne(entries[ordinal], { ...deps, agentsHome: base, fsImpl, env, now: pickupNow });
+    return { code: registeredResultCode(result), ordinal };
+  } catch (error) {
+    return {
+      code: error instanceof PickupError && error.pickupCode === 'PICKUP_CLAIM_HELD'
+        ? 'PICKUP_CLAIM_HELD' : 'PICKUP_FAILED',
+      ordinal,
+    };
+  }
 }
 
 function durableTransportRepo(project, git = gitRunner, fsImpl = fs) {

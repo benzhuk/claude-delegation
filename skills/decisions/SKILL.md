@@ -80,6 +80,31 @@ decisions page and capture a checked Done with:
 node <skill-dir>/scripts/decisions-pickup.mjs --once --page <id> --repo <project-root> --from <pickup-slug> --owner <owner-slug> --reader <notion-cli-path>
 ```
 
+On one explicitly chosen pickup host, a private
+`AGENTS_HOME/ws/decisions-pickup/registrations.json` may opt the existing standalone
+`note-flush` timer into the same operation. Version 1 contains 1–16 exact
+`{repo,page,from,owner,reader}` entries. Repositories and readers are absolute real
+paths, pages are canonical 32-hex IDs, and each repo's `.agents/project.json` must bind
+that page. The reader must be a regular non-symlink outside every Git checkout. Never
+put provider credentials or page content in this file, commit it, discover projects or
+owners automatically, or create it merely because the plugin is installed.
+
+After an ordinary standalone flush finishes within the pickup admission window, one
+validated entry is selected randomly and passed to the existing one-shot pickup. No
+entry is guaranteed a particular minute. Imports, note-send/note-notify piggybacks,
+targeted drains, `--home`, `--status`, and `--dry-run` never run registered pickup. The
+current `flush-last.json` may contain a safe `pickup` code and selected ordinal; this is
+diagnostic evidence only. `PICKUP_RECORDED` means the ASK was recorded and queued. The
+next ordinary flush performs existing inbox delivery; only explicit accounting proves
+the owner acted.
+
+Registration identifies the current recipient but grants no authority. An existing
+round keeps its saved owner: changing the registration produces manual handoff rather
+than reassignment, and an unavailable owner remains visible through the existing
+receipt/outbox. `AGENTS_HOME/ws-off` and `ws-off-decisions` disable registered pickup
+before registration or page reads. Do not clear stale claims, resend `UNKNOWN`, migrate
+legacy receipts, clear Done, or infer a new round outside the one-shot rules below.
+
 This command invokes the reader itself; a saved export is only a test seam, not automatic
 pickup. Existing `AGENTS_HOME/ws-off` or `ws-off-decisions` disables pickup before
 page reads or writes; status and attended accounting remain available. It never edits

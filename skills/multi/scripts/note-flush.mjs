@@ -127,6 +127,12 @@ export const LISTENING_MARKER_RE = /^\.listening-.+\.json$/;
 export const HEARTBEAT_MODE = 0o600;
 /** F3: older than this and `--status` says the one-minute timer looks dead. */
 export const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+export const PICKUP_ADMISSION_MS = 30_000;
+const PICKUP_CODES = new Set([
+  'PICKUP_UNCONFIGURED', 'PICKUP_DISABLED', 'PICKUP_CONFIG_INVALID', 'PICKUP_NO_ACTION',
+  'PICKUP_RECORDED', 'PICKUP_PENDING_OWNER', 'PICKUP_RECONCILIATION_REQUIRED',
+  'PICKUP_CLAIM_HELD', 'PICKUP_FAILED', 'PICKUP_SKIPPED_BUDGET',
+]);
 
 /** Outcomes that left the outbox without ever attempting a delivery (superseded, ACK/FYI, already-read, aged out). */
 const HEARTBEAT_RETIRED_OUTCOMES = new Set(['superseded', 'retired-quiet-kind', 'retired', 'expired']);
@@ -167,7 +173,21 @@ function readPluginVersion() {
 }
 
 /** tmp + chmod + rename: the same atomic-write shape transport.mjs uses for inboxes.json. */
-function writeHeartbeatFile(home, data, fsImpl) {
+function heartbeatIdentity(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    pid: value.pid,
+    at: value.at,
+    timer_at: Object.hasOwn(value, 'timer_at') ? value.timer_at : null,
+  };
+}
+
+function sameHeartbeatIdentity(left, right) {
+  return Boolean(left && right) && left.pid === right.pid && left.at === right.at
+    && left.timer_at === right.timer_at;
+}
+
+function writeHeartbeatFile(home, data, fsImpl, expectedIdentity = null) {
   const file = flushLastPath(home);
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
@@ -175,6 +195,12 @@ function writeHeartbeatFile(home, data, fsImpl) {
   try {
     fsImpl.writeFileSync(tmp, `${JSON.stringify(data)}\n`, { encoding: 'utf8', mode: HEARTBEAT_MODE });
     try { fsImpl.chmodSync(tmp, HEARTBEAT_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
+    // This is deliberately immediately before the atomic replacement. If another pass has already
+    // replaced this CLI's heartbeat, its peer accounting wins and this optional annotation is dropped.
+    if (expectedIdentity && !sameHeartbeatIdentity(heartbeatIdentity(readHeartbeat(home, fsImpl)), expectedIdentity)) {
+      fsImpl.rmSync(tmp, { force: true });
+      return null;
+    }
     fsImpl.renameSync(tmp, file);
   } catch (err) {
     // Review finding 4: a failing WRITE (not just a failing rename) left one `.<pid>.tmp` per pass behind
@@ -197,6 +223,15 @@ export function readHeartbeat(home, fsImpl = fs) {
   }
 }
 
+function safePickupAnnotation(value) {
+  if (!value || typeof value !== 'object' || !PICKUP_CODES.has(value.code)) return null;
+  const atMs = Date.parse(String(value.at ?? ''));
+  if (!Number.isFinite(atMs)) return null;
+  const ordinal = value.ordinal;
+  if (ordinal !== null && (!Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= 16)) return null;
+  return { at: new Date(atMs).toISOString(), code: value.code, ordinal };
+}
+
 /**
  * F1: one JSON object summarizing whatever a pass just did - even a pass that found nothing, a
  * budget-only piggyback pass, or a pass that threw. `result` is what `runNoteFlushCore` resolved with;
@@ -210,7 +245,7 @@ export function readHeartbeat(home, fsImpl = fs) {
  * to refresh `at` and `--status` read the machine as healthy. No fallback to `at` when there is no prior
  * `timer_at`: that means no full pass has ever run, which is exactly what `--status` should report.
  */
-function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt }) {
+function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt, prevPickup }) {
   const at = new Date(now).toISOString();
   const base = { at, host: os.hostname(), pid: process.pid, ms };
   const timerAt = mode === 'piggyback' ? prevTimerAt : at;
@@ -218,6 +253,8 @@ function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt }) {
   if (mode === 'timer' || mode === 'piggyback') base.mode = mode;
   const version = readPluginVersion();
   if (version) base.version = version;
+  const pickup = safePickupAnnotation(prevPickup);
+  if (pickup) base.pickup = pickup;
 
   if (!result) {
     // The pass never reached a result at all - the CLI's own args, or a bug outside every existing
@@ -1047,10 +1084,13 @@ export async function runNoteFlush(argv, deps = {}) {
         try { ({ home: homeArg } = parseFlushArgs(argv)); } catch { /* argv itself is what threw */ }
         home = toPosix(homeArg ?? deps.home ?? os.homedir());
       }
-      // Review round 1, BLOCKER: a piggyback pass carries the prior `timer_at` forward rather than
-      // stamping its own `at` - read it off whatever heartbeat is already on disk before overwriting it.
-      const prevTimerAt = deps.mode === 'piggyback' ? readHeartbeat(home, fsImpl)?.timer_at : undefined;
-      writeHeartbeatFile(home, buildHeartbeat({ now, ms, result, caught, mode: deps.mode, prevTimerAt }), fsImpl);
+      // A piggyback pass carries the prior timer identity. Every pass also carries a prior VALID pickup
+      // annotation; ordinary peer activity must not erase the last registered-pickup observation.
+      const previous = readHeartbeat(home, fsImpl);
+      const prevTimerAt = deps.mode === 'piggyback' ? previous?.timer_at : undefined;
+      writeHeartbeatFile(home, buildHeartbeat({
+        now, ms, result, caught, mode: deps.mode, prevTimerAt, prevPickup: previous?.pickup,
+      }), fsImpl);
     }
   } catch { /* F2: a heartbeat failure must never touch the pass */ }
 
@@ -1062,9 +1102,94 @@ export async function runNoteFlush(argv, deps = {}) {
  * The piggyback drain: note-send and note-notify call this instead of spawning a process. It swallows
  * everything — a drain that throws must never take down the send or the turn-end hook that invoked it.
  */
-/** Pinned standalone CLI interface; no production call until implemented. */
+function hasArg(argv, name) {
+  const exact = `--${name}`;
+  return argv.some((arg) => arg === exact || String(arg).startsWith(`${exact}=`));
+}
+
+function sameLocalPath(left, right) {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+function switchActive(file, fsImpl) {
+  try { fsImpl.statSync(file); return true; } catch (error) {
+    return Boolean(error) && error.code !== 'ENOENT' && error.code !== 'ENOTDIR';
+  }
+}
+
+function safePickupSummary(value) {
+  if (!value || !PICKUP_CODES.has(value.code)) return { code: 'PICKUP_FAILED', ordinal: null };
+  const ordinal = value.ordinal;
+  if (ordinal !== null && (!Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= 16)) {
+    return { code: 'PICKUP_FAILED', ordinal: null };
+  }
+  return { code: value.code, ordinal };
+}
+
+function annotatePickup(home, expectedIdentity, summary, deps) {
+  if (!expectedIdentity) return;
+  const fsImpl = deps.fsImpl ?? fs;
+  const current = readHeartbeat(home, fsImpl);
+  if (!sameHeartbeatIdentity(heartbeatIdentity(current), expectedIdentity)) return;
+  const now = typeof deps.now === 'function' ? deps.now() : (deps.now ?? Date.now());
+  const pickup = safePickupAnnotation({ at: new Date(now).toISOString(), ...summary });
+  if (!pickup) return;
+  try {
+    writeHeartbeatFile(home, { ...current, pickup }, fsImpl, expectedIdentity);
+  } catch { /* optional diagnostics never change peer delivery or CLI exit */ }
+}
+
+/**
+ * Standalone-only admission after a successful normal flush. Imports and piggyback callers never call
+ * this function. A missing registration is one local existence probe and returns null.
+ */
 export async function runPostFlushPickup(argv, context, deps = {}) {
-  throw new Error('REGISTERED_PICKUP_NOT_IMPLEMENTED');
+  if (['help', 'status', 'dry-run', 'to', 'home'].some((name) => hasArg(argv, name))) return null;
+  if (context?.result?.ok !== true) return null;
+
+  const fsImpl = deps.fsImpl ?? fs;
+  const env = deps.env ?? process.env;
+  const home = path.resolve(deps.homedir ?? os.homedir());
+  const base = path.resolve(home, '.agents');
+  const configuredBase = path.resolve(env.AGENTS_HOME || base);
+  const registration = path.join(base, 'ws', 'decisions-pickup', 'registrations.json');
+
+  const disabled = switchActive(path.join(base, 'ws-off'), fsImpl)
+    || switchActive(path.join(base, 'ws-off-decisions'), fsImpl);
+  let configured = false;
+  try { fsImpl.lstatSync(registration); configured = true; } catch (error) {
+    if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') configured = true;
+  }
+  if (!configured) return null;
+
+  const heartbeat = readHeartbeat(home, fsImpl);
+  const identity = heartbeat?.pid === (deps.pid ?? process.pid) ? heartbeatIdentity(heartbeat) : null;
+  let summary;
+  if (disabled) {
+    summary = { code: 'PICKUP_DISABLED', ordinal: null };
+  } else if (!sameLocalPath(configuredBase, base) || typeof context.result.home !== 'string'
+      || !sameLocalPath(context.result.home, home)) {
+    summary = { code: 'PICKUP_CONFIG_INVALID', ordinal: null };
+  } else if (!Number.isFinite(Number(context.elapsedMs)) || Number(context.elapsedMs) >= PICKUP_ADMISSION_MS) {
+    summary = { code: 'PICKUP_SKIPPED_BUDGET', ordinal: null };
+  } else {
+    try {
+      const importer = deps.importer ?? (() => import('../../decisions/scripts/decisions-pickup.mjs'));
+      const module = await importer();
+      const pickupNow = typeof deps.now === 'function' ? deps.now() : deps.now;
+      summary = safePickupSummary(await module.runRegisteredPickup(
+        { registrationPath: registration },
+        { fsImpl, env, agentsHome: base, now: pickupNow },
+      ));
+      if (summary.code === 'PICKUP_UNCONFIGURED') return null;
+    } catch {
+      summary = { code: 'PICKUP_FAILED', ordinal: null };
+    }
+  }
+  annotatePickup(home, identity, summary, deps);
+  return summary;
 }
 
 export async function drainQuietly(deps = {}, opts = {}) {
@@ -1125,8 +1250,11 @@ async function main() {
     }
   }
   try {
+    const startedAt = Date.now();
     const result = await runNoteFlush(argv);
+    const elapsedMs = Date.now() - startedAt;
     process.stdout.write(wantsJson ? `${JSON.stringify(result)}\n` : `${formatFlush(result)}\n`);
+    try { await runPostFlushPickup(argv, { result, elapsedMs }); } catch { /* optional pickup is fail-closed */ }
   } catch (err) {
     const message = err?.message ?? String(err);
     if (wantsJson) process.stdout.write(`${JSON.stringify({ ok: false, exitCode: 0, drained: 0, results: [], error: message })}\n`);
@@ -1135,4 +1263,9 @@ async function main() {
   return 0;
 }
 
-if (isMainModule(import.meta.url)) process.exitCode = await main();
+if (isMainModule(import.meta.url)) {
+  main().then(
+    (code) => { process.exitCode = code; },
+    () => { process.exitCode = 1; },
+  );
+}
