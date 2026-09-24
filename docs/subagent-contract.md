@@ -7,7 +7,8 @@ subagents inherit none of it by default.
 
 - The agent writes its full report (files changed, test output, deviations,
   assumptions, findings) to a file and replies with only: **verdict word, ≤10-line
-  summary, the file path**. The orchestrator opens the file only when something failed.
+  summary, the file path**. The orchestrator reads load-bearing verdict and evidence
+  even on success, at a depth proportional to the decision.
 - **The orchestrator picks the report path, never the agent.** Some harness versions
   reject subagent writes of `.md` files whose basename STARTS with `report`, `findings`,
   `summary`, or `analysis` (case-insensitive, any directory). Always hand agents
@@ -15,6 +16,11 @@ subagents inherit none of it by default.
   `report-t1.md`.
 - **The report's first line carries the verdict**, so a `head -3` recovers it even when
   the reply loses it (see below).
+- Copy-time normalization preserves the original report bytes and provenance. It may add
+  a format-only wrapper around an already explicit verdict and exact artifact with clear
+  attribution; it cannot infer approval or identity from a reply, tests, or parent
+  judgment. Missing or ambiguous approval requires the author to state an explicit
+  verdict, while harmless formatting alone does not require a ceremonial re-report.
 - If the write is rejected anyway ("Subagents should return findings as text"), the
   agent falls back — complete report inline in its reply, verdict word first. That's a
   per-agent fallback, not a reason to redesign the pipeline or strip Write from agents.

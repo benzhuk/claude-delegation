@@ -56,10 +56,12 @@ Classify from the status reply (or its absence):
   salvage its report/artifacts, respawn with a narrower corrected mandate. Sunk cost is
   never a reason to continue: tokens already spent don't make a wrong approach right,
   and a respawn with a sharper mandate is usually cheaper than round 3 of drift.
-- **Silent past 2× ETA, no reply to the status ping** → assume wedged or dead. Read its
-  report file / artifacts on disk, then: resume the same agent with the standard
-  recovery prompt (see `subagent-contract.md`) as the first try, respawn from whatever
-  landed as the second.
+- **Silent past 2× ETA, no reply to the status ping** is a recovery signal, not proof
+  the agent is dead. Read its report file and artifacts, and use observed native
+  progress when present: record one bounded extension for real work in progress;
+  otherwise resume the same agent with the standard recovery prompt (see
+  `subagent-contract.md`), respawn from what landed, or narrow / stop a wrong approach.
+  A hard user- or project-supplied budget remains binding.
 
 ## Record the decision
 

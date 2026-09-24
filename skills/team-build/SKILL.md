@@ -128,6 +128,8 @@ mention says where to find it once mirrored.
   require: `Cause:`, `Discriminating check:`, `Fix location:`, `Simplification:` — name
   them explicitly, since a builder who is never asked for them has no reason to supply
   them and the gate then fails on fields nobody requested. Verdict still comes first.
+- Risky work authored at high tier receives top-tier adjudication. This adds scrutiny
+  without changing the default mid-tier builder and high-tier reviewer flow.
 - **Seam reviewer** (high tier, after all territories land; worth it at ≥3 territories or
   any cross-territory data handoff): one pass scoped to the contract boundaries — call
   sites across territories, shared types in use, data handoffs. Per-territory reviewers
@@ -138,9 +140,11 @@ mention says where to find it once mirrored.
   states, visual placement). This is where the expensive verification verbs live —
   once per gate, not per agent per round. Reports pass/fail + failure file; never
   decides.
-- **Orchestrator** (you): everything env-touching (migrations, seeds, deploys),
-  cross-territory adjudication, ship decision. If you're reading full test logs on
-  green runs, you're spending the expensive model on integrator work.
+- **Orchestrator** (you): authorize environment changes (migrations, seeds, deploys),
+  cross-territory adjudication, ship decision. An authorized scoped executor may run
+  routine commands needed for its work; that authorization never grants user authority,
+  credentials, or access. If you're reading full test logs on green runs, you're
+  spending the expensive model on integrator work.
 
 ## Scheduling — maximize overlap
 
@@ -155,10 +159,10 @@ mention says where to find it once mirrored.
   Splitting a territory that shares files trades token cost for serial merge-conflict
   resolution on your critical path — strictly worse. And mind the machine: agent count
   is free, concurrent local processes are not (`../_docs/concurrency-budget.md`).
-- **No new wave while any of this orchestrator's records show `delivered`, `rejected`, or
-  `reviewed` (approved but not yet integrated)** — except a workstream whose prerequisite
-  is met and whose own record says so. Starting a new wave before its predecessor's
-  records catch up builds the next wave on unintegrated, or already-rejected, work.
+- **Use dependency-specific admission.** A workstream that consumes a named prerequisite
+  waits while that prerequisite is `delivered`, `rejected`, or `reviewed` but not
+  integrated; record the dependency in its own work record. Disjoint work with no such
+  unmet prerequisite may continue under the continue skill.
 
 ## Iteration mechanics
 
@@ -172,13 +176,14 @@ mention says where to find it once mirrored.
   Cap ~3 rounds, then intervene yourself.
 - **Batch scope changes** — never inject instructions into an agent mid-round; queue
   them for its next round. Mid-round addendums get missed and cost two round-trips.
-- Check in at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); an
-  agent killed mid-edit gets the standard recovery prompt
-  (`docs/subagent-contract.md`, shipped next to this skill as
+- Check in once at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); ETA
+  is a progress checkpoint, not a hard kill. Recorded native progress can justify a
+  bounded extension under that ladder, while a documented stall, wrong approach, or
+  exceeded hard user/project budget permits stop and recovery. Never infer death from
+  silence alone or poll repeatedly. An agent killed mid-edit gets the standard recovery
+  prompt (`docs/subagent-contract.md`, shipped next to this skill as
   `../_docs/subagent-contract.md` when mirrored, and in the plugin repo's `docs/`
-  otherwise), not blind trust in its memory. **A reviewer with no report file at its ETA
-  is stopped and respawned fresh — never waited on past ETA**, the same ladder as a
-  builder's.
+  otherwise), not blind trust in its memory.
 - **Round-3 Research line** (`docs/mandate-template.md`'s `Research:` field, required
   from the third fix round on): its content is five diagnosis steps, in order — (1)
   reproduce the failure reliably and record the exact repro; (2) isolate it to the
@@ -207,16 +212,17 @@ Move every territory's work record as it moves, in the same turn the event happe
 `NEEDS_FIXES` verdict (`Next:` names the fix round), `reviewed` on `APPROVE`, `accepted`
 only once integrated within `Authority:` or by Ben's own quoted word — copy the deciding
 report to `docs/work/evidence/<work-id>-<lane>.md` at that moment, since `accepted`
-requires at least one evidence path inside the repo. Every report copied into
-`docs/work/evidence/` starts with its original `VERDICT:` line. The independent deciding
-review uses the exact first-line form `VERDICT: APPROVE <artifact-sha>` or `VERDICT:
-APPROVE — <artifact-sha>`; supporting reports may retain `VERDICT: PASS`, failures, and
-other-revision history. The reviewer's and builder's own bare-word verdict is not enough,
-since `validateRecord`'s `evidence-no-verdict` check reads only the copy in the repo; add
-the prefix at copy time if the original report didn't carry it. You remain the only
-writer to `docs/work/` through to the end; a fresh orchestrator, or one that is woken, is
-shown its next runnable record by reading that directory, never by asking you to recall
-it.
+requires at least one evidence path inside the repo. Every copied report preserves its
+original bytes and provenance. The independent deciding review requires the author to
+state an explicit `VERDICT: APPROVE <artifact-sha>` or `VERDICT: APPROVE —
+<artifact-sha>`; supporting reports may retain `VERDICT: PASS`, failures, and
+other-revision history. A format-only wrapper may surface an already explicit verdict and
+exact artifact with attribution, but it must never infer a missing verdict or identity
+from a bare reply, test result, or parent judgment. Ask the author for an explicit verdict
+when it is absent or ambiguous; do not require a ceremonial re-report for harmless
+formatting. You remain the only writer to `docs/work/` through to the end; a fresh
+orchestrator, or one that is woken, is shown its next runnable record by reading that
+directory, never by asking you to recall it.
 
 For a Git-backed team build, after authorized integration and successful integration
 gates, record the integration head and gate in existing `Log:`/`Evidence:` fields. Put
