@@ -62,27 +62,11 @@ function doneRuleLine(doc) {
  * page's titles are all headings, per the shared render contract, so this never fires there.
  * Blocking, so it counts toward `clean` the same way an UNATTACHED or WARN line does.
  *
- * Round-2 review M1: scoped to the `# Waiting on you now` section only. The bug class this
- * guards against — an item waiting on the owner, written outside the template shape — only
- * matters there; other sections (`# Closed`, the Night log, the Goals-ruling section) use
- * option-less toggles on purpose as record-keeping, not decision items, and the owner's call was
- * to keep those sections as-is (spec "NOT in this build"). A shapeless toggle counts only when it
- * has no enclosing column-0 `#` heading, or its nearest preceding one is `# Waiting on you now`;
- * the no-heading case fails closed.
+ * Archive classification belongs to the shared reader. Report every remaining `doc.shapeless`
+ * entry directly so attended hand-back and unattended pickup enforce the same boundary.
  */
-function shapeLines(doc, text) {
-  const lines = String(text).split(/\r\n|\n/);
-  const sectionOf = (lineNo) => {
-    for (let i = lineNo - 2; i >= 0; i -= 1) {
-      if (/^#[ \t]+/.test(lines[i])) return lines[i];
-    }
-    return null;
-  };
+function shapeLines(doc) {
   return doc.shapeless
-    .filter((s) => {
-      const heading = sectionOf(s.line);
-      return heading === null || /^#[ \t]+Waiting on you now\b/.test(heading);
-    })
     .map(
       (s) => `SHAPE\tline ${s.line}\t${s.title}\t(toggle with no checkbox options: the reader cannot see it)`,
     );
@@ -302,7 +286,7 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
 
   const today = computeToday(args.today);
   const decisionsOffending = objectionableLines(decisionsDoc);
-  const shapeOffending = shapeLines(decisionsDoc, decisionsText);
+  const shapeOffending = shapeLines(decisionsDoc);
   const doneLine = doneRuleLine(decisionsDoc);
   const archive = archiveLines(decisionsDoc, today.ymd);
 

@@ -274,17 +274,30 @@ test('Test 4: a zero-item page with "- [x] Done" is pending submission, not hand
   assert.match(stdout, /HANDBACK blocked\n$/);
 });
 
-// Round-2 review M1: SHAPE only blocks on shapeless toggles inside "# Waiting on you now" (or
-// with no enclosing heading at all). Grouping toggles under other headings — "# Closed" record
-// keeping, or the kept Goals-ruling section — are written the same option-less way on purpose and
-// must not block a hand-back.
-test('SHAPE is scoped to "# Waiting on you now": grouping toggles in Closed and kept sections do not block', () => {
+test('SHAPE blocks an optionless summary under an unknown H1 outside Closed', () => {
   const decisions = L(
     '# Waiting on you now {toggle="true"}',
     '\t<details>', '\t<summary>Real</summary>', '\t\t- [ ] a', '\t\tNo default: x', '\t</details>',
     '# Closed {toggle="true"}',
-    '\t<details>', '\t<summary>**Closed Sep 20**  (27 items)</summary>', '\t\t- an old record', '\t</details>',
-    '# Goals ruling after the research (Sep 20) {toggle="true"}',
+    '# Historical research {toggle="true"}',
+    '\t<details>', '\t<summary>**The design**</summary>', '\t\t- a note', '\t</details>',
+    '- [ ] Done',
+  );
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: decisions, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^SHAPE\tline 10\tThe design\t/m);
+  assert.match(stdout, /HANDBACK blocked\n$/);
+});
+
+test('SHAPE accepts the identical historical summary beneath an H2 inside Closed', () => {
+  const decisions = L(
+    '# Waiting on you now {toggle="true"}',
+    '\t<details>', '\t<summary>Real</summary>', '\t\t- [ ] a', '\t\tNo default: x', '\t</details>',
+    '# Closed {toggle="true"}',
+    '## Historical research {toggle="true"}',
     '\t<details>', '\t<summary>**The design**</summary>', '\t\t- a note', '\t</details>',
     '- [ ] Done',
   );
