@@ -1,6 +1,6 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes 0.20.1, whose final executable candidate `cea599a` passed1,387 sealed tests after independent source review. It includes the0.20 native continuation integration and repairs diagnostic handling of unknown evidence. The current Windows plain skill mirror was updated and byte-verified at0.20 on September23,10:55PM America/New_York; the0.20.1 plain refresh is recorded separately after release. Configuration and hook registration were unchanged. See [local update evidence](work/evidence/local-mirror-0200-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
+This guide describes released 0.20.1 at `7f2f0c9`. Its final executable candidate `cea599a` passed 1,387 sealed tests after independent source review. It includes the 0.20 native continuation integration and repairs diagnostic handling of unknown evidence. The current Windows plain shared-skill mirror was updated and byte-verified on September 23, 11:18 PM America/New_York, with configuration and hook registration unchanged. See [local update evidence](work/evidence/local-mirror-0201-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
 
 ## Choose the route
 
