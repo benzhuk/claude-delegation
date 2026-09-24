@@ -1,11 +1,11 @@
 Work: wr-2026-09-23-native-completion-proof
 Scope: docs/specs/2026-09-23-continuation-runtime-build.md
 Owner: skills-a
-Status: owned
+Status: accepted
 Authority: Ben explicitly requests continued useful building and testing; disposable local native fixtures and source work authorized; no real host configuration, auth, peer cursor or prior transcript changes
-Artifact: none
-Evidence: none
-Next: preserve accepted native mechanics through final source integration and separately measure useful model outcomes
+Artifact: docs/work/evidence/codex-native-core-qualification.md
+Evidence: docs/work/evidence/continuation-final-source-approved-811e548.md, docs/work/evidence/continuation-release-integration.md
+Next: native mechanics accepted in released0.20.0; useful model outcomes and chosen production rollout are separate records
 Opened: 2026-09-24T01:59:00Z
 Builder: GPT-5.6-Terra
 Rounds: 1

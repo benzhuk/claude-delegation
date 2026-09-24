@@ -71,12 +71,18 @@ Codex subagents need `[features] multi_agent = true` in `~/.codex/config.toml`
 (default 6), `max_depth` (default 1) and `job_max_runtime_seconds`. Three roles ship
 built in: `default`, `worker`, `explorer`; the files here add three more.
 
-**Unverified:** the exact invocation that spawns a named custom role, and whether a global
-`~/.codex/agents/*.toml` is discovered the same way a repo-local `.codex/agents/*.toml` is.
-The audit confirmed the file format and location convention but not the call site, and no
-live spawn was attempted. Confirm during the pilot before relying on it; if only the
-repo-local path is discovered, copy these files into the target repo's `.codex/agents/`
-and add that path to the mirror.
+**Verified on native Codex 0.156.1:** personal `~/.codex/agents/*.toml` and project
+`.codex/agents/*.toml` roles both appear in the runtime-generated `spawn_agent.agent_type`
+selector. Select the TOML's `name`, for example `agent_type: "reviewer"`. An actual native
+project-role spawn applied its model, reasoning effort, role identity, and developer
+instructions. The personal role's discovery was observed, but that role was not spawned
+in this bounded run. This native selector can differ from a surrounding application's
+collaboration-tool API. [Qualification evidence](../docs/work/evidence/codex-custom-role-native-review.md).
+
+The repository's `codex/agents/` directory is a source location; install via the existing
+mirror above or copy to the documented project directory. No additional role framework is
+needed. The disposable project's trust warning disabled project config/hooks/policies but
+did not prevent custom-role discovery or selection; do not infer hook trust from role discovery.
 
 **Unverified:** `sandbox_mode` accepts `read-only` / `workspace-write` /
 `danger-full-access` in Codex's own config vocabulary; the values here follow that

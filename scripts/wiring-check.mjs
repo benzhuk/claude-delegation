@@ -21,7 +21,7 @@
 //   file_exists   { file }                                  - ok / missing
 //   file_absent   { file }                                  - ok / stale (still there)
 //   file_fresh    { file, maxAgeSeconds, whenMissing? }      - ok / stale (too old, or missing - default 'stale') / whenMissing overrides the missing case
-//   switch        { file }                                  - always 'info', why says ON or off
+//   switch        { file }                                  - known 'info' (ON/off), unreadable 'unknown'
 //   env_presence  { var }                                   - always 'info', why says set or not set
 //   (anything else)                                         - 'unknown' - never a crash
 //
