@@ -260,7 +260,8 @@ note-send --from <your-slug> --to <peer-slug|term_handle|ben> --kind ASK \
 ```
 
 `--packet-file <path|->` writes the detail packet to the recipient's
-`docs/notes/<id>.md` before the ledger line; `-` reads the body from stdin. An existing
+`docs/notes/<id>.md` before the ledger line and uses it as `Details` when no explicit
+`--details` was supplied; `-` reads the body from stdin. An existing
 packet is never overwritten without `--force`, because the recipient may have annotated it.
 Add `--dry-run` to see the exact line and every planned write without touching anything, or
 `--no-type` to record and queue without resolving a pane at all.

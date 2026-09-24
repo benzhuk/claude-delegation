@@ -231,6 +231,12 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.19.0 — keeps new private decisions snapshots outside Git in the existing local
+  receipt store, with sanitized repository Details pointers and verified local `open`.
+  Existing v1 receipts remain readable and require manual reconciliation before new
+  pickup; no automatic migration, deletion or cross-host private transfer occurs.
+  Valid fresh submissions with no selected options/comments create no ASK. Peer notes
+  written with `--packet-file` now include the generated packet link by default.
 - 0.18.1 — fixes Windows Codex queue launcher resolution using a verified Node entry
   and argv arrays; suppresses peer inbox registration/consumption for positively
   identified Codex children using bounded native session metadata; makes one-shot
