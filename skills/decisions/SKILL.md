@@ -81,7 +81,9 @@ node <skill-dir>/scripts/decisions-pickup.mjs --once --page <id> --repo <project
 ```
 
 This command invokes the reader itself; a saved export is only a test seam, not automatic
-pickup. It never edits the page or clears Done. The immutable capture lives under
+pickup. Existing `AGENTS_HOME/ws-off` or `ws-off-decisions` disables pickup before
+page reads or writes; status and attended accounting remain available. It never edits
+the page or clears Done. The immutable capture lives under
 the note transport's durable main-checkout `docs/notes`; the small local receipt under
 `AGENTS_HOME/ws/decisions-pickup` records
 dispatch recovery state only. Inspect it with `decisions-pickup.mjs status --page <id>

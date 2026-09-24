@@ -51,6 +51,14 @@ export const CODEX_FALLBACKS = [
 /** Absolute paths outside $HOME worth a look — Homebrew on both architectures. */
 export const CODEX_ABSOLUTE_FALLBACKS = ['/opt/homebrew/bin/codex', '/usr/local/bin/codex'];
 
+/** A Node-installed Codex wrapper is safe only when its adjacent runtime and entry point exist. */
+function windowsNpmShimCommand(shim, existsSync) {
+  const dir = path.dirname(shim);
+  const node = path.join(dir, 'node.exe');
+  const entry = path.join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+  return existsSync(node) && existsSync(entry) ? { node, entry } : null;
+}
+
 /**
  * Resolve the `codex` CLI the way the shims do: PATH first, then the known install locations. The
  * reason is the same one `resolveOrcaCommand` has: a hook or a systemd timer runs in a NON-LOGIN shell
@@ -65,22 +73,34 @@ export function resolveCodexCommand(explicit, env = process.env, deps = {}) {
   const home = toPosix(deps.home ?? os.homedir());
   const tried = [];
 
-  if (explicit) return { exe: String(explicit), source: '--codex', tried };
-  if (env.CODEX_CLI) return { exe: String(env.CODEX_CLI), source: '$CODEX_CLI', tried };
+  if (explicit) return { exe: String(explicit), prefixArgs: [], source: '--codex', tried };
+  if (env.CODEX_CLI) return { exe: String(env.CODEX_CLI), prefixArgs: [], source: '$CODEX_CLI', tried };
 
   tried.push('codex on PATH');
-  if (findOnPath('codex', env, { existsSync, platform })) return { exe: 'codex', source: 'PATH', tried };
+  const matched = findOnPath('codex', env, { existsSync, platform });
+  if (matched) {
+    if (platform === 'win32') {
+      if (/\.(exe|com)$/i.test(matched)) return { exe: matched, prefixArgs: [], source: 'PATH native', tried };
+      const shim = windowsNpmShimCommand(matched, existsSync);
+      if (shim) return { exe: shim.node, prefixArgs: [shim.entry], source: 'PATH npm shim', tried };
+      return { exe: null, prefixArgs: [], source: 'unsupported wrapper', tried, wrapper: matched };
+    }
+    return { exe: 'codex', prefixArgs: [], source: 'PATH', tried };
+  }
 
   for (const f of CODEX_FALLBACKS) {
     const candidate = path.posix.join(home, f.rel);
     tried.push(candidate);
-    if (existsSync(candidate)) return { exe: candidate, source: f.why, tried };
+    if (existsSync(candidate)) return { exe: candidate, prefixArgs: [], source: f.why, tried };
   }
   for (const candidate of CODEX_ABSOLUTE_FALLBACKS) {
     tried.push(candidate);
-    if (existsSync(candidate)) return { exe: candidate, source: candidate, tried };
+    if (existsSync(candidate)) return { exe: candidate, prefixArgs: [], source: candidate, tried };
   }
-  return { exe: 'codex', source: 'not found', tried };
+  // Keep the historical fallback for injected callers and non-Windows launchers: execFile
+  // will return ENOENT with the attempted locations in its diagnostic. A matched Windows
+  // wrapper is different: never hand a .cmd/.ps1 name to execFile.
+  return { exe: 'codex', prefixArgs: [], source: 'not found', tried };
 }
 
 /** The exact error `codex queue` gives for a thread with no persisted turn yet. */
@@ -103,7 +123,13 @@ export async function queueToCodexInbox(record, text, opts = {}) {
   const timeout = Number(opts.timeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS);
   const resolved = resolveCodexCommand(opts.codex, env, opts);
   const run = opts.execFile ?? execFileAsync;
-  const args = ['queue', '--thread', String(record.threadId), '--message', String(text)];
+  if (!resolved.exe) {
+    const detail = resolved.wrapper
+      ? `unsupported codex wrapper on PATH: ${resolved.wrapper} (need adjacent node.exe and @openai/codex/bin/codex.js)`
+      : `no codex CLI found. Looked at: ${resolved.tried.join(', ')}`;
+    return { ok: false, delivered: false, reason: 'codex-error', detail };
+  }
+  const args = [...resolved.prefixArgs, 'queue', '--thread', String(record.threadId), '--message', String(text)];
   try {
     // argv array, never a shell string, so a `$` or a quote in the substance is inert. CODEX_HOME goes
     // into the CHILD's environment only — this process's own env is never mutated, because a flusher

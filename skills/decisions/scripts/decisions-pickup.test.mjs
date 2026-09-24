@@ -70,6 +70,25 @@ test('unchecked and unchanged reads use no send and create no receipt', async (t
   assert.equal(status(fx.options, { agentsHome: fx.agentsHome }).status, 'IDLE');
 });
 
+test('master and decisions switches disable --once before page, project, receipt, or transport work', async (t) => {
+  for (const name of ['ws-off', 'ws-off-decisions']) {
+    const fx = fixture(); t.after(fx.cleanup);
+    fs.writeFileSync(path.join(fx.agentsHome, name), '', 'utf8');
+    let reads = 0;
+    let sends = 0;
+    const result = await pickupOnce({ ...fx.options, repo: path.join(fx.repo, 'missing-project') }, deps(fx, {
+      readPage: async () => { reads += 1; return PAGE; },
+      send: async () => { sends += 1; return {}; },
+    }));
+    assert.equal(result.status, 'DISABLED', name);
+    assert.equal(reads, 0, `${name}: reader must not run`);
+    assert.equal(sends, 0, `${name}: sender must not run`);
+    assert.equal(fs.existsSync(path.join(fx.agentsHome, 'ws', 'decisions-pickup')), false, `${name}: no receipt or claim`);
+    assert.equal(fs.existsSync(path.join(fx.repo, 'docs', 'notes')), false, `${name}: no private capture`);
+    assert.equal(status(fx.options, { agentsHome: fx.agentsHome }).status, 'IDLE', `${name}: status remains available`);
+  }
+});
+
 test('capture crash leaves an immutable orphan that the same round reuses once', async (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   await assert.rejects(pickupOnce(fx.options, deps(fx, {

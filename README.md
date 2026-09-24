@@ -231,6 +231,12 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.18.1 — fixes Windows Codex queue launcher resolution using a verified Node entry
+  and argv arrays; suppresses peer inbox registration/consumption for positively
+  identified Codex children using bounded native session metadata; makes one-shot
+  decisions pickup honor the existing global and decisions off switches before side
+  effects. Unknown child metadata preserves existing delivery. These repairs do not
+  establish historical note-consumer identity or enforce ongoing project completion.
 - 0.18.0 — adds native Codex package discovery through a portable manifest and local
   marketplace. An explicit empty Codex hook configuration prevents importing Claude
   hooks. All nine skills are discoverable; installed hook activation, role loading and

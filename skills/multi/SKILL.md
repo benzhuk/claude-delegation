@@ -388,6 +388,14 @@ and `note-flush` stops dead-lettering unknown recipients early).
 
 ## Codex peers are different, and it matters
 
+- Native Codex child hooks skip peer registration and inbox consumption when the
+  event's session ID matches bounded transcript metadata identifying a child. Missing
+  or unreadable metadata retains existing delivery; inherited pane identity alone does
+  not prove the recipient is the lead. The seen cursor records rendering, not handling:
+  use the existing ACK/RESULT/BLOCKED ledger events to establish a request's disposition.
+- On Windows, a supported npm launcher runs through its adjacent Node executable and
+  Codex JavaScript entry with separate argv values. An unsupported wrapper remains
+  deferred with an explicit error; it is never executed through a shell.
 - A **Claude** pane takes a note mid-turn; Claude Code queues typed input.
 - A **Codex** pane does not — which stopped mattering in 0.5.0. A note for a Codex peer is QUEUED in
   the session's own store (`codex queue --thread <its session id>`), and the TUI starts it as a real

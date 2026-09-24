@@ -67,6 +67,20 @@ function agentsHome(env = process.env) {
   return path.resolve(env.AGENTS_HOME || path.join(os.homedir(), '.agents'));
 }
 
+function switchPresent(file, fsImpl = fs) {
+  try {
+    fsImpl.statSync(file);
+    return true;
+  } catch (error) {
+    return Boolean(error) && error.code !== 'ENOENT' && error.code !== 'ENOTDIR';
+  }
+}
+
+function pickupSwitchActive(base, fsImpl = fs) {
+  return switchPresent(path.join(base, 'ws-off'), fsImpl)
+    || switchPresent(path.join(base, 'ws-off-decisions'), fsImpl);
+}
+
 export function receiptPaths({ agentsHome: base, project, page }) {
   const key = sha256(normalizedPage(page));
   const projectScope = sha256(`${project}\0${normalizedPage(page)}`);
@@ -422,8 +436,11 @@ export async function pickupOnce(options, deps = {}) {
   const fsImpl = deps.fsImpl ?? fs;
   const env = deps.env ?? process.env;
   const now = new Date(deps.now ?? Date.now());
-  const project = registeredProject(options.repo, options.page, fsImpl);
   const base = deps.agentsHome ?? agentsHome(env);
+  if (pickupSwitchActive(base, fsImpl)) {
+    return { status: 'DISABLED', reason: 'decisions pickup is disabled by ws-off-decisions or ws-off' };
+  }
+  const project = registeredProject(options.repo, options.page, fsImpl);
   const paths = receiptPaths({ agentsHome: base, project, page: options.page });
   acquireClaim(paths.claim, fsImpl);
   try {

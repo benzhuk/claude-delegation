@@ -32,6 +32,63 @@ import {
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
 import { runHookEvent, writeJson, BUDGET_MS, POST_TOOL_BUDGET_MS } from './multi-hook-core.mjs';
 
+// Native child metadata is the only positive child discriminator used here.  The hook input may
+// inherit the parent's pane handle, so handles and slugs must never classify a child.  Keep the
+// first-line probe deliberately small: transcript contents are private and unknown input stays on
+// the working lead path.
+export const SESSION_META_MAX_BYTES = 256 * 1024;
+const SESSION_META_CHUNK_BYTES = 8 * 1024;
+const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/** Return true only for an authentic, self-consistent native subagent session metadata record. */
+export function isConfirmedCodexChild(input = {}, fsImpl = fs) {
+  const transcriptPath = input?.transcript_path;
+  const sessionId = input?.session_id;
+  if (typeof transcriptPath !== 'string' || !transcriptPath || typeof sessionId !== 'string' || !sessionId) return false;
+
+  let fd;
+  try {
+    fd = fsImpl.openSync(transcriptPath, 'r');
+    let total = 0;
+    const parts = [];
+    let firstLine = null;
+    while (total <= SESSION_META_MAX_BYTES) {
+      const bytes = Buffer.alloc(Math.min(SESSION_META_CHUNK_BYTES, SESSION_META_MAX_BYTES + 1 - total));
+      const read = fsImpl.readSync(fd, bytes, 0, bytes.length, null);
+      if (!read) return false;
+      const chunk = bytes.subarray(0, read);
+      const newline = chunk.indexOf(0x0a);
+      if (newline >= 0) {
+        if (total + newline > SESSION_META_MAX_BYTES) return false;
+        parts.push(chunk.subarray(0, newline));
+        firstLine = Buffer.concat(parts).toString('utf8');
+        break;
+      }
+      parts.push(chunk);
+      total += read;
+    }
+    // A metadata line that does not fit is intentionally unknown, never a child guess.
+    if (firstLine === null) return false;
+    const meta = JSON.parse(firstLine);
+    const payload = meta?.payload;
+    const spawn = payload?.source?.subagent?.thread_spawn;
+    const parent = spawn?.parent_thread_id;
+    return meta?.type === 'session_meta'
+      && payload?.id === sessionId
+      && typeof parent === 'string'
+      && CODEX_SESSION_ID_RE.test(parent)
+      && parent !== sessionId
+      && Number.isInteger(spawn?.depth)
+      && spawn.depth >= 1;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      try { fsImpl.closeSync(fd); } catch { /* unknown metadata keeps normal lead behavior */ }
+    }
+  }
+}
+
 /**
  * Which pane is this? `$NOTE_SLUG` is the session stating its own identity; the binding is the same
  * statement, made earlier and written down (`panes.json`, keyed by handle). Nothing else is consulted:
@@ -64,9 +121,12 @@ export function readStdin(stream = process.stdin) {
  * @returns {Promise<object|null>} the object to print, or null for silence
  */
 export async function runCodexHook(input = {}, deps = {}) {
+  const fsImpl = deps.fsImpl ?? fs;
+  // This is before slug resolution: children can inherit a parent pane handle and must not register
+  // or consume that lead's inbox. Missing, corrupt, mismatched, or oversized metadata stays lead-like.
+  if (isConfirmedCodexChild(input, fsImpl)) return null;
   const env = deps.env ?? process.env;
   const home = toPosix(deps.home ?? os.homedir());
-  const fsImpl = deps.fsImpl ?? fs;
   const me = deps.slug ? { slug: deps.slug, source: 'deps' } : codexSlug(env, home, fsImpl);
   if (!me) return null; // not a peer session: no identity, nothing to read, nothing to say
 

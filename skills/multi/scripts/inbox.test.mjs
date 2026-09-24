@@ -514,6 +514,32 @@ test('D5: the codex binary is resolved PATH first, then the known install paths'
   assert.equal(resolveCodexCommand(undefined, { ...env, CODEX_CLI: '/from/env' }).exe, '/from/env');
 });
 
+test('D5: Windows npm shims resolve to a verified node-plus-entry argv prefix', () => {
+  const dir = 'C:/npm';
+  const wrapper = path.join(dir, 'codex.CMD');
+  const node = path.join(dir, 'node.exe');
+  const entry = path.join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+  const present = new Set([wrapper, node, entry]);
+  const win = resolveCodexCommand(undefined, { PATH: dir, PATHEXT: '.CMD' }, {
+    platform: 'win32', existsSync: (p) => present.has(p),
+  });
+  assert.equal(win.exe, node);
+  assert.deepEqual(win.prefixArgs, [entry]);
+  assert.equal(win.source, 'PATH npm shim');
+
+  const native = resolveCodexCommand(undefined, { PATH: dir, PATHEXT: '.EXE;.CMD' }, {
+    platform: 'win32', existsSync: (p) => p === path.join(dir, 'codex.EXE'),
+  });
+  assert.equal(native.exe, path.join(dir, 'codex.EXE'));
+  assert.deepEqual(native.prefixArgs, []);
+
+  const unsupported = resolveCodexCommand(undefined, { PATH: dir, PATHEXT: '.CMD' }, {
+    platform: 'win32', existsSync: (p) => p === wrapper,
+  });
+  assert.equal(unsupported.source, 'unsupported wrapper');
+  assert.equal(unsupported.exe, null);
+});
+
 test('D5: the call is `queue --thread <id> --message <text>` with CODEX_HOME in the CHILD env only', async () => {
   const calls = [];
   const before = process.env.CODEX_HOME;
@@ -529,6 +555,62 @@ test('D5: the call is `queue --thread <id> --message <text>` with CODEX_HOME in 
   assert.equal(calls[0].opts.env.CODEX_HOME, '/orca/home-a');
   assert.equal(process.env.CODEX_HOME, before, "the flusher's OWN CODEX_HOME is never touched — the next entry may be another home");
   assert.ok(calls[0].opts.timeout > 0, 'a wedged codex must be killable');
+});
+
+test('D5: Windows shim queues through node with an argv-only metacharacter message', async () => {
+  const dir = 'C:/npm';
+  const wrapper = path.join(dir, 'codex.CMD');
+  const node = path.join(dir, 'node.exe');
+  const entry = path.join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+  const present = new Set([wrapper, node, entry]);
+  const message = '$(never) & ; "quoted"';
+  const calls = [];
+  const verdict = await queueToCodexInbox(codexRecord(), message, {
+    env: { PATH: dir, PATHEXT: '.CMD' }, platform: 'win32', existsSync: (p) => present.has(p),
+    execFile: async (exe, args) => { calls.push({ exe, args }); return { stdout: 'queued\n' }; },
+  });
+  assert.equal(verdict.delivered, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].exe, node);
+  assert.deepEqual(calls[0].args, [entry, 'queue', '--thread', '01a0b193-d533-7360-be08-b82b41f19b3d', '--message', message]);
+
+  let called = false;
+  const unsupported = await queueToCodexInbox(codexRecord(), message, {
+    env: { PATH: dir, PATHEXT: '.CMD' }, platform: 'win32', existsSync: (p) => p === wrapper,
+    execFile: async () => { called = true; return { stdout: 'must not run' }; },
+  });
+  assert.equal(called, false);
+  assert.equal(unsupported.reason, 'codex-error');
+  assert.match(unsupported.detail, /unsupported codex wrapper/);
+});
+
+test('D5: a verified Windows npm shim reaches a real Node entry with the message as one argv item', async () => {
+  const root = tmp();
+  const bin = path.join(root, 'npm');
+  const wrapper = path.join(bin, 'codex.CMD');
+  const node = path.join(bin, 'node.exe');
+  const entry = path.join(bin, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+  const capture = path.join(root, 'argv.json');
+  const message = '$(never) & ; "quoted"';
+  fs.mkdirSync(path.dirname(entry), { recursive: true });
+  fs.writeFileSync(wrapper, '@echo this wrapper must never run\r\n');
+  // The adjacent executable is a disposable copy of this test runner's native Node binary.
+  fs.copyFileSync(process.execPath, node);
+  fs.writeFileSync(entry, "import fs from 'node:fs';\nfs.writeFileSync(process.env.CAPTURE, JSON.stringify(process.argv.slice(2)));\nconsole.log('queued');\n");
+  try {
+    const resolved = resolveCodexCommand(undefined, { PATH: bin, PATHEXT: '.CMD' }, { platform: 'win32' });
+    assert.equal(resolved.exe, node);
+    assert.deepEqual(resolved.prefixArgs, [entry]);
+    const verdict = await queueToCodexInbox(codexRecord(), message, {
+      env: { PATH: bin, PATHEXT: '.CMD', CAPTURE: capture }, platform: 'win32', timeoutMs: 5_000,
+    });
+    assert.equal(verdict.delivered, true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(capture, 'utf8')), [
+      'queue', '--thread', '01a0b193-d533-7360-be08-b82b41f19b3d', '--message', message,
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('D5: a thread with no persisted turn yet is `codex-no-thread`, and stays queued', async () => {
