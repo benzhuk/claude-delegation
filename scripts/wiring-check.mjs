@@ -151,16 +151,23 @@ function evalJsonValue(check, { home, fsImpl }) {
   return { state: "stale", why: `${check.why} (${detail})` };
 }
 
-function hookGroupHasSubstring(hooksSection, event, substring) {
-  const group = hooksSection?.[event];
-  if (!Array.isArray(group)) return false;
+function inspectHookGroup(data, event, substring) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return { kind: "unknown" };
+  if (!Object.hasOwn(data, "hooks")) return { kind: "known", present: false };
+  const hooksSection = data.hooks;
+  if (hooksSection === null || typeof hooksSection !== "object" || Array.isArray(hooksSection)) return { kind: "unknown" };
+  if (!Object.hasOwn(hooksSection, event)) return { kind: "known", present: false };
+  const group = hooksSection[event];
+  if (!Array.isArray(group)) return { kind: "unknown" };
   for (const entry of group) {
-    const list = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !Array.isArray(entry.hooks)) return { kind: "unknown" };
+    const list = entry.hooks;
     for (const h of list) {
-      if (typeof h?.command === "string" && h.command.includes(substring)) return true;
+      if (h === null || typeof h !== "object" || Array.isArray(h)) return { kind: "unknown" };
+      if (typeof h.command === "string" && h.command.includes(substring)) return { kind: "known", present: true };
     }
   }
-  return false;
+  return { kind: "known", present: false };
 }
 
 function evalHookPresence(check, { home, fsImpl }, wantPresent) {
@@ -173,7 +180,9 @@ function evalHookPresence(check, { home, fsImpl }, wantPresent) {
       : { state: "ok" };
   }
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
-  const present = hookGroupHasSubstring(evidence.value?.hooks, check.event, check.substring);
+  const inspected = inspectHookGroup(evidence.value, check.event, check.substring);
+  if (inspected.kind === "unknown") return { state: "unknown", why: "could not inspect required hook evidence" };
+  const present = inspected.present;
   const eventLabel = check.event ?? "(unspecified event)";
   const substringLabel = check.substring ?? "(unspecified substring)";
   if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (no ${eventLabel} hook in ${file} contains "${substringLabel}")` };

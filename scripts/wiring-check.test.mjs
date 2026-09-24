@@ -158,6 +158,35 @@ test("hook_absent: ok when the substring is not found (or the file is absent), s
   assert.equal(byId["no-file"].state, "ok");
 });
 
+test("hook checks distinguish valid absence from malformed selected hook containers", () => {
+  const home = mkHome();
+  const payloads = new Map([
+    ["root-null", "null"],
+    ["root-number", "42"],
+    ["event-not-array", JSON.stringify({ hooks: { Stop: "bad-shape" } })],
+    ["handlers-not-array", JSON.stringify({ hooks: { Stop: [{ hooks: {} }] } })],
+    ["valid-empty-root", "{}"],
+    ["valid-unrelated", JSON.stringify({ unrelated: true })],
+    ["valid-no-event", JSON.stringify({ hooks: { SessionStart: [] } })],
+    ["valid-empty-event", JSON.stringify({ hooks: { Stop: [] } })],
+    ["valid-noncommand", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "prompt", prompt: "review" }] }] } })],
+  ]);
+  const checks = [];
+  for (const [id, payload] of payloads) {
+    const file = write(home, `${id}.json`, payload);
+    checks.push({ id, type: "hook_absent", file, event: "Stop", substring: "test-hook", why: "w", fix: "f" });
+  }
+  const result = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
+  const byId = Object.fromEntries(result.results.map((row) => [row.id, row]));
+  for (const id of ["root-null", "root-number", "event-not-array", "handlers-not-array"]) {
+    assert.equal(byId[id].state, "unknown", id);
+  }
+  for (const id of ["valid-empty-root", "valid-unrelated", "valid-no-event", "valid-empty-event", "valid-noncommand"]) {
+    assert.equal(byId[id].state, "ok", id);
+  }
+  assert.equal(result.ok, false);
+});
+
 test("file_exists / file_absent", () => {
   const home = mkHome();
   const present = write(home, "present.txt", "x");
