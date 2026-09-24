@@ -312,7 +312,7 @@ test('the CLI as a child process: real exit codes, and stdout is the card', () =
 });
 
 test('the constants the hook copies are pinned here', () => {
-  assert.equal(PROMPT_LINE_MAX_BYTES, 336); // raised from 320, round-1 review MINOR 1
+  assert.equal(PROMPT_LINE_MAX_BYTES, 400); // raised from 336 on Ben's word 2026-09-24
   assert.equal(BATCHES_PER_REINJECT, 40);
   assert.equal(REINJECT_MAX_MS, 30 * 60 * 1000);
   assert.equal(SWEEP_MAX_UNLINKS, 500);

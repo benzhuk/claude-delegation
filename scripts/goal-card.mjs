@@ -38,17 +38,20 @@ export const LABELS = Object.freeze(["GOAL", "NOT", "DONE", "KILL", "SOURCE"]);
  * Byte caps. Deliberately tight: the whole argument for a card over a goals document is that it is
  * small enough to re-read a dozen times in a session without competing with the work.
  */
-export const CARD_MAX_BYTES = 800;    // the five lines, joined
-export const LINE_MAX_BYTES = 240;    // any one line
-export const RENDER_MAX_BYTES = 1000; // what the hook injects, header and stamp included
+export const CARD_MAX_BYTES = 1000;   // a five-line card of up to 1000 bytes; raised on Ben's word 2026-09-24
+export const LINE_MAX_BYTES = 360;    // any one line, about a GOAL line's worth; raised on Ben's word 2026-09-24
+export const RENDER_MAX_BYTES = 1200; // what the hook injects, header and stamp included; kept 200
+// bytes above CARD_MAX_BYTES (the original 800/1000 headroom) so an at-cap card still renders;
+// raised alongside the card cap on Ben's word 2026-09-24 — not explicitly named in that instruction,
+// but required for "the caps are ordered so a valid card can always render" to still hold. Flag for review.
 
 /**
  * The hook's behavioural constants, stated here so the test suite has one place to read them from and
  * so a future edit to `hooks/delegation-reminder.js` that diverges fails a test rather than a session.
  * The hook keeps CommonJS copies: its hot path must not import ESM to learn it is idle.
  */
-export const PROMPT_LINE_MAX_BYTES = 336; // raised from 320 (round-1 review MINOR 1) to restore the
-// owner's "orchestrator tokens buy judgment only" clause without re-lengthening the routing line.
+export const PROMPT_LINE_MAX_BYTES = 400; // raised from 336 on Ben's word 2026-09-24, alongside the
+// 1000-byte card cap and 360-byte line cap.
 export const BATCHES_PER_REINJECT = 40;
 /**
  * The time floor. The batch tally can lose increments under parallel writers by design (see

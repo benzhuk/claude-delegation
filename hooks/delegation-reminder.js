@@ -75,8 +75,9 @@ const ROUTING =
  */
 const ECONOMY = " Orchestrator tokens buy judgment only: never pull big files or grep into the loop.";
 
-/** Asserted by the test suite: the per-prompt payload can never grow back into a paragraph. */
-const PROMPT_LINE_MAX_BYTES = 336;
+/** Asserted by the test suite: the per-prompt payload can never grow back into a paragraph.
+ * Raised from 336 to 400 on Ben's word 2026-09-24, alongside the goal card's byte caps. */
+const PROMPT_LINE_MAX_BYTES = 400;
 
 /** One re-injection per this many tool batches. ~50 tool calls is a typical long task (Manus). */
 const BATCHES_PER_REINJECT = 40;
