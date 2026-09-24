@@ -51,6 +51,7 @@ test('FIXTURE: the trust keys match the TUI, snake_case label and all', () => {
   assert.equal(key('SessionStart'), `${FIXTURE_HOOKS_JSON}:session_start:0:0`);
   assert.equal(key('UserPromptSubmit'), `${FIXTURE_HOOKS_JSON}:user_prompt_submit:0:0`);
   assert.equal(key('Stop'), `${FIXTURE_HOOKS_JSON}:stop:0:0`);
+  assert.equal(key('Interrupt'), `${FIXTURE_HOOKS_JSON}:interrupt:0:0`);
   assert.equal(key('Stop', 1, 2), `${FIXTURE_HOOKS_JSON}:stop:1:2`);
 });
 
@@ -81,22 +82,23 @@ test('a matcher changes the hash, and null is not the same as an empty string', 
 
 test('hookEventLabel handles every event we install', () => {
   assert.deepEqual(CODEX_EVENTS.map((e) => hookEventLabel(e.event)),
-    ['session_start', 'user_prompt_submit', 'post_tool_use', 'stop']);
+    ['session_start', 'user_prompt_submit', 'post_tool_use', 'stop', 'interrupt']);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // hooks.json
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('the installed hooks.json wires four events, none of them allowed to park', () => {
+test('the installed hooks.json wires five events, none of them allowed to park', () => {
   const json = buildHooksJson('/x/hooks/multi-codex-hook.mjs');
-  assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']);
+  assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'Interrupt']);
   // Pinned to the Claude side's constant, not to a literal: raising one and not the other is exactly
   // the drift this release exists to close, and it would otherwise leave both suites green (MINOR 1).
   assert.equal(STOP_TIMEOUT, STOP_TIMEOUT_S, 'both adapters bound Stop the same way');
   assert.equal(json.hooks.Stop[0].hooks[0].timeout, STOP_TIMEOUT);
   assert.equal(json.hooks.Stop[0].hooks[0].command, `${process.execPath} /x/hooks/multi-codex-hook.mjs`);
   assert.equal(json.hooks.SessionStart[0].hooks[0].timeout, 30);
+  assert.equal(json.hooks.Interrupt[0].hooks[0].timeout, 3);
   assert.equal(json.hooks.Stop[0].matcher, undefined, 'no matcher: the hash treats absent and null alike');
 });
 
@@ -116,6 +118,7 @@ test('the node binary is absolute, and a path with a space is quoted', () => {
 test('trustEntriesFor covers every handler in the file it names', () => {
   const entries = trustEntriesFor(FIXTURE_HOOKS_JSON, '/x/h.mjs', undefined, undefined, 'linux');
   assert.deepEqual(Object.keys(entries).sort(), [
+    `${FIXTURE_HOOKS_JSON}:interrupt:0:0`,
     `${FIXTURE_HOOKS_JSON}:post_tool_use:0:0`,
     `${FIXTURE_HOOKS_JSON}:session_start:0:0`,
     `${FIXTURE_HOOKS_JSON}:stop:0:0`,
@@ -148,7 +151,7 @@ test("MERGE: Orca's handlers survive, keep their index, and ours is appended", (
   assert.ok(json.hooks.SessionStart[1].hooks[0].command.includes(HOOK_MARKER));
   // …and the trust keys follow the indices our handler actually landed on.
   const byEvent = Object.fromEntries(placements.map((p) => [p.event, `${p.groupIndex}:${p.handlerIndex}`]));
-  assert.deepEqual(byEvent, { SessionStart: '1:0', UserPromptSubmit: '1:0', PostToolUse: '0:0', Stop: '0:0' });
+  assert.deepEqual(byEvent, { SessionStart: '1:0', UserPromptSubmit: '1:0', PostToolUse: '0:0', Stop: '0:0', Interrupt: '0:0' });
 });
 
 test('MERGE is idempotent: running it twice changes nothing the second time', () => {
@@ -167,9 +170,9 @@ test('MERGE updates our own handler in place when the plugin path or timeout cha
   assert.equal(second.json.hooks.SessionStart.length, 2, "and Orca's is still there");
 });
 
-test('MERGE into an empty home produces exactly the four events, at index 0', () => {
+test('MERGE into an empty home produces exactly the five events, at index 0', () => {
   const { json, placements } = mergeHooksJson({}, '/x/h/multi-codex-hook.mjs');
-  assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']);
+  assert.deepEqual(Object.keys(json.hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'Interrupt']);
   assert.ok(placements.every((p) => p.groupIndex === 0 && p.handlerIndex === 0));
 });
 
@@ -182,6 +185,7 @@ test('placement trust keys use the real indices, not 0:0', () => {
   const { placements } = mergeHooksJson(ORCA_HOOKS, '/x/h/multi-codex-hook.mjs');
   const entries = trustEntriesForPlacements('/home/h/hooks.json', placements, 'linux');
   assert.ok(entries['/home/h/hooks.json:session_start:1:0'], 'ours sits in group 1 for SessionStart');
+  assert.ok(entries['/home/h/hooks.json:interrupt:0:0']);
   assert.ok(entries['/home/h/hooks.json:stop:0:0']);
   assert.equal(entries['/home/h/hooks.json:session_start:0:0'], undefined, "Orca's handler is not ours to trust");
 });
@@ -583,4 +587,3 @@ test('codexHomes never returns a duplicate when CODEX_HOME is already ~/.codex',
   const homes = codexHomes({ home: '/home/ben', platform: 'linux', fsImpl, env: { CODEX_HOME: path.join('/home/ben', '.codex') } });
   assert.deepEqual(homes, [path.join('/home/ben', '.codex')]);
 });
-
