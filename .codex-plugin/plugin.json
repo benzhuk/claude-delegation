@@ -1,6 +1,6 @@
 {
   "name": "delegation",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "Shared work-management skills and host integrations for Codex and Claude Code.",
   "skills": "./skills/",
   "hooks": "./hooks/codex-hooks.json"
