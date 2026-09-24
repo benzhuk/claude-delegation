@@ -272,7 +272,7 @@ test("required file evidence distinguishes known absence from inaccessible or co
   assert.equal(result.ok, false);
 });
 
-test("switch: always 'info', why reports ON when the file exists and off when it does not", () => {
+test("switch: known paths are informational, with ON when present and off when absent", () => {
   const home = mkHome();
   const onFile = write(home, "on-switch", "");
   const offFile = path.join(home, "off-switch");
@@ -286,6 +286,18 @@ test("switch: always 'info', why reports ON when the file exists and off when it
   assert.ok(byId.on.why.includes("ON"));
   assert.equal(byId.off.state, "info");
   assert.ok(byId.off.why.includes("off"));
+});
+
+test("switch reports unknown when its path cannot be inspected", () => {
+  const home = mkHome();
+  const fsImpl = readOnlyFs(home);
+  fsImpl.statSync = () => { throw Object.assign(new Error("PRIVATE-SWITCH-ERROR"), { code: "EACCES" }); };
+  const result = checkWiring({ home, platform: "linux", fsImpl, lists: { public: [
+    { id: "denied-switch", type: "switch", file: "~/switch", why: "w", fix: "f" },
+  ], private: [] } });
+  assert.equal(result.ok, false);
+  assert.equal(result.results[0].state, "unknown");
+  assert.doesNotMatch(result.results[0].why, /PRIVATE-SWITCH-ERROR/);
 });
 
 // ---------------------------------------------------------------------------
@@ -368,22 +380,56 @@ test("an unknown check type is unknown and prevents green", () => {
   const checks = [{ id: "mystery", type: "teleport", why: "w", fix: "f" }];
   const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
   assert.equal(results[0].state, "unknown");
-  assert.match(results[0].why, /unsupported check type/);
+  assert.match(results[0].why, /invalid wiring check definition/);
 });
 
 test("a check whose evaluation throws is unknown, private, and not a crash", () => {
   const home = mkHome();
-  const throwingFs = {
-    existsSync: () => false,
-    readFileSync: () => "",
-    statSync: () => {
-      throw new Error("disk exploded");
-    },
-  };
-  const checks = [{ id: "boom", type: "file_exists", file: "~/x", why: "w", fix: "f" }];
-  const { results } = checkWiring({ home, platform: "linux", fsImpl: throwingFs, lists: { public: checks, private: [] } });
+  const checks = [{ id: "boom", type: "env_presence", var: "X", why: "w", fix: "f" }];
+  const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), env: null, lists: { public: checks, private: [] } });
   assert.equal(results[0].state, "unknown");
-  assert.doesNotMatch(results[0].why, /disk exploded/);
+  assert.match(results[0].why, /could not evaluate/);
+});
+
+test("selected malformed check definitions are unknown before filesystem evaluation", () => {
+  const home = mkHome();
+  let fsCalls = 0;
+  const fsImpl = {
+    readFileSync: () => { fsCalls += 1; throw new Error("must not read"); },
+    statSync: () => { fsCalls += 1; throw new Error("must not stat"); },
+    existsSync: () => { fsCalls += 1; throw new Error("must not exist-check"); },
+  };
+  const checks = [
+    { id: "hook-file", type: "hook_absent", file: "", event: "Stop", substring: "x" },
+    { id: "hook-event", type: "hook_present", file: "x", event: "", substring: "x" },
+    { id: "hook-substring", type: "hook_absent", file: "x", event: "Stop" },
+    { id: "json-file", type: "json_value", file: "", path: "a", expected: 1 },
+    { id: "json-path", type: "json_value", file: "x", path: "", expected: 1 },
+    { id: "json-expected", type: "json_value", file: "x", path: "a" },
+    { id: "file", type: "file_exists", file: null },
+    { id: "fresh-negative", type: "file_fresh", file: "x", maxAgeSeconds: -1 },
+    { id: "fresh-infinite", type: "file_fresh", file: "x", maxAgeSeconds: Infinity },
+    { id: "switch", type: "switch", file: "" },
+    { id: "env", type: "env_presence", var: "" },
+    { id: "type", type: "unknown_type" },
+  ];
+  const result = checkWiring({ home, platform: "linux", fsImpl, lists: { public: checks, private: [] } });
+  assert.equal(result.ok, false);
+  assert.equal(result.results.length, checks.length);
+  assert.ok(result.results.every((row) => row.state === "unknown"));
+  assert.equal(fsCalls, 0);
+});
+
+test("an explicit empty hook substring remains the documented any-command match", () => {
+  const home = mkHome();
+  const settings = write(home, "settings-any-command.json", JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "node anything.mjs" }] }] },
+  }));
+  const result = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [
+    { id: "any-command", type: "hook_present", file: settings, event: "Stop", substring: "", why: "w", fix: "f" },
+  ], private: [] } });
+  assert.equal(result.ok, true);
+  assert.equal(result.results[0].state, "ok");
 });
 
 test("invalid rows produce bounded input uncertainty before valid rows are merged", () => {
@@ -423,14 +469,17 @@ test("a check with a platforms array is skipped entirely on a non-matching platf
   const home = mkHome();
   const checks = [
     { id: "mac-only", type: "switch", file: "~/x", platforms: ["darwin"], why: "w", fix: "f" },
+    { id: "excluded-malformed", type: "file_fresh", file: "", maxAgeSeconds: -1, platforms: ["darwin"], why: "w", fix: "f" },
     { id: "everywhere", type: "switch", file: "~/y", why: "w", fix: "f" },
   ];
   const onLinux = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
   assert.equal(onLinux.results.some((r) => r.id === "mac-only"), false);
+  assert.equal(onLinux.results.some((r) => r.id === "excluded-malformed"), false);
   assert.equal(onLinux.results.some((r) => r.id === "everywhere"), true);
 
   const onMac = checkWiring({ home, platform: "darwin", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
   assert.equal(onMac.results.some((r) => r.id === "mac-only"), true);
+  assert.equal(onMac.results.find((r) => r.id === "excluded-malformed").state, "unknown");
 });
 
 // ---------------------------------------------------------------------------
@@ -467,10 +516,47 @@ test("checkWiring merges the default public list with an optional ~/.agents/requ
   assert.ok(ids.includes("private-thing"));
 });
 
-test("a missing or unparseable ~/.agents/required-wiring.json is simply not consulted, never a crash", () => {
+test("a missing private wiring list is normal", () => {
   const home = mkHome(); // no required-wiring.json at all
   const result = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [{ id: "x", type: "switch", file: "~/y", why: "w", fix: "f" }] } });
   assert.equal(result.results.length, 1);
+});
+
+test("malformed or unreadable public and private list inputs are unknown", () => {
+  const home = mkHome();
+  write(home, ".agents/required-wiring.json", "{not-json");
+  const privateResult = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [] } });
+  assert.equal(privateResult.ok, false);
+  assert.equal(privateResult.results[0].id, "wiring-private-input");
+  assert.equal(privateResult.results[0].state, "unknown");
+
+  const fsImpl = readOnlyFs(home);
+  fsImpl.readFileSync = (file, enc) => {
+    if (path.basename(String(file)) === "required-wiring.default.json") return "42";
+    return fs.readFileSync(file, enc);
+  };
+  const publicResult = checkWiring({ home, platform: "linux", fsImpl, lists: { private: [] } });
+  assert.equal(publicResult.ok, false);
+  assert.equal(publicResult.results[0].id, "wiring-default-input");
+  assert.equal(publicResult.results[0].state, "unknown");
+
+  const deniedPrivateFs = readOnlyFs(home);
+  deniedPrivateFs.readFileSync = (file, enc) => {
+    if (path.basename(String(file)) === "required-wiring.json") throw Object.assign(new Error("private denied"), { code: "EACCES" });
+    return fs.readFileSync(file, enc);
+  };
+  const deniedPrivate = checkWiring({ home, platform: "linux", fsImpl: deniedPrivateFs, lists: { public: [] } });
+  assert.equal(deniedPrivate.results[0].id, "wiring-private-input");
+  assert.equal(deniedPrivate.results[0].state, "unknown");
+
+  const deniedPublicFs = readOnlyFs(home);
+  deniedPublicFs.readFileSync = (file, enc) => {
+    if (path.basename(String(file)) === "required-wiring.default.json") throw Object.assign(new Error("public denied"), { code: "EACCES" });
+    return fs.readFileSync(file, enc);
+  };
+  const deniedPublic = checkWiring({ home, platform: "linux", fsImpl: deniedPublicFs, lists: { private: [] } });
+  assert.equal(deniedPublic.results[0].id, "wiring-default-input");
+  assert.equal(deniedPublic.results[0].state, "unknown");
 });
 
 // ---------------------------------------------------------------------------
@@ -673,6 +759,21 @@ test("CLI --line: an fsImpl whose stat throws a non-ENOENT error for ws-off coun
   assert.equal(out, "", "an unreadable ws-off must be treated as present, silencing the line even though something is missing");
 });
 
+test("CLI --line keeps a throwing fsImpl accessor inside the ws-off fail-silent boundary", () => {
+  const home = mkHome();
+  const opts = { home };
+  Object.defineProperty(opts, "fsImpl", { get() { throw new Error("PRIVATE-ACCESSOR-ERROR"); } });
+  const origLog = console.log;
+  let out = "";
+  console.log = (value) => { out += `${value}\n`; };
+  try {
+    assert.doesNotThrow(() => main(["--line"], opts));
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(out, "");
+});
+
 test("an injected opts.home wins over an ambient AGENTS_HOME (seam-delta precedence fix)", () => {
   const decoy = mkHome(); const home = mkHome();
   write(home, ".agents/ws-off", "");
@@ -753,7 +854,7 @@ test("a check with NO type field is unknown and never silently dropped", () => {
   const byId = Object.fromEntries(results.map((r) => [r.id, r]));
   assert.ok(byId["no-type-at-all"], "a check with a missing type must still produce a result row");
   assert.equal(byId["no-type-at-all"].state, "unknown");
-  assert.match(byId["no-type-at-all"].why, /unsupported check type/);
+  assert.match(byId["no-type-at-all"].why, /invalid wiring check definition/);
   assert.ok(byId["null-type"], "a check with type: null must still produce a result row");
   assert.equal(byId["null-type"].state, "unknown");
 });

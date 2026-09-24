@@ -32,8 +32,8 @@
 // file and path and says "differs", never the actual value, unless the expected value is a boolean
 // or a number (those are never secrets and are useful to see directly).
 //
-// CLI: no flag prints a small table. `--line` prints ONE line, only when something is missing or
-// stale, and nothing at all when everything is ok/info. `--json` prints `{ ok, results }`. Exit 0
+// CLI: no flag prints a small table. `--line` prints ONE line when something is missing, stale or
+// unknown, and nothing at all when everything is ok/info. `--json` prints `{ ok, results }`. Exit 0
 // always, except an unknown flag (usage error) - a wiring check never fails its caller.
 
 import fs from "node:fs";
@@ -119,6 +119,31 @@ export function mergeChecks(publicList = [], privateList = []) {
 function appliesToPlatform(check, platform) {
   if (!Array.isArray(check.platforms) || check.platforms.length === 0) return true;
   return check.platforms.includes(platform);
+}
+
+function isNonemptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function hasValidDefinition(check) {
+  switch (check.type) {
+    case "hook_present":
+    case "hook_absent":
+      // An empty substring intentionally means "any command hook" through String.includes("").
+      return isNonemptyString(check.file) && isNonemptyString(check.event) && typeof check.substring === "string";
+    case "json_value":
+      return isNonemptyString(check.file) && isNonemptyString(check.path) && Object.hasOwn(check, "expected");
+    case "file_exists":
+    case "file_absent":
+    case "switch":
+      return isNonemptyString(check.file);
+    case "file_fresh":
+      return isNonemptyString(check.file) && Number.isFinite(check.maxAgeSeconds) && check.maxAgeSeconds >= 0;
+    case "env_presence":
+      return isNonemptyString(check.var);
+    default:
+      return false;
+  }
 }
 
 /** J6, round-1 finding 6: a check naming the peer-note ledger is refused before any fs call at all -
@@ -217,7 +242,9 @@ function evalFileFresh(check, { home, fsImpl, now }) {
 
 function evalSwitch(check, { home, fsImpl }) {
   const file = expandHome(check.file, home);
-  const on = fsImpl.existsSync(file);
+  const evidence = statEvidence(fsImpl, file);
+  if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required switch evidence" };
+  const on = evidence.kind === "present";
   return { state: "info", why: `${check.why} (${on ? "ON" : "off"})` };
 }
 
@@ -284,21 +311,18 @@ export function checkWiring({ home = homedir(), platform = process.platform, fsI
     results.push({ id: "wiring-private-row", state: "unknown", why: "the private wiring check list contains an invalid row", fix: "repair or remove the private wiring check list" });
   }
   for (const check of merged) {
-    // A valid-id row with a missing or unsupported type remains selected and reports unknown.
-    if (!check || typeof check.id !== "string") {
-      results.push({ id: "wiring-invalid-row", state: "unknown", why: "a wiring check row could not be identified", fix: "repair the wiring check list" });
-      continue;
-    }
     if (!appliesToPlatform(check, platform)) continue;
     let outcome;
-    if (namesInboxesJson(check, home)) {
-      outcome = { state: "unknown", why: "this check names the protected peer-note ledger and was not inspected" };
-    } else {
-      try {
+    try {
+      if (!hasValidDefinition(check)) {
+        outcome = { state: "unknown", why: "invalid wiring check definition" };
+      } else if (namesInboxesJson(check, home)) {
+        outcome = { state: "unknown", why: "this check names the protected peer-note ledger and was not inspected" };
+      } else {
         outcome = evalCheck(check, { home, fsImpl, now, env });
-      } catch {
-        outcome = { state: "unknown", why: "could not evaluate this check" };
       }
+    } catch {
+      outcome = { state: "unknown", why: "could not evaluate this check" };
     }
     results.push({
       id: check.id,
@@ -363,8 +387,10 @@ function wsOffActive(opts = {}) {
   try { base = opts.home ? path.join(opts.home, ".agents")
                          : (process.env.AGENTS_HOME || path.join(homedir(), ".agents")); }
   catch { return true; } // can't tell => say nothing
-  const fsImpl = opts.fsImpl ?? fs;
-  try { fsImpl.statSync(path.join(base, "ws-off")); return true; }
+  try {
+    const fsImpl = opts.fsImpl ?? fs;
+    fsImpl.statSync(path.join(base, "ws-off")); return true;
+  }
   catch (e) { return switchErrorMeansPresent(e); }
 }
 
