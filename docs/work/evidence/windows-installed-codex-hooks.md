@@ -1,6 +1,6 @@
-# Installed Codex useful work and native hooks
-
 VERDICT: PASS for observed normal Windows app-server route; other host/event outcomes remain partial.
+
+# Installed Codex useful work and native hooks
 
 September 24, 2026, America/New_York. After release 0.20.4 installation, a fresh authenticated Codex app-server session used the normal existing user configuration, trusted shared-mirror hooks, and source checkout at eedf895. No hook-trust bypass, plugin replacement, fabricated pane identity, synthetic provider, or copied credentials. Invocation-only PATH selected Windows system PowerShell; windows.sandbox=elevated retained read-only sandbox enforcement with approval policy never. The prior ephemeral exec result established useful work but did not expose these events; absence in that output was not proof of failure.
 
