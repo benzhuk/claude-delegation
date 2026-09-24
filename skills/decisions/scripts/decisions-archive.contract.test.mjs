@@ -31,6 +31,8 @@ No default: historical
 `;
 const PICKUP_ARCHIVE = ARCHIVE.replace('# Current section {toggle="true"}\n<summary>Active malformed grouping</summary>\n', '');
 const PLAIN_PICKUP_ARCHIVE = PICKUP_ARCHIVE.replace('# Closed {toggle="true"}', '# Closed');
+const MIXED_UNKNOWN = `${PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '# Unknown historical section\n<summary>Unknown optionless history</summary>\n- [ ] Done')}`;
+const MIXED_NORMALIZED = MIXED_UNKNOWN.replace('# Unknown historical section', '## Unknown historical section');
 
 function pickupFixture(t) {
   const sealed = makeTempHome();
@@ -110,6 +112,25 @@ test('malformed summary remains blind even under canonical Closed', () => {
 
 test('unterminated fence remains blind under canonical Closed', () => {
   assert.throws(() => parseDocument('# Closed\n```\n<summary>ignored</summary>\n'), /unterminated fenced code block/);
+});
+
+test('only normalized history beneath Closed is exempt; later unknown H1 remains a shared parser and pickup defect', async (t) => {
+  const before = parseDocument(MIXED_UNKNOWN);
+  const after = parseDocument(MIXED_NORMALIZED);
+  assert.deepEqual(before.shapeless.map((entry) => entry.title), ['Unknown optionless history']);
+  assert.deepEqual(after.shapeless, []);
+  assert.deepEqual(
+    after.decisions.map((decision) => ({ title: decision.title, options: decision.options, comments: decision.comments, status: decision.status })),
+    before.decisions.map((decision) => ({ title: decision.title, options: decision.options, comments: decision.comments, status: decision.status })),
+    'normalization changes hierarchy only, not synthetic human option/comment signals',
+  );
+  assert.equal(after.done, before.done, 'Done state is unchanged by normalization');
+
+  const fx = pickupFixture(t);
+  const sends = { count: 0 };
+  const invalid = await pickupOnce(fx.options, pickupDeps(fx, MIXED_UNKNOWN, sends));
+  assert.equal(invalid.status, 'INVALID');
+  assert.equal(sends.count, 0);
 });
 
 test('real pickupOnce preserves synthetic archive signals across unchecked and checked lifecycle', async (t) => {
