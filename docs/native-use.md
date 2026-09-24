@@ -30,7 +30,7 @@ codex plugin list
 
 Review and trust the installed hooks through the host's supported workflow. The native hook file registers SessionStart, UserPromptSubmit, PostToolUse, Stop and Interrupt; commands resolve the shared adapter through `PLUGIN_ROOT`. Namespaced skill discovery and actual hook execution are separate checks. The expected skills are `delegation:bearings`, `delegation:continue`, `delegation:decisions`, `delegation:delegate`, `delegation:dev-server`, `delegation:janitor`, `delegation:multi`, `delegation:notion-writing`, and `delegation:team-build`.
 
-Use the mirror when the host needs the existing role files, note-command shims and shared documentation. It publishes eight orchestration/utility skills, excluding janitor. Preview the whole package from the selected durable release checkout:
+Use the mirror when the host needs the existing role files, note-command shims and shared documentation. It publishes eight bundled orchestration/utility skills, excluding janitor, plus the optional knowledge, triage and learn sources from `~/.claude/skills` when present. Unusable optional sources are reported in the installer's `actions`; that does not establish whether a destination skill is already installed. Preview the whole package from the selected durable release checkout:
 
 ```powershell
 node scripts/mirror-shared-skills.mjs --dry-run --json
