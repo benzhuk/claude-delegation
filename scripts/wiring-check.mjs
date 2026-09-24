@@ -72,11 +72,16 @@ function getDotted(obj, dottedPath) {
   return cur;
 }
 
-function loadCheckList(fsImpl, file) {
-  const raw = readJsonSafe(fsImpl, file);
-  if (Array.isArray(raw)) return raw;
-  if (raw && Array.isArray(raw.checks)) return raw.checks;
-  return [];
+function loadCheckList(fsImpl, file, { optional = false } = {}) {
+  try {
+    const raw = JSON.parse(fsImpl.readFileSync(file, "utf8"));
+    if (Array.isArray(raw)) return { list: raw, unknown: false };
+    if (raw && Array.isArray(raw.checks)) return { list: raw.checks, unknown: false };
+    return { list: [], unknown: true };
+  } catch (error) {
+    if (optional && (error?.code === "ENOENT" || error?.code === "ENOTDIR")) return { list: [], unknown: false };
+    return { list: [], unknown: true };
+  }
 }
 
 /** Merge two check lists by id - a private-list id wins on a collision, keeping the public list's
@@ -121,7 +126,8 @@ function evalJsonValue(check, { home, fsImpl }) {
   if (actual === check.expected) return { state: "ok" };
   // J6: never print the actual or expected value unless it is a boolean or a number - neither can be
   // a secret, and both are useful to see directly. Anything else (a string, an object) says "differs".
-  const safeToShow = typeof check.expected === "boolean" || typeof check.expected === "number";
+  const safeToShow = (typeof check.expected === "boolean" || typeof check.expected === "number")
+    && typeof actual === typeof check.expected;
   const detail = safeToShow
     ? `${file}#${check.path} is ${JSON.stringify(actual)}, expected ${JSON.stringify(check.expected)}`
     : `${file}#${check.path} differs from the expected value`;
@@ -212,7 +218,7 @@ function evalCheck(check, ctx) {
     case "env_presence":
       return evalEnvPresence(check, ctx);
     default:
-      return { state: "info", why: "unknown check type" };
+      return { state: "unknown", why: "unsupported check type" };
   }
 }
 
@@ -231,29 +237,36 @@ function evalCheck(check, ctx) {
  * @returns {{ ok: boolean, results: Array<{id: string, state: 'ok'|'missing'|'stale'|'info', why: string, fix: string}> }}
  */
 export function checkWiring({ home = homedir(), platform = process.platform, fsImpl = fs, now = new Date(), lists, env = process.env } = {}) {
-  const publicList = lists?.public ?? loadCheckList(fsImpl, DEFAULT_LIST_PATH);
-  let privateList = lists?.private;
-  if (privateList === undefined) {
-    const privateFile = expandHome(PRIVATE_LIST_RELATIVE, home);
-    privateList = fsImpl.existsSync(privateFile) ? loadCheckList(fsImpl, privateFile) : [];
-  }
+  const publicInput = lists?.public === undefined
+    ? loadCheckList(fsImpl, DEFAULT_LIST_PATH)
+    : { list: Array.isArray(lists.public) ? lists.public : [], unknown: !Array.isArray(lists.public) };
+  const privateInput = lists?.private === undefined
+    ? loadCheckList(fsImpl, expandHome(PRIVATE_LIST_RELATIVE, home), { optional: true })
+    : { list: Array.isArray(lists.private) ? lists.private : [], unknown: !Array.isArray(lists.private) };
+  const publicList = publicInput.list;
+  const privateList = privateInput.list;
   const merged = mergeChecks(publicList, privateList);
 
   const results = [];
+  if (publicInput.unknown) results.push({ id: "wiring-default-input", state: "unknown", why: "could not inspect the required wiring check list", fix: "repair the wiring check list" });
+  if (privateInput.unknown) results.push({ id: "wiring-private-input", state: "unknown", why: "could not inspect the private wiring check list", fix: "repair or remove the private wiring check list" });
   for (const check of merged) {
     // J2: a check missing (or with a non-string) `type` gets the same "unknown check type" info row
     // as an unrecognized one - round-1 review found it was silently dropped instead, the exact
     // failure mode this tool exists to prevent.
-    if (!check || typeof check.id !== "string") continue;
+    if (!check || typeof check.id !== "string") {
+      results.push({ id: "wiring-invalid-row", state: "unknown", why: "a wiring check row could not be identified", fix: "repair the wiring check list" });
+      continue;
+    }
     if (!appliesToPlatform(check, platform)) continue;
     let outcome;
     if (namesInboxesJson(check, home)) {
-      outcome = { state: "info", why: "this check names the peer-note ledger, which wiring-check refuses to read" };
+      outcome = { state: "unknown", why: "this check names the protected peer-note ledger and was not inspected" };
     } else {
       try {
         outcome = evalCheck(check, { home, fsImpl, now, env });
-      } catch (err) {
-        outcome = { state: "info", why: `could not evaluate this check: ${String(err && err.message ? err.message : err)}` };
+      } catch {
+        outcome = { state: "unknown", why: "could not evaluate this check" };
       }
     }
     results.push({
@@ -276,7 +289,7 @@ function humanize(id) {
 
 function printTable(results) {
   if (results.length === 0) {
-    console.log("wiring check: no checks configured");
+    console.log("wiring check: no applicable checks configured");
     return;
   }
   console.log("wiring check:");
@@ -291,7 +304,7 @@ function printTable(results) {
 const MAX_LINE_NAMES = 8;
 
 function printLine(results) {
-  const findings = results.filter((r) => r.state === "missing" || r.state === "stale");
+  const findings = results.filter((r) => r.state === "missing" || r.state === "stale" || r.state === "unknown");
   if (findings.length === 0) return; // nothing to say when everything is ok/info
   const shown = findings.slice(0, MAX_LINE_NAMES).map((r) => humanize(r.id));
   const extra = findings.length - shown.length;

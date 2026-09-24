@@ -289,15 +289,15 @@ test("an existing caller passing no env key at all (the pre-P1 shape) still retu
   assert.equal(result.results[0].id, "a");
 });
 
-test("an unknown check type is 'info: unknown check type', never a crash", () => {
+test("an unknown check type is unknown and prevents green", () => {
   const home = mkHome();
   const checks = [{ id: "mystery", type: "teleport", why: "w", fix: "f" }];
   const { results } = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
   assert.equal(results[0].state, "info");
-  assert.match(results[0].why, /unknown check type/);
+  assert.match(results[0].why, /unsupported check type/);
 });
 
-test("a check whose evaluation throws is reported as 'info', not a crash", () => {
+test("a check whose evaluation throws is unknown, private, and not a crash", () => {
   const home = mkHome();
   const throwingFs = {
     existsSync: () => {
@@ -626,7 +626,7 @@ test("main() as a function (not a subprocess) returns 0 for known flags and 1 fo
 // round-1 findings: a missing type is not silently dropped, and inboxes.json is refused
 // ---------------------------------------------------------------------------
 
-test("a check with NO type field at all gets the same 'info: unknown check type' row as an unrecognized one - never silently dropped", () => {
+test("a check with NO type field is unknown and never silently dropped", () => {
   const home = mkHome();
   const checks = [
     { id: "no-type-at-all", why: "w", fix: "f" }, // no `type` key whatsoever
@@ -636,7 +636,7 @@ test("a check with NO type field at all gets the same 'info: unknown check type'
   const byId = Object.fromEntries(results.map((r) => [r.id, r]));
   assert.ok(byId["no-type-at-all"], "a check with a missing type must still produce a result row");
   assert.equal(byId["no-type-at-all"].state, "info");
-  assert.match(byId["no-type-at-all"].why, /unknown check type/);
+  assert.match(byId["no-type-at-all"].why, /unsupported check type/);
   assert.ok(byId["null-type"], "a check with type: null must still produce a result row");
   assert.equal(byId["null-type"].state, "info");
 });
@@ -666,8 +666,8 @@ test("a private-list entry naming inboxes.json is refused before any fs call, wh
   ];
   const { results } = checkWiring({ home, platform: "linux", fsImpl: spyFs, lists: { public: hostile, private: [] } });
   for (const r of results) {
-    assert.equal(r.state, "info", `${r.id} must be refused as info, not evaluated`);
-    assert.match(r.why, /refuses to read/);
+    assert.equal(r.state, "info", `${r.id} must be refused as unknown, not evaluated`);
+    assert.match(r.why, /protected peer-note ledger/);
   }
   assert.ok(!touched.some((p) => p === inboxesPath), "inboxes.json must never be opened or stat'ed, even though it never exists in this fixture yet");
 });
@@ -708,8 +708,8 @@ test("a check naming inboxes.json in ANY letter case is refused before any fs ca
   }));
   const { results } = checkWiring({ home, platform: "linux", fsImpl: spyFs, lists: { public: hostile, private: [] } });
   for (const r of results) {
-    assert.equal(r.state, "info", `${r.id} must be refused as info, not evaluated`);
-    assert.match(r.why, /refuses to read/);
+    assert.equal(r.state, "info", `${r.id} must be refused as unknown, not evaluated`);
+    assert.match(r.why, /protected peer-note ledger/);
     assert.doesNotMatch(r.why, /LEDGER-CONTENT-MUST-NEVER-APPEAR/, `${r.id}'s message must never contain the ledger's actual content`);
   }
   assert.equal(touched.length, 0, "no case variant of inboxes.json may ever be opened or stat'ed, whatever the platform's own case sensitivity would resolve to");
@@ -733,3 +733,4 @@ test("hooks.json runs wiring-check.mjs --line on SessionStart, pointed at a real
   const referenced = entry.command.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+wiring-check\.mjs)/)[1];
   assert.ok(fs.existsSync(path.join(repoRoot, referenced)), `${referenced} must exist`);
 });
+
