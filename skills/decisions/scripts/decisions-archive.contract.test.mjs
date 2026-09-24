@@ -22,11 +22,15 @@ No default: current owner choice
 <summary>Archived checked item</summary>
 - [x] retained archived tick
 No default: historical
+<details>
+<summary>Nested archived grouping</summary>
+</details>
 # Current section {toggle="true"}
 <summary>Active malformed grouping</summary>
 - [ ] Done
 `;
 const PICKUP_ARCHIVE = ARCHIVE.replace('# Current section {toggle="true"}\n<summary>Active malformed grouping</summary>\n', '');
+const PLAIN_PICKUP_ARCHIVE = PICKUP_ARCHIVE.replace('# Closed {toggle="true"}', '# Closed');
 
 function pickupFixture(t) {
   const sealed = makeTempHome();
@@ -62,7 +66,9 @@ test('canonical Closed archives only optionless summaries while retaining commen
   assert.equal(archivedTick.status, 'TICKED');
   assert.equal(archivedTick.options[0].text, 'retained archived tick');
   assert.deepEqual(Object.keys(doc).sort(), ['decisions', 'done', 'doneLabel', 'shapeless', 'unattached', 'warnings']);
-  assert.deepEqual(Object.keys(doc.decisions[0]).sort(), ['comments', 'default', 'line', 'options', 'status', 'title']);
+  for (const decision of doc.decisions) {
+    assert.deepEqual(Object.keys(decision).sort(), ['comments', 'default', 'line', 'options', 'status', 'title']);
+  }
   assert.equal(JSON.stringify(doc).includes('archiveScope'), false, 'internal archive state must not leak');
 });
 
@@ -81,9 +87,11 @@ test('only a structural top-level exact Closed heading opens scope; fences, deta
 <summary>Indented fake remains active</summary>
 # Closed {toggle="true"}
 <summary>Archived valid grouping</summary>
-## Nested archive heading {toggle="true"}
-<summary>Still archived after nested heading</summary>
+<details>
 # Active {toggle="true"}
+</details>
+<summary>Still archived after nested heading</summary>
+# Active
 <summary>After exit remains active</summary>
 `;
   const doc = parseDocument(text);
@@ -100,21 +108,28 @@ test('malformed summary remains blind even under canonical Closed', () => {
   );
 });
 
+test('unterminated fence remains blind under canonical Closed', () => {
+  assert.throws(() => parseDocument('# Closed\n```\n<summary>ignored</summary>\n'), /unterminated fenced code block/);
+});
+
 test('real pickupOnce preserves synthetic archive signals across unchecked and checked lifecycle', async (t) => {
   const fx = pickupFixture(t);
-  const unchecked = PICKUP_ARCHIVE.replace('- [ ] Done', '- [ ] Done');
+  const unchecked = PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '- [ ] Done');
   const sends = { count: 0 };
   const noAction = await pickupOnce(fx.options, pickupDeps(fx, unchecked, sends));
   assert.equal(noAction.status, 'UNCHANGED');
   assert.equal(sends.count, 0, 'unchecked archive page must not capture or send');
   const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.options.repo), page: PAGE });
   assert.equal(fs.existsSync(paths.receipt), false, 'unchecked page must not create a receipt');
+  assert.equal(fs.existsSync(paths.directory), false, 'unchecked page must not create a private capture directory');
 
-  const checked = PICKUP_ARCHIVE.replace('- [ ] Done', '- [x] Done');
+  const checked = PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '- [x] Done');
   const recorded = await pickupOnce(fx.options, pickupDeps(fx, checked, sends));
   assert.equal(recorded.status, 'RECORDED');
-  assert.equal(sends.count, 1, 'one current checked selection produces exactly one existing dispatch');
-  const captured = parseDocument(openPrivateCapture({ ...fx.options, round: '1' }, { agentsHome: fx.agentsHome }).toString('utf8'));
+  assert.equal(sends.count, 1, 'one checked page records one existing dispatch; archive prose does not dispatch separately');
+  const reopened = openPrivateCapture({ ...fx.options, round: '1' }, { agentsHome: fx.agentsHome });
+  assert.equal(reopened.toString('utf8'), checked, 'private capture must preserve exact synthetic bytes');
+  const captured = parseDocument(reopened.toString('utf8'));
   const capturedSignals = [
     ...captured.decisions.flatMap((decision) => decision.options.filter((option) => option.ticked).map((option) => ({ kind: 'selection', text: option.text }))),
     ...captured.unattached.filter((entry) => entry.kind === 'comment').map((entry) => ({ kind: 'comment', text: entry.text })),
@@ -124,4 +139,14 @@ test('real pickupOnce preserves synthetic archive signals across unchecked and c
     { kind: 'selection', text: 'retained archived tick' },
     { kind: 'comment', text: COMMENT },
   ]);
+});
+
+test('real pickupOnce keeps invalid-before-Done guard for active shapeless summary', async (t) => {
+  const fx = pickupFixture(t);
+  const sends = { count: 0 };
+  const invalid = await pickupOnce(fx.options, pickupDeps(fx, ARCHIVE, sends));
+  assert.equal(invalid.status, 'INVALID');
+  assert.equal(sends.count, 0);
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.options.repo), page: PAGE });
+  assert.equal(fs.existsSync(paths.directory), false, 'invalid unchecked page must not create a receipt or capture');
 });
