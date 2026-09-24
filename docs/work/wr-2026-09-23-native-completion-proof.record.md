@@ -12,4 +12,4 @@ Rounds: 1
 Log: 2026-09-24T01:59:00Z owned skills-a native probes dispatched; reported timestamps are work admission, not user-ask start
 
 Predicts: Disposable native runtimes with local synthetic provider responses can establish actual hook completion/cancellation behavior without production installation or paid model calls.
-Observed: Native probes are running. A Codex worker's initial help-only unsupported-provider conclusion was rejected after official custom-provider documentation contradicted it; no native observation has yet been accepted.
+Observed: Independent corrected Claude SDK fixtures establish actual normal/block/refire, true-user identity, graceful control-protocol interruption and interruption during Stop without another provider request. Initial streaming and Windows process-kill claims were rejected and preserved in docs/work/evidence/native-fixtures-independent-review.md. Actual harness adapter integration remains pending. Codex loopback Responses requests now work and scratch hooks list as trusted; exec did not invoke them, so the native app-server route is under test. Native test mechanics do not establish useful-model outcomes.
