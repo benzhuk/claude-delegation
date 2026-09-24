@@ -83,15 +83,30 @@ node <skill-dir>/scripts/decisions-pickup.mjs --once --page <id> --repo <project
 This command invokes the reader itself; a saved export is only a test seam, not automatic
 pickup. Existing `AGENTS_HOME/ws-off` or `ws-off-decisions` disables pickup before
 page reads or writes; status and attended accounting remain available. It never edits
-the page or clears Done. The immutable capture lives under
-the note transport's durable main-checkout `docs/notes`; the small local receipt under
-`AGENTS_HOME/ws/decisions-pickup` records
-dispatch recovery state only. Inspect it with `decisions-pickup.mjs status --page <id>
---repo <project-root>`. `PREPARED` may resume its saved note ID once. `SENDING` resumes
+the page or clears Done. Exact immutable page bytes and parsed items are private under
+`AGENTS_HOME/ws/decisions-pickup/captures`, outside every Git checkout. The durable
+transport checkout receives only a sanitized `docs/notes/*.pointer.json` Details packet
+with hashes, local availability, and generic opening instructions. Inspect the receipt
+with `decisions-pickup.mjs status --page <id> --repo <project-root>`. On the pickup host,
+open an exact saved round only through the validating helper:
+
+```
+node <skill-dir>/scripts/decisions-pickup.mjs open --page <id> --repo <project-root> --round <n>
+```
+
+`PRIVATE_CAPTURE_UNAVAILABLE` means the exact submitted bytes are not on this host;
+request an explicit manual handoff and never substitute a fresh page read. `PREPARED`
+may resume its saved note ID once. `SENDING` resumes
 only from positive matching transport evidence; `UNKNOWN` and `NEEDS_RECONCILIATION`
 must not be resent. `RECORDED` means the peer note exists, not that the choices were
 carried out. A stopped or replacement owner remains a visible pending manual handoff;
 do not resurrect it or dispatch the same round again.
+
+Version-1 receipts whose raw capture is already in a repository are reported as
+`LEGACY_REPO_CAPTURE`. One-shot pickup refuses them without a page read, capture, move,
+deletion, or send. Preserve the saved state and exact envelope history for manual
+reconciliation; explicit accounting of an exact already-`RECORDED` legacy round remains
+available.
 
 The receipt and exclusive claim are global to the registered page on this one pickup
 host. The first round binds that page to its authorization project. A second project or
@@ -103,6 +118,10 @@ persisted as `CAPTURE_INTENT` before the first project-scoped capture write. A c
 capture resumes only that saved round; a missing capture may be recreated only from the
 same unchanged checked bytes, while a partial, conflicting, or changed capture requires
 manual reconciliation.
+
+A fresh, otherwise valid checked Done with zero captured selections or comments reports
+`NO_ACTION`; it creates no round, receipt, private capture, pointer, or ASK. This admission
+rule never replaces or erases an existing round.
 
 After the attended owner has handled every captured `selection-NNN` and `comment-NNN`
 reference and reconciled a fresh page read, write an outcome report containing

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -7,7 +8,7 @@ import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { buildEnvelope } from '../../multi/scripts/envelope.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
 import {
-  account, inspectTransport, pickupOnce, readPageWithCli, receiptPaths, status,
+  account, inspectTransport, openPrivateCapture, pickupOnce, readPageWithCli, receiptPaths, status,
 } from './decisions-pickup.mjs';
 
 const PAGE = `<summary>Choose transport</summary>
@@ -18,6 +19,11 @@ No default: owner action is required
 `;
 const UNCHECKED = PAGE.replace('- [x] Done', '- [ ] Done');
 const CHANGED = PAGE.replace('Please preserve the capture', 'Please preserve the capture and report it');
+const EMPTY_DONE = `<summary>Choose transport</summary>
+- [ ] Keep the existing transport
+No default: owner action is required
+- [x] Done
+`;
 const NOW = '2026-09-23T16:00:00.000Z';
 
 function fixture() {
@@ -40,6 +46,80 @@ function deps(fx, overrides = {}) {
     send: async () => ({ id: 'saved-id', envelope: 'recorded' }),
     ...overrides,
   };
+}
+
+function privateFile(fx, receipt, ref = receipt.privateCaptureRef) {
+  return path.join(fx.agentsHome, 'ws', 'decisions-pickup', ...ref.split('/'));
+}
+
+function allFileText(root) {
+  const chunks = [];
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (entry.isFile()) chunks.push(fs.readFileSync(full).toString('utf8'));
+    }
+  };
+  visit(root);
+  return chunks.join('\n');
+}
+
+function installLegacyReceipt(fx, state = 'RECORDED') {
+  const project = fs.realpathSync(fx.repo);
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project, page: fx.options.page });
+  const digest = crypto.createHash('sha256').update(Buffer.from(PAGE, 'utf8')).digest('hex');
+  const capturePath = `docs/notes/decisions-pickup-${paths.projectScope}-r1.json`;
+  const capture = {
+    version: 1,
+    page: 'pageregistered',
+    project,
+    projectScope: paths.projectScope,
+    transportRepo: project,
+    round: 1,
+    readAt: NOW,
+    owner: 'decision-owner',
+    from: 'pickup-host',
+    digest,
+    originalEncoding: 'utf8-base64',
+    originalBytes: Buffer.from(PAGE, 'utf8').toString('base64'),
+    items: [],
+  };
+  const fullCapture = path.join(project, ...capturePath.split('/'));
+  fs.mkdirSync(path.dirname(fullCapture), { recursive: true });
+  fs.writeFileSync(fullCapture, `${JSON.stringify(capture, null, 2)}\n`);
+  const topic = `decisions-${paths.projectScope}`;
+  const noteId = `pickup-host-${topic}-1`;
+  const exactSendInputs = {
+    id: noteId,
+    topic,
+    text: 'Owner decisions pickup round 1 is ready',
+    details: capturePath,
+    kind: 'ASK',
+    needs: 'ack',
+    argv: [],
+  };
+  const receipt = {
+    version: 1,
+    page: capture.page,
+    project,
+    projectScope: paths.projectScope,
+    transportRepo: project,
+    round: 1,
+    capturePath,
+    captureReadAt: NOW,
+    digest,
+    owner: capture.owner,
+    from: capture.from,
+    noteId,
+    exactSendInputs,
+    state,
+    accountingOutcome: null,
+    preparedAt: NOW,
+  };
+  fs.mkdirSync(path.dirname(paths.receipt), { recursive: true });
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(receipt, null, 2)}\n`);
+  return { receipt, paths, fullCapture };
 }
 
 test('production reader invokes the supplied CLI once with a bound and page id', () => {
@@ -99,7 +179,8 @@ test('capture crash leaves an immutable orphan that the same round reuses once',
   const result = await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
   assert.equal(result.status, 'RECORDED');
   assert.equal(sends, 1);
-  assert.equal(fs.readdirSync(path.join(fx.repo, 'docs', 'notes')).length, 1);
+  assert.equal(fs.readdirSync(path.join(fx.repo, 'docs', 'notes')).length, 1, 'only the sanitized pointer is durable');
+  assert.equal(fs.existsSync(privateFile(fx, result.receipt)), true);
 });
 
 test('PREPARED resumes its saved id once; RECORDED retry never sends', async (t) => {
@@ -186,7 +267,7 @@ test('changed checked bytes stay in the active round and require reconciliation'
   }));
   assert.equal(result.status, 'NEEDS_RECONCILIATION');
   assert.equal(result.receipt.round, 1);
-  const changedCapture = JSON.parse(fs.readFileSync(path.join(fx.repo, ...result.receipt.reconciliationCapturePath.split('/')), 'utf8'));
+  const changedCapture = JSON.parse(fs.readFileSync(privateFile(fx, result.receipt, result.receipt.reconciliationPrivateCaptureRef), 'utf8'));
   assert.equal(Buffer.from(changedCapture.originalBytes, 'base64').toString('utf8'), CHANGED);
   assert.equal(sends, 1);
 });
@@ -252,7 +333,7 @@ test('capture digest is enforced before recovery or accounting', async (t) => {
   let sends = 0;
   await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
   const saved = status(fx.options, { agentsHome: fx.agentsHome }).receipt;
-  const capture = path.join(fx.repo, ...saved.capturePath.split('/'));
+  const capture = privateFile(fx, saved);
   fs.appendFileSync(capture, 'tampered');
   const visible = status(fx.options, { agentsHome: fx.agentsHome });
   assert.equal(visible.status, 'NEEDS_RECONCILIATION');
@@ -361,7 +442,7 @@ test('missing capture intent resumes safely; partial capture reconciles without 
     onTransition(state) { if (state === 'CAPTURE_INTENT') throw new Error('intent interruption'); },
   })), /intent interruption/);
   const saved = status(partial.options, { agentsHome: partial.agentsHome }).receipt;
-  const capture = path.join(saved.transportRepo, ...saved.capturePath.split('/'));
+  const capture = privateFile(partial, saved);
   fs.mkdirSync(path.dirname(capture), { recursive: true });
   fs.writeFileSync(capture, '{partial');
   let partialSends = 0;
@@ -372,7 +453,7 @@ test('missing capture intent resumes safely; partial capture reconciles without 
   assert.equal(partialSends, 0);
 });
 
-test('capture and Details use the same durable main-checkout repository as actual note transport', async (t) => {
+test('Details uses the durable main checkout while capture stays in private AGENTS_HOME', async (t) => {
   const sealed = makeTempHome(); t.after(sealed.cleanup);
   const worktree = path.join(sealed.fixtureRoot, 'worktree');
   const main = path.join(sealed.fixtureRoot, 'main');
@@ -390,8 +471,10 @@ test('capture and Details use the same durable main-checkout repository as actua
   });
   assert.equal(result.status, 'RECORDED');
   assert.equal(result.receipt.transportRepo, fs.realpathSync(main));
-  assert.equal(fs.existsSync(path.join(main, ...result.receipt.capturePath.split('/'))), true);
-  assert.equal(fs.existsSync(path.join(worktree, ...result.receipt.capturePath.split('/'))), false);
+  assert.equal(fs.existsSync(path.join(main, ...result.receipt.detailsPath.split('/'))), true);
+  assert.equal(fs.existsSync(privateFile(sealed, result.receipt)), true);
+  assert.equal(fs.existsSync(path.join(main, ...result.receipt.privateCaptureRef.split('/'))), false);
+  assert.equal(fs.existsSync(path.join(worktree, ...result.receipt.detailsPath.split('/'))), false);
   assert.equal(fs.existsSync(path.join(main, 'docs', 'ledger')), true);
 });
 
@@ -430,7 +513,7 @@ test('every dispatch verifies original capture bytes and round before sending', 
       const fx = fixture(); t.after(fx.cleanup);
       const corrupt = () => {
         const receipt = status(fx.options, { agentsHome: fx.agentsHome }).receipt;
-        const file = path.join(receipt.transportRepo, ...receipt.capturePath.split('/'));
+        const file = privateFile(fx, receipt);
         const capture = JSON.parse(fs.readFileSync(file, 'utf8'));
         if (corruption === 'originalBytes') capture.originalBytes = Buffer.from('different human content').toString('base64');
         else capture.round += 1;
@@ -458,4 +541,189 @@ test('every dispatch verifies original capture bytes and round before sending', 
       assert.equal(sends, 0);
     }
   }
+});
+
+test('raw initial and changed page bytes stay out of the project checkout and public packet', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const firstCanary = 'PRIVATE-INITIAL-CANARY-88411';
+  const changedCanary = 'PRIVATE-CHANGED-CANARY-99217';
+  const first = PAGE.replace('Please preserve the capture', firstCanary);
+  const changed = first.replace(firstCanary, changedCanary);
+  const git = () => path.join(fx.repo, '.git');
+  const send = (argv) => runNoteSend(argv, { git, home: fx.home, env: fx.env });
+  const result = await pickupOnce(fx.options, deps(fx, { git, readPage: async () => first, send }));
+  const reconciled = await pickupOnce(fx.options, deps(fx, { git, readPage: async () => changed, send }));
+  assert.equal(result.status, 'RECORDED');
+  assert.equal(reconciled.status, 'NEEDS_RECONCILIATION');
+  const publicBytes = allFileText(fx.repo);
+  for (const secret of [firstCanary, changedCanary, Buffer.from(first, 'utf8').toString('base64'), Buffer.from(changed, 'utf8').toString('base64')]) {
+    assert.equal(publicBytes.includes(secret), false);
+    assert.equal(JSON.stringify(result.receipt.exactSendInputs).includes(secret), false);
+  }
+  assert.equal(fs.readFileSync(privateFile(fx, result.receipt), 'utf8').includes(Buffer.from(first, 'utf8').toString('base64')), true);
+  assert.equal(fs.readFileSync(privateFile(fx, reconciled.receipt, reconciled.receipt.reconciliationPrivateCaptureRef), 'utf8')
+    .includes(Buffer.from(changed, 'utf8').toString('base64')), true);
+  const pointer = JSON.parse(fs.readFileSync(path.join(fx.repo, ...result.receipt.detailsPath.split('/')), 'utf8'));
+  assert.deepEqual(Object.keys(pointer).sort(), [
+    'availability', 'captureIdentity', 'digest', 'open', 'privateCaptureRef', 'projectScope', 'round', 'type', 'version',
+  ]);
+  assert.equal(pointer.type, 'decisions-pickup-private-pointer');
+});
+
+test('private store refuses project-local, unrelated Git-root, symlink, and traversal targets before reading', async (t) => {
+  const cases = [];
+  {
+    const fx = fixture(); t.after(fx.cleanup);
+    cases.push({ fx, agentsHome: path.join(fx.repo, '.private-agents') });
+  }
+  {
+    const fx = fixture(); t.after(fx.cleanup);
+    const gitContainer = path.join(fx.fixtureRoot, 'other-git-root');
+    fs.mkdirSync(path.join(gitContainer, '.git'), { recursive: true });
+    cases.push({ fx, agentsHome: path.join(gitContainer, 'private-agents') });
+  }
+  {
+    const fx = fixture(); t.after(fx.cleanup);
+    const pickupRoot = path.join(fx.agentsHome, 'ws', 'decisions-pickup');
+    fs.mkdirSync(pickupRoot, { recursive: true });
+    fs.symlinkSync(fx.repo, path.join(pickupRoot, 'captures'), 'junction');
+    cases.push({ fx, agentsHome: fx.agentsHome });
+  }
+  for (const { fx, agentsHome } of cases) {
+    let reads = 0;
+    await assert.rejects(pickupOnce(fx.options, deps(fx, {
+      agentsHome,
+      readPage: async () => { reads += 1; return PAGE; },
+    })), /PRIVATE_CAPTURE_UNSAFE|escapes the private store/);
+    assert.equal(reads, 0);
+  }
+
+  const fx = fixture(); t.after(fx.cleanup);
+  await pickupOnce(fx.options, deps(fx));
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+  receipt.privateCaptureRef = '../outside.json';
+  fs.writeFileSync(paths.receipt, JSON.stringify(receipt));
+  assert.equal(status(fx.options, { agentsHome: fx.agentsHome }).status, 'NEEDS_RECONCILIATION');
+});
+
+test('same-host open returns only the exact verified saved bytes and missing evidence is unavailable', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const result = await pickupOnce(fx.options, deps(fx));
+  assert.equal(openPrivateCapture({ ...fx.options, round: '1' }, { agentsHome: fx.agentsHome }).toString('utf8'), PAGE);
+  assert.throws(() => openPrivateCapture({ ...fx.options, round: '2' }, { agentsHome: fx.agentsHome }), /PRIVATE_CAPTURE_UNAVAILABLE/);
+  fs.unlinkSync(privateFile(fx, result.receipt));
+  assert.throws(() => openPrivateCapture({ ...fx.options, round: '1' }, { agentsHome: fx.agentsHome }), /PRIVATE_CAPTURE_UNAVAILABLE/);
+});
+
+test('pointer identity is verified before any page read or dispatch', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await assert.rejects(pickupOnce(fx.options, deps(fx, {
+    onTransition(state) { if (state === 'PREPARED') throw new Error('prepared stop'); },
+  })), /prepared stop/);
+  const saved = status(fx.options, { agentsHome: fx.agentsHome }).receipt;
+  const pointerPath = path.join(fx.repo, ...saved.detailsPath.split('/'));
+  const pointer = JSON.parse(fs.readFileSync(pointerPath, 'utf8'));
+  fs.writeFileSync(pointerPath, JSON.stringify({ ...pointer, round: 99 }));
+  let reads = 0; let sends = 0;
+  const blocked = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => { reads += 1; return PAGE; },
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(blocked.status, 'NEEDS_RECONCILIATION');
+  assert.equal(reads, 0);
+  assert.equal(sends, 0);
+});
+
+test('crash after pointer write resumes the same intent and sends once', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await assert.rejects(pickupOnce(fx.options, deps(fx, {
+    onTransition(state) { if (state === 'POINTER_WRITTEN') throw new Error('pointer stop'); },
+  })), /pointer stop/);
+  const interrupted = status(fx.options, { agentsHome: fx.agentsHome });
+  assert.equal(interrupted.status, 'ORPHAN_CAPTURE');
+  let sends = 0;
+  const resumed = await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
+  assert.equal(resumed.status, 'RECORDED');
+  assert.equal(resumed.receipt.round, 1);
+  assert.equal(sends, 1);
+});
+
+test('fresh valid checked page with zero captured items is NO_ACTION with no persistent artifact', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  let sends = 0;
+  const result = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => EMPTY_DONE,
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.deepEqual(result, { status: 'NO_ACTION', done: true, sent: false });
+  assert.equal(sends, 0);
+  assert.equal(fs.existsSync(path.join(fx.agentsHome, 'ws', 'decisions-pickup')), false);
+  assert.equal(fs.existsSync(path.join(fx.repo, 'docs', 'notes')), false);
+});
+
+test('comments-only and selections-only checked pages still admit a round', async (t) => {
+  for (const page of [
+    EMPTY_DONE.replace('- [x] Done', '\\*\\*Owner comment only\n- [x] Done'),
+    PAGE.replace('\\*\\*Please preserve the capture\n', ''),
+  ]) {
+    const fx = fixture(); t.after(fx.cleanup);
+    const result = await pickupOnce(fx.options, deps(fx, { readPage: async () => page }));
+    assert.equal(result.status, 'RECORDED');
+  }
+});
+
+test('empty checked bytes never erase an active round and preserve accounted episode sequencing', async (t) => {
+  const active = fixture(); t.after(active.cleanup);
+  await pickupOnce(active.options, deps(active));
+  const changed = await pickupOnce(active.options, deps(active, { readPage: async () => EMPTY_DONE }));
+  assert.equal(changed.status, 'NEEDS_RECONCILIATION');
+  assert.equal(changed.receipt.round, 1);
+
+  const accounted = fixture(); t.after(accounted.cleanup);
+  await pickupOnce(accounted.options, deps(accounted));
+  const report = path.join(accounted.repo, 'outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: checked current page\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+  account({ ...accounted.options, outcome: report }, { agentsHome: accounted.agentsHome, now: NOW });
+  await pickupOnce(accounted.options, deps(accounted, { readPage: async () => UNCHECKED }));
+  const noAction = await pickupOnce(accounted.options, deps(accounted, { readPage: async () => EMPTY_DONE }));
+  assert.equal(noAction.status, 'NO_ACTION');
+  assert.equal(status(accounted.options, { agentsHome: accounted.agentsHome }).receipt.round, 1);
+  const next = await pickupOnce(accounted.options, deps(accounted));
+  assert.equal(next.status, 'RECORDED');
+  assert.equal(next.receipt.round, 2);
+});
+
+test('legacy receipts retain their saved state and location while once performs no new side effects', async (t) => {
+  for (const state of ['CAPTURE_INTENT', 'PREPARED', 'SENDING', 'UNKNOWN', 'RECORDED', 'ACCOUNTED']) {
+    const fx = fixture(); t.after(fx.cleanup);
+    const legacy = installLegacyReceipt(fx, state);
+    const before = fs.readFileSync(legacy.paths.receipt);
+    const visible = status(fx.options, { agentsHome: fx.agentsHome });
+    assert.equal(visible.status, state);
+    assert.equal(visible.legacyLocation, 'LEGACY_REPO_CAPTURE');
+    assert.equal(visible.manualReconciliationRequired, true);
+    let reads = 0; let sends = 0;
+    const refused = await pickupOnce(fx.options, deps(fx, {
+      readPage: async () => { reads += 1; return PAGE; },
+      send: async () => { sends += 1; return {}; },
+    }));
+    assert.equal(refused.status, state);
+    assert.equal(reads, 0);
+    assert.equal(sends, 0);
+    assert.deepEqual(fs.readFileSync(legacy.paths.receipt), before);
+    assert.equal(fs.existsSync(legacy.fullCapture), true);
+  }
+});
+
+test('explicit accounting of an exact RECORDED legacy capture remains available without relocation', (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const legacy = installLegacyReceipt(fx, 'RECORDED');
+  const report = path.join(fx.repo, 'legacy-outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: checked exact legacy page\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+  const result = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
+  assert.equal(result.status, 'ACCOUNTED');
+  assert.equal(result.receipt.version, 1);
+  assert.equal(result.legacyLocation, 'LEGACY_REPO_CAPTURE');
+  assert.equal(fs.existsSync(legacy.fullCapture), true);
 });
