@@ -130,6 +130,15 @@ test("Claude null-prompt bootstrap requires structured current bind request id",
   assert.ok((await handleContinuationEvent(ev({ host: "claude", profile: "claude-native-v1", event: "Stop", episodeKey: "real-user-uuid", eventKey: "stop-good" }), f.deps)).reason);
 });
 
+test("a positively identified current PostToolUse can issue an unbound epoch after installation", async (t) => {
+  const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
+  const result = await handleContinuationEvent(ev({ event: "PostToolUse", eventKey: "first-tool" }), f.deps);
+  const epoch = epochFrom(result);
+  const status = JSON.parse((await runContinuationCli(cliArgs("status", null, f), f.deps)).stdout);
+  assert.equal(status.status, "unbound"); assert.equal(status.epoch, epoch);
+  assert.equal(await handleContinuationEvent(ev({ event: "Stop", eventKey: "unbound-stop" }), f.deps), null);
+});
+
 test("peer block consumes the one attempt even when selected work becomes unreadable", async (t) => {
   const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {}); await arm(f);
   fs.rmSync(path.join(f.root, "docs", "work", "root.record.md"));

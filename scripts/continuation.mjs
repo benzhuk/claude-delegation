@@ -196,7 +196,16 @@ export async function handleContinuationEvent(event, deps = {}) {
   }
   if (event.stopHookActive) return null;
   const claimed = withClaim(paths, d, () => {
-    const state = readState(paths, d); if (!state || state.profile !== event.profile) return null;
+    let state = readState(paths, d);
+    if (!state && event.event === "PostToolUse") {
+      state = {
+        version: VERSION, generation: 1, host: event.host, profile: event.profile, history: [],
+        current: { episodeKey: event.episodeKey, promptEventKey: event.eventKey, epoch: d.epoch(), phase: "unbound", binding: null, attempted: false, emitted: false, accountedRevision: null },
+      };
+      writeState(paths, state, d);
+      return { context: epochContext(state.current.epoch) };
+    }
+    if (!state || state.profile !== event.profile) return null;
     if (event.event === "PostToolUse") {
       if (state.current.phase !== "pending") return null;
       const bootstrap = state.current.episodeKey === null;
