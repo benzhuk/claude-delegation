@@ -40,6 +40,8 @@ const NOTES_DIR = path.join(os.homedir(), ".agents", "notes");
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
 const SKILL_SCRIPTS = path.join(PLUGIN_ROOT, "skills", "multi", "scripts");
 const CORE = path.join(__dirname, "multi-hook-core.mjs");
+const CONTINUATION = path.join(PLUGIN_ROOT, "scripts", "continuation.mjs");
+const CONTINUATION_NATIVE = path.join(__dirname, "continuation-native.mjs");
 const PANE_SLUG_CACHE_MS = 10 * 60 * 1000;
 
 function stampPath(slug) {
@@ -268,7 +270,7 @@ async function main() {
   const transcriptPath = input.transcript_path;
 
   const hasEnvIdentity = couldBeInAPane();
-  if (!hasEnvIdentity && !readSessionNameSafe(transcriptPath, sessionId)) return;
+  const hasPeerIdentity = hasEnvIdentity || Boolean(readSessionNameSafe(transcriptPath, sessionId));
 
   // C4: SessionStart REGISTERS and stops there — no inbox read, no output, nothing in the context.
   // A pane Ben opens and walks away from used to register nothing at all (the adapter only gets here on
@@ -277,6 +279,14 @@ async function main() {
   // session that has just started has not asked for anything, and its first UserPromptSubmit will
   // surface whatever is waiting a moment later anyway.
   if (event === "SessionStart") {
+    try {
+      const [{ normalizeClaudeContinuation }, { handleContinuationEvent }] = await Promise.all([
+        import(pathToFileURL(CONTINUATION_NATIVE).href), import(pathToFileURL(CONTINUATION).href),
+      ]);
+      const normalized = normalizeClaudeContinuation(input, fs);
+      if (normalized) await handleContinuationEvent(normalized);
+    } catch { /* lifecycle failure must not affect peer registration */ }
+    if (!hasPeerIdentity) return;
     const { slug, configBroken } = await registerMyInbox(cwd, sessionId, transcriptPath);
     // D4/F6 (red-team FIX FIRST 6): nudge a session that resolved NO slug at all, from any of the three
     // ranks above. hooks.json registers SessionStart with no `matcher` at all, so this already covers
@@ -312,16 +322,19 @@ async function main() {
 
   // PostToolUse is the hot path: it fires on every tool call, so it decides whether there is anything
   // to do from a stamp and a directory mtime, before importing anything.
-  if (event === "PostToolUse") {
+  let skipPeer = !hasPeerIdentity;
+  if (event === "PostToolUse" && !skipPeer) {
     const me = cheapSlug(transcriptPath, sessionId);
-    if (!me) return;
+    if (!me) skipPeer = true;
     const newest = newestLedgerMtime();
-    if (newest === 0 || newest <= readStamp(me.slug)) return;
+    if (!skipPeer && (newest === 0 || newest <= readStamp(me.slug))) skipPeer = true;
     // `--no-bind` when the slug came from the title cache (a guess must never become a permanent
     // binding) AND when it came from this session's own name: laundering a session name through `--me`
     // would write the very binding BINDING_SOURCES excludes 'session-name' to prevent (review BLOCKER 1).
-    const noBind = me.guess || me.source === "session-name";
-    extraArgs.push("--me", me.slug, "--no-repo", ...(noBind ? ["--no-bind"] : []));
+    if (!skipPeer) {
+      const noBind = me.guess || me.source === "session-name";
+      extraArgs.push("--me", me.slug, "--no-repo", ...(noBind ? ["--no-bind"] : []));
+    }
   }
 
   let delivered = null;
@@ -329,31 +342,58 @@ async function main() {
   const work = (async () => {
     // D2: register this session's inbox first, so a session that has nothing to read is still
     // REACHABLE. Its own try/catch, because a failed registration must not stop the note read.
-    await registerMyInbox(cwd, sessionId, transcriptPath);
+    if (hasPeerIdentity) await registerMyInbox(cwd, sessionId, transcriptPath);
+    let peer = null;
+    let inbox = null;
     try {
       // Inside the try on purpose: a broken CLAUDE_PLUGIN_ROOT makes this import throw, and M1 says a
       // config error must SAY SO once rather than making the hook permanently silent.
       const core = await import(pathToFileURL(CORE).href);
-      const runNoteInbox = await loadInbox();
-      const inbox = (argv) => runNoteInbox([...extraArgs, ...argv], { cwd });
-      const result = await core.runHookEvent({
-        event,
-        input,
-        cwd,
-        home: os.homedir(),
-        env: process.env,
-        now: Date.now(),
-        inbox,
-        // L2: the stamp moves only AFTER a successful read. Advancing it first meant any failure
-        // underneath was never retried until some other write happened to touch the mirror again.
-        onRead: (r) => writeStamp(r.slug, newestLedgerMtime()),
-      });
+      let peerError = null;
+      if (!skipPeer) {
+        try {
+          const runNoteInbox = await loadInbox();
+          inbox = (argv) => runNoteInbox([...extraArgs, ...argv], { cwd });
+          peer = await core.runHookEvent({
+            event, input, cwd, home: os.homedir(), env: process.env, now: Date.now(), inbox,
+            onRead: (r) => writeStamp(r.slug, newestLedgerMtime()),
+          });
+        } catch (err) {
+          peerError = err;
+        }
+      }
+
+      let continuation = null;
+      try {
+        const [{ normalizeClaudeContinuation }, { handleContinuationEvent }] = await Promise.all([
+          import(pathToFileURL(CONTINUATION_NATIVE).href), import(pathToFileURL(CONTINUATION).href),
+        ]);
+        const normalized = normalizeClaudeContinuation(input, fs);
+        if (normalized) {
+          normalized.peerWillBlock = peer?.output?.decision === "block";
+          continuation = await handleContinuationEvent(normalized);
+        }
+      } catch { /* continuation never suppresses peer delivery */ }
+      if (peerError && (event === "UserPromptSubmit" || event === "")) {
+        const once = warnOnce(`multi-inbox: peer notes are not being read — ${peerError.message || String(peerError)}`);
+        if (once) peer = {
+          output: {
+            suppressOutput: true,
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `${once}\nPeer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <your-slug>\`.`,
+            },
+          },
+          ackIds: [],
+        };
+      }
+      const result = core.composeContinuationResult(peer, continuation, event);
       if (result?.output) delivered = { ...result, inbox };
       return undefined;
     } catch (err) {
       // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
       // tool call) and never on Stop (a broken hook must not block a stop).
-      if (event !== "UserPromptSubmit" && event !== "") return undefined;
+      if (!hasPeerIdentity || (event !== "UserPromptSubmit" && event !== "")) return undefined;
       const once = warnOnce(`multi-inbox: peer notes are not being read — ${err && err.message ? err.message : String(err)}`);
       if (once) {
         delivered = {
@@ -391,8 +431,9 @@ Peer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <y
   // Emit, wait for the flush, and only THEN ack exactly what was printed. A process killed in between
   // (Esc on a running hook, the budget above, a closed pane) then repeats a note instead of losing it —
   // the cursor is what note-flush reads to decide a wake-up is no longer needed (review MAJOR 3).
-  await emit(delivered.output);
-  if (delivered.ackIds && delivered.ackIds.length && delivered.inbox) {
+  const flushed = await emit(delivered.output);
+  try { delivered.continuationAfterFlush?.(flushed); } catch {}
+  if (flushed && delivered.ackIds && delivered.ackIds.length && delivered.inbox) {
     try {
       await delivered.inbox(["--ack-ids", delivered.ackIds.join(",")]);
     } catch { /* delivered; it will simply repeat */ }

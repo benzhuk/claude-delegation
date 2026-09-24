@@ -23,6 +23,7 @@ import { inboxesPath, readInboxes, readBindings } from '../skills/multi/scripts/
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'multi-inbox.js');
+const CONTINUATION_CLI = path.join(REPO, 'scripts', 'continuation.mjs');
 const SESSION_ID = 'fixture-session-p1-0001';
 
 /** A fixture HOME whose `.agents` is the AGENTS_HOME the child will use — never the real home. */
@@ -385,4 +386,74 @@ test('(m) a positive child agent_id leaves absent lead state untouched, so the l
     NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '',
   });
   assert.match(leadOutput, /\[child-must-not-consume-1\]/, 'the lead still receives the pending note');
+});
+
+test('(n) continuation prompt lifecycle runs without a peer slug and emits the current epoch', () => {
+  const home = fixtureHome();
+  const transcriptPath = path.join(home, 'continuation-session.jsonl');
+  fs.writeFileSync(transcriptPath, '');
+  const stdout = runHook(home, 'UserPromptSubmit', { transcript_path: transcriptPath }, {
+    NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '',
+  });
+  const out = JSON.parse(stdout);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(out.hookSpecificOutput.additionalContext, /Continuation epoch [^.]+\./);
+  assert.equal(fs.existsSync(inboxesPath(home)), false, 'continuation must not invent a peer identity');
+});
+
+test('(o) real Claude adapter binds from actual tool-response JSON and blocks once at Stop', () => {
+  const home = fixtureHome();
+  const agentsHome = path.join(home, '.agents');
+  const repo = path.join(home, 'repo');
+  const transcriptPath = path.join(home, 'continuation-session.jsonl');
+  const evidence = path.join(repo, 'docs', 'work', 'evidence', 'proof.md');
+  fs.mkdirSync(path.dirname(evidence), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'authority.md'), 'authorized ongoing scope\n');
+  fs.writeFileSync(evidence, 'VERDICT: APPROVE deadbeef\nproof\n');
+  fs.writeFileSync(path.join(repo, 'docs', 'work', 'root.record.md'), [
+    'Work: wr-2026-09-23-root',
+    'Scope: scripts/example.mjs@deadbeef',
+    'Owner: worker',
+    'Status: owned',
+    'Authority: authority.md',
+    'Artifact: integrate/example@deadbeef',
+    'Evidence: docs/work/evidence/proof.md',
+    'Next: continue useful work',
+    'Opened: 2026-09-23T00:00:00Z',
+    'Children: none',
+    '',
+    'Observed: fixture',
+  ].join('\n'));
+  fs.writeFileSync(transcriptPath, '');
+  const over = { NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '', AGENTS_HOME: agentsHome };
+
+  const prompt = JSON.parse(runHook(home, 'UserPromptSubmit', { transcript_path: transcriptPath }, over));
+  const epoch = /Continuation epoch ([^.]+)\./.exec(prompt.hookSpecificOutput.additionalContext)?.[1];
+  assert.ok(epoch);
+  const bindStdout = execFileSync(process.execPath, [
+    CONTINUATION_CLI, 'bind', '--host', 'claude', '--session-id', SESSION_ID,
+    '--expected-epoch', epoch, '--repo', repo, '--root', 'wr-2026-09-23-root',
+    '--authority-ref', 'authority.md',
+  ], { encoding: 'utf8', env: childEnv(home, over) });
+  const bind = JSON.parse(bindStdout);
+  assert.deepEqual(Object.keys(bind.continuationBind).sort(), ['epoch', 'requestId']);
+
+  const userUuid = '00000000-0000-4000-8000-000000000777';
+  fs.writeFileSync(transcriptPath, `${JSON.stringify({
+    type: 'user', uuid: userUuid, isMeta: false, message: { role: 'user', content: 'continue' },
+  })}\n`);
+  const tool = runHook(home, 'PostToolUse', {
+    transcript_path: transcriptPath,
+    tool_response: { stdout: bindStdout, stderr: '', interrupted: false },
+  }, over);
+  assert.equal(tool.trim(), '', 'activation itself creates no extra model output');
+
+  const stop = JSON.parse(runHook(home, 'Stop', {
+    transcript_path: transcriptPath, stop_hook_active: false,
+  }, over));
+  assert.equal(stop.decision, 'block');
+  assert.match(stop.reason, /Continuation accounting for the bound selected work/);
+  assert.equal(runHook(home, 'Stop', {
+    transcript_path: transcriptPath, stop_hook_active: true,
+  }, over).trim(), '', 'native re-fire remains silent');
 });

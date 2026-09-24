@@ -165,6 +165,40 @@ export function writeJson(object, stream = process.stdout) {
   });
 }
 
+/** Merge continuation into the existing peer result without changing the peer ACK slice. */
+export function composeContinuationResult(peerResult, continuation, event) {
+  if (!continuation) return peerResult;
+  const peer = peerResult ? { ...peerResult, output: peerResult.output ? structuredClone(peerResult.output) : null } : null;
+  const text = continuation.reason ?? continuation.context ?? null;
+  if (!text) return peer ? { ...peer, continuationAfterFlush: continuation.afterFlush } : null;
+
+  if (event === 'Stop') {
+    if (peer?.output?.decision === 'block') {
+      peer.output.reason = `${peer.output.reason}\n\n${text}`;
+      return { ...peer, continuationAfterFlush: continuation.afterFlush };
+    }
+    return {
+      output: { decision: 'block', reason: text },
+      ackIds: [],
+      continuationAfterFlush: continuation.afterFlush,
+    };
+  }
+
+  if (peer?.output?.hookSpecificOutput) {
+    const prior = peer.output.hookSpecificOutput.additionalContext;
+    peer.output.hookSpecificOutput.additionalContext = prior ? `${prior}\n${text}` : text;
+    return { ...peer, continuationAfterFlush: continuation.afterFlush };
+  }
+  return {
+    output: {
+      suppressOutput: true,
+      hookSpecificOutput: { hookEventName: event, additionalContext: text },
+    },
+    ackIds: [],
+    continuationAfterFlush: continuation.afterFlush,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Events
 // ─────────────────────────────────────────────────────────────────────────────

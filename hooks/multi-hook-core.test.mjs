@@ -9,7 +9,7 @@ import path from 'node:path';
 import { toPosix, readInboxes, wakeAllKindsPath } from '../skills/multi/scripts/transport.mjs';
 import {
   summarise, humanLine, humanSummary, contextOutput, blockOutput, runHookEvent,
-  STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson,
+  STOP_TIMEOUT_S, STOP_REASON, MID_TURN_NOTE, writeJson, composeContinuationResult,
   CONTEXT_LIMIT, STOP_LIMIT, POST_TOOL_LIMIT,
 } from './multi-hook-core.mjs';
 import { codexSlug, runCodexHook } from './multi-codex-hook.mjs';
@@ -341,6 +341,28 @@ test('MAJOR 4: writeJson resolves only once the stream has taken it', async () =
   assert.equal(chunks[0], `{"a":1}\n`);
 });
 
+test('continuation composes with a peer Stop block and preserves its exact ACK ids', () => {
+  const notes = resultOf([line('astra', 'taxonomy', 'astra-ask-1', 'ASK', 'Review PR 1')]);
+  const peer = { output: blockOutput(notes, STOP_REASON), ackIds: ['astra-ask-1'], ack: () => {} };
+  const afterFlush = () => {};
+  const result = composeContinuationResult(peer, { context: 'Reconcile selected work.', afterFlush }, 'Stop');
+  assert.equal(result.output.decision, 'block');
+  assert.match(result.output.reason, /astra-ask-1/);
+  assert.match(result.output.reason, /Reconcile selected work/);
+  assert.deepEqual(result.ackIds, ['astra-ask-1']);
+  assert.equal(result.ack, peer.ack);
+  assert.equal(result.continuationAfterFlush, afterFlush);
+});
+
+test('continuation alone creates one native output for prompt context or Stop correction', () => {
+  const prompt = composeContinuationResult(null, { context: 'Continuation epoch E.' }, 'UserPromptSubmit');
+  assert.equal(prompt.output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.equal(prompt.output.hookSpecificOutput.additionalContext, 'Continuation epoch E.');
+  assert.deepEqual(prompt.ackIds, []);
+  const stop = composeContinuationResult(null, { reason: 'Continue selected work.' }, 'Stop');
+  assert.deepEqual(stop.output, { decision: 'block', reason: 'Continue selected work.' });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The Codex adapter
 // ─────────────────────────────────────────────────────────────────────────────
@@ -366,6 +388,54 @@ test('D3: a session with no identity is silent, and never reads anybody\'s inbox
   );
   assert.equal(out, null);
   assert.equal(called, 0);
+});
+
+test('continuation lifecycle is independent of peer slug while unknown native role stays disabled', async () => {
+  const home = tmp(); const session = '00000000-0000-4000-8000-000000000101';
+  const transcript = path.join(home, 'rollout.jsonl');
+  fs.writeFileSync(transcript, `${JSON.stringify({ type: 'session_meta', payload: { id: session, source: 'cli' } })}\n`);
+  let seen = null; let inboxCalls = 0;
+  const out = await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', session_id: session, transcript_path: transcript, turn_id: 'turn-1', cwd: '/repo' },
+    {
+      home, env: {}, codexContinuationSupported: true,
+      inbox: async () => { inboxCalls += 1; return resultOf([]); },
+      handleContinuationEvent: async (event) => { seen = event; return { context: 'Continuation epoch E.' }; },
+    },
+  );
+  assert.equal(inboxCalls, 0, 'peer identity is irrelevant to continuation and no inbox is guessed');
+  assert.equal(seen.role, 'lead');
+  assert.equal(seen.episodeKey, 'turn-1');
+  assert.equal(out.output.hookSpecificOutput.additionalContext, 'Continuation epoch E.');
+
+  seen = null;
+  await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', session_id: session, transcript_path: '/missing', turn_id: 'turn-2', cwd: '/repo' },
+    { home, env: {}, codexContinuationSupported: true, handleContinuationEvent: async (event) => { seen = event; return null; } },
+  );
+  assert.equal(seen.role, 'unknown');
+});
+
+test('Codex Stop collects peer result before continuation and composes one block', async () => {
+  const home = tmp(); const order = [];
+  const notes = resultOf([line('taxonomy', 'astra', 'taxonomy-pr1-1', 'ASK', 'Review PR 1')], 'astra');
+  const out = await runCodexHook(
+    { hook_event_name: 'Stop', cwd: '/repo', session_id: THREAD, turn_id: 'turn-stop', stop_hook_active: false },
+    {
+      home, env: { NOTE_SLUG: 'astra' }, codexContinuationSupported: true,
+      inbox: async () => { order.push('peer'); return notes; },
+      handleContinuationEvent: async (event) => {
+        order.push('continuation');
+        assert.equal(event.peerWillBlock, true);
+        return { context: 'Continuation accounting.' };
+      },
+    },
+  );
+  assert.deepEqual(order, ['peer', 'continuation']);
+  assert.equal(out.output.decision, 'block');
+  assert.match(out.output.reason, /taxonomy-pr1-1/);
+  assert.match(out.output.reason, /Continuation accounting/);
+  assert.deepEqual(out.ackIds, ['taxonomy-pr1-1']);
 });
 
 test('D3: the adapter passes --me so every turn re-states who this pane is', async () => {
