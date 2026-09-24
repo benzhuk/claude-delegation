@@ -35,8 +35,8 @@ function fixture(t) {
   return { ...sealed, repo, reader, entry, registrationPath, writeRegistration };
 }
 
-function resultContext(overrides = {}) {
-  return { result: { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: 0, results: [] }, elapsedMs: 10, ...overrides };
+function resultContext(home, overrides = {}) {
+  return { result: { ok: true, exitCode: 0, drained: 0, attempted: 0, remaining: 0, results: [], home }, elapsedMs: 10, ...overrides };
 }
 
 function privateText(value) { return JSON.stringify(value); }
@@ -109,7 +109,7 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
   assert.equal(seen.length, 1);
   assert.equal(seen[0].page, second.page);
 
-  for (const [status, code] of [['UNKNOWN', 'PICKUP_FAILED'], ['PENDING_MANUAL_HANDOFF', 'PICKUP_PENDING_OWNER'], ['WAITING_OWNER', 'PICKUP_PENDING_OWNER'], ['NEEDS_RECONCILIATION', 'PICKUP_RECONCILIATION_REQUIRED'], ['CLAIM_HELD', 'PICKUP_CLAIM_HELD'], ['UNCHANGED', 'PICKUP_NO_ACTION']]) {
+  for (const [status, code] of [['UNKNOWN', 'PICKUP_RECONCILIATION_REQUIRED'], ['PENDING_MANUAL_HANDOFF', 'PICKUP_PENDING_OWNER'], ['WAITING_OWNER', 'PICKUP_PENDING_OWNER'], ['NEEDS_RECONCILIATION', 'PICKUP_RECONCILIATION_REQUIRED'], ['CLAIM_HELD', 'PICKUP_CLAIM_HELD'], ['UNCHANGED', 'PICKUP_NO_ACTION']]) {
     const summary = await registered(fx, { pickupOnce: async () => ({ status, reason: CANARY }) });
     assert.deepEqual(summary, { code, ordinal: 0 });
     assert.equal(privateText(summary).includes(CANARY), false, `${status} leaked private detail`);
@@ -119,30 +119,34 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
 test('post-flush boundary excludes help/status/dry-run/targeted and preserves normal failure/budget', async (t) => {
   const fx = fixture(t);
   let imports = 0;
-  const deps = { home: fx.home, agentsHome: fx.agentsHome, env: fx.env, importer: async () => { imports += 1; } };
+  const deps = { homedir: fx.home, fsImpl: fs, env: fx.env, pid: process.pid, importer: async () => { imports += 1; } };
   for (const argv of [['--help'], ['--status'], ['--status=json'], ['--dry-run'], ['--to', 'someone'], ['--to=someone'], ['--home', fx.home], ['--home=' + fx.home]]) {
-    const value = await runPostFlushPickup(argv, resultContext(), deps);
+    const value = await runPostFlushPickup(argv, resultContext(fx.home), deps);
     assert.equal(value, null, `${argv.join(' ')} must not activate pickup`);
   }
   assert.equal(imports, 0);
-  assert.equal(await runPostFlushPickup([], resultContext({ result: { ok: false, exitCode: 1 }, elapsedMs: 1 }), deps), null);
-  assert.equal(await runPostFlushPickup([], resultContext({ elapsedMs: 30_000 }), deps), null);
+  assert.equal(await runPostFlushPickup([], resultContext(fx.home, { result: { ok: false, exitCode: 1 }, elapsedMs: 1 }), deps), null);
+  assert.equal(await runPostFlushPickup([], resultContext(fx.home, { elapsedMs: 30_000 }), deps), null, 'absent registration remains an inert budget skip');
+  fx.writeRegistration();
+  assert.deepEqual(await runPostFlushPickup([], resultContext(fx.home, { elapsedMs: 30_000 }), deps), { code: 'PICKUP_SKIPPED_BUDGET', ordinal: null });
   const alternate = path.join(fx.fixtureRoot, 'alternate-home');
-  const rejected = await runPostFlushPickup(['--home', alternate], resultContext(), deps);
-  assert.deepEqual(rejected, { code: 'PICKUP_CONFIG_INVALID', ordinal: null });
-  assert.equal(imports, 0, 'failed, budget-exhausted, and alternate-home invocations must not import pickup');
+  assert.equal(await runPostFlushPickup(['--home', alternate], resultContext(fx.home), deps), null, '--home is always excluded');
+  assert.equal(await runPostFlushPickup(['--home=' + alternate], resultContext(fx.home), deps), null, '--home= is always excluded');
+  const nonDefaultAgents = path.join(fx.fixtureRoot, 'other-agents');
+  assert.deepEqual(await runPostFlushPickup([], resultContext(fx.home), { ...deps, env: { ...fx.env, AGENTS_HOME: nonDefaultAgents } }), { code: 'PICKUP_CONFIG_INVALID', ordinal: null });
+  assert.equal(imports, 0, 'failed, excluded, budget, and alternate-AGENTS_HOME paths must not import pickup');
 });
 
-test('post-flush pickup annotates only its own current heartbeat and never supersedes newer accounting', async (t) => {
+test('post-flush pickup preserves its observed heartbeat and declines an observed replacement', async (t) => {
   const fx = fixture(t);
   fx.writeRegistration();
   const heartbeat = path.join(fx.agentsHome, 'notes', 'flush-last.json');
   fs.mkdirSync(path.dirname(heartbeat), { recursive: true });
   const ours = { at: '2026-09-24T12:00:00.000Z', timer_at: '2026-09-24T12:00:00.000Z', pid: process.pid, queued: 3, delivered: 1 };
   fs.writeFileSync(heartbeat, JSON.stringify(ours));
-  const summary = await runPostFlushPickup([], resultContext(), {
-    home: fx.home, agentsHome: fx.agentsHome, env: fx.env,
-    clock: () => Date.parse('2026-09-24T12:00:03.000Z'),
+  const summary = await runPostFlushPickup([], resultContext(fx.home), {
+    homedir: fx.home, fsImpl: fs, env: fx.env, pid: process.pid,
+    now: () => Date.parse('2026-09-24T12:00:03.000Z'),
     importer: async () => ({ runRegisteredPickup: async () => ({ code: 'PICKUP_NO_ACTION', ordinal: 0 }) }),
   });
   assert.deepEqual(summary, { code: 'PICKUP_NO_ACTION', ordinal: 0 });
@@ -152,15 +156,15 @@ test('post-flush pickup annotates only its own current heartbeat and never super
 
   const newer = { at: '2026-09-24T12:01:00.000Z', timer_at: '2026-09-24T12:01:00.000Z', pid: process.pid + 1, queued: 9, delivered: 2 };
   fs.writeFileSync(heartbeat, JSON.stringify(ours));
-  await runPostFlushPickup([], resultContext(), {
-    home: fx.home, agentsHome: fx.agentsHome, env: fx.env,
-    clock: () => Date.parse('2026-09-24T12:00:04.000Z'),
+  await runPostFlushPickup([], resultContext(fx.home), {
+    homedir: fx.home, fsImpl: fs, env: fx.env, pid: process.pid,
+    now: () => Date.parse('2026-09-24T12:00:04.000Z'),
     importer: async () => {
       fs.writeFileSync(heartbeat, JSON.stringify(newer));
       return { runRegisteredPickup: async () => ({ code: 'PICKUP_RECORDED', ordinal: 0 }) };
     },
   });
-  assert.deepEqual(JSON.parse(fs.readFileSync(heartbeat, 'utf8')), newer, 'a later heartbeat must never be overwritten by pickup annotation');
+  assert.deepEqual(JSON.parse(fs.readFileSync(heartbeat, 'utf8')), newer, 'an observed replacement heartbeat must not be overwritten by this diagnostic annotation');
 });
 
 test('real standalone CLI uses relative dynamic import, runs sealed registered reader, and exits zero', (t) => {
