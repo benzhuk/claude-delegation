@@ -160,9 +160,10 @@ mention says where to find it once mirrored.
   resolution on your critical path — strictly worse. And mind the machine: agent count
   is free, concurrent local processes are not (`../_docs/concurrency-budget.md`).
 - **Use dependency-specific admission.** A workstream that consumes a named prerequisite
-  waits while that prerequisite is `delivered`, `rejected`, or `reviewed` but not
-  integrated; record the dependency in its own work record. Disjoint work with no such
-  unmet prerequisite may continue under the continue skill.
+  waits until that exact prerequisite is integrated, whatever its current status
+  (`owned`, `delivered`, `rejected`, or `reviewed`); record the dependency in its own
+  work record. Disjoint work with no such unmet prerequisite may continue under the
+  continue skill.
 
 ## Iteration mechanics
 
@@ -178,10 +179,10 @@ mention says where to find it once mirrored.
   them for its next round. Mid-round addendums get missed and cost two round-trips.
 - Check in once at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); ETA
   is a progress checkpoint, not a hard kill. Recorded native progress can justify a
-  bounded extension under that ladder, while a documented stall, wrong approach, or
-  exceeded hard user/project budget permits stop and recovery. Never infer death from
-  silence alone or poll repeatedly. An agent killed mid-edit gets the standard recovery
-  prompt (`docs/subagent-contract.md`, shipped next to this skill as
+  bounded extension under that ladder, never past a hard user/project budget, which
+  remains binding; a documented stall, wrong approach, or exceeded hard limit permits
+  stop and recovery. Never infer death from silence alone or poll repeatedly. An agent
+  killed mid-edit gets the standard recovery prompt (`docs/subagent-contract.md`, shipped next to this skill as
   `../_docs/subagent-contract.md` when mirrored, and in the plugin repo's `docs/`
   otherwise), not blind trust in its memory.
 - **Round-3 Research line** (`docs/mandate-template.md`'s `Research:` field, required

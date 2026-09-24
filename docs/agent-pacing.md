@@ -34,7 +34,8 @@ repeatedly.
 
 ## The escalation ladder
 
-Classify from the status reply (or its absence):
+Classify from the status reply (or its absence). A hard user- or project-supplied budget
+stays binding on every rung; no extension goes past it:
 
 - **On track** (progressing; ETA was just tight) → extend the timer once. No changes.
 - **Slow but sound** (right approach, expensive loop) → grant speed levers, cheapest
