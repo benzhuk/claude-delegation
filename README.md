@@ -238,6 +238,8 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.7 — goal card cap 1000 bytes, line cap 360, card fourth line may be STOP; card v5 and
+  GOALS.md rewritten in Ben's words (STOP tied to the bearings verdict, two-host DONE, any-host aim).
 - 0.20.1 — preserves unknown wiring evidence instead of treating unreadable files,
   invalid check input and malformed selected hook structures as healthy absence.
   The existing diagnostic stays read-only and nonblocking, with one bounded notice;
