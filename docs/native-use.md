@@ -1,6 +1,22 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes released 0.20.1 at `7f2f0c9`. Its final executable candidate `cea599a` passed 1,387 sealed tests after independent source review. It includes the 0.20 native continuation integration and repairs diagnostic handling of unknown evidence. The current Windows plain shared-skill mirror was updated and byte-verified on September 23, 11:18 PM America/New_York, with configuration and hook registration unchanged. See [local update evidence](work/evidence/local-mirror-0201-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
+This guide describes released 0.20.2 at `d2ac954`. Its frozen integration candidate `25f0cd9` passed 1,389 sealed tests after independent source review. It supplies the current evidence revision through public continuation status and resolves conflicting parallel-work, review and pacing instructions. The Windows plain shared-skill mirror was updated and verified on September 23, 11:46 PM America/New_York, with configuration and hook registration unchanged. See [local update evidence](work/evidence/local-mirror-0202-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
+
+## Everyday work on a project
+
+Open the target project in Codex or Claude Code after choosing the installed route below. A useful starting request on either host is:
+
+> Deliver [outcome] in this project. Success means [observable acceptance evidence]. You may [authorized actions]; stay within [constraints and any budget]. Use the installed harness skills and existing project conventions. Keep independent ready work moving in parallel, diagnose causes, and simplify the design. Continue useful work within this scope without waiting for me; record decisions only I can make and advance other work while those wait. Finish with evidence of the outcome, or the specific external dependencies that prevent further useful work.
+
+The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
+
+The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. See [work records](work-record.md).
+
+Use `continue` at a pause or workstream closeout to select finite ready work. Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
+
+Before closing, check the actual result against the requested outcome. Continue useful authorized work that remains. Close when the outcome has evidence or all remaining useful actions have concrete external dependencies; report those dependencies and the resumable work identity. Use the native binding/accounting commands below only when current hook context is available. Missing hooks do not prevent ordinary useful work, but automatic correction must remain unclaimed.
+
+The [native Codex authoring trial](work/evidence/native-codex-first-use-proof.md) produced a draft but its file reads were policy-blocked. Astra corrected this walkthrough against the actual source. It is operating guidance, not proof that that trial followed the installed skills or achieved the project's goals.
 
 ## Choose the route
 
