@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
-import { runRegisteredPickup } from './decisions-pickup.mjs';
+import { PickupError, runRegisteredPickup } from './decisions-pickup.mjs';
 import { runPostFlushPickup } from '../../multi/scripts/note-flush.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -100,6 +100,7 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
   fs.writeFileSync(path.join(repo2, '.agents', 'project.json'), JSON.stringify({ decisions_url: second.page }));
   second.repo = repo2;
   fx.writeRegistration([fx.entry, second]);
+  const canonical = [fx.entry, second].sort((a, b) => path.resolve(a.repo).localeCompare(path.resolve(b.repo)) || a.page.localeCompare(b.page));
   const seen = [];
   const recorded = await registered(fx, {
     selectIndex: (count) => { assert.equal(count, 2); return 1; },
@@ -107,13 +108,24 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
   });
   assert.deepEqual(recorded, { code: 'PICKUP_RECORDED', ordinal: 1 });
   assert.equal(seen.length, 1);
-  assert.equal(seen[0].page, second.page);
+  assert.equal(seen[0].page, canonical[1].page, 'ordinal selects canonical repo/page order, not fixture creation order');
 
-  for (const [status, code] of [['UNKNOWN', 'PICKUP_RECONCILIATION_REQUIRED'], ['PENDING_MANUAL_HANDOFF', 'PICKUP_PENDING_OWNER'], ['WAITING_OWNER', 'PICKUP_PENDING_OWNER'], ['NEEDS_RECONCILIATION', 'PICKUP_RECONCILIATION_REQUIRED'], ['CLAIM_HELD', 'PICKUP_CLAIM_HELD'], ['UNCHANGED', 'PICKUP_NO_ACTION']]) {
-    const summary = await registered(fx, { pickupOnce: async () => ({ status, reason: CANARY }) });
+  for (const [outcome, code] of [
+    [{ status: 'UNKNOWN', manualReconciliationRequired: true }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'PENDING_MANUAL_HANDOFF' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'WAITING_OWNER' }, 'PICKUP_PENDING_OWNER'],
+    [{ status: 'NEEDS_RECONCILIATION' }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'UNCHANGED' }, 'PICKUP_NO_ACTION'],
+    [{ status: 'NOT_A_REAL_PICKUP_STATUS' }, 'PICKUP_FAILED'],
+  ]) {
+    const summary = await registered(fx, { pickupOnce: async () => ({ ...outcome, reason: CANARY }) });
     assert.deepEqual(summary, { code, ordinal: 0 });
-    assert.equal(privateText(summary).includes(CANARY), false, `${status} leaked private detail`);
+    assert.equal(privateText(summary).includes(CANARY), false, `${outcome.status} leaked private detail`);
   }
+  const claim = await registered(fx, {
+    pickupOnce: async () => { throw new PickupError('page already has an exclusive pickup claim'); },
+  });
+  assert.deepEqual(claim, { code: 'PICKUP_CLAIM_HELD', ordinal: 0 });
 });
 
 test('post-flush boundary excludes help/status/dry-run/targeted and preserves normal failure/budget', async (t) => {
