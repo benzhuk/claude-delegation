@@ -1,23 +1,26 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { handleContinuationEvent, runContinuationCli, selectContinuationSnapshot } from "./continuation.mjs";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = path.join(HERE, "continuation.mjs");
+const FIXTURE_ROOT = process.env.FIXTURE_ROOT ?? os.tmpdir();
 
 function fixture() {
-  const root = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT, "continuation-"));
+  const root = fs.mkdtempSync(path.join(FIXTURE_ROOT, "continuation-"));
   const agentsHome = path.join(root, "agents");
   fs.mkdirSync(path.join(root, "docs", "work", "evidence"), { recursive: true });
   fs.mkdirSync(agentsHome, { recursive: true });
   fs.writeFileSync(path.join(root, "authority.md"), "authorized ongoing scope\n");
   fs.writeFileSync(path.join(root, "docs", "work", "evidence", "proof.md"), "VERDICT: APPROVE deadbeef\nproof\n");
-  const env = { ...process.env, AGENTS_HOME: agentsHome };
+  const env = childEnv(root, { AGENTS_HOME: agentsHome });
   return { root, agentsHome, env, deps: { env }, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
