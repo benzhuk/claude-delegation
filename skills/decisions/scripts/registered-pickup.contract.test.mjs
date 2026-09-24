@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
-import { PickupError, runRegisteredPickup } from './decisions-pickup.mjs';
+import { receiptPaths, runRegisteredPickup } from './decisions-pickup.mjs';
 import { runPostFlushPickup } from '../../multi/scripts/note-flush.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -122,10 +122,12 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
     assert.deepEqual(summary, { code, ordinal: 0 });
     assert.equal(privateText(summary).includes(CANARY), false, `${outcome.status} leaked private detail`);
   }
-  const claim = await registered(fx, {
-    pickupOnce: async () => { throw new PickupError('page already has an exclusive pickup claim'); },
-  });
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: PAGE });
+  fs.mkdirSync(paths.claim, { recursive: true });
+  const marker = path.join(fx.home, 'reader-must-not-run-for-held-claim');
+  const claim = await registered(fx, { env: { ...fx.env, PICKUP_MARKER: marker } });
   assert.deepEqual(claim, { code: 'PICKUP_CLAIM_HELD', ordinal: 0 });
+  assert.equal(fs.existsSync(marker), false, 'a held claim must return before reading the page');
 });
 
 test('post-flush boundary excludes help/status/dry-run/targeted and preserves normal failure/budget', async (t) => {
