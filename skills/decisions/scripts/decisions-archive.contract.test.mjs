@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { openPrivateCapture, pickupOnce, receiptPaths } from './decisions-pickup.mjs';
+import { run as runHandback } from './decisions-handback.mjs';
 
 const PAGE = '0123456789abcdef0123456789abcdef';
 const NOW = '2026-09-24T12:00:00.000Z';
@@ -33,6 +35,7 @@ const PICKUP_ARCHIVE = ARCHIVE.replace('# Current section {toggle="true"}\n<summ
 const PLAIN_PICKUP_ARCHIVE = PICKUP_ARCHIVE.replace('# Closed {toggle="true"}', '# Closed');
 const MIXED_UNKNOWN = `${PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '# Unknown historical section\n<summary>Unknown optionless history</summary>\n- [ ] Done')}`;
 const MIXED_NORMALIZED = MIXED_UNKNOWN.replace('# Unknown historical section', '## Unknown historical section');
+const HAND_BACK_GOALS = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'handback', 'goals-clean.md'), 'utf8');
 
 function pickupFixture(t) {
   const sealed = makeTempHome();
@@ -125,12 +128,43 @@ test('only normalized history beneath Closed is exempt; later unknown H1 remains
     'normalization changes hierarchy only, not synthetic human option/comment signals',
   );
   assert.equal(after.done, before.done, 'Done state is unchanged by normalization');
+  assert.deepEqual(after.unattached, before.unattached, 'normalization preserves archived unattached human comments');
 
   const fx = pickupFixture(t);
   const sends = { count: 0 };
   const invalid = await pickupOnce(fx.options, pickupDeps(fx, MIXED_UNKNOWN, sends));
   assert.equal(invalid.status, 'INVALID');
   assert.equal(sends.count, 0);
+
+  const normalizedFx = pickupFixture(t);
+  const normalizedSends = { count: 0 };
+  const noAction = await pickupOnce(normalizedFx.options, pickupDeps(normalizedFx, MIXED_NORMALIZED, normalizedSends));
+  assert.equal(noAction.status, 'UNCHANGED');
+  assert.equal(normalizedSends.count, 0);
+  const paths = receiptPaths({ agentsHome: normalizedFx.agentsHome, project: fs.realpathSync(normalizedFx.options.repo), page: PAGE });
+  assert.equal(fs.existsSync(paths.directory), false, 'normalized unchecked page has no receipt or capture');
+});
+
+test('handback reports the same unknown-H1 shape defect and clears it after hierarchy-only normalization', () => {
+  const run = (decisions) => {
+    const out = [];
+    const exitCode = runHandback({
+      argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+      readFile: (file) => ({ d: decisions, g: HAND_BACK_GOALS })[file],
+      execGit: () => { throw new Error('head supplied'); }, write: (text) => out.push(text), writeErr: () => {},
+      env: { AGENTS_HOME: fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMP || '.', 'archive-handback-')) },
+      readGoalsParentPage: () => ({ configured: true }),
+    });
+    return { exitCode, stdout: out.join('') };
+  };
+  const unknown = run(MIXED_UNKNOWN);
+  assert.equal(unknown.exitCode, 1);
+  assert.match(unknown.stdout, /^SHAPE/m);
+  assert.match(unknown.stdout, /HANDBACK blocked/);
+  const normalized = run(MIXED_NORMALIZED);
+  assert.equal(normalized.exitCode, 0);
+  assert.doesNotMatch(normalized.stdout, /^SHAPE/m);
+  assert.match(normalized.stdout, /HANDBACK ok/);
 });
 
 test('real pickupOnce preserves synthetic archive signals across unchecked and checked lifecycle', async (t) => {
