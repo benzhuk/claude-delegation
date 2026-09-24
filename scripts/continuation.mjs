@@ -117,19 +117,6 @@ function cachedValidatorFs(d, evidence) {
   } });
 }
 
-function honorInjectedReadPolicy(d, confinedPath) {
-  if (d.fs === fs || d.fs.readFileSync === fs.readFileSync) return;
-  try {
-    // The deliberately invalid flag makes Node reject before opening or reading. Policy wrappers
-    // still see the confined path first, so an injected denial remains effective without adding
-    // a second unbounded content read beside safeRealFile's descriptor-capped read.
-    d.fs.readFileSync(confinedPath, { encoding: "utf8", flag: "continuation-policy-probe" });
-  } catch (error) {
-    if (error?.code === "ERR_INVALID_ARG_VALUE") return;
-    throw error;
-  }
-  throw new Error("UNSAFE_FS_IMPL");
-}
 function duplicateSingleton(text) {
   const counts = new Map();
   const lines = String(text).split(/\r?\n/); const blank = lines.findIndex((line) => line.trim() === "");
@@ -150,7 +137,6 @@ export function selectContinuationSnapshot(options, deps = {}) {
     if (!d.fs.statSync(repoReal).isDirectory()) return failSnapshot("REPO_UNREADABLE");
     const budget = { bytes: 0 };
     const authority = safeRealFile(repoRoot, repoReal, options.authorityRef, d, budget);
-    honorInjectedReadPolicy(d, authority.real);
     const workDir = path.join(repoRoot, "docs", "work");
     const entries = d.fs.readdirSync(workDir, { withFileTypes: true }).filter((entry) => entry.name.endsWith(".record.md"));
     if (entries.length > MAX_RECORDS) return failSnapshot("RECORD_LIMIT");
