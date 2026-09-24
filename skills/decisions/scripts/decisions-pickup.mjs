@@ -37,6 +37,12 @@ function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function safeErrorCode(error) {
+  if (error instanceof SyntaxError) return 'INVALID_JSON';
+  const code = String(error?.code ?? 'UNKNOWN');
+  return /^[A-Z0-9_]+$/.test(code) ? code : 'UNKNOWN';
+}
+
 function canonicalProject(repo, fsImpl = fs) {
   const absolute = path.resolve(repo);
   try {
@@ -105,7 +111,7 @@ function readJson(file, fsImpl = fs) {
     return parsed;
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
-    throw new PickupError(`receipt unreadable at ${file}: ${error.message}`);
+    throw new PickupError(`receipt unreadable at ${file} (${safeErrorCode(error)})`);
   }
 }
 
@@ -150,8 +156,8 @@ function writeCaptureExclusive(file, capture, fsImpl = fs) {
   } catch (error) {
     if (error?.code !== 'EEXIST') throw error;
     let existing;
-    try { existing = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch (readError) {
-      throw new PickupError(`orphan capture is unreadable and needs reconciliation: ${readError.message}`);
+    try { existing = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch {
+      throw new PickupError('private capture is unreadable and needs reconciliation');
     }
     if (existing.version !== RECEIPT_VERSION || existing.type !== capture.type
         || existing.page !== capture.page
@@ -271,8 +277,8 @@ function writePointerExclusive(receipt, fsImpl = fs) {
   } catch (error) {
     if (error?.code !== 'EEXIST') throw error;
     let existing;
-    try { existing = fsImpl.readFileSync(file, 'utf8'); } catch (readError) {
-      throw new PickupError(`details pointer is unreadable and needs reconciliation: ${readError.message}`);
+    try { existing = fsImpl.readFileSync(file, 'utf8'); } catch {
+      throw new PickupError('details pointer is unreadable and needs reconciliation');
     }
     if (existing !== serialized) throw new PickupError('details pointer conflicts with the saved pickup intent');
   }
@@ -326,7 +332,7 @@ function verifyOnePrivateCapture(receipt, privateRef, expectedDigest, base, fsIm
   } catch (error) {
     const status = error?.code === 'ENOENT' ? 'MISSING'
       : (error instanceof PickupError && /reference|UNSAFE|escapes/.test(error.message) ? 'INVALID_PATH' : 'UNREADABLE');
-    return { status, privateCaptureRef: privateRef, error: error.message };
+    return { status, privateCaptureRef: privateRef, errorCode: safeErrorCode(error) };
   }
 }
 
@@ -341,7 +347,7 @@ function verifyPointer(receipt, fsImpl = fs) {
     return {
       status: error?.code === 'ENOENT' ? 'MISSING' : 'UNREADABLE',
       detailsPath: receipt.detailsPath ?? null,
-      error: error.message,
+      errorCode: safeErrorCode(error),
     };
   }
 }
@@ -350,10 +356,10 @@ function verifyLegacyCapture(receipt, relative, expectedDigest, fsImpl = fs) {
   if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {
     return { status: 'INVALID_PATH', path: relative ?? null };
   }
-  const transportRoot = canonicalThroughExistingAncestor(receipt.transportRepo, fsImpl);
-  const full = canonicalThroughExistingAncestor(path.resolve(transportRoot, ...relative.split('/')), fsImpl);
-  if (!sameOrInside(full, transportRoot)) return { status: 'INVALID_PATH', path: relative };
   try {
+    const transportRoot = canonicalThroughExistingAncestor(receipt.transportRepo, fsImpl);
+    const full = canonicalThroughExistingAncestor(path.resolve(transportRoot, ...relative.split('/')), fsImpl);
+    if (!sameOrInside(full, transportRoot)) return { status: 'INVALID_PATH', path: relative };
     const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
     const bytes = Buffer.from(String(capture.originalBytes ?? ''), 'base64');
     if (capture.version !== LEGACY_RECEIPT_VERSION || capture.page !== receipt.page
@@ -364,7 +370,23 @@ function verifyLegacyCapture(receipt, relative, expectedDigest, fsImpl = fs) {
     }
     return { status: 'OK', path: relative };
   } catch (error) {
-    return { status: error?.code === 'ENOENT' ? 'MISSING' : 'UNREADABLE', path: relative, error: error.message };
+    return {
+      status: error?.code === 'ENOENT' ? 'MISSING' : 'UNREADABLE',
+      path: relative,
+      errorCode: safeErrorCode(error),
+    };
+  }
+}
+
+function verifyAccountingOutcome(receipt, capture, fsImpl = fs) {
+  if (receipt.state !== 'ACCOUNTED' || !receipt.accountingOutcome) return null;
+  try {
+    const outcome = fsImpl.readFileSync(receipt.accountingOutcome.path);
+    return sha256(outcome) === receipt.accountingOutcome.digest
+      ? null
+      : { status: 'OUTCOME_TAMPERED', capture };
+  } catch (error) {
+    return { status: 'OUTCOME_MISSING', capture, errorCode: safeErrorCode(error) };
   }
 }
 
@@ -375,6 +397,8 @@ function verifyLegacyEvidence(receipt, fsImpl = fs) {
     const changed = verifyLegacyCapture(receipt, receipt.reconciliationCapturePath, receipt.observedDigest, fsImpl);
     if (changed.status !== 'OK') return { status: 'RECONCILIATION_CAPTURE_INVALID', capture, changed };
   }
+  const outcomeFailure = verifyAccountingOutcome(receipt, capture, fsImpl);
+  if (outcomeFailure) return outcomeFailure;
   return { status: 'OK', capture };
 }
 
@@ -389,24 +413,22 @@ function verifyReceiptEvidence(receipt, base, fsImpl = fs) {
     const changed = verifyOnePrivateCapture(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, base, fsImpl);
     if (changed.status !== 'OK') return { status: 'RECONCILIATION_CAPTURE_INVALID', capture, changed };
   }
-  if (receipt.state === 'ACCOUNTED' && receipt.accountingOutcome) {
-    try {
-      const outcome = fsImpl.readFileSync(receipt.accountingOutcome.path);
-      if (sha256(outcome) !== receipt.accountingOutcome.digest) return { status: 'OUTCOME_TAMPERED', capture };
-    } catch (error) {
-      return { status: 'OUTCOME_MISSING', capture, error: error.message };
-    }
-  }
+  const outcomeFailure = verifyAccountingOutcome(receipt, capture, fsImpl);
+  if (outcomeFailure) return outcomeFailure;
   return { status: 'OK', capture, pointer };
 }
 
 function requiredItemsFromCapture(receipt, now, base, fsImpl = fs) {
-  const full = receipt.version === LEGACY_RECEIPT_VERSION
-    ? path.join(receipt.transportRepo, ...receipt.capturePath.split('/'))
-    : resolvePrivateCapture(receipt, receipt.privateCaptureRef, base, fsImpl);
-  const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
-  const raw = Buffer.from(capture.originalBytes, 'base64').toString('utf8');
-  return capturedItems(parseDocument(raw, { now }));
+  try {
+    const full = receipt.version === LEGACY_RECEIPT_VERSION
+      ? path.join(receipt.transportRepo, ...receipt.capturePath.split('/'))
+      : resolvePrivateCapture(receipt, receipt.privateCaptureRef, base, fsImpl);
+    const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
+    const raw = Buffer.from(capture.originalBytes, 'base64').toString('utf8');
+    return capturedItems(parseDocument(raw, { now }));
+  } catch {
+    throw new PickupError('captured evidence became unreadable during accounting');
+  }
 }
 
 function sendInputs({ from, owner, projectScope, round, detailsPath, transportRepo }) {
@@ -729,12 +751,12 @@ export async function pickupOnce(options, deps = {}) {
       try {
         const capturePath = resolvePrivateCapture(receipt, receipt.privateCaptureRef, base, fsImpl);
         writeCaptureExclusive(capturePath, capture, fsImpl);
-      } catch (error) {
+      } catch {
         const interrupted = {
           ...receipt,
           previousState: receipt.state,
           state: 'NEEDS_RECONCILIATION',
-          reconciliationReason: `capture is missing, partial, or conflicting: ${error.message}`,
+          reconciliationReason: 'private capture is missing, partial, or conflicting',
           observedAt: now.toISOString(),
         };
         atomicJson(paths.receipt, interrupted, fsImpl);
@@ -743,12 +765,12 @@ export async function pickupOnce(options, deps = {}) {
       deps.onTransition?.('CAPTURED', capture);
       try {
         writePointerExclusive(receipt, fsImpl);
-      } catch (error) {
+      } catch {
         const interrupted = {
           ...receipt,
           previousState: receipt.state,
           state: 'NEEDS_RECONCILIATION',
-          reconciliationReason: `details pointer is missing, partial, or conflicting: ${error.message}`,
+          reconciliationReason: 'details pointer is missing, partial, or conflicting',
           observedAt: now.toISOString(),
         };
         atomicJson(paths.receipt, interrupted, fsImpl);
@@ -1032,9 +1054,13 @@ export function openPrivateCapture(options, deps = {}) {
   if (verified.status !== 'OK') {
     throw new PickupError('PRIVATE_CAPTURE_UNAVAILABLE: exact local private capture is unavailable; request manual handoff');
   }
-  const full = resolvePrivateCapture(receipt, receipt.privateCaptureRef, base, fsImpl);
-  const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
-  return Buffer.from(capture.originalBytes, 'base64');
+  try {
+    const full = resolvePrivateCapture(receipt, receipt.privateCaptureRef, base, fsImpl);
+    const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
+    return Buffer.from(capture.originalBytes, 'base64');
+  } catch {
+    throw new PickupError('PRIVATE_CAPTURE_UNAVAILABLE: exact local private capture is unavailable; request manual handoff');
+  }
 }
 
 function parseArgs(argv) {

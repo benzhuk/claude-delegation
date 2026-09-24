@@ -727,3 +727,63 @@ test('explicit accounting of an exact RECORDED legacy capture remains available 
   assert.equal(result.legacyLocation, 'LEGACY_REPO_CAPTURE');
   assert.equal(fs.existsSync(legacy.fullCapture), true);
 });
+
+test('corrupt private and legacy capture JSON never leaks source bytes through status or recovery', async (t) => {
+  const privateFx = fixture(); t.after(privateFx.cleanup);
+  await assert.rejects(pickupOnce(privateFx.options, deps(privateFx, {
+    onTransition(state) { if (state === 'CAPTURE_INTENT') throw new Error('intent stop'); },
+  })), /intent stop/);
+  const intent = status(privateFx.options, { agentsHome: privateFx.agentsHome }).receipt;
+  const privateCanary = 'PRIVATE-PARSE-ERROR-CANARY-31887';
+  const privatePath = privateFile(privateFx, intent);
+  fs.mkdirSync(path.dirname(privatePath), { recursive: true });
+  fs.writeFileSync(privatePath, `{"raw":"${privateCanary}`);
+  const visible = status(privateFx.options, { agentsHome: privateFx.agentsHome });
+  assert.equal(visible.evidenceIntegrity.capture.errorCode, 'INVALID_JSON');
+  assert.equal(JSON.stringify(visible).includes(privateCanary), false);
+  let sends = 0;
+  const recovered = await pickupOnce(privateFx.options, deps(privateFx, {
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(recovered.status, 'NEEDS_RECONCILIATION');
+  assert.equal(sends, 0);
+  const privateReceiptText = fs.readFileSync(receiptPaths({
+    agentsHome: privateFx.agentsHome,
+    project: fs.realpathSync(privateFx.repo),
+    page: privateFx.options.page,
+  }).receipt, 'utf8');
+  assert.equal(JSON.stringify(recovered).includes(privateCanary), false);
+  assert.equal(privateReceiptText.includes(privateCanary), false);
+
+  const legacyFx = fixture(); t.after(legacyFx.cleanup);
+  const legacy = installLegacyReceipt(legacyFx, 'CAPTURE_INTENT');
+  const legacyCanary = 'LEGACY-PARSE-ERROR-CANARY-74022';
+  fs.writeFileSync(legacy.fullCapture, `{"raw":"${legacyCanary}`);
+  const legacyVisible = status(legacyFx.options, { agentsHome: legacyFx.agentsHome });
+  assert.equal(legacyVisible.evidenceIntegrity.capture.errorCode, 'INVALID_JSON');
+  assert.equal(JSON.stringify(legacyVisible).includes(legacyCanary), false);
+  let reads = 0;
+  const refused = await pickupOnce(legacyFx.options, deps(legacyFx, {
+    readPage: async () => { reads += 1; return PAGE; },
+  }));
+  assert.equal(reads, 0);
+  assert.equal(JSON.stringify(refused).includes(legacyCanary), false);
+  assert.equal(fs.readFileSync(legacy.paths.receipt, 'utf8').includes(legacyCanary), false);
+});
+
+test('legacy ACCOUNTED status verifies the saved outcome digest and existence', (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  installLegacyReceipt(fx, 'RECORDED');
+  const report = path.join(fx.repo, 'legacy-outcome-integrity.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: exact legacy page\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+  account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
+  fs.appendFileSync(report, 'tampered\n');
+  const tampered = status(fx.options, { agentsHome: fx.agentsHome });
+  assert.equal(tampered.status, 'ACCOUNTED');
+  assert.equal(tampered.evidenceIntegrity.status, 'OUTCOME_TAMPERED');
+  fs.unlinkSync(report);
+  const missing = status(fx.options, { agentsHome: fx.agentsHome });
+  assert.equal(missing.status, 'ACCOUNTED');
+  assert.equal(missing.evidenceIntegrity.status, 'OUTCOME_MISSING');
+  assert.equal(missing.evidenceIntegrity.errorCode, 'ENOENT');
+});
