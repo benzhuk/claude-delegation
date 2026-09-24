@@ -5,7 +5,7 @@ Status: rejected
 Authority: one session-only local native Claude trial in disposable clone; no installation, user config edits, live peer sends, schedules or publication by worker
 Artifact: none
 Evidence: docs/work/evidence/native-claude-pilot-initial.md, docs/work/evidence/native-claude-assessment-recovered.md, docs/work/evidence/native-claude-pilot-response.md
-Next: establish the native permission contract before retry; prioritize one useful mixed-host deliverable over further internal expansion
+Next: original pilot remains rejected and is not retried for a green score; later native-instruction-delta-review-proof demonstrates useful write/review/accounting under the corrected contract
 Opened: 2026-09-23T22:16:59.447Z
 Rounds: 1
 Log: 2026-09-23T22:16:59.447Z owned native_pilot_runner source prerequisites met0.17 merged; independent of installation and memory publication decisions

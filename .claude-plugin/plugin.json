@@ -2,7 +2,7 @@
   "name": "delegation",
   "displayName": "Delegation",
   "description": "Multi-agent orchestration for Claude Code and Codex: delegate/team-build/multi skills, vendor-neutral tiers, shared mechanics, prompt routing, ongoing continuation through wave/status closeout, portable decisions configuration, audience routing, bearings receipts, and callable one-shot registered-page decision pickup with immutable captures, single-host page binding, conservative recovery, and owner accounting. No scheduler, automatic owner recovery/clearing, or two-host validation is claimed.",
-  "version": "0.20.2",
+  "version": "0.20.3",
   "author": { "name": "Ben Zhuk", "url": "https://github.com/benzhuk" },
   "repository": "https://github.com/benzhuk/claude-delegation",
   "license": "MIT",

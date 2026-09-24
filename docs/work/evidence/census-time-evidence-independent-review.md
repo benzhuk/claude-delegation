@@ -1,0 +1,12 @@
+VERDICT: APPROVE b04172836e0f394ee1af5de1e8fb28ee12d2d8d7
+
+Independent Astra exact-artifact review of scripts/work-census.mjs and scripts/work-census.test.mjs against docs/specs/2026-09-23-census-time-evidence.md at 071e841. Read changed source and relevant shared parseRecord grammar. Both working files matched the candidate (empty scoped git diff). No repository edits or provider trials.
+
+No blocking findings for the scoped repair. Timing admission is placed in the existing measurement boundary; shared parsing and raw record history stay unchanged. A malformed producer Log is still malformed evidence, not repaired historical time. ISO shape plus calendar/time range checks prevent Date.parse normalization of common invalid calendar values. End selection happens before timestamp validation, so an invalid latest accepted timestamp does not become an earlier accepted or reviewed result. Null and explanatory labels preserve missing, invalid and reverse-chronology evidence; real zero is still allowed for equal instants.
+
+Verification receipts:
+- Focused node --test scripts/work-census.test.mjs: actual exit 0, 22 tests passed, 0 failed. Output retained in census-time-focused-review.log.
+- Independent script census-time-independent.mjs: actual exit 0. Ten cases passed through shared parseRecord and census: prose delivered time; invalid latest acceptance after older accepted and newer reviewed lines; impossible month; non-leap February 29 start; missing start; reverse chronology; negative UTC offset crossing midnight; equal instants with differing offsets; six fractional digits; valid leap-day crossing. Expected durations were null for unknowns, 2500 ms, genuine 0 ms, 1000 ms and 1000 ms for the valid cases. Latest malformed acceptance remained unknown with null end rather than falling back.
+- Real child-process CLI over the ten on-disk fixtures exited 0; rendered output contained neither NaNm nor Sol as a time cell. All ten original input files remained byte-identical. Output retained in census-time-independent.log; fixture path recorded there.
+
+Boundaries: this does not repair malformed producer records, change Rounds policy, validate arbitrary log omissions discarded by the pre-existing shared parser, or establish ask-to-accepted comparative performance. Date support is scoped to ordinary project record ISO timestamps, not a general calendar framework. Root owns the complete sealed integration gate.
