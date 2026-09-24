@@ -1,6 +1,6 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes released 0.20.3 at `2187116`. Its frozen integration candidate `b800882` passed 1,393 sealed tests after independent source review. It includes current-revision continuation status, consistent parallel-work/review/pacing instructions, and a timing census that preserves unknown evidence. The Windows plain shared-skill mirror was updated and verified on September 23, 11:54 PM America/New_York, with configuration and hook registration unchanged. See [local update evidence](work/evidence/local-mirror-0203-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
+This guide describes source release 0.20.4. Its frozen candidate `9a38760` passed 1,396 sealed tests after independent source review. It adds explicit optional-source diagnostics and an explicit user-stop instruction to this guide. It includes current-revision continuation status, consistent parallel-work/review/pacing instructions, and a timing census that preserves unknown evidence. The Windows plain shared-skill mirror was updated and verified on September 23, 11:54 PM America/New_York, with configuration and hook registration unchanged. See [local update evidence](work/evidence/local-mirror-0203-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
 
 ## Everyday work on a project
 
