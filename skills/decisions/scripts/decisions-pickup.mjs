@@ -704,8 +704,14 @@ export async function runRegisteredPickup(options = {}, deps = {}) {
   try {
     const runOne = deps.pickupOnce ?? pickupOnce;
     const pickupNow = typeof deps.now === 'function' ? deps.now() : deps.now;
-    const result = await runOne(entries[ordinal], { ...deps, agentsHome: base, fsImpl, env, now: pickupNow });
-    return { code: registeredResultCode(result), ordinal };
+    const entry = entries[ordinal];
+    const result = await runOne(entry, { ...deps, agentsHome: base, fsImpl, env, now: pickupNow });
+    const handoff = result?.receipt?.handoffStatus === 'PENDING_MANUAL_HANDOFF'
+      && result.receipt.owner !== entry.owner;
+    return {
+      code: handoff ? 'PICKUP_RECONCILIATION_REQUIRED' : registeredResultCode(result),
+      ordinal,
+    };
   } catch (error) {
     return {
       code: error instanceof PickupError && error.pickupCode === 'PICKUP_CLAIM_HELD'

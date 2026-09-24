@@ -94,9 +94,9 @@ validated entry is selected randomly and passed to the existing one-shot pickup.
 entry is guaranteed a particular minute. Imports, note-send/note-notify piggybacks,
 targeted drains, `--home`, `--status`, and `--dry-run` never run registered pickup. The
 current `flush-last.json` may contain a safe `pickup` code and selected ordinal; this is
-diagnostic evidence only. `PICKUP_RECORDED` means the ASK was recorded and queued. The
-next ordinary flush performs existing inbox delivery; only explicit accounting proves
-the owner acted.
+diagnostic evidence only. `PICKUP_RECORDED` means the ASK for this round was recorded
+and queued, possibly on an earlier pass. The next ordinary flush performs existing
+inbox delivery; only explicit accounting proves the owner acted.
 
 Registration identifies the current recipient but grants no authority. An existing
 round keeps its saved owner: changing the registration produces manual handoff rather

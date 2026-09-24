@@ -184,6 +184,12 @@ test('registered pickup maps every receipt outcome to one safe public code', asy
     [{ status: 'IDLE' }, 'PICKUP_NO_ACTION'],
     [{ status: 'ACCOUNTED' }, 'PICKUP_NO_ACTION'],
     [{ status: 'RECORDED' }, 'PICKUP_RECORDED'],
+    [{ status: 'RECORDED', receipt: {
+      handoffStatus: 'PENDING_MANUAL_HANDOFF', owner: 'former-owner',
+    } }, 'PICKUP_RECONCILIATION_REQUIRED'],
+    [{ status: 'RECORDED', receipt: {
+      handoffStatus: 'PENDING_MANUAL_HANDOFF', owner: 'decision-owner',
+    } }, 'PICKUP_RECORDED'],
     [{ status: 'WAITING_OWNER' }, 'PICKUP_PENDING_OWNER'],
     [{ status: 'INVALID' }, 'PICKUP_RECONCILIATION_REQUIRED'],
     [{ status: 'NEEDS_RECONCILIATION' }, 'PICKUP_RECONCILIATION_REQUIRED'],
