@@ -1,0 +1,9 @@
+VERDICT: PASS
+
+Frozen integrated source: e50ebaf39b7721d2701c652702cb673085496e50. September 24, 2026, America/New_York. Parent Astra ran the repository's sealed runner on this exact clean source; no live Notion, credentials, owner inbox or registration was used.
+
+Independent contract gate: 7 passed, 0 failed, cancelled, skipped or todo. Its actual standalone subprocess invoked the real relative import graph and sealed external reader, exited 0 and did not deadlock. The real held-page-claim case refused pickup before reading. The initial integrated run was 6/7: its synthetic generic exception did not represent the actual typed claim error. The independent author replaced that assumption with the real filesystem claim rather than changing production code to match the faulty test. Earlier stub baselines remain expected-red evidence, not product regressions or passing gates.
+
+Full sealed suite: 1413 passed, 0 failed, cancelled, skipped or todo; reported duration 40574.3559 ms. This is the single parent integration gate, separate from the builder's 154 focused checks. Test count and runtime establish regression coverage, not improved whole-task delivery speed or cost.
+
+Private original logs: Temp/astra-followthrough-0923/0924-pickup-contract-integrated.log (negative), 0924-pickup-contract-integrated-final.log, and 0924-pickup-full-suite.log. Source, tests and documentation still require independent review and release/installed qualification; these gates do not imply activation or real human submission delivery.
