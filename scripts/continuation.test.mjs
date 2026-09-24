@@ -154,7 +154,7 @@ test("off switches, unsupported profile, child, unknown episode, recursion, and 
   assert.equal(await handleContinuationEvent(ev({ episodeKey: null }), f.deps), null);
   const armed = await arm(f);
   assert.equal(await handleContinuationEvent(ev({ event: "Stop", eventKey: "recursive", stopHookActive: true }), f.deps), null);
-  await handleContinuationEvent(ev({ event: "Interrupt", eventKey: "interrupt" }), f.deps);
+  await handleContinuationEvent(ev({ event: "Interrupt", eventKey: "interrupt", cancellationVerified: false }), f.deps);
   assert.equal(await handleContinuationEvent(ev({ event: "Stop", eventKey: "after-interrupt" }), f.deps), null);
   fs.writeFileSync(path.join(f.agentsHome, "ws-off-continuation"), "");
   assert.equal(await handleContinuationEvent(ev({ episodeKey: "episode-2", eventKey: "new" }), f.deps), null);

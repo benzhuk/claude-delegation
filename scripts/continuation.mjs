@@ -172,7 +172,7 @@ function stopResult(state, event, paths, d) {
 
 export async function handleContinuationEvent(event, deps = {}) {
   const d = depsOf(deps);
-  if (!validEvent(event) || event.role !== "lead" || switchedOff(d) || !profileSupported(event)) return null;
+  if (!validEvent(event) || event.role !== "lead" || switchedOff(d)) return null;
   if (!validOpaque(event.eventKey)) return null;
   const claudePromptBootstrap = event.host === "claude" && event.event === "UserPromptSubmit" && event.episodeKey === null;
   const identityInvalidatingStart = event.event === "SessionStart" && event.episodeKey === null;
@@ -182,6 +182,14 @@ export async function handleContinuationEvent(event, deps = {}) {
     const claimed = withClaim(paths, d, () => { const state = readState(paths, d); if (!state) return null; suspendCurrent(state); writeState(paths, state, d); return null; });
     return claimed.value;
   }
+  if (event.event === "Interrupt" || event.cancellation === true) {
+    const claimed = withClaim(paths, d, () => {
+      const state = readState(paths, d); if (!currentMatches(state, event)) return null;
+      state.current.phase = "stopped"; state.current.binding = null; state.generation += 1; writeState(paths, state, d); return null;
+    });
+    return claimed.value;
+  }
+  if (!profileSupported(event)) return null;
   if (event.event === "UserPromptSubmit") {
     const claimed = withClaim(paths, d, () => {
       const state = readState(paths, d) ?? { version: VERSION, generation: 0, host: event.host, profile: event.profile, history: [], current: null };
@@ -215,16 +223,9 @@ export async function handleContinuationEvent(event, deps = {}) {
       state.current.phase = "active"; state.current.confirmEventKey = event.eventKey; state.generation += 1; writeState(paths, state, d);
       return null;
     }
-    if (event.event === "Interrupt") {
-      if (!currentMatches(state, event)) return null;
-      state.current.phase = "stopped"; state.current.binding = null; state.generation += 1; writeState(paths, state, d); return null;
-    }
     if (!currentMatches(state, event)) return null;
     if (event.event !== "Stop") return null;
-    if (event.cancellation !== false) {
-      if (event.cancellation === true) { state.current.phase = "stopped"; state.current.binding = null; state.generation += 1; writeState(paths, state, d); }
-      return null;
-    }
+    if (event.cancellation !== false) return null;
     return stopResult(state, event, paths, d);
   });
   return claimed.claimed ? claimed.value : null;
