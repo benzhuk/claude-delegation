@@ -9,14 +9,19 @@ import { fileURLToPath } from 'node:url';
 
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
-import { receiptPaths, runRegisteredPickup } from './decisions-pickup.mjs';
+import { pickupOnce, receiptPaths, runRegisteredPickup } from './decisions-pickup.mjs';
 import { runPostFlushPickup } from '../../multi/scripts/note-flush.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FLUSH = path.resolve(HERE, '../../multi/scripts/note-flush.mjs');
 const PAGE = '0123456789abcdef0123456789abcdef';
 const CANARY = 'PRIVATE_PICKUP_CANARY_4c1a5';
-
+const RECORDED_PAGE = `<summary>Choose transport</summary>
+- [x] Keep the existing transport
+No default: owner action is required
+\\*\\*Please preserve the capture
+- [x] Done
+`;
 function fixture(t) {
   const sealed = makeTempHome();
   t.after(sealed.cleanup);
@@ -130,6 +135,33 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
   assert.equal(fs.existsSync(marker), false, 'a held claim must return before reading the page');
 });
 
+test('real recorded receipt with a changed registered owner reconciles without resend', async (t) => {
+  const fx = fixture(t);
+  const ownerA = { ...fx.entry, owner: 'owner-a' };
+  let sends = 0;
+  const realDeps = {
+    agentsHome: fx.agentsHome,
+    env: fx.env,
+    now: '2026-09-24T12:00:00.000Z',
+    readPage: async () => RECORDED_PAGE,
+    send: async () => { sends += 1; return { id: 'sealed-note' }; },
+  };
+  const initial = await pickupOnce(ownerA, realDeps);
+  assert.equal(initial.status, 'RECORDED');
+  assert.equal(initial.receipt.owner, 'owner-a');
+  assert.equal(sends, 1, 'fixture must create one real recorded dispatch');
+
+  fx.writeRegistration([{ ...fx.entry, owner: 'owner-b' }]);
+  const useRealPickup = async (options, deps) => pickupOnce(options, { ...realDeps, ...deps });
+  const changed = await registered(fx, { pickupOnce: useRealPickup });
+  assert.deepEqual(changed, { code: 'PICKUP_RECONCILIATION_REQUIRED', ordinal: 0 });
+  assert.equal(sends, 1, 'owner mismatch must not send a second wake');
+
+  fx.writeRegistration([ownerA]);
+  const restored = await registered(fx, { pickupOnce: useRealPickup });
+  assert.deepEqual(restored, { code: 'PICKUP_RECORDED', ordinal: 0 });
+  assert.equal(sends, 1, 'restoring the saved owner must not resend or remain falsely reconciled');
+});
 test('post-flush boundary excludes help/status/dry-run/targeted and preserves normal failure/budget', async (t) => {
   const fx = fixture(t);
   let imports = 0;
