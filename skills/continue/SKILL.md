@@ -5,7 +5,7 @@ description: Continue authorized ongoing project work through pauses, wave close
 
 # Continue ongoing useful work
 
-This skill is instruction, not a runtime scheduler, wake-up promise, or authority grant. Apply it when work resumes and before ending an ongoing-goal turn, closing a wave, or treating a status reply as a stopping point. Read the project's current goal, active bearings, and existing work records before choosing work. Keep the shared workflow provider-neutral; use each host's native execution only after its behavior is identified.
+Apply this skill when work resumes and before ending an ongoing-goal turn, closing a wave, or treating a status reply as a stopping point. Read the project's current goal, active bearings, and existing work records before choosing work. The optional bound completion check below supplies one mechanical correction opportunity on supported hosts. It is not an idle scheduler, wake-up promise, authority grant, or proof that the goal is achieved.
 
 ## Select and run work
 
@@ -19,6 +19,26 @@ This skill is instruction, not a runtime scheduler, wake-up promise, or authorit
 Resume an interrupted native session only when the host session is identified and the surrounding harness scope is already authorized. Local installed CLI evidence is limited to Codex `resume` (including `--last`) and Claude Code `--continue` or `--resume <session-id>`; it does not establish unattended restart, cross-host continuation, child ancestry, or a portable loop. Do not alias an unverified `/loop` mechanism.
 
 Do not wait on a human while independent authorized work remains. Stop only when the user requests it, the authorized objective has completion evidence, or every remaining useful authorized item genuinely depends on an external decision or unavailable dependency. Record those specific blockers and the session/work identity needed for a later resume.
+
+## Bind the supported completion check
+
+Use this only for an explicitly authorized ongoing scope. A finite question or explicit user stop must not be converted into ongoing authority. The host hook provides the current session identity and opaque epoch; do not copy a peer's identity, infer one from a pane slug, reuse an older epoch, or substitute a fresh epoch automatically inside an asynchronous command. Unsupported or unavailable host evidence leaves this check inactive; it does not prevent useful ordinary work.
+
+Resolve the released plugin root once. Native plugin sessions use their supplied plugin path. For the Codex shared-skill mirror, the existing `~/.agents/skills/.mirror-manifest.json` identifies `sourcePath`; verify that root contains this plugin's manifest and `scripts/continuation.mjs`. Do not install a second copy or invent a global executable to satisfy the command.
+
+Bind the actual integration checkout and selected existing work roots to the native epoch:
+
+```text
+node <plugin-root>/scripts/continuation.mjs bind --host <codex|claude> --session-id <native-id> --expected-epoch <hook-epoch> --repo <integration-checkout> --root <work-id> --authority-ref <existing-authority-evidence>
+```
+
+Repeat `--root` for independent selected work. An accepted release record is not the whole ongoing goal. Admission of new useful work still uses the existing work-record process. Bind is not active until its current native episode is confirmed by the hook. `status` reports that distinction; never describe pending/unsupported as enforced.
+
+After updating the existing work records, `status --host ... --session-id ...` supplies the selected revision. If the scope has been accounted for, `account --host ... --session-id ... --expected-epoch ... --expected-revision ... --evidence-ref <attached-evidence>` records that exact evidence. A changed selection invalidates the account. This records your judgment; it cannot make a false completion or blocker claim true. Continue any independent useful work the evidence identifies.
+
+On explicit pause/stop, use `stop --host ... --session-id ... --expected-epoch ...` when a current binding exists. New user prompts suspend earlier binding until their scope is reconciled. Off switches are `ws-off` and `ws-off-continuation` in the existing agents home. Do not turn them back on without the user's authority.
+
+The completion hook checks selected work at Stop and combines any correction with peer delivery into one response. It does not poll in the background or start turns for routine ACK/FYI. At most one correction is available per current user episode, with the native recursion guard retained; repeated unchanged or uncertain emission must not become a loop. After a correction, actually perform the selected work instead of ending with a promise to continue.
 
 ## Bearings seam
 
