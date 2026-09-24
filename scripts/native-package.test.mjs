@@ -11,15 +11,21 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8'));
 
-test('portable manifest is the only Codex manifest and carries the empty-hook override', () => {
-  const manifest = readJson('plugin.json');
-  assert.equal(manifest.$schema, 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json');
+test('Codex 0.156 native manifest exposes shared skills and verified lifecycle hooks', () => {
+  const manifest = readJson('.codex-plugin/plugin.json');
   assert.equal(manifest.name, 'delegation');
   assert.equal(manifest.version, readJson('.claude-plugin/plugin.json').version);
-  assert.equal(manifest.extensions?.['com.openai']?.hooks, './hooks/codex-hooks.json');
-  assert.equal(fs.existsSync(path.join(ROOT, '.codex-plugin', 'plugin.json')), false);
-  assert.deepEqual(readJson('hooks/codex-hooks.json'), { hooks: {} });
-  assert.notEqual(manifest.extensions?.['com.openai']?.hooks, './hooks/hooks.json');
+  assert.equal(manifest.skills, './skills/');
+  assert.equal(manifest.hooks, './hooks/codex-hooks.json');
+  assert.equal(fs.existsSync(path.join(ROOT, 'plugin.json')), false);
+  const nativeHooks = readJson('hooks/codex-hooks.json').hooks;
+  assert.deepEqual(Object.keys(nativeHooks).sort(), ['Interrupt', 'PostToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+  for (const groups of Object.values(nativeHooks)) {
+    for (const group of groups) for (const hook of group.hooks) {
+      assert.equal(hook.type, 'command');
+      assert.equal(hook.command, 'node "${PLUGIN_ROOT}/hooks/multi-codex-hook.mjs"');
+    }
+  }
 });
 
 test('native marketplace resolves this repository root with complete install policy', () => {
@@ -41,6 +47,7 @@ test('every bundled skill has a closed frontmatter block with name and descripti
     .map((entry) => entry.name)
     .sort();
   assert.ok(skills.length > 0);
+  assert.deepEqual(skills, ['bearings', 'continue', 'decisions', 'delegate', 'dev-server', 'janitor', 'multi', 'notion-writing', 'team-build']);
   for (const skill of skills) {
     const text = fs.readFileSync(path.join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8');
     const end = text.indexOf('\n---', 4);

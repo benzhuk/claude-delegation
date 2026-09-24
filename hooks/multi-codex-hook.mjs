@@ -121,7 +121,7 @@ export async function runCodexHook(input = {}, deps = {}) {
   let continuation = null;
   try {
     const normalized = normalizeCodexContinuation(input, fsImpl, {
-      supported: deps.codexContinuationSupported === true,
+      supported: deps.codexContinuationSupported !== false,
     });
     if (normalized) {
       normalized.peerWillBlock = peer?.output?.decision === 'block';

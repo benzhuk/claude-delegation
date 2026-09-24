@@ -50,19 +50,19 @@ these skills carry — no per-vendor skill format work is needed.
 
 ## Native package discovery
 
-The root `plugin.json` and `.agents/plugins/marketplace.json` make this repository available to
-Codex as a native local marketplace package. The portable manifest explicitly selects
-`hooks/codex-hooks.json`, which is intentionally empty: it prevents Codex from treating the
-Claude-specific `hooks/hooks.json` as native hooks. Native discovery therefore provides skills
-only; it does not activate lifecycle hooks, role loading, or peer delivery.
+The `.codex-plugin/plugin.json` compatibility manifest and `.agents/plugins/marketplace.json` make
+this repository available to Codex as a native local marketplace package. It exposes the shared
+skills and selects `hooks/codex-hooks.json`, whose command handlers use Codex's installed-package
+`PLUGIN_ROOT` to invoke the same adapter on SessionStart, UserPromptSubmit, PostToolUse, Stop and
+Interrupt. Codex still requires review and trust of the hook definitions before it executes them.
 
-The mirror above remains a separate host integration for the existing Codex roles, shims, and
-trusted hook wiring. Do not treat installing the native package as a replacement for that route,
-or install both routes automatically.
+The mirror above remains a separate host integration for the existing Codex roles and shims. Do
+not install both hook routes automatically; duplicate handlers would deliver the same inbox twice.
 
-The current plugin-creator validator expects the older `.codex-plugin/plugin.json` layout and
-rejects this portable-only package. Validate this route with the sealed Codex CLI discovery check
-instead; do not add a duplicate compatibility manifest just to satisfy that stale validator.
+Codex 0.156.1 installs a root Agent Plugins manifest but does not load its hooks, and a colocated
+compatibility manifest remains shadowed by that root file. The package therefore uses only the
+compatibility manifest at this host baseline. A disposable native install proved nine namespaced
+skills, command-hook execution, and the `PLUGIN_ROOT`/`PLUGIN_DATA` environment contract.
 
 ## Spawning a role
 

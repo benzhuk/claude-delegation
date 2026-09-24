@@ -44,16 +44,24 @@ export function classifyCodexRole(input = {}, fsImpl = fs) {
   if (!opaque(input.session_id) || !opaque(input.transcript_path)) return 'unknown';
   const meta = readFirstJsonLine(input.transcript_path, fsImpl);
   const payload = meta?.payload;
-  if (meta?.type !== 'session_meta' || payload?.id !== input.session_id) return 'unknown';
+  if (meta?.type !== 'session_meta' || !opaque(payload?.id) || payload?.session_id !== input.session_id) return 'unknown';
   const spawn = payload?.source?.subagent?.thread_spawn;
   if (spawn !== undefined) {
-    return opaque(spawn?.parent_thread_id)
+    // Child callbacks carry the parent session id and an agent_id naming the child transcript.
+    // Bind that explicit identity to the persisted spawn record; ancestry may be deeper than one.
+    return CODEX_SESSION_ID_RE.test(payload.id)
+      && CODEX_SESSION_ID_RE.test(input.session_id)
+      && opaque(input.agent_id)
+      && input.agent_id === payload.id
+      && payload.id !== input.session_id
+      && opaque(spawn?.parent_thread_id)
       && CODEX_SESSION_ID_RE.test(spawn.parent_thread_id)
-      && spawn.parent_thread_id !== input.session_id
+      && spawn.parent_thread_id !== payload.id
       && Number.isInteger(spawn.depth)
       && spawn.depth >= 1 ? 'child' : 'unknown';
   }
-  return payload?.source === 'cli' ? 'lead' : 'unknown';
+  return input.agent_id == null && payload.id === input.session_id && ['cli', 'vscode'].includes(payload?.source)
+    ? 'lead' : 'unknown';
 }
 
 function trueClaudeUser(line) {
@@ -178,7 +186,7 @@ export function normalizeCodexContinuation(input = {}, fsImpl = fs, { supported 
     cancellation: event === 'Interrupt' ? true : (event === 'Stop' ? false : null),
     cancellationVerified: supported,
     peerWillBlock: false,
-    profile: supported ? 'codex-0.156.1-turn-v1' : null,
+    profile: supported ? 'codex-native-turn-v1' : null,
     ...(marker ? { bindRequestId: marker.requestId } : {}),
   };
 }

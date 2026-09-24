@@ -103,17 +103,20 @@ test('bind marker is accepted only as whole successful tool-response JSON', () =
 test('Codex role is tri-state and inherited/mismatched metadata never proves lead', () => {
   const dir = tmp(); const file = path.join(dir, 'rollout.jsonl'); const session = uuid(10);
   const write = (payload) => fs.writeFileSync(file, `${JSON.stringify({ type: 'session_meta', payload })}\n`);
-  write({ id: session, source: 'cli' });
+  write({ id: session, session_id: session, source: 'cli' });
   assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'lead');
-  write({ id: session, source: { subagent: { thread_spawn: { parent_thread_id: uuid(11), depth: 1 } } } });
-  assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'child');
-  write({ id: uuid(12), source: 'cli' });
+  write({ id: session, session_id: session, source: 'vscode' });
+  assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'lead');
+  write({ id: uuid(11), session_id: session, source: { subagent: { thread_spawn: { parent_thread_id: uuid(12), depth: 2 } } } });
+  assert.equal(classifyCodexRole({ session_id: session, agent_id: uuid(11), transcript_path: file }), 'child');
+  assert.equal(classifyCodexRole({ session_id: session, agent_id: uuid(12), transcript_path: file }), 'unknown');
+  write({ id: uuid(12), session_id: uuid(12), source: 'cli' });
   assert.equal(classifyCodexRole({ session_id: session, transcript_path: file }), 'unknown');
 });
 
 test('Codex documented turn fields remain nonblocking until native evidence enables the profile', () => {
   const dir = tmp(); const file = path.join(dir, 'rollout.jsonl'); const session = uuid(20);
-  fs.writeFileSync(file, `${JSON.stringify({ type: 'session_meta', payload: { id: session, source: 'cli' } })}\n`);
+  fs.writeFileSync(file, `${JSON.stringify({ type: 'session_meta', payload: { id: session, session_id: session, source: 'cli' } })}\n`);
   const input = { hook_event_name: 'Stop', session_id: session, transcript_path: file, turn_id: 'turn-1', stop_hook_active: false };
   const pending = normalizeCodexContinuation(input);
   assert.equal(pending.role, 'lead');
