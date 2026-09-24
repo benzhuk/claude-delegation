@@ -280,19 +280,25 @@ function parseCli(argv) {
   if (command === "account" && (!out.expectedRevision || !out.evidenceRef)) throw new Error("account requires --expected-revision and --evidence-ref");
   return out;
 }
-function publicStatus(state) {
+function publicStatus(state, d) {
   if (!state?.current) return { status: "unbound" };
-  return { status: state.current.phase, epoch: state.current.epoch, attempted: Boolean(state.current.attempted), emitted: Boolean(state.current.emitted), accountedRevision: state.current.accountedRevision ?? null };
+  const result = { status: state.current.phase, epoch: state.current.epoch, attempted: Boolean(state.current.attempted), emitted: Boolean(state.current.emitted), accountedRevision: state.current.accountedRevision ?? null };
+  if (state.current.phase === "active") {
+    const snapshot = state.current.binding ? selectContinuationSnapshot(state.current.binding, d) : failSnapshot("BINDING_MISSING");
+    result.selectionStatus = snapshot.status === "OK" ? "ok" : "unknown";
+    result.revision = snapshot.status === "OK" ? snapshot.revision : null;
+  }
+  return result;
 }
 export async function runContinuationCli(argv, deps = {}) {
   const d = depsOf(deps);
   try {
     const args = parseCli(argv); const paths = sessionPaths(args.host, args.sessionId, d);
-    if (args.command === "status") return { exitCode: 0, stdout: `${JSON.stringify(publicStatus(readState(paths, d)))}\n`, stderr: "" };
+    if (args.command === "status") return { exitCode: 0, stdout: `${JSON.stringify(publicStatus(readState(paths, d), d))}\n`, stderr: "" };
     if (switchedOff(d)) return { exitCode: 3, stdout: "", stderr: "continuation: DISABLED\n" };
     const claimed = withClaim(paths, d, () => {
       const state = readState(paths, d); if (!state?.current || state.current.epoch !== args.expectedEpoch) return { code: 3, error: "STALE_EPOCH" };
-      if (args.command === "stop") { state.current.phase = "stopped"; state.current.binding = null; state.generation += 1; writeState(paths, state, d); return { code: 0, value: publicStatus(state) }; }
+      if (args.command === "stop") { state.current.phase = "stopped"; state.current.binding = null; state.generation += 1; writeState(paths, state, d); return { code: 0, value: publicStatus(state, d) }; }
       if (args.command === "bind") {
         if (["stopped", "suspended"].includes(state.current.phase) || state.current.attempted) return { code: 3, error: "EPISODE_INACTIVE" };
         const repo = d.fs.realpathSync(path.resolve(args.repo)); if (!d.fs.statSync(repo).isDirectory()) return { code: 3, error: "REPO_UNREADABLE" };

@@ -101,6 +101,50 @@ test("account requires current revision and attached evidence, then unchanged St
   assert.equal(await handleContinuationEvent(ev({ event: "Stop", eventKey: "stop" }), f.deps), null);
 });
 
+test("active status exposes the current revision without mutating state and never falls back to an accounted revision", async (t) => {
+  const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
+  const armed = await arm(f);
+  const proof = path.join(f.root, "docs", "work", "evidence", "proof.md");
+  let status = JSON.parse((await runContinuationCli(cliArgs("status", null, f), f.deps)).stdout);
+  assert.equal(status.selectionStatus, "ok"); assert.equal(status.revision, armed.revision);
+
+  fs.appendFileSync(proof, "new review result\n");
+  const stateFile = fs.readdirSync(path.join(f.agentsHome, "ws", "continuation")).find((name) => name.endsWith(".json"));
+  const statePath = path.join(f.agentsHome, "ws", "continuation", stateFile);
+  const stateBefore = fs.readFileSync(statePath);
+  const evidenceBefore = fs.readFileSync(proof);
+  status = JSON.parse((await runContinuationCli(cliArgs("status", null, f), f.deps)).stdout);
+  assert.equal(status.selectionStatus, "ok"); assert.notEqual(status.revision, armed.revision);
+  assert.deepEqual(fs.readFileSync(statePath), stateBefore); assert.deepEqual(fs.readFileSync(proof), evidenceBefore);
+
+  let account = await runContinuationCli(cliArgs("account", armed.epoch, f, ["--expected-revision", armed.revision, "--evidence-ref", "docs/work/evidence/proof.md"]), f.deps);
+  assert.match(account.stderr, /STALE_REVISION/);
+  account = await runContinuationCli(cliArgs("account", armed.epoch, f, ["--expected-revision", status.revision, "--evidence-ref", "docs/work/evidence/proof.md"]), f.deps);
+  assert.equal(account.exitCode, 0);
+
+  fs.writeFileSync(proof, "not valid evidence\n");
+  const unknownStateBefore = fs.readFileSync(statePath);
+  const unknownEvidenceBefore = fs.readFileSync(proof);
+  status = JSON.parse((await runContinuationCli(cliArgs("status", null, f), f.deps)).stdout);
+  assert.equal(status.selectionStatus, "unknown"); assert.equal(status.revision, null);
+  assert.notEqual(status.accountedRevision, null, "the old accounted revision remains lifecycle history, never the current revision fallback");
+  assert.deepEqual(fs.readFileSync(statePath), unknownStateBefore); assert.deepEqual(fs.readFileSync(proof), unknownEvidenceBefore);
+});
+
+test("active status reports unreadable selected evidence as unknown", async (t) => {
+  const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {}); await arm(f);
+  const proof = path.resolve(f.root, "docs", "work", "evidence", "proof.md");
+  const deniedFs = new Proxy(fs, { get(target, property) {
+    if (property === "openSync") return (candidate, ...args) => {
+      if (path.resolve(String(candidate)) === proof) throw Object.assign(new Error("private denial"), { code: "EACCES" });
+      return target.openSync(candidate, ...args);
+    };
+    return target[property];
+  } });
+  const status = JSON.parse((await runContinuationCli(cliArgs("status", null, f), { ...f.deps, fsImpl: deniedFs })).stdout);
+  assert.equal(status.status, "active"); assert.equal(status.selectionStatus, "unknown"); assert.equal(status.revision, null);
+});
+
 test("new prompt makes stale bind and stale Stop fail closed", async (t) => {
   const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
   const oldEpoch = epochFrom(await handleContinuationEvent(ev(), f.deps));
@@ -248,7 +292,12 @@ test("actual CLI process supports status, bind, account, and stop in sealed fixt
   assert.equal(JSON.parse(run(cliArgs("status", null, f))).status, "unbound");
   const binding = JSON.parse(run(cliArgs("bind", epoch, f, ["--repo", f.root, "--root", "wr-2026-09-23-root", "--authority-ref", "authority.md"])));
   assert.equal(binding.continuationBind.epoch, epoch); assert.ok(binding.continuationBind.requestId);
+  const pending = JSON.parse(run(cliArgs("status", null, f))); assert.equal(pending.status, "pending"); assert.equal(Object.hasOwn(pending, "revision"), false);
   await handleContinuationEvent(ev({ event: "PostToolUse", eventKey: "tool" }), f.deps);
-  assert.equal(JSON.parse(run(cliArgs("account", epoch, f, ["--expected-revision", binding.revision, "--evidence-ref", "docs/work/evidence/proof.md"]))).status, "accounted");
-  assert.equal(JSON.parse(run(cliArgs("stop", epoch, f))).status, "stopped");
+  fs.appendFileSync(path.join(f.root, "docs", "work", "evidence", "proof.md"), "native-style report update\n");
+  const current = JSON.parse(run(cliArgs("status", null, f)));
+  assert.equal(current.selectionStatus, "ok"); assert.notEqual(current.revision, binding.revision);
+  assert.throws(() => run(cliArgs("account", epoch, f, ["--expected-revision", binding.revision, "--evidence-ref", "docs/work/evidence/proof.md"])), (error) => /STALE_REVISION/.test(String(error.stderr)));
+  assert.equal(JSON.parse(run(cliArgs("account", epoch, f, ["--expected-revision", current.revision, "--evidence-ref", "docs/work/evidence/proof.md"]))).status, "accounted");
+  const stopped = JSON.parse(run(cliArgs("stop", epoch, f))); assert.equal(stopped.status, "stopped"); assert.equal(Object.hasOwn(stopped, "revision"), false);
 });
