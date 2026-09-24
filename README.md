@@ -62,8 +62,10 @@ claude plugin install delegation@benzhuk
   live Goals preservation/readback remain pending release gates.
 - **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
   wave closeout, or status turn: select useful ready work, preserve its evidence identity,
-  refill genuinely free capacity, and use verified native host resume paths. It is guidance,
-  not an unattended scheduler, automatic restart, or authority grant.
+  refill genuinely free capacity, and use verified native host resume paths. On supported
+  Claude Code hooks, explicitly bind the current native episode to selected existing work
+  records for one bounded completion correction. Accounting uses current evidence;
+  a new prompt suspends the prior binding. This does not grant authority or schedule idle work.
 - **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
   default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
   a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
@@ -231,6 +233,15 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.0 — connects explicit ongoing scope and existing work records to the native
+  completion boundary. The shared core preserves native epochs, exact evidence revisions,
+  stale-command rejection and one shared correction opportunity with peer delivery.
+  Claude's actual default-session bind, accounting, interrupt and replacement paths
+  passed native SDK fixtures with a local synthetic provider. Bounded transcript scanning
+  fixes a real two-tool activation failure; unknown evidence remains nonblocking.
+  Codex lifecycle fields are observed, but its command-launch integration is still under
+  qualification and automatic continuation remains inactive there. No idle scheduler,
+  sustained model-compliance guarantee or cross-machine rollout is implied.
 - 0.19.0 — keeps new private decisions snapshots outside Git in the existing local
   receipt store, with sanitized repository Details pointers and verified local `open`.
   Existing v1 receipts remain readable and require manual reconciliation before new

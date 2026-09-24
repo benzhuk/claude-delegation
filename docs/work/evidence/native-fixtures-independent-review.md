@@ -1,4 +1,4 @@
-VERDICT NEEDS_FIXES
+VERDICT: NEEDS_FIXES
 
 Independent review, September 23, 2026, America/New_York. Native continuation profiles must remain unsupported: completion and episode observations are independently reproduced, native SDK cancellation is now reproduced, including an in-flight Stop race, but the actual harness adapter and replacement-prompt state transitions remain unproven.
 
