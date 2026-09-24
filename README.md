@@ -32,7 +32,7 @@ claude plugin install delegation@benzhuk
 
 ## What you get
 
-**Seven skills** (auto-suggested by task shape, or invoke directly):
+**Nine skills** (auto-suggested by task shape, or invoke directly):
 
 - **`/delegation:delegate`** — parallel fan-out orchestration for independent
   research / review / audit lanes: decompose, tier the models, budget the concurrency,
@@ -45,11 +45,12 @@ claude plugin install delegation@benzhuk
   you don't own (see below).
 - **`/delegation:decisions`** — record a question only the owner can answer on their
   Notion decisions page and keep working, instead of blocking on a reply. An explicitly
-  configured pickup host can call the one-shot registered-page pickup with the existing
-  reader and note transport. It preserves immutable captures, binds a page to one host
-  and authorization project, recovers uncertainty conservatively, and requires explicit
-  owner accounting. It does not activate a scheduler, revive an owner, clear `Done`, or
-  establish two-host behavior.
+  configured pickup host can register pages for its existing standalone note-flush timer,
+  or call the one-shot pickup directly. Each eligible pass selects one registered page;
+  unchecked pages require no model turn. It reuses the existing reader, private captures,
+  project binding, conservative recovery and note transport. Registration is opt-in;
+  it adds no scheduler, revives no owner and never clears `Done`. Recorded, delivered
+  and explicitly accounted submissions remain separate states.
 - **`/delegation:bearings`** — assess a goal from bounded evidence, choose `CONTINUE`,
   `RE-PLAN`, or `CUT`, then publish a dated assessment with linked repository evidence.
   Its callable per-project receipt helper reports whether a matching completed assessment
@@ -57,8 +58,8 @@ claude plugin install delegation@benzhuk
   report, lead response, and published URL; it does not mechanically prove their content.
   Claude Code can show a bounded due/unknown notice at SessionStart and during an active
   session's existing periodic reminder route. That notice never starts an assessment;
-  automatic daily triggering, idle execution, and unattended `Done` pickup are not
-  included. Codex cadence, installed-host discovery/parity, mixed-host validation, and
+  automatic daily assessment triggering and idle assessment execution are not
+  included. The separate decisions skill owns registered `Done` pickup. Codex cadence, installed-host discovery/parity, mixed-host validation, and
   live Goals preservation/readback remain pending release gates.
 - **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
   wave closeout, or status turn: select useful ready work, preserve its evidence identity,
@@ -70,6 +71,10 @@ claude plugin install delegation@benzhuk
   default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
   a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
   flags a guard, hook, timer or switch that looks unwired on this machine.
+- **`/delegation:notion-writing`** — existing Notion reading and targeted writing,
+  including fresh-read protection and post-write verification.
+- **`/delegation:dev-server`** — use the existing server manager to prepare and run
+  project development servers.
 
 Neither `delegate` nor `team-build` is for talking to a session you don't own — see
 [`multi`](#multi--peer-sessions) below for that.
