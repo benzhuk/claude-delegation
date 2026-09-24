@@ -39,3 +39,11 @@ Delivery evidence must distinguish transport enqueue, rendering into the intende
 4. Exercise continuation on real authorized work: ready independent work continues after a status/release boundary; explicit stop and finite requests stop; blocked work does not prevent other ready work; no available useful work creates no model loop. Measure useful accepted outcomes, added model turns/usage, missed items and duplicate work. Missing usage or observation remains unknown, not zero.
 
 The first two source fixes can build in parallel. Host-contract inspection is independent. Runtime enforcement follows authentic host evidence; it is not bundled into the confirmed launcher correction.
+
+## Follow-up design ruling after 0.19.0
+
+The bounded design review proposed a read-only continuation-check CLI with explicit scope/session arguments, selected record closure, validation and a revision digest. That source can be built without activation, but it remains dependent on the same model remembering to invoke it. Supplied session/role arguments are not authenticated host binding. The orchestrator therefore defers this separate command: the present failure does not justify another independently shipped workflow or ceremonial self-attestation. Reuse or extend the existing work-record module when the actual completion adapter needs that selection contract.
+
+The useful retained contract is explicit root/Children selection; separate runnable/delivered/rejected/reviewed from owned/blocked/accepted; missing or ambiguous selection stays unknown; accepted finite items never imply the ongoing goal is complete. A future adapter needs current user-scope binding, positive lead identity and cancellation handling in addition to these work facts.
+
+Current native payload evidence includes session/turn/transcript identity and a recursion flag, but no established cancellation or ongoing-scope field. The next authentic observation must distinguish normal completion, corrective re-fire, explicit interruption and child events on the chosen host. Existing registered-hook process fixtures do not answer that behavioral question. A new persistent arming lifecycle or automatic blocker stays unactivated until that contract is verified; this is not a claim that the whole goal is complete or that all future source work requires new authority.
