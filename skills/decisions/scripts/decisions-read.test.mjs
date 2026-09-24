@@ -633,6 +633,30 @@ test('a nested H1 cannot end real archive scope, while archive comments and chec
   assert.equal(directTick.decisions[0].status, 'TICKED');
 });
 
+test('an unclosed details block removes every archive exemption without changing parse shape', () => {
+  const doc = parseDocument(L(
+    '# Closed {toggle="true"}',
+    '<details>',
+    '# Waiting on you now',
+    '<summary>Active malformed item</summary>',
+    '- [ ] Done',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Active malformed item', line: 4 }]);
+  assert.deepEqual(Object.keys(doc).sort(), ['decisions', 'done', 'doneLabel', 'shapeless', 'unattached', 'warnings']);
+});
+
+test('a stray details close removes every archive exemption without becoming a new BLIND rule', () => {
+  const doc = parseDocument(L(
+    '# Closed {toggle="true"}',
+    '</details>',
+    '<summary>Historical-looking but structurally untrusted</summary>',
+    '- [ ] Done',
+  ));
+  assert.deepEqual(doc.shapeless, [
+    { title: 'Historical-looking but structurally untrusted', line: 3 },
+  ]);
+});
+
 test('MINOR 8: formatText and JSON report an explicit decision count', () => {
   const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
   assert.equal(zero.decisions.length, 0);

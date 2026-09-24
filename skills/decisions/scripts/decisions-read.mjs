@@ -3,7 +3,8 @@
  * decisions-read — a PURE PARSER for the owner's Notion decisions page: markdown in, a
  * status list out. No network, no state files, no Notion calls, no dependencies beyond
  * Node's standard library. Every checkbox and owner comment attaches to the nearest
- * preceding title, at any depth — no other indentation logic. Full rules:
+ * preceding title regardless of indentation; only archive-scope boundaries track minimal
+ * page-level heading and `<details>` structure. Full rules:
  * docs/specs/2026-09-20-decisions-reader.md
  */
 import fs from 'node:fs';
@@ -165,6 +166,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
   const archivedTitles = new Set();
   let currentTitle = null;
   let detailsDepth = 0;
+  let detailsBalanced = true;
   let inArchive = false;
 
   for (let i = 0; i < lines.length; i += 1) {
@@ -181,6 +183,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
     }
     if (/^<\/details>[ \t]*$/i.test(trimmed)) {
       if (detailsDepth > 0) detailsDepth -= 1;
+      else detailsBalanced = false;
       continue;
     }
 
@@ -288,6 +291,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
   }
 
   if (inFence) throw new BlindError('unterminated fenced code block');
+  if (detailsDepth !== 0) detailsBalanced = false;
   if (titles.length === 0) throw new BlindError('no titles found');
 
   const { done, doneLabel, warnings: doneWarnings } = finalizeDone(doneCandidates, lines);
@@ -346,7 +350,8 @@ export function parseDocument(text, { now = new Date() } = {}) {
   // reader's stdout grammar and exit codes stay exactly as pinned; a downstream caller (the
   // hand-back check) is what turns this into something the lead sees.
   const shapeless = titles
-    .filter((t) => t.shape === 'summary' && t.options.length === 0 && !archivedTitles.has(t))
+    .filter((t) => t.shape === 'summary' && t.options.length === 0
+      && !(detailsBalanced && archivedTitles.has(t)))
     .map((t) => ({ title: t.title, line: t.line }));
 
   return {

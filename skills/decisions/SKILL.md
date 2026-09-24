@@ -71,7 +71,9 @@ remove one is the lead's call with the owner (not checked).
 
 An optionless summary below the exact, top-level `# Closed` heading is historical rather
 than a malformed active decision. Its owner comments and any checkbox options remain live
-reader signals; archive scope never hides them. The scope ends at the next top-level heading.
+reader signals; archive scope never hides them. The scope ends at the next top-level level-one
+(`#`) heading. An optionless summary under any other top-level section blocks both pickup and
+hand-back.
 
 ## Reading answers
 
