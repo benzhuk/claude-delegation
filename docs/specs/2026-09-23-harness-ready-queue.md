@@ -4,6 +4,8 @@ Owner: skills-a. [Current goals](../GOALS.md) remain authoritative. Release0.20.
 
 ## Current work and discriminating observations
 
+September 24 simplicity review: prioritize useful end-to-end delivery on qualified Codex/Claude routes over optional host qualification. The next admitted useful deliverable must connect its goal, real start, independent lanes, artifact acceptance, review/integration and available native accounting in the existing record. A blocked lane does not block independent work. Diagnose the first broken boundary before adding machinery. Real human handbacks, peer delivery and memory reuse remain separately unproved until observed; do not manufacture them. No new scheduler, coordinator or benchmark service is selected. See the [independent whole-goal assessment](../work/evidence/2026-09-24-simplicity-bearings.md) and [lead response with acceptance and prediction](../work/evidence/2026-09-24-simplicity-response.md). Optional host choices do not define core product completion.
+
 | Outcome | Next useful action | Authority / observation | Actual dependency |
 | --- | --- | --- | --- |
 | Useful native Codex work | Apply the installed workflow to real work without repeating completed qualification | Corrected guide accepted and installed. Read-only pilot read requested sources and skills, returning useful NEEDS_FIXES; ignored configuration had disabled its Windows backend. | No upstream dependency for qualified Windows/Netcup work. Preserve original failure and corrected evidence. |

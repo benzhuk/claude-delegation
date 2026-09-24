@@ -1,0 +1,77 @@
+{
+  "baseline": "158dfb2",
+  "head": "dd1f7cbccab7f2f9109babbf87081404b14d2a99",
+  "categories": {
+    "runtime": {
+      "added": 371,
+      "removed": 33,
+      "files": [
+        "scripts/mirror-shared-skills.mjs",
+        "skills/decisions/scripts/decisions-handback.mjs",
+        "skills/decisions/scripts/decisions-pickup.mjs",
+        "skills/decisions/scripts/decisions-read.mjs",
+        "skills/multi/scripts/note-flush.mjs"
+      ]
+    },
+    "tests": {
+      "added": 900,
+      "removed": 8,
+      "files": [
+        "skills/decisions/scripts/decisions-archive.contract.test.mjs",
+        "skills/decisions/scripts/decisions-handback.test.mjs",
+        "skills/decisions/scripts/decisions-pickup.test.mjs",
+        "skills/decisions/scripts/decisions-read.test.mjs",
+        "skills/decisions/scripts/registered-pickup.contract.test.mjs",
+        "skills/multi/scripts/mirror-shim.test.mjs",
+        "skills/multi/scripts/note-flush.test.mjs"
+      ]
+    },
+    "instructions": {
+      "added": 31,
+      "removed": 0,
+      "files": [
+        "skills/decisions/SKILL.md"
+      ]
+    },
+    "other": {
+      "added": 0,
+      "removed": 0,
+      "files": []
+    }
+  },
+  "largestRuntimeFiles": [
+    {
+      "path": "skills/multi/scripts/transport.mjs",
+      "lines": 1947
+    },
+    {
+      "path": "skills/decisions/scripts/decisions-pickup.mjs",
+      "lines": 1327
+    },
+    {
+      "path": "skills/multi/scripts/note-flush.mjs",
+      "lines": 1271
+    },
+    {
+      "path": "scripts/mirror-shared-skills.mjs",
+      "lines": 916
+    },
+    {
+      "path": "skills/multi/scripts/note-send.mjs",
+      "lines": 879
+    },
+    {
+      "path": "scripts/janitor.mjs",
+      "lines": 815
+    },
+    {
+      "path": "scripts/token-census.mjs",
+      "lines": 698
+    },
+    {
+      "path": "hooks/agent-dispatch-guard.mjs",
+      "lines": 645
+    }
+  ],
+  "scope": "Git-tracked scripts/skills/hooks only; excludes dotfiles memory repair, repo docs, manifests and private scratch artifacts; line count is not complexity or value."
+}
