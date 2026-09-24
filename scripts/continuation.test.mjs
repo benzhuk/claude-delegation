@@ -44,7 +44,7 @@ async function arm(f, { host = "codex", episodeKey = "episode-1", profile = `${h
   const bind = await runContinuationCli(cliArgs("bind", epoch, f, ["--repo", f.root, "--root", "wr-2026-09-23-root", "--authority-ref", "authority.md"]), f.deps);
   assert.equal(bind.exitCode, 0, bind.stderr);
   const payload = JSON.parse(bind.stdout);
-  await handleContinuationEvent(ev({ host, profile, event: "PostToolUse", episodeKey: episodeKey ?? "claude-user-uuid", eventKey: "tool-1", bindRequestId: payload.bindRequestId }), f.deps);
+  await handleContinuationEvent(ev({ host, profile, event: "PostToolUse", episodeKey: episodeKey ?? "claude-user-uuid", eventKey: "tool-1", bindRequestId: payload.continuationBind.requestId }), f.deps);
   return { epoch, ...payload };
 }
 
@@ -106,6 +106,21 @@ test("new prompt makes stale bind and stale Stop fail closed", async (t) => {
   assert.equal(await handleContinuationEvent(ev({ event: "Stop", eventKey: "old-stop" }), f.deps), null);
 });
 
+test("unknown-identity, missing-key, and unsupported-profile prompts suspend armed authority", async (t) => {
+  for (const [name, change] of [
+    ["identity", { episodeKey: null, eventKey: "unknown-new" }],
+    ["event", { eventKey: null }],
+    ["profile", { profile: "changed-unproved", cancellationVerified: false, eventKey: "unsupported-new" }],
+  ]) {
+    await t.test(name, async (st) => {
+      const f = fixture(); st.after(f.cleanup); putRecord(f, "root", {}); await arm(f);
+      await handleContinuationEvent(ev(change), f.deps);
+      assert.equal(await handleContinuationEvent(ev({ event: "Stop", eventKey: `stale-${name}` }), f.deps), null);
+      assert.equal(JSON.parse((await runContinuationCli(cliArgs("status", null, f), f.deps)).stdout).status, "suspended");
+    });
+  }
+});
+
 test("late afterFlush cannot mark a newer episode and null-identity SessionStart suspends", async (t) => {
   const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {}); await arm(f);
   const reserved = await handleContinuationEvent(ev({ event: "Stop", eventKey: "stop-old" }), f.deps);
@@ -123,7 +138,9 @@ test("Claude null-prompt bootstrap requires structured current bind request id",
   const prompt = await handleContinuationEvent(ev({ host: "claude", profile: "claude-native-v1", episodeKey: null }), f.deps);
   const epoch = epochFrom(prompt);
   const bind = await runContinuationCli(["bind", "--host", "claude", "--session-id", "session-1", "--expected-epoch", epoch, "--repo", f.root, "--root", "wr-2026-09-23-root", "--authority-ref", "authority.md"], f.deps);
-  const request = JSON.parse(bind.stdout).bindRequestId;
+  const marker = JSON.parse(bind.stdout).continuationBind;
+  assert.equal(marker.epoch, epoch);
+  const request = marker.requestId;
   await handleContinuationEvent(ev({ host: "claude", profile: "claude-native-v1", event: "PostToolUse", episodeKey: "real-user-uuid", eventKey: "tool-bad", bindRequestId: "copied-old" }), f.deps);
   assert.equal(await handleContinuationEvent(ev({ host: "claude", profile: "claude-native-v1", event: "Stop", episodeKey: "real-user-uuid", eventKey: "stop-bad" }), f.deps), null);
   await handleContinuationEvent(ev({ host: "claude", profile: "claude-native-v1", event: "PostToolUse", episodeKey: "real-user-uuid", eventKey: "tool-good", bindRequestId: request }), f.deps);
@@ -177,12 +194,55 @@ test("an unreadable off switch fails closed before any state write", async () =>
   } finally { f.cleanup(); }
 });
 
+test("oversized evidence is rejected before any content read", (t) => {
+  const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
+  const proof = path.join(f.root, "docs", "work", "evidence", "proof.md");
+  fs.writeFileSync(proof, `VERDICT: APPROVE deadbeef\n${"x".repeat(1024 * 1024)}`);
+  let proofReads = 0; const proofFds = new Set();
+  const fsImpl = new Proxy(fs, { get(target, property) {
+    if (property === "openSync") return (candidate, ...args) => { const fd = target.openSync(candidate, ...args); if (path.resolve(String(candidate)) === path.resolve(proof)) proofFds.add(fd); return fd; };
+    if (property === "readSync") return (fd, ...args) => { if (proofFds.has(fd)) proofReads += 1; return target.readSync(fd, ...args); };
+    if (property === "closeSync") return (fd, ...args) => { proofFds.delete(fd); return target.closeSync(fd, ...args); };
+    return target[property];
+  } });
+  const result = selectContinuationSnapshot({ repo: f.root, roots: ["wr-2026-09-23-root"], authorityRef: "authority.md" }, { ...f.deps, fsImpl });
+  assert.equal(result.status, "UNKNOWN"); assert.equal(proofReads, 0);
+});
+
+test("unreadable record index entry cannot disappear and create a valid selected revision", (t) => {
+  const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {}); putRecord(f, "duplicate", {});
+  const denied = path.resolve(f.root, "docs", "work", "duplicate.record.md");
+  const fsImpl = new Proxy(fs, { get(target, property) {
+    if (property === "openSync") return (candidate, ...args) => { if (path.resolve(String(candidate)) === denied) { const error = new Error("denied"); error.code = "EACCES"; throw error; } return target.openSync(candidate, ...args); };
+    return target[property];
+  } });
+  assert.equal(selectContinuationSnapshot({ repo: f.root, roots: ["wr-2026-09-23-root"], authorityRef: "authority.md" }, { ...f.deps, fsImpl }).status, "UNKNOWN");
+});
+
+test("bind, account, and Stop preserve injected selector filesystem", async (t) => {
+  const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
+  const epoch = epochFrom(await handleContinuationEvent(ev(), f.deps));
+  const authority = path.resolve(f.root, "authority.md");
+  const deniedFs = new Proxy(fs, { get(target, property) {
+    if (property === "openSync") return (candidate, ...args) => { if (path.resolve(String(candidate)) === authority) { const error = new Error("denied"); error.code = "EACCES"; throw error; } return target.openSync(candidate, ...args); };
+    return target[property];
+  } });
+  let result = await runContinuationCli(cliArgs("bind", epoch, f, ["--repo", f.root, "--root", "wr-2026-09-23-root", "--authority-ref", "authority.md"]), { ...f.deps, fsImpl: deniedFs });
+  assert.notEqual(result.exitCode, 0);
+  const armed = await arm(f);
+  result = await runContinuationCli(cliArgs("account", armed.epoch, f, ["--expected-revision", armed.revision, "--evidence-ref", "docs/work/evidence/proof.md"]), { ...f.deps, fsImpl: deniedFs });
+  assert.notEqual(result.exitCode, 0);
+  const stop = await handleContinuationEvent(ev({ event: "Stop", eventKey: "denied-stop" }), { ...f.deps, fsImpl: deniedFs });
+  assert.equal(stop.reason, undefined); assert.match(stop.diagnostic, /UNREADABLE/);
+});
+
 test("actual CLI process supports status, bind, account, and stop in sealed fixture", async (t) => {
   const f = fixture(); t.after(f.cleanup); putRecord(f, "root", {});
   const epoch = epochFrom(await handleContinuationEvent(ev(), f.deps));
   const run = (args) => execFileSync(process.execPath, [SOURCE, ...args], { env: f.env, encoding: "utf8" });
   assert.equal(JSON.parse(run(cliArgs("status", null, f))).status, "unbound");
   const binding = JSON.parse(run(cliArgs("bind", epoch, f, ["--repo", f.root, "--root", "wr-2026-09-23-root", "--authority-ref", "authority.md"])));
+  assert.equal(binding.continuationBind.epoch, epoch); assert.ok(binding.continuationBind.requestId);
   await handleContinuationEvent(ev({ event: "PostToolUse", eventKey: "tool" }), f.deps);
   assert.equal(JSON.parse(run(cliArgs("account", epoch, f, ["--expected-revision", binding.revision, "--evidence-ref", "docs/work/evidence/proof.md"]))).status, "accounted");
   assert.equal(JSON.parse(run(cliArgs("stop", epoch, f))).status, "stopped");
