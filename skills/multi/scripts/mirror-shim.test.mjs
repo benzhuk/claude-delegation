@@ -217,7 +217,7 @@ test('optional source omissions are named, nonfatal, and dry-run writes nothing'
   assert.equal(plan.ok, true);
   assert.deepEqual(plan.refusals, []);
   for (const name of ['knowledge', 'triage', 'learn']) {
-    assert.ok(plan.actions.some((line) => line.includes(`optional source skill not sourced: ${name} (source missing)`)),
+    assert.ok(plan.actions.includes(`optional source skill not sourced: ${name} (source missing)`),
       `missing source diagnostic for ${name}:\n${plan.actions.join('\n')}`);
   }
   assert.deepEqual(fs.readdirSync(plan.home), [], '--dry-run must not create a home entry');
@@ -242,6 +242,17 @@ test('optional source without SKILL.md is named while a usable optional source r
   assert.ok(plan.actions.some((line) => new RegExp(`would ${publishVerb}: .*\\.agents[\\\\/]skills[\\\\/]learn`).test(line)),
     `usable optional source was not selected:\n${plan.actions.join('\n')}`);
   assert.deepEqual(fs.readdirSync(path.join(home, '.claude', 'skills', 'learn')), ['SKILL.md']);
+  assert.ok(!fs.existsSync(path.join(home, '.agents')), '--dry-run must not publish optional sources');
+});
+
+test('optional SKILL.md directory is reported as a wrong file type', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-optional-file-type-'));
+  fs.mkdirSync(path.join(home, '.claude', 'skills', 'knowledge', 'SKILL.md'), { recursive: true });
+
+  const plan = runMirrorJson(['--dry-run'], home);
+  assert.equal(plan.ok, true);
+  assert.ok(plan.actions.includes('optional source skill not sourced: knowledge (wrong file type: SKILL.md is not a file)'),
+    plan.actions.join('\n'));
   assert.ok(!fs.existsSync(path.join(home, '.agents')), '--dry-run must not publish optional sources');
 });
 

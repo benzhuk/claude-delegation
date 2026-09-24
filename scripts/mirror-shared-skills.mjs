@@ -142,7 +142,7 @@ function parseArgs(argv) {
  * is a statement of fact true in both modes (nothing is dropped or overwritten whether or not this is
  * a dry run) rather than an action about to happen, so it reads the same "refusing to…" way too.
  */
-const NO_OP = /^(up to date|already|nothing|refusing)/;
+const NO_OP = /^(up to date|already|nothing|refusing|optional source)/;
 function say(action, detail) {
   log.push(`${opts.dryRun && !NO_OP.test(action) ? 'would ' : ''}${action}: ${detail}`);
 }
