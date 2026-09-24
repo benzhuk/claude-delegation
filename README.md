@@ -233,6 +233,12 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.1 — preserves unknown wiring evidence instead of treating unreadable files,
+  invalid check input and malformed selected hook structures as healthy absence.
+  The existing diagnostic stays read-only and nonblocking, with one bounded notice;
+  private actual values and raw exceptions do not enter its output. The shared agent
+  contract now requires actual gate exits and retained output, including PowerShell's
+  native-command exit boundary. No new health service or automatic repair is added.
 - 0.20.0 — connects explicit ongoing scope and existing work records to the native
   completion boundary. The shared core preserves native epochs, exact evidence revisions,
   stale-command rejection and one shared correction opportunity with peer delivery.

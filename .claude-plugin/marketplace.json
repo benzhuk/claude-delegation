@@ -7,7 +7,7 @@
       "name": "delegation",
       "source": "./",
       "description": "Multi-agent orchestration: delegate/team-build/multi skills, vendor-neutral tiers, shared mechanics, prompt routing, ongoing continuation through wave/status closeout, portable decisions configuration, audience routing, bearings receipts, and callable one-shot registered-page decision pickup with immutable captures, single-host page binding, conservative recovery, and owner accounting. No scheduler, automatic owner recovery/clearing, or two-host validation is claimed.",
-      "version": "0.20.0",
+      "version": "0.20.1",
       "author": { "name": "Ben Zhuk" }
     }
   ]
