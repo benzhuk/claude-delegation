@@ -35,6 +35,16 @@ const PICKUP_ARCHIVE = ARCHIVE.replace('# Current section {toggle="true"}\n<summ
 const PLAIN_PICKUP_ARCHIVE = PICKUP_ARCHIVE.replace('# Closed {toggle="true"}', '# Closed');
 const MIXED_UNKNOWN = `${PLAIN_PICKUP_ARCHIVE.replace('- [ ] Done', '# Unknown historical section\n<summary>Unknown optionless history</summary>\n- [ ] Done')}`;
 const MIXED_NORMALIZED = MIXED_UNKNOWN.replace('# Unknown historical section', '## Unknown historical section');
+const HANDBACK_UNKNOWN = `<summary>Current unchecked choice</summary>
+- [ ] current option
+No default: explicit owner choice
+# Closed
+<summary>Archived grouping</summary>
+# Unknown historical section
+<summary>Unknown optionless history</summary>
+- [ ] Done
+`;
+const HANDBACK_NORMALIZED = HANDBACK_UNKNOWN.replace('# Unknown historical section', '## Unknown historical section');
 const HAND_BACK_GOALS = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'handback', 'goals-clean.md'), 'utf8');
 
 function pickupFixture(t) {
@@ -145,23 +155,25 @@ test('only normalized history beneath Closed is exempt; later unknown H1 remains
   assert.equal(fs.existsSync(paths.directory), false, 'normalized unchecked page has no receipt or capture');
 });
 
-test('handback reports the same unknown-H1 shape defect and clears it after hierarchy-only normalization', () => {
+test('handback reports the same unknown-H1 shape defect and clears it after hierarchy-only normalization', (t) => {
+  const sealed = makeTempHome();
+  t.after(sealed.cleanup);
   const run = (decisions) => {
     const out = [];
     const exitCode = runHandback({
       argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
       readFile: (file) => ({ d: decisions, g: HAND_BACK_GOALS })[file],
       execGit: () => { throw new Error('head supplied'); }, write: (text) => out.push(text), writeErr: () => {},
-      env: { AGENTS_HOME: fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMP || '.', 'archive-handback-')) },
+      env: sealed.env,
       readGoalsParentPage: () => ({ configured: true }),
     });
     return { exitCode, stdout: out.join('') };
   };
-  const unknown = run(MIXED_UNKNOWN);
+  const unknown = run(HANDBACK_UNKNOWN);
   assert.equal(unknown.exitCode, 1);
   assert.match(unknown.stdout, /^SHAPE/m);
   assert.match(unknown.stdout, /HANDBACK blocked/);
-  const normalized = run(MIXED_NORMALIZED);
+  const normalized = run(HANDBACK_NORMALIZED);
   assert.equal(normalized.exitCode, 0);
   assert.doesNotMatch(normalized.stdout, /^SHAPE/m);
   assert.match(normalized.stdout, /HANDBACK ok/);
