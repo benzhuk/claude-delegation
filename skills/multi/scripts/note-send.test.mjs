@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 
 import { childEnv, scratchHome } from './test-child-env.mjs';
 
+import { parseEnvelope } from './envelope.mjs';
+import { runNoteInbox } from './note-inbox.mjs';
 import {
   NoteError, MAX_LINE,
   normalizeTitle, titleMatchesSlug, resolvePane, isLocalPane,
@@ -645,6 +647,34 @@ test('v3: --packet-file writes docs/notes/<id>.md before the ledger line', async
   assert.equal(res.packetPath, packetPathFor(repo, 'taxonomy-ping-1'));
   assert.equal(res.packetWritten, true);
   assert.match(fs.readFileSync(res.packetPath, 'utf8'), /the packet body/);
+});
+
+test('packet-file derives Details from the resolved id and the recipient inbox resolves that packet', async () => {
+  const repo = tmp(); const home = tmp();
+  const src = path.join(tmp(), 'packet.md');
+  fs.writeFileSync(src, '# actual packet\n');
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  const sent = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  const parsed = parseEnvelope(sent.envelope);
+  assert.equal(parsed.details, 'docs/notes/taxonomy-ping-1.md');
+  const inbox = await runNoteInbox(['--me', 'nucleus', '--repo', repo], {
+    home, cwd: repo, git: () => '.git', now: NOW, env: {},
+  });
+  assert.equal(inbox.count, 1);
+  assert.equal(inbox.notes[0].details, parsed.details);
+  assert.equal(inbox.notes[0].packetPath, sent.packetPath);
+  assert.equal(inbox.notes[0].packetExists, true);
+});
+
+test('packet-file derives the same Details in dry-run and preserves an explicit Details reference', async () => {
+  const repo = tmp(); const src = path.join(tmp(), 'packet.md');
+  fs.writeFileSync(src, '# packet\n');
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  const dry = await runNoteSend(ARGS_OK(['--packet-file', src, '--dry-run', '--recipient-repo', repo]), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(parseEnvelope(dry.envelope).details, 'docs/notes/taxonomy-ping-1.md');
+  const explicit = await runNoteSend(ARGS_OK(['--packet-file', src, '--details', 'docs/notes/separate.md']), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(parseEnvelope(explicit.envelope).details, 'docs/notes/separate.md');
+  assert.equal(explicit.packetPath, packetPathFor(repo, 'taxonomy-ping-1'));
 });
 
 test('v3: --packet-file - reads the body from stdin (the ssh form)', async () => {

@@ -448,8 +448,6 @@ export async function runNoteSend(argv, deps = {}) {
     throw new NoteError(1, `recipient repo "${targetRepo}" does not exist`);
   }
 
-  const details = args.details ? validateDetails(args.details) : undefined;
-
   // ── Id, derived from every ledger we can see.
   const ledgerDirs = [
     path.posix.join(toPosix(targetRepo), 'docs/ledger'),
@@ -460,6 +458,12 @@ export async function runNoteSend(argv, deps = {}) {
   const n = args.n !== undefined ? Number(args.n) : nextCounter(readLedgerCorpus(ledgerDirs, fsImpl), prefix);
   if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
   const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
+  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id) : null;
+  // A packet is useful only if the ledger points the recipient to it. Explicit --details remains a
+  // caller-controlled reference; without it, derive the exact packet path from the resolved id once.
+  const details = args.details
+    ? validateDetails(args.details)
+    : (packetPath ? validateDetails(path.posix.join('docs', 'notes', `${id}.md`)) : undefined);
 
   const toSlug = isBen ? RESERVED_RECIPIENT : recipientSlug(pane, toRaw, bindings);
   const envelope = buildEnvelope({
@@ -468,7 +472,6 @@ export async function runNoteSend(argv, deps = {}) {
     needs: args.needs, by: args.by,
   });
 
-  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id) : null;
   const ledgerTargets = uniq([
     ledgerPath(targetRepo, ymd),
     senderRepo && senderRepo !== targetRepo ? ledgerPath(senderRepo, ymd) : null,
