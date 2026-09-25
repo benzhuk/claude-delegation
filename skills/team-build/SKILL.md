@@ -240,10 +240,14 @@ strict acceptance. Then, to move the record to `accepted`, run:
 ```
 node <verified-plugin-root>/scripts/work-record.mjs accept \
   --record <repo-relative-record> --repo <target-root> \
-  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
+  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>) \
+  (--census <census-file> | --no-census "<reason>")
 ```
 
-`accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
+Run the census at accept time, after the last review, over the lead's own session file and
+the subagents dir, and pass its output as `--census`; a genuinely broken census still
+accepts via `--no-census "<reason>"`, visibly unmeasured rather than silently blocked — see
+`docs/census.md`. `accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
 same strict check `check-acceptance` runs (identity, evidence, and a live `git rev-parse
 HEAD` against `Worktree:`, never a value an agent merely reports) and refuses, unchanged,
 if that check fails; there is no flag or older command that skips it. Only on success
