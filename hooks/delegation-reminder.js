@@ -301,8 +301,8 @@ function sweepState() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Imported lazily: nothing below the injection threshold ever pays for it. */
-function goalCard() {
-  return import(pathToFileURL(path.join(__dirname, "..", "scripts", "goal-card.mjs")).href);
+function goalContext() {
+  return import(pathToFileURL(path.join(__dirname, "lib", "goal-context.mjs")).href);
 }
 
 /**
@@ -310,9 +310,7 @@ function goalCard() {
  */
 async function cardResult(cwd, agentType) {
   try {
-    const mod = await goalCard();
-    const extra = mod.wantsReportLine(agentType) ? mod.SUBAGENT_SUFFIX : undefined;
-    return mod.goalCardResult(cwd || process.cwd(), extra ? { extra } : {});
+    return (await goalContext()).cardResult(cwd, agentType, { env: process.env });
   } catch {
     return { status: "blind", text: null, reason: null, path: null };
   }
@@ -320,31 +318,15 @@ async function cardResult(cwd, agentType) {
 
 async function rejectionNotice(result) {
   try {
-    const mod = await goalCard();
-    return mod.rejectionNotice(result.path, result.reason);
+    return (await goalContext()).rejectionNotice(result);
   } catch {
     return null;
   }
 }
 
-// Bearings stays an explicit skill invocation. The hook only asks its local, packaged helper whether
-// a completed assessment is due; it never starts a review, calls a model, or contacts publication.
-function bearingsState() {
-  return import(pathToFileURL(path.join(__dirname, "..", "skills", "bearings", "scripts", "bearings-state.mjs")).href);
-}
-
 async function bearingsNotice(cwd) {
   try {
-    const checked = (await bearingsState()).check({ repo: cwd });
-    // Seam S7: a receipt rejected for reviewer-not-independent is still "due", but the generic
-    // due-notice hides the actual reason from a lead that just recorded a self-reviewed bearings —
-    // name the reason so the lead knows a different receipt (not merely another /delegation:bearings
-    // run with the same reviewer) is what clears it.
-    if (checked.status === "due" && checked.reason === "reviewer-not-independent") {
-      return "Bearings are due: the last receipt's reviewer was not independent of the lead. Run `/delegation:bearings` with a different reviewer.";
-    }
-    if (checked.status === "due") return "Bearings are due. Run `/delegation:bearings` to assess the current goal and publish the result.";
-    if (checked.status === "unknown") return "Bearings status is unknown. Run `/delegation:bearings` to inspect the current goal and completion evidence.";
+    return (await goalContext()).bearingsNotice(cwd, { env: process.env });
   } catch {}
   return null;
 }

@@ -32,6 +32,8 @@ import {
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
 import { handleContinuationEvent } from '../scripts/continuation.mjs';
 import { classifyCodexRole, normalizeCodexContinuation } from './continuation-native.mjs';
+import { activeSwitch } from '../scripts/goal-card.mjs';
+import { cardResult, rejectionNotice, bearingsNotice, leadIdHint } from './lib/goal-context.mjs';
 import {
   runHookEvent, writeJson, composeContinuationResult, BUDGET_MS, POST_TOOL_BUDGET_MS,
 } from './multi-hook-core.mjs';
@@ -45,6 +47,34 @@ export const SESSION_META_MAX_BYTES = 256 * 1024;
 /** Return true only for an authentic, self-consistent native subagent session metadata record. */
 export function isConfirmedCodexChild(input = {}, fsImpl = fs) {
   return classifyCodexRole(input, fsImpl) === 'child';
+}
+
+/** Append host advisory context without replacing peer or continuation delivery. */
+function appendGoalContext(result, event, text, systemMessage) {
+  if (!text && !systemMessage) return result;
+  const next = result ? { ...result, output: result.output ? structuredClone(result.output) : null } : { ackIds: [] };
+  if (!next.output) next.output = { suppressOutput: true };
+  const output = next.output;
+  if (text) {
+    const hook = output.hookSpecificOutput ?? { hookEventName: event };
+    const prior = hook.additionalContext;
+    output.hookSpecificOutput = { ...hook, additionalContext: prior ? `${prior}\n${text}` : text };
+  }
+  if (systemMessage) output.systemMessage = output.systemMessage ? `${output.systemMessage}\n${systemMessage}` : systemMessage;
+  return next;
+}
+
+async function goalContextForLead(input, cwd, role, env) {
+  const event = String(input.hook_event_name ?? '');
+  if (role !== 'lead' || !['SessionStart', 'UserPromptSubmit'].includes(event)) return null;
+  const card = await cardResult(cwd, undefined, { env });
+  if (card.status === 'rejected') {
+    return event === 'SessionStart' ? { text: null, systemMessage: await rejectionNotice(card) } : null;
+  }
+  if (card.status !== 'ok') return null;
+  const bearings = activeSwitch('bearings', env) === null ? await bearingsNotice(cwd, { env }) : null;
+  const hint = event === 'SessionStart' && bearings ? leadIdHint(input.session_id) : null;
+  return { text: [card.text, bearings, hint].filter(Boolean).join('\n\n') || null, systemMessage: event === 'SessionStart' ? bearings : null };
 }
 
 /**
@@ -82,7 +112,8 @@ export async function runCodexHook(input = {}, deps = {}) {
   const fsImpl = deps.fsImpl ?? fs;
   // This is before slug resolution: children can inherit a parent pane handle and must not register
   // or consume that lead's inbox. Missing, corrupt, mismatched, or oversized metadata stays lead-like.
-  if (isConfirmedCodexChild(input, fsImpl)) return null;
+  const role = classifyCodexRole(input, fsImpl);
+  if (role === 'child') return null;
   const env = deps.env ?? process.env;
   const home = toPosix(deps.home ?? os.homedir());
   const event = String(input.hook_event_name ?? '');
@@ -94,6 +125,10 @@ export async function runCodexHook(input = {}, deps = {}) {
   const me = deps.slug ? { slug: deps.slug, source: 'deps' } : codexSlug(env, home, fsImpl);
 
   const cwd = input.cwd ?? process.cwd();
+  // Goal/card work is advisory and bounded separately from peer delivery. A slow dynamic import or
+  // receipt read therefore cannot consume the peer/continuation budget; synchronous filesystem work
+  // remains subject to the host runtime and is deliberately not claimed preemptible.
+  const advisoryWork = withBudget(goalContextForLead(input, cwd, role, env), 500);
 
   // D2 (spec 2026-09-17): register this session's inbox — the on-disk queue Codex itself watches.
   // `session_id` from this payload IS the thread id `codex queue --thread` accepts (spiked live on
@@ -129,9 +164,11 @@ export async function runCodexHook(input = {}, deps = {}) {
     }
   } catch { /* continuation never suppresses peer delivery */ }
   const result = composeContinuationResult(peer, continuation, event);
-  if (!result) return null;
+  const advisory = await advisoryWork;
+  const withGoalContext = advisory ? appendGoalContext(result, event, advisory.text, advisory.systemMessage) : result;
+  if (!withGoalContext) return null;
   // The ack the caller runs AFTER the output is on the wire, never before it (review MAJOR 3).
-  return { ...result, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
+  return { ...withGoalContext, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
 }
 
 async function main() {
