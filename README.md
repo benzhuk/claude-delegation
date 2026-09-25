@@ -59,8 +59,7 @@ claude plugin install delegation@benzhuk
   Claude Code can show a bounded due/unknown notice at SessionStart and during an active
   session's existing periodic reminder route. That notice never starts an assessment;
   automatic daily assessment triggering and idle assessment execution are not
-  included. The separate decisions skill owns registered `Done` pickup. Codex cadence, installed-host discovery/parity, mixed-host validation, and
-  live Goals preservation/readback remain pending release gates.
+  included. The separate decisions skill owns registered `Done` pickup. A positively classified Codex lead receives the same card and due/unknown advisory at SessionStart and UserPromptSubmit; confirmed children receive neither new effect, and unknown identity retains only existing inbox/continuation behavior. Codex has no bearings cadence on PostToolUse, Stop, or Interrupt; installed-host proof, mixed-host validation, and live Goals preservation/readback remain separate release gates.
 - **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
   wave closeout, or status turn: select useful ready work, preserve its evidence identity,
   refill genuinely free capacity, and use verified native host resume paths. On supported
@@ -238,6 +237,7 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.9 — Codex lead source parity: a positively classified lead receives the shared goal card and due/unknown bearings advisory at SessionStart and UserPromptSubmit; SessionStart may also show the advisory to the human. Confirmed children receive no new card or bearings effect, while unknown native identity keeps its established inbox/continuation behavior without the new advisory. The actual switches are `ws-off`, `ws-off-goalcard`, and `ws-off-bearings`; Codex has no new PostToolUse, Stop, or Interrupt cadence. This is source behavior, not an installation or live-observation claim. `docs/native-use.md` now distinguishes the 0.20.6 four-host installation evidence from current source capability; no version bump is included.
 - 0.20.8 — GOALS.md status updates: records the four-host 0.20.6 install of 2026-09-24
   (Windows, Mac, Hetzner, Netcup) with the 0.20.7 card-cap change installed nowhere as of
   2026-09-24; records the 8:25 AM scheduled pickup on 2026-09-24 that ran unattended and
