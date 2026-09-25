@@ -69,7 +69,10 @@ mention says where to find it once mirrored.
    (`docs/work-record.md`, shipped next to this skill as `../_docs/work-record.md` when
    mirrored, and in the plugin repo's `docs/` otherwise, has the full field list): `Status:
    runnable`, `Owner: none`, `Scope:` the spec or brief path and the commit it was read at,
-   `Authority:` what may happen without Ben and what may not. **You are this record's ONLY
+   `Authority:` what may happen without Ben and what may not. Set `Opened:` to when YOU
+   start the build (the ask/spec dispatch time), never later and never at accept time — a
+   record whose `Opened:` sits minutes before its own acceptance measures nothing but the
+   tail end of review, not the build (`docs/census.md`). **You are this record's ONLY
    writer, for its whole life** — builders and reviewers keep their own state file and
    report to the path in their mandate; neither one ever touches `docs/work/`. Ownership
    returns to you, recorded as a `Log:` line, the moment an agent reports, is stopped, or
