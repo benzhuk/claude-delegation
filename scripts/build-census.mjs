@@ -257,6 +257,119 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
   return { totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal };
 }
 
+// Codex writes one token_usage_record per response.  Its `usage` object is the
+// response-local counter; `turn_token_usage` and `thread_token_usage` are cumulative
+// snapshots and must never be added.  The session_meta id binds every counted record to
+// the requested session, while response_id supplies the de-dup key.
+function codexUsage(usage) {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) {
+    throw new Error('Codex token_usage_record lacks a valid per-response usage object');
+  }
+  const finiteCount = (value, name, optional = false) => {
+    if (value === undefined && optional) return 0;
+    if (!Number.isFinite(value) || value < 0) throw new Error(`Codex token_usage_record has invalid ${name}`);
+    return value;
+  };
+  const input = finiteCount(usage.input_tokens, 'input_tokens');
+  const cached = finiteCount(usage.cached_input_tokens, 'cached_input_tokens', true);
+  const cacheWrite = finiteCount(usage.cache_write_input_tokens, 'cache_write_input_tokens', true);
+  const output = finiteCount(usage.output_tokens, 'output_tokens');
+  if (input < cached + cacheWrite) {
+    throw new Error('Codex token_usage_record has invalid per-response usage');
+  }
+  // Codex input_tokens includes cached and cache-write input; split it so this report's
+  // four shared columns remain additive rather than counting cached input twice.
+  return {
+    input_tokens: input - cached - cacheWrite,
+    cache_creation_input_tokens: cacheWrite,
+    cache_read_input_tokens: cached,
+    output_tokens: output,
+  };
+}
+
+async function detectLeadHost(filePath, fsImpl) {
+  const rl = await openLines(fsImpl, filePath);
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    if (obj.type === 'session_meta') {
+      const payload = obj.payload;
+      if (!payload || typeof payload.session_id !== 'string' || payload.session_id !== payload.id) {
+        throw new Error('Codex session_meta is malformed or lacks a verified session id');
+      }
+      return 'codex';
+    }
+    // A token record is distinctive Codex evidence even when a truncated file lost its
+    // session_meta prelude. Route it to the Codex reader, which rejects missing session
+    // attribution visibly rather than treating it as a zero-token Claude transcript.
+    if (obj.type === 'token_usage_record' || obj.type === 'response_item' || obj.type === 'event_msg') return 'codex';
+  }
+  return 'claude';
+}
+
+export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker } = {}) {
+  const rl = await openLines(fsImpl, filePath);
+  const totalById = new Map();
+  const windowById = marker ? new Map() : totalById;
+  const totalNativeTurns = new Set();
+  const windowNativeTurns = new Set();
+  let sessionId = null;
+  let sawMeta = false;
+  let tokenRecordCount = 0;
+  let windowStarted = !marker;
+  let windowStartAt = null;
+  let firstAt = null;
+  let lastAt = null;
+
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { throw new Error('Codex session transcript contains malformed JSON'); }
+    if (obj.timestamp) {
+      if (!firstAt) firstAt = obj.timestamp;
+      lastAt = obj.timestamp;
+    }
+    if (marker && !windowStarted && containsMarkerDeep(obj, marker)) {
+      windowStarted = true;
+      windowStartAt = obj.timestamp || lastAt;
+    }
+    if (obj.type === 'session_meta') {
+      const meta = obj.payload;
+      if (sawMeta || !meta || typeof meta.session_id !== 'string' || meta.session_id !== meta.id) {
+        throw new Error('Codex session_meta is malformed or does not identify exactly one session');
+      }
+      sessionId = meta.session_id;
+      sawMeta = true;
+      continue;
+    }
+    if (obj.type !== 'token_usage_record') continue;
+    tokenRecordCount += 1;
+    const record = obj.payload;
+    if (!sawMeta || !record || record.session_id !== sessionId || typeof record.response_id !== 'string' || typeof record.turn_id !== 'string') {
+      throw new Error('Codex token_usage_record lacks verified session, response, or turn attribution');
+    }
+    const entry = { model: 'unknown', usage: codexUsage(record.usage), ts: obj.timestamp || lastAt };
+    totalById.set(`response:${record.response_id}`, entry);
+    totalNativeTurns.add(record.turn_id);
+    if (windowStarted) {
+      windowById.set(`response:${record.response_id}`, entry);
+      windowNativeTurns.add(record.turn_id);
+    }
+  }
+  if (!sawMeta) throw new Error('Codex session_meta was not found');
+  if (!marker) windowStartAt = firstAt;
+  return {
+    totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt,
+    // The private event stream does not connect response ids to assistant/user role
+    // ordering, so native turn ids cannot be represented as Claude conversational runs.
+    leadTurns: null, leadTurnsTotal: null,
+    nativeTurnCount: totalNativeTurns.size, nativeTurnCountWindow: windowNativeTurns.size,
+    tokensSupported: tokenRecordCount > 0,
+    tokenUnsupportedReason: tokenRecordCount > 0 ? null : 'no token_usage_record rows with per-response usage',
+  };
+}
+
 /**
  * Census one subagent .output/.jsonl file. Same last-line-wins de-dup, independently per
  * file. Returns { byId: Map<id, {model, usage, ts}>, firstAt, lastAt }.
@@ -325,9 +438,9 @@ function matchesPattern(f, pattern) {
 // hardlinked to subagents/agent-<id>.jsonl) it keeps the FIRST-seen copy, so a default's
 // `agent-<id>.jsonl` name — the one --role-map and journal.jsonl both key off — wins over
 // an explicit --tasks dir's `<id>.output` alias.
-function buildDirSpecs(opts, fsImpl) {
+function buildDirSpecs(opts, fsImpl, { includeDefaultSubagents = true } = {}) {
   const specs = [];
-  if (opts.lead) {
+  if (opts.lead && includeDefaultSubagents) {
     const leadSessionId = path.basename(opts.lead).replace(/\.jsonl$/i, '');
     const sessionDir = path.join(path.dirname(opts.lead), leadSessionId);
     const defaultDir = path.join(sessionDir, 'subagents');
@@ -471,9 +584,15 @@ function resolveRole(agentKey, journalMap, roleMap) {
  * to real node:fs.
  */
 export async function runCensus(opts, fsImpl = realFs()) {
-  const lead = await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
+  const leadHost = await detectLeadHost(opts.lead, fsImpl);
+  if (leadHost === 'codex' && (opts.tasksDirs || []).length) {
+    throw new Error('Codex child transcript census is unsupported; native child discovery and usage attribution are not established');
+  }
+  const lead = leadHost === 'codex'
+    ? await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker })
+    : await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  const dirSpecs = buildDirSpecs(opts, fsImpl);
+  const dirSpecs = buildDirSpecs(opts, fsImpl, { includeDefaultSubagents: leadHost !== 'codex' });
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
   const rawFiles = collectTaskFiles(dirSpecs, fsImpl);
   // Code-unit comparator, not localeCompare: sort order must not depend on the running
@@ -581,10 +700,15 @@ export async function runCensus(opts, fsImpl = realFs()) {
 
   return {
     lead: {
+      host: leadHost,
       totalTurns: lead.totalById.size,
       windowTurns: lead.windowById.size,
       leadTurns: lead.leadTurns,
       leadTurnsTotal: lead.leadTurnsTotal,
+      nativeTurnCount: lead.nativeTurnCount ?? null,
+      nativeTurnCountWindow: lead.nativeTurnCountWindow ?? null,
+      tokensSupported: lead.tokensSupported ?? true,
+      tokenUnsupportedReason: lead.tokenUnsupportedReason ?? null,
       totalByModel: leadTotalByModel,
       windowByModel: leadWindowByModel,
       markerFound: lead.markerFound,
@@ -626,23 +750,43 @@ function totalTokens(a) {
 export function formatText(report) {
   const md = [];
   const unread = report.subagents.unreadable || 0;
+  const codexTokensUnsupported = report.lead.host === 'codex' && !report.lead.tokensSupported;
   // C2 (scripts/work-record.mjs's `accept --census`) recognises a build-census report by
   // the literal PREFIX `VERDICT: COUNTED ` on line 1 — never by `# Build census` below,
   // which is only this report's section title. Keep that prefix byte-identical; the rest
   // of the line is free text. `windowTurns` is the de-duped API-request count (NOT the
   // same number as `leadTurns`, printed alongside it here so the two aren't mistaken for
   // one another on a skim).
-  md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${report.lead.leadTurns}), ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
+  const leadTurnsLabel = report.lead.leadTurns === null ? 'unsupported' : report.lead.leadTurns;
+  if (codexTokensUnsupported) {
+    md.push(`VERDICT: UNSUPPORTED Codex lead usage (${report.lead.tokenUnsupportedReason}), ${report.subagents.fileCount} subagent files`);
+  } else {
+    md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${leadTurnsLabel}), ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
+  }
   md.push('');
   md.push('# Build census');
   md.push('');
   md.push('## Summary');
   md.push('');
-  md.push(`- leadTurns: ${report.lead.leadTurns}`);
+  md.push(`- leadTurns: ${leadTurnsLabel}`);
+  if (report.lead.host === 'codex') {
+    const leadTokenTotal = Object.values(report.lead.windowByModel).reduce((n, a) => n + totalTokens(a), 0);
+    md.push('- leadHost: codex');
+    md.push(codexTokensUnsupported
+      ? `- leadTokens: unsupported (${report.lead.tokenUnsupportedReason})`
+      : `- leadTokens: ${leadTokenTotal} (counted from deduplicated per-response usage; model unknown)`);
+    md.push('- leadTurnsLimit: unsupported (Codex response records have no assistant/user role ordering)');
+    md.push(`- nativeTurnCount: ${report.lead.nativeTurnCountWindow} (native turn ids; not leadTurns)`);
+    md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; combined and role totals exclude them unless explicitly supplied)');
+  }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
-  const modelLine = Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
+  const modelLine = codexTokensUnsupported
+    ? `unsupported (${report.lead.tokenUnsupportedReason})`
+    : Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
   md.push(`- by-model: ${modelLine}`);
-  const roleLine = Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
+  const roleLine = report.lead.host === 'codex'
+    ? 'unsupported (native Codex child usage is not established)'
+    : Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`);
   if (unread) md.push(`- INCOMPLETE: ${unread} subagent file(s) unreadable — subagent and combined totals exclude them`);
@@ -655,10 +799,23 @@ export function formatText(report) {
   md.push('');
   md.push(`- Total assistant turns, deduped (whole file): **${report.lead.totalTurns}**`);
   md.push(`- Window assistant turns, deduped: **${report.lead.windowTurns}**`);
-  md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**${report.marker ? ` (of ${report.lead.leadTurnsTotal} in the whole file, unwindowed)` : ''}`);
+  if (report.lead.leadTurns === null) {
+    md.push('- leadTurns (conversational runs — see docs/census.md): **unsupported** (Codex response records do not establish assistant/user role ordering)');
+    md.push(`- Native turn ids (not conversational leadTurns): **${report.lead.nativeTurnCountWindow}**${report.marker ? ` (of ${report.lead.nativeTurnCount} in the whole file, unwindowed)` : ''}`);
+  } else {
+    md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**${report.marker ? ` (of ${report.lead.leadTurnsTotal} in the whole file, unwindowed)` : ''}`);
+  }
   md.push(`- Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`);
   md.push(`- Turns/hour in window: **${report.lead.turnsPerHour !== null ? report.lead.turnsPerHour.toFixed(2) : 'n/a'}**`);
   md.push('');
+  if (codexTokensUnsupported) {
+    md.push(`- Lead token usage: **unsupported** (${report.lead.tokenUnsupportedReason})`);
+    md.push('');
+    md.push('## Codex child usage');
+    md.push('');
+    md.push('Native Codex child transcript discovery and usage attribution are unsupported; no child, role, or combined-spend table is emitted.');
+    return md.join('\n');
+  }
   md.push('### Lead tokens by model — whole file (deduped)');
   md.push('');
   md.push('| model | input | cache_creation | cache_read | output |');
@@ -671,6 +828,12 @@ export function formatText(report) {
   md.push('|---|---|---|---|---|');
   for (const m of Object.keys(report.lead.windowByModel).sort()) md.push(tokenRow(m, report.lead.windowByModel[m]));
   md.push('');
+  if (report.lead.host === 'codex') {
+    md.push('## Codex child usage');
+    md.push('');
+    md.push('Native Codex child transcript discovery and usage attribution are unsupported; no child, role, or combined-spend table is emitted.');
+    return md.join('\n');
+  }
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
   md.push('');
