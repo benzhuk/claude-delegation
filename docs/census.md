@@ -33,6 +33,10 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   lead rejects `--tasks` and emits no child, role, or combined-spend table. Codex malformed
   JSON fails visibly once the stream is recognized as Codex; a wholly unrecognizable
   malformed file retains the legacy Claude reader's malformed-line skip behavior.
+  Codex per-response values are diagnostic observations, not a complete census: every Codex
+  report is `VERDICT: UNSUPPORTED`, with `leadTokens` unsupported for coverage and any
+  `observedLeadTokens` separately labeled. `accept --census` refuses that report; use
+  `--no-census` with the stated coverage, turn, and child-attribution limits.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each
