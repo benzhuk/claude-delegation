@@ -4,21 +4,12 @@
   "startedAt": "2026-09-21T14:05:00-04:00",
   "maxRounds": 3,
   "territories": [
-    {
-      "id": "T1",
-      "briefPath": "docs/specs/example-build/briefs/T1.md",
-      "worktree": "../example-build/wt-T1",
-      "branch": "feat/example-build-T1",
-      "gate": "node --test scripts/example-t1.test.mjs"
-    },
-    {
-      "id": "T2",
-      "briefPath": "docs/specs/example-build/briefs/T2.md",
-      "worktree": "../example-build/wt-T2",
-      "branch": "feat/example-build-T2",
-      "gate": "node --test scripts/example-t2.test.mjs"
-    }
+    { "id": "T1" },
+    { "id": "T2" }
   ],
-  "reviewerBriefPath": "docs/specs/example-build/briefs/reviewer.md",
-  "integratorBriefPath": "docs/specs/example-build/briefs/integrator.md"
+  "integrationWorktree": "/home/ben/Code/claude-delegation-example-build",
+  "integrationBranch": "build/example-build",
+  "integrationGate": "node scripts/run-tests.mjs",
+  "leadSession": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/00000000-0000-0000-0000-000000000000.jsonl",
+  "recordPath": "docs/work/wr-2026-09-21-example-build.record.md"
 }

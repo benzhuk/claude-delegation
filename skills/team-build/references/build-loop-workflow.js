@@ -1,37 +1,59 @@
 export const meta = {
   name: 'build-loop',
-  description: 'Build-review-fix loop for one spec\'d build: builders write per territory, an independent reviewer verifies, an integrator runs the mechanical gates. Launch from an Opus orchestrator pane only.',
+  description: 'The whole spec\'d build as one Workflow call: setup, builders write per territory, an independent reviewer verifies, an integrator runs the mechanical gates, then a seam review and accept-prep close the loop. Launch from an Opus orchestrator pane only.',
   phases: [
+    { title: 'Setup', detail: 'one Sonnet runner creates every territory worktree and writes every brief from the spec pack, when territories arrive unsetup' },
     { title: 'Build', detail: 'one Sonnet builder per territory writes against its pinned contracts' },
     { title: 'Review', detail: 'one Opus reviewer per territory adversarially verifies the delivered sha' },
     { title: 'Fix', detail: 'NEEDS_FIXES re-runs Build with the findings path, up to maxRounds' },
     { title: 'Integrate', detail: 'one Sonnet integrator runs the mechanical gates over every approved territory' },
+    { title: 'Seam', detail: 'one Opus reviewer checks the cross-territory joints after Integrate, when an integration worktree is given' },
+    { title: 'Accept', detail: 'one Sonnet runner builds the census, copies the deciding reports, and runs check-acceptance read-only' },
   ],
 }
 
-// build-loop-workflow — the build/review/fix loop as one Workflow script, launched from
-// an Opus orchestrator pane (see skills/team-build/SKILL.md, section "Running the loop
-// from an Opus pane"). Worktrees and branches are created by the pane BEFORE launch, one
-// `git worktree add <worktree> -b <branch> <baseSha>` per territory, ALL from the SAME
-// baseSha — this script never creates a worktree of its own and never passes any per-
-// agent worktree option; every worktree decision here happens before the script is
-// invoked, not inside it.
+// build-loop-workflow — the whole spec'd build as one Workflow call: setup, build,
+// review, fix, integrate, seam and accept-prep, launched from an Opus orchestrator pane
+// (see skills/team-build/SKILL.md, "Running the loop from an Opus pane"). Two shapes of
+// a `territories[]` entry select the path:
+//   - GIVEN: worktree, branch and briefPath are all present — the pane already created
+//     the worktrees (backward compatible; that path's mechanics are byte-for-byte the
+//     same as before).
+//   - SETUP: all three are absent — the script's own Setup stage spawns one
+//     delegation:runner agent that creates every worktree from baseSha, scouts the tree
+//     and writes every brief, then the script verifies its returned names against ones
+//     it computed itself before trusting any of them.
+// Mixing given and setup territories, or omitting specPath/baseSha/startedAt, is a
+// launch error: the script returns at once with a blockers entry and spawns nothing.
 //
-// args (see build-loop-args.example.json for a worked example):
-//   specPath: string                 the spec pack this build reads
-//   baseSha: string                  the shared sha every territory's worktree was cut from
-//   startedAt: string                ISO timestamp — the script has no clock of its own
-//   maxRounds?: number               default 3
-//   territories: [{ id, briefPath, worktree, branch, gate }]
-//   reviewerBriefPath: string
-//   integratorBriefPath: string
+// args (see build-loop-args.example.json for the new one-launch shape,
+// build-loop-args.legacy.example.json for the old given-worktree shape):
+//   specPath, baseSha, startedAt: string   all required
+//   maxRounds?: number                     default 3; also caps seam fix rounds
+//   territories: [{ id, gate?, briefPath?, worktree?, branch?, startFrom? }]
+//   reviewerBriefPath?, integratorBriefPath?: string   required when every territory is
+//     given; setup writes them otherwise
+//   integrationWorktree?, integrationBranch?, integrationGate?: string   post-integrate
+//     stages (Seam, Accept) run only when integrationWorktree is given
+//   worktreeRoot?: string       default: integrationWorktree's parent directory
+//   leadSession?, recordPath?, censusMarker?: string    accept-prep inputs (R8)
+//   seam?: boolean              force/suppress Seam; default territories.length >= 2
 //
 // Returns exactly one object:
 //   {
 //     territories: [{ id, sha, verdict, rounds, reportPath, findingsPath, blocker }],
-//     integrator: INTEGRATE,
+//     integrator: INTEGRATE | null,
+//     seam: { verdict, sha, rounds, findingsPath, blocker } | null,
+//     acceptance: ACCEPT_PREP | { skipped: reason } | null,
+//     setup: { reportPath, reviewerBriefPath, integratorBriefPath, seamBriefPath } | null,
 //     blockers: [{ id, reason }],
 //   }
+// seam and acceptance are null only when integrationWorktree is absent (the old,
+// given-only behaviour); setup is null whenever territories arrived already given.
+//
+// The script sends no notes of its own (every rendered prompt carries the prohibition);
+// the lead's only outward message after launch is its own RESULT once it has read this
+// return and made its one acceptance judgment — the script never calls `accept` itself.
 
 const BUILD = {
   type: 'object',
@@ -68,21 +90,103 @@ const INTEGRATE = {
   required: ['verdict', 'headSha', 'reportPath', 'failedGate', 'territory'],
 }
 
+// R3: the Setup stage's schema.
+const SETUP = {
+  type: 'object',
+  properties: {
+    territories: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          worktree: { type: 'string' },
+          branch: { type: 'string' },
+          briefPath: { type: 'string' },
+          gate: { type: 'string' },
+          headSha: { type: 'string' },
+        },
+        required: ['id', 'worktree', 'branch', 'briefPath', 'gate', 'headSha'],
+      },
+    },
+    reviewerBriefPath: { type: 'string' },
+    integratorBriefPath: { type: 'string' },
+    seamBriefPath: { type: 'string' },
+    reportPath: { type: 'string' },
+  },
+  required: ['territories', 'reviewerBriefPath', 'integratorBriefPath', 'seamBriefPath', 'reportPath'],
+}
+
+// R5: the Accept-prep stage's schema.
+const ACCEPT_PREP = {
+  type: 'object',
+  properties: {
+    censusPath: { type: ['string', 'null'] },
+    censusNote: { type: 'string' },
+    integrationHead: { type: 'string' },
+    evidencePaths: { type: 'array', items: { type: 'string' } },
+    checkAcceptance: {
+      type: 'object',
+      properties: {
+        exitCode: { type: 'number' },
+        verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
+        output: { type: 'string' },
+      },
+      required: ['exitCode', 'verdict', 'output'],
+    },
+    reportPath: { type: 'string' },
+  },
+  required: ['censusPath', 'censusNote', 'integrationHead', 'evidencePaths', 'checkAcceptance', 'reportPath'],
+}
+
 // One mandate line per stage, named once here rather than restated in every prompt — see
 // L-C3: "Every stage's prompt names, in one line each, the mandate rules that matter
-// there... it never restates the full briefs."
+// there... it never restates the full briefs." R9: every rendered prompt carries the
+// note-send prohibition, so it is baked into every mandate constant below.
 const BUILD_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf).'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). Never send peer notes.'
 const REVIEW_MANDATE =
-  'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git.'
+  'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git. Never send peer notes.'
 const INTEGRATE_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push. Never send peer notes.'
+const SETUP_MANDATE =
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf); never push. Never send peer notes.'
+const ACCEPT_MANDATE =
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you never call accept and never write Status: accepted; no destructive git; never push. Never send peer notes.'
 
 // T1 (loop-gates spec item 3, "the builder likewise"): the builder must also get its sha
 // from git, never type one from memory, so build.sha and review.sha are two independent
 // `git rev-parse HEAD` runs on the same commit rather than one value echoing the other.
 const SHA_FROM_GIT =
   'After your last commit, run `git rev-parse HEAD` in the worktree and report its full 40-character output as your sha field; never type a sha from memory.'
+
+// ---------------------------------------------------------------------------
+// Pure string helpers — no `path` module, no fs, no shell (R1: the script has none of
+// those; every path it computes is pure JS string manipulation over forward slashes).
+// ---------------------------------------------------------------------------
+
+function baseName(p) {
+  const s = String(p ?? '')
+  const idx = s.lastIndexOf('/')
+  return idx === -1 ? s : s.slice(idx + 1)
+}
+
+function dirName(p) {
+  const s = String(p ?? '')
+  const idx = s.lastIndexOf('/')
+  return idx === -1 ? '.' : s.slice(0, idx)
+}
+
+function stripExt(name) {
+  const idx = name.lastIndexOf('.')
+  return idx <= 0 ? name : name.slice(0, idx)
+}
+
+function workIdFromRecordPath(p) {
+  const b = baseName(p)
+  const suffix = '.record.md'
+  return b.endsWith(suffix) ? b.slice(0, -suffix.length) : stripExt(b)
+}
 
 function buildPrompt(t, round, findingsPath) {
   if (findingsPath) {
@@ -153,6 +257,49 @@ function integratePrompt(integratorBriefPath, baseSha, approved, excluded) {
   return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}. Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. ${INTEGRATE_MANDATE}`
 }
 
+// R3: the Setup stage's prompt — one runner, one pass, per-territory names computed HERE
+// in pure JS (never chosen by the agent) so the script can verify what comes back.
+function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorBriefPath, seamBriefPath) {
+  const rows = computed
+    .map((c) => `${c.id}: worktree ${c.worktree}, branch ${c.branch}, brief ${c.briefPath}`)
+    .join('; ')
+  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, using exactly these computed names, never your own choice: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}. ${SETUP_MANDATE}`
+}
+
+// R4: the Seam stage's review prompt — same independent-git-read shape as reviewPrompt,
+// scoped to the integration worktree rather than one territory's.
+function seamPrompt(seamBriefPath, integrationWorktree, approvedIds, round, priorHead, priorFindingsPath) {
+  const idsText = approvedIds.length ? approvedIds.join(', ') : 'none'
+  let p = `Seam review round ${round}. Seam brief: ${seamBriefPath}. Integration worktree: ${integrationWorktree}. Approved territories: ${idsText}. Run \`git rev-parse HEAD\` in the integration worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${REVIEW_MANDATE}`
+  if (round >= 2 && priorHead && priorFindingsPath) {
+    p += ` Prior findings: ${priorFindingsPath}. Commit range: ${priorHead}..HEAD (run this in the worktree).`
+  } else if (round >= 2 && priorHead) {
+    p += ` Commit range: ${priorHead}..HEAD (run this in the worktree).`
+  } else if (round >= 2 && priorFindingsPath) {
+    p += ` Prior findings: ${priorFindingsPath}.`
+  }
+  return p
+}
+
+// R4: the seam fix-round builder's prompt — a builder call on the INTEGRATION worktree,
+// gated by integrationGate rather than any one territory's gate.
+function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round) {
+  return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
+}
+
+// R5: the accept-prep runner's prompt — the four numbered steps of R5, verbatim.
+function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports) {
+  const decidingText = decidingReports.length ? decidingReports.join(', ') : 'none'
+  const markerText = censusMarker ? ` --marker ${censusMarker}` : ''
+  let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `
+  p += `1) Run \`node scripts/build-census.mjs --lead <leadSession .jsonl>${markerText} --out docs/work/evidence/${workId}-census.md\`, resolving leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path. If leadSession is absent or the census errors, write nothing and report censusPath: null with the reason in censusNote. `
+  p += `2) Copy the deciding reports (last territory APPROVE per territory, last seam APPROVE) to docs/work/evidence/${workId}-<lane>.md with original bytes: ${decidingText}. `
+  p += `3) Write exactly these header lines of ${recordPath} and no others, before the first blank line: Status: reviewed, Artifact: ${integrationBranch}@<40-hex head>, Worktree: ${integrationBranch}, Evidence: (the copied paths), one Log: <iso> reviewed <owner> seam r<n> APPROVE <sha> line. Never write accepted and never run accept. `
+  p += `4) Run \`node scripts/work-record.mjs check-acceptance --record ${recordPath} --repo ${integrationWorktree} --delivery-ref ${integrationBranch}\` (read-only), capturing exit code and output. `
+  p += ACCEPT_MANDATE
+  return p
+}
+
 const a = args ?? {}
 const specPath = a.specPath
 const baseSha = a.baseSha
@@ -162,30 +309,167 @@ const reviewerBriefPath = a.reviewerBriefPath
 const integratorBriefPath = a.integratorBriefPath
 const maxRoundsCandidate = Number(a.maxRounds)
 const maxRounds = a.maxRounds != null && Number.isFinite(maxRoundsCandidate) ? maxRoundsCandidate : 3
+const integrationWorktree = a.integrationWorktree
+const integrationBranch = a.integrationBranch
+const integrationGate = a.integrationGate
+const leadSession = a.leadSession
+const recordPath = a.recordPath
+const censusMarker = a.censusMarker
 
 log(`build-loop: ${specPath ?? '(no specPath given)'} at ${baseSha ?? '(no baseSha given)'}, started ${startedAt ?? '(no startedAt given)'}, ${territories.length} territories, maxRounds ${maxRounds}`)
 
+function earlyReturn(blockers) {
+  return { territories: [], integrator: null, seam: null, acceptance: null, setup: null, blockers }
+}
+
+// R2: missing-args, checked before anything else — nothing spawns.
+if (!specPath || !baseSha || !startedAt) {
+  log('build-loop: missing-args, nothing spawned')
+  return earlyReturn([{ id: '*', reason: 'missing-args' }])
+}
+
+// R2: mixed-territory-modes. A territory is GIVEN when worktree, branch and briefPath are
+// all present, SETUP when all three are absent, and otherwise ambiguous (invalid) —
+// which is folded into the same launch error rather than guessed at.
+function territoryMode(t) {
+  const hasWorktree = t.worktree != null
+  const hasBranch = t.branch != null
+  const hasBrief = t.briefPath != null
+  if (hasWorktree && hasBranch && hasBrief) return 'given'
+  if (!hasWorktree && !hasBranch && !hasBrief) return 'setup'
+  return 'invalid'
+}
+
+const modes = new Set(territories.map(territoryMode))
+if (modes.has('invalid') || (modes.has('given') && modes.has('setup'))) {
+  log('build-loop: mixed-territory-modes, nothing spawned')
+  return earlyReturn([{ id: '*', reason: 'mixed-territory-modes' }])
+}
+// Zero territories behaves like the old given-only path (empty build, integrator still
+// runs once) — there is nothing to set up.
+const setupMode = modes.has('setup')
+
+// ---------------------------------------------------------------------------
+// R3: Setup stage — only when every territory arrived unsetup.
+// ---------------------------------------------------------------------------
+
+phase('Setup')
+
+let finalTerritories = territories
+let reviewerBriefPathFinal = reviewerBriefPath
+let integratorBriefPathFinal = integratorBriefPath
+let seamBriefPathFinal = null
+let setupInfo = null
+
+if (setupMode) {
+  const specDir = dirName(specPath)
+  const slug = integrationBranch ? baseName(integrationBranch) : stripExt(baseName(specPath))
+  const worktreeRoot = a.worktreeRoot ?? dirName(integrationWorktree ?? '')
+  const computed = territories.map((t) => ({
+    id: t.id,
+    branch: integrationBranch ? `${integrationBranch}-${t.id}` : `build/${slug}-${t.id}`,
+    worktree: `${worktreeRoot}/wt-${slug}-${t.id}`,
+    briefPath: `${specDir}/briefs/${t.id}.md`,
+    gate: t.gate ?? null,
+  }))
+  const setupReviewerBriefPath = `${specDir}/briefs/reviewer.md`
+  const setupIntegratorBriefPath = `${specDir}/briefs/integrator.md`
+  const setupSeamBriefPath = `${specDir}/briefs/seam.md`
+
+  const setupOpts = {
+    agentType: 'delegation:runner',
+    model: 'sonnet',
+    schema: SETUP,
+    phase: 'Setup',
+    label: 'setup',
+  }
+  const setupPromptText = setupPrompt(specPath, baseSha, computed, setupReviewerBriefPath, setupIntegratorBriefPath, setupSeamBriefPath)
+  let setupResult = await agent(setupPromptText, setupOpts)
+  if (setupResult === null) {
+    log('setup: agent died, respawning once')
+    setupResult = await agent(setupPromptText, setupOpts)
+  }
+  if (setupResult === null) {
+    log('setup: agent died twice, giving up, nothing built')
+    return earlyReturn([{ id: '*', reason: 'setup-failed' }])
+  }
+
+  const byId = new Map((Array.isArray(setupResult.territories) ? setupResult.territories : []).map((r) => [r.id, r]))
+  for (const c of computed) {
+    const row = byId.get(c.id)
+    const mismatch =
+      !row ||
+      row.worktree !== c.worktree ||
+      row.branch !== c.branch ||
+      row.briefPath !== c.briefPath ||
+      !sameSha(row.headSha, baseSha)
+    if (mismatch) {
+      log(`setup: territory ${c.id} failed verification, nothing built`)
+      return earlyReturn([{ id: c.id, reason: 'setup-failed' }])
+    }
+  }
+
+  finalTerritories = computed.map((c) => {
+    const row = byId.get(c.id)
+    return { id: c.id, briefPath: c.briefPath, worktree: c.worktree, branch: c.branch, gate: c.gate ?? row.gate }
+  })
+  reviewerBriefPathFinal = setupResult.reviewerBriefPath
+  integratorBriefPathFinal = setupResult.integratorBriefPath
+  seamBriefPathFinal = setupResult.seamBriefPath
+  setupInfo = {
+    reportPath: setupResult.reportPath,
+    reviewerBriefPath: reviewerBriefPathFinal,
+    integratorBriefPath: integratorBriefPathFinal,
+    seamBriefPath: seamBriefPathFinal,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Build / Review / Fix — R6 (startFrom) generalizes the entry round.
+// ---------------------------------------------------------------------------
+
 async function runTerritory(t) {
+  const startFrom = t.startFrom
+
+  // R6: APPROVE resumes straight to Integrate, no build, no review.
+  if (startFrom && startFrom.verdict === 'APPROVE') {
+    return {
+      id: t.id,
+      sha: startFrom.sha,
+      verdict: 'APPROVE',
+      rounds: 0,
+      reportPath: null,
+      findingsPath: startFrom.findingsPath ?? null,
+      blocker: null,
+    }
+  }
+
   let round = 1
+  let findingsForBuild = null
+  let priorBuildSha = null
+  let priorFindingsPath = null
+  // R6: NEEDS_FIXES resumes at a fix round (round 2) against the prior findings path.
+  if (startFrom && startFrom.verdict === 'NEEDS_FIXES') {
+    round = 2
+    findingsForBuild = startFrom.findingsPath ?? null
+    priorBuildSha = startFrom.sha
+    priorFindingsPath = startFrom.findingsPath ?? null
+  }
+
   let state = { id: t.id, sha: null, verdict: 'BLOCKED', rounds: round, reportPath: null, findingsPath: null, blocker: null }
 
-  phase('Build')
-  let build = await agent(buildPrompt(t, round, null), {
+  phase(round === 1 ? 'Build' : 'Fix')
+  const buildOpts1 = {
     agentType: 'delegation:builder',
     model: 'sonnet',
     schema: BUILD,
-    phase: 'Build',
+    phase: round === 1 ? 'Build' : 'Fix',
     label: `build:${t.id}:r${round}`,
-  })
+  }
+  let build = await agent(buildPrompt(t, round, findingsForBuild), buildOpts1)
   if (build === null) {
     log(`${t.id}: build agent died in round ${round}, respawning once`)
-    build = await agent(buildPrompt(t, round, null), {
-      agentType: 'delegation:builder',
-      model: 'sonnet',
-      schema: BUILD,
-      phase: 'Build',
-      label: `build:${t.id}:r${round}`,
-    })
+    build = await agent(buildPrompt(t, round, findingsForBuild), buildOpts1)
   }
   if (build === null) {
     log(`${t.id}: build agent died twice in round ${round}, giving up`)
@@ -197,22 +481,11 @@ async function runTerritory(t) {
   }
 
   phase('Review')
-  let review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, null, null), {
-    agentType: 'delegation:reviewer',
-    model: 'opus',
-    schema: REVIEW,
-    phase: 'Review',
-    label: `review:${t.id}:r${round}`,
-  })
+  const reviewOpts1 = { agentType: 'delegation:reviewer', model: 'opus', schema: REVIEW, phase: 'Review', label: `review:${t.id}:r${round}` }
+  let review = await agent(reviewPrompt(reviewerBriefPathFinal, t, round, build, priorBuildSha, priorFindingsPath), reviewOpts1)
   if (review === null) {
     log(`${t.id}: review agent died in round ${round}, respawning once`)
-    review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, null, null), {
-      agentType: 'delegation:reviewer',
-      model: 'opus',
-      schema: REVIEW,
-      phase: 'Review',
-      label: `review:${t.id}:r${round}`,
-    })
+    review = await agent(reviewPrompt(reviewerBriefPathFinal, t, round, build, priorBuildSha, priorFindingsPath), reviewOpts1)
   }
   if (review === null) {
     log(`${t.id}: review agent died twice in round ${round}, giving up`)
@@ -228,26 +501,15 @@ async function runTerritory(t) {
   while (review.verdict === 'NEEDS_FIXES' && round < maxRounds) {
     round += 1
     state = { ...state, rounds: round }
-    const priorFindingsPath = review.findingsPath
-    const priorBuildSha = build.sha
+    priorFindingsPath = review.findingsPath
+    priorBuildSha = build.sha
 
     phase('Fix')
-    build = await agent(buildPrompt(t, round, priorFindingsPath), {
-      agentType: 'delegation:builder',
-      model: 'sonnet',
-      schema: BUILD,
-      phase: 'Fix',
-      label: `build:${t.id}:r${round}`,
-    })
+    const buildOptsN = { agentType: 'delegation:builder', model: 'sonnet', schema: BUILD, phase: 'Fix', label: `build:${t.id}:r${round}` }
+    build = await agent(buildPrompt(t, round, priorFindingsPath), buildOptsN)
     if (build === null) {
       log(`${t.id}: fix-round build agent died in round ${round}, respawning once`)
-      build = await agent(buildPrompt(t, round, priorFindingsPath), {
-        agentType: 'delegation:builder',
-        model: 'sonnet',
-        schema: BUILD,
-        phase: 'Fix',
-        label: `build:${t.id}:r${round}`,
-      })
+      build = await agent(buildPrompt(t, round, priorFindingsPath), buildOptsN)
     }
     if (build === null) {
       log(`${t.id}: fix-round build agent died twice in round ${round}, giving up`)
@@ -259,22 +521,11 @@ async function runTerritory(t) {
     }
 
     phase('Review')
-    review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath), {
-      agentType: 'delegation:reviewer',
-      model: 'opus',
-      schema: REVIEW,
-      phase: 'Review',
-      label: `review:${t.id}:r${round}`,
-    })
+    const reviewOptsN = { agentType: 'delegation:reviewer', model: 'opus', schema: REVIEW, phase: 'Review', label: `review:${t.id}:r${round}` }
+    review = await agent(reviewPrompt(reviewerBriefPathFinal, t, round, build, priorBuildSha, priorFindingsPath), reviewOptsN)
     if (review === null) {
       log(`${t.id}: review agent died in round ${round}, respawning once`)
-      review = await agent(reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath), {
-        agentType: 'delegation:reviewer',
-        model: 'opus',
-        schema: REVIEW,
-        phase: 'Review',
-        label: `review:${t.id}:r${round}`,
-      })
+      review = await agent(reviewPrompt(reviewerBriefPathFinal, t, round, build, priorBuildSha, priorFindingsPath), reviewOptsN)
     }
     if (review === null) {
       log(`${t.id}: review agent died twice in round ${round}, giving up`)
@@ -300,8 +551,8 @@ async function runTerritory(t) {
   return { ...state, verdict: 'APPROVE', blocker: null }
 }
 
-const parallelResults = await parallel(territories.map((t) => () => runTerritory(t)))
-const results = territories.map((t, index) => {
+const parallelResults = await parallel(finalTerritories.map((t) => () => runTerritory(t)))
+const results = finalTerritories.map((t, index) => {
   const result = Array.isArray(parallelResults) ? parallelResults[index] : null
   if (result != null) return result
   return {
@@ -319,30 +570,155 @@ const results = territories.map((t, index) => {
 phase('Integrate')
 const approved = results.filter((r) => r.verdict === 'APPROVE' && !r.blocker)
 const excluded = results.filter((r) => r.blocker)
-let integrate = await agent(integratePrompt(integratorBriefPath, baseSha, approved, excluded), {
-  agentType: 'delegation:integrator',
-  model: 'sonnet',
-  schema: INTEGRATE,
-  phase: 'Integrate',
-  label: 'integrate',
-})
+const integrateOpts = { agentType: 'delegation:integrator', model: 'sonnet', schema: INTEGRATE, phase: 'Integrate', label: 'integrate' }
+let integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded), integrateOpts)
 if (integrate === null) {
   log('integrate: agent died, respawning once')
-  integrate = await agent(integratePrompt(integratorBriefPath, baseSha, approved, excluded), {
-    agentType: 'delegation:integrator',
-    model: 'sonnet',
-    schema: INTEGRATE,
-    phase: 'Integrate',
-    label: 'integrate',
-  })
+  integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded), integrateOpts)
 }
 if (integrate === null) {
   log('integrate: agent died twice, giving up')
   integrate = { verdict: 'BLOCKED', headSha: null, reportPath: null, failedGate: 'agent-died', territory: null }
 }
 
+// ---------------------------------------------------------------------------
+// R4: Seam stage — after Integrate, only when an integration worktree is given.
+// ---------------------------------------------------------------------------
+
+phase('Seam')
+let seam = null
+const seamEnabled = typeof a.seam === 'boolean' ? a.seam : finalTerritories.length >= 2
+
+if (!integrationWorktree) {
+  seam = null
+} else if (!seamEnabled || integrate.verdict !== 'PASS') {
+  seam = { verdict: 'SKIPPED', sha: null, rounds: 0, findingsPath: null, blocker: null }
+} else {
+  const seamBriefToUse = setupMode ? seamBriefPathFinal : reviewerBriefPathFinal
+  const approvedIds = approved.map((r) => r.id)
+
+  let seamRound = 1
+  const seamOpts1 = { agentType: 'delegation:reviewer', model: 'opus', schema: REVIEW, phase: 'Seam', label: `seam:r${seamRound}` }
+  let seamReview = await agent(seamPrompt(seamBriefToUse, integrationWorktree, approvedIds, seamRound, null, null), seamOpts1)
+  if (seamReview === null) {
+    log(`seam: agent died in round ${seamRound}, respawning once`)
+    seamReview = await agent(seamPrompt(seamBriefToUse, integrationWorktree, approvedIds, seamRound, null, null), seamOpts1)
+  }
+  if (seamReview === null) {
+    log('seam: agent died twice, giving up')
+    seam = { verdict: 'BLOCKED', sha: null, rounds: seamRound, findingsPath: null, blocker: 'agent-died' }
+  } else if (!sameSha(seamReview.sha, integrate.headSha)) {
+    log(`seam: review sha ${seamReview.sha} did not match integrator headSha ${integrate.headSha}`)
+    seam = { verdict: 'BLOCKED', sha: null, rounds: seamRound, findingsPath: seamReview.findingsPath, blocker: 'review-sha-mismatch' }
+  } else {
+    let currentHead = longerSha(integrate.headSha, seamReview.sha)
+    let verdict = seamReview.verdict
+    let findingsPath = seamReview.findingsPath
+    let blocker = null
+
+    while (verdict === 'NEEDS_FIXES' && seamRound < maxRounds) {
+      const priorFindings = findingsPath
+      const priorHead = currentHead
+      seamRound += 1
+
+      phase('Seam')
+      const seamFixOpts = { agentType: 'delegation:builder', model: 'sonnet', schema: BUILD, phase: 'Seam', label: `seam-fix:r${seamRound}` }
+      let seamFixBuild = await agent(seamFixPrompt(integrationWorktree, integrationGate, priorFindings, seamRound), seamFixOpts)
+      if (seamFixBuild === null) {
+        log(`seam: fix-round build agent died in round ${seamRound}, respawning once`)
+        seamFixBuild = await agent(seamFixPrompt(integrationWorktree, integrationGate, priorFindings, seamRound), seamFixOpts)
+      }
+      if (seamFixBuild === null) {
+        log(`seam: fix-round build agent died twice in round ${seamRound}, giving up`)
+        blocker = 'agent-died'
+        verdict = 'BLOCKED'
+        break
+      }
+      if (seamFixBuild.verdict !== 'PASS') {
+        blocker = seamFixBuild.verdict === 'BLOCKED' ? 'builder-blocked' : 'build-failed'
+        verdict = 'BLOCKED'
+        break
+      }
+
+      phase('Seam')
+      const seamReviewOptsN = { agentType: 'delegation:reviewer', model: 'opus', schema: REVIEW, phase: 'Seam', label: `seam:r${seamRound}` }
+      let reReview = await agent(seamPrompt(seamBriefToUse, integrationWorktree, approvedIds, seamRound, priorHead, priorFindings), seamReviewOptsN)
+      if (reReview === null) {
+        log(`seam: review agent died in round ${seamRound}, respawning once`)
+        reReview = await agent(seamPrompt(seamBriefToUse, integrationWorktree, approvedIds, seamRound, priorHead, priorFindings), seamReviewOptsN)
+      }
+      if (reReview === null) {
+        log(`seam: review agent died twice in round ${seamRound}, giving up`)
+        blocker = 'agent-died'
+        verdict = 'BLOCKED'
+        break
+      }
+      if (!sameSha(reReview.sha, seamFixBuild.sha)) {
+        log(`seam: review sha ${reReview.sha} did not match seam-fix build sha ${seamFixBuild.sha}`)
+        blocker = 'review-sha-mismatch'
+        verdict = 'BLOCKED'
+        break
+      }
+      currentHead = longerSha(seamFixBuild.sha, reReview.sha)
+      verdict = reReview.verdict
+      findingsPath = reReview.findingsPath
+    }
+
+    if (verdict === 'NEEDS_FIXES' && !blocker) {
+      log(`seam: rounds-exhausted at round ${seamRound}, still NEEDS_FIXES`)
+      blocker = 'rounds-exhausted'
+    }
+
+    seam = { verdict, sha: blocker ? null : currentHead, rounds: seamRound, findingsPath, blocker }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// R5: Accept-prep stage — last, only when integrationWorktree and recordPath are given
+// and seam is APPROVE or SKIPPED (and the integrator PASSed).
+// ---------------------------------------------------------------------------
+
+phase('Accept')
+let acceptance = null
+
+if (!integrationWorktree) {
+  acceptance = null
+} else if (!recordPath) {
+  acceptance = { skipped: 'no-record-path' }
+} else if (integrate.verdict !== 'PASS') {
+  acceptance = { skipped: 'integrator-not-pass' }
+} else if (!(seam === null || seam.verdict === 'APPROVE' || seam.verdict === 'SKIPPED')) {
+  acceptance = { skipped: 'seam-not-approved' }
+} else {
+  const workId = workIdFromRecordPath(recordPath)
+  const decidingReports = approved.map((r) => r.reportPath).filter(Boolean)
+  if (seam && seam.verdict === 'APPROVE' && seam.findingsPath) decidingReports.push(seam.findingsPath)
+
+  const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
+  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports)
+  let acceptResult = await agent(acceptPromptText, acceptOpts)
+  if (acceptResult === null) {
+    log('accept-prep: agent died, respawning once')
+    acceptResult = await agent(acceptPromptText, acceptOpts)
+  }
+  if (acceptResult === null) {
+    log('accept-prep: agent died twice, giving up')
+    acceptance = { skipped: 'agent-died' }
+  } else {
+    acceptance = acceptResult
+  }
+}
+
+const blockers = [
+  ...excluded.map((r) => ({ id: r.id, reason: r.blocker })),
+  ...(seam && seam.blocker ? [{ id: 'seam', reason: seam.blocker }] : []),
+]
+
 return {
   territories: results,
   integrator: integrate,
-  blockers: excluded.map((r) => ({ id: r.id, reason: r.blocker })),
+  seam,
+  acceptance,
+  setup: setupInfo,
+  blockers,
 }
