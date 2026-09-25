@@ -1,0 +1,42 @@
+{
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (build-census.mjs reports token sums by model, not per-model message counts)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "0 note(s) to orchestrator: (none)"
+    }
+  ],
+  "leadSession": {
+    "id": null,
+    "note": "no Lead-session: field and no --lead-session given",
+    "source": "unavailable"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (no census)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.5h; gap unavailable (no lead transcript)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (no range)"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "gaps unavailable (no lead transcript); 0 unanswered ASKs to orchestrator"
+    }
+  ],
+  "record": "C:/Users/benzh/Code/claude-delegation/docs/work/wr-2026-09-21-next-build-t1.record.md"
+}

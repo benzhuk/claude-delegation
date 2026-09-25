@@ -1,0 +1,1972 @@
+{
+  "combined": {
+    "claude-haiku-4-5-20251001": {
+      "cache_creation_input_tokens": 110996,
+      "cache_read_input_tokens": 805363,
+      "input_tokens": 224,
+      "output_tokens": 8368
+    },
+    "claude-opus-5": {
+      "cache_creation_input_tokens": 3436927,
+      "cache_read_input_tokens": 64237326,
+      "input_tokens": 1490,
+      "output_tokens": 817797
+    },
+    "claude-opus-5-5": {
+      "cache_creation_input_tokens": 3538047,
+      "cache_read_input_tokens": 66823708,
+      "input_tokens": 1890,
+      "output_tokens": 931194
+    },
+    "claude-sonnet-5": {
+      "cache_creation_input_tokens": 9880713,
+      "cache_read_input_tokens": 359936081,
+      "input_tokens": 6874,
+      "output_tokens": 2508469
+    }
+  },
+  "defaultSubagentsDir": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents",
+  "lead": {
+    "coverageReason": null,
+    "coverageSupported": true,
+    "host": "claude",
+    "leadLastMessageAt": "2026-09-25T20:48:06.821Z",
+    "leadTurns": 5,
+    "leadTurnsTotal": 141,
+    "markerFound": true,
+    "nativeTurnCount": null,
+    "nativeTurnCountWindow": null,
+    "observedLeadRequests": null,
+    "observedLeadTokens": null,
+    "observedNativeTurnCount": null,
+    "observedNativeTurnCountWindow": null,
+    "observedTotalByModel": null,
+    "observedWindowByModel": null,
+    "totalByModel": {
+      "claude-opus-5": {
+        "cache_creation_input_tokens": 900723,
+        "cache_read_input_tokens": 40664454,
+        "input_tokens": 504,
+        "output_tokens": 293808
+      },
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 1867910,
+        "cache_read_input_tokens": 34935123,
+        "input_tokens": 438,
+        "output_tokens": 143563
+      }
+    },
+    "totalTurns": 464,
+    "turnsPerHour": 0.6364339896411529,
+    "wallClockHours": 18.855058333333332,
+    "windowByModel": {
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 12428,
+        "cache_read_input_tokens": 2439938,
+        "input_tokens": 24,
+        "output_tokens": 6081
+      }
+    },
+    "windowEndAt": "2026-09-25T20:48:06.821Z",
+    "windowStartAt": "2026-09-25T01:56:48.611Z",
+    "windowTurns": 12
+  },
+  "leadPath": "C:/Users/benzh/.claude/projects/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/7ce97c6a-d864-448c-ac6a-4251cab72bb0.jsonl",
+  "marker": null,
+  "subagents": {
+    "excludedByWindow": 0,
+    "fileCount": 129,
+    "incomplete": false,
+    "perFile": [
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 109969,
+            "cache_read_input_tokens": 3668045,
+            "input_tokens": 96,
+            "output_tokens": 45751
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a022b5686d58ab823.jsonl",
+        "role": "unassigned",
+        "turns": 47
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 137651,
+            "cache_read_input_tokens": 3134986,
+            "input_tokens": 66,
+            "output_tokens": 27200
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a0762f0b3c0d988cd.jsonl",
+        "role": "unassigned",
+        "turns": 33
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 100840,
+            "cache_read_input_tokens": 2019123,
+            "input_tokens": 66,
+            "output_tokens": 32515
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a11c00363c0f34761.jsonl",
+        "role": "unassigned",
+        "turns": 33
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 217949,
+            "cache_read_input_tokens": 3010685,
+            "input_tokens": 84,
+            "output_tokens": 48581
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a2681681ee75f0c49.jsonl",
+        "role": "unassigned",
+        "turns": 40
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 130039,
+            "cache_read_input_tokens": 4054123,
+            "input_tokens": 104,
+            "output_tokens": 36054
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a26cbc7934f1114c9.jsonl",
+        "role": "unassigned",
+        "turns": 51
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 163552,
+            "cache_read_input_tokens": 5584350,
+            "input_tokens": 102,
+            "output_tokens": 36719
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a2798ca1ee18735f1.jsonl",
+        "role": "unassigned",
+        "turns": 51
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 133737,
+            "cache_read_input_tokens": 3292774,
+            "input_tokens": 80,
+            "output_tokens": 44456
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a38d5dbc7364f54f7.jsonl",
+        "role": "unassigned",
+        "turns": 39
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 219740,
+            "cache_read_input_tokens": 15467525,
+            "input_tokens": 198,
+            "output_tokens": 79452
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a470cbdaa5b24d158.jsonl",
+        "role": "unassigned",
+        "turns": 99
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 189950,
+            "cache_read_input_tokens": 10906248,
+            "input_tokens": 166,
+            "output_tokens": 53639
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a5759bed32340205d.jsonl",
+        "role": "unassigned",
+        "turns": 83
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 180804,
+            "cache_read_input_tokens": 14747469,
+            "input_tokens": 256,
+            "output_tokens": 64645
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a6ccbc7a4397cce63.jsonl",
+        "role": "unassigned",
+        "turns": 128
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 130147,
+            "cache_read_input_tokens": 2716316,
+            "input_tokens": 70,
+            "output_tokens": 36853
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a750144428bb9c5b8.jsonl",
+        "role": "unassigned",
+        "turns": 35
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 293018,
+            "cache_read_input_tokens": 5256215,
+            "input_tokens": 112,
+            "output_tokens": 58372
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a7737577afa1e985d.jsonl",
+        "role": "unassigned",
+        "turns": 55
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 101448,
+            "cache_read_input_tokens": 2319461,
+            "input_tokens": 66,
+            "output_tokens": 24155
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a775ba41465d517c3.jsonl",
+        "role": "unassigned",
+        "turns": 33
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 59811,
+            "cache_read_input_tokens": 1054278,
+            "input_tokens": 48,
+            "output_tokens": 8733
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a793bb9c6ca1bbb79.jsonl",
+        "role": "unassigned",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 54513,
+            "cache_read_input_tokens": 966366,
+            "input_tokens": 48,
+            "output_tokens": 10204
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a8eb71a276852a93b.jsonl",
+        "role": "unassigned",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 85255,
+            "cache_read_input_tokens": 2169405,
+            "input_tokens": 86,
+            "output_tokens": 32031
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a92e2c47b33c9c244.jsonl",
+        "role": "unassigned",
+        "turns": 40
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 302558,
+            "cache_read_input_tokens": 5633485,
+            "input_tokens": 114,
+            "output_tokens": 56608
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a9734ae7dc3142dfa.jsonl",
+        "role": "unassigned",
+        "turns": 56
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 196354,
+            "cache_read_input_tokens": 2425110,
+            "input_tokens": 76,
+            "output_tokens": 35334
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a97b225d05589f3cf.jsonl",
+        "role": "unassigned",
+        "turns": 37
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 437125,
+            "cache_read_input_tokens": 16075564,
+            "input_tokens": 244,
+            "output_tokens": 96551
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-a97f4af3ffa3dad78.jsonl",
+        "role": "unassigned",
+        "turns": 122
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 278275,
+            "cache_read_input_tokens": 5396514,
+            "input_tokens": 116,
+            "output_tokens": 59679
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-ab1734e2cdf3e068f.jsonl",
+        "role": "unassigned",
+        "turns": 56
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 370253,
+            "cache_read_input_tokens": 10359257,
+            "input_tokens": 134,
+            "output_tokens": 74691
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-L1-a0e21679b327bf7d.jsonl",
+        "role": "unassigned",
+        "turns": 67
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 257771,
+            "cache_read_input_tokens": 7789791,
+            "input_tokens": 122,
+            "output_tokens": 47546
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-L2-0ad7b259d55435cc.jsonl",
+        "role": "unassigned",
+        "turns": 61
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 485945,
+            "cache_read_input_tokens": 23556788,
+            "input_tokens": 274,
+            "output_tokens": 108679
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-L3-59347f09f75d7304.jsonl",
+        "role": "unassigned",
+        "turns": 137
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 223911,
+            "cache_read_input_tokens": 7902136,
+            "input_tokens": 136,
+            "output_tokens": 37979
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-L4-08e1a771aaac8a98.jsonl",
+        "role": "unassigned",
+        "turns": 68
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 464854,
+            "cache_read_input_tokens": 13996932,
+            "input_tokens": 180,
+            "output_tokens": 116515
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-L5-f428b4f7076876d6.jsonl",
+        "role": "unassigned",
+        "turns": 90
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 86639,
+            "cache_read_input_tokens": 3501704,
+            "input_tokens": 82,
+            "output_tokens": 21755
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-L5-r3-59cd51774cd31c84.jsonl",
+        "role": "unassigned",
+        "turns": 41
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 106841,
+            "cache_read_input_tokens": 3247951,
+            "input_tokens": 78,
+            "output_tokens": 18153
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-R1-r3-2dae216720230853.jsonl",
+        "role": "unassigned",
+        "turns": 39
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 381534,
+            "cache_read_input_tokens": 23236231,
+            "input_tokens": 294,
+            "output_tokens": 82674
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-abuild-cleanup-527b9830d41d1007.jsonl",
+        "role": "unassigned",
+        "turns": 147
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 438881,
+            "cache_read_input_tokens": 7035376,
+            "input_tokens": 144,
+            "output_tokens": 52203
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-ac9efb1ea06309006.jsonl",
+        "role": "unassigned",
+        "turns": 72
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 89551,
+            "cache_read_input_tokens": 2319147,
+            "input_tokens": 54,
+            "output_tokens": 28829
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-acensus-rename-d154f6e1b754ade2.jsonl",
+        "role": "unassigned",
+        "turns": 27
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 47247,
+            "cache_read_input_tokens": 770558,
+            "input_tokens": 24,
+            "output_tokens": 6528
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-acensus-run-bbe10f3269c399fd.jsonl",
+        "role": "unassigned",
+        "turns": 12
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 62508,
+            "cache_read_input_tokens": 763618,
+            "input_tokens": 32,
+            "output_tokens": 9647
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-adf08b0caf1f9b839.jsonl",
+        "role": "unassigned",
+        "turns": 16
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 70498,
+            "cache_read_input_tokens": 2561472,
+            "input_tokens": 96,
+            "output_tokens": 15674
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-afa34fde099c386f8.jsonl",
+        "role": "unassigned",
+        "turns": 48
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 106434,
+            "cache_read_input_tokens": 3189747,
+            "input_tokens": 90,
+            "output_tokens": 23647
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-afbfab87ca4accc34.jsonl",
+        "role": "unassigned",
+        "turns": 45
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 80886,
+            "cache_read_input_tokens": 839453,
+            "input_tokens": 26,
+            "output_tokens": 87
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-agate12-6d61b5bcad483ecd.jsonl",
+        "role": "unassigned",
+        "turns": 13
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 141210,
+            "cache_read_input_tokens": 6389960,
+            "input_tokens": 128,
+            "output_tokens": 30150
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-aintegrator-c81ea9463c2c0f9b.jsonl",
+        "role": "unassigned",
+        "turns": 64
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 98637,
+            "cache_read_input_tokens": 5929330,
+            "input_tokens": 132,
+            "output_tokens": 30032
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-aintegrator-final-db04f3ab68623baf.jsonl",
+        "role": "unassigned",
+        "turns": 66
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 170844,
+            "cache_read_input_tokens": 9901826,
+            "input_tokens": 160,
+            "output_tokens": 37746
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-aintegrator-rename-e6b27f3dfd2ec563.jsonl",
+        "role": "unassigned",
+        "turns": 80
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 139472,
+            "cache_read_input_tokens": 4910547,
+            "input_tokens": 102,
+            "output_tokens": 32361
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-aloop-build-scout-f329965479bf866c.jsonl",
+        "role": "unassigned",
+        "turns": 51
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 250921,
+            "cache_read_input_tokens": 3225751,
+            "input_tokens": 62,
+            "output_tokens": 56564
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-L1-0aa3981948618cf4.jsonl",
+        "role": "unassigned",
+        "turns": 31
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 132480,
+            "cache_read_input_tokens": 4837904,
+            "input_tokens": 90,
+            "output_tokens": 44653
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-L2-b4066b061ab3e9d1.jsonl",
+        "role": "unassigned",
+        "turns": 45
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 299478,
+            "cache_read_input_tokens": 6779991,
+            "input_tokens": 108,
+            "output_tokens": 70330
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-L3-29d0a68734a66546.jsonl",
+        "role": "unassigned",
+        "turns": 54
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 270700,
+            "cache_read_input_tokens": 2595345,
+            "input_tokens": 48,
+            "output_tokens": 47835
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-L4-d3791de73db16c62.jsonl",
+        "role": "unassigned",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 967642,
+            "cache_read_input_tokens": 15046745,
+            "input_tokens": 210,
+            "output_tokens": 135609
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-L5-b00eae61338ce31c.jsonl",
+        "role": "unassigned",
+        "turns": 105
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 84224,
+            "cache_read_input_tokens": 784471,
+            "input_tokens": 24,
+            "output_tokens": 11083
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-R1-r3-a0984f89f55dfa94.jsonl",
+        "role": "unassigned",
+        "turns": 12
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 288546,
+            "cache_read_input_tokens": 5481350,
+            "input_tokens": 88,
+            "output_tokens": 54664
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-areview-seam-0af5c61dcdb8f0ac.jsonl",
+        "role": "unassigned",
+        "turns": 44
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 77763,
+            "cache_read_input_tokens": 678447,
+            "input_tokens": 22,
+            "output_tokens": 6047
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-ascout-R1-4b5e0349aeb33fb6.jsonl",
+        "role": "unassigned",
+        "turns": 11
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 49297,
+            "cache_read_input_tokens": 1189644,
+            "input_tokens": 36,
+            "output_tokens": 6326
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-ascout-R2-9b9b9a3aa5664e08.jsonl",
+        "role": "unassigned",
+        "turns": 18
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 50078,
+            "cache_read_input_tokens": 1433996,
+            "input_tokens": 44,
+            "output_tokens": 8096
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-ascout-R3-202518cc55cf7ab7.jsonl",
+        "role": "unassigned",
+        "turns": 22
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 141243,
+            "cache_read_input_tokens": 5404473,
+            "input_tokens": 108,
+            "output_tokens": 36626
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-aseam-pb-fb9f33474a94ef72.jsonl",
+        "role": "unassigned",
+        "turns": 54
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 128213,
+            "cache_read_input_tokens": 2806244,
+            "input_tokens": 58,
+            "output_tokens": 22920
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\agent-aseam-rename-1e3f9a984733fec0.jsonl",
+        "role": "unassigned",
+        "turns": 29
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 67871,
+            "cache_read_input_tokens": 1498783,
+            "input_tokens": 54,
+            "output_tokens": 24630
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a07876d29ebafbcb2.jsonl",
+        "role": "build",
+        "turns": 27
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 134996,
+            "cache_read_input_tokens": 5273430,
+            "input_tokens": 106,
+            "output_tokens": 68430
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a0f7c676a0e3dd3a6.jsonl",
+        "role": "build",
+        "turns": 53
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 72755,
+            "cache_read_input_tokens": 763932,
+            "input_tokens": 28,
+            "output_tokens": 18213
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a0f9e6f614c1dd38c.jsonl",
+        "role": "review",
+        "turns": 14
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 107476,
+            "cache_read_input_tokens": 2360269,
+            "input_tokens": 68,
+            "output_tokens": 41326
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a1197dfbf24797349.jsonl",
+        "role": "review",
+        "turns": 34
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 79220,
+            "cache_read_input_tokens": 2304166,
+            "input_tokens": 68,
+            "output_tokens": 21012
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a426811fef69115b3.jsonl",
+        "role": "build",
+        "turns": 34
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 88176,
+            "cache_read_input_tokens": 845076,
+            "input_tokens": 34,
+            "output_tokens": 26138
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a4f5da9e68e0820a8.jsonl",
+        "role": "review",
+        "turns": 17
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 53673,
+            "cache_read_input_tokens": 1885713,
+            "input_tokens": 74,
+            "output_tokens": 15627
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a7a5c658db4793445.jsonl",
+        "role": "build",
+        "turns": 37
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 40649,
+            "cache_read_input_tokens": 305974,
+            "input_tokens": 22,
+            "output_tokens": 7091
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a7e0dc6bb6fec97b0.jsonl",
+        "role": "review",
+        "turns": 11
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 34956,
+            "cache_read_input_tokens": 744291,
+            "input_tokens": 38,
+            "output_tokens": 7856
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a89ea0d3ad2ca7cb6.jsonl",
+        "role": "build",
+        "turns": 19
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 105874,
+            "cache_read_input_tokens": 2273311,
+            "input_tokens": 62,
+            "output_tokens": 42396
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-a91e0d6ad87773720.jsonl",
+        "role": "review",
+        "turns": 31
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 110777,
+            "cache_read_input_tokens": 4234209,
+            "input_tokens": 96,
+            "output_tokens": 36832
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-abf9be8062ca89f0f.jsonl",
+        "role": "build",
+        "turns": 48
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 85384,
+            "cache_read_input_tokens": 1152229,
+            "input_tokens": 48,
+            "output_tokens": 20567
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-ac5058fded83213e0.jsonl",
+        "role": "review",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 181895,
+            "cache_read_input_tokens": 7046354,
+            "input_tokens": 116,
+            "output_tokens": 81261
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-ae2cd5e774b7d97eb.jsonl",
+        "role": "build",
+        "turns": 58
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 25648,
+            "cache_read_input_tokens": 244566,
+            "input_tokens": 20,
+            "output_tokens": 4815
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-aead2fd57ba1bbe9d.jsonl",
+        "role": "review",
+        "turns": 10
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 78180,
+            "cache_read_input_tokens": 2780859,
+            "input_tokens": 86,
+            "output_tokens": 23445
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_00248212-fd8\\agent-af5b629adbd23eec5.jsonl",
+        "role": "build",
+        "turns": 43
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 39462,
+            "cache_read_input_tokens": 852494,
+            "input_tokens": 42,
+            "output_tokens": 9860
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a011fc19ca2fa25ce.jsonl",
+        "role": "build",
+        "turns": 21
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 96271,
+            "cache_read_input_tokens": 1745113,
+            "input_tokens": 60,
+            "output_tokens": 28146
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a17d6de70d7f45ed4.jsonl",
+        "role": "review",
+        "turns": 30
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 29433,
+            "cache_read_input_tokens": 303755,
+            "input_tokens": 22,
+            "output_tokens": 6520
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a1be34416b133f95a.jsonl",
+        "role": "review",
+        "turns": 11
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 67992,
+            "cache_read_input_tokens": 1541716,
+            "input_tokens": 62,
+            "output_tokens": 11181
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a25189965fabc7a6c.jsonl",
+        "role": "integrate",
+        "turns": 31
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 96485,
+            "cache_read_input_tokens": 1680636,
+            "input_tokens": 54,
+            "output_tokens": 36116
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a39c6835a65b3c637.jsonl",
+        "role": "review",
+        "turns": 27
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 68086,
+            "cache_read_input_tokens": 2214894,
+            "input_tokens": 76,
+            "output_tokens": 23161
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a4b5946d24e714e40.jsonl",
+        "role": "build",
+        "turns": 38
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 36518,
+            "cache_read_input_tokens": 375155,
+            "input_tokens": 24,
+            "output_tokens": 8687
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a544e926ab0b53652.jsonl",
+        "role": "review",
+        "turns": 12
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 50781,
+            "cache_read_input_tokens": 499691,
+            "input_tokens": 30,
+            "output_tokens": 9225
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a61bf9df2d3cb4693.jsonl",
+        "role": "review",
+        "turns": 15
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 98881,
+            "cache_read_input_tokens": 3107341,
+            "input_tokens": 96,
+            "output_tokens": 26730
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a68ca97d4beeef6d6.jsonl",
+        "role": "build",
+        "turns": 48
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 176505,
+            "cache_read_input_tokens": 8578073,
+            "input_tokens": 128,
+            "output_tokens": 58210
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-a939f4f69a86fc022.jsonl",
+        "role": "build",
+        "turns": 64
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 136936,
+            "cache_read_input_tokens": 5859632,
+            "input_tokens": 114,
+            "output_tokens": 54658
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-aa338a330a5f7cb82.jsonl",
+        "role": "build",
+        "turns": 57
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 63459,
+            "cache_read_input_tokens": 1246861,
+            "input_tokens": 54,
+            "output_tokens": 24526
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-ab590f91b7ebe3cbb.jsonl",
+        "role": "review",
+        "turns": 27
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 86913,
+            "cache_read_input_tokens": 3491002,
+            "input_tokens": 108,
+            "output_tokens": 25560
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-ac105618c653a39c7.jsonl",
+        "role": "build",
+        "turns": 54
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 59048,
+            "cache_read_input_tokens": 647104,
+            "input_tokens": 36,
+            "output_tokens": 19081
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-ae1f31f1ecce39d06.jsonl",
+        "role": "review",
+        "turns": 18
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 195262,
+            "cache_read_input_tokens": 7411686,
+            "input_tokens": 112,
+            "output_tokens": 85505
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_32ef9f41-d5b\\agent-af348ff5543eac77e.jsonl",
+        "role": "build",
+        "turns": 56
+      },
+      {
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "cache_creation_input_tokens": 26305,
+            "cache_read_input_tokens": 13945,
+            "input_tokens": 18,
+            "output_tokens": 1214
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-a0e1740c6df960b26.jsonl",
+        "role": "read",
+        "turns": 2
+      },
+      {
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "cache_creation_input_tokens": 37394,
+            "cache_read_input_tokens": 268455,
+            "input_tokens": 66,
+            "output_tokens": 2422
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-a2821be0b28cae42e.jsonl",
+        "role": "read",
+        "turns": 8
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 35415,
+            "cache_read_input_tokens": 360112,
+            "input_tokens": 14,
+            "output_tokens": 2700
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-a347e7f9227dbfae6.jsonl",
+        "role": "research",
+        "turns": 7
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 40014,
+            "cache_read_input_tokens": 329986,
+            "input_tokens": 12,
+            "output_tokens": 2231
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-a6ad353587eee6758.jsonl",
+        "role": "research",
+        "turns": 6
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 80341,
+            "cache_read_input_tokens": 594112,
+            "input_tokens": 20,
+            "output_tokens": 13223
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-a9049aa3abb23cd3f.jsonl",
+        "role": "judge",
+        "turns": 10
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 44069,
+            "cache_read_input_tokens": 462350,
+            "input_tokens": 16,
+            "output_tokens": 4293
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-aa4f1348676db311b.jsonl",
+        "role": "research",
+        "turns": 8
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 66647,
+            "cache_read_input_tokens": 109988,
+            "input_tokens": 6,
+            "output_tokens": 2601
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-ae10aecb220573e5a.jsonl",
+        "role": "research",
+        "turns": 3
+      },
+      {
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "cache_creation_input_tokens": 9268,
+            "cache_read_input_tokens": 23924,
+            "input_tokens": 18,
+            "output_tokens": 912
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-aefbf7fe262c3b76d.jsonl",
+        "role": "read",
+        "turns": 2
+      },
+      {
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "cache_creation_input_tokens": 38029,
+            "cache_read_input_tokens": 499039,
+            "input_tokens": 122,
+            "output_tokens": 3820
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_4f009ac9-8aa\\agent-af44762c1db8334a0.jsonl",
+        "role": "read",
+        "turns": 15
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 85585,
+            "cache_read_input_tokens": 1293443,
+            "input_tokens": 48,
+            "output_tokens": 24313
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a0430c14eabc3dd00.jsonl",
+        "role": "review",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 44649,
+            "cache_read_input_tokens": 567216,
+            "input_tokens": 32,
+            "output_tokens": 14133
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a0ee1c1366bd1b365.jsonl",
+        "role": "review",
+        "turns": 16
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 87572,
+            "cache_read_input_tokens": 3676190,
+            "input_tokens": 104,
+            "output_tokens": 35503
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a15e37e7a51029a75.jsonl",
+        "role": "build",
+        "turns": 52
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 35654,
+            "cache_read_input_tokens": 557124,
+            "input_tokens": 28,
+            "output_tokens": 7711
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a16dba68216d2bb31.jsonl",
+        "role": "build",
+        "turns": 14
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 42351,
+            "cache_read_input_tokens": 420410,
+            "input_tokens": 26,
+            "output_tokens": 12422
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a2fd43b4a1195b928.jsonl",
+        "role": "review",
+        "turns": 13
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 142355,
+            "cache_read_input_tokens": 6406742,
+            "input_tokens": 120,
+            "output_tokens": 65993
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a48e5e7e5835fea20.jsonl",
+        "role": "build",
+        "turns": 60
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 118113,
+            "cache_read_input_tokens": 3361138,
+            "input_tokens": 86,
+            "output_tokens": 46886
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a7240a1c20e37c696.jsonl",
+        "role": "review",
+        "turns": 43
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 33074,
+            "cache_read_input_tokens": 580100,
+            "input_tokens": 30,
+            "output_tokens": 6190
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a866e3bc9f1c5840d.jsonl",
+        "role": "build",
+        "turns": 15
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 101243,
+            "cache_read_input_tokens": 2000440,
+            "input_tokens": 62,
+            "output_tokens": 31486
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a87fef842d515c8f3.jsonl",
+        "role": "review",
+        "turns": 31
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 58404,
+            "cache_read_input_tokens": 841393,
+            "input_tokens": 38,
+            "output_tokens": 17515
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-a8c976f7fdff3fd93.jsonl",
+        "role": "review",
+        "turns": 19
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 44793,
+            "cache_read_input_tokens": 112702,
+            "input_tokens": 8,
+            "output_tokens": 1097
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-aa12a5c9422ce2a26.jsonl",
+        "role": "build",
+        "turns": 4
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 96910,
+            "cache_read_input_tokens": 2456831,
+            "input_tokens": 76,
+            "output_tokens": 43214
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-aa278f1cb4b14ff7b.jsonl",
+        "role": "review",
+        "turns": 38
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 54931,
+            "cache_read_input_tokens": 1742121,
+            "input_tokens": 66,
+            "output_tokens": 14420
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-ab3258687ca798ea0.jsonl",
+        "role": "build",
+        "turns": 33
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 101741,
+            "cache_read_input_tokens": 3524847,
+            "input_tokens": 90,
+            "output_tokens": 25892
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-ab806bde19d58580c.jsonl",
+        "role": "build",
+        "turns": 45
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 295784,
+            "cache_read_input_tokens": 11424029,
+            "input_tokens": 160,
+            "output_tokens": 95408
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_88dae950-a41\\agent-abad00a9a5392b081.jsonl",
+        "role": "build",
+        "turns": 80
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 66568,
+            "cache_read_input_tokens": 1057782,
+            "input_tokens": 48,
+            "output_tokens": 25166
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a0a1590f294fed8ca.jsonl",
+        "role": "review",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 105649,
+            "cache_read_input_tokens": 3798377,
+            "input_tokens": 90,
+            "output_tokens": 31086
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a0df2bd5565a5b976.jsonl",
+        "role": "build",
+        "turns": 45
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 77088,
+            "cache_read_input_tokens": 2020661,
+            "input_tokens": 74,
+            "output_tokens": 29623
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a47d31e6dcee395af.jsonl",
+        "role": "review",
+        "turns": 37
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 35574,
+            "cache_read_input_tokens": 665045,
+            "input_tokens": 34,
+            "output_tokens": 7475
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a578691498eb6080d.jsonl",
+        "role": "build",
+        "turns": 17
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 43322,
+            "cache_read_input_tokens": 879264,
+            "input_tokens": 40,
+            "output_tokens": 12485
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a678550a4cb9a3c9e.jsonl",
+        "role": "build",
+        "turns": 20
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 91041,
+            "cache_read_input_tokens": 3631232,
+            "input_tokens": 94,
+            "output_tokens": 29486
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a67f9f5d84263debb.jsonl",
+        "role": "build",
+        "turns": 47
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 82571,
+            "cache_read_input_tokens": 2551266,
+            "input_tokens": 88,
+            "output_tokens": 31134
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a78899271b22e2052.jsonl",
+        "role": "review",
+        "turns": 44
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 73648,
+            "cache_read_input_tokens": 1518772,
+            "input_tokens": 64,
+            "output_tokens": 31384
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a8b671e1a0226581b.jsonl",
+        "role": "review",
+        "turns": 32
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 50162,
+            "cache_read_input_tokens": 885212,
+            "input_tokens": 44,
+            "output_tokens": 16935
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a969edfb5c0c9bc09.jsonl",
+        "role": "review",
+        "turns": 22
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 119549,
+            "cache_read_input_tokens": 5431954,
+            "input_tokens": 140,
+            "output_tokens": 9085
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-a9b191c3ffd045453.jsonl",
+        "role": "integrate",
+        "turns": 70
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 180809,
+            "cache_read_input_tokens": 8670879,
+            "input_tokens": 124,
+            "output_tokens": 41075
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-aa9359fbdcd92264b.jsonl",
+        "role": "build",
+        "turns": 62
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 47014,
+            "cache_read_input_tokens": 1584958,
+            "input_tokens": 68,
+            "output_tokens": 13226
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-aac7e8b42d522305f.jsonl",
+        "role": "build",
+        "turns": 34
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 51897,
+            "cache_read_input_tokens": 749244,
+            "input_tokens": 38,
+            "output_tokens": 17460
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-abd050391641505b2.jsonl",
+        "role": "review",
+        "turns": 19
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 43589,
+            "cache_read_input_tokens": 1301458,
+            "input_tokens": 60,
+            "output_tokens": 11627
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-aebce3f839ebf77d6.jsonl",
+        "role": "build",
+        "turns": 30
+      },
+      {
+        "byModel": {
+          "claude-opus-5": {
+            "cache_creation_input_tokens": 56387,
+            "cache_read_input_tokens": 547847,
+            "input_tokens": 32,
+            "output_tokens": 16622
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_a7f9c859-48a\\agent-af84e1a57c93a1bd2.jsonl",
+        "role": "review",
+        "turns": 16
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 181929,
+            "cache_read_input_tokens": 11278289,
+            "input_tokens": 172,
+            "output_tokens": 74093
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-a01d24222e897348a.jsonl",
+        "role": "build",
+        "turns": 86
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 487080,
+            "cache_read_input_tokens": 6468796,
+            "input_tokens": 112,
+            "output_tokens": 107085
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-a1199ef3c48887f6d.jsonl",
+        "role": "build",
+        "turns": 56
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 61462,
+            "cache_read_input_tokens": 762344,
+            "input_tokens": 40,
+            "output_tokens": 15022
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-a211806f5837602c9.jsonl",
+        "role": "review",
+        "turns": 20
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 135539,
+            "cache_read_input_tokens": 5034291,
+            "input_tokens": 110,
+            "output_tokens": 37221
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-a422c3bc3e7340952.jsonl",
+        "role": "build",
+        "turns": 55
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 188402,
+            "cache_read_input_tokens": 8610020,
+            "input_tokens": 124,
+            "output_tokens": 81579
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-a4aeae84222983813.jsonl",
+        "role": "build",
+        "turns": 62
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 124177,
+            "cache_read_input_tokens": 2593744,
+            "input_tokens": 66,
+            "output_tokens": 37236
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-ab3341cc800959540.jsonl",
+        "role": "review",
+        "turns": 33
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 87648,
+            "cache_read_input_tokens": 1471690,
+            "input_tokens": 54,
+            "output_tokens": 30823
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-abd5451b2004c57cf.jsonl",
+        "role": "review",
+        "turns": 27
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 81914,
+            "cache_read_input_tokens": 2710426,
+            "input_tokens": 92,
+            "output_tokens": 18286
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-ae8e1084e21f9c142.jsonl",
+        "role": "integrate",
+        "turns": 46
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 103797,
+            "cache_read_input_tokens": 1879810,
+            "input_tokens": 58,
+            "output_tokens": 28948
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\7ce97c6a-d864-448c-ac6a-4251cab72bb0\\subagents\\workflows\\wf_d58d0edb-54d\\agent-aea899d079ed99ec2.jsonl",
+        "role": "review",
+        "turns": 29
+      }
+    ],
+    "roleFileCounts": {
+      "build": 34,
+      "integrate": 3,
+      "judge": 1,
+      "read": 4,
+      "research": 4,
+      "review": 32,
+      "unassigned": 51
+    },
+    "totalByModel": {
+      "claude-haiku-4-5-20251001": {
+        "cache_creation_input_tokens": 110996,
+        "cache_read_input_tokens": 805363,
+        "input_tokens": 224,
+        "output_tokens": 8368
+      },
+      "claude-opus-5": {
+        "cache_creation_input_tokens": 3436927,
+        "cache_read_input_tokens": 64237326,
+        "input_tokens": 1490,
+        "output_tokens": 817797
+      },
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 3525619,
+        "cache_read_input_tokens": 64383770,
+        "input_tokens": 1866,
+        "output_tokens": 925113
+      },
+      "claude-sonnet-5": {
+        "cache_creation_input_tokens": 9880713,
+        "cache_read_input_tokens": 359936081,
+        "input_tokens": 6874,
+        "output_tokens": 2508469
+      }
+    },
+    "totalByRole": {
+      "build": {
+        "cache_creation_input_tokens": 3879465,
+        "cache_read_input_tokens": 137229391,
+        "input_tokens": 2948,
+        "output_tokens": 1261429
+      },
+      "integrate": {
+        "cache_creation_input_tokens": 269455,
+        "cache_read_input_tokens": 9684096,
+        "input_tokens": 294,
+        "output_tokens": 38552
+      },
+      "judge": {
+        "cache_creation_input_tokens": 80341,
+        "cache_read_input_tokens": 594112,
+        "input_tokens": 20,
+        "output_tokens": 13223
+      },
+      "read": {
+        "cache_creation_input_tokens": 110996,
+        "cache_read_input_tokens": 805363,
+        "input_tokens": 224,
+        "output_tokens": 8368
+      },
+      "research": {
+        "cache_creation_input_tokens": 186145,
+        "cache_read_input_tokens": 1262436,
+        "input_tokens": 48,
+        "output_tokens": 11825
+      },
+      "review": {
+        "cache_creation_input_tokens": 2340617,
+        "cache_read_input_tokens": 41422915,
+        "input_tokens": 1536,
+        "output_tokens": 763169
+      },
+      "unassigned": {
+        "cache_creation_input_tokens": 10087236,
+        "cache_read_input_tokens": 298364227,
+        "input_tokens": 5384,
+        "output_tokens": 2163181
+      }
+    },
+    "totalTurns": 5129,
+    "unreadable": 0,
+    "unreadableDirs": []
+  },
+  "tasksPaths": []
+}

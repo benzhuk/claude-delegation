@@ -1,0 +1,42 @@
+{
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (build-census.mjs reports token sums by model, not per-model message counts)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "1 note(s) to skills-o: ASK skills-fable-census-complete-1"
+    }
+  ],
+  "leadSession": {
+    "id": "7ce97c6a-d864-448c-ac6a-4251cab72bb0",
+    "note": "id came from --lead-session on the command line; the census file names the lead session file it read",
+    "source": "cli"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "149763361 tokens: build 149763361 (claude-opus-5, claude-opus-5-5) (partial: no spec slice — Spec-session:/Spec-from: missing from record)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "8.9h; largest gap 505.2min at 2026-09-25T03:12:39.717Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (no range)"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); 0 unanswered ASKs to skills-o"
+    }
+  ],
+  "record": "C:/Users/benzh/Code/claude-delegation/docs/work/wr-2026-09-25-census-complete.record.md"
+}
