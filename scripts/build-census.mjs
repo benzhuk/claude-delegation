@@ -303,7 +303,7 @@ async function detectLeadHost(filePath, fsImpl) {
     // A token record is distinctive Codex evidence even when a truncated file lost its
     // session_meta prelude. Route it to the Codex reader, which rejects missing session
     // attribution visibly rather than treating it as a zero-token Claude transcript.
-    if (obj.type === 'token_usage_record') return 'codex';
+    if (obj.type === 'token_usage_record' || obj.type === 'response_item' || obj.type === 'event_msg') return 'codex';
   }
   return 'claude';
 }
@@ -325,7 +325,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker } = {}
   for await (const line of rl) {
     if (!line.trim()) continue;
     let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
+    try { obj = JSON.parse(line); } catch { throw new Error('Codex session transcript contains malformed JSON'); }
     if (obj.timestamp) {
       if (!firstAt) firstAt = obj.timestamp;
       lastAt = obj.timestamp;
@@ -438,9 +438,9 @@ function matchesPattern(f, pattern) {
 // hardlinked to subagents/agent-<id>.jsonl) it keeps the FIRST-seen copy, so a default's
 // `agent-<id>.jsonl` name — the one --role-map and journal.jsonl both key off — wins over
 // an explicit --tasks dir's `<id>.output` alias.
-function buildDirSpecs(opts, fsImpl) {
+function buildDirSpecs(opts, fsImpl, { includeDefaultSubagents = true } = {}) {
   const specs = [];
-  if (opts.lead) {
+  if (opts.lead && includeDefaultSubagents) {
     const leadSessionId = path.basename(opts.lead).replace(/\.jsonl$/i, '');
     const sessionDir = path.join(path.dirname(opts.lead), leadSessionId);
     const defaultDir = path.join(sessionDir, 'subagents');
@@ -585,11 +585,14 @@ function resolveRole(agentKey, journalMap, roleMap) {
  */
 export async function runCensus(opts, fsImpl = realFs()) {
   const leadHost = await detectLeadHost(opts.lead, fsImpl);
+  if (leadHost === 'codex' && (opts.tasksDirs || []).length) {
+    throw new Error('Codex child transcript census is unsupported; native child discovery and usage attribution are not established');
+  }
   const lead = leadHost === 'codex'
     ? await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker })
     : await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  const dirSpecs = buildDirSpecs(opts, fsImpl);
+  const dirSpecs = buildDirSpecs(opts, fsImpl, { includeDefaultSubagents: leadHost !== 'codex' });
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
   const rawFiles = collectTaskFiles(dirSpecs, fsImpl);
   // Code-unit comparator, not localeCompare: sort order must not depend on the running
@@ -777,9 +780,13 @@ export function formatText(report) {
     md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; combined and role totals exclude them unless explicitly supplied)');
   }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
-  const modelLine = Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
+  const modelLine = codexTokensUnsupported
+    ? `unsupported (${report.lead.tokenUnsupportedReason})`
+    : Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
   md.push(`- by-model: ${modelLine}`);
-  const roleLine = Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
+  const roleLine = report.lead.host === 'codex'
+    ? 'unsupported (native Codex child usage is not established)'
+    : Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`);
   if (unread) md.push(`- INCOMPLETE: ${unread} subagent file(s) unreadable — subagent and combined totals exclude them`);
@@ -801,6 +808,14 @@ export function formatText(report) {
   md.push(`- Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`);
   md.push(`- Turns/hour in window: **${report.lead.turnsPerHour !== null ? report.lead.turnsPerHour.toFixed(2) : 'n/a'}**`);
   md.push('');
+  if (codexTokensUnsupported) {
+    md.push(`- Lead token usage: **unsupported** (${report.lead.tokenUnsupportedReason})`);
+    md.push('');
+    md.push('## Codex child usage');
+    md.push('');
+    md.push('Native Codex child transcript discovery and usage attribution are unsupported; no child, role, or combined-spend table is emitted.');
+    return md.join('\n');
+  }
   md.push('### Lead tokens by model — whole file (deduped)');
   md.push('');
   md.push('| model | input | cache_creation | cache_read | output |');
@@ -813,6 +828,12 @@ export function formatText(report) {
   md.push('|---|---|---|---|---|');
   for (const m of Object.keys(report.lead.windowByModel).sort()) md.push(tokenRow(m, report.lead.windowByModel[m]));
   md.push('');
+  if (report.lead.host === 'codex') {
+    md.push('## Codex child usage');
+    md.push('');
+    md.push('Native Codex child transcript discovery and usage attribution are unsupported; no child, role, or combined-spend table is emitted.');
+    return md.join('\n');
+  }
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
   md.push('');

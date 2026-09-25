@@ -152,6 +152,8 @@ test('a verified Codex session without per-response usage is explicitly unsuppor
   const text = formatText(report);
   assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex lead usage'));
   assert.ok(text.includes('- leadTokens: unsupported (no token_usage_record rows with per-response usage)'));
+  assert.ok(!text.includes('### Lead tokens by model'), 'unsupported usage must not be followed by a zero-looking token table');
+  assert.ok(!text.includes('### Subagent tokens') && !text.includes('## Combined split'), 'unsupported native child usage must not render role or combined-spend tables');
 });
 
 test('a truncated Codex stream with a token record before metadata fails visibly instead of falling through to Claude', async () => {
@@ -162,6 +164,21 @@ test('a truncated Codex stream with a token record before metadata fails visibly
     { type: 'token_usage_record', payload: { session_id: 'missing-meta', response_id: 'r', turn_id: 't', usage: { input_tokens: 1, output_tokens: 1 } } },
   ]);
   await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /lacks verified session|session_meta was not found/);
+});
+
+test('a Codex-shaped event-only truncated stream fails visibly instead of becoming a zero-token Claude census', async () => {
+  const dir = mkTmp('build-census-codex-event-only-');
+  const lead = path.join(dir, 'event-only.jsonl');
+  writeJsonl(lead, [{ type: 'response_item', payload: { role: 'assistant' } }]);
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /session_meta was not found/);
+});
+
+test('a recognized Codex stream rejects malformed JSON and native child task paths visibly', async () => {
+  const dir = mkTmp('build-census-codex-malformed-');
+  const lead = path.join(dir, 'malformed.jsonl');
+  fs.writeFileSync(lead, `${JSON.stringify({ type: 'session_meta', payload: { id: 'codex-malformed', session_id: 'codex-malformed' } })}\nnot-json\n`, 'utf8');
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /contains malformed JSON/);
+  await assert.rejects(() => runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [dir], marker: null, out: null }), /child transcript census is unsupported/);
 });
 
 test('Codex usage rejects missing objects and negative counters instead of coercing them to zero', async () => {
