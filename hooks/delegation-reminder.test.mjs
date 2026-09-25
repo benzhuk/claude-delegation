@@ -164,9 +164,83 @@ test('SessionStart injects the card, on every source', () => {
     assert.match(text, /NOT: a second execution engine/, source);
     assert.match(text, / — as of \d{4}-\d{2}-\d{2} \d{2}:\d{2} NYC/, source);
     assert.match(text, /Bearings are due/, source);
-    // T2 Required #1: the due-notice reaches Ben, not only the model — it must be in BOTH fields.
-    assert.match(sysmsg(r), /Bearings are due/, `${source}: Ben's pane must show the due-notice too`);
+    // T2 Required #1: the due-notice reaches Ben, not only the model — it must be in BOTH fields...
+    // EXCEPT seam S6: `compact` is a re-entry into the SAME session after auto-compaction, not a
+    // fresh human-visible start, so the due-notice must not repeat in Ben's pane there. The model
+    // still gets it in additionalContext (asserted above), unconditionally of source.
+    if (source === 'compact') {
+      assert.equal(sysmsg(r), null, `${source}: seam S6 — no repeated pane noise after compaction`);
+    } else {
+      assert.match(sysmsg(r), /Bearings are due/, `${source}: Ben's pane must show the due-notice too`);
+    }
   }
+});
+
+// Seam S7: a receipt rejected for reviewer-not-independent is still "due", but the generic
+// due-notice hides the actual reason. Name it, in both the model context and Ben's pane.
+test('seam S7: a self-reviewed (reviewer-not-independent) receipt gets a specific due-notice, not the generic one', () => {
+  const home = fixtureHome();
+  const root = project();
+  const report = path.join(root, 'bearings-report.md');
+  const response = path.join(root, 'bearings-response.md');
+  fs.writeFileSync(report, 'review\n', 'utf8');
+  fs.writeFileSync(response, 'lead\n', 'utf8');
+  // complete() enforces distinct ids at write time (by design), so a self-reviewed receipt can
+  // only exist as a pre-existing (e.g. pre-independence-check) file on disk — write via the real
+  // helper with distinct ids first, to get a receipt shape check() will otherwise accept, then
+  // flip reviewerId to leadId directly on disk, exactly like an old receipt would read.
+  completeBearings({
+    repo: root, report, leadResponse: response, publication: 'https://example.test/decision',
+    reviewerId: 'reviewer-session', leadId: 'lead-session', env: envFor(home),
+  });
+  const receiptFile = bearingsReceipt(root, envFor(home));
+  const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
+  receipt.reviewerId = receipt.leadId;
+  fs.writeFileSync(receiptFile, `${JSON.stringify(receipt)}\n`, 'utf8');
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  assert.equal(r.status, 0);
+  const text = context(r);
+  assert.match(text, /reviewer was not independent of the lead/);
+  assert.match(sysmsg(r), /reviewer was not independent of the lead/);
+  assert.doesNotMatch(text, /^Bearings are due\. Run/); // never the generic message when the reason is known
+});
+
+test('seam S7: a plain "no completion receipt" due reason still gets the generic due-notice', () => {
+  const home = fixtureHome();
+  const root = project();
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  assert.match(context(r), /Bearings are due\. Run `\/delegation:bearings`/);
+});
+
+// Seam S4 (minimal version): the lead has no harness-given way to learn its own session id for
+// --lead-id. Hint it at SessionStart, in additionalContext only (never Ben's pane, which stays a
+// one-line notice), whenever bearings is actually due or unknown.
+test('seam S4: SessionStart hints the lead its own session id for --lead-id, in additionalContext only', () => {
+  const home = fixtureHome();
+  const root = project();
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  const text = context(r);
+  assert.ok(text.includes(`--lead-id ${SESSION_ID}`), 'additionalContext must hint this session id as --lead-id');
+  assert.ok(text.includes('--reviewer-id'), 'the hint must also name --reviewer-id');
+  assert.ok(!sysmsg(r).includes('--lead-id'), "Ben's pane message stays the one-line due-notice, no hint text");
+});
+
+test('seam S4: no lead-id hint when bearings is not due (current)', () => {
+  const home = fixtureHome();
+  const root = project();
+  seedBearingsCurrent(home, root);
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  const text = context(r);
+  assert.ok(!text.includes('--lead-id'), 'no hint text once bearings is current');
+});
+
+test('seam S4: a subagent (agent_id present) gets neither bearings nor the lead-id hint', () => {
+  const home = fixtureHome();
+  const root = project();
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup', agent_id: 'child-1' } });
+  const text = context(r) || '';
+  assert.ok(!text.includes('Bearings'), 'a subagent never sees bearings');
+  assert.ok(!text.includes('--lead-id'), 'a subagent never sees the lead-id hint either');
 });
 
 test('UserPromptSubmit never carries the card — that is what made the last standing text wallpaper', () => {

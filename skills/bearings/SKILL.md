@@ -43,12 +43,12 @@ If the page, credentials, or publication route is unavailable, keep the complete
 
 ## Record a completed assessment
 
-The reviewer must be an agent other than the lead: `bearings-state.mjs`'s `check` rejects a receipt whose reviewer and lead id match (including a case or whitespace variant of the same id) or that is missing either id, as `reviewer-not-independent`.
+The reviewer must be an agent other than the lead: `bearings-state.mjs`'s `check` rejects a receipt whose reviewer and lead id match (including a case or whitespace variant of the same id) or that is missing either id, as `reviewer-not-independent`. These ids are the caller's attestation, not proof: nothing here mechanically confirms the reviewer was a distinct process, only that the two strings recorded differ (Claude Code's SessionStart notice hints the lead its own session id for this purpose, when bearings is due or unknown).
 
 After an independent assessment, the lead's response, and the required publication are all complete, record the attestation with the packaged helper:
 
 ```text
-node <bearings-skill>/scripts/bearings-state.mjs complete --repo <project-root> --report <assessment-report> --lead-response <lead-response-file> --publication <https-url> --reviewer-id <reviewer's session or agent id> --lead-id <lead's session or agent id>
+node <bearings-skill>/scripts/bearings-state.mjs complete --repo <project-root> --report <assessment-report> --lead-response <lead-response-file> --publication <https-url> --reviewer-id <the agentId the Agent tool returned, or the reviewer pane's own session id> --lead-id <this session's id, as given in the SessionStart bearings notice>
 ```
 
 Use `check --repo <project-root>` to inspect whether the same goal has a matching completion less than 24 hours old. The receipt verifies the current goal and local evidence digests; it records the caller's attestation that the assessment, lead accounting, and publication occurred. It does not mechanically prove their contents. `PENDING` publication cannot be recorded as completion. A changed Release or KILL condition requires an explicit new bearings workflow invocation and cited assessment evidence; no hook watches HEAD or automatically detects release state.

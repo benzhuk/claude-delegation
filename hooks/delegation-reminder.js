@@ -336,6 +336,13 @@ function bearingsState() {
 async function bearingsNotice(cwd) {
   try {
     const checked = (await bearingsState()).check({ repo: cwd });
+    // Seam S7: a receipt rejected for reviewer-not-independent is still "due", but the generic
+    // due-notice hides the actual reason from a lead that just recorded a self-reviewed bearings —
+    // name the reason so the lead knows a different receipt (not merely another /delegation:bearings
+    // run with the same reviewer) is what clears it.
+    if (checked.status === "due" && checked.reason === "reviewer-not-independent") {
+      return "Bearings are due: the last receipt's reviewer was not independent of the lead. Run `/delegation:bearings` with a different reviewer.";
+    }
     if (checked.status === "due") return "Bearings are due. Run `/delegation:bearings` to assess the current goal and publish the result.";
     if (checked.status === "unknown") return "Bearings status is unknown. Run `/delegation:bearings` to inspect the current goal and completion evidence.";
   } catch {}
@@ -392,8 +399,21 @@ async function handle(event, input) {
     // there too, in addition to `additionalContext` for the model. Not-due (bearings is null) emits no
     // systemMessage. `cardUsable` already guards this off when the card itself was rejected, so the two
     // systemMessage sources (card-rejection notice, bearings notice) never collide.
-    if (bearings && !systemMessage) systemMessage = bearings;
-    return { text: joinContext(card, bearings), systemMessage };
+    // Seam S6: hooks.json wires SessionStart with no matcher, so this branch also fires on
+    // `compact` (auto-compaction re-entry), not only `startup`/`resume`/`clear`/`fork`. A long
+    // session with bearings due would otherwise put the due-notice back in Ben's pane after
+    // every compaction. Keep it out of `systemMessage` on that one source; `additionalContext`
+    // (below) is unchanged, so the model still sees it post-compaction.
+    if (bearings && !systemMessage && input?.source !== "compact") systemMessage = bearings;
+    // Seam S4 (minimal version): bearings-state.mjs has no way to learn the lead's own identity
+    // from the harness, so `--lead-id`/`--reviewer-id` are free text a lead could type identically
+    // for both. Give the lead this session's own id as a hint (never proof — the SKILL text says
+    // so) at the one point it is reliably known: the SessionStart hook. `agentId` is deliberately
+    // excluded here (a subagent never sees bearings, guarded above by `!agentId`).
+    const leadIdHint = bearings && typeof sessionId === "string" && sessionId
+      ? "When recording completion, pass --lead-id " + sessionId + " (this session) and, as --reviewer-id, the agentId the Agent tool returned for the reviewer (or the reviewer pane's own session id), never this session id."
+      : null;
+    return { text: joinContext(card, bearings, leadIdHint), systemMessage };
   }
 
   if (event === "PostCompact") {
