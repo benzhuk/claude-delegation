@@ -377,6 +377,28 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   assert.ok(!fixReviewCall.prompt.includes("sha2"), "the fix review prompt must never contain the new build's delivered sha for the reviewer to echo");
 });
 
+// MINOR 4 (T1 round-2 review): a fix-round builder that returns PASS with the SAME sha as
+// the prior round (no new commit) must never hand the reviewer a rendered prompt containing
+// that sha as text - an echoing reviewer could match it without ever running `git rev-parse
+// HEAD` itself.
+test("fix round with no new commit: the r2 review prompt never contains the unchanged sha as text", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "docs/work/t1-r1-findings.md"),
+    "build:T1:r2": buildResult("sha1", "PASS", "docs/work/T1-report.md"),
+    "review:T1:r2": reviewResult("APPROVE", "sha1"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  const t1 = result.territories[0];
+  assert.equal(t1.verdict, "APPROVE");
+  assert.equal(t1.sha, "sha1");
+
+  const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
+  assert.ok(!fixReviewCall.prompt.includes("sha1"), "the r2 review prompt must not contain the sha for the reviewer to echo when no new commit was made");
+  assert.ok(fixReviewCall.prompt.includes("docs/work/t1-r1-findings.md"), "prior findings must still be referenced even without a commit range");
+});
+
 test("a fix review always receives the captured artifact range, even with an empty findings path and a retry", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("sha1"),

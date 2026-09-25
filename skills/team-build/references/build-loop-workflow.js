@@ -108,9 +108,15 @@ function sameSha(x, y) {
 // never a value read out of this prompt's text.
 function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath) {
   let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Worktree: ${t.worktree}. Builder report: ${build.reportPath}. Run \`git rev-parse HEAD\` in the worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${REVIEW_MANDATE}`
-  if (round >= 2 && priorBuildSha) {
+  // MINOR 4 (T1 round-2 review): if a fix-round builder made no new commit, priorBuildSha
+  // equals build.sha, and appending "priorBuildSha..HEAD" would put the exact sha the
+  // reviewer is supposed to derive independently into the rendered prompt text for an
+  // echoing reviewer to copy. Only append the range when the two shas actually differ.
+  if (round >= 2 && priorBuildSha && !sameSha(priorBuildSha, build.sha)) {
     if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
     p += ` Commit range: ${priorBuildSha}..HEAD (run this in the worktree).`
+  } else if (round >= 2) {
+    if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
   }
   return p
 }

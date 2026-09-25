@@ -343,7 +343,7 @@ test("validateRecord: accepted-without-check fires when Status: accepted, Opened
       Status: "accepted",
       Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
       Evidence: "docs/work-record.md",
-      Opened: "2026-09-24T09:00:00Z",
+      Opened: "2026-09-25T09:00:00Z",
     }),
   );
   assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
@@ -356,7 +356,7 @@ test("validateRecord: accepted-without-check does not fire once acceptRecord's o
         Status: "accepted",
         Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
         Evidence: "docs/work-record.md",
-        Opened: "2026-09-24T09:00:00Z",
+        Opened: "2026-09-25T09:00:00Z",
       },
       ["Log: 2026-09-24T10:00:00.000Z accepted t1 artifact abcd1234abcd1234abcd1234abcd1234abcd1234"],
     ),
@@ -376,19 +376,39 @@ test("validateRecord: accepted-without-check does not fire for a record opened b
   assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
 });
 
-test("validateRecord: accepted-without-check does not fire when a Log: accepted line names a DIFFERENT artifact (a stale acceptance log)", () => {
+test("validateRecord: still fires when the only Log: accepted line names a DIFFERENT artifact (a stale acceptance log)", () => {
   const r = parseRecord(
     mkRecordText(
       {
         Status: "accepted",
         Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
         Evidence: "docs/work-record.md",
-        Opened: "2026-09-24T09:00:00Z",
+        Opened: "2026-09-25T09:00:00Z",
       },
       ["Log: 2026-09-24T10:00:00.000Z accepted t1 artifact 1111111111111111111111111111111111111111"],
     ),
   );
   assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("validateRecord: accepted-without-check fires on an unparseable Opened: (unknown is not grandfathered)", () => {
+  const r = parseRecord(
+    mkRecordText({
+      Status: "accepted",
+      Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+      Evidence: "docs/work-record.md",
+      Opened: "soon",
+    }),
+  );
+  assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("accepted-without-check: every record already in this repo's docs/work/ is grandfathered (zero hits)", () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const dir = path.join(repoRoot, "docs", "work");
+  const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".record.md")).filter((f) =>
+    codes(validateRecord(parseRecord(fs.readFileSync(path.join(dir, f), "utf8")))).includes("accepted-without-check"));
+  assert.deepEqual(hits, []);
 });
 
 // Named failure case 3 (T1 brief): "fresh worker on an obsolete fact" -> scope-drift, on a
@@ -895,13 +915,21 @@ test("checkAcceptance: pinned mode still passes when the artifact is an ancestor
 // also accept a local branch name, not only a filesystem path - SKILL.md and the spec
 // both say "branch", and this build's own territory worktrees live outside the repo, so
 // a repo-relative path can't name them either.
-test("checkAcceptance: Worktree: accepts a local branch name (not only a filesystem path)", () => {
+// The repo's own HEAD is moved forward past f.sha BEFORE feat-branch is created at f.sha, so a
+// variant that resolves Worktree:'s branch name by reading repoRoot's HEAD instead of
+// refs/heads/<name> (round-2 review MINOR 3 / mutant M6) is distinguishable from the real
+// refs/heads/ lookup: live mode requires the resolved Worktree: HEAD to equal the delivered
+// artifact exactly, and only the real branch-ref lookup gives that after HEAD has moved on.
+test("checkAcceptance: Worktree: accepts a local branch name (not only a filesystem path), even after repo HEAD has moved past it", () => {
   const f = makeAcceptanceFixture();
+  fs.writeFileSync(path.join(f.repo, "later.txt"), "later\n");
+  execFileSync("git", ["-C", f.repo, "add", "later.txt"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "later"], { env: f.env });
   execFileSync("git", ["-C", f.repo, "branch", "feat-branch", f.sha], { env: f.env });
   const recordPath = path.join(f.repo, f.record);
   const text = fs.readFileSync(recordPath, "utf8");
   fs.writeFileSync(recordPath, text.replace("Worktree: .", "Worktree: feat-branch"));
-  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "feat-branch" });
   assert.equal(result.ok, true);
 });
 
@@ -928,7 +956,7 @@ test("acceptRecord's real output never trips accepted-without-check, even opened
   const f = makeAcceptanceFixture();
   const recordPath = path.join(f.repo, f.record);
   const text = fs.readFileSync(recordPath, "utf8");
-  fs.writeFileSync(recordPath, text.replace("Opened: 2026-09-23T12:00:00Z", "Opened: 2026-09-24T09:00:00Z"));
+  fs.writeFileSync(recordPath, text.replace("Opened: 2026-09-23T12:00:00Z", "Opened: 2026-09-25T09:00:00Z"));
   acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z") });
   const updated = fs.readFileSync(recordPath, "utf8");
   const parsed = parseRecord(updated);

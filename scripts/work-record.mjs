@@ -27,7 +27,9 @@ export const FINDING_CODES = [
 // record; a record with no such line naming its own Artifact: was never accepted through
 // code. Gated by Opened: (not by the mere absence of Worktree:, which a hand-editor could
 // omit on purpose) so every record opened before this check existed is grandfathered.
-const ACCEPTED_WITHOUT_CHECK_CUTOFF = Date.parse("2026-09-24T00:00:00Z");
+// Later than every record already in docs/work/ on any branch (newest Opened: 2026-09-24T12:05:41Z),
+// earlier than this build's own record (spec written 2026-09-24 evening, America/New_York).
+const ACCEPTED_WITHOUT_CHECK_CUTOFF = Date.parse("2026-09-24T13:00:00Z");
 
 const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
@@ -167,8 +169,8 @@ export function validateRecord(record, opts = {}) {
   if (
     isAccepted
     && fields.opened !== undefined
-    && Number.isFinite(Date.parse(fields.opened))
-    && Date.parse(fields.opened) >= ACCEPTED_WITHOUT_CHECK_CUTOFF
+    // An unparseable Opened: is unknown, not grandfathered: NaN < cutoff is false, so it fires.
+    && !(Date.parse(fields.opened) < ACCEPTED_WITHOUT_CHECK_CUTOFF)
     && fields.artifact !== undefined
     && fields.artifact !== "none"
   ) {
