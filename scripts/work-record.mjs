@@ -70,9 +70,10 @@ function rtrim(s) {
 // fields when a value is genuinely missing, so a bare-presence check alone passes every
 // placeholder and checks nothing. Used by both the lead-session refusal (unconditional)
 // and the spec-session WARN (m1: WARN on content, not just presence).
-const PLACEHOLDER_ID_RE = /^(?:none|unavailable|unknown|n\/?a|tbd|pending|-+)\b/i;
+const PLACEHOLDER_ID_RE = /^[(<[{"']*(?:none|null|undefined|unavailable|unknown|missing|unset|n\/?a|tbd|pending|-+)\b/i;
 function isSessionId(v) {
-  return typeof v === "string" && /^\S{6,}$/.test(v.trim()) && !PLACEHOLDER_ID_RE.test(v.trim());
+  const t = typeof v === "string" ? v.trim() : "";
+  return /^\S{6,}$/.test(t) && /\d/.test(t) && !PLACEHOLDER_ID_RE.test(t);
 }
 
 function fieldRegex(label) {
@@ -445,12 +446,13 @@ export function formatLogLine(at, status, owner, note) {
 // (four-read-invalid) rather than silently stringifying whatever it finds; flat() collapses
 // any embedded newlines/whitespace in a copied label or value so a value can never inject
 // a blank line or a header-looking line into the record (M1).
+const FOUR_READ_KEYS = ["topTierTokensPerBuild", "hoursAskToAccepted", "reworkAfterAcceptance", "workLostOrStalled"];
 function fourReadLines(parsed) {
   const rows = parsed && Array.isArray(parsed.numbers) ? parsed.numbers : null;
   const flat = (s) => String(s).replace(/\s+/g, " ").trim();
   if (
     !rows || rows.length !== 4
-    || !rows.every((r) => r && typeof r.label === "string" && typeof r.value === "string" && flat(r.value))
+    || !rows.every((r, i) => r && r.key === FOUR_READ_KEYS[i] && typeof r.label === "string" && flat(r.label) && typeof r.value === "string" && flat(r.value))
   ) {
     throw acceptanceError(
       "--four-read is not four-read.mjs JSON: expected numbers[4] of { label, value } strings",
@@ -964,7 +966,7 @@ export function checkAcceptance(opts = {}) {
   if (!isSessionId(record.fields.specSession)) {
     warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
   }
-  if (!record.fields.specFrom || Number.isNaN(Date.parse(record.fields.specFrom))) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/.test(record.fields.specFrom ?? "")) {
     warnings.push("spec-from-missing: Spec-from: is absent or not a timestamp; the four-read's token number will be partial (no spec slice)");
   }
 

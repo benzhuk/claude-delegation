@@ -1849,6 +1849,18 @@ test("checkAcceptance: lead-session-missing fires when Lead-session: is a placeh
   }
 });
 
+test("checkAcceptance: lead-session-missing fires for interpolation leftovers and bracketed placeholders (M-B)", () => {
+  for (const bad of ["undefined", "(none)", "missing", "<lead-session-id>"]) {
+    const f = makeAcceptanceFixture({ "Lead-session": bad });
+    try {
+      checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+      assert.fail(`expected checkAcceptance to throw for Lead-session: ${bad}`);
+    } catch (error) {
+      assert.equal(error.code, "lead-session-missing", `Lead-session: ${bad} must refuse`);
+    }
+  }
+});
+
 test("checkAcceptance: a Lead-session: field lets an otherwise-valid record pass (no other change to the check)", () => {
   const f = makeAcceptanceFixture();
   const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
@@ -1895,6 +1907,18 @@ test("acceptanceMain: a WARN is written to stderr, not only inside the stdout JS
   assert.equal(code, 0);
   assert.match(stderr.join(""), /work-record: WARN spec-session-missing/);
   assert.match(stderr.join(""), /work-record: WARN spec-from-missing/);
+});
+
+// Seam-review m-B: Date.parse is lax ("0", "1", "Sep 25" all parse); Spec-from: must be
+// an ISO-shaped timestamp, since --spec-from <iso> is the only value R1 ever writes here.
+test("checkAcceptance: Spec-from: WARN fires on non-ISO text that Date.parse would still accept (m-B)", () => {
+  for (const bad of ["0", "1", "Sep 25"]) {
+    const f = makeAcceptanceFixture({ "Spec-from": bad });
+    const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.length, 1, `Spec-from: ${bad} must WARN`);
+    assert.match(result.warnings[0], /spec-from-missing/);
+  }
 });
 
 // --- R2 item 3: --four-read -----------------------------------------------------
@@ -1981,6 +2005,31 @@ test("acceptRecord: an old flat-object --four-read shape (not R1's numbers[]) re
   assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
 });
 
+// Seam-review m-A: four rows that are shaped correctly but are not the four real
+// measures (wrong/duplicate keys, or a blank label) must refuse too, not just a wrong
+// overall shape.
+test("acceptRecord: --four-read rows with the wrong keys, duplicate keys, or a blank label refuse with four-read-invalid", () => {
+  const f = makeAcceptanceFixture();
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  for (const rows of [
+    fourReadFixture().numbers.map((r) => ({ ...r, label: "" })),
+    [0, 1, 2, 3].map(() => ({ key: "topTierTokensPerBuild", label: "Tokens", value: "999" })),
+  ]) {
+    const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-badkeys-")), "four-read.json");
+    fs.writeFileSync(fourReadPath, JSON.stringify({ ...fourReadFixture(), numbers: rows }));
+    try {
+      acceptRecord({
+        repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+        noCensusReason: "no census fixture in this test", fourReadPath,
+      });
+      assert.fail("expected acceptRecord to throw for rows that are not the four real measures");
+    } catch (error) {
+      assert.equal(error.code, "four-read-invalid");
+    }
+  }
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
 // M1 (twins T1/C2 round-2 MINOR 6): a four-read value must never be able to inject a
 // blank line or a header-looking line into the record, which would push the Log: entry
 // accept just wrote out of the header where parseRecord looks for Status:/Log:.
@@ -2027,6 +2076,9 @@ const STALE = [
   // [^\n]) so a citation path like ".../wr-2026-09-24-loop-gates.record.md" sitting near an
   // unrelated, later, correctly-attributed "script count" phrase does not false-positive.
   /loop-gates[^.\n]{0,80}script counts?/i,
+  /\b32\b[^.\n]{0,60}loop-gates/i,
+  /loop-gates build(?:'s)? (?:is|was|had|counts?|lead turns?)[^.\n]{0,20}\b32\b/i,
+  /7-turn hand count[^\n]{0,160}script counts? 32/i,
   // Claim: the 0.20.7 card-cap change was installed nowhere (false - Ben's ticks record
   // 0.20.7 and 0.20.8 each on three hosts).
   /0\.20\.7 card-cap change was installed nowhere/,
@@ -2069,4 +2121,11 @@ test("docs/GOALS.md and docs/goals/card.md carry no phrase this build's evidence
 test("STALE regexes: fail when a stale claim returns in different words (mutation probe)", () => {
   const mutated = "Status: MET. Nothing lost or stalled on the census-complete build; loop-gates lead turns: 7 (MET, under 20).";
   assert.ok(STALE.some((re) => re.test(mutated)), "at least one STALE pattern must catch the reworded mutation");
+
+  // Seam-review M-A: the spec's own wrong sentence, and round-1's reworded version of it,
+  // attributing loop-gates' 32 script count (false - 32 belongs to census-complete).
+  for (const m of [
+    "lead turns for the loop-gates build is 32 by the script (not 7 by hand)",
+    "The loop-gates build's own record reported a 7-turn hand count (`docs/work/wr-2026-09-24-loop-gates.record.md`); the script counts 32 lead turns for that build's window",
+  ]) assert.ok(STALE.some((re) => re.test(m)), `STALE must catch: ${m}`);
 });

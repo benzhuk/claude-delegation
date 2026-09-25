@@ -98,7 +98,7 @@ No session waits unnoticed and no piece of work is lost. Peer notes reach their 
 In Ben's words: solving orchestrator stalling "is part of the skills work and important." (9-21) "i think fyi and ack shouldn't wake ... it was a good arch decision in the first place to save tokens!" (9-22)
 
 Measure: delivery outcomes per machine per week; asks answered vs open; wakes per build.
-Status: PARTIAL. On 2026-09-23 three notes to the Codex lead were marked seen without reaching it, and a blocked deploy was never reported; the launcher and cursor defects were fixed in 0.18.1. "Nothing lost or stalled" does not hold for the census-complete build itself: a 7.25 hour host stall — DONE's census-build clause status is at this file's DONE bullet above, not asserted true here. (2026-09-25 bearings O5; note `2026-09-25-windows-orca-panes-froze-overnight-os-awake.md`)
+Status: PARTIAL. On 2026-09-23 three notes to the Codex lead were marked seen without reaching it, and a blocked deploy was never reported; the launcher and cursor defects were fixed in 0.18.1. "Nothing lost or stalled" does not hold for the census-complete build itself: its window held a 7.25 hour host stall that nothing in the plugin detected, so DONE's "nothing lost or stalled" clause does not hold for it. (2026-09-25 bearings O5; note `2026-09-25-windows-orca-panes-froze-overnight-os-awake.md`)
 
 ## Decisions and goals have one home that Ben reads
 
