@@ -21,25 +21,33 @@
 // over raw lines in file order, independently of the requestId/message.id de-dup above —
 // one API request split across 3 JSONL lines is still just part of ONE run, whether or not
 // it also happens to be one deduped "turn" by the de-dup definition. See docs/census.md
-// for the pinned one-sentence definition.
+// for the pinned one-sentence definition. `leadTurns` is windowed by --marker exactly like
+// windowById is; `leadTurnsTotal` is the same count over the whole file regardless.
 //
-// ROLES (item 2): a subagent file's role comes from the Workflow's own `journal.jsonl`
-// (written next to that file, one line per agent, `{"agentId":"<id>","label":"<label>"}`,
-// `<id>` being the file's basename with a leading `agent-` and its extension stripped) when
-// that journal has a matching entry — role is the label's segment before its first `:`
+// ROLES (item 2): a subagent file's role comes from the Workflow tool's own
+// `journal.jsonl` (its real output file, at `subagents/workflows/<runId>/journal.jsonl`,
+// one line per agent carrying at least `{"agentId":"<id>","label":"<label>"}`, `<id>`
+// being the file's basename with a leading `agent-` and its extension stripped) when that
+// journal has a matching entry — role is the label's segment before its first `:`
 // (`build:T1:r2` -> `build`, `seam` -> `seam`). Failing that, `--role-map <json>` maps the
-// file's bare basename (`agent-<id>`, extension stripped) directly to a role string,
-// verbatim. Failing both, the file is `unassigned` — never silently folded into another
-// role.
+// file's bare basename (`agent-<id>` OR the bare id with no prefix — a real
+// `tasks/<id>.output` file's own basename has no `agent-` prefix at all) directly to a
+// role string, verbatim. Failing both, the file is `unassigned` — never silently folded
+// into another role.
 //
 // MULTI-DIR / DEFAULT GLOB (item 1): `--tasks <dir>` may be repeated; every file across
-// every given dir is counted, each exactly once (de-duped by resolved real path, so the
-// same dir given twice, or a symlink aliasing another counted file, never double-counts).
-// When `--lead <session.jsonl>` is given, the script ALSO globs
-// `<dirname of lead>/<lead session id>/subagents/agent-*.jsonl` — the lead's own Task-tool
-// subagents — without needing a flag. Unlike an explicitly-given `--tasks` dir (unreadable
-// is an error, never a silent zero), a MISSING default dir is normal (most lead sessions
-// spawn no subagents) and contributes zero files without complaint.
+// every given dir is counted, each exactly once — de-duped by BOTH its resolved real path
+// AND its filesystem inode, so the same dir given twice, a symlink aliasing another
+// counted file, or Claude Code's own `tasks/<id>.output` (a HARDLINK to
+// `subagents/agent-<id>.jsonl` — two distinct real paths, one inode, which real-path
+// de-dup alone cannot see) never double-counts. When `--lead <session.jsonl>` is given,
+// the script ALSO globs `<dirname of lead>/<lead session id>/subagents/agent-*.jsonl` (the
+// lead's own Task-tool subagents) AND one directory per Workflow run under
+// `.../subagents/workflows/<runId>/agent-*.jsonl` (a loop build's builders, reviewers and
+// integrator) — without needing a flag. Unlike an explicitly-given `--tasks` dir
+// (unreadable is an error, never a silent zero), a MISSING default dir is normal (most
+// lead sessions spawn no subagents, or Task-tool subagents only) and contributes zero
+// files without complaint.
 //
 // SECRECY, load-bearing: this tool never reads or prints `message.content` (or any other
 // transcript text) except to test membership of `--marker` inside a parsed line via
@@ -168,11 +176,14 @@ function resolveAndStore(idMap, aliasByMsgId, obj, uniqueCounter, entry) {
  * Census one lead transcript file. Returns:
  *   { totalById: Map<id, {model, usage, ts}>, windowById: Map (same shape; === totalById
  *     entries filtered to the marker window, or the whole-file map when no marker is
- *     given), windowStartAt, firstAt, lastAt, leadTurns }
+ *     given), windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal }
  * De-dup ("last line wins") is applied independently to the total map and the window map,
  * since a request can straddle the marker boundary (spec.md L-C9).
  * `leadTurns` (census-complete spec item 3) is counted over the SAME single pass, over raw
  * lines, independently of the id de-dup above — see docs/census.md for its definition.
+ * `leadTurns` is windowed by --marker exactly like windowById is (0 before the window
+ * starts); `leadTurnsTotal` is the same count over the WHOLE file regardless of --marker —
+ * they're equal whenever no --marker is given.
  */
 export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
   const rl = await openLines(fsImpl, filePath);
@@ -187,8 +198,10 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
   let firstAt = null;
   let lastAt = null;
 
-  let leadTurns = 0;
+  let leadTurns = 0; // runs inside the --marker window (== whole file when no marker)
+  let leadTurnsTotal = 0; // runs in the whole file, always, regardless of --marker
   let inRun = false;
+  let inWindowRun = false;
 
   for await (const line of rl) {
     if (!line.trim()) continue;
@@ -211,11 +224,24 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
 
     if (obj.type === 'assistant') {
       if (!inRun) {
-        leadTurns += 1;
+        leadTurnsTotal += 1;
         inRun = true;
       }
+      // A --marker window's leadTurns must be windowed too — otherwise a persistent lead
+      // pane (one session across several builds) reports the WHOLE session's run count as
+      // if it were this build's, the same "unknown rendered as a confident number" failure
+      // this fix's sibling (the subagent window filter, below in runCensus) also guards
+      // against. Without --marker, windowStarted is true from the first line, so leadTurns
+      // === leadTurnsTotal, unchanged from before this fix.
+      if (windowStarted && !inWindowRun) {
+        leadTurns += 1;
+        inWindowRun = true;
+      }
     } else if (obj.type === 'user') {
-      if (!isToolResultOnlyUser(obj)) inRun = false;
+      if (!isToolResultOnlyUser(obj)) {
+        inRun = false;
+        inWindowRun = false;
+      }
       // a tool_result-only user line is transparent: the run continues through it.
     }
 
@@ -228,7 +254,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
 
   if (!marker) windowStartAt = firstAt;
 
-  return { totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns };
+  return { totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal };
 }
 
 /**
@@ -293,17 +319,39 @@ function matchesPattern(f, pattern) {
   return f.endsWith('.output') || f.endsWith('.jsonl');
 }
 
-// Explicit --tasks dirs first (CLI order), then the default subagents glob (if a --lead
-// was given) last, tagged isDefault so collectTaskFiles knows a missing one is not an
-// error.
-function buildDirSpecs(opts) {
+// Default specs (the lead's own subagents/, plus one per Workflow run dir under
+// subagents/workflows/) come FIRST, explicit --tasks dirs (CLI order) LAST. This order is
+// load-bearing for dedupeByRealPath above: on a collision (Claude Code's tasks/<id>.output
+// hardlinked to subagents/agent-<id>.jsonl) it keeps the FIRST-seen copy, so a default's
+// `agent-<id>.jsonl` name — the one --role-map and journal.jsonl both key off — wins over
+// an explicit --tasks dir's `<id>.output` alias.
+function buildDirSpecs(opts, fsImpl) {
   const specs = [];
-  for (const d of opts.tasksDirs || []) specs.push({ dir: d, isDefault: false, pattern: 'wide' });
   if (opts.lead) {
     const leadSessionId = path.basename(opts.lead).replace(/\.jsonl$/i, '');
-    const defaultDir = path.join(path.dirname(opts.lead), leadSessionId, 'subagents');
+    const sessionDir = path.join(path.dirname(opts.lead), leadSessionId);
+    const defaultDir = path.join(sessionDir, 'subagents');
     specs.push({ dir: defaultDir, isDefault: true, pattern: 'agent' });
+    // The Workflow tool (a loop build's builders/reviewers/integrator) writes its agent
+    // transcripts one directory PER RUN, one level below the Task-tool default above:
+    // <session>/subagents/workflows/<runId>/agent-<agentId>.jsonl, with that run's own
+    // journal.jsonl beside them. Without this, the default glob stops at the top level
+    // and a loop build's whole by-role table comes back empty. A missing workflows/ dir
+    // is the common case (most sessions never ran the Workflow tool) and contributes zero
+    // specs, not an error — same idiom as the plain subagents/ default above.
+    const workflowsDir = path.join(defaultDir, 'workflows');
+    try {
+      const entries = fsImpl.readdirSync(workflowsDir, { withFileTypes: true });
+      for (const e of entries) {
+        const isDir = typeof e.isDirectory === 'function' ? e.isDirectory() : true;
+        if (!isDir) continue;
+        specs.push({ dir: path.join(workflowsDir, e.name), isDefault: true, pattern: 'agent' });
+      }
+    } catch {
+      // no workflows dir: normal, not an error.
+    }
   }
+  for (const d of opts.tasksDirs || []) specs.push({ dir: d, isDefault: false, pattern: 'wide' });
   return specs;
 }
 
@@ -331,8 +379,20 @@ function collectTaskFiles(dirSpecs, fsImpl) {
 // De-dup by resolved real path so the same dir given twice, a file reachable through two
 // --tasks dirs, or a symlink aliasing an already-counted file, is never counted twice.
 // Falls back to path.resolve (no symlink resolution) when fsImpl has no realpathSync.
+//
+// ALSO de-dup by inode (dev+ino), independently of the path key. Claude Code's own
+// `tasks/<id>.output` for a finished background/subagent task is a HARDLINK to
+// `<session>/subagents/agent-<id>.jsonl` — two distinct real paths, ONE inode.
+// `fs.realpathSync` returns two different strings for a hardlink (it only resolves
+// symlinks), so the path-only de-dup above cannot see this case at all: passing both the
+// default subagents dir and an explicit `--tasks <tasks dir>` (docs/census.md's own
+// recommended shape) silently double-counted every hardlinked file's tokens. A file that
+// can't be `statSync`'d with `{bigint:true}` (or whose fsImpl lacks that call) falls back
+// to the path key alone — never an error here; runCensus's own statSync already marks an
+// unreadable file separately.
 function dedupeByRealPath(collected, fsImpl) {
-  const seen = new Set();
+  const seenPath = new Set();
+  const seenInode = new Set();
   const out = [];
   for (const item of collected) {
     let real;
@@ -341,9 +401,17 @@ function dedupeByRealPath(collected, fsImpl) {
     } catch {
       real = path.resolve(item.fullPath);
     }
-    const key = process.platform === 'win32' ? real.toLowerCase() : real;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const pathKey = process.platform === 'win32' ? real.toLowerCase() : real;
+    let inodeKey = null;
+    try {
+      const st = typeof fsImpl.statSync === 'function' ? fsImpl.statSync(item.fullPath, { bigint: true }) : null;
+      if (st && typeof st.ino === 'bigint' && st.ino !== 0n) inodeKey = `${st.dev}:${st.ino}`;
+    } catch {
+      // not stat-able here: path key only.
+    }
+    if (seenPath.has(pathKey) || (inodeKey && seenInode.has(inodeKey))) continue;
+    seenPath.add(pathKey);
+    if (inodeKey) seenInode.add(inodeKey);
     out.push(item);
   }
   return out;
@@ -381,8 +449,14 @@ function resolveRole(agentKey, journalMap, roleMap) {
   if (journalMap && journalMap.has(bareId)) {
     return journalMap.get(bareId).split(':')[0];
   }
-  if (roleMap && Object.prototype.hasOwnProperty.call(roleMap, agentKey)) {
-    return roleMap[agentKey];
+  // A file's agentKey has no `agent-` prefix when it came from a `<id>.output` name
+  // (Claude Code's real tasks/ shape), but docs/census.md documents --role-map keys as
+  // `agent-<id>`. Accept the exact key as given, the `agent-<id>` form, and the bare id,
+  // so a role map written against either naming convention resolves the same file.
+  if (roleMap) {
+    for (const k of [agentKey, `agent-${bareId}`, bareId]) {
+      if (Object.prototype.hasOwnProperty.call(roleMap, k)) return roleMap[k];
+    }
   }
   return 'unassigned';
 }
@@ -399,16 +473,29 @@ function resolveRole(agentKey, journalMap, roleMap) {
 export async function runCensus(opts, fsImpl = realFs()) {
   const lead = await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  const dirSpecs = buildDirSpecs(opts);
+  const dirSpecs = buildDirSpecs(opts, fsImpl);
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
   const rawFiles = collectTaskFiles(dirSpecs, fsImpl);
-  const orderedFiles = dedupeByRealPath(rawFiles, fsImpl).sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+  // Code-unit comparator, not localeCompare: sort order must not depend on the running
+  // machine's ICU/locale, and the other sorts in this file (Object.keys(...).sort()) are
+  // already plain code-unit sorts — this keeps output byte-stable across machines too.
+  const orderedFiles = dedupeByRealPath(rawFiles, fsImpl).sort((a, b) => (a.fullPath < b.fullPath ? -1 : a.fullPath > b.fullPath ? 1 : 0));
 
   const journalCache = new Map();
   const journalFor = (dir) => {
     if (!journalCache.has(dir)) journalCache.set(dir, readJournal(dir, fsImpl));
     return journalCache.get(dir);
   };
+
+  // When --marker is given AND the lead file actually established a window start
+  // timestamp, a subagent turn timestamped BEFORE that instant is pre-build activity
+  // (the lead's earlier session, an earlier build in the same pane) — without this, the
+  // default glob's whole-session reach means "top-tier tokens per build" for a persistent
+  // lead pane silently reports every subagent the session EVER spawned, not this build's.
+  // An entry with no parseable timestamp is unknown, not excluded — dropping it would be
+  // exactly the kind of silent undercount this fix exists to prevent on the lead side.
+  const windowCutoff = opts.marker && lead.windowStartAt ? Date.parse(lead.windowStartAt) : NaN;
+  const hasWindowCutoff = !Number.isNaN(windowCutoff);
 
   const subFiles = [];
   for (const f of orderedFiles) {
@@ -428,11 +515,25 @@ export async function runCensus(opts, fsImpl = realFs()) {
     const agentKey = f.filename.replace(/\.(jsonl|output)$/i, '');
     const role = resolveRole(agentKey, journalFor(f.dir), opts.roleMap);
     if (size === 0) {
-      subFiles.push({ file: f.fullPath, role, byId: new Map(), unreadable });
+      subFiles.push({ file: f.fullPath, role, byId: new Map(), unreadable, excludedByWindow: 0 });
       continue;
     }
     const r = await censusSubFile(f.fullPath, { fsImpl });
-    subFiles.push({ file: f.fullPath, role, byId: r.byId });
+    let byId = r.byId;
+    let excludedByWindow = 0;
+    if (hasWindowCutoff) {
+      const kept = new Map();
+      for (const [k, entry] of byId) {
+        const t = entry.ts ? Date.parse(entry.ts) : NaN;
+        if (!Number.isNaN(t) && t < windowCutoff) {
+          excludedByWindow += 1;
+          continue;
+        }
+        kept.set(k, entry);
+      }
+      byId = kept;
+    }
+    subFiles.push({ file: f.fullPath, role, byId, excludedByWindow });
   }
 
   const subTotalsByModel = {};
@@ -440,6 +541,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
   const roleFileCounts = {};
   let subTotalTurns = 0;
   let unreadableCount = 0;
+  let excludedByWindowTotal = 0;
   const perFile = [];
   for (const sf of subFiles) {
     const byModel = aggByModel(sf.byId);
@@ -449,7 +551,8 @@ export async function runCensus(opts, fsImpl = realFs()) {
     roleFileCounts[sf.role] = (roleFileCounts[sf.role] || 0) + 1;
     subTotalTurns += sf.byId.size;
     if (sf.unreadable) unreadableCount += 1;
-    perFile.push({ file: sf.file, role: sf.role, turns: sf.unreadable ? null : sf.byId.size, byModel });
+    excludedByWindowTotal += sf.excludedByWindow || 0;
+    perFile.push({ file: sf.file, role: sf.role, turns: sf.unreadable ? null : sf.byId.size, byModel, excludedByWindow: sf.excludedByWindow || 0 });
   }
 
   const leadTotalByModel = aggByModel(lead.totalById);
@@ -476,6 +579,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       totalTurns: lead.totalById.size,
       windowTurns: lead.windowById.size,
       leadTurns: lead.leadTurns,
+      leadTurnsTotal: lead.leadTurnsTotal,
       totalByModel: leadTotalByModel,
       windowByModel: leadWindowByModel,
       markerFound: lead.markerFound,
@@ -488,6 +592,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       fileCount: orderedFiles.length,
       unreadable: unreadableCount,
       totalTurns: subTotalTurns,
+      excludedByWindow: excludedByWindowTotal,
       totalByModel: subTotalsByModel,
       totalByRole: subTotalsByRole,
       roleFileCounts,
@@ -516,11 +621,14 @@ function totalTokens(a) {
 export function formatText(report) {
   const md = [];
   const unread = report.subagents.unreadable || 0;
-  md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead turns, ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
+  // C2 (scripts/work-record.mjs's `accept --census`) recognises a build-census report by
+  // the literal PREFIX `VERDICT: COUNTED ` on line 1 — never by `# Build census` below,
+  // which is only this report's section title. Keep that prefix byte-identical; the rest
+  // of the line is free text. `windowTurns` is the de-duped API-request count (NOT the
+  // same number as `leadTurns`, printed alongside it here so the two aren't mistaken for
+  // one another on a skim).
+  md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${report.lead.leadTurns}), ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
   md.push('');
-  // The header line other tools (e.g. work-record.mjs's `accept --census`) recognise a
-  // build-census report by: this exact literal line, always present, always verbatim.
-  // See docs/census.md, "Header line".
   md.push('# Build census');
   md.push('');
   md.push('## Summary');
@@ -540,7 +648,7 @@ export function formatText(report) {
   md.push('');
   md.push(`- Total assistant turns, deduped (whole file): **${report.lead.totalTurns}**`);
   md.push(`- Window assistant turns, deduped: **${report.lead.windowTurns}**`);
-  md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**`);
+  md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**${report.marker ? ` (of ${report.lead.leadTurnsTotal} in the whole file, unwindowed)` : ''}`);
   md.push(`- Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`);
   md.push(`- Turns/hour in window: **${report.lead.turnsPerHour !== null ? report.lead.turnsPerHour.toFixed(2) : 'n/a'}**`);
   md.push('');
@@ -561,6 +669,12 @@ export function formatText(report) {
   md.push('');
   const roleCountsLine = Object.keys(report.subagents.roleFileCounts).sort().map((r) => `${r}=${report.subagents.roleFileCounts[r]}`).join(', ') || '(none)';
   md.push(`Roles: ${roleCountsLine}`);
+  if (report.marker) {
+    // A file whose entries are ALL pre-window still appears above with turns:0 — it never
+    // silently disappears — but the exclusion itself is invisible unless named here.
+    const excludedLines = report.subagents.perFile.filter((f) => f.excludedByWindow).map((f) => `${f.file}=${f.excludedByWindow}`);
+    md.push(`Window-excluded subagent turns (timestamped before the marker window; dropped from every subagent total and the combined split above): ${excludedLines.length ? excludedLines.join(', ') : '(none)'}`);
+  }
   md.push('');
   md.push('| file | role | turns |');
   md.push('|---|---|---|');

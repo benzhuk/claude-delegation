@@ -29,6 +29,7 @@ const FIXTURES_TASKS = path.join(HERE, 'build-census.fixtures', 'tasks');
 const FIXTURES_LEAD_MULTI = path.join(HERE, 'build-census.fixtures', 'lead-multi.jsonl');
 const FIXTURES_LEAD_MULTI_DEFAULT_DIR = path.join(HERE, 'build-census.fixtures', 'lead-multi', 'subagents');
 const FIXTURES_WORKFLOW_TASKS = path.join(HERE, 'build-census.fixtures', 'workflow-tasks');
+const FIXTURES_LEAD_WORKFLOW = path.join(HERE, 'build-census.fixtures', 'lead-workflow.jsonl');
 
 const tracked = [];
 function mkTmp(prefix) {
@@ -220,7 +221,7 @@ test('runCensus over the committed lead.jsonl + tasks/ fixtures matches the hand
   });
 
   const text = formatText(report);
-  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead turns, 2 subagent files');
+  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files');
   assert.ok(text.includes('\n# Build census\n'), 'the header line other tools recognise this report by must be present verbatim');
   assert.ok(text.includes('- leadTurns: 2'), 'leadTurns must be printed literally');
 });
@@ -305,7 +306,7 @@ test('an unreadable subagent file is counted and surfaced at every quoted surfac
   const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [FIXTURES_TASKS], marker: null, out: null }, fsImpl);
   assert.equal(report.subagents.unreadable, 1, 'one raced file must be counted in subagents.unreadable');
   const text = formatText(report);
-  assert.ok(text.startsWith('VERDICT: COUNTED 3 lead turns, 2 subagent files (1 UNREADABLE'),
+  assert.ok(text.startsWith('VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files (1 UNREADABLE'),
     `VERDICT line must flag the unreadable count, not read as a clean run:\n${text.split('\n')[0]}`);
   assert.ok(text.includes('## Subagents (2 files, 1 unreadable, 0 turns total, deduped)'),
     `Subagents header must carry the unreadable count:\n${text}`);
@@ -317,7 +318,7 @@ test('the healthy path (no unreadable files) prints no UNREADABLE/unreadable/Inc
   const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [FIXTURES_TASKS], marker: null, out: null });
   assert.equal(report.subagents.unreadable, 0);
   const text = formatText(report);
-  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead turns, 2 subagent files');
+  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files');
   assert.ok(!/unreadable|UNREADABLE|Incomplete/.test(text), 'a clean run must never mention unreadable files');
 });
 
@@ -400,6 +401,65 @@ test('--marker: a marker that genuinely matches nothing still throws even when n
   );
 });
 
+test('--marker windows leadTurns too, not just windowTurns: a persistent lead pane must not report the WHOLE session\'s conversational runs as if they were this build\'s — MAJOR 2 part 1', async () => {
+  const { leadTurns, leadTurnsTotal } = await censusLeadFile(FIXTURES_LEAD_MULTI, { marker: 'continue please' });
+  // "continue please" is the boundary immediately before the final run (req-LM5) in
+  // lead-multi.jsonl — see the leadTurns=3 test above for the whole-file breakdown.
+  assert.equal(leadTurnsTotal, 3, 'leadTurnsTotal is unaffected by --marker: always the whole file');
+  assert.equal(leadTurns, 1, 'leadTurns is windowed: only the run(s) at/after the marker count');
+});
+
+test('runCensus exposes leadTurnsTotal alongside the windowed leadTurns, and formatText prints both when --marker is given', async () => {
+  const report = await runCensus({ lead: FIXTURES_LEAD_MULTI, tasksDirs: [], marker: 'continue please', out: null });
+  assert.equal(report.lead.leadTurns, 1);
+  assert.equal(report.lead.leadTurnsTotal, 3);
+  const text = formatText(report);
+  assert.ok(text.includes('leadTurns (conversational runs — see docs/census.md): **1** (of 3 in the whole file, unwindowed)'), `expected the total to be printed alongside the windowed count:\n${text}`);
+});
+
+test('--marker: a subagent file with entries both before and after the window start excludes only the pre-window ones from every subagent total, and reports the excluded count per file, without the file disappearing — MAJOR 2 part 2', async () => {
+  const dir = mkTmp('build-census-marker-sub-window-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  const tasksDir = path.join(dir, 'tasks');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'pre', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } }),
+    { type: 'user', timestamp: '2026-01-01T00:05:00.000Z', message: { role: 'user', content: 'MARK-HERE now building' } },
+    asstLine({ requestId: 'post', ts: '2026-01-01T00:06:00.000Z', usageOpts: { output: 1 } }),
+  ]);
+  writeJsonl(path.join(tasksDir, 'agent-w.jsonl'), [
+    asstLine({ requestId: 'sub-pre', ts: '2026-01-01T00:01:00.000Z', usageOpts: { output: 7, input: 3 } }), // before the window: must be excluded
+    asstLine({ requestId: 'sub-post', ts: '2026-01-01T00:07:00.000Z', usageOpts: { output: 11, input: 5 } }), // after the window: must be kept
+    asstLine({ requestId: 'sub-no-ts', usageOpts: { output: 2, input: 1 } }), // no timestamp at all: unknown, kept (never dropped as a guess)
+  ]);
+  const report = await runCensus({ lead: leadPath, tasksDirs: [tasksDir], marker: 'MARK-HERE', out: null });
+  assert.equal(report.subagents.fileCount, 1, 'the file itself is never dropped, even though one of its turns is excluded');
+  assert.equal(report.subagents.totalTurns, 2, 'sub-post and sub-no-ts remain; sub-pre is excluded');
+  assert.equal(report.subagents.excludedByWindow, 1);
+  const f = report.subagents.perFile.find((x) => x.file.endsWith('agent-w.jsonl'));
+  assert.equal(f.turns, 2, 'the file shows its real in-window turn count, not 0 and not a silent disappearance');
+  assert.equal(f.excludedByWindow, 1);
+  assert.equal(totalTokensAcrossModels(report.subagents.totalByModel), 11 + 5 + 2 + 1, 'sub-pre\'s 7+3 must not appear in the totals at all');
+  const text = formatText(report);
+  assert.ok(text.includes(`Window-excluded subagent turns`), 'the exclusion must be surfaced, not silent');
+  assert.ok(text.includes(`${f.file}=1`), 'per-file excluded count must be reported by name');
+});
+
+test('--marker: a subagent file whose window-cutoff cannot be established (no timestamp anywhere at/before the marker) excludes nothing — no guessing', async () => {
+  const dir = mkTmp('build-census-marker-sub-nocutoff-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  const tasksDir = path.join(dir, 'tasks');
+  writeJsonl(leadPath, [
+    { type: 'user', message: { role: 'user', content: 'MARK-HERE now building' } }, // no timestamp on the marker line
+    asstLine({ requestId: 'post', ts: '2026-01-01T00:06:00.000Z', usageOpts: { output: 1 } }),
+  ]);
+  writeJsonl(path.join(tasksDir, 'agent-w.jsonl'), [
+    asstLine({ requestId: 'sub-1', ts: '2020-01-01T00:00:00.000Z', usageOpts: { output: 9 } }),
+  ]);
+  const report = await runCensus({ lead: leadPath, tasksDirs: [tasksDir], marker: 'MARK-HERE', out: null });
+  assert.equal(report.subagents.totalTurns, 1, 'with no window-start timestamp to compare against, nothing is excluded');
+  assert.equal(report.subagents.excludedByWindow, 0);
+});
+
 // ── --out / --json ───────────────────────────────────────────────────────
 
 test('--out writes the full markdown report to a file and stdout gets only the "wrote:" line', async () => {
@@ -413,7 +473,7 @@ test('--out writes the full markdown report to a file and stdout gets only the "
   assert.equal(printed.length, 1);
   assert.equal(printed[0], `wrote: ${outPath}`);
   const written = fs.readFileSync(outPath, 'utf8');
-  assert.ok(written.startsWith('VERDICT: COUNTED 3 lead turns, 2 subagent files'));
+  assert.ok(written.startsWith('VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files'));
 });
 
 test('--json writes deterministic JSON (sorted keys) to a file', async () => {
@@ -430,7 +490,7 @@ test('without --out or --json, the full markdown report (and nothing else) goes 
   const code = await main(['--lead', FIXTURES_LEAD, '--tasks', FIXTURES_TASKS], { write: (s) => printed.push(s) });
   assert.equal(code, 0);
   assert.equal(printed.length, 1);
-  assert.ok(printed[0].startsWith('VERDICT: COUNTED 3 lead turns, 2 subagent files'));
+  assert.ok(printed[0].startsWith('VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files'));
 });
 
 test('output is byte-stable across a re-run with no new input: markdown and JSON are identical byte-for-byte', async () => {
@@ -502,7 +562,10 @@ test('multi-dir --tasks: files across several dirs, plus the lead\'s own default
   assert.ok(paths.some((p) => p.endsWith('agent-default1.jsonl')), 'the default-glob file must be present');
 });
 
-test('the default subagents glob alone (no --tasks at all) counts the lead\'s own Task-tool subagents without a flag', async () => {
+test('the default subagents glob alone (no --tasks at all) counts the lead\'s own Task-tool subagents without a flag, and never widens past agent-*.jsonl — MINOR 6', async () => {
+  // lead-multi/subagents/ also carries agent-default1.meta.json (real Claude Code layout:
+  // every agent-<id>.jsonl has a *.meta.json sibling) and a stray notes.jsonl — neither
+  // may be counted; only the one real agent-*.jsonl transcript may.
   const report = await runCensus({ lead: FIXTURES_LEAD_MULTI, tasksDirs: [], marker: null, out: null });
   assert.equal(report.subagents.fileCount, 1);
   assert.ok(report.subagents.perFile[0].file.endsWith('agent-default1.jsonl'));
@@ -541,6 +604,60 @@ test('multi-dir de-dup: a file reachable through two different --tasks paths (a 
   assert.equal(report.subagents.fileCount, 1, 'both nominal paths resolve to the same real file');
 });
 
+test('multi-dir de-dup: a REAL hardlink (Claude Code\'s own tasks/<id>.output -> subagents/agent-<id>.jsonl shape) is counted once, not twice — realpath alone cannot see this (BLOCKER 1)', async () => {
+  const dir = mkTmp('build-census-hardlink-');
+  const subDir = path.join(dir, 'sub');
+  const tasksDir = path.join(dir, 'tasks');
+  fs.mkdirSync(subDir, { recursive: true });
+  fs.mkdirSync(tasksDir, { recursive: true });
+  const original = path.join(subDir, 'agent-x.jsonl');
+  writeJsonl(original, [asstLine({ requestId: 'r1', usageOpts: { output: 42, input: 7 } })]);
+  // A hardlink, not a symlink: fs.realpathSync resolves BOTH paths to themselves (they are
+  // each their own canonical path) — this is exactly why the path-only de-dup missed it.
+  fs.linkSync(original, path.join(tasksDir, 'x.output'));
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [tasksDir, subDir], marker: null, out: null });
+  assert.equal(report.subagents.fileCount, 1, 'the hardlinked pair must be counted once, keyed by inode, not by (distinct) real path');
+  assert.equal(report.subagents.totalTurns, 1);
+  assert.equal(totalTokensAcrossModels(report.subagents.totalByModel), 42 + 7, 'tokens counted once, not twice');
+});
+
+function totalTokensAcrossModels(byModel) {
+  let sum = 0;
+  for (const a of Object.values(byModel)) sum += a.input_tokens + a.cache_creation_input_tokens + a.cache_read_input_tokens + a.output_tokens;
+  return sum;
+}
+
+test('subagent row ordering: perFile is sorted by full path regardless of the order readdirSync happens to return names in, using a code-unit (not locale) comparator — MINOR 5', async () => {
+  const dir = mkTmp('build-census-sortorder-');
+  writeJsonl(path.join(dir, 'agent-c.jsonl'), [asstLine({ requestId: 'rc', usageOpts: { output: 1 } })]);
+  writeJsonl(path.join(dir, 'agent-a.jsonl'), [asstLine({ requestId: 'ra', usageOpts: { output: 1 } })]);
+  writeJsonl(path.join(dir, 'agent-b.jsonl'), [asstLine({ requestId: 'rb', usageOpts: { output: 1 } })]);
+  const real = fs;
+  const fsImpl = {
+    // Deliberately scramble whatever order the real fs happened to return, so the
+    // assertion below can only pass if runCensus sorts its own output.
+    readdirSync: (p, ...rest) => real.readdirSync(p, ...rest).slice().reverse(),
+    statSync: (...a) => real.statSync(...a),
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+  };
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [dir], marker: null, out: null }, fsImpl);
+  const names = report.subagents.perFile.map((f) => path.basename(f.file));
+  assert.deepEqual(names, ['agent-a.jsonl', 'agent-b.jsonl', 'agent-c.jsonl'], 'output order is sorted, independent of readdir order');
+});
+
+test('the default subagents glob (no --tasks) also finds Workflow-tool agents one level down (subagents/workflows/<runId>/agent-*.jsonl), not just top-level Task-tool agents — MAJOR 1', async () => {
+  const report = await runCensus({ lead: FIXTURES_LEAD_WORKFLOW, tasksDirs: [], marker: null, out: null });
+  // subagents/ itself has no top-level agent-*.jsonl for this lead; both files come from
+  // the two workflows/<runId>/ dirs, found with NO --tasks flag at all.
+  assert.equal(report.subagents.fileCount, 2);
+  const roleByFile = Object.fromEntries(report.subagents.perFile.map((f) => [path.basename(f.file), f.role]));
+  assert.deepEqual(roleByFile, { 'agent-x1.jsonl': 'build', 'agent-y1.jsonl': 'review' }, 'each run dir\'s own journal.jsonl labels its own agent files');
+  // defaultSubagentsDir still names the base subagents/ dir (the first default spec), not
+  // one of the workflows/<runId>/ subdirs.
+  assert.equal(report.defaultSubagentsDir, path.join(HERE, 'build-census.fixtures', 'lead-workflow', 'subagents'));
+});
+
 // ── roles: Workflow journal labels, --role-map, and unassigned ─────────────
 
 test('roles: journal.jsonl labels map to roles correctly (build:T1:r2, review:T1:r1, seam, integrate), and a file absent from the journal is unassigned', async () => {
@@ -568,6 +685,16 @@ test('roles: --role-map covers a file the journal does not, but a journal label 
   assert.equal(roleByFile['agent-w5.jsonl'], 'seam-reviewer', '--role-map fills in when the journal has no entry');
   assert.equal(roleByFile['agent-w1.jsonl'], 'build', 'the journal label wins even when --role-map also names this file');
   assert.equal(report.subagents.roleFileCounts.unassigned, undefined, 'w5 is no longer unassigned once role-mapped');
+});
+
+test('roles: --role-map keyed by the BARE id (no agent- prefix) still resolves a file whose name has no prefix, e.g. a real tasks/<id>.output — MINOR 3', async () => {
+  const dir = mkTmp('build-census-rolemap-output-');
+  writeJsonl(path.join(dir, 'x9.output'), [asstLine({ requestId: 'r1', usageOpts: { output: 1 } })]);
+  // docs/census.md documents --role-map keys in the `agent-<id>` form, but a real
+  // tasks/<id>.output file's basename (with its extension stripped) has no `agent-`
+  // prefix at all — the map must resolve either form to the same file.
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [dir], marker: null, out: null, roleMap: { 'agent-x9': 'seam-reviewer' } });
+  assert.equal(report.subagents.perFile[0].role, 'seam-reviewer', 'agent-<id>-form key must resolve a .output file whose own basename has no agent- prefix');
 });
 
 test('the by-role markdown table is produced alongside the by-model table, in the same shape', async () => {
