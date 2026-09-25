@@ -30,6 +30,15 @@ export const FINDING_CODES = [
 // Later than every record already in docs/work/ on any branch (newest Opened: 2026-09-24T12:05:41Z),
 // earlier than this build's own record (spec written 2026-09-24 evening, America/New_York).
 const ACCEPTED_WITHOUT_CHECK_CUTOFF = Date.parse("2026-09-24T13:00:00Z");
+// C2: every accept through code on/after this writes >=1 Census: line (copied summary or
+// `skipped — <reason>`). Later than every record in docs/work at 2869798 (newest Opened
+// 2026-09-25T01:52:55Z), earlier than this census build. A hand-edited Status: accepted
+// that also copies a matching Log: accepted line (imitating a real acceptance, so the
+// check above alone would miss it) is still caught here when it carries no Census: line
+// at all - "no other path... marks a record accepted without one" (reviewer attack
+// brief). FINDING_CODES stays at fourteen: this folds into the existing
+// accepted-without-check code rather than adding a new one.
+const CENSUS_REQUIRED_CUTOFF = Date.parse("2026-09-25T02:00:00Z");
 
 const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
@@ -208,6 +217,21 @@ export function validateRecord(record, opts = {}) {
         code: "accepted-without-check",
         level: "finding",
         message: "Status: accepted but no Log: accepted ... artifact <40-hex> line names this record's own Artifact: — Status may have been hand-edited rather than moved by `work-record.mjs accept`",
+      });
+    }
+    // C2: a Log: accepted line naming the right artifact is no longer sufficient on its
+    // own once CENSUS_REQUIRED_CUTOFF applies - `acceptRecord` always writes at least one
+    // Census: line, so a record with none was never moved by it, even when the Log: line
+    // was copied to imitate one that was.
+    if (
+      expectedShaPrefix !== null && acceptedThroughCode
+      && !(Date.parse(fields.opened) < CENSUS_REQUIRED_CUTOFF)
+      && (record.census ?? []).length === 0
+    ) {
+      findings.push({
+        code: "accepted-without-check",
+        level: "finding",
+        message: "Status: accepted with no Census: line - accepted without `accept --census <file>` or `--no-census \"<reason>\"`",
       });
     }
   }
@@ -546,57 +570,47 @@ export function isCensusFile(text) {
   return CENSUS_HEADER_RE.test(firstLine);
 }
 
-// Copies the census's own summary lines verbatim - this file never re-derives a number
-// from raw transcript data (it never reads one): (a) every top-level bullet shaped
-// "- <label>: **<value>**" (the shape build-census.mjs already uses for turn counts and
-// turns/hour, and the shape a leadTurns/wall-clock bullet would take); (b) any line
-// naming `leadTurns` or "wall clock" outside that bullet shape, so a differently
-// formatted field is never silently dropped; (c) whole markdown table sections
-// (heading + every row) whose heading mentions "model" or "role" - the by-model and
-// by-role tables spec.md names. Order of appearance in the file is preserved; duplicates
-// collapsed.
+// Copies the census's own summary lines verbatim, in file order, with no global
+// dedupe - this file never re-derives a number from raw transcript data (it never
+// reads one): (a) every top-level bullet line (bold-valued or not - a differently
+// formatted field, like a plain "- by-model: x=1" line, is never silently dropped
+// just because it isn't wrapped in `**`); (b) any line naming `leadTurns` or "wall
+// clock" outside that bullet shape; (c) whole markdown table sections (heading +
+// every row) whose heading OR first header cell mentions "model" or "role" - the
+// by-model and by-role tables spec.md names, including a second table whose rows
+// happen to duplicate an earlier one (e.g. a whole-file table and a windowed table
+// with identical rows - both are real, distinct facts, so neither is dropped as a
+// "duplicate"). (T1/C2 round-2 review, MAJOR 1: an earlier global-dedupe version
+// silently emptied a real by-model table whenever its rows matched an earlier
+// table's rows, and skipped every non-bold summary bullet - "copied faithfully"
+// was not true on the script's real output.)
 export function extractCensusSummary(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.replace(/[\r \t]+$/, ""));
+  const lines = text.split(/\r?\n/).slice(1).map((l) => l.trim());
   const summary = [];
-  const seen = new Set();
-  const add = (line) => {
-    const t = line.trim();
-    if (t && !seen.has(t)) {
-      seen.add(t);
-      summary.push(t);
-    }
-  };
-
-  for (const l of lines) {
-    if (/^-\s+\S.*:\s*\*\*.+\*\*\s*$/.test(l.trim())) add(l);
-  }
-  for (const l of lines) {
-    if (/\bleadTurns\b/.test(l) || /wall[ -]?clock/i.test(l)) add(l);
-  }
-
   let heading = null;
-  let rows = [];
+  let table = [];
   const flushTable = () => {
-    if (heading && rows.length > 0 && /model|role/i.test(heading)) {
-      add(heading);
-      for (const r of rows) add(r);
+    const firstCell = ((table[0] ?? "").split("|")[1] ?? "").trim();
+    if (table.length > 0 && (/model|role/i.test(heading ?? "") || /^(model|role)$/i.test(firstCell))) {
+      if (heading) summary.push(heading);
+      summary.push(...table);
+      heading = null;
     }
-    heading = null;
-    rows = [];
+    table = [];
   };
-  for (const raw of lines) {
-    const t = raw.trim();
+  for (const t of lines) {
+    if (t.startsWith("|")) {
+      table.push(t);
+      continue;
+    }
+    flushTable();
     if (/^#{1,6}\s+/.test(t)) {
-      flushTable();
       heading = t;
-    } else if (heading && t.startsWith("|")) {
-      rows.push(t);
-    } else if (t !== "") {
-      flushTable();
+    } else if (/^-\s+[^:]+:\s*\S/.test(t) || /\bleadTurns\b/.test(t) || /wall[ -]?clock/i.test(t)) {
+      summary.push(t);
     }
   }
   flushTable();
-
   return summary;
 }
 
@@ -618,14 +632,19 @@ export function extractCensusTimestamp(text) {
 }
 
 // The record's own currency signal: the latest `Log: ... reviewed ...` entry's `at`,
-// or null when none exists - census-stale fails closed on that null rather than skipping
-// the comparison silently.
+// or null when none exists, OR when any reviewed entry's `at` is unparseable - census-stale
+// fails closed on that null rather than skipping the comparison silently, or (T1/C2
+// round-2 review, MINOR 3) silently falling back to an earlier, parseable review entry
+// while a later, unparseable one (e.g. a hand-written "Log: tonight reviewed ...") goes
+// unnoticed. An unknown review time is never skipped in favor of a known-earlier one.
 function lastReviewLogAt(record) {
   const reviewed = (record.log ?? []).filter((l) => (l.status ?? "").toLowerCase() === "reviewed");
   if (reviewed.length === 0) return null;
-  let best = reviewed[0];
+  let best = null;
   for (const l of reviewed) {
-    if (Date.parse(l.at) > Date.parse(best.at)) best = l;
+    const t = Date.parse(l.at);
+    if (Number.isNaN(t)) return null;
+    if (best === null || t > Date.parse(best.at)) best = l;
   }
   return best.at;
 }
@@ -704,8 +723,14 @@ export function checkAcceptance(opts = {}) {
   // requirement to provide one (or an explicit --no-census reason) lives only in
   // acceptRecord below, the sole path that can ever flip Status: to accepted - this
   // function stays a read-only preview either way.
+  // T1/C2 round-2 review, MINOR 5: censusText is captured here and returned so
+  // acceptRecord's own (necessarily separate) read of the same --census path can be
+  // compared against it, rather than trusting a second, later read of a file that could
+  // have changed bytes in between.
+  let censusText;
   if (opts.censusPath !== undefined) {
     const census = loadCensus(opts.censusPath, fsImpl);
+    censusText = census.text;
     const reviewedAt = lastReviewLogAt(record);
     const reviewedMs = reviewedAt === null ? NaN : Date.parse(reviewedAt);
     // Fails closed on EITHER side being unknown - a record with no Log: reviewed entry,
@@ -831,7 +856,12 @@ export function checkAcceptance(opts = {}) {
   if (blockers.length > 0) throw acceptanceError(`current artifact has refusing evidence: ${blockers.join(", ")}`);
   if (!approved) throw acceptanceError("no evidence has an exact APPROVE verdict for the current artifact");
 
-  return { ok: true, work: record.fields.work, artifact, delivery };
+  // censusText is only ever present as a key when --census was actually given - every
+  // pre-census caller (and every census-agnostic call, like check-acceptance without
+  // --census) keeps the exact result shape it always had.
+  return censusText !== undefined
+    ? { ok: true, work: record.fields.work, artifact, delivery, censusText }
+    : { ok: true, work: record.fields.work, artifact, delivery };
 }
 
 /**
@@ -866,7 +896,11 @@ export function acceptRecord(opts = {}) {
   }
   let noCensusReason = null;
   if (noCensusGiven) {
-    noCensusReason = String(opts.noCensusReason).trim();
+    // T1/C2 round-2 review, MINOR 6: collapse any internal whitespace (including
+    // newlines) to a single space, not just trim the ends - a reason containing a
+    // newline would otherwise inject a second header line into the record (or, worse,
+    // end the header early on a blank line inside it), corrupting later parses.
+    noCensusReason = String(opts.noCensusReason).replace(/\s+/g, " ").trim();
     if (!noCensusReason) throw acceptanceError('--no-census requires a non-empty reason', "census-missing");
   }
 
@@ -908,6 +942,18 @@ export function acceptRecord(opts = {}) {
   let censusCopy = null; // { destRelative, text } or null when --no-census was used
   if (censusGiven) {
     const census = loadCensus(opts.censusPath, fsImpl);
+    // T1/C2 round-2 review, MINOR 5 (TOCTOU on the census file itself): checkAcceptance
+    // above already read and validated this same --census path once (its census-stale
+    // check ran against those exact bytes). This is a second, independent read; if the
+    // file changed in between, the copy stored next to the record and the Census: lines
+    // written below could come from bytes that never passed census-stale at all. Fail
+    // closed rather than silently accepting the newer bytes.
+    if (result.censusText !== undefined && census.text !== result.censusText) {
+      throw acceptanceError(
+        "census file changed during acceptance: re-run accept against the current --census file",
+        "census-stale",
+      );
+    }
     censusLines = census.summary.length > 0
       ? census.summary.map((l) => `Census: ${l}`)
       // Never a silent, confident-looking blank: a recognised-but-empty census still
@@ -940,7 +986,10 @@ export function acceptRecord(opts = {}) {
   }
   const absPath = path.resolve(repoRoot, opts.recordPath);
   fsImpl.writeFileSync(absPath, updated);
-  return { ...result, path: absPath };
+  // censusText was only ever an internal comparison value (MINOR 5 above) - never part
+  // of the public result shape (it could be an entire census report's worth of bytes).
+  const { censusText: _censusText, ...publicResult } = result;
+  return { ...publicResult, path: absPath };
 }
 
 export function parseAcceptanceArgs(argv) {
@@ -965,7 +1014,10 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
   try {
     const { command, ...opts } = parseAcceptanceArgs(argv);
     const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);
-    io.stdout.write(`${JSON.stringify(result)}\n`);
+    // censusText (MINOR 5) is an internal comparison value only, never part of the CLI's
+    // printed result - it can be an entire census report's worth of bytes.
+    const { censusText: _censusText, ...printable } = result;
+    io.stdout.write(`${JSON.stringify(printable)}\n`);
     return 0;
   } catch (error) {
     io.stderr.write(`work-record: [${error.code ?? "error"}] ${error.message}\n`);

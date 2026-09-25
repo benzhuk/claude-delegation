@@ -401,7 +401,60 @@ test("validateRecord: accepted-without-check does not fire once acceptRecord's o
         Evidence: "docs/work-record.md",
         Opened: "2026-09-25T09:00:00Z",
       },
+      [
+        "Log: 2026-09-24T10:00:00.000Z accepted t1 artifact abcd1234abcd1234abcd1234abcd1234abcd1234",
+        "Census: skipped — test fixture",
+      ],
+    ),
+  );
+  assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+// --- accepted-without-check / census (T1/C2 round-2 review, MAJOR 2) ---------------
+
+test("validateRecord: accepted-without-check fires when a hand-edited record copies a matching Log: accepted line but carries no Census: line at all", () => {
+  const r = parseRecord(
+    mkRecordText(
+      {
+        Status: "accepted",
+        Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+        Evidence: "docs/work-record.md",
+        Opened: "2026-09-25T09:00:00Z",
+      },
       ["Log: 2026-09-24T10:00:00.000Z accepted t1 artifact abcd1234abcd1234abcd1234abcd1234abcd1234"],
+    ),
+  );
+  assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("validateRecord: the census-required check does not fire when a Census: line (even a skipped one) is present", () => {
+  const r = parseRecord(
+    mkRecordText(
+      {
+        Status: "accepted",
+        Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+        Evidence: "docs/work-record.md",
+        Opened: "2026-09-25T09:00:00Z",
+      },
+      [
+        "Log: 2026-09-24T10:00:00.000Z accepted t1 artifact abcd1234abcd1234abcd1234abcd1234abcd1234",
+        "Census: skipped — no census available",
+      ],
+    ),
+  );
+  assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("validateRecord: the census-required check is grandfathered for a record opened before CENSUS_REQUIRED_CUTOFF, even with no Census: line", () => {
+  const r = parseRecord(
+    mkRecordText(
+      {
+        Status: "accepted",
+        Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+        Evidence: "docs/work-record.md",
+        Opened: "2026-09-24T20:00:00Z",
+      },
+      ["Log: 2026-09-24T21:00:00.000Z accepted t1 artifact abcd1234abcd1234abcd1234abcd1234abcd1234"],
     ),
   );
   assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
@@ -1194,6 +1247,43 @@ test("acceptRecord: refuses when the record changes between checkAcceptance's re
   }
 });
 
+// T1/C2 round-2 review, MINOR 5: the --census file is read once by checkAcceptance (for
+// census-stale) and again, independently, by acceptRecord (to build the copy and the
+// Census: lines). If the file's bytes change in between, the stored copy and the
+// written Census: lines must not silently come from bytes that never passed
+// census-stale at all - the second read must be compared against the first.
+test("acceptRecord: refuses when the --census file's bytes change between checkAcceptance's read and acceptRecord's own read (TOCTOU on the census file)", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-23T13:00:00Z");
+  const censusPath = makeCensusFixture({ lastAt: "2026-09-24T09:00:00Z" });
+  const realFsImpl = fs;
+  let censusReadCount = 0;
+  const racingFsImpl = {
+    ...realFsImpl,
+    readFileSync: (p, enc) => {
+      const out = realFsImpl.readFileSync(p, enc);
+      if (typeof p === "string" && path.resolve(p) === path.resolve(censusPath)) {
+        censusReadCount += 1;
+        // After checkAcceptance's own read (the 1st), the census file changes on disk
+        // before acceptRecord's own, separate read of the same path.
+        if (censusReadCount === 1) {
+          fs.writeFileSync(censusPath, out.replace("42", "999"));
+        }
+      }
+      return out;
+    },
+  };
+  try {
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, fsImpl: racingFsImpl, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected acceptRecord to throw census-stale: the census file changed mid-acceptance");
+  } catch (error) {
+    assert.equal(error.code, "census-stale");
+  }
+  // Refused, so the record must be untouched and no copy written.
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.ok(!/^Status: accepted$/m.test(updated));
+});
+
 test("acceptanceMain: an unrecognized command is refused, not silently treated as check-acceptance", () => {
   const stdout = [];
   const stderr = [];
@@ -1212,7 +1302,7 @@ test("isCensusFile: recognises the VERDICT: COUNTED header line, and refuses a f
   assert.equal(isCensusFile(""), false);
 });
 
-test("extractCensusSummary: copies bullets, leadTurns/wall-clock lines, and by-model/by-role tables verbatim, deduped", () => {
+test("extractCensusSummary: copies bullets, leadTurns/wall-clock lines, and by-model/by-role tables verbatim, in file order", () => {
   const censusPath = makeCensusFixture();
   const text = fs.readFileSync(censusPath, "utf8");
   const summary = extractCensusSummary(text);
@@ -1225,6 +1315,41 @@ test("extractCensusSummary: copies bullets, leadTurns/wall-clock lines, and by-m
   // Never the full per-file subagent listing or the VERDICT line itself - only the
   // named summary categories (by model, by role, leadTurns, wall clock).
   assert.ok(!summary.some((l) => l.startsWith("VERDICT:")));
+});
+
+// T1/C2 round-2 review, MAJOR 1: an earlier version globally deduped every copied line,
+// which silently emptied a second by-model table whenever its rows happened to match an
+// earlier table's rows (a whole-file table and a windowed table over identical data, for
+// example), and skipped every summary bullet that wasn't wrapped in `**`. Neither is
+// acceptable: "copied faithfully" must hold even when two tables' rows collide, and a
+// differently formatted (non-bold) summary line must not be silently dropped.
+test("extractCensusSummary: a second table with identical rows to an earlier one is copied whole (not dropped as a duplicate), and a non-bold summary bullet is copied too", () => {
+  const text = [
+    "VERDICT: COUNTED 3 lead turns, 1 subagent files",
+    "",
+    "### Lead tokens by model — whole file",
+    "",
+    "| model | input |",
+    "|---|---|",
+    "| claude-opus-4 | 1000 |",
+    "",
+    "### Lead tokens by model — window (deduped)",
+    "",
+    "| model | input |",
+    "|---|---|",
+    "| claude-opus-4 | 1000 |",
+    "",
+    "- by-model: claude-sonnet-5=380",
+    "- by-role: build=11, review=4",
+    "",
+  ].join("\n");
+  const summary = extractCensusSummary(text);
+  const wholeFileRows = summary.filter((l) => l === "| claude-opus-4 | 1000 |").length;
+  assert.equal(wholeFileRows, 2, "expected both tables' identical rows to be present, not deduped away");
+  assert.ok(summary.some((l) => l === "### Lead tokens by model — whole file"));
+  assert.ok(summary.some((l) => l === "### Lead tokens by model — window (deduped)"));
+  assert.ok(summary.includes("- by-model: claude-sonnet-5=380"), "expected a non-bold summary bullet to be copied too");
+  assert.ok(summary.includes("- by-role: build=11, review=4"));
 });
 
 test("extractCensusTimestamp: returns the latest ISO timestamp in the file, or null when none is present", () => {
@@ -1279,6 +1404,23 @@ test("acceptRecord: --no-census writes the reason visibly into a Census: line, a
   assert.deepEqual(parsed.census, ["skipped — build-census.mjs crashed on a truncated transcript"]);
 });
 
+// T1/C2 round-2 review, MINOR 6: a reason containing a newline must be collapsed to one
+// line, not just trimmed at the ends - otherwise it injects a second header line (or ends
+// the header early), corrupting every later parse of this record.
+test("acceptRecord: a --no-census reason containing a newline is collapsed to a single line, not written as-is", () => {
+  const f = makeAcceptanceFixture();
+  const result = acceptRecord({
+    repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+    now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "a\nb",
+  });
+  assert.equal(result.ok, true);
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(updated, /^Census: skipped — a b$/m);
+  const parsed = parseRecord(updated);
+  assert.equal(parsed.errors.length, 0);
+  assert.deepEqual(parsed.census, ["skipped — a b"]);
+});
+
 test("acceptRecord: a --census file lacking the recognised header refuses with census-missing (not parsed loosely)", () => {
   const f = makeAcceptanceFixture();
   const censusPath = makeCensusFixture({ recognized: false });
@@ -1288,6 +1430,26 @@ test("acceptRecord: a --census file lacking the recognised header refuses with c
   } catch (error) {
     assert.equal(error.code, "census-missing");
   }
+});
+
+// T1/C2 round-2 review, MINOR 4 (M9): a recognised census file that produces zero
+// summary lines still writes a visible placeholder, never zero Census: lines - an
+// unknown must never render as a silent, confident-looking "nothing to report".
+test("acceptRecord: a recognised census file with no extractable summary lines writes the visible placeholder, not zero Census: lines", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-23T13:00:00Z");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-census-"));
+  const censusPath = path.join(dir, "census.md");
+  fs.writeFileSync(censusPath, "VERDICT: COUNTED 0 lead turns, 0 subagent files\n\n2026-09-24T09:00:00Z\n");
+  const result = acceptRecord({
+    repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath,
+    now: new Date("2026-09-24T10:00:00Z"),
+  });
+  assert.equal(result.ok, true);
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(updated, /^Census: \(census file recognized but produced no summary lines to copy\)$/m);
+  const parsed = parseRecord(updated);
+  assert.deepEqual(parsed.census, ["(census file recognized but produced no summary lines to copy)"]);
 });
 
 // Dedicated fixture with a Log: reviewed entry, since makeAcceptanceFixture's record
@@ -1351,6 +1513,44 @@ test("checkAcceptance: census-stale does not fire when the census timestamp is a
   assert.equal(result.ok, true);
 });
 
+test("checkAcceptance: census-stale does not fire when the census timestamp exactly equals the record's last review", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-24T09:00:00Z"); // reviewed at the EXACT SAME instant as the census below
+  const censusPath = makeCensusFixture({ lastAt: "2026-09-24T09:00:00Z" });
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+  assert.equal(result.ok, true);
+});
+
+// T1/C2 round-2 review, MINOR 3: lastReviewLogAt must use the record's LAST review Log:
+// entry, and must fail closed (never silently skip) when any reviewed entry's `at` is
+// unparseable, rather than falling back to an earlier, parseable one.
+test("checkAcceptance: census-stale fires when the census falls between an earlier and a later Log: reviewed entry (the LAST review is used, not the first)", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-24T09:00:00Z"); // earlier review
+  withReviewedLog(f, "2026-09-24T11:00:00Z"); // LATER review - census below predates this one
+  const censusPath = makeCensusFixture({ lastAt: "2026-09-24T10:00:00Z" });
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected checkAcceptance to throw census-stale (the census predates the LAST review)");
+  } catch (error) {
+    assert.equal(error.code, "census-stale");
+  }
+});
+
+test("checkAcceptance: census-stale fails closed when a Log: reviewed entry's `at` is unparseable, even when another reviewed entry is valid and would otherwise pass", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-23T13:00:00Z"); // valid, and BEFORE the census below - would pass alone
+  withReviewedLog(f, "yesterday"); // unparseable - must not be silently skipped in favor of the valid one
+  const censusPath = makeCensusFixture({ lastAt: "2026-09-24T09:00:00Z" });
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected checkAcceptance to throw census-stale on an unparseable review timestamp");
+  } catch (error) {
+    assert.equal(error.code, "census-stale");
+    assert.match(error.message, /no comparable timestamp/);
+  }
+});
+
 test("checkAcceptance: census-stale fails closed when the record has no Log: reviewed entry to compare against", () => {
   const f = makeAcceptanceFixture(); // no Log: lines at all
   const censusPath = makeCensusFixture();
@@ -1359,6 +1559,10 @@ test("checkAcceptance: census-stale fails closed when the record has no Log: rev
     assert.fail("expected checkAcceptance to throw census-stale on a missing review timestamp");
   } catch (error) {
     assert.equal(error.code, "census-stale");
+    // T1/C2 round-2 review, MINOR 4: pin the branch this test is named for - without
+    // this, `null < reviewedMs` coercing null to 0 would make the test pass for the
+    // wrong reason even if the explicit `census.timestamp === null` guard were removed.
+    assert.match(error.message, /no comparable timestamp/);
   }
 });
 
@@ -1373,6 +1577,7 @@ test("checkAcceptance: census-stale fails closed when the census file carries no
     assert.fail("expected checkAcceptance to throw census-stale on a missing census timestamp");
   } catch (error) {
     assert.equal(error.code, "census-stale");
+    assert.match(error.message, /no comparable timestamp/);
   }
 });
 
