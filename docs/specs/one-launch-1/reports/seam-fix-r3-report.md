@@ -11,9 +11,10 @@ patched in code, per its own "no code change" instruction.
 Worktree: `/home/ben/Code/claude-delegation-lane4` (branch `build/one-launch-1`).
 Findings applied from: `docs/specs/one-launch-1/reports/seam-r2.md` (HEAD at review time
 `a548b145c0c4dc6e3e7d9e1c3dabf639315cac94`).
-Fix commit (code + state file): `3609483f1cbfaaac2f4705098a8b4ac7dacd02ee` — the sha
-this report field names below (the last commit in the worktree, from `git rev-parse
-HEAD` run after committing).
+Fix commit (code): `3609483f1cbfaaac2f4705098a8b4ac7dacd02ee`. This report and its state
+file were committed on top of that as `70dc805e2ca16d9094f3d45c7f6a8d3c861a94ec`, the sha
+this report field names below (the last commit in the worktree, per `git rev-parse HEAD`
+run after it).
 
 Applied every seam-reviewer-verified finding in one round (N1 MAJOR, N2/N3 MINOR). N4 is
 explicitly a lead ruling on contracts.md with "no code change" per the finding itself, so
