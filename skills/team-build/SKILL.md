@@ -367,7 +367,8 @@ as `census-stale` — then run `work-record.mjs accept --record <recordPath> --r
 (`--no-census "<reason>"` only when the census itself breaks) and send ONE RESULT.
 Otherwise the first of these that applies decides the one next step: a `blockers` entry
 (a territory id, `seam`, `accept-prep` when its `integrationHead` is not the reviewed
-head, or `*` for a launch error), `integrator.verdict` other than `PASS` (its
+head (`review-sha-mismatch`) or its `reportPath` is not the one the script computed
+(`report-path-mismatch`), or `*` for a launch error), `integrator.verdict` other than `PASS` (its
 `failedGate`/`territory`; integrator failure is never in `blockers`), `acceptance.skipped`,
 or `checkAcceptance.output` on `FAIL`; `acceptance: null` with no blockers and
 `integrator.verdict` `PASS` means this call ran without `integrationWorktree`, so seam and

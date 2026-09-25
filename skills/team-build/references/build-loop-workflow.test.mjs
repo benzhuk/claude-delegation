@@ -693,6 +693,15 @@ function reportPathFor(specPath, name) {
   return `${dirOf(specPath)}/reports/${name}.md`;
 }
 
+// N1: unlike every other report path, accept-prep's runner has its cwd moved to the
+// delegation plugin root (R5 steps 1 and 4), so a repo-relative specPath must be
+// anchored at integrationWorktree the same way S2 anchored the evidence/record paths.
+function acceptReportPathFor(args) {
+  return String(args.specPath).startsWith("/")
+    ? reportPathFor(args.specPath, "accept-prep")
+    : `${args.integrationWorktree}/${reportPathFor(args.specPath, "accept-prep")}`;
+}
+
 function setupResultFor(args) {
   const specDir = dirOf(args.specPath);
   const slug = args.integrationBranch ? lastSeg(args.integrationBranch) : stripExtension(lastSeg(args.specPath));
@@ -857,6 +866,23 @@ test("s11: setup prompt carries a report path, and a mismatched returned reportP
   assert.deepEqual(badResult.blockers, [{ id: "*", reason: "setup-failed" }]);
 });
 
+// N2 (twin of S4): an absent integrationBranch/integrationGate must never render the
+// literal string "undefined" into the setup runner's own prompt.
+test("N2: the setup prompt never renders undefined when integrationBranch/integrationGate are absent", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined, integrationBranch: undefined, integrationGate: undefined };
+  const setup = setupResultFor(args);
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall.prompt.includes(`integration worktree ${args.integrationWorktree}`));
+  assert.ok(!setupCall.prompt.includes("undefined"));
+});
+
 // S4: integrationBranch is needed for accept-prep's own header lines (Artifact:,
 // Worktree:), so it must be checked, not left to render literal "undefined".
 test("S4: accept-prep is skipped (no-integration-branch) when integrationWorktree is given but integrationBranch is not", async () => {
@@ -918,7 +944,7 @@ test("setup path: full fixture run produces setup, builds, reviews, integrate, s
       integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
       evidencePaths: ["docs/work/evidence/wr-2026-09-25-one-launch-L1.md", "docs/work/evidence/wr-2026-09-25-one-launch-L2.md"],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: reportPathFor(args.specPath, "accept-prep"),
+      reportPath: acceptReportPathFor(args),
     },
   });
   const journal = [];
@@ -1211,7 +1237,7 @@ test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam s
       integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
       evidencePaths: [],
       checkAcceptance: { exitCode: 1, verdict: "FAIL", output: "no artifact yet" },
-      reportPath: reportPathFor(args.specPath, "accept-prep"),
+      reportPath: acceptReportPathFor(args),
     },
   });
   const result = await runScript(args, stub);
@@ -1230,7 +1256,7 @@ test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam s
   assert.ok(acceptCall.prompt.includes("seam SKIPPED"), "Log line names seam SKIPPED, not a false APPROVE");
   assert.ok(!/seam r\d+ APPROVE/.test(acceptCall.prompt), "never claims an APPROVE that never happened");
   // s11: the runner is given its own report path.
-  assert.ok(acceptCall.prompt.includes(`Report path: ${reportPathFor(args.specPath, "accept-prep")}`));
+  assert.ok(acceptCall.prompt.includes(`Report path: ${acceptReportPathFor(args)}`));
 });
 
 test("R5: accept-prep is skipped when the integrator did not PASS", async () => {
@@ -1288,7 +1314,7 @@ test("M3: accept-prep returning an unverified integrationHead (e.g. the literal 
       integrationHead: "HEAD",
       evidencePaths: [],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: reportPathFor(args.specPath, "accept-prep"),
+      reportPath: acceptReportPathFor(args),
     },
   });
   const result = await runScript(args, stub);
@@ -1313,7 +1339,7 @@ test("M3: accept-prep is checked against the seam's (longer) APPROVE sha, not th
       integrationHead: fullSeamSha,
       evidencePaths: [],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: reportPathFor(args.specPath, "accept-prep"),
+      reportPath: acceptReportPathFor(args),
     },
   });
   const result = await runScript(args, stub);
@@ -1366,7 +1392,7 @@ test("R9: no rendered prompt across build/review/integrate/setup/seam/accept-pre
       integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
       evidencePaths: [],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: reportPathFor(args.specPath, "accept-prep"),
+      reportPath: acceptReportPathFor(args),
     },
   });
   await runScript(args, stub);
@@ -1452,7 +1478,7 @@ test("both example arg files launch cleanly against the given/setup detection wi
         integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
         evidencePaths: [],
         checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-        reportPath: reportPathFor(example.specPath, "accept-prep"),
+        reportPath: acceptReportPathFor(example),
       }],
     ]),
   );

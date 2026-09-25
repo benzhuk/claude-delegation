@@ -269,7 +269,7 @@ function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorB
     .map((c) => `${c.id}: worktree ${c.worktree}, branch ${c.branch}, brief ${c.briefPath}`)
     .join('; ')
   const integrationText = integrationWorktree
-    ? ` The integrator brief names integration worktree ${integrationWorktree}, branch ${integrationBranch}, full-suite gate ${integrationGate}.`
+    ? ` The integrator brief names integration worktree ${integrationWorktree}${integrationBranch ? `, branch ${integrationBranch}` : ''}${integrationGate ? `, full-suite gate ${integrationGate}` : ''}.`
     : ''
   return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed names, never your own choice: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}.${integrationText} Report path: ${reportPath}. ${SETUP_MANDATE}`
 }
@@ -764,7 +764,9 @@ if (!integrationWorktree) {
   const decidingReports = approved.map((r) => r.findingsPath).filter(Boolean)
   if (seam && seam.verdict === 'APPROVE' && seam.findingsPath) decidingReports.push(seam.findingsPath)
 
-  const acceptReportPath = `${dirName(specPath)}/reports/accept-prep.md`
+  const acceptReportPath = specPath.startsWith('/')
+    ? `${dirName(specPath)}/reports/accept-prep.md`
+    : `${integrationWorktree}/${dirName(specPath)}/reports/accept-prep.md`
   const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
   const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports, seam, acceptReportPath)
   let acceptResult = await agent(acceptPromptText, acceptOpts)
