@@ -410,6 +410,51 @@ test("the review prompt names the worktree and never contains the delivered sha 
   assert.ok(!reviewCall.prompt.includes("sha-secret-1"), "the review prompt must never contain the delivered sha as text");
 });
 
+// Round-2 review MAJOR 1: the spec's "the builder likewise" item — the builder prompt
+// must also instruct a live `git rev-parse HEAD`, in both the first round and every fix
+// round, not just the reviewer prompt.
+test("the build prompt tells the builder to report git rev-parse HEAD as its sha field, in round 1 and every fix round", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
+    "build:T1:r2": buildResult("sha2"),
+    "review:T1:r2": reviewResult("APPROVE", "sha2"),
+    integrate: integrateResult(),
+  });
+  await runScript({ territories: [T1] }, stub);
+  const round1Build = stub.calls.find((c) => c.opts.label === "build:T1:r1");
+  const round2Build = stub.calls.find((c) => c.opts.label === "build:T1:r2");
+  assert.match(round1Build.prompt, /git rev-parse HEAD/);
+  assert.match(round2Build.prompt, /git rev-parse HEAD/);
+});
+
+// Round-2 review MAJOR 1: build.sha and review.sha are now two independently-produced
+// `git rev-parse HEAD` reads of the same commit, so the equality check must normalize
+// case and surrounding whitespace rather than doing a raw string compare — otherwise a
+// reviewer that (correctly) reports the full lowercase 40-hex against a builder that
+// reported an uppercase or newline-padded value would be wrongly blocked.
+test("review sha comparison is case- and whitespace-normalized: an uppercase or padded reviewer sha still approves", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("abcdef1234567890abcdef1234567890abcdef12"),
+    "review:T1:r1": reviewResult("APPROVE", "ABCDEF1234567890ABCDEF1234567890ABCDEF12\n"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(result.territories[0].blocker, null);
+  assert.deepEqual(result.blockers, []);
+});
+
+test("review sha comparison still rejects a genuinely different sha (never equal on empty either side)", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult(""),
+    "review:T1:r1": reviewResult("APPROVE", ""),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+});
+
 test("a review only approves the build sha it reviewed, including after a fix round", async () => {
   const initialMismatch = makeAgentStub({
     "build:T1:r1": buildResult("sha1"),

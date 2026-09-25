@@ -17,8 +17,17 @@ export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "workt
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
-  "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner",
+  "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner", "accepted-without-check",
 ];
+
+// T1 (round-2 review, MAJOR 3): before this, `Status: accepted` was enforced only by the
+// prose in SKILL.md - a hand-edited Status: line went unnoticed by every reader of a
+// record (continuation.mjs, hooks/backlog-notice.js). `acceptRecord` always appends
+// exactly one `Log: <iso> accepted <owner> artifact <40-hex>` line when it flips a
+// record; a record with no such line naming its own Artifact: was never accepted through
+// code. Gated by Opened: (not by the mere absence of Worktree:, which a hand-editor could
+// omit on purpose) so every record opened before this check existed is grandfathered.
+const ACCEPTED_WITHOUT_CHECK_CUTOFF = Date.parse("2026-09-24T00:00:00Z");
 
 const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
@@ -150,6 +159,37 @@ export function validateRecord(record, opts = {}) {
       level: "finding",
       message: "Status: accepted but Artifact: is none or missing",
     });
+  }
+
+  // accepted-without-check: see ACCEPTED_WITHOUT_CHECK_CUTOFF above. Never fires on a
+  // record opened before the cutoff, and never fires when Artifact: itself doesn't even
+  // shape-parse (accepted-without-artifact already covers that emptier case).
+  if (
+    isAccepted
+    && fields.opened !== undefined
+    && Number.isFinite(Date.parse(fields.opened))
+    && Date.parse(fields.opened) >= ACCEPTED_WITHOUT_CHECK_CUTOFF
+    && fields.artifact !== undefined
+    && fields.artifact !== "none"
+  ) {
+    let expectedShaPrefix = null;
+    try {
+      expectedShaPrefix = artifactRevision(fields.artifact).toLowerCase();
+    } catch {
+      expectedShaPrefix = null;
+    }
+    const acceptedThroughCode = expectedShaPrefix !== null && log.some((l) => {
+      if ((l.status ?? "").toLowerCase() !== "accepted") return false;
+      const m = /^artifact[ \t]+([0-9a-f]{40})$/i.exec((l.note ?? "").trim());
+      return m !== null && m[1].toLowerCase().startsWith(expectedShaPrefix);
+    });
+    if (!acceptedThroughCode) {
+      findings.push({
+        code: "accepted-without-check",
+        level: "finding",
+        message: "Status: accepted but no Log: accepted ... artifact <40-hex> line names this record's own Artifact: — Status may have been hand-edited rather than moved by `work-record.mjs accept`",
+      });
+    }
   }
 
   // Evidence path checks only run when repoRoot is given (A4): without it we cannot tell
@@ -494,7 +534,15 @@ export function checkAcceptance(opts = {}) {
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
 
-  const artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+  // A SHA git does not have at all is sha-not-in-git (T1 required item 4), the same code
+  // as an unresolvable Worktree: below - both are "the recorded commit identity does not
+  // exist in this git" - not the generic acceptance-failed used for shape errors.
+  let artifact;
+  try {
+    artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+  } catch (error) {
+    throw acceptanceError(`sha-not-in-git: ${error.message}`, "sha-not-in-git");
+  }
   const deliveryInput = opts.deliveryRef !== undefined ? opts.deliveryRef : opts.pinnedArtifact;
   if (opts.pinnedArtifact !== undefined && !/^[0-9a-fA-F]{4,64}$/.test(opts.pinnedArtifact)) {
     throw acceptanceError(`pinned artifact must be an explicit hexadecimal revision: ${opts.pinnedArtifact}`);
@@ -516,8 +564,21 @@ export function checkAcceptance(opts = {}) {
       "sha-not-in-git",
     );
   }
+  // T1 (loop-gates spec item 2, "branch or worktree"): Worktree: may name an absolute
+  // path, a repo-relative path, OR a local branch name. A real directory is read as a
+  // live worktree (its own HEAD); anything else is read as `refs/heads/<name>` in this
+  // repo - never a bare revision expression, so a leading "-" can never be read as an
+  // option by the git child process.
   const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(repoRoot, worktreeField);
-  const worktreeResult = spawnImpl("git", ["-C", worktreeTarget, "rev-parse", "--verify", "HEAD^{commit}"], {
+  let worktreeIsDir = false;
+  try {
+    worktreeIsDir = fsImpl.statSync(worktreeTarget).isDirectory();
+  } catch {
+    worktreeIsDir = false;
+  }
+  const worktreeGitDir = worktreeIsDir ? worktreeTarget : repoRoot;
+  const worktreeRev = worktreeIsDir ? "HEAD^{commit}" : `refs/heads/${worktreeField}^{commit}`;
+  const worktreeResult = spawnImpl("git", ["-C", worktreeGitDir, "rev-parse", "--verify", worktreeRev], {
     encoding: "utf8",
     stdio: "pipe",
   });
@@ -537,6 +598,24 @@ export function checkAcceptance(opts = {}) {
       `sha-not-in-git: Worktree: ${worktreeField} HEAD (${worktreeHead}) does not match delivery ${artifact}`,
       "sha-not-in-git",
     );
+  }
+  // Pinned mode still requires SOME relationship between the artifact and the named
+  // worktree/branch: not equality (a pinned artifact may be historical), but ancestry - the
+  // artifact must be reachable from that worktree's HEAD. Without this, an artifact that
+  // lives only on a wholly unrelated branch (or in a wholly unrelated repository) would
+  // pass pinned mode merely because Worktree: resolves to *some* commit, which is a check
+  // that passes because it isn't looking (T1 round-2 review, MAJOR 2).
+  if (opts.pinnedArtifact !== undefined && worktreeHead !== artifact) {
+    const ancestry = spawnImpl("git", ["-C", worktreeGitDir, "merge-base", "--is-ancestor", artifact, worktreeHead], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    if (ancestry.error || ancestry.status !== 0) {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact ${artifact} is not in the history of Worktree: ${worktreeField} (HEAD ${worktreeHead})`,
+        "sha-not-in-git",
+      );
+    }
   }
 
   let approved = false;
@@ -575,11 +654,31 @@ export function checkAcceptance(opts = {}) {
  */
 export function acceptRecord(opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
+
+  // T1 round-2 review, MINOR 4 (time-of-check/time-of-use): capture the record's exact
+  // bytes BEFORE checkAcceptance runs, so an edit that lands during the check (between
+  // this read and the write below) is caught rather than silently accepted. Any failure
+  // here is deliberately swallowed - checkAcceptance below re-derives the same path and
+  // reports the real reason (bad repo, escaping path, etc.) itself.
+  let preCheckRepoRoot;
+  let preCheckRepoReal;
+  let preCheckText;
+  try {
+    preCheckRepoRoot = path.resolve(opts.repoRoot);
+    preCheckRepoReal = fsImpl.realpathSync(preCheckRepoRoot);
+    preCheckText = readConfinedRegularFile(preCheckRepoReal, preCheckRepoRoot, opts.recordPath, fsImpl);
+  } catch {
+    preCheckText = undefined;
+  }
+
   const result = checkAcceptance(opts); // fails closed: throws before any write below
 
   const repoRoot = path.resolve(opts.repoRoot);
   const repoReal = fsImpl.realpathSync(repoRoot);
   const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  if (preCheckText !== undefined && text !== preCheckText) {
+    throw acceptanceError("record changed during acceptance: re-run accept against the current text");
+  }
   const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})reviewed([ \t]*)$/mi;
   if (!statusRe.test(text)) {
     throw acceptanceError("could not find a Status: reviewed header line to accept");
@@ -623,7 +722,7 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
     io.stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {
-    io.stderr.write(`work-record: ${error.message}\n`);
+    io.stderr.write(`work-record: [${error.code ?? "error"}] ${error.message}\n`);
     return 1;
   }
 }

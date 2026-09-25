@@ -175,13 +175,14 @@ test("validateRecord: a clean record with no repoRoot given produces zero findin
   assert.deepEqual(validateRecord(r), []);
 });
 
-test("FINDING_CODES is exactly L-C6's thirteen codes (the original twelve plus runnable-with-owner)", () => {
+test("FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-check (fourteen total)", () => {
   // Documents the full set this suite must cover; the individual tests below assert each one fires.
-  assert.equal(FINDING_CODES.length, 13);
+  assert.equal(FINDING_CODES.length, 14);
   assert.deepEqual(
     [...FINDING_CODES].sort(),
     [
       "accepted-without-artifact",
+      "accepted-without-check",
       "accepted-without-evidence",
       "bad-status",
       "bad-work-id",
@@ -332,6 +333,62 @@ test("validateRecord: effect landed but result lost -> accepted is refused (acce
   const findings = validateRecord(r, { repoRoot: process.cwd() });
   assert.ok(codes(findings).includes("accepted-without-evidence"));
   assert.ok(!codes(findings).includes("accepted-without-artifact"));
+});
+
+// --- accepted-without-check (T1 round-2 review, MAJOR 3) ---------------------------
+
+test("validateRecord: accepted-without-check fires when Status: accepted, Opened: is on/after the cutoff, and there is no Log: accepted ... artifact <40-hex> line (a hand-flipped Status:)", () => {
+  const r = parseRecord(
+    mkRecordText({
+      Status: "accepted",
+      Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+      Evidence: "docs/work-record.md",
+      Opened: "2026-09-24T09:00:00Z",
+    }),
+  );
+  assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("validateRecord: accepted-without-check does not fire once acceptRecord's own Log: shape is present, naming the same artifact", () => {
+  const r = parseRecord(
+    mkRecordText(
+      {
+        Status: "accepted",
+        Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+        Evidence: "docs/work-record.md",
+        Opened: "2026-09-24T09:00:00Z",
+      },
+      ["Log: 2026-09-24T10:00:00.000Z accepted t1 artifact abcd1234abcd1234abcd1234abcd1234abcd1234"],
+    ),
+  );
+  assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("validateRecord: accepted-without-check does not fire for a record opened before the cutoff (grandfathered)", () => {
+  const r = parseRecord(
+    mkRecordText({
+      Status: "accepted",
+      Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+      Evidence: "docs/work-record.md",
+      Opened: "2026-09-21T09:00:00Z",
+    }),
+  );
+  assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
+test("validateRecord: accepted-without-check does not fire when a Log: accepted line names a DIFFERENT artifact (a stale acceptance log)", () => {
+  const r = parseRecord(
+    mkRecordText(
+      {
+        Status: "accepted",
+        Artifact: "territory/a@abcd1234abcd1234abcd1234abcd1234abcd1234",
+        Evidence: "docs/work-record.md",
+        Opened: "2026-09-24T09:00:00Z",
+      },
+      ["Log: 2026-09-24T10:00:00.000Z accepted t1 artifact 1111111111111111111111111111111111111111"],
+    ),
+  );
+  assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
 });
 
 // Named failure case 3 (T1 brief): "fresh worker on an obsolete fact" -> scope-drift, on a
@@ -773,7 +830,11 @@ test("checkAcceptance: sha-not-in-git fires in live mode when the named worktree
   }
 });
 
-test("checkAcceptance: pinned mode only requires the recorded worktree to resolve, not to match the (possibly historical) artifact", () => {
+// Round-2 review MAJOR 2: pinned mode used to accept a Worktree: that merely resolved to
+// SOME commit, with no relationship at all to the artifact - "a check that passes because
+// it isn't looking". An artifact that lives only in a wholly unrelated repository must
+// fail closed even in pinned mode.
+test("checkAcceptance: pinned mode refuses a Worktree: in a wholly unrelated repository, even though it resolves", () => {
   const f = makeAcceptanceFixture();
   const other = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-acceptance-pinned-other-"));
   execFileSync("git", ["init", "-q", other], { env: f.env });
@@ -784,11 +845,95 @@ test("checkAcceptance: pinned mode only requires the recorded worktree to resolv
   const recordPath = path.join(f.repo, f.record);
   const text = fs.readFileSync(recordPath, "utf8");
   fs.writeFileSync(recordPath, text.replace("Worktree: .", `Worktree: ${other.split(path.sep).join("/")}`));
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected checkAcceptance to throw: the artifact has no relationship to an unrelated repository's HEAD");
+  } catch (error) {
+    assert.match(error.message, /sha-not-in-git/);
+    assert.equal(error.code, "sha-not-in-git");
+  }
+});
+
+// Round-2 review MAJOR 2, attack brief "a SHA on another branch": within the SAME repo,
+// an artifact that only lives on a sibling branch (never an ancestor of the named
+// worktree's HEAD) must also fail closed in pinned mode - ancestry, not mere resolvability.
+test("checkAcceptance: pinned mode refuses a same-repo artifact that only lives on a diverged sibling branch", () => {
+  const f = makeAcceptanceFixture();
+  const initialBranch = execFileSync("git", ["-C", f.repo, "symbolic-ref", "--short", "HEAD"], { env: f.env, encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", f.repo, "checkout", "-qb", "feat", f.sha], { env: f.env });
+  fs.writeFileSync(path.join(f.repo, "feat.txt"), "feat\n");
+  execFileSync("git", ["-C", f.repo, "add", "feat.txt"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "feat commit"], { env: f.env });
+  const featSha = execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { env: f.env, encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", f.repo, "checkout", "-q", initialBranch], { env: f.env });
+  fs.writeFileSync(path.join(f.repo, "main-only.txt"), "main only\n");
+  execFileSync("git", ["-C", f.repo, "add", "main-only.txt"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "main-only commit"], { env: f.env });
+
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(`territory/a@${f.sha.slice(0, 12)}`, `territory/a@${featSha}`));
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: featSha });
+    assert.fail("expected checkAcceptance to throw: featSha is not an ancestor of Worktree:'s (moved) HEAD");
+  } catch (error) {
+    assert.match(error.message, /sha-not-in-git/);
+    assert.equal(error.code, "sha-not-in-git");
+  }
+});
+
+test("checkAcceptance: pinned mode still passes when the artifact is an ancestor of Worktree:'s (moved-forward) HEAD", () => {
+  const f = makeAcceptanceFixture();
+  fs.writeFileSync(path.join(f.repo, "later.txt"), "later\n");
+  execFileSync("git", ["-C", f.repo, "add", "later.txt"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "later"], { env: f.env });
   const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
   assert.equal(result.ok, true);
 });
 
+// T1 required item 2 ("branch or worktree") / round-2 review MAJOR 4: Worktree: must
+// also accept a local branch name, not only a filesystem path - SKILL.md and the spec
+// both say "branch", and this build's own territory worktrees live outside the repo, so
+// a repo-relative path can't name them either.
+test("checkAcceptance: Worktree: accepts a local branch name (not only a filesystem path)", () => {
+  const f = makeAcceptanceFixture();
+  execFileSync("git", ["-C", f.repo, "branch", "feat-branch", f.sha], { env: f.env });
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace("Worktree: .", "Worktree: feat-branch"));
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+  assert.equal(result.ok, true);
+});
+
+test("checkAcceptance: a Worktree: value that is neither a resolvable path nor a local branch name still fails closed", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace("Worktree: .", "Worktree: does-not-exist-anywhere"));
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected checkAcceptance to throw for a name that is neither a path nor a branch");
+  } catch (error) {
+    assert.match(error.message, /sha-not-in-git/);
+    assert.equal(error.code, "sha-not-in-git");
+  }
+});
+
 // --- acceptRecord / `accept` (T1 required item 1) -----------------------------------
+
+// End-to-end tie between acceptRecord's real output and validateRecord's tripwire: a
+// record accepted through code, with an Opened: date on/after the cutoff, must never
+// trip accepted-without-check.
+test("acceptRecord's real output never trips accepted-without-check, even opened on/after the cutoff", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace("Opened: 2026-09-23T12:00:00Z", "Opened: 2026-09-24T09:00:00Z"));
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z") });
+  const updated = fs.readFileSync(recordPath, "utf8");
+  const parsed = parseRecord(updated);
+  assert.ok(!codes(validateRecord(parsed, { repoRoot: f.repo })).includes("accepted-without-check"));
+});
 
 test("acceptRecord: accepts with a passing check, flips Status: reviewed -> accepted, and appends an accepted Log line", () => {
   const f = makeAcceptanceFixture();
@@ -817,6 +962,24 @@ test("acceptRecord: refused on a bad verdict line, and the record file is left b
 });
 
 test("acceptRecord: refused on a sha git does not have (sha-not-in-git), and the record file is left byte-for-byte unchanged", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(
+    recordPath,
+    text.replace(/Artifact: territory\/a@[0-9a-f]+/, "Artifact: territory/a@deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
+  );
+  const before = fs.readFileSync(recordPath);
+  try {
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected acceptRecord to throw for an Artifact sha git does not have");
+  } catch (error) {
+    assert.equal(error.code, "sha-not-in-git");
+  }
+  assert.deepEqual(fs.readFileSync(recordPath), before);
+});
+
+test("acceptRecord: refused on an unresolvable Worktree: path, and the record file is left byte-for-byte unchanged", () => {
   const f = makeAcceptanceFixture();
   const recordPath = path.join(f.repo, f.record);
   const text = fs.readFileSync(recordPath, "utf8");
@@ -870,6 +1033,51 @@ test("`accept` CLI: a failing check exits non-zero, reports the reason on stderr
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /no evidence has an exact APPROVE verdict/);
   assert.deepEqual(fs.readFileSync(recordPath), before);
+});
+
+// T1 round-2 review, MINOR 3: CLI failure output must carry the finding code, not just
+// a message string a caller has to pattern-match by hand.
+test("acceptanceMain: stderr output is prefixed with the finding code in brackets", () => {
+  const stdout = [];
+  const stderr = [];
+  const io = { stdout: { write: (s) => stdout.push(s) }, stderr: { write: (s) => stderr.push(s) } };
+  const f = makeAcceptanceFixture();
+  fs.writeFileSync(path.join(f.repo, f.evidence), "VERDICT: PASS\nNot a deciding verdict.\n");
+  const code = acceptanceMain(["accept", "--record", f.record, "--repo", f.repo, "--pinned-artifact", f.sha], io);
+  assert.equal(code, 1);
+  assert.match(stderr.join(""), /^work-record: \[acceptance-failed\] no evidence has an exact APPROVE verdict/);
+});
+
+// T1 round-2 review, MINOR 4: an edit that lands between checkAcceptance's read and the
+// write must be caught, not silently accepted.
+test("acceptRecord: refuses when the record changes between checkAcceptance's read and the write (TOCTOU)", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const before = fs.readFileSync(recordPath);
+  const realFsImpl = fs;
+  let readCount = 0;
+  const racingFsImpl = {
+    ...realFsImpl,
+    readFileSync: (p, enc) => {
+      const out = realFsImpl.readFileSync(p, enc);
+      if (p === recordPath || (typeof p === "string" && path.resolve(p) === path.resolve(recordPath))) {
+        readCount += 1;
+        // After checkAcceptance's own internal read (the 1st), but before acceptRecord's
+        // pre-check read completes, an external edit lands - simulated by mutating the
+        // real file on disk right after the very first read of the record.
+        if (readCount === 1) {
+          fs.writeFileSync(recordPath, out.replace("Next: run strict acceptance", "Next: something else entirely"));
+        }
+      }
+      return out;
+    },
+  };
+  try {
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, fsImpl: racingFsImpl });
+    assert.fail("expected acceptRecord to throw: the record changed mid-acceptance");
+  } catch (error) {
+    assert.match(error.message, /record changed during acceptance/);
+  }
 });
 
 test("acceptanceMain: an unrecognized command is refused, not silently treated as check-acceptance", () => {
