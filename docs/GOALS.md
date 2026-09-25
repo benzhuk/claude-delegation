@@ -71,7 +71,7 @@ Once a day, and at every release, a fresh high-tier agent with no session contex
 In Ben's words: "have we made significant progress towards the goal? have we gotten sidelined on some too-specific sub-project? have we spent time on a castle of patches instead of going back to the architecture and simplifying? are we still building towards the simplest possible solution that solves our actual core problem? part of the plugin should be this constant check, I think once a day is a good cadence, but we need a separate and specific skill for this in my opinion." (9-23)
 
 Measure: bearings entries on the decisions page per week; RE-PLAN verdicts that changed the plan; lanes stopped by CUT.
-Status: PARTIAL. The bearings skill shipped in 0.16.0 and one baseline ran on 2026-09-23; the reviewer was not independent of the lead. The 2026-09-24 bearings returned RE-PLAN (docs/work/evidence/2026-09-24-simplicity-bearings.md), but no receipt records a reviewer distinct from the lead, so it does not count as independent; the STOP line counts from the next independent run. The due-notice reaches the model instead of Ben.
+Status: PARTIAL. The bearings skill shipped in 0.16.0 and one baseline ran on 2026-09-23; the reviewer was not independent of the lead. The 2026-09-24 bearings returned RE-PLAN (docs/work/evidence/2026-09-24-simplicity-bearings.md), but no receipt records a reviewer distinct from the lead, so it does not count as independent; the STOP line counts from the next independent run. The due-notice now reaches Ben's pane (`systemMessage` at SessionStart), not the model only.
 
 ## Any agent host, Codex and Claude Code first
 

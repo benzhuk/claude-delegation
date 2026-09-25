@@ -244,7 +244,12 @@ MIT
   returned PICKUP_NO_ACTION with Done false, with a checked-Done handback still never having
   happened; and records that the 2026-09-24 bearings RE-PLAN does not count as independent,
   since no receipt records a reviewer distinct from the lead, so the STOP line counts from the
-  next independent run.
+  next independent run. Breaking: `work-record.mjs accept`/`check-acceptance` now require a
+  `Worktree:` field on the record (the git worktree or branch that produced `Artifact:`) —
+  an old record with none fails the check closed. Breaking: `bearings-state.mjs complete` now
+  requires `--reviewer-id`/`--lead-id` and rejects a receipt where they are equal or the
+  reviewer id is missing, so every existing bearings receipt reads as due until re-run with
+  both ids.
 - 0.20.7 — goal card cap 1000 bytes, line cap 360, card fourth line may be STOP; card v5 and
   GOALS.md rewritten in Ben's words (STOP tied to the bearings verdict, two-host DONE, any-host aim).
 - 0.20.1 — preserves unknown wiring evidence instead of treating unreadable files,
