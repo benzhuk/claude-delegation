@@ -38,7 +38,11 @@ const FIELD_LABELS = [
   ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
-const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log"]);
+// "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
+// as WORKAROUND/Log - `accept --census` writes one per copied summary line - never a
+// FIELD_LABELS singleton, so several may coexist without tripping the duplicate-singleton
+// check in requireStrictRecordShape.
+const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census"]);
 const HEADER_LINE_RE = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.+)$/;
 
 function rtrim(s) {
@@ -101,7 +105,16 @@ export function parseRecord(text) {
     log.push({ at: parts[1], status: parts[2], owner: parts[3], note: rtrim(parts[4] ?? "").trim() });
   }
 
-  return { fields, workarounds, log, errors };
+  // census (C2): every Census: line, verbatim, in file order - the summary lines
+  // `accept --census` copied out of a recognised census report, plus a `--no-census`
+  // skip reason. Never re-parsed into structured fields: this file only ever copies them.
+  const census = [];
+  const censusRe = /^[ \t*+-]{0,20}Census:\**[ \t]{0,20}(.+)$/gim;
+  for (const cm of headerText.matchAll(censusRe)) {
+    census.push(rtrim(cm[1]).trim());
+  }
+
+  return { fields, workarounds, log, census, errors };
 }
 
 function isInsideRepo(repoRoot, evidencePath) {
@@ -515,6 +528,144 @@ function artifactRevision(artifact) {
   return match[1];
 }
 
+// ── Census recognition (C2, "acceptance requires the census") ──────────────────────
+//
+// ASSUMPTION PINNED HERE, for the seam reviewer to reconcile against whatever C1's
+// scripts/build-census.mjs actually lands with (C1 is a PARALLEL build; this file
+// cannot import it or read its final field names, and never does - it only ever reads
+// the census file's own bytes): a real census report's FIRST LINE begins with the
+// literal `VERDICT: COUNTED` - the exact contract already documented in docs/census.md
+// and produced by build-census.mjs at this build's base commit (2869798). That is the
+// "header line" a census file is "recognised by" (spec.md C2 item 1). A file whose
+// first line does not match this is refused outright - never parsed loosely, never
+// treated as an empty-but-valid census (reviewer attack brief).
+const CENSUS_HEADER_RE = /^VERDICT: COUNTED\b/;
+
+export function isCensusFile(text) {
+  const firstLine = (text.split(/\r?\n/, 1)[0] ?? "").trim();
+  return CENSUS_HEADER_RE.test(firstLine);
+}
+
+// Copies the census's own summary lines verbatim - this file never re-derives a number
+// from raw transcript data (it never reads one): (a) every top-level bullet shaped
+// "- <label>: **<value>**" (the shape build-census.mjs already uses for turn counts and
+// turns/hour, and the shape a leadTurns/wall-clock bullet would take); (b) any line
+// naming `leadTurns` or "wall clock" outside that bullet shape, so a differently
+// formatted field is never silently dropped; (c) whole markdown table sections
+// (heading + every row) whose heading mentions "model" or "role" - the by-model and
+// by-role tables spec.md names. Order of appearance in the file is preserved; duplicates
+// collapsed.
+export function extractCensusSummary(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/[\r \t]+$/, ""));
+  const summary = [];
+  const seen = new Set();
+  const add = (line) => {
+    const t = line.trim();
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      summary.push(t);
+    }
+  };
+
+  for (const l of lines) {
+    if (/^-\s+\S.*:\s*\*\*.+\*\*\s*$/.test(l.trim())) add(l);
+  }
+  for (const l of lines) {
+    if (/\bleadTurns\b/.test(l) || /wall[ -]?clock/i.test(l)) add(l);
+  }
+
+  let heading = null;
+  let rows = [];
+  const flushTable = () => {
+    if (heading && rows.length > 0 && /model|role/i.test(heading)) {
+      add(heading);
+      for (const r of rows) add(r);
+    }
+    heading = null;
+    rows = [];
+  };
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (/^#{1,6}\s+/.test(t)) {
+      flushTable();
+      heading = t;
+    } else if (heading && t.startsWith("|")) {
+      rows.push(t);
+    } else if (t !== "") {
+      flushTable();
+    }
+  }
+  flushTable();
+
+  return summary;
+}
+
+// The census's own currency signal: the LATEST ISO-8601 timestamp appearing anywhere in
+// its text stands in for "the census file's lead session mtime or last message
+// timestamp" (spec.md C2 item 2) - whichever the script actually prints (a window-end
+// bound today; a dedicated field if C1 adds one), the newest one found is the most
+// recent evidence of when the underlying transcript data was current. Returns epoch ms,
+// or null when no timestamp can be found at all - census-stale then fails closed rather
+// than treating an unknown as an agreeing one.
+export function extractCensusTimestamp(text) {
+  const matches = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g) || [];
+  let latest = null;
+  for (const m of matches) {
+    const t = Date.parse(m);
+    if (!Number.isNaN(t) && (latest === null || t > latest)) latest = t;
+  }
+  return latest;
+}
+
+// The record's own currency signal: the latest `Log: ... reviewed ...` entry's `at`,
+// or null when none exists - census-stale fails closed on that null rather than skipping
+// the comparison silently.
+function lastReviewLogAt(record) {
+  const reviewed = (record.log ?? []).filter((l) => (l.status ?? "").toLowerCase() === "reviewed");
+  if (reviewed.length === 0) return null;
+  let best = reviewed[0];
+  for (const l of reviewed) {
+    if (Date.parse(l.at) > Date.parse(best.at)) best = l;
+  }
+  return best.at;
+}
+
+// Reads a --census source. Unlike evidence, a fresh census report legitimately lives
+// OUTSIDE the repo (the whole point of `accept --census` is to bring it in), so this is
+// deliberately NOT readConfinedRegularFile - no repo-confinement check - but it still
+// refuses a missing, unreadable, or non-regular-file path instead of guessing.
+function readCensusSource(censusPath, fsImpl) {
+  if (!censusPath) throw acceptanceError("--census path is missing", "census-missing");
+  let real;
+  let stat;
+  try {
+    real = fsImpl.realpathSync(censusPath);
+    stat = fsImpl.statSync(real);
+  } catch (error) {
+    throw acceptanceError(`unreadable --census path: ${censusPath} (${error.message})`, "census-missing");
+  }
+  if (!stat.isFile()) throw acceptanceError(`--census path is not a regular file: ${censusPath}`, "census-missing");
+  try {
+    return fsImpl.readFileSync(real, "utf8");
+  } catch (error) {
+    throw acceptanceError(`unreadable --census path: ${censusPath} (${error.message})`, "census-missing");
+  }
+}
+
+// opts: { censusPath, fsImpl } -> { text, summary, timestamp }. Throws census-missing
+// (not a generic parse error) when the file doesn't begin with the recognised header -
+// "a file lacking the header is refused, not parsed loosely" (reviewer attack brief).
+function loadCensus(censusPath, fsImpl) {
+  const text = readCensusSource(censusPath, fsImpl);
+  if (!isCensusFile(text)) {
+    throw acceptanceError(
+      `census file does not begin with the census header line, refused: ${censusPath}`,
+      "census-missing",
+    );
+  }
+  return { text, summary: extractCensusSummary(text), timestamp: extractCensusTimestamp(text) };
+}
+
 /**
  * Strict, read-only Git-backed acceptance check. Historical validateRecord behavior remains
  * deliberately separate. opts: { repoRoot, recordPath, deliveryRef?, pinnedArtifact?, fsImpl?, spawnImpl?, execImpl? }
@@ -546,6 +697,33 @@ export function checkAcceptance(opts = {}) {
   const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
+
+  // census-stale (C2 spec item 2): opt-in here - only runs when a caller passes
+  // --census, so every census-agnostic caller (check-acceptance's existing read-only
+  // uses, and every pre-census test of this function) is unaffected. The MANDATORY
+  // requirement to provide one (or an explicit --no-census reason) lives only in
+  // acceptRecord below, the sole path that can ever flip Status: to accepted - this
+  // function stays a read-only preview either way.
+  if (opts.censusPath !== undefined) {
+    const census = loadCensus(opts.censusPath, fsImpl);
+    const reviewedAt = lastReviewLogAt(record);
+    const reviewedMs = reviewedAt === null ? NaN : Date.parse(reviewedAt);
+    // Fails closed on EITHER side being unknown - a record with no Log: reviewed entry,
+    // or a census with no parseable timestamp at all - rather than treating an unknown
+    // as an agreeing one (the failure class this whole build guards against).
+    if (reviewedAt === null || Number.isNaN(reviewedMs) || census.timestamp === null) {
+      throw acceptanceError(
+        "census-stale: no comparable timestamp - a Log: reviewed entry on the record and a timestamp inside the census file are both required, and at least one is missing",
+        "census-stale",
+      );
+    }
+    if (census.timestamp < reviewedMs) {
+      throw acceptanceError(
+        `census-stale: the census file predates the record's last review (Log: ... reviewed ... at ${reviewedAt})`,
+        "census-stale",
+      );
+    }
+  }
 
   // A SHA git does not have at all is sha-not-in-git (T1 required item 4), the same code
   // as an unresolvable Worktree: below - both are "the recorded commit identity does not
@@ -663,10 +841,34 @@ export function checkAcceptance(opts = {}) {
  * argument, flag, or alternate route here that can transition a record checkAcceptance
  * would refuse. `check-acceptance` itself stays read-only, unchanged, for manual use;
  * this is a separate, additive entry point, not a replacement.
- * opts: same as checkAcceptance, plus optional { now }.
+ *
+ * Census requirement (C2, "acceptance requires the census"): exactly one of
+ * opts.censusPath / opts.noCensusReason is required, checked here - never in
+ * checkAcceptance, which stays census-agnostic for every caller that doesn't opt in
+ * (check-acceptance's existing read-only uses included) - `accept` is the only path
+ * that can ever mark a record accepted, so it is the only path this requirement can be
+ * enforced on without breaking every pre-census caller of checkAcceptance itself.
+ * opts: same as checkAcceptance, plus optional { now }, plus { censusPath } XOR
+ * { noCensusReason } (non-empty).
  */
 export function acceptRecord(opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
+
+  const censusGiven = opts.censusPath !== undefined;
+  const noCensusGiven = opts.noCensusReason !== undefined;
+  if (censusGiven === noCensusGiven) {
+    throw acceptanceError(
+      censusGiven
+        ? "exactly one of --census or --no-census is allowed, not both"
+        : '--census <file> is required to accept (or --no-census "<reason>" to skip it visibly)',
+      "census-missing",
+    );
+  }
+  let noCensusReason = null;
+  if (noCensusGiven) {
+    noCensusReason = String(opts.noCensusReason).trim();
+    if (!noCensusReason) throw acceptanceError('--no-census requires a non-empty reason', "census-missing");
+  }
 
   // T1 round-2 review, MINOR 4 (time-of-check/time-of-use): capture the record's exact
   // bytes BEFORE checkAcceptance runs, so an edit that lands during the check (between
@@ -684,7 +886,7 @@ export function acceptRecord(opts = {}) {
     preCheckText = undefined;
   }
 
-  const result = checkAcceptance(opts); // fails closed: throws before any write below
+  const result = checkAcceptance(opts); // fails closed: throws before any write below (also runs census-stale when censusPath is set)
 
   const repoRoot = path.resolve(opts.repoRoot);
   const repoReal = fsImpl.realpathSync(repoRoot);
@@ -697,15 +899,45 @@ export function acceptRecord(opts = {}) {
     throw acceptanceError("could not find a Status: reviewed header line to accept");
   }
   const record = parseRecord(text);
+
+  // Build the Census: header lines, and (with --census) a copy of the whole census file
+  // to store next to the record's own evidence (spec.md C2 item 1) - re-validated here
+  // (not just trusted from checkAcceptance's own read) so accept never writes a Census:
+  // line it hasn't itself confirmed carries the recognised header.
+  let censusLines;
+  let censusCopy = null; // { destRelative, text } or null when --no-census was used
+  if (censusGiven) {
+    const census = loadCensus(opts.censusPath, fsImpl);
+    censusLines = census.summary.length > 0
+      ? census.summary.map((l) => `Census: ${l}`)
+      // Never a silent, confident-looking blank: a recognised-but-empty census still
+      // says so visibly, rather than writing zero Census: lines (an unknown rendered
+      // as "nothing to report").
+      : ["Census: (census file recognized but produced no summary lines to copy)"];
+    const evidenceList = Array.isArray(record.fields.evidence) ? record.fields.evidence : [];
+    const evidenceDir = evidenceList.length > 0
+      ? path.posix.dirname(evidenceList[0].replace(/\\/g, "/"))
+      : "docs/work/evidence";
+    const workId = record.fields.work || "census";
+    censusCopy = { destRelative: path.posix.join(evidenceDir, `${workId}-census.md`), text: census.text };
+  } else {
+    censusLines = [`Census: skipped — ${noCensusReason}`];
+  }
+
   const at = (opts.now ?? new Date()).toISOString();
   const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
 
   const lines = text.split(/\r?\n/);
   const blankIdx = lines.findIndex((line) => line.trim() === "");
   const insertAt = blankIdx === -1 ? lines.length : blankIdx;
-  lines.splice(insertAt, 0, logLine);
+  lines.splice(insertAt, 0, ...censusLines, logLine);
   const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}accepted${post}`);
 
+  if (censusCopy) {
+    const destAbs = path.resolve(repoRoot, censusCopy.destRelative);
+    fsImpl.mkdirSync(path.dirname(destAbs), { recursive: true });
+    fsImpl.writeFileSync(destAbs, censusCopy.text);
+  }
   const absPath = path.resolve(repoRoot, opts.recordPath);
   fsImpl.writeFileSync(absPath, updated);
   return { ...result, path: absPath };
@@ -719,6 +951,7 @@ export function parseAcceptanceArgs(argv) {
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
+    ["--census", "censusPath"], ["--no-census", "noCensusReason"],
   ]);
   for (let i = 1; i < argv.length; i += 2) {
     const key = names.get(argv[i]);

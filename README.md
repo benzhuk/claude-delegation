@@ -249,7 +249,13 @@ MIT
   an old record with none fails the check closed. Breaking: `bearings-state.mjs complete` now
   requires `--reviewer-id`/`--lead-id` and rejects a receipt where they are equal or the
   reviewer id is missing, so every existing bearings receipt reads as due until re-run with
-  both ids.
+  both ids. Breaking: `work-record.mjs accept` now requires exactly one of `--census
+  <file>` (a `build-census.mjs` report, recognised by its own header line) or `--no-census
+  "<reason>"`; a missing or unrecognised census refuses closed with `census-missing`, a
+  census older than the record's last review `Log:` entry refuses with `census-stale`, and
+  on success the census's own summary lines are copied verbatim into new `Census:` header
+  lines and the whole file is stored next to the record's evidence — every existing
+  `accept` call site needs one of the two new flags.
 - 0.20.7 — goal card cap 1000 bytes, line cap 360, card fourth line may be STOP; card v5 and
   GOALS.md rewritten in Ben's words (STOP tied to the bearings verdict, two-host DONE, any-host aim).
 - 0.20.1 — preserves unknown wiring evidence instead of treating unreadable files,
