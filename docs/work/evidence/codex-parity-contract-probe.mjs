@@ -80,7 +80,11 @@ try {
   peerPreserved(unknown);
   absent(`${contextOf(unknown)}\n${systemOf(unknown)}`);
 
-  const child = await runCodexHook({ hook_event_name: 'UserPromptSubmit', session_id: LEAD, cwd: project, transcript_path: childTranscript }, deps);
+  const mismatched = await runCodexHook({ hook_event_name: 'UserPromptSubmit', session_id: LEAD, cwd: project, transcript_path: childTranscript }, deps);
+  peerPreserved(mismatched);
+  absent(`${contextOf(mismatched)}\n${systemOf(mismatched)}`);
+
+  const child = await runCodexHook({ hook_event_name: 'UserPromptSubmit', session_id: LEAD, agent_id: CHILD, cwd: project, transcript_path: childTranscript }, deps);
   assert.equal(child, null);
 
   for (const [name, cardExpected, bearingsExpected] of [['ws-off', false, false], ['ws-off-goalcard', false, false], ['ws-off-bearings', true, false]]) {
