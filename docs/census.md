@@ -246,7 +246,7 @@ verbatim from `docs/specs/2026-09-25-four-number-read.md`:
    spec session's top-tier usage between `Spec-from:` and `Opened:`. The census JSON
    already holds the by-model sums; the spec slice is one extra
    `build-census.mjs --lead <spec session> --from <Spec-from> --to <Opened>` run whose
-   output file is stored next to the record and passed as `--spec-census`.
+   output file is stored next to the record.
 2. **Hours ask to accepted**: `Opened:` to the FIRST `accepted` `Log:` entry, in hours to
    one decimal, plus the largest gap between two consecutive messages of the lead session
    inside that window (a stall indicator, printed beside it).
@@ -290,7 +290,12 @@ Run the read at accept time, after the last review, against a fresh `--census`: 
 scripts/four-read.mjs --record docs/work/<id>.record.md --census
 docs/work/evidence/<id>.census.json --ledger docs/ledger --lead-slug <slug> --json
 docs/work/evidence/<id>.four-read.json --out docs/work/evidence/<id>.four-read.md`, then
-`work-record.mjs accept --four-read <json>` copies the four lines into the record.
+`work-record.mjs accept --four-read <json>` copies the four lines into the record. When
+the spec writer's slice applies, run `build-census.mjs` a second time over the spec
+session's window and pass its output file as `--spec-census` alongside `--census`.
+
+The prediction rule from the bearings: the lead writes the next build's predicted four
+numbers in the RESULT to skills-fable.
 
 ## `work-census.mjs`
 

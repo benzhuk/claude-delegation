@@ -579,13 +579,86 @@ test('--from/--to: Codex leads reject the flags rather than silently ignoring th
   );
 });
 
+test('--from/--to windows subagents at both ends, exactly like --marker does (BLOCKER 1(a))', async () => {
+  const dir = mkTmp('build-census-fromto-sub-window-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  const tasksDir = path.join(dir, 'tasks');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'before', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } }),
+    asstLine({ requestId: 'inside', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 1 } }),
+    asstLine({ requestId: 'after', ts: '2026-01-01T00:20:00.000Z', usageOpts: { output: 1 } }),
+  ]);
+  writeJsonl(path.join(tasksDir, 'agent-w.jsonl'), [
+    asstLine({ requestId: 'sub-before', ts: '2026-01-01T00:01:00.000Z', usageOpts: { output: 7, input: 3 } }), // before --from: excluded
+    asstLine({ requestId: 'sub-inside', ts: '2026-01-01T00:06:00.000Z', usageOpts: { output: 11, input: 5 } }), // inside: kept
+    asstLine({ requestId: 'sub-after', ts: '2026-01-01T00:21:00.000Z', usageOpts: { output: 13, input: 7 } }), // after --to: excluded
+  ]);
+  const report = await runCensus({
+    lead: leadPath, tasksDirs: [tasksDir], marker: null,
+    from: '2026-01-01T00:02:00.000Z', to: '2026-01-01T00:10:00.000Z', out: null,
+  });
+  assert.equal(report.subagents.totalTurns, 1, 'only sub-inside remains; sub-before and sub-after are excluded');
+  assert.equal(report.subagents.excludedByWindow, 2);
+  assert.equal(totalTokensAcrossModels(report.subagents.totalByModel), 11 + 5, 'sub-before and sub-after tokens must not appear at all');
+});
+
+test('--to alone windows subagents at the end too (BLOCKER 1(a), --to with no --from)', async () => {
+  const dir = mkTmp('build-census-to-only-sub-window-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  const tasksDir = path.join(dir, 'tasks');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'inside', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } }),
+    asstLine({ requestId: 'after', ts: '2026-01-01T00:20:00.000Z', usageOpts: { output: 1 } }),
+  ]);
+  writeJsonl(path.join(tasksDir, 'agent-w.jsonl'), [
+    asstLine({ requestId: 'sub-inside', ts: '2026-01-01T00:00:30.000Z', usageOpts: { output: 11 } }),
+    asstLine({ requestId: 'sub-after', ts: '2026-01-01T00:21:00.000Z', usageOpts: { output: 13 } }), // after --to: excluded
+  ]);
+  const report = await runCensus({ lead: leadPath, tasksDirs: [tasksDir], marker: null, to: '2026-01-01T00:10:00.000Z', out: null });
+  assert.equal(report.subagents.totalTurns, 1, 'sub-after must be excluded even with no --from given');
+  assert.equal(report.subagents.excludedByWindow, 1);
+});
+
+test('--to caps wallClockHours and windowEndAt at the window\'s own last in-window message, not the whole file\'s last (MAJOR 6)', async () => {
+  const dir = mkTmp('build-census-to-wallclock-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } }),
+    asstLine({ requestId: 'r2', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 1 } }),
+    asstLine({ requestId: 'r3', ts: '2026-01-02T00:00:00.000Z', usageOpts: { output: 1 } }), // hours later, outside --to
+  ]);
+  const report = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, to: '2026-01-01T00:10:00.000Z', out: null });
+  assert.equal(report.lead.windowEndAt, '2026-01-01T00:05:00.000Z', 'windowEndAt must be the last IN-WINDOW message, not the file\'s last line');
+  assert.ok(report.lead.wallClockHours < 1, `wallClockHours must not run past --to: got ${report.lead.wallClockHours}`);
+});
+
+test('--from is after --to throws (MINOR 3)', async () => {
+  const dir = mkTmp('build-census-inverted-window-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 1 } })]);
+  await assert.rejects(
+    () => censusLeadFile(leadPath, { from: '2026-01-01T00:10:00.000Z', to: '2026-01-01T00:00:00.000Z' }),
+    /--from is after --to/,
+  );
+});
+
+test('--to earlier than the first message throws through main() rather than printing zeroed sums (MINOR 3)', async () => {
+  const dir = mkTmp('build-census-to-too-early-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 1 } })]);
+  await assert.rejects(
+    () => main(['--lead', leadPath, '--to', '2026-01-01T00:00:00.000Z'], { write: () => {} }),
+    /window holds no assistant messages/,
+  );
+});
+
 test('--marker given but not found in the file throws loudly instead of printing a silent zero', async () => {
   const dir = mkTmp('build-census-marker-missing-');
   const leadPath = path.join(dir, 'lead.jsonl');
   writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 1 } })]);
   await assert.rejects(
     () => main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'NEVER-PRESENT'], { write: () => {} }),
-    /window not found/,
+    /--marker text not found/,
   );
 });
 
@@ -620,7 +693,7 @@ test('--marker: a marker that genuinely matches nothing still throws even when n
   assert.equal(markerFound, false);
   await assert.rejects(
     () => main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'NEVER-PRESENT'], { write: () => {} }),
-    /window not found/,
+    /--marker text not found/,
   );
 });
 

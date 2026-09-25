@@ -66,11 +66,12 @@ test('parseRecordText: reads the fixture record\'s fields and both accepted Log:
   const { fields, logs } = parseRecordText(fs.readFileSync(RECORD, 'utf8'));
   assert.equal(fields.opened, '2026-09-01T00:00:00.000Z');
   assert.equal(fields.base, '0000000000000000000000000000000000000000');
-  assert.equal(fields['lead-session'], 'fixture-lead-session-id');
+  assert.equal(fields['lead-session'], 'lead-session');
   assert.equal(fields['spec-session'], 'fixture-spec-session-id');
   assert.equal(fields['spec-from'], '2026-08-31T23:00:00.000Z');
   assert.equal(logs.filter((l) => l.status === 'accepted').length, 2);
-  assert.equal(logs[0].at, '2026-09-02T00:00:00.000Z');
+  assert.equal(logs[0].status, 'owned');
+  assert.equal(logs.find((l) => l.status === 'accepted').at, '2026-09-02T00:00:00.000Z');
 });
 
 test('parseRecordText: a record missing a field simply omits its key, never throws', () => {
@@ -85,10 +86,46 @@ test('computeTopTierTokens: no census -> unavailable', () => {
   assert.equal(computeTopTierTokens(null, null, {}).value, 'unavailable (no census)');
 });
 
+test('computeTopTierTokens: a census with no combined by-model sums is unavailable, never a silent 0 (BLOCKER 1(b))', () => {
+  assert.equal(computeTopTierTokens({ leadPath: 'x.jsonl' }, null, {}).value, 'unavailable (census has no combined by-model sums)');
+});
+
+test('computeTopTierTokens: a census window that starts after this build\'s accepted time is rejected as not this build\'s window (BLOCKER 1(b))', () => {
+  const census = {
+    combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } },
+    lead: { windowStartAt: '2026-09-25T01:56:48.611Z' },
+  };
+  const openedMs = Date.parse('2026-09-25T01:52:55.000Z');
+  const acceptedMs = Date.parse('2026-09-25T01:53:20.968Z'); // loop-gates: window starts after accept
+  const r = computeTopTierTokens(census, null, {}, openedMs, acceptedMs);
+  assert.equal(r.value, 'unavailable (census window 2026-09-25T01:56:48.611Z is not the build window)');
+});
+
+test('computeTopTierTokens: a census window starting well before Opened: (a whole-session census) is rejected even with no accepted time known (BLOCKER 1(b))', () => {
+  const census = {
+    combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } },
+    lead: { windowStartAt: '2026-09-20T00:00:00.000Z' },
+  };
+  const openedMs = Date.parse('2026-09-25T01:52:55.000Z');
+  const r = computeTopTierTokens(census, null, {}, openedMs, null);
+  assert.match(r.value, /^unavailable \(census window 2026-09-20T00:00:00\.000Z is not the build window\)$/);
+});
+
+test('computeTopTierTokens: a census window inside the build window (within tolerance) is trusted', () => {
+  const census = {
+    combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } },
+    lead: { windowStartAt: '2026-09-25T01:53:00.000Z' },
+  };
+  const openedMs = Date.parse('2026-09-25T01:52:55.000Z');
+  const acceptedMs = Date.parse('2026-09-25T05:00:00.000Z');
+  const r = computeTopTierTokens(census, null, {}, openedMs, acceptedMs);
+  assert.match(r.value, /^1 tokens: build 1/);
+});
+
 test('computeTopTierTokens: census present, no spec-census, Spec-session/Spec-from present in the record -> partial with the "not run" reason', () => {
   const census = { combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 2, output_tokens: 3 } } };
   const r = computeTopTierTokens(census, null, { 'spec-session': 'x', 'spec-from': 'y' });
-  assert.match(r.value, /^6 tokens: build 6 \(claude-opus-5-5\) \(partial: no spec slice — spec-census not run\)$/);
+  assert.match(r.value, /^6 tokens: build 6 \(claude-opus-5-5\); partial \(no spec slice\): spec-census not run$/);
 });
 
 test('computeTopTierTokens: Spec-session/Spec-from missing from the record names that reason instead', () => {
@@ -155,16 +192,31 @@ test('computeHoursAskToAccepted: unparseable accepted timestamp -> unavailable',
 
 test('computeHoursAskToAccepted: null leadTimestamps -> the hours print with an explicit "no lead transcript" gap reason', () => {
   const fields = { opened: '2026-01-01T00:00:00.000Z' };
-  const logs = [{ status: 'accepted', at: '2026-01-01T02:00:00.000Z', note: '' }];
+  const logs = [{ status: 'owned', at: '2026-01-01T00:10:00.000Z', note: '' }, { status: 'accepted', at: '2026-01-01T02:00:00.000Z', note: '' }];
   const r = computeHoursAskToAccepted(fields, logs, null);
   assert.equal(r.value, '2.0h; gap unavailable (no lead transcript)');
 });
 
+test('computeHoursAskToAccepted: leadGapReason is printed instead of the generic "no lead transcript" reason (MAJOR 1)', () => {
+  const fields = { opened: '2026-01-01T00:00:00.000Z' };
+  const logs = [{ status: 'owned', at: '2026-01-01T00:10:00.000Z', note: '' }, { status: 'accepted', at: '2026-01-01T02:00:00.000Z', note: '' }];
+  const r = computeHoursAskToAccepted(fields, logs, null, 'no Lead-session:');
+  assert.equal(r.value, '2.0h; gap unavailable (no Lead-session:)');
+});
+
 test('computeHoursAskToAccepted: fewer than 2 messages in the window -> gap unavailable, hours still print', () => {
   const fields = { opened: '2026-01-01T00:00:00.000Z' };
-  const logs = [{ status: 'accepted', at: '2026-01-01T02:00:00.000Z', note: '' }];
+  const logs = [{ status: 'owned', at: '2026-01-01T00:10:00.000Z', note: '' }, { status: 'accepted', at: '2026-01-01T02:00:00.000Z', note: '' }];
   const r = computeHoursAskToAccepted(fields, logs, [Date.parse('2026-01-01T01:00:00.000Z')]);
   assert.equal(r.value, '2.0h; gap unavailable (fewer than 2 lead messages in window)');
+});
+
+test('computeHoursAskToAccepted: the first Log: entry being the first accepted -> unavailable, not a confident 0.0h (MAJOR 4)', () => {
+  const fields = { opened: '2026-01-01T00:00:00.000Z' };
+  const logs = [{ status: 'accepted', at: '2026-01-01T00:00:25.000Z', note: '' }];
+  const r = computeHoursAskToAccepted(fields, logs, null);
+  assert.equal(r.value, 'unavailable (record opened at acceptance: no Log: entry before the first accepted)');
+  assert.equal(r.acceptedMs, null);
 });
 
 test('computeHoursAskToAccepted: on the fixture record + lead session, prints 24.0h and the 45min gap', () => {
@@ -176,9 +228,9 @@ test('computeHoursAskToAccepted: on the fixture record + lead session, prints 24
 
 // ── computeReworkAfterAcceptance (number 3) ─────────────────────────────────
 
-test('computeReworkAfterAcceptance: no Base:/accepted sha/--git -> unavailable (no range)', () => {
-  assert.equal(computeReworkAfterAcceptance({}, [], null).value, 'unavailable (no range)');
-  assert.equal(computeReworkAfterAcceptance({ base: 'x' }, [], 'C:/some/dir').value, 'unavailable (no range)');
+test('computeReworkAfterAcceptance: no Base:/accepted sha/--git -> unavailable (no range), with the known re-accept count carried alongside (MINOR 1)', () => {
+  assert.equal(computeReworkAfterAcceptance({}, [], null).value, 'unavailable (no range); 0 re-accept Log: entries after the first');
+  assert.equal(computeReworkAfterAcceptance({ base: 'x' }, [], 'C:/some/dir').value, 'unavailable (no range); 0 re-accept Log: entries after the first');
 });
 
 test('computeReworkAfterAcceptance: counts only commits touching build files within 7 days, excludes release commits and commits outside the pathspec, and reports re-accept Log: entries', () => {
@@ -205,6 +257,37 @@ test('computeReworkAfterAcceptance: counts only commits touching build files wit
   assert.match(r.value, /1 re-accept Log: entry after the first/);
 });
 
+test('computeReworkAfterAcceptance: excludes this repo\'s real release subject forms, not just "release: ..." (MAJOR 2)', () => {
+  const dir = mkTmp('four-read-git-release-forms-');
+  initRepo(dir);
+  const now = Date.now();
+  const iso = (offsetMs) => new Date(now + offsetMs).toISOString();
+  const baseSha = commit(dir, 'a.txt', 'base', 'chore: base', iso(-3600000));
+  const acceptedSha = commit(dir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000));
+  commit(dir, 'a.txt', 'release bump 1', 'chore: release 0.20.9', iso(60000)); // excluded
+  commit(dir, 'a.txt', 'release bump 2', 'chore(release): 0.20.7', iso(120000)); // excluded
+  const fields = { base: baseSha };
+  const logs = [{ status: 'accepted', at: new Date(now - 1800000).toISOString(), owner: 'x', note: `artifact ${acceptedSha}` }];
+  const r = computeReworkAfterAcceptance(fields, logs, dir, 'HEAD');
+  assert.match(r.value, /^0 commits touching build files within 7 days/);
+  assert.doesNotMatch(r.value, /0\.20\.9/);
+  assert.doesNotMatch(r.value, /0\.20\.7/);
+});
+
+test('computeReworkAfterAcceptance: the Artifact: fallback is only used with a single accepted entry — a re-accept without an artifact note gives unavailable, never the wrong (last) sha (MINOR 9)', () => {
+  const dir = mkTmp('four-read-git-fallback-');
+  initRepo(dir);
+  const iso = new Date().toISOString();
+  const sha = commit(dir, 'a.txt', 'x', 'chore: only commit', iso);
+  const fields = { base: sha, artifact: `build/x@${sha}` };
+  const logs = [
+    { status: 'accepted', at: iso, owner: 'x', note: 'no artifact mentioned here' },
+    { status: 'accepted', at: iso, owner: 'x', note: 'a re-accept, also no artifact mentioned' },
+  ];
+  const r = computeReworkAfterAcceptance(fields, logs, dir, 'HEAD');
+  assert.match(r.value, /^unavailable \(no range\)/, 'must not fall back to Artifact: once a re-accept could have overwritten it');
+});
+
 test('computeReworkAfterAcceptance: base == accepted (no changed files) -> unavailable (no range)', () => {
   const dir = mkTmp('four-read-git-norange-');
   initRepo(dir);
@@ -212,7 +295,7 @@ test('computeReworkAfterAcceptance: base == accepted (no changed files) -> unava
   const sha = commit(dir, 'a.txt', 'x', 'chore: only commit', iso);
   const fields = { base: sha };
   const logs = [{ status: 'accepted', at: iso, owner: 'x', note: `artifact ${sha}` }];
-  assert.equal(computeReworkAfterAcceptance(fields, logs, dir, 'HEAD').value, 'unavailable (no range)');
+  assert.equal(computeReworkAfterAcceptance(fields, logs, dir, 'HEAD').value, 'unavailable (no range); 0 re-accept Log: entries after the first');
 });
 
 test('computeReworkAfterAcceptance: an unresolvable git ref fails closed as unavailable, not a thrown error', () => {
@@ -244,6 +327,22 @@ test('collectLedgerEntries: parses the fixture ledger day into ASK/ACK/RESULT en
   assert.equal(result1.re, 'fixture-ask-1');
 });
 
+test('collectLedgerEntries: NYC timestamps resolve to the correct EST/EDT offset across the year, non-NYC tz gives ms null (MINOR 5)', () => {
+  const dir = mkTmp('four-read-ledger-tz-');
+  fs.writeFileSync(path.join(dir, '2026-01-01.md'), [
+    'test-lead → test-owner, 1.15.26 09:00 NYC [tz-winter] FYI: winter check',
+    'test-lead → test-owner, 6.15.26 09:00 NYC [tz-summer] FYI: summer check',
+    'test-lead → test-owner, 6.15.26 09:00 UTC [tz-other] FYI: non-NYC tz',
+  ].join('\n'));
+  const entries = collectLedgerEntries(dir, fs);
+  const winter = entries.find((e) => e.id === 'tz-winter');
+  const summer = entries.find((e) => e.id === 'tz-summer');
+  const other = entries.find((e) => e.id === 'tz-other');
+  assert.equal(winter.ms, Date.parse('2026-01-15T14:00:00.000Z')); // EST = UTC-5
+  assert.equal(summer.ms, Date.parse('2026-06-15T13:00:00.000Z')); // EDT = UTC-4
+  assert.equal(other.ms, null);
+});
+
 test('computeWorkLostOrStalled: no Opened:/accepted window -> unavailable', () => {
   assert.equal(computeWorkLostOrStalled(null, null, null, { openedMs: null, acceptedMs: null }).value, 'unavailable (no Opened:)');
   assert.equal(computeWorkLostOrStalled(null, null, null, { openedMs: 1, acceptedMs: null }).value, 'unavailable (no accepted Log: entry)');
@@ -252,6 +351,12 @@ test('computeWorkLostOrStalled: no Opened:/accepted window -> unavailable', () =
 test('computeWorkLostOrStalled: no --lead-slug -> ASKs part is explicitly unavailable, gaps part still computes', () => {
   const r = computeWorkLostOrStalled([1000, 2000], null, null, { openedMs: 0, acceptedMs: 3000 });
   assert.match(r.value, /^0 gaps over 30min; ASKs unavailable \(no --lead-slug\)$/);
+});
+
+test('computeWorkLostOrStalled: a slug that never appears in the ledger reads unavailable, not a confident 0 (MAJOR 3)', () => {
+  const ledgerEntries = collectLedgerEntries(LEDGER, fs);
+  const r = computeWorkLostOrStalled([1000, 2000], ledgerEntries, 'nobody', { openedMs: 0, acceptedMs: 3000 });
+  assert.match(r.value, /ASKs unavailable \(slug nobody not in ledger\)$/);
 });
 
 test('computeWorkLostOrStalled: on the fixture record + lead session + ledger, one gap over 30min and one unanswered ASK', () => {
@@ -270,15 +375,17 @@ test('buildFourRead: the fixture record + a real census over the fixture lead se
   const censusPath = await buildCensusFile(dir);
   const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead', git: null, branch: 'HEAD' }, fs);
 
-  assert.equal(report.leadSession.id, 'fixture-lead-session-id');
+  assert.equal(report.leadSession.id, 'lead-session');
   assert.equal(report.leadSession.source, 'record');
   assert.equal(report.numbers.length, 4);
   assert.deepEqual(report.numbers.map((n) => n.key), ['topTierTokensPerBuild', 'hoursAskToAccepted', 'reworkAfterAcceptance', 'workLostOrStalled']);
   assert.match(report.numbers[0].value, /^193 tokens: build 193 \(claude-opus-5-5\)/);
   assert.equal(report.numbers[1].value, '24.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z');
-  assert.equal(report.numbers[2].value, 'unavailable (no range)'); // no --git given
+  // no --git given; still reports the re-accept Log: entry (MINOR 1)
+  assert.match(report.numbers[2].value, /^unavailable \(no range\); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00\.000Z/);
   assert.match(report.numbers[3].value, /1 unanswered ASK\(s\) to test-lead: fixture-ask-2/);
   assert.equal(report.companions.length, 2);
+  assert.match(report.companions[0].value, /^\d+ messages; tokens: cache-read \d+, cache-write \d+, input \d+, output \d+$/);
   assert.match(report.companions[1].value, /2 note\(s\) to test-lead/);
 });
 
@@ -291,6 +398,20 @@ test('buildFourRead: a record with no Lead-session: falls back to --lead-session
   assert.equal(report.leadSession.id, 'cli-supplied-id');
   assert.equal(report.leadSession.source, 'cli');
   assert.match(report.leadSession.note, /--lead-session on the command line/);
+});
+
+test('buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a whole-session census by its real accepted time, not a silently-trusted one (BLOCKER 1(b))', async () => {
+  const dir = mkTmp('four-read-opened-at-accept-');
+  const censusPath = await buildCensusFile(dir);
+  const census = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  // simulate a whole-session census whose window starts after this record's own acceptance.
+  census.lead = { ...census.lead, windowStartAt: '2026-09-02T02:00:00.000Z' };
+  fs.writeFileSync(censusPath, JSON.stringify(census));
+  const openedAtAcceptRecord = path.join(dir, 'record.md');
+  fs.writeFileSync(openedAtAcceptRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Log: .*owned.*\n/m, ''));
+  const report = buildFourRead({ record: openedAtAcceptRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(report.numbers[1].value, /^unavailable \(record opened at acceptance/); // Number 2, MAJOR 4
+  assert.match(report.numbers[0].value, /^unavailable \(census window 2026-09-02T02:00:00\.000Z is not the build window\)$/); // Number 1, BLOCKER 1(b)
 });
 
 test('formatJson: deterministic, sorted keys, over the fixture build', async () => {
@@ -315,6 +436,78 @@ test('formatMarkdown: prints a "| number | value |" table with all four labels, 
   assert.match(md, /\| Work lost or stalled \|/);
   assert.match(md, /## Companions/);
   assert.match(md, /\| Notes to the lead per build \|/);
+});
+
+test('formatJson/formatMarkdown: pin exact golden content for the fixture build, not just self-equality (MINOR 6)', async () => {
+  const dir = mkTmp('four-read-golden-');
+  const censusPath = await buildCensusFile(dir);
+  const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  report.record = 'scripts/fixtures/four-read/record.md'; // relative, so the golden string is stable
+
+  assert.equal(formatJson(report), [
+    '{',
+    '  "companions": [',
+    '    {',
+    '      "key": "topTierAssistantMessagesPerBuild",',
+    '      "label": "Top-tier assistant messages per build",',
+    '      "value": "2 messages; tokens: cache-read 170, cache-write 0, input 15, output 8"',
+    '    },',
+    '    {',
+    '      "key": "notesToLeadPerBuild",',
+    '      "label": "Notes to the lead per build",',
+    '      "value": "2 note(s) to test-lead: ASK fixture-ask-1, ASK fixture-ask-2"',
+    '    }',
+    '  ],',
+    '  "leadSession": {',
+    '    "id": "lead-session",',
+    '    "note": "from the record\'s Lead-session: field",',
+    '    "source": "record"',
+    '  },',
+    '  "numbers": [',
+    '    {',
+    '      "key": "topTierTokensPerBuild",',
+    '      "label": "Top-tier tokens per build",',
+    '      "value": "193 tokens: build 193 (claude-opus-5-5); partial (no spec slice): spec-census not run"',
+    '    },',
+    '    {',
+    '      "key": "hoursAskToAccepted",',
+    '      "label": "Hours ask to accepted",',
+    '      "value": "24.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z"',
+    '    },',
+    '    {',
+    '      "key": "reworkAfterAcceptance",',
+    '      "label": "Rework after acceptance",',
+    '      "value": "unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00.000Z artifact abcdef01234567890123456789012345abcdef0 reaccepted for fix round"',
+    '    },',
+    '    {',
+    '      "key": "workLostOrStalled",',
+    '      "label": "Work lost or stalled",',
+    '      "value": "1 gap(s) over 30min: 2026-09-01T00:15:00.000Z (45.0min); 1 unanswered ASK(s) to test-lead: fixture-ask-2"',
+    '    }',
+    '  ],',
+    '  "record": "scripts/fixtures/four-read/record.md"',
+    '}',
+  ].join('\n'));
+
+  assert.equal(formatMarkdown(report), [
+    '# Four-number read: record.md',
+    '',
+    "Lead session: `lead-session` (from the record's Lead-session: field)",
+    '',
+    '| number | value |',
+    '|---|---|',
+    '| Top-tier tokens per build | 193 tokens: build 193 (claude-opus-5-5); partial (no spec slice): spec-census not run |',
+    '| Hours ask to accepted | 24.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z |',
+    '| Rework after acceptance | unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00.000Z artifact abcdef01234567890123456789012345abcdef0 reaccepted for fix round |',
+    '| Work lost or stalled | 1 gap(s) over 30min: 2026-09-01T00:15:00.000Z (45.0min); 1 unanswered ASK(s) to test-lead: fixture-ask-2 |',
+    '',
+    '## Companions',
+    '',
+    '| line | value |',
+    '|---|---|',
+    '| Top-tier assistant messages per build | 2 messages; tokens: cache-read 170, cache-write 0, input 15, output 8 |',
+    '| Notes to the lead per build | 2 note(s) to test-lead: ASK fixture-ask-1, ASK fixture-ask-2 |',
+  ].join('\n'));
 });
 
 // ── parseArgs / main ──────────────────────────────────────────────────────
