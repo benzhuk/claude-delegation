@@ -7,7 +7,7 @@ Artifact: build/census-complete-1@1274659ff572f42bc7c9efef108fef412963baee
 Worktree: build/census-complete-1
 Evidence: docs/work/evidence/wr-2026-09-25-census-complete-seam-r2.md
 Next: none pending on this record; Ben may release the accepted build
-Opened: 2026-09-25T11:59:00.000Z
+Opened: 2026-09-25T03:11:00.000Z
 Log: 2026-09-25T12:00:30.000Z reviewed census-complete-integrator seam r2 APPROVE 1274659
 Census: - leadTurns: 5
 Census: - wallClockHours: 8.82
