@@ -325,8 +325,24 @@ function matchesPattern(f, pattern) {
 // hardlinked to subagents/agent-<id>.jsonl) it keeps the FIRST-seen copy, so a default's
 // `agent-<id>.jsonl` name — the one --role-map and journal.jsonl both key off — wins over
 // an explicit --tasks dir's `<id>.output` alias.
+// (T1/C2 fix round, MAJOR C1): a MISSING default dir (ENOENT — no such source exists) is
+// the common, legitimate case and contributes zero specs/files silently, exactly as
+// before. Any OTHER error listing a default dir (EACCES, EPERM, a raced deletion mid-scan,
+// etc.) is NOT absence — it is a source that exists but couldn't be enumerated, and
+// swallowing it the same way as ENOENT would report a confident zero (and, worse, a clean
+// COUNTED verdict with no warning) for agents that actually ran but weren't reachable.
+// Both buildDirSpecs (the workflows/ run-directory listing) and collectTaskFiles (each
+// individual default dir's own readdir) make this same ENOENT-vs-other distinction, and
+// both feed their unreadable dirs into runCensus's combined `unreadableDirs` list, which
+// marks the whole report INCOMPLETE — the same idiom already used for an individual
+// unreadable subagent FILE, just at the directory-enumeration boundary instead.
+function isAbsenceError(error) {
+  return Boolean(error) && error.code === 'ENOENT';
+}
+
 function buildDirSpecs(opts, fsImpl) {
   const specs = [];
+  const unreadableDirs = [];
   if (opts.lead) {
     const leadSessionId = path.basename(opts.lead).replace(/\.jsonl$/i, '');
     const sessionDir = path.join(path.dirname(opts.lead), leadSessionId);
@@ -347,33 +363,44 @@ function buildDirSpecs(opts, fsImpl) {
         if (!isDir) continue;
         specs.push({ dir: path.join(workflowsDir, e.name), isDefault: true, pattern: 'agent' });
       }
-    } catch {
-      // no workflows dir: normal, not an error.
+    } catch (error) {
+      // no workflows dir at all: normal, not an error. Anything else (EACCES etc.) means
+      // a real source this build ran could not be enumerated — flag it, never silently
+      // drop it.
+      if (!isAbsenceError(error)) unreadableDirs.push(workflowsDir);
     }
   }
   for (const d of opts.tasksDirs || []) specs.push({ dir: d, isDefault: false, pattern: 'wide' });
-  return specs;
+  return { specs, unreadableDirs };
 }
 
 function collectTaskFiles(dirSpecs, fsImpl) {
   const collected = [];
+  const unreadableDirs = [];
   for (const spec of dirSpecs) {
     let names;
     try {
       names = fsImpl.readdirSync(spec.dir);
-    } catch {
+    } catch (error) {
       // An unreadable/missing EXPLICIT --tasks dir is not "no subagents ran" — reporting 0
       // files at exit 0 would silently drop a whole source the caller asked for by name.
-      // The DEFAULT subagents dir is different: most lead sessions spawn no subagents at
-      // all, so its absence is the common, legitimate case, not an error.
-      if (spec.isDefault) continue;
+      // The DEFAULT subagents dir is different: its ABSENCE (ENOENT — most lead sessions
+      // spawn no subagents at all) is the common, legitimate case, not an error. But an
+      // EACCES/EPERM/other failure enumerating a default dir that DOES exist is not
+      // absence — it is exactly the "check that passes because it isn't looking" failure
+      // this fix exists to close: flag it as unreadable (INCOMPLETE) instead of a silent
+      // zero.
+      if (spec.isDefault) {
+        if (!isAbsenceError(error)) unreadableDirs.push(spec.dir);
+        continue;
+      }
       throw new Error(`--tasks directory not readable: ${spec.dir}`);
     }
     for (const filename of names.filter((f) => matchesPattern(f, spec.pattern))) {
       collected.push({ dir: spec.dir, filename, fullPath: path.join(spec.dir, filename) });
     }
   }
-  return collected;
+  return { collected, unreadableDirs };
 }
 
 // De-dup by resolved real path so the same dir given twice, a file reachable through two
@@ -473,9 +500,14 @@ function resolveRole(agentKey, journalMap, roleMap) {
 export async function runCensus(opts, fsImpl = realFs()) {
   const lead = await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  const dirSpecs = buildDirSpecs(opts, fsImpl);
+  const { specs: dirSpecs, unreadableDirs: specUnreadableDirs } = buildDirSpecs(opts, fsImpl);
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
-  const rawFiles = collectTaskFiles(dirSpecs, fsImpl);
+  const { collected: rawFiles, unreadableDirs: collectUnreadableDirs } = collectTaskFiles(dirSpecs, fsImpl);
+  // Both discovery boundaries (buildDirSpecs' workflows/ run-listing, collectTaskFiles'
+  // per-dir readdir) can independently find a default dir that exists but can't be
+  // enumerated — merge and de-dup so a directory failing at both boundaries (unlikely,
+  // but not impossible) is still reported once, not twice.
+  const unreadableDirs = [...new Set([...specUnreadableDirs, ...collectUnreadableDirs])].sort();
   // Code-unit comparator, not localeCompare: sort order must not depend on the running
   // machine's ICU/locale, and the other sorts in this file (Object.keys(...).sort()) are
   // already plain code-unit sorts — this keeps output byte-stable across machines too.
@@ -590,12 +622,23 @@ export async function runCensus(opts, fsImpl = realFs()) {
       markerFound: lead.markerFound,
       windowStartAt: lead.windowStartAt,
       windowEndAt: lead.lastAt,
+      // T1/C2 fix round MAJOR C2: one explicit, narrowly-named lead-currency field —
+      // never inferred from "the latest ISO timestamp anywhere in the report" (a role
+      // label, a path, or any other free text could otherwise forge one). Same value as
+      // windowEndAt above (the census's own window-end timestamp), duplicated under this
+      // name so work-record.mjs's census-stale check has one dedicated key to read.
+      leadLastMessageAt: lead.lastAt,
       turnsPerHour,
       wallClockHours,
     },
     subagents: {
       fileCount: orderedFiles.length,
       unreadable: unreadableCount,
+      // T1/C2 fix round MAJOR C1: directories that exist but could not be enumerated
+      // (EACCES etc. at the default-dir discovery boundary) — distinct from unreadable,
+      // which counts individual FILES. Any entry here makes the whole report INCOMPLETE.
+      unreadableDirs,
+      incomplete: unreadableCount > 0 || unreadableDirs.length > 0,
       totalTurns: subTotalTurns,
       excludedByWindow: excludedByWindowTotal,
       totalByModel: subTotalsByModel,
@@ -626,13 +669,26 @@ function totalTokens(a) {
 export function formatText(report) {
   const md = [];
   const unread = report.subagents.unreadable || 0;
+  const unreadDirs = report.subagents.unreadableDirs || [];
+  // T1/C2 fix round MAJOR C2: the census's own dedicated lead-currency field, on THIS
+  // header line — work-record.mjs's census-stale check reads this field, and ONLY this
+  // field, never any other timestamp anywhere in the report (docs/census.md).
+  const leadLastMessageAt = report.lead.leadLastMessageAt || report.lead.windowEndAt || null;
   // C2 (scripts/work-record.mjs's `accept --census`) recognises a build-census report by
   // the literal PREFIX `VERDICT: COUNTED ` on line 1 — never by `# Build census` below,
   // which is only this report's section title. Keep that prefix byte-identical; the rest
   // of the line is free text. `windowTurns` is the de-duped API-request count (NOT the
   // same number as `leadTurns`, printed alongside it here so the two aren't mistaken for
   // one another on a skim).
-  md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${report.lead.leadTurns}), ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
+  md.push(
+    `VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${report.lead.leadTurns}), ${report.subagents.fileCount} subagent files` +
+      (unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : '') +
+      // T1/C2 fix round MAJOR C1: a default dir that exists but could not be enumerated
+      // (EACCES etc.) marks the WHOLE census INCOMPLETE, not just a silent zero — see
+      // buildDirSpecs/collectTaskFiles above.
+      (unreadDirs.length ? ` (${unreadDirs.length} director${unreadDirs.length === 1 ? 'y' : 'ies'} UNREADABLE — census INCOMPLETE)` : '') +
+      `, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`,
+  );
   md.push('');
   md.push('# Build census');
   md.push('');
@@ -645,7 +701,14 @@ export function formatText(report) {
   const roleLine = Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`);
-  if (unread) md.push(`- INCOMPLETE: ${unread} subagent file(s) unreadable — subagent and combined totals exclude them`);
+  if (unread || unreadDirs.length) {
+    const parts = [];
+    if (unread) parts.push(`${unread} subagent file(s) unreadable`);
+    if (unreadDirs.length) {
+      parts.push(`${unreadDirs.length} subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} unreadable (${unreadDirs.map((d) => `\`${d}\``).join(', ')})`);
+    }
+    md.push(`- INCOMPLETE: ${parts.join('; ')} — subagent and combined totals exclude them`);
+  }
   md.push('');
   const tasksLine = report.tasksPaths.length ? report.tasksPaths.map((p) => `\`${p}\``).join(', ') : '(none)';
   md.push(`Lead: \`${path.basename(report.leadPath)}\` | Tasks dirs: ${tasksLine}${report.defaultSubagentsDir ? ` | Default subagents dir: \`${report.defaultSubagentsDir}\`` : ''}`);
@@ -673,6 +736,9 @@ export function formatText(report) {
   md.push('');
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
+  if (unreadDirs.length) {
+    md.push(`\n_INCOMPLETE: ${unreadDirs.length} default subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} could not be enumerated (not merely absent) — files inside cannot be listed, so this census is incomplete by an unknown amount: ${unreadDirs.map((d) => `\`${d}\``).join(', ')}._`);
+  }
   md.push('');
   const roleCountsLine = Object.keys(report.subagents.roleFileCounts).sort().map((r) => `${r}=${report.subagents.roleFileCounts[r]}`).join(', ') || '(none)';
   md.push(`Roles: ${roleCountsLine}`);
