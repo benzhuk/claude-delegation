@@ -327,7 +327,7 @@ function matchesPattern(f, pattern) {
 // an explicit --tasks dir's `<id>.output` alias.
 // (T1/C2 fix round, MAJOR C1): a MISSING default dir (ENOENT — no such source exists) is
 // the common, legitimate case and contributes zero specs/files silently, exactly as
-// before. Any OTHER error listing a default dir (EACCES, EPERM, a raced deletion mid-scan,
+// before. Any OTHER error listing a default dir (EACCES, EPERM, ENOTDIR, EMFILE,
 // etc.) is NOT absence — it is a source that exists but couldn't be enumerated, and
 // swallowing it the same way as ENOENT would report a confident zero (and, worse, a clean
 // COUNTED verdict with no warning) for agents that actually ran but weren't reachable.
