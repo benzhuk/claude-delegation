@@ -17,7 +17,10 @@ const home = (env = process.env) => env.AGENTS_HOME || path.join(os.homedir(), '
 const absent = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 const canonicalPath = (file) => (fs.realpathSync.native || fs.realpathSync)(file);
 // Case- and whitespace-insensitive: "ClaudeA" and " claudea " are the same reviewer, not two.
-const normalizeId = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+// Also strips zero-width characters (U+200B-U+200D, U+FEFF) and any \s-matched whitespace
+// (not just leading/trailing) after NFKC normalization, so a tab or zero-width space hidden
+// inside an id never passes as a different id from its visually-identical twin.
+const normalizeId = (v) => (typeof v === 'string' ? v.normalize('NFKC').replace(/[\s​-‍﻿]/g, '').toLowerCase() : '');
 
 function fileBytes(file) {
   try {
