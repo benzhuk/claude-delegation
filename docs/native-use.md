@@ -46,7 +46,24 @@ node scripts/mirror-shared-skills.mjs --codex-hooks-only
 
 The installer merges its handlers with existing hooks and updates their trust identities. An older four-event installation needs this wiring update to gain Interrupt; merely updating adapter source does not add an event registration. Without that event, native cancellation bypasses Stop, but the stored binding is not immediately disarmed until the next prompt/session event.
 
-For a Codex lead on the configured mirrored-hook route, the source adapter adds the project's goal card and a due/unknown bearings advisory on SessionStart and UserPromptSubmit. The SessionStart advisory can also appear in the pane. It applies only when native metadata positively classifies the session as a lead: confirmed children receive no new card or bearings effects, while unknown identity retains its existing inbox and continuation behavior without the new advisory. The switches are `~/.agents/ws-off`, `~/.agents/ws-off-goalcard`, and `~/.agents/ws-off-bearings`; all fail safely. Goal and bearings context is not reinjected on PostToolUse, Stop, or Interrupt. This describes source capability; it does not claim that this version is installed or that an observed host has exercised it.
+When SessionStart native metadata is available and positively classifies a Codex session
+as a lead, the source adapter adds the project's goal card and a due/unknown bearings
+advisory on SessionStart and each UserPromptSubmit. The SessionStart advisory can also
+appear in the pane. This deliberately pays roughly 1,200 bytes of card context plus a
+bounded advisory on each eligible prompt, rather than creating fired/tally cadence
+state. A missing card is silent; a rejected card produces its existing rejection notice
+at an eligible SessionStart, not once across all resumes.
+
+Confirmed children receive no new card or bearings effects. Unknown identity retains
+its existing inbox and continuation behavior without the new advisory. The switches are
+`~/.agents/ws-off` (all new context), `~/.agents/ws-off-goalcard` (the card and its
+bearings advisory), and `~/.agents/ws-off-bearings` (bearings only); all fail safely.
+Goal and bearings context is not reinjected on PostToolUse, Stop, or Interrupt. A receipt
+is per checkout, so another builder worktree can be due; the notice grants no authority
+to start an out-of-scope assessment. The shared notice names `/delegation:bearings`, but
+whether that slash form invokes on a particular Codex installation requires separate
+host verification. This describes source capability, not an installed or live-executed
+route.
 
 Do not activate both native-package and mirrored hook routes automatically. Their shared implementation does not prevent duplicated registrations. Existing personal and namespaced skills can both be discovered; live precedence and duplicate-free coexistence need a chosen-host observation.
 
