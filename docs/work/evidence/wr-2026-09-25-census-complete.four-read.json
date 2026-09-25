@@ -3,12 +3,12 @@
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "unavailable (build-census.mjs reports token sums by model, not per-model message counts)"
+      "value": "182 messages; tokens: cache-read 42232765, cache-write 2097440, input 998, output 440451"
     },
     {
       "key": "notesToLeadPerBuild",
       "label": "Notes to the lead per build",
-      "value": "1 note(s) to skills-o: ASK skills-fable-census-complete-1"
+      "value": "unavailable (no ledger dir)"
     }
   ],
   "leadSession": {
@@ -20,7 +20,7 @@
     {
       "key": "topTierTokensPerBuild",
       "label": "Top-tier tokens per build",
-      "value": "149763361 tokens: build 149763361 (claude-opus-5, claude-opus-5-5) (partial: no spec slice — Spec-session:/Spec-from: missing from record)"
+      "value": "44771654 tokens: build 44771654 (claude-opus-5-5); partial (no spec slice): Spec-session:/Spec-from: missing from record"
     },
     {
       "key": "hoursAskToAccepted",
@@ -30,13 +30,13 @@
     {
       "key": "reworkAfterAcceptance",
       "label": "Rework after acceptance",
-      "value": "unavailable (no range)"
+      "value": "unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-25T14:10:09.083Z artifact 3b0b7f390ec1cd04591cc193eb88bb8facc2045e"
     },
     {
       "key": "workLostOrStalled",
       "label": "Work lost or stalled",
-      "value": "1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); 0 unanswered ASKs to skills-o"
+      "value": "1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); ASKs unavailable (no ledger dir)"
     }
   ],
-  "record": "C:/Users/benzh/Code/claude-delegation/docs/work/wr-2026-09-25-census-complete.record.md"
+  "record": "docs/work/wr-2026-09-25-census-complete.record.md"
 }

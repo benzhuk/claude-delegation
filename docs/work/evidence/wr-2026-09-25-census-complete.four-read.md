@@ -4,14 +4,14 @@ Lead session: `7ce97c6a-d864-448c-ac6a-4251cab72bb0` (id came from --lead-sessio
 
 | number | value |
 |---|---|
-| Top-tier tokens per build | 149763361 tokens: build 149763361 (claude-opus-5, claude-opus-5-5) (partial: no spec slice — Spec-session:/Spec-from: missing from record) |
+| Top-tier tokens per build | 44771654 tokens: build 44771654 (claude-opus-5-5); partial (no spec slice): Spec-session:/Spec-from: missing from record |
 | Hours ask to accepted | 8.9h; largest gap 505.2min at 2026-09-25T03:12:39.717Z |
-| Rework after acceptance | unavailable (no range) |
-| Work lost or stalled | 1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); 0 unanswered ASKs to skills-o |
+| Rework after acceptance | unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-25T14:10:09.083Z artifact 3b0b7f390ec1cd04591cc193eb88bb8facc2045e |
+| Work lost or stalled | 1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); ASKs unavailable (no ledger dir) |
 
 ## Companions
 
 | line | value |
 |---|---|
-| Top-tier assistant messages per build | unavailable (build-census.mjs reports token sums by model, not per-model message counts) |
-| Notes to the lead per build | 1 note(s) to skills-o: ASK skills-fable-census-complete-1 |
+| Top-tier assistant messages per build | 182 messages; tokens: cache-read 42232765, cache-write 2097440, input 998, output 440451 |
+| Notes to the lead per build | unavailable (no ledger dir) |
