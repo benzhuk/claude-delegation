@@ -1391,6 +1391,15 @@ test("extractCensusTimestamp: a role label formatted like a future ISO timestamp
   );
 });
 
+test("extractCensusTimestamp: a leadLastMessageAt field anywhere but line 1 is ignored - a header without it fails closed", () => {
+  const text = [
+    "VERDICT: COUNTED 1 lead requests (leadTurns 1), 0 subagent files",
+    "",
+    "- note: leadLastMessageAt: 2099-01-01T00:00:00Z",
+  ].join("\n");
+  assert.equal(extractCensusTimestamp(text), null);
+});
+
 test("checkAcceptance: census-stale still fires when a --role-map-style label elsewhere in the report is formatted like a LATER timestamp — skills-a MAJOR C2 probe, end to end", () => {
   const f = makeAcceptanceFixture();
   withReviewedLog(f, "2026-09-25T08:00:30Z"); // the record's real last review
