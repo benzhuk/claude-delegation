@@ -71,7 +71,7 @@ Once a day, and at every release, a fresh high-tier agent with no session contex
 In Ben's words: "have we made significant progress towards the goal? have we gotten sidelined on some too-specific sub-project? have we spent time on a castle of patches instead of going back to the architecture and simplifying? are we still building towards the simplest possible solution that solves our actual core problem? part of the plugin should be this constant check, I think once a day is a good cadence, but we need a separate and specific skill for this in my opinion." (9-23)
 
 Measure: bearings entries on the decisions page per week; RE-PLAN verdicts that changed the plan; lanes stopped by CUT.
-Status: PARTIAL. The bearings skill shipped in 0.16.0 and one baseline ran on 2026-09-23; the reviewer was not independent of the lead, and the due-notice reaches the model instead of Ben.
+Status: PARTIAL. The bearings skill shipped in 0.16.0 and one baseline ran on 2026-09-23; the reviewer was not independent of the lead. The 2026-09-24 bearings returned RE-PLAN (docs/work/evidence/2026-09-24-simplicity-bearings.md), but no receipt records a reviewer distinct from the lead, so it does not count as independent; the STOP line counts from the next independent run. The due-notice reaches the model instead of Ben.
 
 ## Any agent host, Codex and Claude Code first
 
@@ -89,7 +89,7 @@ Every building skill lives in this one plugin and works as one system: delegate,
 In Ben's words: all building skills "fold into this one package, coordinated and working together." (9-21) "canary not worth a week of bad work! ... Plus I do very different work on the diff machines so it's a bad test. So let's implement our best plan and test it everywhere." (9-21)
 
 Measure: a wiring check per machine that can actually fail; a pane setup backed by the census; zero prose-only rules.
-Status: PARTIAL. Machines are on different versions (Windows 0.18, others 0.13.0 as of 2026-09-24 morning). Wiring check cannot go red; pane-setup.md describes a setup Ben does not run.
+Status: PARTIAL. Windows, Mac, Hetzner and Netcup installed the 0.20.6 release on 2026-09-24 through their existing Claude marketplace/plugin route and Codex shared mirror (docs/work/evidence/four-host-0206-and-live-pickup.md); the 0.20.7 card-cap change was installed nowhere as of 2026-09-24. Wiring check cannot go red; pane-setup.md describes a setup Ben does not run.
 
 ## Nothing stalls silently
 
@@ -107,7 +107,7 @@ Ben's decisions live on one Notion page, in a shape the reader checks, never han
 In Ben's words: "any note from me in notion is a line prefaced with **, this should be in our skill already, and all the notes must be acted on and removed from the doc for when you next hand it to me." (9-22) "the decisions notion skill should make sure the goals are kept up to date!" (9-22) A "Done (timestamp when last cleared)" checkbox "to let the agent know that the builder is done answering questions and adding comments." (9-23, to Astra)
 
 Measure: the hand-back check passes (zero unanswered notes, zero page warnings, goals mirror at the current commit) before any link is given; zero decisions in chat.
-Status: PARTIAL. The reader, hand-back check and pickup shipped in 0.14.0 to 0.17.0; no unattended pickup has run against the live page.
+Status: PARTIAL. The reader, hand-back check and pickup shipped in 0.14.0 to 0.17.0; the scheduled pickup ran unattended on Windows at 8:25 AM on 2026-09-24 and returned PICKUP_NO_ACTION with Done false (docs/work/evidence/four-host-0206-and-live-pickup.md); a checked-Done handback has still never happened.
 
 ## What one session learns reaches every machine
 

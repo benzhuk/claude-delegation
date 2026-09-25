@@ -238,6 +238,13 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.8 — GOALS.md status updates: records the four-host 0.20.6 install of 2026-09-24
+  (Windows, Mac, Hetzner, Netcup) with the 0.20.7 card-cap change installed nowhere as of
+  2026-09-24; records the 8:25 AM scheduled pickup on 2026-09-24 that ran unattended and
+  returned PICKUP_NO_ACTION with Done false, with a checked-Done handback still never having
+  happened; and records that the 2026-09-24 bearings RE-PLAN does not count as independent,
+  since no receipt records a reviewer distinct from the lead, so the STOP line counts from the
+  next independent run.
 - 0.20.7 — goal card cap 1000 bytes, line cap 360, card fourth line may be STOP; card v5 and
   GOALS.md rewritten in Ben's words (STOP tied to the bearings verdict, two-host DONE, any-host aim).
 - 0.20.1 — preserves unknown wiring evidence instead of treating unreadable files,
