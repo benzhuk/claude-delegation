@@ -7,7 +7,7 @@
       "name": "delegation",
       "source": "./",
       "description": "Work-management skills for Claude Code and Codex: parallel delegation, shared goals and evidence, ongoing continuation, Notion decisions, and opt-in registered Done pickup through the existing note-flush timer. Private captures, conservative recovery and explicit owner accounting remain separate from delivery. No new scheduler or automatic owner recovery/clearing.",
-      "version": "0.20.8",
+      "version": "0.20.9",
       "author": { "name": "Ben Zhuk" }
     }
   ]
