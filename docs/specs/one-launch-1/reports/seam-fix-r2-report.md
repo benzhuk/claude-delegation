@@ -1,11 +1,14 @@
-VERDICT: PASS 3169f986bd606ba4224632a6631ea5100c1a3fd8
+VERDICT: PASS
 
 # Seam fix round 2 — build-loop-workflow.js / SKILL.md
 
 Worktree: `/home/ben/Code/claude-delegation-lane4` (branch `build/one-launch-1`).
 Findings applied from: `docs/specs/one-launch-1/reports/seam-r1.md` (HEAD at review time
 `be2a30bfec16cef0ac99ef94ac54472b5f09e4ed`).
-Commit: `3169f986bd606ba4224632a6631ea5100c1a3fd8`.
+Fix commit (code): `3169f986bd606ba4224632a6631ea5100c1a3fd8`. This report and its state
+file were committed on top of that as `eabb799be5dfb3148276c3d9da26a72577a19c0b`, the
+sha this report field names below (the last commit in the worktree, per `git rev-parse
+HEAD` run after it).
 
 Applied every seam-reviewer-verified finding in one round, across both files named in the
 findings report (`build-loop-workflow.js`, `build-loop-workflow.test.mjs`, `SKILL.md`).
