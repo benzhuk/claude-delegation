@@ -26,6 +26,7 @@ import {
   SWITCH_NAME, MASTER_SWITCH, CONFIG_KEY, DEFAULT_CARD_PATH, SWEEP_MAX_UNLINKS, STATE_MAX_AGE_MS,
   tallyFileFor, firedFileFor, stateDir, stateKey, renderInjection,
 } from '../scripts/goal-card.mjs';
+import { complete as completeBearings } from '../skills/bearings/scripts/bearings-state.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'delegation-reminder.js');
@@ -124,6 +125,18 @@ function homeFingerprint(home) {
   return out.join('\n');
 }
 
+/** Records a completed, independent bearings receipt so `check()` returns `current`, not `due`. */
+function seedBearingsCurrent(home, root) {
+  const report = path.join(root, 'bearings-report.md');
+  const response = path.join(root, 'bearings-response.md');
+  fs.writeFileSync(report, 'review\n', 'utf8');
+  fs.writeFileSync(response, 'lead\n', 'utf8');
+  completeBearings({
+    repo: root, report, leadResponse: response, publication: 'https://example.test/decision',
+    reviewerId: 'reviewer-session', leadId: 'lead-session', env: envFor(home),
+  });
+}
+
 const tally = (home, agentId) => {
   try { return fs.statSync(tallyFileFor(SESSION_ID, agentId, envFor(home))).size; } catch { return null; }
 };
@@ -151,6 +164,8 @@ test('SessionStart injects the card, on every source', () => {
     assert.match(text, /NOT: a second execution engine/, source);
     assert.match(text, / — as of \d{4}-\d{2}-\d{2} \d{2}:\d{2} NYC/, source);
     assert.match(text, /Bearings are due/, source);
+    // T2 Required #1: the due-notice reaches Ben, not only the model — it must be in BOTH fields.
+    assert.match(sysmsg(r), /Bearings are due/, `${source}: Ben's pane must show the due-notice too`);
   }
 });
 
@@ -412,29 +427,73 @@ test('MAJOR 4: a malformed card produces exactly one systemMessage at SessionSta
   assert.equal(batch.stdout, '', 'PostToolBatch must not repeat the notice');
 });
 
-test('MAJOR 4: a valid card and a missing card both produce no systemMessage', () => {
-  const home = fixtureHome();
-  for (const root of [project(), project(null)]) {
-    const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
-    assert.equal(sysmsg(r), null);
-  }
+test('MAJOR 4: a valid card and a missing card produce no card-rejection systemMessage', () => {
+  // Isolated from the bearings dimension (tested separately below): a valid card gets its bearings
+  // receipt seeded so `check()` returns `current`, leaving only the card-rejection question in play.
+  const validRoot = project();
+  const validHome = fixtureHome();
+  seedBearingsCurrent(validHome, validRoot);
+  assert.equal(sysmsg(runHook('SessionStart', validHome, { cwd: validRoot, input: { source: 'startup' } })), null);
+
+  const missingHome = fixtureHome();
+  assert.equal(sysmsg(runHook('SessionStart', missingHome, { cwd: project(null), input: { source: 'startup' } })), null);
 });
 
 test('bearings due is advisory, completion is only the explicit helper receipt, and child bearings writes nothing', () => {
   const home = fixtureHome(); const root = project();
   const first = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
   assert.match(context(first), /Bearings are due/, 'missing receipt is due, not complete');
+  assert.match(sysmsg(first), /Bearings are due/, 'and Ben sees it too');
   const child = runHook('SessionStart', home, { cwd: root, input: { source: 'startup', agent_id: 'child-1' } });
   assert.doesNotMatch(context(child), /Bearings (are due|status is unknown)/);
+  assert.equal(sysmsg(child), null, 'a child never gets the pane notice either');
   assert.equal(fs.existsSync(path.join(agentsOf(home), 'ws', 'bearings')), false, 'child identity prevents all bearings state I/O');
+});
+
+test('T2: not-due emits no systemMessage, even though the card itself still injects', () => {
+  const home = fixtureHome(); const root = project();
+  seedBearingsCurrent(home, root);
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  assert.equal(r.status, 0);
+  assert.doesNotMatch(context(r), /Bearings/, 'a current receipt adds nothing to the model context');
+  assert.equal(sysmsg(r), null, 'not-due means nothing lands in Ben\'s pane');
+  assert.match(context(r), /GOAL: /, 'the card itself is unaffected');
+});
+
+test('T2: PostToolBatch never puts the due-notice in systemMessage or any other pane-visible field', () => {
+  const home = fixtureHome(); const root = project();
+  seedTally(home, BATCHES_PER_REINJECT - 1);
+  const r = runHook('PostToolBatch', home, { cwd: root, input: { tool_calls: [] } });
+  assert.equal(r.status, 0);
+  assert.match(context(r), /Bearings are due/, 'the model still sees it');
+  assert.equal('systemMessage' in r.json, false, 'PostToolBatch must never surface it to Ben');
 });
 
 test('bearings switch preserves the existing goal card and master/goalcard switches silence cadence', () => {
   const root = project();
   const bearings = fixtureHome(); fs.writeFileSync(path.join(agentsOf(bearings), 'ws-off-bearings'), '');
-  assert.doesNotMatch(context(runHook('SessionStart', bearings, { cwd: root, input: { source: 'startup' } })), /Bearings/);
+  const bearingsRun = runHook('SessionStart', bearings, { cwd: root, input: { source: 'startup' } });
+  assert.doesNotMatch(context(bearingsRun), /Bearings/);
+  assert.equal(sysmsg(bearingsRun), null, 'ws-off-bearings silences the pane notice too');
   const goal = fixtureHome(); fs.writeFileSync(path.join(agentsOf(goal), 'ws-off-goalcard'), '');
-  assert.equal(runHook('SessionStart', goal, { cwd: root, input: { source: 'startup' } }).stdout, '');
+  const goalRun = runHook('SessionStart', goal, { cwd: root, input: { source: 'startup' } });
+  assert.equal(goalRun.stdout, '');
+  const master = fixtureHome(); fs.writeFileSync(path.join(agentsOf(master), MASTER_SWITCH), '');
+  const masterRun = runHook('SessionStart', master, { cwd: root, input: { source: 'startup' } });
+  assert.equal(masterRun.stdout, '', 'ws-off silences the pane notice too, along with everything else');
+});
+
+test('T2: a broken bearings state (impossible receipt path) fails open — no crash, no block, no false claim', () => {
+  const home = fixtureHome(); const root = project();
+  const env = envFor(home);
+  // `ws/bearings` exists as a FILE, not a directory, so the receipt read inside bearings-state.mjs
+  // cannot succeed in the ordinary way. The hook must still exit 0 and never claim more than it knows.
+  fs.mkdirSync(path.join(env.AGENTS_HOME, 'ws'), { recursive: true });
+  fs.writeFileSync(path.join(env.AGENTS_HOME, 'ws', 'bearings'), 'not a directory', 'utf8');
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  assert.equal(r.status, 0, 'fail open: never a non-zero exit');
+  assert.notEqual(r.status, 2, 'fail open: never blocks the turn');
+  assert.match(context(r), /GOAL: /, 'the goal card itself is unaffected by a broken bearings state');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -598,6 +657,7 @@ test('nothing this hook does ever exits 2', () => {
 test('every output is a valid harness object, and never a block', () => {
   const home = fixtureHome();
   const root = project();
+  seedBearingsCurrent(home, root); // not-due, so SessionStart carries no systemMessage in this generic check
   for (const [event, input] of [
     ['SessionStart', { source: 'startup' }],
     ['UserPromptSubmit', {}],
@@ -611,7 +671,7 @@ test('every output is a valid harness object, and never a block', () => {
     assert.equal('continue' in j, false, `${event}: this hook must never stop the loop`);
     assert.equal('stopReason' in j, false, event);
     // MINOR 10: `suppressOutput` is documented as having no effect, so nothing here pins it.
-    assert.equal('systemMessage' in j, false, `${event}: a valid card needs nothing on Ben's screen`);
+    assert.equal('systemMessage' in j, false, `${event}: a valid card and a not-due bearings need nothing on Ben's screen`);
   }
 });
 

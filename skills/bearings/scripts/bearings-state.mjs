@@ -8,11 +8,16 @@ import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from '../../decisions/scripts/project-config.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
-const VERSION = 1;
+// Bumped 2 -> reviewer independence (T2 Required #2): a receipt written before this build never
+// carries `reviewerId`/`leadId`, and the version mismatch alone already sends it to `due` below —
+// an old receipt is rejected, never silently counted as a completed, independent assessment.
+const VERSION = 2;
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const home = (env = process.env) => env.AGENTS_HOME || path.join(os.homedir(), '.agents');
 const absent = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 const canonicalPath = (file) => (fs.realpathSync.native || fs.realpathSync)(file);
+// Case- and whitespace-insensitive: "ClaudeA" and " claudea " are the same reviewer, not two.
+const normalizeId = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
 
 function fileBytes(file) {
   try {
@@ -90,6 +95,14 @@ export function check({ repo = process.cwd(), env = process.env, now = Date.now(
   if (!receipt || receipt.version !== VERSION || receipt.projectRoot !== goal.projectRoot || receipt.goalPath !== goal.goalPath || receipt.goalDigest !== goal.goalDigest) {
     return result('due', 'completion receipt does not match the current goal', { ...goal, receiptFile });
   }
+  // Reviewer independence (T2 Required #2): a receipt whose reviewer and lead are the same agent, or
+  // that is missing either id, never counts as an independent completed assessment. Equal after
+  // trimming and lowercasing, so a case or whitespace variant of the same id cannot pass either.
+  const reviewerId = normalizeId(receipt.reviewerId);
+  const leadId = normalizeId(receipt.leadId);
+  if (!reviewerId || !leadId || reviewerId === leadId) {
+    return result('due', 'reviewer-not-independent', { ...goal, receiptFile });
+  }
   const completedAt = Date.parse(receipt.completedAt);
   if (!Number.isFinite(completedAt) || completedAt > now) return result('due', 'completion receipt has an invalid or future completion time', { ...goal, receiptFile });
   if (!validPublication(receipt.publication)) return result('due', 'completion receipt lacks a verified publication URL', { ...goal, receiptFile });
@@ -102,17 +115,22 @@ export function check({ repo = process.cwd(), env = process.env, now = Date.now(
   return result('current', 'a matching completed assessment is less than 24 hours old', { ...goal, receiptFile, receipt });
 }
 
-export function complete({ repo = process.cwd(), report, leadResponse, publication, env = process.env, now = Date.now() } = {}) {
+export function complete({ repo = process.cwd(), report, leadResponse, publication, reviewerId, leadId, env = process.env, now = Date.now() } = {}) {
   if (disabled(env)) throw new Error('bearings is disabled by a switch');
   const goal = goalLocation(repo);
   if (goal.kind !== 'ok') throw new Error(goal.kind === 'unconfigured' ? 'current goal card is missing' : 'project root or current goal card is unreadable');
   if (!validPublication(publication)) throw new Error('publication must be an http(s) URL');
+  // Reviewer independence is enforced at write time too, not only on `check` — a receipt that could
+  // never pass `check` should not be written in the first place.
+  if (!normalizeId(reviewerId) || !normalizeId(leadId)) throw new Error('reviewer-not-independent: reviewerId and leadId are both required');
+  if (normalizeId(reviewerId) === normalizeId(leadId)) throw new Error('reviewer-not-independent: reviewerId and leadId must be different agents');
   const reportFile = fileBytes(report);
   const responseFile = fileBytes(leadResponse);
   if (reportFile.kind !== 'ok' || responseFile.kind !== 'ok') throw new Error('report and lead response must be readable, nonempty regular files');
   const receipt = { version: VERSION, projectRoot: goal.projectRoot, goalPath: goal.goalPath, goalDigest: goal.goalDigest,
     completedAt: new Date(now).toISOString(), reportPath: reportFile.path, reportDigest: sha256(reportFile.bytes),
-    leadResponsePath: responseFile.path, leadResponseDigest: sha256(responseFile.bytes), publication };
+    leadResponsePath: responseFile.path, leadResponseDigest: sha256(responseFile.bytes), publication,
+    reviewerId, leadId };
   const target = receiptLocation(goal.projectRoot, env);
   const resolvedTarget = resolvedDestination(target);
   if ([reportFile.path, responseFile.path, goal.goalPath].includes(resolvedTarget)) {
@@ -128,8 +146,8 @@ export function complete({ repo = process.cwd(), report, leadResponse, publicati
 function args(argv) { const out = {}; for (let i = 0; i < argv.length; i += 2) { if (!argv[i].startsWith('--')) throw new Error(`unexpected argument: ${argv[i]}`); out[argv[i].slice(2)] = argv[i + 1]; } return out; }
 async function cli() {
   const [command, ...rest] = process.argv.slice(2); const a = args(rest);
-  if (!command || !a.repo || (command === 'complete' && (!a.report || !a['lead-response'] || !a.publication))) throw new Error('usage: bearings-state.mjs check --repo <project-root> | complete --repo <project-root> --report <path> --lead-response <path> --publication <https-url>');
-  const out = command === 'check' ? check({ repo: a.repo }) : command === 'complete' ? complete({ repo: a.repo, report: a.report, leadResponse: a['lead-response'], publication: a.publication }) : null;
+  if (!command || !a.repo || (command === 'complete' && (!a.report || !a['lead-response'] || !a.publication || !a['reviewer-id'] || !a['lead-id']))) throw new Error('usage: bearings-state.mjs check --repo <project-root> | complete --repo <project-root> --report <path> --lead-response <path> --publication <https-url> --reviewer-id <id> --lead-id <id>');
+  const out = command === 'check' ? check({ repo: a.repo }) : command === 'complete' ? complete({ repo: a.repo, report: a.report, leadResponse: a['lead-response'], publication: a.publication, reviewerId: a['reviewer-id'], leadId: a['lead-id'] }) : null;
   if (!out) throw new Error(`unknown command: ${command}`); process.stdout.write(`${JSON.stringify(out)}\n`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) cli().catch((err) => { process.stderr.write(`bearings-state: ${err.message}\n`); process.exitCode = 1; });
