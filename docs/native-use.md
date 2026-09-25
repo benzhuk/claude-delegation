@@ -1,6 +1,6 @@
 # Operator guide: native and mirrored capabilities
 
-This guide describes source release 0.20.4. Its frozen candidate `9a38760` passed 1,396 sealed tests after independent source review. It adds explicit optional-source diagnostics and an explicit user-stop instruction to this guide. It includes current-revision continuation status, consistent parallel-work/review/pacing instructions, and a timing census that preserves unknown evidence. The Windows plain shared-skill mirror was updated and verified on September 23, 11:54 PM America/New_York, with configuration and hook registration unchanged. See [local update evidence](work/evidence/local-mirror-0203-update.md). A checkout is not an installed runtime. Choose one hook route for a Codex host, then verify actual execution on that host.
+This guide describes the current source route. The last four-host installation evidence is release 0.20.6 at `faccdd6389ff6eb6527b3d11da5ed118b80ebf67`: Windows, Mac, Hetzner, and Netcup used their existing Claude marketplace/plugin route and Codex shared mirror, with registered Codex lifecycle events. That is installation evidence, not proof that a later source change is installed or that every event executed on every host. A checkout is not an installed runtime; choose one Codex hook route and verify actual execution on that host. See [four-host rollout evidence](work/evidence/four-host-0206-and-live-pickup.md).
 
 ## Everyday work on a project
 
@@ -19,6 +19,45 @@ Honor an explicit user stop or pause. Otherwise, before closing, check the actua
 The [original native Codex authoring trial](work/evidence/native-codex-first-use-proof.md) produced a draft but its file reads were policy-blocked. The later [root-cause diagnosis and corrected read-only trial](work/evidence/codex-readonly-fixture-correction.md) showed that ignoring user configuration had also disabled selection of the provisioned Windows sandbox backend. Explicitly selecting that backend for the isolated invocation preserved read-only enforcement and let the native agent read the source and mirrored skills. Its review found the missing explicit-stop instruction above. This proves source-grounded native review, not hook execution, comparative delivery improvement, or completion of the project's goals.
 
 ## Choose the route
+
+### Current fresh-project route
+
+Use the following ordered route for the current Claude-plus-mirror installation. Run it
+from the selected durable release checkout; these commands install or configure a host
+and are not ordinary project setup commands.
+
+1. Install the Claude plugin first:
+
+   ```powershell
+   claude plugin marketplace add benzhuk/claude-delegation
+   claude plugin install delegation@benzhuk
+   ```
+
+2. Publish the shared Codex roles, skills, documentation, and command shims:
+
+   ```powershell
+   node scripts/mirror-shared-skills.mjs --dry-run --json
+   node scripts/mirror-shared-skills.mjs
+   ```
+
+3. Under authorization to configure the Codex host, wire and trust the mirrored hooks:
+
+   ```powershell
+   node scripts/mirror-shared-skills.mjs --codex-hooks-only --dry-run --json
+   node scripts/mirror-shared-skills.mjs --codex-hooks-only
+   ```
+
+   After every plugin update, rerun this step from the updated durable checkout, because the Codex hook runs the adapter at the path it was wired from.
+
+4. Start fresh Claude Code and Codex sessions so each host reloads its installed
+   instructions and hooks. Verify `claude plugin list`, inspect the mirror command's
+   recorded actions, and use the SessionStart wiring check. Finally verify a normal
+   session's hook execution on that host; listings and configuration alone do not prove
+   event delivery.
+
+The native Codex package route below is an alternative for a chosen Codex host. Do not
+activate it together with the mirrored-hook route without an explicit duplicate-free
+coexistence observation.
 
 The native Codex package exposes the same nine skills as Claude Code, using `.codex-plugin/plugin.json` and the local marketplace. From a chosen release checkout:
 
@@ -45,6 +84,26 @@ node scripts/mirror-shared-skills.mjs --codex-hooks-only
 ```
 
 The installer merges its handlers with existing hooks and updates their trust identities. An older four-event installation needs this wiring update to gain Interrupt; merely updating adapter source does not add an event registration. Without that event, native cancellation bypasses Stop, but the stored binding is not immediately disarmed until the next prompt/session event.
+
+When native metadata on an event positively classifies a Codex session as a lead, the
+source adapter adds the project's goal card and a due/unknown bearings advisory on
+SessionStart and each UserPromptSubmit. The SessionStart advisory can also appear in the
+pane. SessionStart does not store a classification for later events: each event needs its
+own usable native metadata. This deliberately pays up to 1,200 bytes of card context plus
+a bounded advisory on each eligible prompt, rather than creating fired/tally cadence
+state. A missing card is silent; a rejected card produces its existing rejection notice
+at an eligible SessionStart, not once across all resumes.
+
+Confirmed children receive no new card or bearings effects. Unknown identity retains
+its existing inbox and continuation behavior without the new advisory. The switches are
+`~/.agents/ws-off` (all new context), `~/.agents/ws-off-goalcard` (the card and its
+bearings advisory), and `~/.agents/ws-off-bearings` (bearings only); all fail safely.
+Goal and bearings context is not reinjected on PostToolUse, Stop, or Interrupt. A receipt
+is per checkout, so another builder worktree can be due; the notice grants no authority
+to start an out-of-scope assessment. The shared notice names `/delegation:bearings`, but
+whether that slash form invokes on a particular Codex installation requires separate
+host verification. This describes source capability, not an installed or live-executed
+route.
 
 Do not activate both native-package and mirrored hook routes automatically. Their shared implementation does not prevent duplicated registrations. Existing personal and namespaced skills can both be discovered; live precedence and duplicate-free coexistence need a chosen-host observation.
 

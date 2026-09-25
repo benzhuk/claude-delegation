@@ -257,6 +257,132 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
   return { totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal };
 }
 
+// Codex writes one token_usage_record per response.  Its `usage` object is the
+// response-local counter; `turn_token_usage` and `thread_token_usage` are cumulative
+// snapshots and must never be added.  The session_meta id binds every counted record to
+// the requested session, while response_id supplies the de-dup key.
+function codexUsage(usage) {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) {
+    throw new Error('Codex token_usage_record lacks a valid per-response usage object');
+  }
+  const finiteCount = (value, name, optional = false) => {
+    if (value === undefined && optional) return 0;
+    if (!Number.isFinite(value) || value < 0) throw new Error(`Codex token_usage_record has invalid ${name}`);
+    return value;
+  };
+  const input = finiteCount(usage.input_tokens, 'input_tokens');
+  const cached = finiteCount(usage.cached_input_tokens, 'cached_input_tokens', true);
+  const cacheWrite = finiteCount(usage.cache_write_input_tokens, 'cache_write_input_tokens', true);
+  const output = finiteCount(usage.output_tokens, 'output_tokens');
+  if (input < cached + cacheWrite) {
+    throw new Error('Codex token_usage_record has invalid per-response usage');
+  }
+  // Codex input_tokens includes cached and cache-write input; split it so this report's
+  // four shared columns remain additive rather than counting cached input twice.
+  return {
+    input_tokens: input - cached - cacheWrite,
+    cache_creation_input_tokens: cacheWrite,
+    cache_read_input_tokens: cached,
+    output_tokens: output,
+  };
+}
+
+async function detectLeadHost(filePath, fsImpl) {
+  const rl = await openLines(fsImpl, filePath);
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    if (obj.type === 'session_meta') {
+      const payload = obj.payload;
+      if (!payload || typeof payload.session_id !== 'string' || payload.session_id !== payload.id) {
+        throw new Error('Codex session_meta is malformed or lacks a verified session id');
+      }
+      return 'codex';
+    }
+    // A token record is distinctive Codex evidence even when a truncated file lost its
+    // session_meta prelude. Route it to the Codex reader, which rejects missing session
+    // attribution visibly rather than treating it as a zero-token Claude transcript.
+    if (obj.type === 'token_usage_record' || obj.type === 'response_item' || obj.type === 'event_msg' || obj.type === 'turn_context' || obj.type === 'compacted') return 'codex';
+  }
+  return 'claude';
+}
+
+export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker } = {}) {
+  const rl = await openLines(fsImpl, filePath);
+  const totalById = new Map();
+  const windowById = marker ? new Map() : totalById;
+  const totalNativeTurns = new Set();
+  const windowNativeTurns = new Set();
+  const responseFingerprints = new Map();
+  let sessionId = null;
+  let sawMeta = false;
+  let tokenRecordCount = 0;
+  let windowTokenRecordCount = 0;
+  let windowStarted = !marker;
+  let windowStartAt = null;
+  let firstAt = null;
+  let lastAt = null;
+
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { throw new Error('Codex session transcript contains malformed JSON'); }
+    if (obj.timestamp) {
+      if (!firstAt) firstAt = obj.timestamp;
+      lastAt = obj.timestamp;
+    }
+    if (marker && !windowStarted && obj.type !== 'session_meta' && obj.type !== 'turn_context' && containsMarkerDeep(obj, marker)) {
+      windowStarted = true;
+      windowStartAt = obj.timestamp || lastAt;
+    }
+    if (obj.type === 'session_meta') {
+      const meta = obj.payload;
+      if (sawMeta || !meta || typeof meta.session_id !== 'string' || meta.session_id !== meta.id) {
+        throw new Error('Codex session_meta is malformed or does not identify exactly one session');
+      }
+      sessionId = meta.session_id;
+      sawMeta = true;
+      continue;
+    }
+    if (obj.type !== 'token_usage_record') continue;
+    tokenRecordCount += 1;
+    const record = obj.payload;
+    if (!sawMeta || !record || record.session_id !== sessionId || typeof record.response_id !== 'string' || typeof record.turn_id !== 'string') {
+      throw new Error('Codex token_usage_record lacks verified session, response, or turn attribution');
+    }
+    const entry = { model: 'unknown', usage: codexUsage(record.usage), ts: obj.timestamp || lastAt };
+    const key = `response:${record.response_id}`;
+    const fingerprint = JSON.stringify([record.turn_id, entry.usage]);
+    const seen = responseFingerprints.get(key);
+    if (seen !== undefined && seen !== fingerprint) throw new Error('Codex token_usage_record repeats a response_id with conflicting turn or usage');
+    responseFingerprints.set(key, fingerprint);
+    totalById.set(key, entry);
+    totalNativeTurns.add(record.turn_id);
+    if (windowStarted) {
+      windowTokenRecordCount += 1;
+      windowById.set(key, entry);
+      windowNativeTurns.add(record.turn_id);
+    }
+  }
+  if (!sawMeta) throw new Error('Codex session_meta was not found');
+  if (!marker) windowStartAt = firstAt;
+  return {
+    totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt,
+    // The private event stream does not connect response ids to assistant/user role
+    // ordering, so native turn ids cannot be represented as Claude conversational runs.
+    leadTurns: null, leadTurnsTotal: null,
+    nativeTurnCount: totalNativeTurns.size, nativeTurnCountWindow: windowNativeTurns.size,
+    tokenRecordCount, windowTokenRecordCount,
+    coverageSupported: false,
+    coverageReason: tokenRecordCount === 0
+      ? 'no token_usage_record rows with per-response usage; complete coverage is not established'
+      : windowTokenRecordCount === 0
+        ? 'no token_usage_record rows with per-response usage inside the marker window; complete coverage is not established'
+      : 'complete per-build response coverage is not established',
+  };
+}
+
 /**
  * Census one subagent .output/.jsonl file. Same last-line-wins de-dup, independently per
  * file. Returns { byId: Map<id, {model, usage, ts}>, firstAt, lastAt }.
@@ -340,10 +466,10 @@ function isAbsenceError(error) {
   return Boolean(error) && error.code === 'ENOENT';
 }
 
-function buildDirSpecs(opts, fsImpl) {
+function buildDirSpecs(opts, fsImpl, { includeDefaultSubagents = true } = {}) {
   const specs = [];
   const unreadableDirs = [];
-  if (opts.lead) {
+  if (opts.lead && includeDefaultSubagents) {
     const leadSessionId = path.basename(opts.lead).replace(/\.jsonl$/i, '');
     const sessionDir = path.join(path.dirname(opts.lead), leadSessionId);
     const defaultDir = path.join(sessionDir, 'subagents');
@@ -364,9 +490,8 @@ function buildDirSpecs(opts, fsImpl) {
         specs.push({ dir: path.join(workflowsDir, e.name), isDefault: true, pattern: 'agent' });
       }
     } catch (error) {
-      // no workflows dir at all: normal, not an error. Anything else (EACCES etc.) means
-      // a real source this build ran could not be enumerated — flag it, never silently
-      // drop it.
+      // A missing workflow directory is normal; a directory that exists but cannot be
+      // enumerated must make the census incomplete rather than silently report zero.
       if (!isAbsenceError(error)) unreadableDirs.push(workflowsDir);
     }
   }
@@ -384,12 +509,8 @@ function collectTaskFiles(dirSpecs, fsImpl) {
     } catch (error) {
       // An unreadable/missing EXPLICIT --tasks dir is not "no subagents ran" — reporting 0
       // files at exit 0 would silently drop a whole source the caller asked for by name.
-      // The DEFAULT subagents dir is different: its ABSENCE (ENOENT — most lead sessions
-      // spawn no subagents at all) is the common, legitimate case, not an error. But an
-      // EACCES/EPERM/other failure enumerating a default dir that DOES exist is not
-      // absence — it is exactly the "check that passes because it isn't looking" failure
-      // this fix exists to close: flag it as unreadable (INCOMPLETE) instead of a silent
-      // zero.
+      // The DEFAULT subagents dir is different: most lead sessions spawn no subagents at
+      // all, so its absence is the common, legitimate case, not an error.
       if (spec.isDefault) {
         if (!isAbsenceError(error)) unreadableDirs.push(spec.dir);
         continue;
@@ -498,15 +619,17 @@ function resolveRole(agentKey, journalMap, roleMap) {
  * to real node:fs.
  */
 export async function runCensus(opts, fsImpl = realFs()) {
-  const lead = await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
+  const leadHost = await detectLeadHost(opts.lead, fsImpl);
+  if (leadHost === 'codex' && (opts.tasksDirs || []).length) {
+    throw new Error('Codex child transcript census is unsupported; native child discovery and usage attribution are not established');
+  }
+  const lead = leadHost === 'codex'
+    ? await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker })
+    : await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  const { specs: dirSpecs, unreadableDirs: specUnreadableDirs } = buildDirSpecs(opts, fsImpl);
+  const { specs: dirSpecs, unreadableDirs: specUnreadableDirs } = buildDirSpecs(opts, fsImpl, { includeDefaultSubagents: leadHost !== 'codex' });
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
   const { collected: rawFiles, unreadableDirs: collectUnreadableDirs } = collectTaskFiles(dirSpecs, fsImpl);
-  // Both discovery boundaries (buildDirSpecs' workflows/ run-listing, collectTaskFiles'
-  // per-dir readdir) can independently find a default dir that exists but can't be
-  // enumerated — merge and de-dup so a directory failing at both boundaries (unlikely,
-  // but not impossible) is still reported once, not twice.
   const unreadableDirs = [...new Set([...specUnreadableDirs, ...collectUnreadableDirs])].sort();
   // Code-unit comparator, not localeCompare: sort order must not depend on the running
   // machine's ICU/locale, and the other sorts in this file (Object.keys(...).sort()) are
@@ -611,42 +734,49 @@ export async function runCensus(opts, fsImpl = realFs()) {
     }
   }
 
+  const codex = leadHost === 'codex';
+  const observedWindowTokens = codex && lead.windowTokenRecordCount > 0
+    ? Object.values(leadWindowByModel).reduce((n, a) => n + totalTokens(a), 0)
+    : null;
   return {
     lead: {
-      totalTurns: lead.totalById.size,
-      windowTurns: lead.windowById.size,
+      host: leadHost,
+      totalTurns: codex ? null : lead.totalById.size,
+      windowTurns: codex ? null : lead.windowById.size,
       leadTurns: lead.leadTurns,
       leadTurnsTotal: lead.leadTurnsTotal,
-      totalByModel: leadTotalByModel,
-      windowByModel: leadWindowByModel,
+      nativeTurnCount: codex ? null : lead.nativeTurnCount ?? null,
+      nativeTurnCountWindow: codex ? null : lead.nativeTurnCountWindow ?? null,
+      observedLeadRequests: codex && lead.windowTokenRecordCount > 0 ? lead.windowById.size : null,
+      observedLeadTokens: observedWindowTokens,
+      observedNativeTurnCount: codex && lead.tokenRecordCount > 0 ? lead.nativeTurnCount : null,
+      observedNativeTurnCountWindow: codex && lead.windowTokenRecordCount > 0 ? lead.nativeTurnCountWindow : null,
+      coverageSupported: lead.coverageSupported ?? true,
+      coverageReason: lead.coverageReason ?? null,
+      totalByModel: codex ? null : leadTotalByModel,
+      windowByModel: codex ? null : leadWindowByModel,
+      observedTotalByModel: codex ? leadTotalByModel : null,
+      observedWindowByModel: codex ? leadWindowByModel : null,
       markerFound: lead.markerFound,
       windowStartAt: lead.windowStartAt,
       windowEndAt: lead.lastAt,
-      // T1/C2 fix round MAJOR C2: one explicit, narrowly-named lead-currency field —
-      // never inferred from "the latest ISO timestamp anywhere in the report" (a role
-      // label, a path, or any other free text could otherwise forge one). Same value as
-      // windowEndAt above (the census's own window-end timestamp), duplicated under this
-      // name so work-record.mjs's census-stale check has one dedicated key to read.
       leadLastMessageAt: lead.lastAt,
-      turnsPerHour,
+      turnsPerHour: codex ? null : turnsPerHour,
       wallClockHours,
     },
     subagents: {
       fileCount: orderedFiles.length,
       unreadable: unreadableCount,
-      // T1/C2 fix round MAJOR C1: directories that exist but could not be enumerated
-      // (EACCES etc. at the default-dir discovery boundary) — distinct from unreadable,
-      // which counts individual FILES. Any entry here makes the whole report INCOMPLETE.
       unreadableDirs,
       incomplete: unreadableCount > 0 || unreadableDirs.length > 0,
-      totalTurns: subTotalTurns,
+      totalTurns: codex ? null : subTotalTurns,
       excludedByWindow: excludedByWindowTotal,
-      totalByModel: subTotalsByModel,
-      totalByRole: subTotalsByRole,
-      roleFileCounts,
+      totalByModel: codex ? null : subTotalsByModel,
+      totalByRole: codex ? null : subTotalsByRole,
+      roleFileCounts: codex ? null : roleFileCounts,
       perFile,
     },
-    combined,
+    combined: codex ? null : combined,
     marker: opts.marker || null,
     leadPath: opts.lead,
     tasksPaths: [...(opts.tasksDirs || [])],
@@ -670,9 +800,7 @@ export function formatText(report) {
   const md = [];
   const unread = report.subagents.unreadable || 0;
   const unreadDirs = report.subagents.unreadableDirs || [];
-  // T1/C2 fix round MAJOR C2: the census's own dedicated lead-currency field, on THIS
-  // header line — work-record.mjs's census-stale check reads this field, and ONLY this
-  // field, never any other timestamp anywhere in the report (docs/census.md).
+  const codexTokensUnsupported = report.lead.host === 'codex' && !report.lead.coverageSupported;
   const leadLastMessageAt = report.lead.leadLastMessageAt || report.lead.windowEndAt || null;
   // C2 (scripts/work-record.mjs's `accept --census`) recognises a build-census report by
   // the literal PREFIX `VERDICT: COUNTED ` on line 1 — never by `# Build census` below,
@@ -680,33 +808,46 @@ export function formatText(report) {
   // of the line is free text. `windowTurns` is the de-duped API-request count (NOT the
   // same number as `leadTurns`, printed alongside it here so the two aren't mistaken for
   // one another on a skim).
-  md.push(
-    `VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${report.lead.leadTurns}), ${report.subagents.fileCount} subagent files` +
+  const leadTurnsLabel = report.lead.leadTurns === null ? 'unsupported' : report.lead.leadTurns;
+  if (codexTokensUnsupported) {
+    md.push(`VERDICT: UNSUPPORTED Codex complete census (${report.lead.coverageReason}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`);
+  } else {
+    md.push(
+      `VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${leadTurnsLabel}), ${report.subagents.fileCount} subagent files` +
       (unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : '') +
-      // T1/C2 fix round MAJOR C1: a default dir that exists but could not be enumerated
-      // (EACCES etc.) marks the WHOLE census INCOMPLETE, not just a silent zero — see
-      // buildDirSpecs/collectTaskFiles above.
       (unreadDirs.length ? ` (${unreadDirs.length} director${unreadDirs.length === 1 ? 'y' : 'ies'} UNREADABLE — census INCOMPLETE)` : '') +
       `, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`,
-  );
+    );
+  }
   md.push('');
   md.push('# Build census');
   md.push('');
   md.push('## Summary');
   md.push('');
-  md.push(`- leadTurns: ${report.lead.leadTurns}`);
+  md.push(`- leadTurns: ${leadTurnsLabel}`);
+  if (report.lead.host === 'codex') {
+    md.push('- leadHost: codex');
+    md.push(`- leadTokens: unsupported (${report.lead.coverageReason})`);
+    md.push(`- observedLeadTokens: ${report.lead.observedLeadTokens ?? 'unknown'}${report.lead.observedLeadTokens === null ? '' : ' (verified deduplicated per-response usage; incomplete coverage)'}`);
+    md.push(`- observedLeadRequests: ${report.lead.observedLeadRequests ?? 'unknown'} (not complete lead turns)`);
+    md.push('- leadTurnsLimit: unsupported (Codex response records have no assistant/user role ordering)');
+    md.push(`- observedNativeTurnCountWindow: ${report.lead.observedNativeTurnCountWindow ?? 'unknown'} (native turn ids; not leadTurns)`);
+    md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; Codex --tasks is rejected)');
+  }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
-  const modelLine = Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
+  const modelLine = codexTokensUnsupported
+    ? `unsupported (${report.lead.coverageReason})`
+    : Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
   md.push(`- by-model: ${modelLine}`);
-  const roleLine = Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
+  const roleLine = report.lead.host === 'codex'
+    ? 'unsupported (native Codex child usage is not established)'
+    : Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`);
   if (unread || unreadDirs.length) {
     const parts = [];
     if (unread) parts.push(`${unread} subagent file(s) unreadable`);
-    if (unreadDirs.length) {
-      parts.push(`${unreadDirs.length} subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} unreadable (${unreadDirs.map((d) => `\`${d}\``).join(', ')})`);
-    }
+    if (unreadDirs.length) parts.push(`${unreadDirs.length} subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} unreadable`);
     md.push(`- INCOMPLETE: ${parts.join('; ')} — subagent and combined totals exclude them`);
   }
   md.push('');
@@ -716,12 +857,25 @@ export function formatText(report) {
   md.push('');
   md.push('## Lead transcript');
   md.push('');
-  md.push(`- Total assistant turns, deduped (whole file): **${report.lead.totalTurns}**`);
-  md.push(`- Window assistant turns, deduped: **${report.lead.windowTurns}**`);
-  md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**${report.marker ? ` (of ${report.lead.leadTurnsTotal} in the whole file, unwindowed)` : ''}`);
+  md.push(`- Total assistant turns, deduped (whole file): **${report.lead.totalTurns ?? 'unsupported'}**`);
+  md.push(`- Window assistant turns, deduped: **${report.lead.windowTurns ?? 'unsupported'}**`);
+  if (report.lead.leadTurns === null) {
+    md.push('- leadTurns (conversational runs — see docs/census.md): **unsupported** (Codex response records do not establish assistant/user role ordering)');
+    md.push(`- Observed native turn ids (not conversational leadTurns): **${report.lead.observedNativeTurnCountWindow ?? 'unknown'}**${report.marker ? ` (of ${report.lead.observedNativeTurnCount ?? 'unknown'} in the whole file, unwindowed)` : ''}`);
+  } else {
+    md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**${report.marker ? ` (of ${report.lead.leadTurnsTotal} in the whole file, unwindowed)` : ''}`);
+  }
   md.push(`- Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`);
   md.push(`- Turns/hour in window: **${report.lead.turnsPerHour !== null ? report.lead.turnsPerHour.toFixed(2) : 'n/a'}**`);
   md.push('');
+  if (codexTokensUnsupported) {
+    md.push(`- Lead token usage: **unsupported** (${report.lead.coverageReason})`);
+    md.push('');
+    md.push('## Codex child usage');
+    md.push('');
+    md.push('Native Codex child transcript discovery and usage attribution are unsupported; no child, role, or combined-spend table is emitted.');
+    return md.join('\n');
+  }
   md.push('### Lead tokens by model — whole file (deduped)');
   md.push('');
   md.push('| model | input | cache_creation | cache_read | output |');
@@ -736,9 +890,7 @@ export function formatText(report) {
   md.push('');
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
-  if (unreadDirs.length) {
-    md.push(`\n_INCOMPLETE: ${unreadDirs.length} default subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} could not be enumerated (not merely absent) — files inside cannot be listed, so this census is incomplete by an unknown amount: ${unreadDirs.map((d) => `\`${d}\``).join(', ')}._`);
-  }
+  if (unreadDirs.length) md.push(`\n_INCOMPLETE: ${unreadDirs.length} default subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} could not be enumerated; this census is incomplete by an unknown amount._`);
   md.push('');
   const roleCountsLine = Object.keys(report.subagents.roleFileCounts).sort().map((r) => `${r}=${report.subagents.roleFileCounts[r]}`).join(', ') || '(none)';
   md.push(`Roles: ${roleCountsLine}`);

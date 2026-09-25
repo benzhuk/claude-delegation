@@ -22,7 +22,23 @@ run it twice and the two outputs must be byte-identical):
 node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --tasks scripts/build-census.fixtures/tasks
 ```
 
-- `--lead` — one Claude Code lead session transcript (`.jsonl`). Required.
+- `--lead` — one Claude Code or Codex lead session transcript (`.jsonl`). Required.
+  Codex is detected from a verified `session_meta` record: the census counts only
+  deduplicated `token_usage_record.payload.usage` values whose session id matches that
+  metadata record, never its cumulative turn/thread counters. Codex model attribution is
+  reported as `unknown` when the transcript does not carry a model field. Its native turn
+  ids are reported separately; `leadTurns` remains explicitly unsupported unless the
+  transcript establishes the same assistant/user conversational ordering defined below.
+  Native Codex child-transcript discovery and usage attribution are unsupported: a Codex
+  lead rejects `--tasks` and emits no child, role, or combined-spend table. Codex malformed
+  JSON fails visibly once the stream is recognized as Codex; a wholly unrecognizable
+  malformed file retains the legacy Claude reader's malformed-line skip behavior.
+  Codex per-response values are diagnostic observations, not a complete census: every Codex
+  report is `VERDICT: UNSUPPORTED`, with `leadTokens` unsupported for coverage and any
+  `observedLeadTokens` separately labeled. `accept --census` refuses that report; use
+  `--no-census` with the stated coverage, turn, and child-attribution limits.
+  The marker is a bounded substring match and does not itself prove a build boundary; the
+  live diagnostic's requested marker boundary was independently verified before use.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each

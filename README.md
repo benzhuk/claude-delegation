@@ -59,8 +59,16 @@ claude plugin install delegation@benzhuk
   Claude Code can show a bounded due/unknown notice at SessionStart and during an active
   session's existing periodic reminder route. That notice never starts an assessment;
   automatic daily assessment triggering and idle assessment execution are not
-  included. The separate decisions skill owns registered `Done` pickup. Codex cadence, installed-host discovery/parity, mixed-host validation, and
-  live Goals preservation/readback remain pending release gates.
+  included. The separate decisions skill owns registered `Done` pickup. When native
+  metadata on an event positively classifies a Codex session as a lead, it
+  receives the same card and due/unknown advisory at SessionStart and every eligible
+  UserPromptSubmit; SessionStart does not persist a classification for later events.
+  Prompts without that classification or a usable card receive no new advisory.
+  Confirmed children receive
+  neither new effect, and unknown identity retains only existing inbox/continuation
+  behavior. Codex has no bearings cadence on PostToolUse, Stop, or Interrupt;
+  installed-host proof, mixed-host validation, and live Goals preservation/readback
+  remain separate release gates.
 - **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
   wave closeout, or status turn: select useful ready work, preserve its evidence identity,
   refill genuinely free capacity, and use verified native host resume paths. On supported
@@ -238,6 +246,17 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.9 — Codex lead source parity: when native metadata on an event positively
+  classifies a lead, it receives the shared goal card and due/unknown
+  bearings advisory at SessionStart and each UserPromptSubmit. This deliberate
+  per-prompt tradeoff uses up to 1,200 bytes of card context plus a bounded advisory,
+  with no fired/tally cadence state. Confirmed children receive no new card or bearings
+  effect, while unknown native identity keeps its established inbox/continuation behavior
+  without the new advisory. `ws-off-goalcard` disables the card and its bearings advisory;
+  `ws-off-bearings` disables bearings only. Codex has no new PostToolUse, Stop, or
+  Interrupt cadence. This is source behavior, not an installation or live-observation
+  claim. `docs/native-use.md` distinguishes the 0.20.6 four-host installation evidence
+  from current source capability; no version bump is included.
 - 0.20.8 — GOALS.md status updates: records the four-host 0.20.6 install of 2026-09-24
   (Windows, Mac, Hetzner, Netcup) with the 0.20.7 card-cap change installed nowhere as of
   2026-09-24; records the 8:25 AM scheduled pickup on 2026-09-24 that ran unattended and

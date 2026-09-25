@@ -47,6 +47,47 @@ export function isConfirmedCodexChild(input = {}, fsImpl = fs) {
   return classifyCodexRole(input, fsImpl) === 'child';
 }
 
+/** Append host advisory context without replacing peer or continuation delivery. */
+function appendGoalContext(result, event, text, systemMessage) {
+  if (!text && !systemMessage) return result;
+  const next = result ? { ...result, output: result.output ? structuredClone(result.output) : null } : { ackIds: [] };
+  if (!next.output) next.output = { suppressOutput: true };
+  const output = next.output;
+  if (text) {
+    const hook = output.hookSpecificOutput ?? { hookEventName: event };
+    const prior = hook.additionalContext;
+    output.hookSpecificOutput = { ...hook, additionalContext: prior ? `${prior}\n\n${text}` : text };
+  }
+  if (systemMessage) output.systemMessage = output.systemMessage ? `${output.systemMessage}\n${systemMessage}` : systemMessage;
+  return next;
+}
+
+async function goalContextForLead(input, cwd, role, env) {
+  const event = String(input.hook_event_name ?? '');
+  if (role !== 'lead' || !['SessionStart', 'UserPromptSubmit'].includes(event)) return null;
+  let cardHelpers;
+  let activeSwitch;
+  try {
+    [{ activeSwitch }, cardHelpers] = await Promise.all([
+      import('../scripts/goal-card.mjs'),
+      import('./lib/goal-context.mjs'),
+    ]);
+  } catch {
+    return null;
+  }
+  const card = await cardHelpers.cardResult(cwd, undefined, { env });
+  if (card.status === 'rejected') {
+    return event === 'SessionStart' ? { text: null, systemMessage: await cardHelpers.rejectionNotice(card) } : null;
+  }
+  if (card.status !== 'ok') return null;
+  const bearings = activeSwitch('bearings', env) === null ? await cardHelpers.bearingsNotice(cwd, { env }) : null;
+  const hint = event === 'SessionStart' && bearings ? cardHelpers.leadIdHint(input.session_id) : null;
+  return {
+    text: [card.text, bearings, hint].filter(Boolean).join('\n\n') || null,
+    systemMessage: event === 'SessionStart' && input.source !== 'compact' ? bearings : null,
+  };
+}
+
 /**
  * Which pane is this? `$NOTE_SLUG` is the session stating its own identity; the binding is the same
  * statement, made earlier and written down (`panes.json`, keyed by handle). Nothing else is consulted:
@@ -82,7 +123,8 @@ export async function runCodexHook(input = {}, deps = {}) {
   const fsImpl = deps.fsImpl ?? fs;
   // This is before slug resolution: children can inherit a parent pane handle and must not register
   // or consume that lead's inbox. Missing, corrupt, mismatched, or oversized metadata stays lead-like.
-  if (isConfirmedCodexChild(input, fsImpl)) return null;
+  const role = classifyCodexRole(input, fsImpl);
+  if (role === 'child') return null;
   const env = deps.env ?? process.env;
   const home = toPosix(deps.home ?? os.homedir());
   const event = String(input.hook_event_name ?? '');
@@ -94,6 +136,12 @@ export async function runCodexHook(input = {}, deps = {}) {
   const me = deps.slug ? { slug: deps.slug, source: 'deps' } : codexSlug(env, home, fsImpl);
 
   const cwd = input.cwd ?? process.cwd();
+  // Goal/card work is advisory and raced separately from peer delivery, so an unresolved or rejected
+  // advisory promise (for example a slow dynamic import) drops only the goal context. The card read and
+  // bearings receipt/evidence reads are synchronous and are NOT preempted by this race: they still run
+  // on the event loop shared with peer delivery and main's BUDGET_MS.
+  const advisoryFn = deps.goalContextForLead ?? goalContextForLead;
+  const advisoryWork = withBudget(Promise.resolve().then(() => advisoryFn(input, cwd, role, env)).catch(() => null), 500);
 
   // D2 (spec 2026-09-17): register this session's inbox — the on-disk queue Codex itself watches.
   // `session_id` from this payload IS the thread id `codex queue --thread` accepts (spiked live on
@@ -129,9 +177,11 @@ export async function runCodexHook(input = {}, deps = {}) {
     }
   } catch { /* continuation never suppresses peer delivery */ }
   const result = composeContinuationResult(peer, continuation, event);
-  if (!result) return null;
+  const advisory = await advisoryWork;
+  const withGoalContext = advisory ? appendGoalContext(result, event, advisory.text, advisory.systemMessage) : result;
+  if (!withGoalContext) return null;
   // The ack the caller runs AFTER the output is on the wire, never before it (review MAJOR 3).
-  return { ...result, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
+  return { ...withGoalContext, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
 }
 
 async function main() {

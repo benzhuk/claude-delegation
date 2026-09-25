@@ -1601,6 +1601,28 @@ test("acceptRecord: a --census file lacking the recognised header refuses with c
   }
 });
 
+test("acceptRecord: real Codex CLI UNSUPPORTED census is refused with the explicit no-census route", () => {
+  const f = makeAcceptanceFixture();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-codex-census-"));
+  const censusPath = path.join(dir, "codex.md");
+  const cli = spawnSync(process.execPath, [
+    fileURLToPath(new URL("./build-census.mjs", import.meta.url)),
+    "--lead", fileURLToPath(new URL("./build-census.fixtures/codex-lead.jsonl", import.meta.url)),
+    "--out", censusPath,
+  ], { encoding: "utf8" });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.match(fs.readFileSync(censusPath, "utf8"), /^VERDICT: UNSUPPORTED\b/);
+  try {
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected acceptRecord to refuse an UNSUPPORTED Codex census");
+  } catch (error) {
+    assert.equal(error.code, "census-missing");
+    assert.match(error.message, /UNSUPPORTED/);
+    assert.match(error.message, /--no-census/);
+  }
+  assert.doesNotMatch(fs.readFileSync(path.join(f.repo, f.record), "utf8"), /^Status: accepted$/m);
+});
+
 // T1/C2 round-2 review, MINOR 4 (M9): a recognised census file that produces zero
 // summary lines still writes a visible placeholder, never zero Census: lines - an
 // unknown must never render as a silent, confident-looking "nothing to report".

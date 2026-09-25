@@ -703,8 +703,12 @@ function readCensusSource(censusPath, fsImpl) {
 function loadCensus(censusPath, fsImpl) {
   const text = readCensusSource(censusPath, fsImpl);
   if (!isCensusFile(text)) {
+    const firstLine = (text.split(/\r?\n/, 1)[0] ?? "").trim();
+    const unsupported = /^VERDICT: UNSUPPORTED\b/.test(firstLine);
     throw acceptanceError(
-      `census file does not begin with the census header line, refused: ${censusPath}`,
+      unsupported
+        ? `census file reports an UNSUPPORTED (not complete) census, refused - use --no-census "<reason>" and attach the observations separately: ${censusPath}`
+        : `census file does not begin with the census header line, refused: ${censusPath}`,
       "census-missing",
     );
   }

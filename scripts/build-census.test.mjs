@@ -30,6 +30,7 @@ const FIXTURES_LEAD_MULTI = path.join(HERE, 'build-census.fixtures', 'lead-multi
 const FIXTURES_LEAD_MULTI_DEFAULT_DIR = path.join(HERE, 'build-census.fixtures', 'lead-multi', 'subagents');
 const FIXTURES_WORKFLOW_TASKS = path.join(HERE, 'build-census.fixtures', 'workflow-tasks');
 const FIXTURES_LEAD_WORKFLOW = path.join(HERE, 'build-census.fixtures', 'lead-workflow.jsonl');
+const FIXTURES_CODEX_LEAD = path.join(HERE, 'build-census.fixtures', 'codex-lead.jsonl');
 
 const tracked = [];
 function mkTmp(prefix) {
@@ -99,6 +100,143 @@ test('parseArgs: a trailing flag with no value throws instead of silently swallo
   assert.throws(() => parseArgs(['--lead', 'a', '--json']), /--json needs a value/);
   assert.throws(() => parseArgs(['--lead', 'a', '--role-map']), /--role-map needs a value/);
   assert.throws(() => parseArgs(['--lead', 'a', '--tasks']), /--tasks needs a value/);
+});
+
+// ── Codex lead — per-response usage only, with explicit conversational-turn limit ──
+
+test('runCensus detects a verified Codex session and sums response-local usage without adding cumulative turn/thread snapshots', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.lead.host, 'codex');
+  assert.equal(report.lead.totalTurns, null, 'observed response ids are not a complete census request count');
+  assert.equal(report.lead.leadTurns, null, 'native turn ids must not be relabeled as conversational leadTurns');
+  assert.equal(report.lead.observedNativeTurnCount, 2);
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.subagents.totalTurns, null);
+  assert.equal(report.subagents.totalByModel, null);
+  assert.equal(report.subagents.totalByRole, null);
+  assert.equal(report.subagents.roleFileCounts, null);
+  assert.equal(report.lead.totalByModel, null);
+  assert.equal(report.combined, null);
+  assert.deepEqual(report.lead.observedTotalByModel, {
+    unknown: { input_tokens: 135, cache_creation_input_tokens: 10, cache_read_input_tokens: 25, output_tokens: 12 },
+  }, 'only payload.usage is response-local; cumulative turn/thread fields are ignored');
+  const text = formatText(report);
+  assert.ok(text.includes('- leadHost: codex'));
+  assert.ok(text.includes('- leadTurnsLimit: unsupported'));
+  assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex complete census'));
+  assert.ok(text.includes('- observedLeadTokens: 182 (verified deduplicated per-response usage; incomplete coverage)'));
+  assert.ok(text.includes('- observedNativeTurnCountWindow: 2 (native turn ids; not leadTurns)'));
+  assert.ok(text.includes('- codexSubagents: unsupported'));
+});
+
+test('Codex marker scopes per-response usage and native turn ids without inventing a build id', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: 'CODEX-WINDOW', out: null });
+  assert.equal(report.lead.windowTurns, null);
+  assert.equal(report.lead.observedNativeTurnCountWindow, 1);
+  assert.equal(report.lead.windowByModel, null);
+  assert.deepEqual(report.lead.observedWindowByModel, {
+    unknown: { input_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 3 },
+  });
+});
+
+test('Codex seam: unsupported header carries its dedicated timestamp and disabled Claude discovery creates no child-directory incompleteness', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.defaultSubagentsDir, null, 'Codex must not probe the Claude default child directory');
+  assert.deepEqual(report.subagents.unreadableDirs, []);
+  const text = formatText(report);
+  assert.match(text.split('\n')[0], /^VERDICT: UNSUPPORTED .*leadLastMessageAt: 2026-09-25T09:00:04\.000Z$/);
+  assert.ok(!text.includes('census INCOMPLETE'));
+});
+
+test('Codex attribution failures throw instead of becoming a zero-token census', async () => {
+  const dir = mkTmp('build-census-codex-bad-');
+  const bad = path.join(dir, 'bad.jsonl');
+  writeJsonl(bad, [
+    { type: 'session_meta', payload: { id: 'expected', session_id: 'expected' } },
+    { type: 'token_usage_record', payload: { session_id: 'wrong', response_id: 'r', turn_id: 't', usage: { input_tokens: 1, output_tokens: 1 } } },
+  ]);
+  await assert.rejects(() => runCensus({ lead: bad, tasksDirs: [], marker: null, out: null }), /lacks verified session/);
+});
+
+test('a verified Codex session without per-response usage is explicitly unsupported, never COUNTED 0', async () => {
+  const dir = mkTmp('build-census-codex-no-usage-');
+  const lead = path.join(dir, 'codex.jsonl');
+  writeJsonl(lead, [
+    { type: 'session_meta', payload: { id: 'codex-empty', session_id: 'codex-empty' } },
+    { type: 'event_msg', payload: { type: 'token_count' } },
+  ]);
+  const report = await runCensus({ lead, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.lead.host, 'codex');
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.lead.windowTurns, null);
+  const text = formatText(report);
+  assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex complete census'));
+  assert.ok(text.includes('- leadTokens: unsupported (no token_usage_record rows with per-response usage; complete coverage is not established)'));
+  assert.ok(!text.includes('### Lead tokens by model'), 'unsupported usage must not be followed by a zero-looking token table');
+  assert.ok(!text.includes('### Subagent tokens') && !text.includes('## Combined split'), 'unsupported native child usage must not render role or combined-spend tables');
+});
+
+test('a Codex marker window without response records stays unknown rather than becoming a counted zero', async () => {
+  const dir = mkTmp('build-census-codex-empty-window-');
+  const lead = path.join(dir, 'window.jsonl');
+  writeJsonl(lead, [
+    { type: 'session_meta', payload: { id: 'codex-window', session_id: 'codex-window' } },
+    { type: 'token_usage_record', payload: { session_id: 'codex-window', response_id: 'before', turn_id: 'turn', usage: { input_tokens: 1, output_tokens: 1 } } },
+    { type: 'event_msg', payload: { type: 'marker', note: 'WINDOW-END' } },
+  ]);
+  const report = await runCensus({ lead, tasksDirs: [], marker: 'WINDOW-END', out: null });
+  assert.equal(report.lead.windowTurns, null);
+  assert.equal(report.lead.observedLeadTokens, null);
+  assert.equal(report.lead.observedNativeTurnCountWindow, null);
+  assert.equal(JSON.parse(formatJson(report)).lead.windowTurns, null);
+  const text = formatText(report);
+  assert.ok(text.startsWith('VERDICT: UNSUPPORTED'));
+  assert.ok(!/\*\*0\*\*|: 0 \(|0\.00/.test(text));
+});
+
+test('Codex conflicting repeated response ids fail visibly while identical repeats remain observations', async () => {
+  const dir = mkTmp('build-census-codex-conflict-');
+  const lead = path.join(dir, 'conflict.jsonl');
+  const meta = { type: 'session_meta', payload: { id: 'codex-conflict', session_id: 'codex-conflict' } };
+  const row = { type: 'token_usage_record', payload: { session_id: 'codex-conflict', response_id: 'same', turn_id: 'one', usage: { input_tokens: 1, output_tokens: 1 } } };
+  writeJsonl(lead, [meta, row, { type: 'token_usage_record', payload: { ...row.payload, turn_id: 'two' } }]);
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /conflicting turn or usage/);
+});
+
+test('a truncated Codex stream with a token record before metadata fails visibly instead of falling through to Claude', async () => {
+  const dir = mkTmp('build-census-codex-truncated-');
+  const lead = path.join(dir, 'truncated.jsonl');
+  writeJsonl(lead, [
+    { type: 'event_msg', payload: { type: 'token_count' } },
+    { type: 'token_usage_record', payload: { session_id: 'missing-meta', response_id: 'r', turn_id: 't', usage: { input_tokens: 1, output_tokens: 1 } } },
+  ]);
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /lacks verified session|session_meta was not found/);
+});
+
+test('a Codex-shaped event-only truncated stream fails visibly instead of becoming a zero-token Claude census', async () => {
+  const dir = mkTmp('build-census-codex-event-only-');
+  const lead = path.join(dir, 'event-only.jsonl');
+  writeJsonl(lead, [{ type: 'response_item', payload: { role: 'assistant' } }]);
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /session_meta was not found/);
+});
+
+test('a recognized Codex stream rejects malformed JSON and native child task paths visibly', async () => {
+  const dir = mkTmp('build-census-codex-malformed-');
+  const lead = path.join(dir, 'malformed.jsonl');
+  fs.writeFileSync(lead, `${JSON.stringify({ type: 'session_meta', payload: { id: 'codex-malformed', session_id: 'codex-malformed' } })}\nnot-json\n`, 'utf8');
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /contains malformed JSON/);
+  await assert.rejects(() => runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [dir], marker: null, out: null }), /child transcript census is unsupported/);
+});
+
+test('Codex usage rejects missing objects and negative counters instead of coercing them to zero', async () => {
+  const dir = mkTmp('build-census-codex-invalid-usage-');
+  const meta = { type: 'session_meta', payload: { id: 'codex-invalid', session_id: 'codex-invalid' } };
+  const invalids = [null, { input_tokens: 1, output_tokens: -1 }, { input_tokens: 1, cached_input_tokens: -1, output_tokens: 1 }];
+  for (let i = 0; i < invalids.length; i++) {
+    const lead = path.join(dir, `invalid-${i}.jsonl`);
+    writeJsonl(lead, [meta, { type: 'token_usage_record', payload: { session_id: 'codex-invalid', response_id: `r${i}`, turn_id: 't', usage: invalids[i] } }]);
+    await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /invalid|lacks a valid/);
+  }
 });
 
 // ── de-duplication: the fixture that proves the fix ────────────────────────
