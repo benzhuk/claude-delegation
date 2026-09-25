@@ -185,7 +185,12 @@ export function validateRecord(record, opts = {}) {
       const m = /^artifact[ \t]+([0-9a-f]{40})$/i.exec((l.note ?? "").trim());
       return m !== null && m[1].toLowerCase().startsWith(expectedShaPrefix);
     });
-    if (!acceptedThroughCode) {
+    // Seam S3: expectedShaPrefix is null whenever Artifact: doesn't resolve to a git
+    // revision at all (a doc-only Artifact: path, for example) — accepted-without-check
+    // is about a hand-edited Status: bypassing the git-backed `accept` check, and a
+    // record with no git-shaped Artifact: was never a candidate for that check in the
+    // first place. Only fire when there WAS a resolvable sha to look for in Log:.
+    if (expectedShaPrefix !== null && !acceptedThroughCode) {
       findings.push({
         code: "accepted-without-check",
         level: "finding",
@@ -372,7 +377,13 @@ export function formatLogLine(at, status, owner, note) {
 
 const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLowerCase(), key]));
 const DECIDING_VERDICTS = new Set(["APPROVE", "NEEDS_FIXES", "FAIL", "REJECTED"]);
-const VERDICT_RE = /^VERDICT:[ \t]*(APPROVE|NEEDS_FIXES|FAIL|REJECTED)(?:[ \t]+(?:—[ \t]+)?([0-9a-fA-F]{4,64}))?[ \t]*$/;
+// Seam S2: the loop's REVIEW_MANDATE and reviewer briefs ask for a `VERDICT: NEEDS_FIXES
+// (<n>)` first line (a parenthesised finding count, never a sha in that position);
+// tolerate that count so a historical NEEDS_FIXES report still counts as history instead
+// of aborting acceptance outright ("malformed deciding verdict"). It never becomes a
+// deciding APPROVE — DECIDING_VERDICTS and the "approval omits a revision" check below
+// are unchanged.
+const VERDICT_RE = /^VERDICT:[ \t]*(APPROVE|NEEDS_FIXES|FAIL|REJECTED)(?:[ \t]+\(\d{1,4}\))?(?:[ \t]+(?:—[ \t]+)?([0-9a-fA-F]{4,64}))?[ \t]*$/;
 
 function acceptanceError(message, code = "acceptance-failed") {
   const error = new Error(message);

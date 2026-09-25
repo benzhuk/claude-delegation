@@ -403,6 +403,18 @@ test("validateRecord: accepted-without-check fires on an unparseable Opened: (un
   assert.ok(codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
 });
 
+test("seam S3: accepted-without-check never fires for a non-code Artifact: path (no resolvable sha), even opened after the cutoff", () => {
+  const r = parseRecord(
+    mkRecordText({
+      Status: "accepted",
+      Artifact: "docs/work/evidence/four-host-0206-and-live-pickup.md",
+      Evidence: "docs/work-record.md",
+      Opened: "2026-09-25T09:00:00Z",
+    }),
+  );
+  assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+});
+
 test("accepted-without-check: every record already in this repo's docs/work/ is grandfathered (zero hits)", () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dir = path.join(repoRoot, "docs", "work");
@@ -713,6 +725,32 @@ test("checkAcceptance rejects noncommit objects and contradictory approval text"
   assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: blob }), /not a commit/);
   fs.writeFileSync(path.join(f.repo, f.evidence), `VERDICT: APPROVE ${f.sha} but NEEDS_FIXES\n`);
   assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /malformed deciding verdict/);
+});
+
+// Seam S2: the loop's REVIEW_MANDATE and reviewer briefs ask for a first line of exactly
+// `VERDICT: NEEDS_FIXES (<n>)` (a parenthesised finding count, no sha) or
+// `VERDICT: APPROVE <sha>`. A historical NEEDS_FIXES (<n>) evidence file must count as
+// history (skipped) rather than aborting acceptance with "malformed deciding verdict",
+// and a fresh `VERDICT: APPROVE (<n>) <sha>`-shaped... (actually APPROVE never carries a
+// count) must still resolve normally.
+test("seam S2: a historical `VERDICT: NEEDS_FIXES (<n>)` evidence file (no sha) counts as history, not a malformed verdict", () => {
+  const f = makeAcceptanceFixture();
+  const historical = "docs/work/evidence/historical-needs-fixes.md";
+  fs.writeFileSync(path.join(f.repo, historical), "VERDICT: NEEDS_FIXES (7)\nOld findings, since fixed.\n");
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(`Evidence: ${f.evidence}`, `Evidence: ${f.evidence}, ${historical}`));
+  assert.equal(checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }).ok, true);
+});
+
+test("seam S2: a current `VERDICT: NEEDS_FIXES (<n>)` for the artifact under review still refuses acceptance (no sha means it can't be for THIS artifact, so it counts as history, not a live refusal)", () => {
+  // A NEEDS_FIXES (<n>) line with no sha can never match reportCommit === artifact (there is
+  // no verdict[2] to resolve), so it is skipped exactly like any other unresolvable historical
+  // line — the mandate's contract is that the reviewer always includes <sha>, and this proves
+  // the grammar fix does not silently promote a sha-less NEEDS_FIXES into a blocking refusal.
+  const f = makeAcceptanceFixture();
+  fs.writeFileSync(path.join(f.repo, f.evidence), "VERDICT: NEEDS_FIXES (2)\nStill working.\n");
+  assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), /no evidence has an exact APPROVE verdict/);
 });
 
 test("checkAcceptance requires exactly one delivery mode and leaves input bytes unchanged", () => {

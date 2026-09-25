@@ -328,15 +328,15 @@ test("runs with args undefined: no territories, integrator still runs once, empt
 
 test("one territory, immediate APPROVE: one build call, one review call, one integrate call, rounds=1", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
   assert.equal(result.territories.length, 1);
   const t1 = result.territories[0];
   assert.equal(t1.id, "T1");
-  assert.equal(t1.sha, "sha1");
+  assert.equal(t1.sha, "aaaaaaa1");
   assert.equal(t1.verdict, "APPROVE");
   assert.equal(t1.rounds, 1);
   assert.equal(t1.blocker, null);
@@ -354,16 +354,16 @@ test("one territory, immediate APPROVE: one build call, one review call, one int
 
 test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinned builder pair, rounds=2", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "docs/work/t1-r1-findings.md", 1, 0),
-    "build:T1:r2": buildResult("sha2", "PASS", "docs/work/T1-report.md"),
-    "review:T1:r2": reviewResult("APPROVE", "sha2"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "docs/work/t1-r1-findings.md", 1, 0),
+    "build:T1:r2": buildResult("bbbbbbb2", "PASS", "docs/work/T1-report.md"),
+    "review:T1:r2": reviewResult("APPROVE", "bbbbbbb2"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
   const t1 = result.territories[0];
   assert.equal(t1.rounds, 2);
-  assert.equal(t1.sha, "sha2");
+  assert.equal(t1.sha, "bbbbbbb2");
   assert.equal(t1.verdict, "APPROVE");
   assert.equal(t1.blocker, null);
 
@@ -373,8 +373,8 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   assert.ok(fixBuildCall.prompt.includes("docs/work/t1-r1-findings.md"), "the fix prompt must reference the prior findingsPath");
 
   const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
-  assert.ok(fixReviewCall.prompt.includes("Commit range: sha1..HEAD"), "the fix review must compare the captured prior builder sha to a live HEAD it resolves itself, never the new build sha as text");
-  assert.ok(!fixReviewCall.prompt.includes("sha2"), "the fix review prompt must never contain the new build's delivered sha for the reviewer to echo");
+  assert.ok(fixReviewCall.prompt.includes("Commit range: aaaaaaa1..HEAD"), "the fix review must compare the captured prior builder sha to a live HEAD it resolves itself, never the new build sha as text");
+  assert.ok(!fixReviewCall.prompt.includes("bbbbbbb2"), "the fix review prompt must never contain the new build's delivered sha for the reviewer to echo");
 });
 
 // MINOR 4 (T1 round-2 review): a fix-round builder that returns PASS with the SAME sha as
@@ -383,28 +383,28 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
 // HEAD` itself.
 test("fix round with no new commit: the r2 review prompt never contains the unchanged sha as text", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "docs/work/t1-r1-findings.md"),
-    "build:T1:r2": buildResult("sha1", "PASS", "docs/work/T1-report.md"),
-    "review:T1:r2": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "docs/work/t1-r1-findings.md"),
+    "build:T1:r2": buildResult("aaaaaaa1", "PASS", "docs/work/T1-report.md"),
+    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
   const t1 = result.territories[0];
   assert.equal(t1.verdict, "APPROVE");
-  assert.equal(t1.sha, "sha1");
+  assert.equal(t1.sha, "aaaaaaa1");
 
   const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
-  assert.ok(!fixReviewCall.prompt.includes("sha1"), "the r2 review prompt must not contain the sha for the reviewer to echo when no new commit was made");
+  assert.ok(!fixReviewCall.prompt.includes("aaaaaaa1"), "the r2 review prompt must not contain the sha for the reviewer to echo when no new commit was made");
   assert.ok(fixReviewCall.prompt.includes("docs/work/t1-r1-findings.md"), "prior findings must still be referenced even without a commit range");
 });
 
 test("a fix review always receives the captured artifact range, even with an empty findings path and a retry", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", ""),
-    "build:T1:r2": buildResult("sha2"),
-    "review:T1:r2": [null, reviewResult("APPROVE", "sha2")],
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", ""),
+    "build:T1:r2": buildResult("bbbbbbb2"),
+    "review:T1:r2": [null, reviewResult("APPROVE", "bbbbbbb2")],
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
@@ -412,7 +412,7 @@ test("a fix review always receives the captured artifact range, even with an emp
   const retryingReviewCalls = stub.calls.filter((c) => c.opts.label === "review:T1:r2");
   assert.equal(retryingReviewCalls.length, 2, "the fix review retries once after a null response");
   for (const call of retryingReviewCalls) {
-    assert.ok(call.prompt.includes("Commit range: sha1..HEAD"), "each fix-review attempt receives the captured artifact range, resolved live rather than handed as text");
+    assert.ok(call.prompt.includes("Commit range: aaaaaaa1..HEAD"), "each fix-review attempt receives the captured artifact range, resolved live rather than handed as text");
   }
 });
 
@@ -421,15 +421,15 @@ test("a fix review always receives the captured artifact range, even with an emp
 // (that self-reported string is exactly what a reviewer could echo back without checking).
 test("the review prompt names the worktree and never contains the delivered sha for the reviewer to echo", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha-secret-1", "PASS", "docs/work/T1-report.md"),
-    "review:T1:r1": reviewResult("APPROVE", "sha-secret-1"),
+    "build:T1:r1": buildResult("eeeeeee5", "PASS", "docs/work/T1-report.md"),
+    "review:T1:r1": reviewResult("APPROVE", "eeeeeee5"),
     integrate: integrateResult(),
   });
   await runScript({ territories: [T1] }, stub);
   const reviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r1");
   assert.ok(reviewCall.prompt.includes(`Worktree: ${T1.worktree}`), "the review prompt must name the worktree to check HEAD in");
   assert.ok(/git rev-parse HEAD/.test(reviewCall.prompt), "the review prompt must instruct an independent git rev-parse HEAD");
-  assert.ok(!reviewCall.prompt.includes("sha-secret-1"), "the review prompt must never contain the delivered sha as text");
+  assert.ok(!reviewCall.prompt.includes("eeeeeee5"), "the review prompt must never contain the delivered sha as text");
 });
 
 // Round-2 review MAJOR 1: the spec's "the builder likewise" item — the builder prompt
@@ -437,10 +437,10 @@ test("the review prompt names the worktree and never contains the delivered sha 
 // round, not just the reviewer prompt.
 test("the build prompt tells the builder to report git rev-parse HEAD as its sha field, in round 1 and every fix round", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
-    "build:T1:r2": buildResult("sha2"),
-    "review:T1:r2": reviewResult("APPROVE", "sha2"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("bbbbbbb2"),
+    "review:T1:r2": reviewResult("APPROVE", "bbbbbbb2"),
     integrate: integrateResult(),
   });
   await runScript({ territories: [T1] }, stub);
@@ -477,10 +477,77 @@ test("review sha comparison still rejects a genuinely different sha (never equal
   assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
 });
 
+// Seam S1: a builder that reports a short `git rev-parse --short` (or copies a short sha
+// from its own commit log) against a reviewer's full 40-hex read of the SAME commit must
+// still approve — both are honest, independent reads, only at different lengths.
+test("seam S1: a 7-character short sha from the builder approves against the reviewer's matching full 40-hex sha", async () => {
+  const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("5743ce8"),
+    "review:T1:r1": reviewResult("APPROVE", full),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  const t1 = result.territories[0];
+  assert.equal(t1.verdict, "APPROVE");
+  assert.equal(t1.blocker, null);
+  assert.deepEqual(result.blockers, []);
+  // Seam S1 optional: the integrator prompt always carries the longer (full) sha, never
+  // whichever length the builder happened to report.
+  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
+  assert.match(integrateCall.prompt, new RegExp(`T1@${full}`));
+});
+
+test("seam S1: a 7-character sha differing from the reviewer's full sha in its last character is still a mismatch", async () => {
+  const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
+  const notAPrefix = "5743ce9"; // differs from full's first 7 chars in the last position
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult(notAPrefix),
+    "review:T1:r1": reviewResult("APPROVE", full),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+});
+
+test("seam S1: a 5-character prefix is too short to accept, even when it does prefix-match", async () => {
+  const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("5743c"),
+    "review:T1:r1": reviewResult("APPROVE", full),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+});
+
+// Seam S5: sameSha must require both sides to look like a git sha (7-40 lowercase hex
+// chars); two equal non-sha strings (e.g. both "HEAD", or both "unknown") must never be
+// treated as a match.
+test("seam S5: two identical non-hex strings (e.g. both 'HEAD') never approve as a matching sha", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("HEAD"),
+    "review:T1:r1": reviewResult("APPROVE", "HEAD"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+});
+
+test("seam S5: two identical 'unknown' strings never approve as a matching sha", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("unknown"),
+    "review:T1:r1": reviewResult("APPROVE", "unknown"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
+});
+
 test("a review only approves the build sha it reviewed, including after a fix round", async () => {
   const initialMismatch = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("APPROVE", "other-sha"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "ddddddd4"),
     integrate: integrateResult(),
   });
   const initialResult = await runScript({ territories: [T1] }, initialMismatch);
@@ -491,10 +558,10 @@ test("a review only approves the build sha it reviewed, including after a fix ro
   );
 
   const fixMismatch = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
-    "build:T1:r2": buildResult("sha2"),
-    "review:T1:r2": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("bbbbbbb2"),
+    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   const fixResult = await runScript({ territories: [T1] }, fixMismatch);
@@ -507,10 +574,10 @@ test("a review only approves the build sha it reviewed, including after a fix ro
 
 test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, log() fires, no round beyond maxRounds is attempted", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
-    "build:T1:r2": buildResult("sha2"),
-    "review:T1:r2": reviewResult("NEEDS_FIXES", "sha2", "f2.md"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("bbbbbbb2"),
+    "review:T1:r2": reviewResult("NEEDS_FIXES", "bbbbbbb2", "f2.md"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1], maxRounds: 2 }, stub);
@@ -522,10 +589,10 @@ test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, l
 
   // log() actually fired, and named the territory, not just "somewhere in the loop"
   const run = runScript({ territories: [T1], maxRounds: 2 }, makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
-    "build:T1:r2": buildResult("sha2"),
-    "review:T1:r2": reviewResult("NEEDS_FIXES", "sha2", "f2.md"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("bbbbbbb2"),
+    "review:T1:r2": reviewResult("NEEDS_FIXES", "bbbbbbb2", "f2.md"),
     integrate: integrateResult(),
   }));
   await run;
@@ -534,12 +601,12 @@ test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, l
 
 test("maxRounds default is 3 when omitted", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
-    "build:T1:r2": buildResult("sha2"),
-    "review:T1:r2": reviewResult("NEEDS_FIXES", "sha2", "f2.md"),
-    "build:T1:r3": buildResult("sha3"),
-    "review:T1:r3": reviewResult("APPROVE", "sha3"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("bbbbbbb2"),
+    "review:T1:r2": reviewResult("NEEDS_FIXES", "bbbbbbb2", "f2.md"),
+    "build:T1:r3": buildResult("ccccccc3"),
+    "review:T1:r3": reviewResult("APPROVE", "ccccccc3"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
@@ -549,8 +616,8 @@ test("maxRounds default is 3 when omitted", async () => {
 
 test("a numeric-string maxRounds is honoured (parsed, not left as a string)", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1], maxRounds: "1" }, stub);
@@ -560,20 +627,20 @@ test("a numeric-string maxRounds is honoured (parsed, not left as a string)", as
 
 test("a null agent() return on the build stage is respawned once and succeeds", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": [null, buildResult("sha1")],
-    "review:T1:r1": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": [null, buildResult("aaaaaaa1")],
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
   assert.equal(result.territories[0].blocker, null);
-  assert.equal(result.territories[0].sha, "sha1");
+  assert.equal(result.territories[0].sha, "aaaaaaa1");
   const buildCalls = stub.calls.filter((c) => c.opts.label === "build:T1:r1");
   assert.equal(buildCalls.length, 2, "respawned exactly once");
 });
 
 test("a null agent() return twice on the review stage records blocker agent-died and never starts a fix round", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": [null, null],
     integrate: integrateResult(),
   });
@@ -587,7 +654,7 @@ test("a null agent() return twice on the review stage records blocker agent-died
 
 test("a builder verdict of FAIL or BLOCKED ends the territory immediately, no review call", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1", "BLOCKED"),
+    "build:T1:r1": buildResult("aaaaaaa1", "BLOCKED"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
@@ -599,12 +666,12 @@ test("a builder verdict of FAIL or BLOCKED ends the territory immediately, no re
 
 test("cross-territory concurrency uses parallel(), never pipeline(): two territories complete independently", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("APPROVE", "sha1"),
-    "build:T2:r1": buildResult("sha2a"),
-    "review:T2:r1": reviewResult("NEEDS_FIXES", "sha2a", "f.md"),
-    "build:T2:r2": buildResult("sha2b"),
-    "review:T2:r2": reviewResult("APPROVE", "sha2b"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("2222222a"),
+    "review:T2:r1": reviewResult("NEEDS_FIXES", "2222222a", "f.md"),
+    "build:T2:r2": buildResult("2222222b"),
+    "review:T2:r2": reviewResult("APPROVE", "2222222b"),
     integrate: integrateResult(),
   });
   // pipelineImpl left as throwingPipelineStub (default) — a call to pipeline() would
@@ -621,13 +688,13 @@ test("cross-territory concurrency uses parallel(), never pipeline(): two territo
   // so that assertion can't pass merely by the prompt losing its approved list entirely.
   const integrateCall = stub.calls.find((c) => c.opts.agentType === "delegation:integrator");
   const approvedSegment = integrateCall.prompt.match(/Approved territories and shas: (.*?)\. Excluded/)[1];
-  assert.equal(approvedSegment, "T1@sha1, T2@sha2b");
+  assert.equal(approvedSegment, "T1@aaaaaaa1, T2@2222222b");
 });
 
 test("the integrator prompt names excluded (blocked) territories and their reason, and result.blockers reflects them", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1], maxRounds: 1 }, stub);
@@ -669,8 +736,8 @@ test("parallel null and omitted slots retain every planned territory as a blocke
 
 test("the integration prompt requires explicit matching reviewer approval", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   await runScript({ territories: [T1] }, stub);
@@ -680,8 +747,8 @@ test("the integration prompt requires explicit matching reviewer approval", asyn
 
 test("a review without explicit APPROVE is excluded even if a runtime bypasses the review schema", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("UNKNOWN", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("UNKNOWN", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
@@ -692,8 +759,8 @@ test("a review without explicit APPROVE is excluded even if a runtime bypasses t
 
 test("returns exactly { territories, integrator, blockers } and nothing else", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
   const result = await runScript({ territories: [T1] }, stub);
@@ -705,8 +772,8 @@ test("returns exactly { territories, integrator, blockers } and nothing else", a
 
 test("a null integrator return twice falls back to a BLOCKED INTEGRATE result rather than throwing", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("sha1"),
-    "review:T1:r1": reviewResult("APPROVE", "sha1"),
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: [null, null],
   });
   const result = await runScript({ territories: [T1] }, stub);

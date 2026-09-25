@@ -74,7 +74,7 @@ const INTEGRATE = {
 const BUILD_MANDATE =
   'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf).'
 const REVIEW_MANDATE =
-  'Report to disk; first line of your report is VERDICT: APPROVE or NEEDS_FIXES; you never modify, stage, or commit the code under review; no destructive git.'
+  'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git.'
 const INTEGRATE_MANDATE =
   'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push.'
 
@@ -95,10 +95,36 @@ function buildPrompt(t, round, findingsPath) {
 // runs (never one echoing the other); compare them normalized so formatting differences
 // (case, surrounding whitespace) between two honestly-independent reads never manufacture
 // a false review-sha-mismatch. Never equal when either side is empty/missing.
+//
+// Seam S1: an exact-only compare rejects a builder that reports (or copies from its own
+// log) `git rev-parse --short` against a reviewer's full 40-hex read of the same commit —
+// two honest, independent reads of the same commit at different lengths. Accept an
+// unambiguous prefix (7 or more hex characters) of a full 40-hex sha as a match.
+//
+// Seam S5: an exact string match with no shape check would also call two equal
+// non-sha strings (e.g. both sides literally "HEAD" or "unknown") a match. Both sides
+// must look like a git sha (7-40 lowercase hex characters) before any comparison counts.
 function sameSha(x, y) {
   const nx = String(x ?? '').trim().toLowerCase()
   const ny = String(y ?? '').trim().toLowerCase()
-  return nx !== '' && nx === ny
+  const shaShape = /^[0-9a-f]{7,40}$/
+  if (!shaShape.test(nx) || !shaShape.test(ny)) return false
+  if (nx === ny) return true
+  // A short sha from one honest `git rev-parse` reader and the full sha from the other
+  // name the same commit: accept a prefix of at least 7 hex chars against a full 40-hex
+  // sha. Both operands already passed shaShape above, so no further shape check is needed.
+  const [short, full] = nx.length <= ny.length ? [nx, ny] : [ny, nx]
+  return full.length === 40 && full.startsWith(short)
+}
+
+// Seam S1 (optional part): once sameSha has approved a build/review pair, prefer the
+// longer of the two independently-read shas — when one side reported a short prefix and
+// the other its full 40-hex read of the same commit, the integrator prompt always carries
+// the full sha rather than whichever length the builder happened to report.
+function longerSha(x, y) {
+  const sx = String(x ?? '')
+  const sy = String(y ?? '')
+  return sy.length > sx.length ? sy : sx
 }
 
 // Never hands the reviewer the delivered sha to echo back (T1, loop-gates spec item 3):
@@ -197,6 +223,7 @@ async function runTerritory(t) {
     log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
     return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
   }
+  state = { ...state, sha: longerSha(build.sha, review.sha) }
 
   while (review.verdict === 'NEEDS_FIXES' && round < maxRounds) {
     round += 1
@@ -258,6 +285,7 @@ async function runTerritory(t) {
       log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
       return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
     }
+    state = { ...state, sha: longerSha(build.sha, review.sha) }
   }
 
   if (review.verdict === 'NEEDS_FIXES') {
