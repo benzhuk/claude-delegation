@@ -127,7 +127,9 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
     assert.deepEqual(summary, { code, ordinal: 0 });
     assert.equal(privateText(summary).includes(CANARY), false, `${outcome.status} leaked private detail`);
   }
-  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: PAGE });
+  // Pre-seed the claim for whichever entry canonical sort actually placed at ordinal 0 —
+  // mkdtempSync's random fixture-directory suffix, not creation order, decides that.
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(canonical[0].repo), page: canonical[0].page });
   fs.mkdirSync(paths.claim, { recursive: true });
   const marker = path.join(fx.home, 'reader-must-not-run-for-held-claim');
   const claim = await registered(fx, { env: { ...fx.env, PICKUP_MARKER: marker } });
