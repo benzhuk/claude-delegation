@@ -53,7 +53,7 @@ The top-tier lead plans, adjudicates and synthesizes. Tools run in the cheapest 
 In Ben's words: "I think you are taking too many turns, at least from what I can see! Think about our plan and how to fix this." (9-21) "one major tooling direction is to run tools in the cheapest subagent that achieves the goal and read the results in a higher level agent." (9-21)
 
 Measure: lead turns per build; share of tool output read by the top tier.
-Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 hand-run.
+Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 hand-run. The loop-gates build's own record reported a 7-turn hand count (`docs/work/wr-2026-09-24-loop-gates.record.md`); the script counts 32 lead turns for that build's window — a hand count is not the measure once a script can run it. (2026-09-25 four-number-read spec, Findings)
 
 ## Simplest architecture, rethought from the aim
 
@@ -98,7 +98,7 @@ No session waits unnoticed and no piece of work is lost. Peer notes reach their 
 In Ben's words: solving orchestrator stalling "is part of the skills work and important." (9-21) "i think fyi and ack shouldn't wake ... it was a good arch decision in the first place to save tokens!" (9-22)
 
 Measure: delivery outcomes per machine per week; asks answered vs open; wakes per build.
-Status: PARTIAL. On 2026-09-23 three notes to the Codex lead were marked seen without reaching it, and a blocked deploy was never reported; the launcher and cursor defects were fixed in 0.18.1.
+Status: PARTIAL. On 2026-09-23 three notes to the Codex lead were marked seen without reaching it, and a blocked deploy was never reported; the launcher and cursor defects were fixed in 0.18.1. "Nothing lost or stalled" does not hold for the census-complete build itself: a 7.25 hour host stall is in the 2026-09-25 knowledge note and the 2026-09-25 bearings assessment that ordered this build — DONE's census-build claim is corrected in `docs/goals/card.md`, not asserted true here. (2026-09-25 four-number-read spec, Findings)
 
 ## Decisions and goals have one home that Ben reads
 

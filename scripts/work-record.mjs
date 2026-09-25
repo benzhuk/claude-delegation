@@ -13,7 +13,11 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // "worktree" (T1, loop-gates spec item 2): the git worktree or branch path that produced
 // Artifact:. Optional for validateRecord/parseRecord (an old record without it still
 // parses cleanly) but checkAcceptance requires it - see the sha-not-in-git check below.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree"];
+// "leadSession"/"specSession"/"specFrom" (R2, four-number read spec.md item 1): the
+// session that led this build, and the spec session's own usage window - optional here,
+// same as "worktree", because the enforcement (lead session required, spec fields a
+// WARN) lives in checkAcceptance below, not in validateRecord's generic missing-field.
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -45,13 +49,16 @@ const FIELD_LABELS = [
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
   ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
+  ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
 // as WORKAROUND/Log - `accept --census` writes one per copied summary line - never a
 // FIELD_LABELS singleton, so several may coexist without tripping the duplicate-singleton
 // check in requireStrictRecordShape.
-const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census"]);
+// "four numbers" (R2, four-number read spec.md item 3): a repeatable header line, same
+// shape as census above - `accept --four-read <json>` writes one per copied number.
+const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census", "four numbers"]);
 const HEADER_LINE_RE = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.+)$/;
 
 function rtrim(s) {
@@ -123,7 +130,16 @@ export function parseRecord(text) {
     census.push(rtrim(cm[1]).trim());
   }
 
-  return { fields, workarounds, log, census, errors };
+  // four numbers (R2, four-number read): every `Four numbers:` line, verbatim, in file
+  // order - the same repeatable, copy-only shape as census just above; this file never
+  // re-derives one of the four numbers, only stores the read's own text.
+  const fourNumbers = [];
+  const fourNumbersRe = /^[ \t*+-]{0,20}Four numbers:\**[ \t]{0,20}(.+)$/gim;
+  for (const fm of headerText.matchAll(fourNumbersRe)) {
+    fourNumbers.push(rtrim(fm[1]).trim());
+  }
+
+  return { fields, workarounds, log, census, fourNumbers, errors };
 }
 
 function isInsideRepo(repoRoot, evidencePath) {
@@ -410,6 +426,19 @@ export function checkRecordSet(records) {
 export function formatLogLine(at, status, owner, note) {
   const base = `Log: ${at} ${status} ${owner}`;
   return note ? `${base} ${note}` : base;
+}
+
+// R2, four-number read spec.md item 3: renders one --four-read JSON entry as its `Four
+// numbers:` line text. Accepts a plain string (already formatted), an object carrying
+// { value }, or an object carrying { unavailable: <reason> } - the two shapes the read
+// prints "value or unavailable (<reason>)" as; anything else is stringified rather than
+// guessed at, since this file never re-derives one of the four numbers itself.
+function formatFourReadEntry(label, v) {
+  const text = typeof v === "string" ? v
+    : v && typeof v === "object" && "value" in v ? v.value
+    : v && typeof v === "object" && "unavailable" in v ? `unavailable (${v.unavailable})`
+    : JSON.stringify(v);
+  return `Four numbers: ${label}: ${text}`;
 }
 
 const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLowerCase(), key]));
@@ -748,6 +777,17 @@ export function checkAcceptance(opts = {}) {
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
 
+  // lead-session-missing (R2, four-number read spec.md item 2): the record must name the
+  // session that led this build - "no override: a record without its lead session cannot
+  // be read". Unconditional on every checkAcceptance call, live or pinned, exactly like
+  // the Worktree: check below - there is no cutoff date grandfathering an older record in.
+  if (!record.fields.leadSession) {
+    throw acceptanceError(
+      "Lead-session: field is required (the session id that led this build); none is present",
+      "lead-session-missing",
+    );
+  }
+
   // census-stale (C2 spec item 2): opt-in here - only runs when a caller passes
   // --census, so every census-agnostic caller (check-acceptance's existing read-only
   // uses, and every pre-census test of this function) is unaffected. The MANDATORY
@@ -898,12 +938,25 @@ export function checkAcceptance(opts = {}) {
   if (blockers.length > 0) throw acceptanceError(`current artifact has refusing evidence: ${blockers.join(", ")}`);
   if (!approved) throw acceptanceError("no evidence has an exact APPROVE verdict for the current artifact");
 
-  // censusText is only ever present as a key when --census was actually given - every
-  // pre-census caller (and every census-agnostic call, like check-acceptance without
-  // --census) keeps the exact result shape it always had.
-  return censusText !== undefined
-    ? { ok: true, work: record.fields.work, artifact, delivery, censusText }
-    : { ok: true, work: record.fields.work, artifact, delivery };
+  // spec-session/spec-from (R2, four-number read spec.md item 2): missing is a WARN, not
+  // a refusal - the read itself prints the token number as "partial (no spec slice)"
+  // when these are absent; this only surfaces the fact for a caller to see.
+  const warnings = [];
+  if (!record.fields.specSession) {
+    warnings.push("spec-session-missing: Spec-session: is absent; the four-read's token number will be partial (no spec slice)");
+  }
+  if (!record.fields.specFrom) {
+    warnings.push("spec-from-missing: Spec-from: is absent; the four-read's token number will be partial (no spec slice)");
+  }
+
+  // censusText/warnings are only ever present as keys when there is one to report - every
+  // caller that never opted into --census, and every record that already carries both
+  // spec fields, keeps the exact result shape it always had (a bare `assert.deepEqual`
+  // against `{ ok, work, artifact, delivery }` still holds).
+  const result = { ok: true, work: record.fields.work, artifact, delivery };
+  if (censusText !== undefined) result.censusText = censusText;
+  if (warnings.length > 0) result.warnings = warnings;
+  return result;
 }
 
 /**
@@ -1012,13 +1065,31 @@ export function acceptRecord(opts = {}) {
     censusLines = [`Census: skipped — ${noCensusReason}`];
   }
 
+  // Four numbers (R2, four-number read spec.md item 3): --four-read is optional - accept
+  // still passes without it, the record just shows the numbers were not run.
+  let fourNumberLines;
+  if (opts.fourReadPath !== undefined) {
+    let parsed;
+    try {
+      parsed = JSON.parse(fsImpl.readFileSync(opts.fourReadPath, "utf8"));
+    } catch (error) {
+      throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
+    }
+    const entries = Object.entries(parsed && typeof parsed === "object" ? parsed : {});
+    fourNumberLines = entries.length > 0
+      ? entries.map(([label, v]) => formatFourReadEntry(label, v))
+      : ["Four numbers: (four-read file recognized but produced no entries to copy)"];
+  } else {
+    fourNumberLines = ["Four numbers: not run"];
+  }
+
   const at = (opts.now ?? new Date()).toISOString();
   const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
 
   const lines = text.split(/\r?\n/);
   const blankIdx = lines.findIndex((line) => line.trim() === "");
   const insertAt = blankIdx === -1 ? lines.length : blankIdx;
-  lines.splice(insertAt, 0, ...censusLines, logLine);
+  lines.splice(insertAt, 0, ...censusLines, ...fourNumberLines, logLine);
   const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}accepted${post}`);
 
   if (censusCopy) {
@@ -1042,7 +1113,7 @@ export function parseAcceptanceArgs(argv) {
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
-    ["--census", "censusPath"], ["--no-census", "noCensusReason"],
+    ["--census", "censusPath"], ["--no-census", "noCensusReason"], ["--four-read", "fourReadPath"],
   ]);
   for (let i = 1; i < argv.length; i += 2) {
     const key = names.get(argv[i]);
