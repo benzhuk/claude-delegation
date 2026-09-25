@@ -26,7 +26,7 @@ test('missing goal is unconfigured and a missing receipt is due', () => {
 });
 test('complete creates an attested receipt current for less than 24 hours and due at 24', () => {
   const root = project(); const e = env(); const { report, response } = files(root); const now = Date.UTC(2026, 8, 23, 15);
-  assert.equal(complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', ...IDS, env: e, now }).version, 2);
+  assert.equal(complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', ...IDS, env: e, now }).version, 1);
   assert.equal(check({ repo: root, env: e, now: now + 23 * 60 * 60 * 1000 }).status, 'current'); assert.equal(check({ repo: root, env: e, now: now + 24 * 60 * 60 * 1000 }).status, 'due');
 });
 test('malformed publication URLs are rejected during completion and cannot suppress due', () => {
@@ -99,14 +99,16 @@ test('check rejects a receipt whose reviewer and lead are not independent, and n
   write({ leadId: undefined });
   assert.equal(check({ repo: root, env: e, now }).status, 'due', 'lead id missing');
 
-  // Never silently counted: a receipt shaped like it predates this build (version 1, no ids at all —
-  // the exact shape `complete()` used to write) is rejected, not treated as current.
-  fs.writeFileSync(receiptPath(), JSON.stringify({
-    version: 1, projectRoot: fs.realpathSync(root), goalPath: path.join(fs.realpathSync(root), 'docs', 'goals', 'card.md'),
-    goalDigest: JSON.parse(fs.readFileSync(receiptPath(), 'utf8')).goalDigest, completedAt: new Date(now).toISOString(),
-    reportPath: report, reportDigest: 'x', leadResponsePath: response, leadResponseDigest: 'y', publication: 'https://example.test/decision',
-  }));
-  assert.equal(check({ repo: root, env: e, now }).status, 'due', 'an old-shaped receipt without ids is rejected, never silently counted');
+  // Never silently counted: a receipt shaped like it predates this build (version 1, real digests,
+  // no ids at all — the exact shape `complete()` used to write) is rejected for the real cause,
+  // reviewer-not-independent, not mistaken for a goal or evidence mismatch.
+  complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', ...IDS, env: e, now });
+  const old = JSON.parse(fs.readFileSync(receiptPath(), 'utf8'));
+  delete old.reviewerId; delete old.leadId; old.version = 1;
+  fs.writeFileSync(receiptPath(), JSON.stringify(old));
+  checked = check({ repo: root, env: e, now });
+  assert.equal(checked.status, 'due', 'an old-shaped receipt without ids is rejected, never silently counted');
+  assert.equal(checked.reason, 'reviewer-not-independent', 'rejected for the real cause, not a goal mismatch');
 
   // The independent receipt this whole test started from does pass.
   complete({ repo: root, report, leadResponse: response, publication: 'https://example.test/decision', ...IDS, env: e, now });
@@ -120,4 +122,23 @@ test('canonical project roots are separate and copied-skill CLI has no checkout 
   fs.cpSync(path.resolve(path.dirname(SCRIPT), '..'), copy, { recursive: true });
   fs.cpSync(path.resolve(path.dirname(SCRIPT), '../../decisions'), path.join(copiedSkills, 'decisions'), { recursive: true });
   const result = spawnSync(process.execPath, [path.join(copy, 'scripts', 'bearings-state.mjs'), 'check', '--repo', first], { env: e, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).status, 'current');
+});
+
+test('the CLI complete path wires --reviewer-id/--lead-id straight through, and rejects a non-independent pair', () => {
+  const root = project(); const e = env(); const { report, response } = files(root);
+  const ok = spawnSync(process.execPath, [
+    SCRIPT, 'complete', '--repo', root, '--report', report, '--lead-response', response,
+    '--publication', 'https://example.test/decision', '--reviewer-id', 'r-1', '--lead-id', 'l-1',
+  ], { env: e, encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+  const stored = JSON.parse(fs.readFileSync(receiptLocation(fs.realpathSync(root), e), 'utf8'));
+  assert.equal(stored.reviewerId, 'r-1');
+  assert.equal(stored.leadId, 'l-1');
+
+  const rejected = spawnSync(process.execPath, [
+    SCRIPT, 'complete', '--repo', root, '--report', report, '--lead-response', response,
+    '--publication', 'https://example.test/decision', '--reviewer-id', 'X', '--lead-id', 'x',
+  ], { env: e, encoding: 'utf8' });
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /reviewer-not-independent/);
 });

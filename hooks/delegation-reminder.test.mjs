@@ -26,7 +26,7 @@ import {
   SWITCH_NAME, MASTER_SWITCH, CONFIG_KEY, DEFAULT_CARD_PATH, SWEEP_MAX_UNLINKS, STATE_MAX_AGE_MS,
   tallyFileFor, firedFileFor, stateDir, stateKey, renderInjection,
 } from '../scripts/goal-card.mjs';
-import { complete as completeBearings } from '../skills/bearings/scripts/bearings-state.mjs';
+import { complete as completeBearings, receiptLocation as bearingsReceipt } from '../skills/bearings/scripts/bearings-state.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'delegation-reminder.js');
@@ -483,17 +483,29 @@ test('bearings switch preserves the existing goal card and master/goalcard switc
   assert.equal(masterRun.stdout, '', 'ws-off silences the pane notice too, along with everything else');
 });
 
-test('T2: a broken bearings state (impossible receipt path) fails open — no crash, no block, no false claim', () => {
+test('T2: a file where the bearings dir should be counts as no receipt, not a crash or a block', () => {
   const home = fixtureHome(); const root = project();
   const env = envFor(home);
   // `ws/bearings` exists as a FILE, not a directory, so the receipt read inside bearings-state.mjs
   // cannot succeed in the ordinary way. The hook must still exit 0 and never claim more than it knows.
+  // This particular breakage is treated as "no receipt" (due), not "unreadable" (unknown) — see the
+  // next test for the case that actually raises and exercises the fail-open catch.
   fs.mkdirSync(path.join(env.AGENTS_HOME, 'ws'), { recursive: true });
   fs.writeFileSync(path.join(env.AGENTS_HOME, 'ws', 'bearings'), 'not a directory', 'utf8');
   const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
   assert.equal(r.status, 0, 'fail open: never a non-zero exit');
   assert.notEqual(r.status, 2, 'fail open: never blocks the turn');
   assert.match(context(r), /GOAL: /, 'the goal card itself is unaffected by a broken bearings state');
+});
+
+test('T2: an unreadable bearings receipt reaches Ben as unknown, in both fields, and still fails open', () => {
+  const home = fixtureHome(); const root = project();
+  fs.mkdirSync(bearingsReceipt(fs.realpathSync(root), envFor(home)), { recursive: true }); // EISDIR, not absent
+  const r = runHook('SessionStart', home, { cwd: root, input: { source: 'startup' } });
+  assert.equal(r.status, 0, 'fail open');
+  assert.match(context(r), /Bearings status is unknown/, 'the model sees unknown, not due and not silence');
+  assert.match(sysmsg(r), /Bearings status is unknown/, 'Ben sees unknown too');
+  assert.match(context(r), /GOAL: /, 'the card itself is unaffected');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

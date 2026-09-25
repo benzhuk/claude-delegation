@@ -8,10 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from '../../decisions/scripts/project-config.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
-// Bumped 2 -> reviewer independence (T2 Required #2): a receipt written before this build never
-// carries `reviewerId`/`leadId`, and the version mismatch alone already sends it to `due` below —
-// an old receipt is rejected, never silently counted as a completed, independent assessment.
-const VERSION = 2;
+// Not bumped for reviewer independence (T2 Required #2): a receipt written before this build has no
+// `reviewerId`/`leadId`, passes the goal-match gate, and is rejected by the independence check as
+// `reviewer-not-independent`, the real cause, never silently counted.
+const VERSION = 1;
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const home = (env = process.env) => env.AGENTS_HOME || path.join(os.homedir(), '.agents');
 const absent = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
