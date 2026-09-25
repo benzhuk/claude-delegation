@@ -9,6 +9,7 @@ import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 import {
   STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet,
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
+  isIncompleteCensus,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -81,7 +82,10 @@ function makeCensusFixture(opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-census-"));
   const lines = recognized
     ? [
-        `VERDICT: COUNTED ${leadTurns} lead turns, 5 subagent files`,
+        // leadLastMessageAt lives on THIS header line, exactly like build-census.mjs's
+        // own output - extractCensusTimestamp reads only this field, never a timestamp
+        // scanned from anywhere else in the file (T1/C2 fix round, MAJOR C2).
+        `VERDICT: COUNTED ${leadTurns} lead turns, 5 subagent files, leadLastMessageAt: ${lastAt}`,
         "",
         "# Build census",
         "",
@@ -1352,10 +1356,166 @@ test("extractCensusSummary: a second table with identical rows to an earlier one
   assert.ok(summary.includes("- by-role: build=11, review=4"));
 });
 
-test("extractCensusTimestamp: returns the latest ISO timestamp in the file, or null when none is present", () => {
+test("extractCensusTimestamp: reads the leadLastMessageAt field on the census's header line, or null when it's absent", () => {
   const censusPath = makeCensusFixture({ lastAt: "2026-09-24T10:12:00Z" });
   assert.equal(extractCensusTimestamp(fs.readFileSync(censusPath, "utf8")), Date.parse("2026-09-24T10:12:00Z"));
   assert.equal(extractCensusTimestamp("no timestamps in here"), null);
+});
+
+// T1/C2 fix round, MAJOR C2: the old implementation scanned the WHOLE report text for
+// the latest ISO-8601-looking substring anywhere, so a --role-map label formatted like a
+// timestamp (a role literally named `review-2026-09-26T00:00:00Z`, exactly skills-a's
+// independent CLI probe) got read as "the census timestamp" instead of the real one.
+// The fixed version reads ONLY the leadLastMessageAt field on line 1 - this pins that a
+// later-looking string anywhere else in the report (a role name, a table cell, a path)
+// is never picked up instead.
+test("extractCensusTimestamp: a role label formatted like a future ISO timestamp elsewhere in the report never rescues the real leadLastMessageAt — skills-a MAJOR C2 probe", () => {
+  const text = [
+    "VERDICT: COUNTED 1 lead requests (leadTurns 1), 1 subagent files, leadLastMessageAt: 2026-09-25T07:00:00.000Z",
+    "",
+    "# Build census",
+    "",
+    "- leadTurns: 1",
+    "",
+    "Roles: review-2026-09-26T00:00:00Z=1",
+    "",
+    "| file | role | turns |",
+    "|---|---|---|",
+    "| agent-role.jsonl | review-2026-09-26T00:00:00Z | 1 |",
+    "",
+  ].join("\n");
+  assert.equal(
+    extractCensusTimestamp(text),
+    Date.parse("2026-09-25T07:00:00.000Z"),
+    "the role label's embedded future date must never be read as the census timestamp",
+  );
+});
+
+test("checkAcceptance: census-stale still fires when a --role-map-style label elsewhere in the report is formatted like a LATER timestamp — skills-a MAJOR C2 probe, end to end", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-25T08:00:30Z"); // the record's real last review
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-census-"));
+  const censusPath = path.join(dir, "census.md");
+  // leadLastMessageAt genuinely predates the review (stale) - but a role label
+  // elsewhere in the same file carries a LATER, purely textual "timestamp".
+  fs.writeFileSync(censusPath, [
+    "VERDICT: COUNTED 1 lead requests (leadTurns 1), 1 subagent files, leadLastMessageAt: 2026-09-25T07:00:00.000Z",
+    "",
+    "# Build census",
+    "",
+    "- leadTurns: 1",
+    "",
+    "Roles: review-2026-09-26T00:00:00Z=1",
+    "",
+    "| file | role | turns |",
+    "|---|---|---|",
+    "| agent-role.jsonl | review-2026-09-26T00:00:00Z | 1 |",
+    "",
+  ].join("\n"));
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected checkAcceptance to throw census-stale despite the future-looking role label");
+  } catch (error) {
+    assert.equal(error.code, "census-stale", `expected census-stale, got [${error.code}] ${error.message}`);
+  }
+  try {
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected acceptRecord to throw census-stale despite the future-looking role label");
+  } catch (error) {
+    assert.equal(error.code, "census-stale");
+  }
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.ok(!/^Status: accepted$/m.test(updated), "a stale census must never flip Status: to accepted");
+});
+
+// ── census-incomplete (T1/C2 fix round, item 1's other half) ─────────────────────────
+
+test("isIncompleteCensus: true only for an '- INCOMPLETE:' Summary bullet, not for the word appearing in unrelated prose", () => {
+  assert.equal(isIncompleteCensus(["- leadTurns: 1", "- INCOMPLETE: 1 subagent directory unreadable"]), true);
+  assert.equal(isIncompleteCensus(["- leadTurns: 1", "- by-role: review=1"]), false);
+  assert.equal(isIncompleteCensus([]), false);
+});
+
+test("checkAcceptance/acceptRecord: census-incomplete refuses a census whose Summary carries an INCOMPLETE bullet (a default subagent dir could not be enumerated)", () => {
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-23T13:00:00Z");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-census-"));
+  const censusPath = path.join(dir, "census.md");
+  fs.writeFileSync(censusPath, [
+    "VERDICT: COUNTED 1 lead requests (leadTurns 1), 0 subagent files (1 directory UNREADABLE — census INCOMPLETE), leadLastMessageAt: 2026-09-24T09:00:00.000Z",
+    "",
+    "# Build census",
+    "",
+    "- leadTurns: 1",
+    "- subagentFiles: 0",
+    "- INCOMPLETE: 1 subagent director(y) unreadable (`/no/such/dir`) — subagent and combined totals exclude them",
+    "",
+  ].join("\n"));
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected checkAcceptance to throw census-incomplete");
+  } catch (error) {
+    assert.equal(error.code, "census-incomplete", `expected census-incomplete, got [${error.code}] ${error.message}`);
+  }
+  try {
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected acceptRecord to throw census-incomplete");
+  } catch (error) {
+    assert.equal(error.code, "census-incomplete");
+  }
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.ok(!/^Status: accepted$/m.test(updated), "an INCOMPLETE census must never flip Status: to accepted");
+  // The explicit escape still works: --no-census accepts visibly unmeasured.
+  const skipped = acceptRecord({
+    repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+    noCensusReason: "census reported INCOMPLETE — default subagent dir unreadable, accepting unmeasured",
+    now: new Date("2026-09-24T10:00:00Z"),
+  });
+  assert.equal(skipped.ok, true);
+});
+
+// Genuine end-to-end wiring: build-census.mjs's own output for a directory it could not
+// enumerate is refused by work-record.mjs's accept --census, without any hand-written
+// census text standing in for the real script.
+test("end to end: build-census.mjs's own INCOMPLETE output (EACCES on a default subagent dir) is refused by accept --census with census-incomplete", async () => {
+  const buildCensus = await import("./build-census.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-e2e-incomplete-"));
+  const leadPath = path.join(dir, "permission.jsonl");
+  fs.writeFileSync(
+    leadPath,
+    JSON.stringify({ type: "assistant", requestId: "p", timestamp: "2026-09-24T09:00:00.000Z", message: { id: "p", model: "m", usage: { input_tokens: 1, output_tokens: 1 } } }) + "\n",
+  );
+  const defaultDir = path.join(dir, "permission", "subagents");
+  fs.mkdirSync(defaultDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(defaultDir, "agent-existing.jsonl"),
+    JSON.stringify({ type: "assistant", requestId: "s", timestamp: "2026-09-24T09:01:00.000Z", message: { id: "s", model: "m", usage: { input_tokens: 1, output_tokens: 1 } } }) + "\n",
+  );
+  const real = fs;
+  const deniedFsImpl = {
+    readdirSync: (p, ...rest) => {
+      if (path.resolve(p) === path.resolve(defaultDir)) throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+      return real.readdirSync(p, ...rest);
+    },
+    statSync: (...a) => real.statSync(...a),
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+    readFileSync: (...a) => real.readFileSync(...a),
+    realpathSync: (...a) => real.realpathSync(...a),
+  };
+  const report = await buildCensus.runCensus({ lead: leadPath, tasksDirs: [] }, deniedFsImpl);
+  assert.equal(report.subagents.incomplete, true);
+  const censusPath = path.join(dir, "census.md");
+  fs.writeFileSync(censusPath, buildCensus.formatText(report));
+
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-23T13:00:00Z");
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath });
+    assert.fail("expected checkAcceptance to throw census-incomplete against build-census.mjs's real INCOMPLETE output");
+  } catch (error) {
+    assert.equal(error.code, "census-incomplete", `expected census-incomplete, got [${error.code}] ${error.message}`);
+  }
 });
 
 test("acceptRecord: refuses with census-missing when neither --census nor --no-census is given", () => {
@@ -1440,7 +1600,7 @@ test("acceptRecord: a recognised census file with no extractable summary lines w
   withReviewedLog(f, "2026-09-23T13:00:00Z");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-census-"));
   const censusPath = path.join(dir, "census.md");
-  fs.writeFileSync(censusPath, "VERDICT: COUNTED 0 lead turns, 0 subagent files\n\n2026-09-24T09:00:00Z\n");
+  fs.writeFileSync(censusPath, "VERDICT: COUNTED 0 lead turns, 0 subagent files, leadLastMessageAt: 2026-09-24T09:00:00Z\n\nno extractable summary lines below\n");
   const result = acceptRecord({
     repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath,
     now: new Date("2026-09-24T10:00:00Z"),

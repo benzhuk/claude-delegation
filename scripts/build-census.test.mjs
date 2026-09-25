@@ -129,6 +129,15 @@ test('Codex marker scopes per-response usage and native turn ids without inventi
   });
 });
 
+test('Codex seam: counted header carries its dedicated timestamp and disabled Claude discovery creates no child-directory incompleteness', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.defaultSubagentsDir, null, 'Codex must not probe the Claude default child directory');
+  assert.deepEqual(report.subagents.unreadableDirs, []);
+  const text = formatText(report);
+  assert.match(text.split('\n')[0], /^VERDICT: COUNTED .*leadLastMessageAt: 2026-09-25T09:00:04\.000Z$/);
+  assert.ok(!text.includes('census INCOMPLETE'));
+});
+
 test('Codex attribution failures throw instead of becoming a zero-token census', async () => {
   const dir = mkTmp('build-census-codex-bad-');
   const bad = path.join(dir, 'bad.jsonl');
@@ -312,7 +321,7 @@ test('runCensus over the committed lead.jsonl + tasks/ fixtures matches the hand
   });
 
   const text = formatText(report);
-  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files');
+  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files, leadLastMessageAt: 2026-09-21T10:06:00.000Z');
   assert.ok(text.includes('\n# Build census\n'), 'the header line other tools recognise this report by must be present verbatim');
   assert.ok(text.includes('- leadTurns: 2'), 'leadTurns must be printed literally');
 });
@@ -427,7 +436,7 @@ test('the healthy path (no unreadable files) prints no UNREADABLE/unreadable/Inc
   const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [FIXTURES_TASKS], marker: null, out: null });
   assert.equal(report.subagents.unreadable, 0);
   const text = formatText(report);
-  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files');
+  assert.equal(text.split('\n')[0], 'VERDICT: COUNTED 3 lead requests (leadTurns 2), 2 subagent files, leadLastMessageAt: 2026-09-21T10:06:00.000Z');
   assert.ok(!/unreadable|UNREADABLE|Incomplete/.test(text), 'a clean run must never mention unreadable files');
 });
 
@@ -888,4 +897,69 @@ test('leadTurns: a user line whose content mixes a tool_result with real content
 test('leadTurns is written to docs/census.md as a one-sentence definition', () => {
   const docs = fs.readFileSync(new URL('../docs/census.md', import.meta.url), 'utf8');
   assert.ok(/leadTurns/.test(docs), 'docs/census.md must define leadTurns');
+});
+
+// ── T1/C2 fix round, MAJOR C1: an unreadable default agents dir must fail closed ──────
+//
+// Reproduces skills-a's (Codex/Astra) independent CLI fault-injection probe
+// (docs/notes/skills-a-census-review-1.md): a real default `<session>/subagents/` dir
+// exists with one subagent file inside it; injecting EACCES for ONLY that directory's
+// readdirSync (every other filesystem call untouched) must never render as "no such
+// source" (0 files, 0 unreadable, a clean COUNTED verdict). It must be visibly
+// UNREADABLE and INCOMPLETE, never silently counted as zero.
+test('an unreadable (EACCES) default subagents dir is visibly UNREADABLE/INCOMPLETE, never a silent zero — skills-a MAJOR C1 probe', async () => {
+  const dir = mkTmp('build-census-default-eacces-');
+  const leadPath = path.join(dir, 'permission.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'p', ts: '2026-09-25T00:00:00.000Z', usageOpts: { output: 1 } })]);
+  const defaultDir = path.join(dir, 'permission', 'subagents');
+  writeJsonl(path.join(defaultDir, 'agent-existing.jsonl'), [asstLine({ requestId: 'sub', ts: '2026-09-25T00:01:00.000Z', usageOpts: { output: 9 } })]);
+
+  // Baseline: the healthy run genuinely counts the one subagent file, unreadableDirs empty.
+  const normal = await runCensus({ lead: leadPath, tasksDirs: [] });
+  assert.equal(normal.subagents.fileCount, 1);
+  assert.deepEqual(normal.subagents.unreadableDirs, []);
+  assert.equal(normal.subagents.incomplete, false);
+
+  const real = fs;
+  const deniedFsImpl = {
+    readdirSync: (p, ...rest) => {
+      if (path.resolve(p) === path.resolve(defaultDir)) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+      return real.readdirSync(p, ...rest);
+    },
+    statSync: (...a) => real.statSync(...a),
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+    readFileSync: (...a) => real.readFileSync(...a),
+    realpathSync: (...a) => real.realpathSync(...a),
+  };
+  const denied = await runCensus({ lead: leadPath, tasksDirs: [] }, deniedFsImpl);
+
+  // The exact failure class the probe caught: a swallowed EACCES must never look like
+  // ENOENT (absence) — zero files, zero unreadable FILES, and no incompleteness signal.
+  assert.equal(denied.subagents.fileCount, 0, 'the file inside the denied dir cannot be listed at all');
+  assert.equal(denied.subagents.unreadable, 0, 'this is a directory-level failure, not a file-level one');
+  assert.deepEqual(denied.subagents.unreadableDirs, [defaultDir], 'the denied dir itself must be named as unreadable');
+  assert.equal(denied.subagents.incomplete, true, 'an EACCES on a default dir must mark the whole report INCOMPLETE');
+
+  const text = formatText(denied);
+  assert.ok(/UNREADABLE/.test(text.split('\n')[0]), `VERDICT line must not read as a clean run:\n${text.split('\n')[0]}`);
+  assert.ok(text.includes('INCOMPLETE'), `formatText must surface INCOMPLETE somewhere when a default dir is unreadable:\n${text}`);
+  const json = formatJson(denied);
+  assert.ok(json.includes(JSON.stringify(defaultDir).slice(1, -1)) && /"incomplete":\s*true/.test(json), 'the JSON must carry both the unreadable dir path and an incomplete flag');
+});
+
+// A missing default dir (the ordinary, common case — most lead sessions spawn no
+// subagents at all) must stay silent: ENOENT is absence, not a finding.
+test('a genuinely MISSING default subagents dir (ENOENT) is still silent — never reported as unreadable/INCOMPLETE', async () => {
+  const dir = mkTmp('build-census-default-missing-');
+  const leadPath = path.join(dir, 'nosubagents.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'p', ts: '2026-09-25T00:00:00.000Z', usageOpts: { output: 1 } })]);
+  const report = await runCensus({ lead: leadPath, tasksDirs: [] });
+  assert.equal(report.subagents.fileCount, 0);
+  assert.deepEqual(report.subagents.unreadableDirs, []);
+  assert.equal(report.subagents.incomplete, false);
+  const text = formatText(report);
+  assert.ok(!/UNREADABLE|INCOMPLETE/.test(text), 'a merely-absent default dir must never render as a finding');
 });

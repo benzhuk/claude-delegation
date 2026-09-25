@@ -438,8 +438,13 @@ function matchesPattern(f, pattern) {
 // hardlinked to subagents/agent-<id>.jsonl) it keeps the FIRST-seen copy, so a default's
 // `agent-<id>.jsonl` name — the one --role-map and journal.jsonl both key off — wins over
 // an explicit --tasks dir's `<id>.output` alias.
+function isAbsenceError(error) {
+  return Boolean(error) && error.code === 'ENOENT';
+}
+
 function buildDirSpecs(opts, fsImpl, { includeDefaultSubagents = true } = {}) {
   const specs = [];
+  const unreadableDirs = [];
   if (opts.lead && includeDefaultSubagents) {
     const leadSessionId = path.basename(opts.lead).replace(/\.jsonl$/i, '');
     const sessionDir = path.join(path.dirname(opts.lead), leadSessionId);
@@ -460,33 +465,39 @@ function buildDirSpecs(opts, fsImpl, { includeDefaultSubagents = true } = {}) {
         if (!isDir) continue;
         specs.push({ dir: path.join(workflowsDir, e.name), isDefault: true, pattern: 'agent' });
       }
-    } catch {
-      // no workflows dir: normal, not an error.
+    } catch (error) {
+      // A missing workflow directory is normal; a directory that exists but cannot be
+      // enumerated must make the census incomplete rather than silently report zero.
+      if (!isAbsenceError(error)) unreadableDirs.push(workflowsDir);
     }
   }
   for (const d of opts.tasksDirs || []) specs.push({ dir: d, isDefault: false, pattern: 'wide' });
-  return specs;
+  return { specs, unreadableDirs };
 }
 
 function collectTaskFiles(dirSpecs, fsImpl) {
   const collected = [];
+  const unreadableDirs = [];
   for (const spec of dirSpecs) {
     let names;
     try {
       names = fsImpl.readdirSync(spec.dir);
-    } catch {
+    } catch (error) {
       // An unreadable/missing EXPLICIT --tasks dir is not "no subagents ran" — reporting 0
       // files at exit 0 would silently drop a whole source the caller asked for by name.
       // The DEFAULT subagents dir is different: most lead sessions spawn no subagents at
       // all, so its absence is the common, legitimate case, not an error.
-      if (spec.isDefault) continue;
+      if (spec.isDefault) {
+        if (!isAbsenceError(error)) unreadableDirs.push(spec.dir);
+        continue;
+      }
       throw new Error(`--tasks directory not readable: ${spec.dir}`);
     }
     for (const filename of names.filter((f) => matchesPattern(f, spec.pattern))) {
       collected.push({ dir: spec.dir, filename, fullPath: path.join(spec.dir, filename) });
     }
   }
-  return collected;
+  return { collected, unreadableDirs };
 }
 
 // De-dup by resolved real path so the same dir given twice, a file reachable through two
@@ -592,9 +603,10 @@ export async function runCensus(opts, fsImpl = realFs()) {
     ? await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker })
     : await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
 
-  const dirSpecs = buildDirSpecs(opts, fsImpl, { includeDefaultSubagents: leadHost !== 'codex' });
+  const { specs: dirSpecs, unreadableDirs: specUnreadableDirs } = buildDirSpecs(opts, fsImpl, { includeDefaultSubagents: leadHost !== 'codex' });
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
-  const rawFiles = collectTaskFiles(dirSpecs, fsImpl);
+  const { collected: rawFiles, unreadableDirs: collectUnreadableDirs } = collectTaskFiles(dirSpecs, fsImpl);
+  const unreadableDirs = [...new Set([...specUnreadableDirs, ...collectUnreadableDirs])].sort();
   // Code-unit comparator, not localeCompare: sort order must not depend on the running
   // machine's ICU/locale, and the other sorts in this file (Object.keys(...).sort()) are
   // already plain code-unit sorts — this keeps output byte-stable across machines too.
@@ -714,12 +726,15 @@ export async function runCensus(opts, fsImpl = realFs()) {
       markerFound: lead.markerFound,
       windowStartAt: lead.windowStartAt,
       windowEndAt: lead.lastAt,
+      leadLastMessageAt: lead.lastAt,
       turnsPerHour,
       wallClockHours,
     },
     subagents: {
       fileCount: orderedFiles.length,
       unreadable: unreadableCount,
+      unreadableDirs,
+      incomplete: unreadableCount > 0 || unreadableDirs.length > 0,
       totalTurns: subTotalTurns,
       excludedByWindow: excludedByWindowTotal,
       totalByModel: subTotalsByModel,
@@ -750,7 +765,9 @@ function totalTokens(a) {
 export function formatText(report) {
   const md = [];
   const unread = report.subagents.unreadable || 0;
+  const unreadDirs = report.subagents.unreadableDirs || [];
   const codexTokensUnsupported = report.lead.host === 'codex' && !report.lead.tokensSupported;
+  const leadLastMessageAt = report.lead.leadLastMessageAt || report.lead.windowEndAt || null;
   // C2 (scripts/work-record.mjs's `accept --census`) recognises a build-census report by
   // the literal PREFIX `VERDICT: COUNTED ` on line 1 — never by `# Build census` below,
   // which is only this report's section title. Keep that prefix byte-identical; the rest
@@ -759,9 +776,14 @@ export function formatText(report) {
   // one another on a skim).
   const leadTurnsLabel = report.lead.leadTurns === null ? 'unsupported' : report.lead.leadTurns;
   if (codexTokensUnsupported) {
-    md.push(`VERDICT: UNSUPPORTED Codex lead usage (${report.lead.tokenUnsupportedReason}), ${report.subagents.fileCount} subagent files`);
+    md.push(`VERDICT: UNSUPPORTED Codex lead usage (${report.lead.tokenUnsupportedReason}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`);
   } else {
-    md.push(`VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${leadTurnsLabel}), ${report.subagents.fileCount} subagent files${unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : ''}`);
+    md.push(
+      `VERDICT: COUNTED ${report.lead.windowTurns} lead requests (leadTurns ${leadTurnsLabel}), ${report.subagents.fileCount} subagent files` +
+      (unread ? ` (${unread} UNREADABLE — subagent totals below are incomplete)` : '') +
+      (unreadDirs.length ? ` (${unreadDirs.length} director${unreadDirs.length === 1 ? 'y' : 'ies'} UNREADABLE — census INCOMPLETE)` : '') +
+      `, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`,
+    );
   }
   md.push('');
   md.push('# Build census');
@@ -777,7 +799,7 @@ export function formatText(report) {
       : `- leadTokens: ${leadTokenTotal} (counted from deduplicated per-response usage; model unknown)`);
     md.push('- leadTurnsLimit: unsupported (Codex response records have no assistant/user role ordering)');
     md.push(`- nativeTurnCount: ${report.lead.nativeTurnCountWindow} (native turn ids; not leadTurns)`);
-    md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; combined and role totals exclude them unless explicitly supplied)');
+    md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; Codex --tasks is rejected)');
   }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
   const modelLine = codexTokensUnsupported
@@ -789,7 +811,12 @@ export function formatText(report) {
     : Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`);
-  if (unread) md.push(`- INCOMPLETE: ${unread} subagent file(s) unreadable — subagent and combined totals exclude them`);
+  if (unread || unreadDirs.length) {
+    const parts = [];
+    if (unread) parts.push(`${unread} subagent file(s) unreadable`);
+    if (unreadDirs.length) parts.push(`${unreadDirs.length} subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} unreadable`);
+    md.push(`- INCOMPLETE: ${parts.join('; ')} — subagent and combined totals exclude them`);
+  }
   md.push('');
   const tasksLine = report.tasksPaths.length ? report.tasksPaths.map((p) => `\`${p}\``).join(', ') : '(none)';
   md.push(`Lead: \`${path.basename(report.leadPath)}\` | Tasks dirs: ${tasksLine}${report.defaultSubagentsDir ? ` | Default subagents dir: \`${report.defaultSubagentsDir}\`` : ''}`);
@@ -836,6 +863,7 @@ export function formatText(report) {
   }
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
+  if (unreadDirs.length) md.push(`\n_INCOMPLETE: ${unreadDirs.length} default subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} could not be enumerated; this census is incomplete by an unknown amount._`);
   md.push('');
   const roleCountsLine = Object.keys(report.subagents.roleFileCounts).sort().map((r) => `${r}=${report.subagents.roleFileCounts[r]}`).join(', ') || '(none)';
   md.push(`Roles: ${roleCountsLine}`);

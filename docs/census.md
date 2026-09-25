@@ -53,7 +53,15 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   Unlike an explicitly-named `--tasks` dir (unreadable is an error, never a silent zero
   — see below), a MISSING default dir (either the base `subagents/` or `workflows/`) is
   the common case (most lead sessions spawn no subagents, or spawn Task-tool subagents
-  only) and contributes zero files without complaint.
+  only) and contributes zero files without complaint. **Missing (`ENOENT`) is the only
+  error this silence covers.** Any OTHER error enumerating a default dir — `EACCES`,
+  `EPERM`, a raced deletion mid-scan — means a real source exists but could not be
+  listed; that dir is reported by path under `unreadableDirs`, and the whole census is
+  marked `INCOMPLETE` in both the VERDICT line and the JSON's `subagents.incomplete`
+  flag, exactly like an individual unreadable subagent FILE already was — a directory
+  that can't be read is never silently zero, and `accept --census` refuses an
+  `INCOMPLETE` census outright (`census-incomplete`; `--no-census "<reason>"` is the
+  explicit escape).
   - **De-dup across sources, mechanically:** every file counted through any `--tasks`
     dir or either default glob is de-duped by BOTH its resolved real path and its
     filesystem inode (`dev`+`ino`). Real path alone catches a symlink or the same
@@ -163,6 +171,18 @@ parsing loosely); the rest of the line is free text and may change. After a blan
 `# Build census` follows — this is only this report's section title, not something any
 other tool parses; do not confuse the two when changing either one.
 
+**`leadLastMessageAt`, the one currency field (T1/C2 fix round, MAJOR C2):** the same
+header line also carries `leadLastMessageAt: <ISO timestamp or 'unknown'>` — the census's
+own window-end timestamp (same value as `lead.windowEndAt` in the JSON), and the ONLY
+timestamp `work-record.mjs`'s `census-stale` check ever reads. It is never inferred from
+"the latest ISO-8601 timestamp anywhere in the report" — a `--role-map` label, a file
+path, or any other free text in the report can contain a string that *looks* like a
+timestamp (a role literally named `review-2026-09-26T00:00:00Z`, for instance) without
+being one; scanning the whole report for any ISO-looking substring lets exactly that kind
+of text rescue a genuinely stale census. `checkAcceptance` parses only this one named
+field; a report missing it, or carrying an unparsable value, fails closed as
+`census-stale` rather than treating an unknown as an agreeing one.
+
 ### Report sections
 
 `VERDICT: COUNTED <n> lead requests (leadTurns <k>), <m> subagent files` (first line —
@@ -206,7 +226,12 @@ file never re-parses a record. Per work id:
 
 - **opened / first owned / first delivered / first reviewed / first accepted** —
   `Opened:` field, and the earliest `Log:` line of each of the other four statuses, in
-  file order.
+  file order. **`Opened:` is set once, when the lead starts the build** (the ask/spec
+  dispatch time), never at accept time or any other later moment — a record whose
+  `Opened:` is minutes before its own acceptance makes the wall-clock measurement
+  meaningless (T1/C2 fix round item 4: it does not measure the build, only the tail end
+  of its review). When the true start time is not known, leave `Opened:` unset rather
+  than inventing one.
 - **rounds** — the `Rounds:` field when present, else a count of `owned` -> `delivered`
   transitions, file order — not adjacency: an intervening line of some other status (an
   interim `reviewed` note, a `rejected` verdict) between an `owned` and its eventual
