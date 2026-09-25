@@ -863,3 +863,40 @@ test('a genuinely MISSING default subagents dir (ENOENT) is still silent — nev
   const text = formatText(report);
   assert.ok(!/UNREADABLE|INCOMPLETE/.test(text), 'a merely-absent default dir must never render as a finding');
 });
+
+// The Workflow root (<session>/subagents/workflows/) is the third discovery boundary
+// the packet named (build-census.mjs buildDirSpecs): an EACCES listing it must be
+// INCOMPLETE too, never the silent "no Workflow runs" it used to be.
+test('an unreadable (EACCES) default workflows/ root is visibly UNREADABLE/INCOMPLETE, never a silent zero', async () => {
+  const dir = mkTmp('build-census-workflows-eacces-');
+  const leadPath = path.join(dir, 'wf.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'p', ts: '2026-09-25T00:00:00.000Z', usageOpts: { output: 1 } })]);
+  const workflowsDir = path.join(dir, 'wf', 'subagents', 'workflows');
+  writeJsonl(path.join(workflowsDir, 'run1', 'agent-w1.jsonl'), [asstLine({ requestId: 'w', ts: '2026-09-25T00:01:00.000Z', usageOpts: { output: 9 } })]);
+
+  const normal = await runCensus({ lead: leadPath, tasksDirs: [] });
+  assert.equal(normal.subagents.fileCount, 1);
+  assert.equal(normal.subagents.incomplete, false);
+
+  const real = fs;
+  const deniedFsImpl = {
+    readdirSync: (p, ...rest) => {
+      if (path.resolve(p) === path.resolve(workflowsDir)) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+      return real.readdirSync(p, ...rest);
+    },
+    statSync: (...a) => real.statSync(...a),
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+    readFileSync: (...a) => real.readFileSync(...a),
+    realpathSync: (...a) => real.realpathSync(...a),
+  };
+  const denied = await runCensus({ lead: leadPath, tasksDirs: [] }, deniedFsImpl);
+  assert.equal(denied.subagents.fileCount, 0);
+  assert.deepEqual(denied.subagents.unreadableDirs, [workflowsDir]);
+  assert.equal(denied.subagents.incomplete, true);
+  const text = formatText(denied);
+  assert.ok(/UNREADABLE/.test(text.split('\n')[0]), text.split('\n')[0]);
+  assert.ok(text.split('\n').some((l) => /^- INCOMPLETE:/.test(l)), 'the Summary must carry the INCOMPLETE bullet accept --census refuses on');
+});
