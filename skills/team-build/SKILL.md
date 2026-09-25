@@ -69,7 +69,10 @@ mention says where to find it once mirrored.
    (`docs/work-record.md`, shipped next to this skill as `../_docs/work-record.md` when
    mirrored, and in the plugin repo's `docs/` otherwise, has the full field list): `Status:
    runnable`, `Owner: none`, `Scope:` the spec or brief path and the commit it was read at,
-   `Authority:` what may happen without Ben and what may not. **You are this record's ONLY
+   `Authority:` what may happen without Ben and what may not. Set `Opened:` to when YOU
+   start the build (the ask/spec dispatch time), never later and never at accept time — a
+   record whose `Opened:` sits minutes before its own acceptance measures nothing but the
+   tail end of review, not the build (`docs/census.md`). **You are this record's ONLY
    writer, for its whole life** — builders and reviewers keep their own state file and
    report to the path in their mandate; neither one ever touches `docs/work/`. Ownership
    returns to you, recorded as a `Log:` line, the moment an agent reports, is stopped, or
@@ -240,10 +243,13 @@ strict acceptance. Then, to move the record to `accepted`, run:
 ```
 node <verified-plugin-root>/scripts/work-record.mjs accept \
   --record <repo-relative-record> --repo <target-root> \
-  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
+  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>) \
+  (--census <census-file> | --no-census "<reason>")
 ```
 
-`accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
+Run the census at accept time, as its own command after the last review's `Log: ... reviewed` line is on the record: `node <verified-plugin-root>/scripts/build-census.mjs --lead <lead-session>.jsonl --marker "<text first seen in this build's opening message>" [--role-map '{"agent-<seam-id>":"seam"}'] --out <census.md>` (the lead's `subagents/` and `subagents/workflows/*/` dirs are read by default; `--marker` scopes a lead pane that spans several builds to this one; pass the `.md`, not `--json`), then `accept --census <census.md>`; a genuinely broken census still
+accepts via `--no-census "<reason>"`, visibly unmeasured rather than silently blocked — see
+`docs/census.md`. `accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
 same strict check `check-acceptance` runs (identity, evidence, and a live `git rev-parse
 HEAD` against `Worktree:`, never a value an agent merely reports) and refuses, unchanged,
 if that check fails; there is no flag or older command that skips it. Only on success
