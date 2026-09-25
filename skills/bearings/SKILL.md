@@ -53,4 +53,21 @@ node <bearings-skill>/scripts/bearings-state.mjs complete --repo <project-root> 
 
 Use `check --repo <project-root>` to inspect whether the same goal has a matching completion less than 24 hours old. The receipt verifies the current goal and local evidence digests; it records the caller's attestation that the assessment, lead accounting, and publication occurred. It does not mechanically prove their contents. `PENDING` publication cannot be recorded as completion. A changed Release or KILL condition requires an explicit new bearings workflow invocation and cited assessment evidence; no hook watches HEAD or automatically detects release state.
 
-Claude Code can show a bounded due/unknown advisory on SessionStart and its existing PostToolBatch route. Codex cadence is explicitly unsupported until a verified host integration can identify child work and invoke this same callable check. Neither host runs an assessment while idle, schedules work, or treats a notice as completion.
+Claude Code can show a bounded due/unknown advisory on SessionStart and its existing
+PostToolBatch route. When SessionStart native metadata is available and positively
+classifies a Codex session as a lead, Codex adds the shared goal card and due/unknown
+advisory at SessionStart and each UserPromptSubmit; SessionStart can also show the
+one-line advisory in the pane. This deliberately spends roughly 1,200 bytes of card
+context plus a bounded advisory on each eligible prompt, with no fired/tally cadence
+state. A missing card is silent. A rejected card produces its existing rejection notice
+at an eligible SessionStart; it is not a once-per-all-resumes guarantee.
+
+Confirmed Codex children receive none of these new goal or bearings effects. Unknown
+native identity keeps only its existing inbox/continuation behavior, so child-work
+detection remains incomplete. Codex has no goal-card or bearings cadence on
+PostToolUse, Stop, or Interrupt; Claude retains its own existing cadence. A receipt is
+per checkout, so a separate builder worktree can independently be due. A notice is only
+an advisory: it neither authorizes an out-of-scope assessment nor treats an assessment
+as complete. The shared notice names `/delegation:bearings`; whether that slash form
+invokes on a particular Codex installation requires separate host verification. Neither
+host runs an assessment while idle or schedules work.
