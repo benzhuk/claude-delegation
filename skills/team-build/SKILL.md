@@ -319,9 +319,11 @@ twice. Static contract, tests, and pinned agent-type/model pairs:
 **Launch turn**: have ready — the spec pack on disk (spec, pinned contracts, territory
 map, Setup step 1), your lead session id (the hook's `Host: claude; session: <uuid>`
 context line, resolving to `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`), and `startedAt`
-(an ISO timestamp; the script has no clock). Open ONE work record for the whole build
-(`recordPath`; Setup step 7's fields, not one per territory). Then make ONE Workflow
-call, `{scriptPath: "skills/team-build/references/build-loop-workflow.js"}`, with `args`
+(an ISO timestamp; the script has no clock). Cut the integration worktree/branch from
+`baseSha` and open ONE work record for the whole build inside it (`recordPath`,
+repo-relative to `integrationWorktree`; Setup step 7's fields, not one per territory).
+Then make ONE Workflow call, `{scriptPath:
+"skills/team-build/references/build-loop-workflow.js"}`, with `args`
 `{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, gate?, briefPath?,
 worktree?, branch?, startFrom? }], reviewerBriefPath?, integratorBriefPath?,
 integrationWorktree?, integrationBranch?, integrationGate?, worktreeRoot?, leadSession?,
@@ -338,21 +340,25 @@ accept-prep census-and-check run inside that one call, which returns once, at th
 `{ territories, integrator, seam, acceptance, setup, blockers }` — `territories` one row
 each (`id`, `sha`, `verdict`, `rounds`, `reportPath`, `findingsPath`, `blocker`: `null` on
 a normal end, else `agent-died`, `builder-blocked`, `build-failed`,
-`review-sha-mismatch`, `review-not-approved`, `rounds-exhausted` or `setup-failed`;
-launch errors come back as id `*` `missing-args`/`mixed-territory-modes`, seam failures
-as id `seam`); `setup` is the setup stage's report and brief paths, or `null`;
+`review-sha-mismatch`, `review-not-approved` or `rounds-exhausted`; launch errors come
+back only in `blockers`, as id `*` `missing-args`/`mixed-territory-modes` or as
+`setup-failed`, with no rows; seam failures as id `seam`); `setup` is the setup stage's
+report and brief paths, or `null`;
 `seam`/`acceptance` are `null` only when no `integrationWorktree` was given; `blockers`
 is the same failures flattened to `[{ id, reason }]`.
 
 **Accept turn**: read the return. Accept only when `blockers` is empty (every territory
 `APPROVE`, seam `APPROVE` or `SKIPPED`) AND `acceptance.checkAcceptance.verdict` is
-`PASS`: run `work-record.mjs accept --record <recordPath> --repo <integrationWorktree>
---delivery-ref <integrationBranch> --census <acceptance.censusPath>` (or `--no-census
-"<acceptance.censusNote>"` when `censusPath` is `null`) and send ONE RESULT. Otherwise
-exactly one of these decides the one next step: a `blockers` entry (a territory id,
-`seam`, or `*` for a launch error), `acceptance.skipped`, or `checkAcceptance.output` on
-`FAIL`; `acceptance: null` means this call ran without `integrationWorktree`, so seam and
-acceptance are still yours to run by hand.
+`PASS`: re-run the census now (Ship's `build-census.mjs` command, `--out
+<integrationWorktree>/docs/work/evidence/<work-id>-census.md`) — accept-prep's
+`acceptance.censusPath` predates its own `Log: ... reviewed` line, so `accept` refuses it
+as `census-stale` — then run `work-record.mjs accept --record <recordPath> --repo
+<integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
+(`--no-census "<reason>"` only when the census itself breaks) and send ONE RESULT.
+Otherwise the first of these that applies decides the one next step: a `blockers` entry
+(a territory id, `seam`, or `*` for a launch error), `acceptance.skipped`, or
+`checkAcceptance.output` on `FAIL`; `acceptance: null` with no blockers means this call
+ran without `integrationWorktree`, so seam and acceptance are still yours to run by hand.
 
 Inside the loop the accept-prep runner is the one sanctioned second writer to the
 record: exactly `Status: reviewed`, `Artifact:`, `Worktree:`, `Evidence:` (the copied
@@ -365,8 +371,9 @@ RESULT, BLOCKED. **One-notification rule**: fix rounds, re-reviews, the seam rev
 integration and the census all run inside the one Workflow call, so the lead gets one
 notification for the whole build. **Census-at-accept rule**: run a fresh census after the
 last review lands, over the lead's own session file plus its subagents dirs, and pass it
-at accept (in the loop, accept-prep already ran it: that is `acceptance.censusPath`);
-when the record supports `--four-read`, pass `--four-read` at accept too.
+at accept (in the loop too: accept-prep's `acceptance.censusPath` ran before its own
+`Log: reviewed` line, so it is not that census); when the record supports `--four-read`,
+pass `--four-read` at accept too.
 
 **Resuming a territory (`startFrom`)**: pick up a territory a prior run left mid-loop
 without rebuilding approved work by passing its `startFrom: { sha, verdict,
