@@ -117,6 +117,7 @@ test('runCensus detects a verified Codex session and sums response-local usage w
   assert.ok(text.includes('- leadHost: codex'));
   assert.ok(text.includes('- leadTurnsLimit: unsupported'));
   assert.ok(text.includes('- nativeTurnCount: 2 (native turn ids; not leadTurns)'));
+  assert.ok(text.includes('- codexSubagents: unsupported'));
 });
 
 test('Codex marker scopes per-response usage and native turn ids without inventing a build id', async () => {
@@ -136,6 +137,42 @@ test('Codex attribution failures throw instead of becoming a zero-token census',
     { type: 'token_usage_record', payload: { session_id: 'wrong', response_id: 'r', turn_id: 't', usage: { input_tokens: 1, output_tokens: 1 } } },
   ]);
   await assert.rejects(() => runCensus({ lead: bad, tasksDirs: [], marker: null, out: null }), /lacks verified session/);
+});
+
+test('a verified Codex session without per-response usage is explicitly unsupported, never COUNTED 0', async () => {
+  const dir = mkTmp('build-census-codex-no-usage-');
+  const lead = path.join(dir, 'codex.jsonl');
+  writeJsonl(lead, [
+    { type: 'session_meta', payload: { id: 'codex-empty', session_id: 'codex-empty' } },
+    { type: 'event_msg', payload: { type: 'token_count' } },
+  ]);
+  const report = await runCensus({ lead, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.lead.host, 'codex');
+  assert.equal(report.lead.tokensSupported, false);
+  const text = formatText(report);
+  assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex lead usage'));
+  assert.ok(text.includes('- leadTokens: unsupported (no token_usage_record rows with per-response usage)'));
+});
+
+test('a truncated Codex stream with a token record before metadata fails visibly instead of falling through to Claude', async () => {
+  const dir = mkTmp('build-census-codex-truncated-');
+  const lead = path.join(dir, 'truncated.jsonl');
+  writeJsonl(lead, [
+    { type: 'event_msg', payload: { type: 'token_count' } },
+    { type: 'token_usage_record', payload: { session_id: 'missing-meta', response_id: 'r', turn_id: 't', usage: { input_tokens: 1, output_tokens: 1 } } },
+  ]);
+  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /lacks verified session|session_meta was not found/);
+});
+
+test('Codex usage rejects missing objects and negative counters instead of coercing them to zero', async () => {
+  const dir = mkTmp('build-census-codex-invalid-usage-');
+  const meta = { type: 'session_meta', payload: { id: 'codex-invalid', session_id: 'codex-invalid' } };
+  const invalids = [null, { input_tokens: 1, output_tokens: -1 }, { input_tokens: 1, cached_input_tokens: -1, output_tokens: 1 }];
+  for (let i = 0; i < invalids.length; i++) {
+    const lead = path.join(dir, `invalid-${i}.jsonl`);
+    writeJsonl(lead, [meta, { type: 'token_usage_record', payload: { session_id: 'codex-invalid', response_id: `r${i}`, turn_id: 't', usage: invalids[i] } }]);
+    await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /invalid|lacks a valid/);
+  }
 });
 
 // ── de-duplication: the fixture that proves the fix ────────────────────────

@@ -29,6 +29,9 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   reported as `unknown` when the transcript does not carry a model field. Its native turn
   ids are reported separately; `leadTurns` remains explicitly unsupported unless the
   transcript establishes the same assistant/user conversational ordering defined below.
+  Native Codex child-transcript discovery is also unsupported: the combined and role
+  totals do not represent Codex child usage unless transcript paths are independently
+  supplied through `--tasks`.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each
