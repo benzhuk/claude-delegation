@@ -614,21 +614,46 @@ export function extractCensusSummary(text) {
   return summary;
 }
 
-// The census's own currency signal: the LATEST ISO-8601 timestamp appearing anywhere in
-// its text stands in for "the census file's lead session mtime or last message
-// timestamp" (spec.md C2 item 2) - whichever the script actually prints (a window-end
-// bound today; a dedicated field if C1 adds one), the newest one found is the most
-// recent evidence of when the underlying transcript data was current. Returns epoch ms,
-// or null when no timestamp can be found at all - census-stale then fails closed rather
-// than treating an unknown as an agreeing one.
+// The census's own currency signal (T1/C2 fix round, MAJOR C2 - rewritten from scratch):
+// reads ONLY the `leadLastMessageAt: <ISO>` field build-census.mjs writes on its own
+// header (first) line - never any other ISO-8601-looking substring anywhere else in the
+// report. The earlier version scanned the WHOLE text for the latest ISO timestamp it
+// could find, which let ANY free text carrying an ISO-looking string rescue a stale
+// census - independently reproduced with a --role-map label literally named
+// `review-2026-09-26T00:00:00Z` (a role name, not an event time): the label's embedded
+// date was picked up as "the census timestamp" and a genuinely stale census passed
+// acceptance. A role label, a file path, or any other annotation must never be read as
+// this field - "spec.md C2 item 2" requires the lead session's own mtime/last-message
+// time, and only this one named field stands in for it. Returns epoch ms, or null when
+// the field is missing or unparsable anywhere in the text - census-stale then fails
+// closed on that null rather than treating an unknown as an agreeing one.
+const LEAD_LAST_MESSAGE_AT_RE = /\bleadLastMessageAt:\s*(\S+)/;
+
 export function extractCensusTimestamp(text) {
-  const matches = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g) || [];
-  let latest = null;
-  for (const m of matches) {
-    const t = Date.parse(m);
-    if (!Number.isNaN(t) && (latest === null || t > latest)) latest = t;
-  }
-  return latest;
+  // Deliberately restricted to the FIRST LINE ONLY (the header line
+  // build-census.mjs writes the field on) - never scanned across the whole report, so no
+  // amount of adversarial free text elsewhere (a role name, a file path, a table cell)
+  // can ever be mistaken for this field.
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const match = LEAD_LAST_MESSAGE_AT_RE.exec(firstLine);
+  if (!match) return null;
+  const t = Date.parse(match[1]);
+  return Number.isNaN(t) ? null : t;
+}
+
+// INCOMPLETE means the census ran but a default subagent directory (or an individual
+// subagent file) could not be read - the report's totals are missing an unknown amount,
+// not a real, quoted-safe zero (build-census.mjs's own INCOMPLETE idiom, docs/census.md).
+// `accept --census` must refuse such a census outright rather than copying partial
+// totals into the record as if they were whole ones - `--no-census "<reason>"` remains
+// the one explicit, visible way past a broken census. Read from the recognised census's
+// Summary section only (an `- INCOMPLETE: ...` bullet - the one line
+// `extractCensusSummary` already carries into the record's own `Census:` lines), never
+// from arbitrary prose that happens to contain the word.
+const INCOMPLETE_SUMMARY_RE = /^-\s*INCOMPLETE:/i;
+
+export function isIncompleteCensus(summary) {
+  return summary.some((line) => INCOMPLETE_SUMMARY_RE.test(line));
 }
 
 // The record's own currency signal: the latest `Log: ... reviewed ...` entry's `at`,
@@ -671,9 +696,10 @@ function readCensusSource(censusPath, fsImpl) {
   }
 }
 
-// opts: { censusPath, fsImpl } -> { text, summary, timestamp }. Throws census-missing
-// (not a generic parse error) when the file doesn't begin with the recognised header -
-// "a file lacking the header is refused, not parsed loosely" (reviewer attack brief).
+// opts: { censusPath, fsImpl } -> { text, summary, timestamp, incomplete }. Throws
+// census-missing (not a generic parse error) when the file doesn't begin with the
+// recognised header - "a file lacking the header is refused, not parsed loosely"
+// (reviewer attack brief).
 function loadCensus(censusPath, fsImpl) {
   const text = readCensusSource(censusPath, fsImpl);
   if (!isCensusFile(text)) {
@@ -682,7 +708,8 @@ function loadCensus(censusPath, fsImpl) {
       "census-missing",
     );
   }
-  return { text, summary: extractCensusSummary(text), timestamp: extractCensusTimestamp(text) };
+  const summary = extractCensusSummary(text);
+  return { text, summary, timestamp: extractCensusTimestamp(text), incomplete: isIncompleteCensus(summary) };
 }
 
 /**
@@ -731,6 +758,17 @@ export function checkAcceptance(opts = {}) {
   if (opts.censusPath !== undefined) {
     const census = loadCensus(opts.censusPath, fsImpl);
     censusText = census.text;
+    // census-incomplete (T1/C2 fix round, item 1's other half): a census that ran but
+    // could not enumerate a default subagent directory (or read a subagent file) is
+    // visibly INCOMPLETE, never a confident-looking partial total. accept --census
+    // refuses it outright, exactly like census-missing/census-stale - --no-census
+    // "<reason>" remains the one explicit, visible escape past a broken census.
+    if (census.incomplete) {
+      throw acceptanceError(
+        `census-incomplete: the census file reports itself INCOMPLETE (a subagent file or default directory could not be read) - use --no-census "<reason>" to accept visibly unmeasured instead: ${opts.censusPath}`,
+        "census-incomplete",
+      );
+    }
     const reviewedAt = lastReviewLogAt(record);
     const reviewedMs = reviewedAt === null ? NaN : Date.parse(reviewedAt);
     // Fails closed on EITHER side being unknown - a record with no Log: reviewed entry,
