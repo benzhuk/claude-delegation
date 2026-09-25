@@ -113,7 +113,8 @@ test('lead, missing metadata, corrupt metadata, and mismatched metadata preserve
     if (content !== null) input.transcript_path = transcript(home, content);
     let reads = 0;
     const out = await runCodexHook(input, {
-      home, env: { NOTE_SLUG: 'lead', CODEX_HOME: '/codex-home' }, now: NOW,
+      home, env: { NOTE_SLUG: 'lead', CODEX_HOME: '/codex-home', AGENTS_HOME: path.join(home, '.agents') }, now: NOW,
+      continuationDeps: { env: { AGENTS_HOME: path.join(home, '.agents') } },
       inbox: async () => { reads += 1; return notes(); },
     });
     assert.equal(reads, 1, name);
@@ -279,4 +280,19 @@ test('a rejecting or stalled advisory never erases peer delivery', async (t) => 
     });
     peerPreserved(out);
   }
+});
+
+test('an injected scratch AGENTS_HOME beats an ambient one carrying ws-off', async (t) => {
+  const home = tmp(); const root = project(); const ambient = tmp();
+  t.after(() => { for (const d of [home, root, ambient]) fs.rmSync(d, { recursive: true, force: true }); });
+  fs.writeFileSync(path.join(ambient, 'ws-off'), '');
+  const prior = process.env.AGENTS_HOME;
+  process.env.AGENTS_HOME = ambient;
+  t.after(() => { if (prior === undefined) delete process.env.AGENTS_HOME; else process.env.AGENTS_HOME = prior; });
+  const file = transcript(home, metadata({ id: LEAD, sessionId: LEAD, source: 'cli' }));
+  const out = await runCodexHook(
+    { hook_event_name: 'SessionStart', session_id: LEAD, transcript_path: file, cwd: root },
+    { home, env: { AGENTS_HOME: path.join(home, '.agents') } },
+  );
+  assert.match(contextOf(out), /GOAL: Ship the parity hook/);
 });
