@@ -85,11 +85,16 @@ function buildPrompt(t, round, findingsPath) {
   return `Build territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. ${BUILD_MANDATE}`
 }
 
+// Never hands the reviewer the delivered sha to echo back (T1, loop-gates spec item 3):
+// the reviewer's own `sha` field must come from running `git rev-parse HEAD` in the named
+// worktree itself, then the workflow's own equality check (review.sha !== build.sha,
+// below) compares that independently-computed value to what the builder reported -
+// never a value read out of this prompt's text.
 function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath) {
-  let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Delivered sha: ${build.sha}. Builder report: ${build.reportPath}. ${REVIEW_MANDATE}`
+  let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Worktree: ${t.worktree}. Builder report: ${build.reportPath}. Run \`git rev-parse HEAD\` in the worktree yourself and report that value as your sha field; never take a delivered sha on faith or echo one handed to you. ${REVIEW_MANDATE}`
   if (round >= 2 && priorBuildSha) {
     if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
-    p += ` Commit range: ${priorBuildSha}..${build.sha}.`
+    p += ` Commit range: ${priorBuildSha}..HEAD (run this in the worktree).`
   }
   return p
 }

@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"];
 export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority", "artifact", "evidence", "next", "opened"];
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class"];
+// "worktree" (T1, loop-gates spec item 2): the git worktree or branch path that produced
+// Artifact:. Optional for validateRecord/parseRecord (an old record without it still
+// parses cleanly) but checkAcceptance requires it - see the sha-not-in-git check below.
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -21,7 +24,7 @@ const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
-  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"],
+  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log"]);
@@ -329,9 +332,9 @@ const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLow
 const DECIDING_VERDICTS = new Set(["APPROVE", "NEEDS_FIXES", "FAIL", "REJECTED"]);
 const VERDICT_RE = /^VERDICT:[ \t]*(APPROVE|NEEDS_FIXES|FAIL|REJECTED)(?:[ \t]+(?:—[ \t]+)?([0-9a-fA-F]{4,64}))?[ \t]*$/;
 
-function acceptanceError(message) {
+function acceptanceError(message, code = "acceptance-failed") {
   const error = new Error(message);
-  error.code = "acceptance-failed";
+  error.code = code;
   return error;
 }
 
@@ -501,6 +504,41 @@ export function checkAcceptance(opts = {}) {
     throw acceptanceError(`Artifact ${artifact} does not match delivery ${delivery}`);
   }
 
+  // sha-not-in-git (T1, loop-gates spec item 2): the record must independently name the
+  // git worktree or branch that produced Artifact: (Worktree:), and that path's live HEAD
+  // must be a real, git-resolvable commit - never trusted from a caller-supplied ref
+  // alone, and never a self-reported agent value. An old record with no Worktree: field
+  // fails closed here instead of silently passing acceptance.
+  const worktreeField = record.fields.worktree;
+  if (!worktreeField) {
+    throw acceptanceError(
+      "Worktree: field is required (the git worktree or branch this artifact came from); none is present",
+      "sha-not-in-git",
+    );
+  }
+  const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(repoRoot, worktreeField);
+  const worktreeResult = spawnImpl("git", ["-C", worktreeTarget, "rev-parse", "--verify", "HEAD^{commit}"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if (worktreeResult.error || worktreeResult.status !== 0 || String(worktreeResult.stderr ?? "").trim()) {
+    throw acceptanceError(`sha-not-in-git: could not resolve HEAD in Worktree: ${worktreeField}`, "sha-not-in-git");
+  }
+  const worktreeHead = String(worktreeResult.stdout ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/i.test(worktreeHead)) {
+    throw acceptanceError(`sha-not-in-git: Worktree: ${worktreeField} did not resolve to a commit`, "sha-not-in-git");
+  }
+  // Freshness (the worktree's live HEAD really is the delivered sha) is only meaningful in
+  // live-delivery mode: pinned mode deliberately targets a fixed, possibly-historical
+  // artifact ("a source artifact may differ from the merge head", SKILL.md), so a worktree
+  // that has since moved on is not itself a finding there - only an unresolvable one is.
+  if (opts.deliveryRef !== undefined && worktreeHead !== artifact) {
+    throw acceptanceError(
+      `sha-not-in-git: Worktree: ${worktreeField} HEAD (${worktreeHead}) does not match delivery ${artifact}`,
+      "sha-not-in-git",
+    );
+  }
+
   let approved = false;
   const blockers = [];
   for (const evidencePath of record.fields.evidence) {
@@ -526,9 +564,46 @@ export function checkAcceptance(opts = {}) {
   return { ok: true, work: record.fields.work, artifact, delivery };
 }
 
+/**
+ * Accept path (T1, loop-gates spec item 1): the ONLY code-mediated way a record's Status:
+ * moves to `accepted`. Always runs checkAcceptance first, with the exact opts it was
+ * given - a failing check throws before anything on disk is touched, so there is no
+ * argument, flag, or alternate route here that can transition a record checkAcceptance
+ * would refuse. `check-acceptance` itself stays read-only, unchanged, for manual use;
+ * this is a separate, additive entry point, not a replacement.
+ * opts: same as checkAcceptance, plus optional { now }.
+ */
+export function acceptRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+  const result = checkAcceptance(opts); // fails closed: throws before any write below
+
+  const repoRoot = path.resolve(opts.repoRoot);
+  const repoReal = fsImpl.realpathSync(repoRoot);
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})reviewed([ \t]*)$/mi;
+  if (!statusRe.test(text)) {
+    throw acceptanceError("could not find a Status: reviewed header line to accept");
+  }
+  const record = parseRecord(text);
+  const at = (opts.now ?? new Date()).toISOString();
+  const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
+
+  const lines = text.split(/\r?\n/);
+  const blankIdx = lines.findIndex((line) => line.trim() === "");
+  const insertAt = blankIdx === -1 ? lines.length : blankIdx;
+  lines.splice(insertAt, 0, logLine);
+  const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}accepted${post}`);
+
+  const absPath = path.resolve(repoRoot, opts.recordPath);
+  fsImpl.writeFileSync(absPath, updated);
+  return { ...result, path: absPath };
+}
+
 export function parseAcceptanceArgs(argv) {
-  if (argv[0] !== "check-acceptance") throw acceptanceError("expected command: check-acceptance");
-  const opts = {};
+  if (argv[0] !== "check-acceptance" && argv[0] !== "accept") {
+    throw acceptanceError("expected command: check-acceptance or accept");
+  }
+  const opts = { command: argv[0] };
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
@@ -543,7 +618,8 @@ export function parseAcceptanceArgs(argv) {
 
 export function acceptanceMain(argv = process.argv.slice(2), io = process) {
   try {
-    const result = checkAcceptance(parseAcceptanceArgs(argv));
+    const { command, ...opts } = parseAcceptanceArgs(argv);
+    const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);
     io.stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {

@@ -226,27 +226,35 @@ orchestrator, or one that is woken, is shown its next runnable record by reading
 directory, never by asking you to recall it.
 
 For a Git-backed team build, after authorized integration and successful integration
-gates, record the integration head and gate in existing `Log:`/`Evidence:` fields. Put
-new `Log:` lines before the first blank line and parse the result to verify they remain
-header lines. In the body, record an unindented top-level `Observed:` paragraph at body
-start, after a blank line, or immediately after an unindented `Predicts:` line; indented,
-quoted, fenced, or list-contained examples do not satisfy strict acceptance. Then,
-immediately before the owner marks the record `accepted`, run:
+gates, record the integration head and gate in existing `Log:`/`Evidence:` fields, and set
+`Worktree:` to the repo-relative path or branch that produced `Artifact:` (required for
+acceptance; an old record with no `Worktree:` fails the check below closed, never
+silently). Put new `Log:` lines before the first blank line and parse the result to verify
+they remain header lines. In the body, record an unindented top-level `Observed:`
+paragraph at body start, after a blank line, or immediately after an unindented
+`Predicts:` line; indented, quoted, fenced, or list-contained examples do not satisfy
+strict acceptance. Then, to move the record to `accepted`, run:
 
 ```
-node <verified-plugin-root>/scripts/work-record.mjs check-acceptance \
+node <verified-plugin-root>/scripts/work-record.mjs accept \
   --record <repo-relative-record> --repo <target-root> \
   (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
 ```
 
-Use live mode for a branch/ref being delivered and pinned mode only when the caller
-deliberately selected a fixed artifact. Any intervening artifact, record, or report
-change requires a fresh check. The command is read-only and proves local review identity;
-the owner remains responsible for integration, authority, installed behavior, and goal
-satisfaction. A source artifact may differ from the merge head: unchanged reviewed source
-does not need ceremonial re-review, while integration changes or conflict resolutions do.
-Non-code outcomes keep their attributable evidence and owner judgment without inventing a
-Git commit for this Git-specific check.
+`accept` is the only code path that moves `Status:` to `accepted` — it runs the same
+strict check `check-acceptance` runs (identity, evidence, and a live `git rev-parse HEAD`
+against `Worktree:`, never a value an agent merely reports) and refuses, unchanged, if
+that check fails; there is no flag or older command that skips it. Only on success does it
+flip `Status: reviewed` to `Status: accepted` and append the `Log:` line itself. Use live
+mode for a branch/ref being delivered and pinned mode only when the caller deliberately
+selected a fixed artifact. Any intervening artifact, record, or report change requires a
+fresh check. The owner remains responsible for integration, authority, installed
+behavior, and goal satisfaction. A source artifact may differ from the merge head:
+unchanged reviewed source does not need ceremonial re-review, while integration changes or
+conflict resolutions do. Non-code outcomes keep their attributable evidence and owner
+judgment without inventing a Git commit for this Git-specific check. `check-acceptance`
+itself is unchanged and stays available read-only, for a dry run before `accept` or for
+manual proof outside the accept moment.
 
 Once every territory is `reviewed` and the integrator's gates are green — before the merge
 ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
