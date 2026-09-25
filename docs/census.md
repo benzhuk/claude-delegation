@@ -22,7 +22,13 @@ run it twice and the two outputs must be byte-identical):
 node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --tasks scripts/build-census.fixtures/tasks
 ```
 
-- `--lead` — one Claude Code lead session transcript (`.jsonl`). Required.
+- `--lead` — one Claude Code or Codex lead session transcript (`.jsonl`). Required.
+  Codex is detected from a verified `session_meta` record: the census counts only
+  deduplicated `token_usage_record.payload.usage` values whose session id matches that
+  metadata record, never its cumulative turn/thread counters. Codex model attribution is
+  reported as `unknown` when the transcript does not carry a model field. Its native turn
+  ids are reported separately; `leadTurns` remains explicitly unsupported unless the
+  transcript establishes the same assistant/user conversational ordering defined below.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each

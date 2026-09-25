@@ -30,6 +30,7 @@ const FIXTURES_LEAD_MULTI = path.join(HERE, 'build-census.fixtures', 'lead-multi
 const FIXTURES_LEAD_MULTI_DEFAULT_DIR = path.join(HERE, 'build-census.fixtures', 'lead-multi', 'subagents');
 const FIXTURES_WORKFLOW_TASKS = path.join(HERE, 'build-census.fixtures', 'workflow-tasks');
 const FIXTURES_LEAD_WORKFLOW = path.join(HERE, 'build-census.fixtures', 'lead-workflow.jsonl');
+const FIXTURES_CODEX_LEAD = path.join(HERE, 'build-census.fixtures', 'codex-lead.jsonl');
 
 const tracked = [];
 function mkTmp(prefix) {
@@ -99,6 +100,42 @@ test('parseArgs: a trailing flag with no value throws instead of silently swallo
   assert.throws(() => parseArgs(['--lead', 'a', '--json']), /--json needs a value/);
   assert.throws(() => parseArgs(['--lead', 'a', '--role-map']), /--role-map needs a value/);
   assert.throws(() => parseArgs(['--lead', 'a', '--tasks']), /--tasks needs a value/);
+});
+
+// ── Codex lead — per-response usage only, with explicit conversational-turn limit ──
+
+test('runCensus detects a verified Codex session and sums response-local usage without adding cumulative turn/thread snapshots', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.lead.host, 'codex');
+  assert.equal(report.lead.totalTurns, 3, 'unique response_id values are the Codex request count');
+  assert.equal(report.lead.leadTurns, null, 'native turn ids must not be relabeled as conversational leadTurns');
+  assert.equal(report.lead.nativeTurnCount, 2);
+  assert.deepEqual(report.lead.totalByModel, {
+    unknown: { input_tokens: 135, cache_creation_input_tokens: 10, cache_read_input_tokens: 25, output_tokens: 12 },
+  }, 'only payload.usage is response-local; cumulative turn/thread fields are ignored');
+  const text = formatText(report);
+  assert.ok(text.includes('- leadHost: codex'));
+  assert.ok(text.includes('- leadTurnsLimit: unsupported'));
+  assert.ok(text.includes('- nativeTurnCount: 2 (native turn ids; not leadTurns)'));
+});
+
+test('Codex marker scopes per-response usage and native turn ids without inventing a build id', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: 'CODEX-WINDOW', out: null });
+  assert.equal(report.lead.windowTurns, 1);
+  assert.equal(report.lead.nativeTurnCountWindow, 1);
+  assert.deepEqual(report.lead.windowByModel, {
+    unknown: { input_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 3 },
+  });
+});
+
+test('Codex attribution failures throw instead of becoming a zero-token census', async () => {
+  const dir = mkTmp('build-census-codex-bad-');
+  const bad = path.join(dir, 'bad.jsonl');
+  writeJsonl(bad, [
+    { type: 'session_meta', payload: { id: 'expected', session_id: 'expected' } },
+    { type: 'token_usage_record', payload: { session_id: 'wrong', response_id: 'r', turn_id: 't', usage: { input_tokens: 1, output_tokens: 1 } } },
+  ]);
+  await assert.rejects(() => runCensus({ lead: bad, tasksDirs: [], marker: null, out: null }), /lacks verified session/);
 });
 
 // ── de-duplication: the fixture that proves the fix ────────────────────────
