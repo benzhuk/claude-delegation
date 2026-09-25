@@ -47,6 +47,8 @@ and are not ordinary project setup commands.
    node scripts/mirror-shared-skills.mjs --codex-hooks-only
    ```
 
+   After every plugin update, rerun this step from the updated durable checkout, because the Codex hook runs the adapter at the path it was wired from.
+
 4. Start fresh Claude Code and Codex sessions so each host reloads its installed
    instructions and hooks. Verify `claude plugin list`, inspect the mirror command's
    recorded actions, and use the SessionStart wiring check. Finally verify a normal

@@ -60,10 +60,11 @@ claude plugin install delegation@benzhuk
   session's existing periodic reminder route. That notice never starts an assessment;
   automatic daily assessment triggering and idle assessment execution are not
   included. The separate decisions skill owns registered `Done` pickup. When native
-  native metadata on an event positively classifies a Codex session as a lead, it
+  metadata on an event positively classifies a Codex session as a lead, it
   receives the same card and due/unknown advisory at SessionStart and every eligible
   UserPromptSubmit; SessionStart does not persist a classification for later events.
-  Prompts without that classification or a usable card receive no new advisory. Confirmed children receive
+  Prompts without that classification or a usable card receive no new advisory.
+  Confirmed children receive
   neither new effect, and unknown identity retains only existing inbox/continuation
   behavior. Codex has no bearings cadence on PostToolUse, Stop, or Interrupt;
   installed-host proof, mixed-host validation, and live Goals preservation/readback
@@ -245,8 +246,8 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
-- 0.20.9 — Codex lead source parity: when native SessionStart metadata is available and
-  positively classifies a lead, it receives the shared goal card and due/unknown
+- 0.20.9 — Codex lead source parity: when native metadata on an event positively
+  classifies a lead, it receives the shared goal card and due/unknown
   bearings advisory at SessionStart and each UserPromptSubmit. This deliberate
   per-prompt tradeoff uses up to 1,200 bytes of card context plus a bounded advisory,
   with no fired/tally cadence state. Confirmed children receive no new card or bearings
