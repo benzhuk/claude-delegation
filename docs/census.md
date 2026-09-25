@@ -37,6 +37,8 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   report is `VERDICT: UNSUPPORTED`, with `leadTokens` unsupported for coverage and any
   `observedLeadTokens` separately labeled. `accept --census` refuses that report; use
   `--no-census` with the stated coverage, turn, and child-attribution limits.
+  The marker is a bounded substring match and does not itself prove a build boundary; the
+  live diagnostic's requested marker boundary was independently verified before use.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each

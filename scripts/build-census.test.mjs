@@ -111,7 +111,9 @@ test('runCensus detects a verified Codex session and sums response-local usage w
   assert.equal(report.lead.leadTurns, null, 'native turn ids must not be relabeled as conversational leadTurns');
   assert.equal(report.lead.observedNativeTurnCount, 2);
   assert.equal(report.lead.coverageSupported, false);
-  assert.deepEqual(report.lead.totalByModel, {
+  assert.equal(report.lead.totalByModel, null);
+  assert.equal(report.combined, null);
+  assert.deepEqual(report.lead.observedTotalByModel, {
     unknown: { input_tokens: 135, cache_creation_input_tokens: 10, cache_read_input_tokens: 25, output_tokens: 12 },
   }, 'only payload.usage is response-local; cumulative turn/thread fields are ignored');
   const text = formatText(report);
@@ -119,7 +121,7 @@ test('runCensus detects a verified Codex session and sums response-local usage w
   assert.ok(text.includes('- leadTurnsLimit: unsupported'));
   assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex complete census'));
   assert.ok(text.includes('- observedLeadTokens: 182 (verified deduplicated per-response usage; incomplete coverage)'));
-  assert.ok(text.includes('- observedNativeTurnCount: 2 (native turn ids; not leadTurns)'));
+  assert.ok(text.includes('- observedNativeTurnCountWindow: 2 (native turn ids; not leadTurns)'));
   assert.ok(text.includes('- codexSubagents: unsupported'));
 });
 
@@ -127,7 +129,8 @@ test('Codex marker scopes per-response usage and native turn ids without inventi
   const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: 'CODEX-WINDOW', out: null });
   assert.equal(report.lead.windowTurns, null);
   assert.equal(report.lead.observedNativeTurnCountWindow, 1);
-  assert.deepEqual(report.lead.windowByModel, {
+  assert.equal(report.lead.windowByModel, null);
+  assert.deepEqual(report.lead.observedWindowByModel, {
     unknown: { input_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 3 },
   });
 });
@@ -164,7 +167,7 @@ test('a verified Codex session without per-response usage is explicitly unsuppor
   assert.equal(report.lead.windowTurns, null);
   const text = formatText(report);
   assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex complete census'));
-  assert.ok(text.includes('- leadTokens: unsupported (no token_usage_record rows with per-response usage inside the marker window; complete coverage is not established)'));
+  assert.ok(text.includes('- leadTokens: unsupported (no token_usage_record rows with per-response usage; complete coverage is not established)'));
   assert.ok(!text.includes('### Lead tokens by model'), 'unsupported usage must not be followed by a zero-looking token table');
   assert.ok(!text.includes('### Subagent tokens') && !text.includes('## Combined split'), 'unsupported native child usage must not render role or combined-spend tables');
 });

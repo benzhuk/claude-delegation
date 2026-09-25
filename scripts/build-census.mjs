@@ -375,8 +375,10 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker } = {}
     nativeTurnCount: totalNativeTurns.size, nativeTurnCountWindow: windowNativeTurns.size,
     tokenRecordCount, windowTokenRecordCount,
     coverageSupported: false,
-    coverageReason: windowTokenRecordCount === 0
-      ? 'no token_usage_record rows with per-response usage inside the marker window; complete coverage is not established'
+    coverageReason: tokenRecordCount === 0
+      ? 'no token_usage_record rows with per-response usage; complete coverage is not established'
+      : windowTokenRecordCount === 0
+        ? 'no token_usage_record rows with per-response usage inside the marker window; complete coverage is not established'
       : 'complete per-build response coverage is not established',
   };
 }
@@ -740,8 +742,10 @@ export async function runCensus(opts, fsImpl = realFs()) {
       observedNativeTurnCountWindow: codex && lead.windowTokenRecordCount > 0 ? lead.nativeTurnCountWindow : null,
       coverageSupported: lead.coverageSupported ?? true,
       coverageReason: lead.coverageReason ?? null,
-      totalByModel: leadTotalByModel,
-      windowByModel: leadWindowByModel,
+      totalByModel: codex ? null : leadTotalByModel,
+      windowByModel: codex ? null : leadWindowByModel,
+      observedTotalByModel: codex ? leadTotalByModel : null,
+      observedWindowByModel: codex ? leadWindowByModel : null,
       markerFound: lead.markerFound,
       windowStartAt: lead.windowStartAt,
       windowEndAt: lead.lastAt,
@@ -761,7 +765,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       roleFileCounts,
       perFile,
     },
-    combined,
+    combined: codex ? null : combined,
     marker: opts.marker || null,
     leadPath: opts.lead,
     tasksPaths: [...(opts.tasksDirs || [])],
@@ -816,7 +820,7 @@ export function formatText(report) {
     md.push(`- observedLeadTokens: ${report.lead.observedLeadTokens ?? 'unknown'}${report.lead.observedLeadTokens === null ? '' : ' (verified deduplicated per-response usage; incomplete coverage)'}`);
     md.push(`- observedLeadRequests: ${report.lead.observedLeadRequests ?? 'unknown'} (not complete lead turns)`);
     md.push('- leadTurnsLimit: unsupported (Codex response records have no assistant/user role ordering)');
-    md.push(`- observedNativeTurnCount: ${report.lead.observedNativeTurnCountWindow ?? 'unknown'} (native turn ids; not leadTurns)`);
+    md.push(`- observedNativeTurnCountWindow: ${report.lead.observedNativeTurnCountWindow ?? 'unknown'} (native turn ids; not leadTurns)`);
     md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; Codex --tasks is rejected)');
   }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
@@ -873,12 +877,6 @@ export function formatText(report) {
   md.push('|---|---|---|---|---|');
   for (const m of Object.keys(report.lead.windowByModel).sort()) md.push(tokenRow(m, report.lead.windowByModel[m]));
   md.push('');
-  if (report.lead.host === 'codex') {
-    md.push('## Codex child usage');
-    md.push('');
-    md.push('Native Codex child transcript discovery and usage attribution are unsupported; no child, role, or combined-spend table is emitted.');
-    return md.join('\n');
-  }
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
   if (unreadDirs.length) md.push(`\n_INCOMPLETE: ${unreadDirs.length} default subagent director${unreadDirs.length === 1 ? 'y' : 'ies'} could not be enumerated; this census is incomplete by an unknown amount._`);
