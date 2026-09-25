@@ -45,7 +45,7 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   the common case (most lead sessions spawn no subagents, or spawn Task-tool subagents
   only) and contributes zero files without complaint. **Missing (`ENOENT`) is the only
   error this silence covers.** Any OTHER error enumerating a default dir — `EACCES`,
-  `EPERM`, a raced deletion mid-scan — means a real source exists but could not be
+  `EPERM`, `ENOTDIR`, `EMFILE` — means a real source exists but could not be
   listed; that dir is reported by path under `unreadableDirs`, and the whole census is
   marked `INCOMPLETE` in both the VERDICT line and the JSON's `subagents.incomplete`
   flag, exactly like an individual unreadable subagent FILE already was — a directory
@@ -220,8 +220,8 @@ file never re-parses a record. Per work id:
   dispatch time), never at accept time or any other later moment — a record whose
   `Opened:` is minutes before its own acceptance makes the wall-clock measurement
   meaningless (T1/C2 fix round item 4: it does not measure the build, only the tail end
-  of its review). When the true start time is not known, leave `Opened:` unset rather
-  than inventing one.
+  of its review). `Opened:` is required (`docs/work-record.md`); when the exact start is
+  uncertain, use the ask's or spec's dispatch time and never a time after it.
 - **rounds** — the `Rounds:` field when present, else a count of `owned` -> `delivered`
   transitions, file order — not adjacency: an intervening line of some other status (an
   interim `reviewed` note, a `rejected` verdict) between an `owned` and its eventual
