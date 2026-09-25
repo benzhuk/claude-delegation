@@ -12,7 +12,7 @@ A change to the harness is made only if it improves one of these four measures a
 
 | Measure | Definition | Baseline (2026-09-22) | Read from |
 |---|---|---|---|
-| Top-tier tokens per build | Fable and Opus tokens spent from spec to accepted, all roles | hand-run next-build: lead 152 turns; loop package-build: 19 orchestrator turns | build-census (per Workflow run id) |
+| Top-tier tokens per build | Fable and Opus tokens spent from spec to accepted, all roles | hand-run next-build: lead 152 turns (no source record; 2026-09-25 bearings O9); loop package-build: 19 orchestrator turns | build-census (per Workflow run id) |
 | Hours ask to accepted | wall clock from Ben's go to integrator PASS accepted | package-build 50 min through the loop; rename-build 3 h 40 with 29 percent lead dispatch latency | docs/work records |
 | Rework after acceptance | fix commits and review rounds on a shipped territory within 7 days; recurrence of a named failure class | Co-Authored-By trailer class recurred across 87 commits | git log, records |
 | Work lost or stalled | admitted work ids without a result; loud notes unread over 30 min; orchestrators idle awaiting a nudge | two RESULT notes waited 6 h 54 and 57 min; 3 of 7 loud notes logged no-inbox | flush log, ledger, records |
@@ -25,7 +25,7 @@ How the card's lines are applied:
 - NOT a rule no script checks: a rule enters a skill only with the script, test or guard that checks it, or it is a stated goal here.
 - NOT top-tier execution: Fable and Opus plan, adjudicate and review; Sonnet and Haiku run tools, pulls, censuses, builds and Notion writes.
 - NOT a host-specific primitive as the shared contract: goals, work records, skills, memory and notes are the same for every host; only the thin host integration (hooks, discovery, wake-up) differs, and an unsupported capability is stated, never faked.
-- DONE is a test with numbers, run once from a Claude lead and once from a Codex lead with a mixed handoff between them.
+- DONE is a test with numbers, run once from a Claude lead and once from a Codex lead with a mixed handoff between them. Status of DONE's census clause: not computable until the four-number read runs (`7dfc59d:docs/work/evidence/2026-09-25-bearings-assessment.md`: "Census beats the hand-run build on all four measures: NO, and it cannot be computed").
 - STOP is the agent's brake, not Ben's: when the bearings check returns RE-PLAN twice in a row or CUT, the agent stops that lane, puts it on Ben's decisions page as options, and works another lane. Killing a direction after two weeks without progress is Ben's call, made by him.
 
 ## Cut token cost hard, lose no benefit
@@ -53,7 +53,7 @@ The top-tier lead plans, adjudicates and synthesizes. Tools run in the cheapest 
 In Ben's words: "I think you are taking too many turns, at least from what I can see! Think about our plan and how to fix this." (9-21) "one major tooling direction is to run tools in the cheapest subagent that achieves the goal and read the results in a higher level agent." (9-21)
 
 Measure: lead turns per build; share of tool output read by the top tier.
-Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 hand-run. The loop-gates build's own record reported a 7-turn hand count (`docs/work/wr-2026-09-24-loop-gates.record.md`); the script counts 32 lead turns for that build's window — a hand count is not the measure once a script can run it. (2026-09-25 four-number-read spec, Findings)
+Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 hand-run (no source record; 2026-09-25 bearings O9). Loop-gates' 7 lead turns is a hand count no script has checked (`docs/work/wr-2026-09-24-loop-gates.record.md:16`; 2026-09-25 bearings O3). Census-complete's script count is 32 lead turns at re-acceptance, over the 20-turn target (`docs/work/evidence/wr-2026-09-25-census-complete-census.md`; 2026-09-25 bearings O4).
 
 ## Simplest architecture, rethought from the aim
 
@@ -89,7 +89,7 @@ Every building skill lives in this one plugin and works as one system: delegate,
 In Ben's words: all building skills "fold into this one package, coordinated and working together." (9-21) "canary not worth a week of bad work! ... Plus I do very different work on the diff machines so it's a bad test. So let's implement our best plan and test it everywhere." (9-21)
 
 Measure: a wiring check per machine that can actually fail; a pane setup backed by the census; zero prose-only rules.
-Status: PARTIAL. Windows, Mac, Hetzner and Netcup installed the 0.20.6 release on 2026-09-24 through their existing Claude marketplace/plugin route and Codex shared mirror (docs/work/evidence/four-host-0206-and-live-pickup.md); the 0.20.7 card-cap change was installed nowhere as of 2026-09-24. Wiring check cannot go red; pane-setup.md describes a setup Ben does not run.
+Status: PARTIAL. Windows, Mac, Hetzner and Netcup installed the 0.20.6 release on 2026-09-24 through their existing Claude marketplace/plugin route and Codex shared mirror (docs/work/evidence/four-host-0206-and-live-pickup.md). Ben's ticks record 0.20.7 and 0.20.8 each installed on three hosts (2026-09-25 bearings O17; attributed, Notion not re-read). Wiring check cannot go red; pane-setup.md describes a setup Ben does not run.
 
 ## Nothing stalls silently
 
@@ -98,7 +98,7 @@ No session waits unnoticed and no piece of work is lost. Peer notes reach their 
 In Ben's words: solving orchestrator stalling "is part of the skills work and important." (9-21) "i think fyi and ack shouldn't wake ... it was a good arch decision in the first place to save tokens!" (9-22)
 
 Measure: delivery outcomes per machine per week; asks answered vs open; wakes per build.
-Status: PARTIAL. On 2026-09-23 three notes to the Codex lead were marked seen without reaching it, and a blocked deploy was never reported; the launcher and cursor defects were fixed in 0.18.1. "Nothing lost or stalled" does not hold for the census-complete build itself: a 7.25 hour host stall is in the 2026-09-25 knowledge note and the 2026-09-25 bearings assessment that ordered this build — DONE's census-build claim is corrected in `docs/goals/card.md`, not asserted true here. (2026-09-25 four-number-read spec, Findings)
+Status: PARTIAL. On 2026-09-23 three notes to the Codex lead were marked seen without reaching it, and a blocked deploy was never reported; the launcher and cursor defects were fixed in 0.18.1. "Nothing lost or stalled" does not hold for the census-complete build itself: a 7.25 hour host stall — DONE's census-build clause status is at this file's DONE bullet above, not asserted true here. (2026-09-25 bearings O5; note `2026-09-25-windows-orca-panes-froze-overnight-os-awake.md`)
 
 ## Decisions and goals have one home that Ben reads
 

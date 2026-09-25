@@ -65,6 +65,16 @@ function rtrim(s) {
   return s.replace(/[\r \t]+$/, "");
 }
 
+// R2 item 2 (seam-review M4): a session id is one real token, never a placeholder like
+// "none"/"unavailable"/"tbd" - the facts file tells leads to write "unavailable" in these
+// fields when a value is genuinely missing, so a bare-presence check alone passes every
+// placeholder and checks nothing. Used by both the lead-session refusal (unconditional)
+// and the spec-session WARN (m1: WARN on content, not just presence).
+const PLACEHOLDER_ID_RE = /^(?:none|unavailable|unknown|n\/?a|tbd|pending|-+)\b/i;
+function isSessionId(v) {
+  return typeof v === "string" && /^\S{6,}$/.test(v.trim()) && !PLACEHOLDER_ID_RE.test(v.trim());
+}
+
 function fieldRegex(label) {
   return new RegExp(`^[ \\t*+-]{0,20}${label}:\\**[ \\t]{0,20}(.+)$`, "mi");
 }
@@ -428,17 +438,26 @@ export function formatLogLine(at, status, owner, note) {
   return note ? `${base} ${note}` : base;
 }
 
-// R2, four-number read spec.md item 3: renders one --four-read JSON entry as its `Four
-// numbers:` line text. Accepts a plain string (already formatted), an object carrying
-// { value }, or an object carrying { unavailable: <reason> } - the two shapes the read
-// prints "value or unavailable (<reason>)" as; anything else is stringified rather than
-// guessed at, since this file never re-derives one of the four numbers itself.
-function formatFourReadEntry(label, v) {
-  const text = typeof v === "string" ? v
-    : v && typeof v === "object" && "value" in v ? v.value
-    : v && typeof v === "object" && "unavailable" in v ? `unavailable (${v.unavailable})`
-    : JSON.stringify(v);
-  return `Four numbers: ${label}: ${text}`;
+// R2 item 3 (seam-review B1): copies four-read.mjs's own numbers[] shape (an ARRAY of
+// exactly four { key, label, value } entries, each value already the formatted "value or
+// unavailable (<reason>)" text) - never guesses at a different shape, since this file
+// never re-derives one of the four numbers itself. A wrong-shaped or partial file refuses
+// (four-read-invalid) rather than silently stringifying whatever it finds; flat() collapses
+// any embedded newlines/whitespace in a copied label or value so a value can never inject
+// a blank line or a header-looking line into the record (M1).
+function fourReadLines(parsed) {
+  const rows = parsed && Array.isArray(parsed.numbers) ? parsed.numbers : null;
+  const flat = (s) => String(s).replace(/\s+/g, " ").trim();
+  if (
+    !rows || rows.length !== 4
+    || !rows.every((r) => r && typeof r.label === "string" && typeof r.value === "string" && flat(r.value))
+  ) {
+    throw acceptanceError(
+      "--four-read is not four-read.mjs JSON: expected numbers[4] of { label, value } strings",
+      "four-read-invalid",
+    );
+  }
+  return rows.map((r) => `Four numbers: ${flat(r.label)}: ${flat(r.value)}`);
 }
 
 const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLowerCase(), key]));
@@ -781,9 +800,9 @@ export function checkAcceptance(opts = {}) {
   // session that led this build - "no override: a record without its lead session cannot
   // be read". Unconditional on every checkAcceptance call, live or pinned, exactly like
   // the Worktree: check below - there is no cutoff date grandfathering an older record in.
-  if (!record.fields.leadSession) {
+  if (!isSessionId(record.fields.leadSession)) {
     throw acceptanceError(
-      "Lead-session: field is required (the session id that led this build); none is present",
+      "Lead-session: field is required (the session id that led this build); none is present, or it is a placeholder",
       "lead-session-missing",
     );
   }
@@ -942,11 +961,11 @@ export function checkAcceptance(opts = {}) {
   // a refusal - the read itself prints the token number as "partial (no spec slice)"
   // when these are absent; this only surfaces the fact for a caller to see.
   const warnings = [];
-  if (!record.fields.specSession) {
-    warnings.push("spec-session-missing: Spec-session: is absent; the four-read's token number will be partial (no spec slice)");
+  if (!isSessionId(record.fields.specSession)) {
+    warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
   }
-  if (!record.fields.specFrom) {
-    warnings.push("spec-from-missing: Spec-from: is absent; the four-read's token number will be partial (no spec slice)");
+  if (!record.fields.specFrom || Number.isNaN(Date.parse(record.fields.specFrom))) {
+    warnings.push("spec-from-missing: Spec-from: is absent or not a timestamp; the four-read's token number will be partial (no spec slice)");
   }
 
   // censusText/warnings are only ever present as keys when there is one to report - every
@@ -1075,10 +1094,7 @@ export function acceptRecord(opts = {}) {
     } catch (error) {
       throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
     }
-    const entries = Object.entries(parsed && typeof parsed === "object" ? parsed : {});
-    fourNumberLines = entries.length > 0
-      ? entries.map(([label, v]) => formatFourReadEntry(label, v))
-      : ["Four numbers: (four-read file recognized but produced no entries to copy)"];
+    fourNumberLines = fourReadLines(parsed);
   } else {
     fourNumberLines = ["Four numbers: not run"];
   }
@@ -1131,6 +1147,9 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
     // printed result - it can be an entire census report's worth of bytes.
     const { censusText: _censusText, ...printable } = result;
     io.stdout.write(`${JSON.stringify(printable)}\n`);
+    // m2 (seam review): a lead scanning stdout for a WARN would otherwise see only the
+    // JSON blob. Exit code stays 0 - a WARN is visible, not a refusal.
+    for (const w of printable.warnings ?? []) io.stderr.write(`work-record: WARN ${w}\n`);
     return 0;
   } catch (error) {
     io.stderr.write(`work-record: [${error.code ?? "error"}] ${error.message}\n`);

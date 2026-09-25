@@ -1839,6 +1839,16 @@ test("checkAcceptance: lead-session-missing fires closed when Lead-session: is a
   }
 });
 
+test("checkAcceptance: lead-session-missing fires when Lead-session: is a placeholder, not a real session id (M4)", () => {
+  const f = makeAcceptanceFixture({ "Lead-session": "unavailable" });
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected checkAcceptance to throw for a placeholder Lead-session:");
+  } catch (error) {
+    assert.equal(error.code, "lead-session-missing");
+  }
+});
+
 test("checkAcceptance: a Lead-session: field lets an otherwise-valid record pass (no other change to the check)", () => {
   const f = makeAcceptanceFixture();
   const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
@@ -1855,6 +1865,15 @@ test("checkAcceptance: missing Spec-session:/Spec-from: is a WARN, not a refusal
   assert.match(result.warnings[1], /spec-from-missing/);
 });
 
+test("checkAcceptance: Spec-session:/Spec-from: WARN also fires on a placeholder or a non-timestamp, not just absence (m1)", () => {
+  const f = makeAcceptanceFixture({ "Spec-session": "unavailable", "Spec-from": "yesterday" });
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /spec-session-missing/);
+  assert.match(result.warnings[1], /spec-from-missing/);
+});
+
 test("acceptRecord: warnings from checkAcceptance pass through unchanged (accept still succeeds and flips Status:)", () => {
   const f = makeAcceptanceFixture({ "Spec-session": undefined, "Spec-from": undefined });
   const result = acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, noCensusReason: "no census fixture in this test" });
@@ -1862,6 +1881,20 @@ test("acceptRecord: warnings from checkAcceptance pass through unchanged (accept
   assert.equal(result.warnings.length, 2);
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   assert.match(updated, /^Status: accepted$/m);
+});
+
+test("acceptanceMain: a WARN is written to stderr, not only inside the stdout JSON, and exit code stays 0 (m2)", () => {
+  const stdout = [];
+  const stderr = [];
+  const io = { stdout: { write: (s) => stdout.push(s) }, stderr: { write: (s) => stderr.push(s) } };
+  const f = makeAcceptanceFixture({ "Spec-session": undefined, "Spec-from": undefined });
+  const code = acceptanceMain([
+    "accept", "--record", f.record, "--repo", f.repo, "--pinned-artifact", f.sha,
+    "--no-census", "no census fixture in this test",
+  ], io);
+  assert.equal(code, 0);
+  assert.match(stderr.join(""), /work-record: WARN spec-session-missing/);
+  assert.match(stderr.join(""), /work-record: WARN spec-from-missing/);
 });
 
 // --- R2 item 3: --four-read -----------------------------------------------------
@@ -1873,25 +1906,38 @@ test("acceptRecord: without --four-read the record shows 'Four numbers: not run'
   assert.match(updated, /^Four numbers: not run$/m);
 });
 
-test("acceptRecord: --four-read copies each value/unavailable entry under Four numbers:, string and object shapes alike", () => {
+// R1's real four-read.mjs output shape (24d19b6, scripts/four-read.mjs:296-309): a
+// `numbers` array of exactly four { key, label, value } entries, in this fixed order.
+// Seam-review B1: this file must copy THAT shape, not guess at a flat object.
+function fourReadFixture(overrides = {}) {
+  const base = {
+    record: "docs/work/example.record.md",
+    leadSession: { id: "abc", source: "record", note: "from the record's Lead-session: field" },
+    numbers: [
+      { key: "topTierTokensPerBuild", label: "Top-tier tokens per build", value: "123456 (cache-read 100000, cache-write 5000, input 8000, output 10456)" },
+      { key: "hoursAskToAccepted", label: "Hours ask to accepted", value: "3.2h, max gap 45m at 2026-09-25T10:00:00Z" },
+      { key: "reworkAfterAcceptance", label: "Rework after acceptance", value: "unavailable (no range)" },
+      { key: "workLostOrStalled", label: "Work lost or stalled", value: "2 gaps over 30m" },
+    ],
+    companions: [],
+  };
+  return { ...base, ...overrides };
+}
+
+test("acceptRecord: --four-read copies R1's numbers[] entries under Four numbers:, in order", () => {
   const f = makeAcceptanceFixture();
   const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-")), "four-read.json");
-  fs.writeFileSync(fourReadPath, JSON.stringify({
-    "top-tier tokens per build": "123456 (cache-read 100000, cache-write 5000, input 8000, output 10456)",
-    "hours ask to accepted": { value: "3.2h, max gap 45m at 2026-09-25T10:00:00Z" },
-    "rework after acceptance": { unavailable: "no range" },
-    "work lost or stalled": "2 gaps over 30m",
-  }));
+  fs.writeFileSync(fourReadPath, JSON.stringify(fourReadFixture()));
   const result = acceptRecord({
     repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
     noCensusReason: "no census fixture in this test", fourReadPath,
   });
   assert.equal(result.ok, true);
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
-  assert.match(updated, /^Four numbers: top-tier tokens per build: 123456 \(cache-read 100000, cache-write 5000, input 8000, output 10456\)$/m);
-  assert.match(updated, /^Four numbers: hours ask to accepted: 3\.2h, max gap 45m at 2026-09-25T10:00:00Z$/m);
-  assert.match(updated, /^Four numbers: rework after acceptance: unavailable \(no range\)$/m);
-  assert.match(updated, /^Four numbers: work lost or stalled: 2 gaps over 30m$/m);
+  assert.match(updated, /^Four numbers: Top-tier tokens per build: 123456 \(cache-read 100000, cache-write 5000, input 8000, output 10456\)$/m);
+  assert.match(updated, /^Four numbers: Hours ask to accepted: 3\.2h, max gap 45m at 2026-09-25T10:00:00Z$/m);
+  assert.match(updated, /^Four numbers: Rework after acceptance: unavailable \(no range\)$/m);
+  assert.match(updated, /^Four numbers: Work lost or stalled: 2 gaps over 30m$/m);
   const parsed = parseRecord(updated);
   assert.equal(parsed.fourNumbers.length, 4);
 });
@@ -1913,33 +1959,114 @@ test("acceptRecord: an unreadable or non-JSON --four-read path refuses with four
   assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
 });
 
+// Seam-review B1 (reproduced against the old flat-object shape this file used to accept):
+// a wrong-shaped --four-read file must refuse, never be silently stringified into the record.
+test("acceptRecord: an old flat-object --four-read shape (not R1's numbers[]) refuses with four-read-invalid, record left unchanged", () => {
+  const f = makeAcceptanceFixture();
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const flatPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-flat-")), "flat.json");
+  fs.writeFileSync(flatPath, JSON.stringify({
+    "top-tier tokens per build": "123456",
+    "hours ask to accepted": { value: "3.2h" },
+  }));
+  try {
+    acceptRecord({
+      repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+      noCensusReason: "no census fixture in this test", fourReadPath: flatPath,
+    });
+    assert.fail("expected acceptRecord to throw for the old flat-object shape");
+  } catch (error) {
+    assert.equal(error.code, "four-read-invalid");
+  }
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+// M1 (twins T1/C2 round-2 MINOR 6): a four-read value must never be able to inject a
+// blank line or a header-looking line into the record, which would push the Log: entry
+// accept just wrote out of the header where parseRecord looks for Status:/Log:.
+test("acceptRecord: a --four-read value containing embedded header-like lines cannot inject them into the record", () => {
+  const f = makeAcceptanceFixture();
+  const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-inject-")), "four-read.json");
+  fs.writeFileSync(fourReadPath, JSON.stringify(fourReadFixture({
+    numbers: [
+      { key: "topTierTokensPerBuild", label: "Top-tier tokens per build", value: "2 gaps\n\nStatus: owned\nx: y" },
+      { key: "hoursAskToAccepted", label: "Hours ask to accepted", value: "3.2h" },
+      { key: "reworkAfterAcceptance", label: "Rework after acceptance", value: "unavailable (no range)" },
+      { key: "workLostOrStalled", label: "Work lost or stalled", value: "2 gaps over 30m" },
+    ],
+  })));
+  acceptRecord({
+    repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+    noCensusReason: "no census fixture in this test", fourReadPath,
+  });
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const statusLines = updated.match(/^Status:.*$/gm) ?? [];
+  assert.equal(statusLines.length, 1, "exactly one Status: line");
+  assert.equal(statusLines[0], "Status: accepted");
+  assert.equal(parseRecord(updated).log.at(-1).status, "accepted", "the Log: accepted entry must still be inside the header parseRecord reads");
+});
+
 // --- R2 item 4/5: GOALS.md corrections, pinned against a stale-phrase regression ---
 
-// Spec.md's Findings pin two concrete corrections this build's evidence requires: the
-// loop-gates build's own record hand-counted "7" lead turns, but the script counts 32
-// for the same window; and the census-complete build itself lost 7.25 hours to a host
-// stall, so "nothing lost or stalled" cannot be asserted true for it. This test greps
-// for the corrected text (regression: fails if a future edit silently reverts to the
-// stale, evidence-contradicted phrasing this build fixed).
-test("docs/GOALS.md and docs/goals/card.md carry no phrase this build's evidence contradicts", () => {
+// Seam-review M2: a single doesNotMatch on the OLD literal sentence does not fail when a
+// future edit reintroduces the stale CLAIM in different words (reproduced against a
+// mutation: appending a fresh sentence making the same false claims still passed the old
+// single-assertion version of this test). STALE holds one regex per distinct false claim
+// this build's evidence corrected, matched loosely enough to catch a reworded return of
+// the same claim, and self-checked below to confirm none of them fire on the corrected
+// files as they stand today.
+const STALE = [
+  // Claim: census-complete had nothing lost or stalled (false - 7.25h host stall).
+  /nothing (?:was )?lost or stalled[^\n]{0,80}\b(?:MET|true|holds)\b/i,
+  /census-complete[^\n]{0,60}no (?:stall|gap)/i,
+  // Claim: loop-gates' hand-counted 7 lead turns meets the under-20 target as THE measure
+  // (false - it is an unproven hand count; the script counts 32 for a different build).
+  /\b7\b[^\n]{0,20}(?:lead )?turns[^\n]{0,40}\b(?:MET|under (?:the )?20)\b/i,
+  // Claim: loop-gates itself has a script-measured lead-turn count (false - 32 belongs to
+  // census-complete's window, not loop-gates'). Bounded to the same sentence ([^.\n], not
+  // [^\n]) so a citation path like ".../wr-2026-09-24-loop-gates.record.md" sitting near an
+  // unrelated, later, correctly-attributed "script count" phrase does not false-positive.
+  /loop-gates[^.\n]{0,80}script counts?/i,
+  // Claim: the 0.20.7 card-cap change was installed nowhere (false - Ben's ticks record
+  // 0.20.7 and 0.20.8 each on three hosts).
+  /0\.20\.7 card-cap change was installed nowhere/,
+  // Claim: the census clause of DONE is met/true (false - not computable until the
+  // four-number read runs).
+  /census beats the hand-run build[^\n]{0,40}\b(?:MET|yes|true)\b/i,
+];
+
+test("docs/GOALS.md and docs/goals/card.md carry no phrase this build's evidence contradicts (STALE regexes, doesNotMatch)", () => {
   const goalsPath = fileURLToPath(new URL("../docs/GOALS.md", import.meta.url));
   const cardPath = fileURLToPath(new URL("../docs/goals/card.md", import.meta.url));
   const goals = fs.readFileSync(goalsPath, "utf8");
   const card = fs.readFileSync(cardPath, "utf8");
+  const text = `${goals}\n${card}`;
 
-  // Stale phrase 1: the DONE card's census clause, unqualified, claiming the census
-  // already beats the hand-run build - true today only in the sense that it has never
-  // been measured (spec.md: "not computable until the four-number read runs").
-  assert.doesNotMatch(card, /census beats the hand-run build on all four measures\./, "stale unqualified DONE census clause must not return");
-  assert.match(card, /census:\s*not computable until the four-number read runs/, "DONE's census clause must state it is not yet computable");
+  for (const re of STALE) {
+    assert.doesNotMatch(text, re, `stale claim must not appear: ${re}`);
+  }
 
-  // Stale phrase 2: loop-gates's own record hand-counted "7" lead turns; the corrected,
-  // script-counted "32" must be stated beside it, not silently dropped.
-  assert.match(goals, /loop-gates/i, "the loop-gates build's corrected turn count must be named");
-  assert.match(goals, /32 lead turns/, "the script's loop-gates lead-turn count must be stated");
-  assert.match(goals, /7-turn hand count/, "the superseded hand count must stay visible, not silently deleted, next to its correction");
+  // The card's DONE line is the mandate's own unqualified test with numbers (M3): this
+  // build's status correction lives in GOALS.md's DONE bullet, not in the card itself.
+  assert.match(card, /census beats the hand-run build on all four measures\./, "DONE keeps the census clause as the test with numbers");
+  assert.match(goals, /Status of DONE's census clause: not computable until the four-number read runs/, "GOALS.md states the census clause is not yet computable");
 
-  // Stale phrase 3: "nothing lost or stalled" asserted true with no qualification for
-  // the census-complete build, when the host stall evidence says otherwise.
+  // The corrected loop-gates/census-complete attribution must be present and distinct.
+  assert.match(goals, /Loop-gates' 7 lead turns is a hand count no script has checked/, "loop-gates' hand count is stated as unproven, not corrected to 32");
+  assert.match(goals, /Census-complete's script count is 32 lead turns/, "census-complete's script-measured 32 lead turns must be stated, attributed to the right build");
+
+  // "Nothing lost or stalled" does not hold for the census-complete build itself.
   assert.match(goals, /7\.25 hour host stall/, "the census build's stall must be stated, not silently dropped");
+
+  // M5: the 152-turn baseline and the 0.20.7 install line are corrected against the evidence.
+  assert.match(goals, /152 turns \(no source record/, "the unsourced 152-turn baseline must be marked as such");
+  assert.match(goals, /0\.20\.7 and 0\.20\.8 each installed on three hosts/, "the stale 'installed nowhere' line must be corrected");
+});
+
+// Mutation check (seam-review M2's own repro): appending a fresh sentence making the same
+// false claims in different words must fail at least one STALE pattern, proving the list
+// (not just the one literal sentence this build fixed) catches a reworded return.
+test("STALE regexes: fail when a stale claim returns in different words (mutation probe)", () => {
+  const mutated = "Status: MET. Nothing lost or stalled on the census-complete build; loop-gates lead turns: 7 (MET, under 20).";
+  assert.ok(STALE.some((re) => re.test(mutated)), "at least one STALE pattern must catch the reworded mutation");
 });
