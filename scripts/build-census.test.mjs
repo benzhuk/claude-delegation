@@ -111,6 +111,10 @@ test('runCensus detects a verified Codex session and sums response-local usage w
   assert.equal(report.lead.leadTurns, null, 'native turn ids must not be relabeled as conversational leadTurns');
   assert.equal(report.lead.observedNativeTurnCount, 2);
   assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.subagents.totalTurns, null);
+  assert.equal(report.subagents.totalByModel, null);
+  assert.equal(report.subagents.totalByRole, null);
+  assert.equal(report.subagents.roleFileCounts, null);
   assert.equal(report.lead.totalByModel, null);
   assert.equal(report.combined, null);
   assert.deepEqual(report.lead.observedTotalByModel, {

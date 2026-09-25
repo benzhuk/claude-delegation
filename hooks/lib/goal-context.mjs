@@ -4,7 +4,6 @@
 // host adapter's responsibility.
 
 import { goalCardResult, rejectionNotice as goalCardRejectionNotice, wantsReportLine, SUBAGENT_SUFFIX } from '../../scripts/goal-card.mjs';
-import { check as checkBearings } from '../../skills/bearings/scripts/bearings-state.mjs';
 
 /** @returns {Promise<{text: string|null, reason: string|null, path: string|null, status: string}>} */
 export async function cardResult(cwd, agentType, { env = process.env } = {}) {
@@ -26,6 +25,7 @@ export async function rejectionNotice(result) {
 
 export async function bearingsNotice(cwd, { env = process.env } = {}) {
   try {
+    const { check: checkBearings } = await import('../../skills/bearings/scripts/bearings-state.mjs');
     const checked = checkBearings({ repo: cwd, env });
     if (checked.status === 'due' && checked.reason === 'reviewer-not-independent') {
       return 'Bearings are due: the last receipt\'s reviewer was not independent of the lead. Run `/delegation:bearings` with a different reviewer.';
