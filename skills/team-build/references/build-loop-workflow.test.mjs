@@ -592,6 +592,32 @@ test("a null integrator return twice falls back to a BLOCKED INTEGRATE result ra
   assert.equal(integrateCalls.length, 2, "respawned exactly once before falling back");
 });
 
+// S1: the integrator's own prompt must carry the integration location whenever
+// integrationWorktree is given (a setup-mode launch never puts it anywhere else the
+// integrator can see); the legacy (no integrationWorktree) prompt stays byte-identical.
+test("S1: the integrate prompt names the integration worktree/branch/gate when integrationWorktree is given, and omits it entirely otherwise", async () => {
+  const legacyStub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript({ ...BASE_ARGS, territories: [T1] }, legacyStub);
+  const legacyIntegrateCall = legacyStub.calls.find((c) => c.opts.label === "integrate");
+  assert.ok(!legacyIntegrateCall.prompt.includes("Integration worktree"), "no integrationWorktree given: prompt never mentions it");
+
+  const withIntegrationStub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", seam: false };
+  await runScript(args, withIntegrationStub);
+  const integrateCall = withIntegrationStub.calls.find((c) => c.opts.label === "integrate");
+  assert.ok(integrateCall.prompt.includes("Integration worktree: /repo/wt-integrate"));
+  assert.ok(integrateCall.prompt.includes("branch build/x"));
+  assert.ok(integrateCall.prompt.includes("Full-suite gate: node scripts/run-tests.mjs"));
+});
+
 // ---------------------------------------------------------------------------
 // R6: startFrom
 // ---------------------------------------------------------------------------
@@ -661,6 +687,12 @@ function stripExtension(name) {
   return idx <= 0 ? name : name.slice(0, idx);
 }
 
+// s11: setup and accept-prep report paths are computed in the script the same way,
+// `${dirOf(specPath)}/reports/<name>.md` — mirror that here so fixtures verify clean.
+function reportPathFor(specPath, name) {
+  return `${dirOf(specPath)}/reports/${name}.md`;
+}
+
 function setupResultFor(args) {
   const specDir = dirOf(args.specPath);
   const slug = args.integrationBranch ? lastSeg(args.integrationBranch) : stripExtension(lastSeg(args.specPath));
@@ -677,7 +709,7 @@ function setupResultFor(args) {
     reviewerBriefPath: `${specDir}/briefs/reviewer.md`,
     integratorBriefPath: `${specDir}/briefs/integrator.md`,
     seamBriefPath: `${specDir}/briefs/seam.md`,
-    reportPath: `${specDir}/setup.report.md`,
+    reportPath: reportPathFor(args.specPath, "setup"),
   };
 }
 
@@ -786,6 +818,80 @@ test("setup path: computed branch/worktree names use integrationBranch's last se
   assert.ok(capturedPrompt.includes("build/one-launch-1-L1"), "branch name is integrationBranch-id");
 });
 
+// S1 (setup-mode half): the integrator brief the setup runner writes must itself name the
+// integration worktree/branch/gate, since setupPrompt is what produces that brief.
+test("S1: the setup prompt names the integration worktree/branch/gate for the integrator brief it writes", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined };
+  const setup = setupResultFor(args);
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall.prompt.includes(`integration worktree ${args.integrationWorktree}`));
+  assert.ok(setupCall.prompt.includes(`branch ${args.integrationBranch}`));
+  assert.ok(setupCall.prompt.includes(`full-suite gate ${args.integrationGate}`));
+});
+
+// s11: the setup runner is given its own report path, and the script verifies what comes
+// back against the computed one, same as the brief-path checks (M5).
+test("s11: setup prompt carries a report path, and a mismatched returned reportPath is setup-failed", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined };
+  const setup = setupResultFor(args);
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall.prompt.includes(`Report path: ${reportPathFor(args.specPath, "setup")}`));
+
+  const badSetup = setupResultFor(args);
+  badSetup.reportPath = "/tmp/EVIL-setup-report.md";
+  const badResult = await runScript(args, makeAgentStub({ setup: badSetup }));
+  assert.deepEqual(badResult.blockers, [{ id: "*", reason: "setup-failed" }]);
+});
+
+// S4: integrationBranch is needed for accept-prep's own header lines (Artifact:,
+// Worktree:), so it must be checked, not left to render literal "undefined".
+test("S4: accept-prep is skipped (no-integration-branch) when integrationWorktree is given but integrationBranch is not", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.acceptance, { skipped: "no-integration-branch" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+});
+
+// S4: an absent integrationGate must never render the literal string "undefined" into a
+// seam-fix builder's Gate: line.
+test("S4: the seam-fix prompt never renders a literal undefined Gate when integrationGate is absent", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const seamFindings = "docs/work/seam-r1-findings.md";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"),
+    "seam:r1": reviewResult("NEEDS_FIXES", "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6", seamFindings),
+    "seam-fix:r2": buildResult("g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7"),
+    "seam:r2": reviewResult("APPROVE", "g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7g7"),
+  });
+  await runScript(args, stub);
+  const seamFixCall = stub.calls.find((c) => c.opts.label === "seam-fix:r2");
+  assert.ok(!seamFixCall.prompt.includes("Gate: undefined"));
+  assert.ok(seamFixCall.prompt.includes("Gate: the full-suite gate named in the integrator brief"));
+});
+
 test("setup path: full fixture run produces setup, builds, reviews, integrate, seam APPROVE, and accept-prep with censusPath and checkAcceptance", async () => {
   const args = SETUP_ARGS;
   const setup = setupResultFor(args);
@@ -812,7 +918,7 @@ test("setup path: full fixture run produces setup, builds, reviews, integrate, s
       integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
       evidencePaths: ["docs/work/evidence/wr-2026-09-25-one-launch-L1.md", "docs/work/evidence/wr-2026-09-25-one-launch-L2.md"],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: "docs/work/accept-prep.report.md",
+      reportPath: reportPathFor(args.specPath, "accept-prep"),
     },
   });
   const journal = [];
@@ -1105,7 +1211,7 @@ test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam s
       integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
       evidencePaths: [],
       checkAcceptance: { exitCode: 1, verdict: "FAIL", output: "no artifact yet" },
-      reportPath: "docs/work/accept-prep.report.md",
+      reportPath: reportPathFor(args.specPath, "accept-prep"),
     },
   });
   const result = await runScript(args, stub);
@@ -1116,6 +1222,15 @@ test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam s
   assert.equal(acceptCall.opts.agentType, "delegation:runner");
   assert.equal(acceptCall.opts.model, "sonnet");
   assert.ok(acceptCall.prompt.includes("wr-x-census.md"));
+  // S2: every relative output path the runner is told to write lands inside the
+  // integration worktree, never the plugin root's own docs/work/evidence/.
+  assert.ok(acceptCall.prompt.includes("/repo/wt-integrate/docs/work/evidence/"), "census/evidence paths anchored at integrationWorktree");
+  assert.ok(acceptCall.prompt.includes(`/repo/wt-integrate/${args.recordPath}`), "record path anchored at integrationWorktree");
+  // s10: seam SKIPPED must never be rendered as a false "seam r<n> APPROVE" Log line.
+  assert.ok(acceptCall.prompt.includes("seam SKIPPED"), "Log line names seam SKIPPED, not a false APPROVE");
+  assert.ok(!/seam r\d+ APPROVE/.test(acceptCall.prompt), "never claims an APPROVE that never happened");
+  // s11: the runner is given its own report path.
+  assert.ok(acceptCall.prompt.includes(`Report path: ${reportPathFor(args.specPath, "accept-prep")}`));
 });
 
 test("R5: accept-prep is skipped when the integrator did not PASS", async () => {
@@ -1173,7 +1288,7 @@ test("M3: accept-prep returning an unverified integrationHead (e.g. the literal 
       integrationHead: "HEAD",
       evidencePaths: [],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: "docs/work/accept-prep.report.md",
+      reportPath: reportPathFor(args.specPath, "accept-prep"),
     },
   });
   const result = await runScript(args, stub);
@@ -1198,11 +1313,36 @@ test("M3: accept-prep is checked against the seam's (longer) APPROVE sha, not th
       integrationHead: fullSeamSha,
       evidencePaths: [],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: "docs/work/accept-prep.report.md",
+      reportPath: reportPathFor(args.specPath, "accept-prep"),
     },
   });
   const result = await runScript(args, stub);
   assert.deepEqual(result.blockers, [], "the full seam-verified sha, matched against seam.sha (the longer of the two independent reads), is never flagged");
+  // s10: a genuine seam APPROVE renders its own round and sha, not a hardcoded literal.
+  const acceptCall = stub.calls.find((c) => c.opts.label === "accept-prep");
+  assert.ok(acceptCall.prompt.includes(`seam r1 APPROVE ${fullSeamSha}`));
+});
+
+// s11 (accept-prep half): the script checks the returned reportPath against the one it
+// computed and told the runner, the same as M3 checks integrationHead.
+test("s11: accept-prep returning a reportPath that differs from the computed one adds an accept-prep report-path-mismatch blocker", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "/tmp/EVIL-accept-report.md",
+    },
+  });
+  const result = await runScript(args, stub);
+  assert.ok(result.acceptance, "acceptance is still returned (the runner's report), just flagged");
+  assert.deepEqual(result.blockers, [{ id: "accept-prep", reason: "report-path-mismatch" }]);
 });
 
 // ---------------------------------------------------------------------------
@@ -1226,7 +1366,7 @@ test("R9: no rendered prompt across build/review/integrate/setup/seam/accept-pre
       integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
       evidencePaths: [],
       checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-      reportPath: "docs/work/accept-prep.report.md",
+      reportPath: reportPathFor(args.specPath, "accept-prep"),
     },
   });
   await runScript(args, stub);
@@ -1312,7 +1452,7 @@ test("both example arg files launch cleanly against the given/setup detection wi
         integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
         evidencePaths: [],
         checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
-        reportPath: "docs/work/accept-prep.report.md",
+        reportPath: reportPathFor(example.specPath, "accept-prep"),
       }],
     ]),
   );

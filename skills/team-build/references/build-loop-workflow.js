@@ -253,19 +253,25 @@ function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFi
   return p
 }
 
-function integratePrompt(integratorBriefPath, baseSha, approved, excluded) {
+function integratePrompt(integratorBriefPath, baseSha, approved, excluded, integration) {
   const approvedText = approved.length ? approved.map((r) => `${r.id}@${r.sha}`).join(', ') : 'none'
   const excludedText = excluded.length ? excluded.map((r) => `${r.id} (${r.blocker})`).join(', ') : 'none'
-  return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}. Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. ${INTEGRATE_MANDATE}`
+  const where = integration && integration.worktree
+    ? ` Integration worktree: ${integration.worktree}${integration.branch ? ` (branch ${integration.branch})` : ''}; merge the approved territories there and report headSha from \`git rev-parse HEAD\` run in it.${integration.gate ? ` Full-suite gate: ${integration.gate}.` : ''}`
+    : ''
+  return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}.${where} Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. ${INTEGRATE_MANDATE}`
 }
 
 // R3: the Setup stage's prompt — one runner, one pass, per-territory names computed HERE
 // in pure JS (never chosen by the agent) so the script can verify what comes back.
-function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorBriefPath, seamBriefPath) {
+function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorBriefPath, seamBriefPath, integrationWorktree, integrationBranch, integrationGate, reportPath) {
   const rows = computed
     .map((c) => `${c.id}: worktree ${c.worktree}, branch ${c.branch}, brief ${c.briefPath}`)
     .join('; ')
-  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed names, never your own choice: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}. ${SETUP_MANDATE}`
+  const integrationText = integrationWorktree
+    ? ` The integrator brief names integration worktree ${integrationWorktree}, branch ${integrationBranch}, full-suite gate ${integrationGate}.`
+    : ''
+  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed names, never your own choice: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}.${integrationText} Report path: ${reportPath}. ${SETUP_MANDATE}`
 }
 
 // R4: the Seam stage's review prompt — same independent-git-read shape as reviewPrompt,
@@ -287,18 +293,20 @@ function seamPrompt(seamBriefPath, integrationWorktree, approvedIds, round, prio
 // R4: the seam fix-round builder's prompt — a builder call on the INTEGRATION worktree,
 // gated by integrationGate rather than any one territory's gate.
 function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round) {
-  return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
+  return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate ?? 'the full-suite gate named in the integrator brief'}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
 }
 
 // R5: the accept-prep runner's prompt — the four numbered steps of R5, verbatim.
-function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports) {
+function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports, seam, reportPath) {
   const decidingText = decidingReports.length ? decidingReports.join(', ') : 'none'
   const markerText = censusMarker ? ` --marker ${censusMarker}` : ''
+  const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha}` : 'seam SKIPPED'
   let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `
-  p += `1) From the delegation plugin root (resolve it yourself; scripts/build-census.mjs is the plugin's own script, never the integration worktree's or target repo's \`scripts/\`), run \`node scripts/build-census.mjs --lead <leadSession .jsonl>${markerText} --out docs/work/evidence/${workId}-census.md\`, resolving leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path. If leadSession is absent or the census errors, write nothing and report censusPath: null with the reason in censusNote. `
-  p += `2) Copy the deciding reports (last territory APPROVE per territory, last seam APPROVE) to docs/work/evidence/${workId}-<lane>.md with original bytes: ${decidingText}. `
-  p += `3) Write exactly these header lines of ${recordPath} and no others, before the first blank line: Status: reviewed, Artifact: ${integrationBranch}@<40-hex head>, Worktree: ${integrationBranch}, Evidence: (the copied paths), one Log: <iso> reviewed <owner> seam r<n> APPROVE <sha> line. Never write accepted and never run accept. `
+  p += `1) From the delegation plugin root (resolve it yourself; scripts/build-census.mjs is the plugin's own script, never the integration worktree's or target repo's \`scripts/\`), run \`node scripts/build-census.mjs --lead <leadSession .jsonl>${markerText} --out ${integrationWorktree}/docs/work/evidence/${workId}-census.md\`, resolving leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path. If leadSession is absent or the census errors, write nothing and report censusPath: null with the reason in censusNote. `
+  p += `2) Copy the deciding reports (last territory APPROVE per territory, last seam APPROVE) to ${integrationWorktree}/docs/work/evidence/${workId}-<lane>.md with original bytes (list them repo-relative in Evidence:): ${decidingText}. `
+  p += `3) Write exactly these header lines of ${integrationWorktree}/${recordPath} and no others, before the first blank line: Status: reviewed, Artifact: ${integrationBranch}@<40-hex head>, Worktree: ${integrationBranch}, Evidence: (the copied paths), one Log: <iso> reviewed <owner> ${seamLogText} line. Never write accepted and never run accept. `
   p += `4) From the same delegation plugin root, run \`node scripts/work-record.mjs check-acceptance --record ${recordPath} --repo ${integrationWorktree} --delivery-ref ${integrationBranch}\` (read-only), capturing exit code and output. `
+  p += `Report path: ${reportPath}. `
   p += ACCEPT_MANDATE
   return p
 }
@@ -401,6 +409,7 @@ if (setupMode) {
   const setupReviewerBriefPath = `${specDir}/briefs/reviewer.md`
   const setupIntegratorBriefPath = `${specDir}/briefs/integrator.md`
   const setupSeamBriefPath = `${specDir}/briefs/seam.md`
+  const setupReportPath = `${specDir}/reports/setup.md`
 
   const setupOpts = {
     agentType: 'delegation:runner',
@@ -409,7 +418,7 @@ if (setupMode) {
     phase: 'Setup',
     label: 'setup',
   }
-  const setupPromptText = setupPrompt(specPath, baseSha, computed, setupReviewerBriefPath, setupIntegratorBriefPath, setupSeamBriefPath)
+  const setupPromptText = setupPrompt(specPath, baseSha, computed, setupReviewerBriefPath, setupIntegratorBriefPath, setupSeamBriefPath, integrationWorktree, integrationBranch, integrationGate, setupReportPath)
   let setupResult = await agent(setupPromptText, setupOpts)
   if (setupResult === null) {
     log('setup: agent died, respawning once')
@@ -446,9 +455,10 @@ if (setupMode) {
   if (
     setupResult.reviewerBriefPath !== setupReviewerBriefPath ||
     setupResult.integratorBriefPath !== setupIntegratorBriefPath ||
-    setupResult.seamBriefPath !== setupSeamBriefPath
+    setupResult.seamBriefPath !== setupSeamBriefPath ||
+    setupResult.reportPath !== setupReportPath
   ) {
-    log('setup: returned reviewer/integrator/seam brief path differs from the computed one, nothing built')
+    log('setup: returned reviewer/integrator/seam brief path or report path differs from the computed one, nothing built')
     return earlyReturn([{ id: '*', reason: 'setup-failed' }])
   }
   reviewerBriefPathFinal = setupReviewerBriefPath
@@ -609,10 +619,11 @@ phase('Integrate')
 const approved = results.filter((r) => r.verdict === 'APPROVE' && !r.blocker)
 const excluded = results.filter((r) => r.blocker)
 const integrateOpts = { agentType: 'delegation:integrator', model: 'sonnet', schema: INTEGRATE, phase: 'Integrate', label: 'integrate' }
-let integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded), integrateOpts)
+const integrationInfo = { worktree: integrationWorktree, branch: integrationBranch, gate: integrationGate }
+let integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded, integrationInfo), integrateOpts)
 if (integrate === null) {
   log('integrate: agent died, respawning once')
-  integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded), integrateOpts)
+  integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded, integrationInfo), integrateOpts)
 }
 if (integrate === null) {
   log('integrate: agent died twice, giving up')
@@ -729,11 +740,14 @@ if (integrationWorktree) phase('Accept')
 let acceptance = null
 
 let acceptHeadMismatch = false
+let acceptReportMismatch = false
 
 if (!integrationWorktree) {
   acceptance = null
 } else if (!recordPath) {
   acceptance = { skipped: 'no-record-path' }
+} else if (!integrationBranch) {
+  acceptance = { skipped: 'no-integration-branch' }
 } else if (integrate.verdict !== 'PASS') {
   acceptance = { skipped: 'integrator-not-pass' }
 } else if (excluded.length > 0 || approved.length === 0) {
@@ -750,8 +764,9 @@ if (!integrationWorktree) {
   const decidingReports = approved.map((r) => r.findingsPath).filter(Boolean)
   if (seam && seam.verdict === 'APPROVE' && seam.findingsPath) decidingReports.push(seam.findingsPath)
 
+  const acceptReportPath = `${dirName(specPath)}/reports/accept-prep.md`
   const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
-  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports)
+  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports, seam, acceptReportPath)
   let acceptResult = await agent(acceptPromptText, acceptOpts)
   if (acceptResult === null) {
     log('accept-prep: agent died, respawning once')
@@ -770,6 +785,12 @@ if (!integrationWorktree) {
       log(`accept-prep: integrationHead ${acceptResult.integrationHead} did not match reviewed head ${expectedHead}`)
       acceptHeadMismatch = true
     }
+    // s11 (twin of M5's brief-path check): trust the computed report path, but only after
+    // confirming the runner actually wrote where it was told.
+    if (acceptResult.reportPath !== acceptReportPath) {
+      log(`accept-prep: returned reportPath ${acceptResult.reportPath} did not match computed ${acceptReportPath}`)
+      acceptReportMismatch = true
+    }
   }
 }
 
@@ -777,6 +798,7 @@ const blockers = [
   ...excluded.map((r) => ({ id: r.id, reason: r.blocker })),
   ...(seam && seam.blocker ? [{ id: 'seam', reason: seam.blocker }] : []),
   ...(acceptHeadMismatch ? [{ id: 'accept-prep', reason: 'review-sha-mismatch' }] : []),
+  ...(acceptReportMismatch ? [{ id: 'accept-prep', reason: 'report-path-mismatch' }] : []),
 ]
 
 return {

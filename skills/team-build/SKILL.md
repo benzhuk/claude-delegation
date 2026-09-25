@@ -334,18 +334,28 @@ setup stage cuts it from `baseSha` and writes its briefs; never mix the two in o
 (`mixed-territory-modes`), and an all-given call also passes `reviewerBriefPath` and
 `integratorBriefPath`. `integrationWorktree` turns on the seam review (default: two or
 more territories; `seam: false` suppresses it); `integrationWorktree` plus `recordPath`
-turn on accept-prep; `leadSession` gives it the census (without it, `censusPath` comes
-back `null`). Every fix round, re-review, the seam review, integration and the
-accept-prep census-and-check run inside that one call, which returns once, at the end:
+and `integrationBranch` turn on accept-prep (`integrationGate` is the seam-fix builder's
+gate; a setup launch also needs `worktreeRoot` or `integrationWorktree`, whose parent is
+the default root); in an all-given call that reviewer brief is also the seam brief, so
+give it a seam section; `leadSession` gives it the census (without it, `censusPath` comes
+back `null`). The stages run in this order inside that one call: Setup (setup territories
+only), Build, Review, Fix, Integrate, Seam, Accept (accept-prep's census-and-check), which
+returns once, at the end:
 `{ territories, integrator, seam, acceptance, setup, blockers }` — `territories` one row
 each (`id`, `sha`, `verdict`, `rounds`, `reportPath`, `findingsPath`, `blocker`: `null` on
 a normal end, else `agent-died`, `builder-blocked`, `build-failed`,
-`review-sha-mismatch`, `review-not-approved` or `rounds-exhausted`; launch errors come
+`review-sha-mismatch`, `review-not-approved`, `rounds-exhausted` or
+`parallel-result-missing`; launch errors come
 back only in `blockers`, as id `*` `missing-args`/`mixed-territory-modes` or as
-`setup-failed`, with no rows; seam failures as id `seam`); `setup` is the setup stage's
+`setup-failed` carrying the failing territory's id when that territory's returned names
+or head do not match, `*` otherwise; an invalid `startFrom` (sha not 7-40 hex, verdict not
+APPROVE/NEEDS_FIXES, NEEDS_FIXES without `findingsPath`, or on a setup territory) is
+`missing-args`; a territory with only some of `briefPath`/`worktree`/`branch` is
+`mixed-territory-modes`; seam failures as id `seam`); `setup` is the setup stage's
 report and brief paths, or `null`;
 `seam`/`acceptance` are `null` only when no `integrationWorktree` was given; `blockers`
-is the same failures flattened to `[{ id, reason }]`.
+is the territory, seam and accept-prep failures flattened to `[{ id, reason }]` (never the
+integrator's — read `integrator.verdict`).
 
 **Accept turn**: read the return. Accept only when `blockers` is empty (every territory
 `APPROVE`, seam `APPROVE` or `SKIPPED`) AND `acceptance.checkAcceptance.verdict` is
@@ -356,19 +366,22 @@ as `census-stale` — then run `work-record.mjs accept --record <recordPath> --r
 <integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
 (`--no-census "<reason>"` only when the census itself breaks) and send ONE RESULT.
 Otherwise the first of these that applies decides the one next step: a `blockers` entry
-(a territory id, `seam`, or `*` for a launch error), `acceptance.skipped`, or
-`checkAcceptance.output` on `FAIL`; `acceptance: null` with no blockers means this call
-ran without `integrationWorktree`, so seam and acceptance are still yours to run by hand.
+(a territory id, `seam`, `accept-prep` when its `integrationHead` is not the reviewed
+head, or `*` for a launch error), `integrator.verdict` other than `PASS` (its
+`failedGate`/`territory`; integrator failure is never in `blockers`), `acceptance.skipped`,
+or `checkAcceptance.output` on `FAIL`; `acceptance: null` with no blockers and
+`integrator.verdict` `PASS` means this call ran without `integrationWorktree`, so seam and
+acceptance are still yours to run by hand.
 
 Inside the loop the accept-prep runner is the one sanctioned second writer to the
 record: exactly `Status: reviewed`, `Artifact:`, `Worktree:`, `Evidence:` (the copied
-deciding reports in `docs/work/evidence/`) and one `Log: ... reviewed ... seam r<n>
-APPROVE <sha>` line, never `accepted`; per-event record moves (Ship) collapse into that
-one write, so don't pre-write them.
+deciding reports in `docs/work/evidence/`) and one `Log: ... reviewed ...` line naming the
+seam round and sha, or `seam SKIPPED`, never `accepted`; per-event record moves (Ship)
+collapse into that one write, so don't pre-write them.
 
 **Three-wakes rule**: a lead wakes its requester at most three times across a build — ACK,
-RESULT, BLOCKED. **One-notification rule**: fix rounds, re-reviews, the seam review,
-integration and the census all run inside the one Workflow call, so the lead gets one
+RESULT, BLOCKED. **One-notification rule**: fix rounds, re-reviews, integration,
+the seam review and the census all run inside the one Workflow call, so the lead gets one
 notification for the whole build. **Census-at-accept rule**: run a fresh census after the
 last review lands, over the lead's own session file plus its subagents dirs, and pass it
 at accept (in the loop too: accept-prep's `acceptance.censusPath` ran before its own
@@ -378,8 +391,8 @@ pass `--four-read` at accept too.
 **Resuming a territory (`startFrom`)**: pick up a territory a prior run left mid-loop
 without rebuilding approved work by passing its `startFrom: { sha, verdict,
 findingsPath? }` — `APPROVE` skips straight to Integrate with no build or review;
-`NEEDS_FIXES` starts with one fix-round builder against `findingsPath`, then the normal
-review/fix loop. Only valid on a "given" territory.
+`NEEDS_FIXES` (requires `findingsPath`) starts with one fix-round builder against
+`findingsPath`, then the normal review/fix loop. Only valid on a "given" territory.
 
 **Codex**: no Workflow tool — the loop above is unsupported on Codex, so a Codex lead
 runs the same stages by hand, in the same order — Setup through Ship, above — never the
