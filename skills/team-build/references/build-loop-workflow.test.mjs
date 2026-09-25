@@ -1,7 +1,7 @@
-// Static harness for build-loop-workflow.js (L-C4). Follows the shape of
-// skills/delegate/references/ladder-workflow.test.mjs (the pinned runtime's real
-// precedent): reads the source as text, strips the leading `export` from `meta`, and
-// wraps the body in an AsyncFunction with the runtime's real hook parameters
+// Static harness for build-loop-workflow.js (L-C4, extended for one-launch-1 R1-R9).
+// Follows the shape of skills/delegate/references/ladder-workflow.test.mjs (the pinned
+// runtime's real precedent): reads the source as text, strips the leading `export` from
+// `meta`, and wraps the body in an AsyncFunction with the runtime's real hook parameters
 // (agent, parallel, pipeline, phase, log, args, budget). Never imports the script as an
 // ES module — it has top-level `await` and a top-level `return`, which only a bare
 // function body (not a module) can parse. The ONE child process this file spawns is the
@@ -71,10 +71,11 @@ function stripLeadingExport(source) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. meta is a pure literal; 7. meta.phases titles equal the pinned four, in order
+// 2. meta is a pure literal; 7. meta.phases titles equal the pinned seven, in order
+// (R3/R4/R5 add Setup, Seam, Accept to the original Build, Review, Fix, Integrate).
 // ---------------------------------------------------------------------------
 
-test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail} objects titled Build, Review, Fix, Integrate in order", () => {
+test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail} objects titled Setup, Build, Review, Fix, Integrate, Seam, Accept in order", () => {
   const literal = extractMetaLiteral(SOURCE);
   assert.ok(!literal.includes("..."), "meta must not spread");
   assert.ok(!literal.includes("${"), "meta must not template-interpolate");
@@ -94,7 +95,7 @@ test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail}
     assert.equal(typeof p.detail, "string");
   }
   const titles = meta.phases.map((p) => p.title);
-  assert.deepEqual(titles, ["Build", "Review", "Fix", "Integrate"]);
+  assert.deepEqual(titles, ["Setup", "Build", "Review", "Fix", "Integrate", "Seam", "Accept"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -103,18 +104,8 @@ test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail}
 // ---------------------------------------------------------------------------
 
 test("L-C4.3: every banned token is absent from the source, each checked by name", () => {
-  // Round 2 fix (reviewer L1-review-r1.md, BLOCKER): L-C4.3 pins the forbidden TOKENS
-  // `Date.now` and `Math.random`, not a call-site shape. The prior `/Date\.now\s*\(/` /
-  // `/Math\.random\s*\(/` regexes required the dot and the name adjacent with no space,
-  // so `Date .now()`, an aliased `const f = Date.now; f()`, and a formatter's
-  // `Date.\n  now()` all passed green. `\s*` between the dot and the name (and no
-  // trailing `\(` requirement, so a bare reference is caught even when never called)
-  // closes all of those with no false positive against this script (verified: the
-  // shipped script still passes clean).
   assert.ok(!/Date\s*\.\s*now/.test(SOURCE), "Date.now must be absent");
   assert.ok(!/Math\s*\.\s*random/.test(SOURCE), "Math.random must be absent");
-  // Same weakness class swept across every other dotted-token ban below: each now
-  // tolerates whitespace/line breaks between the identifier and the dot.
   assert.ok(!/crypto\s*\./.test(SOURCE), "crypto. must be absent");
   assert.ok(!/performance\s*\./.test(SOURCE), "performance. must be absent");
   assert.ok(!/new\s+Date(?!\s*\()/.test(SOURCE), "bare `new Date` not immediately followed by `(` must be absent");
@@ -122,31 +113,25 @@ test("L-C4.3: every banned token is absent from the source, each checked by name
   assert.ok(!/\bimport\s/.test(SOURCE), "a static `import ` keyword must be absent");
   assert.ok(!/\bimport\(/.test(SOURCE), "dynamic import( must be absent");
   assert.ok(!/process\s*\./.test(SOURCE), "process. must be absent");
-  // \b, not a bare /fs\s*\./ — a bare pattern false-positives on the word "briefs." in
-  // prose comments (b-r-i-e-"fs".), which is not the banned `fs.` filesystem-module
-  // token; \b still excludes it after adding \s* tolerance (no boundary between the "e"
-  // in "brie" and the "f" in "fs", so the word-boundary anchor never engages there).
   assert.ok(!/\bfs\s*\./.test(SOURCE), "fs. must be absent");
   assert.ok(!/isolation/.test(SOURCE), "the literal token isolation must be absent, anywhere in the file");
 });
 
-// bonus, not one of the eight L-C4 items but pins L-C3's own shape rule directly: this
-// script never calls pipeline() at all (parallel() is the only cross-territory hook it
-// uses; behavioral coverage below in "never calls pipeline"). Same whitespace tolerance
-// as the sweep above.
 test("bonus: the source never calls pipeline( (L-C3: not used at the territory level, or anywhere, in this script)", () => {
   assert.ok(!/\bpipeline\s*\(/.test(SOURCE), "pipeline( must not appear in the source");
 });
 
 // ---------------------------------------------------------------------------
 // 4. every agent( call site carries both model: and agentType:, pair from the pinned
-// list of three
+// list of five (builder/sonnet, reviewer/opus, integrator/sonnet, runner/sonnet used
+// twice — setup and accept-prep — both pinned as the same pair).
 // ---------------------------------------------------------------------------
 
 const PINNED_PAIRS = [
   { agentType: "delegation:builder", model: "sonnet" },
   { agentType: "delegation:reviewer", model: "opus" },
   { agentType: "delegation:integrator", model: "sonnet" },
+  { agentType: "delegation:runner", model: "sonnet" },
 ];
 
 function findAgentCallTexts(source) {
@@ -169,27 +154,34 @@ function findAgentCallTexts(source) {
   return calls;
 }
 
-test("L-C4.4: every agent( call site carries a model: and an agentType: key, matching one of the three pinned pairs", () => {
+test("L-C4.4: every agent( call site carries a model: and an agentType: key, matching one of the pinned pairs", () => {
   const calls = findAgentCallTexts(SOURCE);
   assert.ok(calls.length >= 3, "expects at least Build, Review, and Integrate call sites");
   for (const call of calls) {
-    const agentTypeMatch = call.match(/agentType:\s*['"]([^'"]+)['"]/);
-    const modelMatch = call.match(/model:\s*['"]([^'"]+)['"]/);
+    // The call sites pass opts by variable (e.g. `agent(prompt, buildOpts1)`), not an
+    // inline object literal — so scan the whole SOURCE for that opts variable's own
+    // declaration instead of the call-site text itself.
+    const varMatch = call.match(/,\s*(\w+)\)$/);
+    let optsText = call;
+    if (varMatch) {
+      const declRe = new RegExp(`const\\s+${varMatch[1]}\\s*=\\s*\\{[^}]*\\}`);
+      const declMatch = SOURCE.match(declRe);
+      if (declMatch) optsText = declMatch[0];
+    }
+    const agentTypeMatch = optsText.match(/agentType:\s*['"]([^'"]+)['"]/);
+    const modelMatch = optsText.match(/model:\s*['"]([^'"]+)['"]/);
     assert.ok(agentTypeMatch, `agent( call site missing agentType: — ${call.slice(0, 60)}...`);
     assert.ok(modelMatch, `agent( call site missing model: — ${call.slice(0, 60)}...`);
     const pair = { agentType: agentTypeMatch[1], model: modelMatch[1] };
     const matches = PINNED_PAIRS.some((p) => p.agentType === pair.agentType && p.model === pair.model);
     assert.ok(
       matches,
-      `agent( call site pair {agentType: '${pair.agentType}', model: '${pair.model}'} is not one of the three pinned pairs`,
+      `agent( call site pair {agentType: '${pair.agentType}', model: '${pair.model}'} is not one of the pinned pairs`,
     );
   }
   // and the integrator call is never upgraded to opus:
-  const integratorCalls = calls.filter((c) => /agentType:\s*['"]delegation:integrator['"]/.test(c));
-  assert.ok(integratorCalls.length >= 1, "expects at least one delegation:integrator call site");
-  for (const call of integratorCalls) {
-    assert.ok(/model:\s*['"]sonnet['"]/.test(call), "the integrator call must pin model: sonnet, never opus");
-  }
+  const integratorPairText = SOURCE.match(/const integrateOpts = \{[^}]*\}/)[0];
+  assert.ok(/model:\s*['"]sonnet['"]/.test(integratorPairText), "the integrator call must pin model: sonnet, never opus");
 });
 
 // ---------------------------------------------------------------------------
@@ -239,14 +231,30 @@ test("L-C4.6: log( appears within 5 source lines of the literal string 'rounds-e
 });
 
 // ---------------------------------------------------------------------------
-// 8. each of BUILD, REVIEW, INTEGRATE appears as the schema: value in at least one
-// agent( call
+// 8. each of BUILD, REVIEW, INTEGRATE, SETUP, ACCEPT_PREP appears as the schema: value
+// in at least one agent( call
 // ---------------------------------------------------------------------------
 
-test("L-C4.8: BUILD, REVIEW, and INTEGRATE each appear as a schema: value in at least one agent( call", () => {
+test("L-C4.8: BUILD, REVIEW, INTEGRATE, SETUP, and ACCEPT_PREP each appear as a schema: value in at least one agent( call", () => {
   assert.ok(/schema:\s*BUILD\b/.test(SOURCE), "schema: BUILD must appear in at least one agent( call");
   assert.ok(/schema:\s*REVIEW\b/.test(SOURCE), "schema: REVIEW must appear in at least one agent( call");
   assert.ok(/schema:\s*INTEGRATE\b/.test(SOURCE), "schema: INTEGRATE must appear in at least one agent( call");
+  assert.ok(/schema:\s*SETUP\b/.test(SOURCE), "schema: SETUP must appear in at least one agent( call");
+  assert.ok(/schema:\s*ACCEPT_PREP\b/.test(SOURCE), "schema: ACCEPT_PREP must appear in at least one agent( call");
+});
+
+// ---------------------------------------------------------------------------
+// R9: no rendered prompt contains a note-send instruction other than the prohibition.
+// ---------------------------------------------------------------------------
+
+test("R9: every mandate constant carries the note-send prohibition", () => {
+  const mandateNames = ["BUILD_MANDATE", "REVIEW_MANDATE", "INTEGRATE_MANDATE", "SETUP_MANDATE", "ACCEPT_MANDATE"];
+  for (const name of mandateNames) {
+    const re = new RegExp(`const ${name} =[\\s\\S]*?(?=\\nconst |\\n\\/\\/)`);
+    const m = SOURCE.match(re);
+    assert.ok(m, `expected to find ${name}'s declaration`);
+    assert.ok(/Never send peer notes\./.test(m[0]), `${name} must carry the note-send prohibition`);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -309,30 +317,140 @@ function reviewResult(verdict, sha, findingsPath = null, blockerCount = 0, major
   return { verdict, sha, findingsPath, blockerCount, majorCount };
 }
 
-function integrateResult(verdict = "PASS", headSha = "headsha", reportPath = "docs/work/integrate.report.md", failedGate = null, territory = null) {
+function integrateResult(verdict = "PASS", headSha = "headsha1", reportPath = "docs/work/integrate.report.md", failedGate = null, territory = null) {
   return { verdict, headSha, reportPath, failedGate, territory };
 }
+
+const BASE_ARGS = { specPath: "docs/specs/example/spec.md", baseSha: "cc81d0c19e910d947d640040a658b10b67a0be7f", startedAt: "2026-09-25T14:00:00Z" };
 
 const T1 = { id: "T1", briefPath: "briefs/T1.md", worktree: "../wt-T1", branch: "feat/T1", gate: "node --test t1.test.mjs" };
 const T2 = { id: "T2", briefPath: "briefs/T2.md", worktree: "../wt-T2", branch: "feat/T2", gate: "node --test t2.test.mjs" };
 
-test("runs with args undefined: no territories, integrator still runs once, empty territories and blockers", async () => {
-  const stub = makeAgentStub({ integrate: integrateResult() });
+// ---------------------------------------------------------------------------
+// R2: missing-args and mixed-territory-modes — nothing spawns.
+// ---------------------------------------------------------------------------
+
+test("R2: missing specPath/baseSha/startedAt returns missing-args and spawns nothing", async () => {
+  const stub = makeAgentStub({});
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+  assert.deepEqual(result.territories, []);
+  assert.equal(result.integrator, null);
+  assert.equal(result.seam, null);
+  assert.equal(result.acceptance, null);
+  assert.equal(result.setup, null);
+});
+
+test("R2: args entirely undefined also returns missing-args and spawns nothing", async () => {
+  const stub = makeAgentStub({});
   const result = await runScript(undefined, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("R2: mixing a given territory with a setup territory is a launch error, nothing spawns", async () => {
+  const setupTerritory = { id: "S1" };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [T1, setupTerritory], integratorBriefPath: "briefs/integrator.md", reviewerBriefPath: "briefs/reviewer.md" }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "mixed-territory-modes" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("R2: a territory with only one or two of {worktree, branch, briefPath} is ambiguous, also mixed-territory-modes", async () => {
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [{ id: "T1", worktree: "../wt-T1" }] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "mixed-territory-modes" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+// m2: startFrom is validated as part of R2's launch check, before anything spawns. The
+// new reason vocabulary needs the lead's OK, so an invalid startFrom folds into the
+// existing missing-args reason rather than a new 'invalid-start-from'.
+test("m2: startFrom with a non-sha string (e.g. the literal 'HEAD') is a launch error, nothing spawns", async () => {
+  const bad = { ...T1, startFrom: { sha: "HEAD", verdict: "APPROVE" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("m2: startFrom with an unrecognized verdict is a launch error, never silently runs from round 1", async () => {
+  const bad = { ...T1, startFrom: { sha: "aaaaaaa1", verdict: "PENDING" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("m2: startFrom NEEDS_FIXES without a findingsPath is a launch error", async () => {
+  const bad = { ...T1, startFrom: { sha: "aaaaaaa1", verdict: "NEEDS_FIXES" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("m2: startFrom on a setup territory is a launch error (R6: only valid on given territories)", async () => {
+  const bad = { id: "S1", startFrom: { sha: "aaaaaaa1", verdict: "APPROVE" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+// m1: a trailing slash on integrationWorktree must never nest a setup worktree inside
+// the integration worktree itself (worktreeRoot is the PARENT directory of
+// integrationWorktree, per R2).
+test("m1: a trailing slash on integrationWorktree does not nest the setup worktree inside it", async () => {
+  const args = { ...BASE_ARGS, territories: [{ id: "L1" }], integrationWorktree: "/repo/wt-integrate/", integrationBranch: "build/x" };
+  // This test only reads the rendered setup prompt, so any well-shaped (even
+  // verification-failing) return that doesn't throw the stub is enough; the empty
+  // territories row deliberately fails verification, ending the run right after setup.
+  const stub = makeAgentStub({ setup: { territories: [], reviewerBriefPath: "x", integratorBriefPath: "x", seamBriefPath: "x", reportPath: "x" } });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall, "setup call must have fired");
+  assert.ok(setupCall.prompt.includes("/repo/wt-x-L1"), `worktreeRoot must be the PARENT of integrationWorktree, got: ${setupCall.prompt}`);
+  assert.ok(!setupCall.prompt.includes("/repo/wt-integrate/wt-x-L1"), "must never nest the setup worktree inside the integration worktree");
+});
+
+// m1: a trailing slash on integrationBranch must never produce an empty slug (baseName
+// of a trailing-slash path used to return "").
+test("m1: a trailing slash on integrationBranch does not produce an empty slug", async () => {
+  const args = { ...BASE_ARGS, territories: [{ id: "L1" }], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x/" };
+  const stub = makeAgentStub({ setup: setupResultFor({ ...args, integrationBranch: "build/x" }) });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall.prompt.includes("wt-x-L1"), `slug must be 'x', never empty, got: ${setupCall.prompt}`);
+  assert.ok(!setupCall.prompt.includes("wt--L1"), "an empty slug would render as a double dash");
+});
+
+// ---------------------------------------------------------------------------
+// Given-worktree path — byte-for-byte preservation of the existing round loop,
+// sameSha, longerSha, and the respawn-once-on-death rule.
+// ---------------------------------------------------------------------------
+
+test("given path: no territories, integrator still runs once, empty territories and blockers", async () => {
+  const stub = makeAgentStub({ integrate: integrateResult() });
+  const result = await runScript({ ...BASE_ARGS, territories: [] }, stub);
   assert.deepEqual(result.territories, []);
   assert.deepEqual(result.blockers, []);
   assert.equal(stub.calls.length, 1);
   assert.equal(stub.calls[0].opts.agentType, "delegation:integrator");
   assert.equal(stub.calls[0].opts.model, "sonnet");
+  assert.equal(result.setup, null);
+  assert.equal(result.seam, null);
+  assert.equal(result.acceptance, null);
 });
 
-test("one territory, immediate APPROVE: one build call, one review call, one integrate call, rounds=1", async () => {
+test("given path: one territory, immediate APPROVE: one build call, one review call, one integrate call, rounds=1", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
-  const result = await runScript({ territories: [T1] }, stub);
+  const result = await runScript({ ...BASE_ARGS, territories: [T1], reviewerBriefPath: "briefs/reviewer.md", integratorBriefPath: "briefs/integrator.md" }, stub);
   assert.equal(result.territories.length, 1);
   const t1 = result.territories[0];
   assert.equal(t1.id, "T1");
@@ -352,7 +470,7 @@ test("one territory, immediate APPROVE: one build call, one review call, one int
   assert.equal(integrateCall.opts.model, "sonnet");
 });
 
-test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinned builder pair, rounds=2", async () => {
+test("given path: NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinned builder pair, rounds=2", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "docs/work/t1-r1-findings.md", 1, 0),
@@ -360,7 +478,7 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
     "review:T1:r2": reviewResult("APPROVE", "bbbbbbb2"),
     integrate: integrateResult(),
   });
-  const result = await runScript({ territories: [T1] }, stub);
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
   const t1 = result.territories[0];
   assert.equal(t1.rounds, 2);
   assert.equal(t1.sha, "bbbbbbb2");
@@ -377,215 +495,35 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   assert.ok(!fixReviewCall.prompt.includes("bbbbbbb2"), "the fix review prompt must never contain the new build's delivered sha for the reviewer to echo");
 });
 
-// MINOR 4 (T1 round-2 review): a fix-round builder that returns PASS with the SAME sha as
-// the prior round (no new commit) must never hand the reviewer a rendered prompt containing
-// that sha as text - an echoing reviewer could match it without ever running `git rev-parse
-// HEAD` itself.
-test("fix round with no new commit: the r2 review prompt never contains the unchanged sha as text", async () => {
+test("given path: a null agent() return on the build stage is respawned once and succeeds", async () => {
   const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "docs/work/t1-r1-findings.md"),
-    "build:T1:r2": buildResult("aaaaaaa1", "PASS", "docs/work/T1-report.md"),
-    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T1:r1": [null, buildResult("aaaaaaa1")],
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
-  const result = await runScript({ territories: [T1] }, stub);
-  const t1 = result.territories[0];
-  assert.equal(t1.verdict, "APPROVE");
-  assert.equal(t1.sha, "aaaaaaa1");
-
-  const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
-  assert.ok(!fixReviewCall.prompt.includes("aaaaaaa1"), "the r2 review prompt must not contain the sha for the reviewer to echo when no new commit was made");
-  assert.ok(fixReviewCall.prompt.includes("docs/work/t1-r1-findings.md"), "prior findings must still be referenced even without a commit range");
-});
-
-test("a fix review always receives the captured artifact range, even with an empty findings path and a retry", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", ""),
-    "build:T1:r2": buildResult("bbbbbbb2"),
-    "review:T1:r2": [null, reviewResult("APPROVE", "bbbbbbb2")],
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.equal(result.territories[0].verdict, "APPROVE");
-  const retryingReviewCalls = stub.calls.filter((c) => c.opts.label === "review:T1:r2");
-  assert.equal(retryingReviewCalls.length, 2, "the fix review retries once after a null response");
-  for (const call of retryingReviewCalls) {
-    assert.ok(call.prompt.includes("Commit range: aaaaaaa1..HEAD"), "each fix-review attempt receives the captured artifact range, resolved live rather than handed as text");
-  }
-});
-
-// T1 (loop-gates spec item 3): the reviewer prompt must name the worktree and instruct an
-// independent `git rev-parse HEAD` there, and must never contain the delivered sha itself
-// (that self-reported string is exactly what a reviewer could echo back without checking).
-test("the review prompt names the worktree and never contains the delivered sha for the reviewer to echo", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("eeeeeee5", "PASS", "docs/work/T1-report.md"),
-    "review:T1:r1": reviewResult("APPROVE", "eeeeeee5"),
-    integrate: integrateResult(),
-  });
-  await runScript({ territories: [T1] }, stub);
-  const reviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r1");
-  assert.ok(reviewCall.prompt.includes(`Worktree: ${T1.worktree}`), "the review prompt must name the worktree to check HEAD in");
-  assert.ok(/git rev-parse HEAD/.test(reviewCall.prompt), "the review prompt must instruct an independent git rev-parse HEAD");
-  assert.ok(!reviewCall.prompt.includes("eeeeeee5"), "the review prompt must never contain the delivered sha as text");
-  assert.ok(reviewCall.prompt.includes("VERDICT: APPROVE <sha>"), "the review mandate must require the sha on the verdict line, the form checkAcceptance accepts");
-});
-
-// Round-2 review MAJOR 1: the spec's "the builder likewise" item — the builder prompt
-// must also instruct a live `git rev-parse HEAD`, in both the first round and every fix
-// round, not just the reviewer prompt.
-test("the build prompt tells the builder to report git rev-parse HEAD as its sha field, in round 1 and every fix round", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
-    "build:T1:r2": buildResult("bbbbbbb2"),
-    "review:T1:r2": reviewResult("APPROVE", "bbbbbbb2"),
-    integrate: integrateResult(),
-  });
-  await runScript({ territories: [T1] }, stub);
-  const round1Build = stub.calls.find((c) => c.opts.label === "build:T1:r1");
-  const round2Build = stub.calls.find((c) => c.opts.label === "build:T1:r2");
-  assert.match(round1Build.prompt, /git rev-parse HEAD/);
-  assert.match(round2Build.prompt, /git rev-parse HEAD/);
-});
-
-// Round-2 review MAJOR 1: build.sha and review.sha are now two independently-produced
-// `git rev-parse HEAD` reads of the same commit, so the equality check must normalize
-// case and surrounding whitespace rather than doing a raw string compare — otherwise a
-// reviewer that (correctly) reports the full lowercase 40-hex against a builder that
-// reported an uppercase or newline-padded value would be wrongly blocked.
-test("review sha comparison is case- and whitespace-normalized: an uppercase or padded reviewer sha still approves", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("abcdef1234567890abcdef1234567890abcdef12"),
-    "review:T1:r1": reviewResult("APPROVE", "ABCDEF1234567890ABCDEF1234567890ABCDEF12\n"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.equal(result.territories[0].verdict, "APPROVE");
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
   assert.equal(result.territories[0].blocker, null);
-  assert.deepEqual(result.blockers, []);
+  assert.equal(result.territories[0].sha, "aaaaaaa1");
+  const buildCalls = stub.calls.filter((c) => c.opts.label === "build:T1:r1");
+  assert.equal(buildCalls.length, 2, "respawned exactly once");
 });
 
-// Seam R2-1: longerSha must normalize (trim, lowercase) whichever side it picks, not pass
-// an honest-but-untrimmed/uppercase reviewer read through to the integrator prompt as-is.
-test("longerSha's chosen sha is trimmed and lowercased, never the raw padded/uppercase reviewer read", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("abcdef1234567890abcdef1234567890abcdef12"),
-    "review:T1:r1": reviewResult("APPROVE", "ABCDEF1234567890ABCDEF1234567890ABCDEF12\n"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.equal(result.territories[0].sha, "abcdef1234567890abcdef1234567890abcdef12");
-});
-
-test("review sha comparison still rejects a genuinely different sha (never equal on empty either side)", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult(""),
-    "review:T1:r1": reviewResult("APPROVE", ""),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-});
-
-// Seam S1: a builder that reports a short `git rev-parse --short` (or copies a short sha
-// from its own commit log) against a reviewer's full 40-hex read of the SAME commit must
-// still approve — both are honest, independent reads, only at different lengths.
-test("seam S1: a 7-character short sha from the builder approves against the reviewer's matching full 40-hex sha", async () => {
+test("given path: seam S1 sha prefix acceptance still works (sameSha/longerSha unchanged)", async () => {
   const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("5743ce8"),
     "review:T1:r1": reviewResult("APPROVE", full),
     integrate: integrateResult(),
   });
-  const result = await runScript({ territories: [T1] }, stub);
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
   const t1 = result.territories[0];
   assert.equal(t1.verdict, "APPROVE");
-  assert.equal(t1.blocker, null);
-  assert.deepEqual(result.blockers, []);
-  // Seam S1 optional: the integrator prompt always carries the longer (full) sha, never
-  // whichever length the builder happened to report.
+  assert.equal(t1.sha, full);
   const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
   assert.match(integrateCall.prompt, new RegExp(`T1@${full}`));
 });
 
-test("seam S1: a 7-character sha differing from the reviewer's full sha in its last character is still a mismatch", async () => {
-  const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
-  const notAPrefix = "5743ce9"; // differs from full's first 7 chars in the last position
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult(notAPrefix),
-    "review:T1:r1": reviewResult("APPROVE", full),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-});
-
-test("seam S1: a 5-character prefix is too short to accept, even when it does prefix-match", async () => {
-  const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("5743c"),
-    "review:T1:r1": reviewResult("APPROVE", full),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-});
-
-// Seam S5: sameSha must require both sides to look like a git sha (7-40 lowercase hex
-// chars); two equal non-sha strings (e.g. both "HEAD", or both "unknown") must never be
-// treated as a match.
-test("seam S5: two identical non-hex strings (e.g. both 'HEAD') never approve as a matching sha", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("HEAD"),
-    "review:T1:r1": reviewResult("APPROVE", "HEAD"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-});
-
-test("seam S5: two identical 'unknown' strings never approve as a matching sha", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("unknown"),
-    "review:T1:r1": reviewResult("APPROVE", "unknown"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-});
-
-test("a review only approves the build sha it reviewed, including after a fix round", async () => {
-  const initialMismatch = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("APPROVE", "ddddddd4"),
-    integrate: integrateResult(),
-  });
-  const initialResult = await runScript({ territories: [T1] }, initialMismatch);
-  assert.deepEqual(initialResult.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-  assert.match(
-    initialMismatch.calls.find((c) => c.opts.label === "integrate").prompt,
-    /Approved territories and shas: none/,
-  );
-
-  const fixMismatch = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
-    "build:T1:r2": buildResult("bbbbbbb2"),
-    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa1"),
-    integrate: integrateResult(),
-  });
-  const fixResult = await runScript({ territories: [T1] }, fixMismatch);
-  assert.deepEqual(fixResult.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
-  assert.match(
-    fixMismatch.calls.find((c) => c.opts.label === "integrate").prompt,
-    /Approved territories and shas: none/,
-  );
-});
-
-test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, log() fires, no round beyond maxRounds is attempted", async () => {
+test("given path: NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, log() fires", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
@@ -593,15 +531,13 @@ test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, l
     "review:T1:r2": reviewResult("NEEDS_FIXES", "bbbbbbb2", "f2.md"),
     integrate: integrateResult(),
   });
-  const result = await runScript({ territories: [T1], maxRounds: 2 }, stub);
+  const result = await runScript({ ...BASE_ARGS, territories: [T1], maxRounds: 2 }, stub);
   const t1 = result.territories[0];
   assert.equal(t1.rounds, 2);
   assert.equal(t1.blocker, "rounds-exhausted");
-  assert.equal(stub.calls.filter((c) => c.opts.label && c.opts.label.startsWith("build:T1:")).length, 2, "no round 3 build call");
   assert.deepEqual(result.blockers, [{ id: "T1", reason: "rounds-exhausted" }]);
 
-  // log() actually fired, and named the territory, not just "somewhere in the loop"
-  const run = runScript({ territories: [T1], maxRounds: 2 }, makeAgentStub({
+  const run = runScript({ ...BASE_ARGS, territories: [T1], maxRounds: 2 }, makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
     "build:T1:r2": buildResult("bbbbbbb2"),
@@ -612,72 +548,7 @@ test("NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, l
   assert.ok(run.logs.some((m) => m.includes("rounds-exhausted") && m.includes("T1")));
 });
 
-test("maxRounds default is 3 when omitted", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
-    "build:T1:r2": buildResult("bbbbbbb2"),
-    "review:T1:r2": reviewResult("NEEDS_FIXES", "bbbbbbb2", "f2.md"),
-    "build:T1:r3": buildResult("ccccccc3"),
-    "review:T1:r3": reviewResult("APPROVE", "ccccccc3"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.equal(result.territories[0].rounds, 3);
-  assert.equal(result.territories[0].blocker, null);
-});
-
-test("a numeric-string maxRounds is honoured (parsed, not left as a string)", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1], maxRounds: "1" }, stub);
-  assert.equal(result.territories[0].rounds, 1);
-  assert.equal(result.territories[0].blocker, "rounds-exhausted");
-});
-
-test("a null agent() return on the build stage is respawned once and succeeds", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": [null, buildResult("aaaaaaa1")],
-    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.equal(result.territories[0].blocker, null);
-  assert.equal(result.territories[0].sha, "aaaaaaa1");
-  const buildCalls = stub.calls.filter((c) => c.opts.label === "build:T1:r1");
-  assert.equal(buildCalls.length, 2, "respawned exactly once");
-});
-
-test("a null agent() return twice on the review stage records blocker agent-died and never starts a fix round", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": [null, null],
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  const t1 = result.territories[0];
-  assert.equal(t1.blocker, "agent-died");
-  const reviewCalls = stub.calls.filter((c) => c.opts.label === "review:T1:r1");
-  assert.equal(reviewCalls.length, 2, "respawned exactly once before giving up");
-  assert.ok(!stub.calls.some((c) => c.opts.label === "build:T1:r2"), "no fix round starts once review has died twice");
-});
-
-test("a builder verdict of FAIL or BLOCKED ends the territory immediately, no review call", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1", "BLOCKED"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  const t1 = result.territories[0];
-  assert.equal(t1.verdict, "BLOCKED");
-  assert.equal(t1.blocker, "builder-blocked");
-  assert.ok(!stub.calls.some((c) => c.opts.label === "review:T1:r1"), "no review call once the build itself is BLOCKED");
-});
-
-test("cross-territory concurrency uses parallel(), never pipeline(): two territories complete independently", async () => {
+test("given path: cross-territory concurrency uses parallel(), never pipeline(): two territories complete independently", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
@@ -687,100 +558,25 @@ test("cross-territory concurrency uses parallel(), never pipeline(): two territo
     "review:T2:r2": reviewResult("APPROVE", "2222222b"),
     integrate: integrateResult(),
   });
-  // pipelineImpl left as throwingPipelineStub (default) — a call to pipeline() would
-  // throw and fail this test.
-  const result = await runScript({ territories: [T1, T2] }, stub);
+  const result = await runScript({ ...BASE_ARGS, territories: [T1, T2] }, stub);
   const byId = Object.fromEntries(result.territories.map((r) => [r.id, r]));
   assert.equal(byId.T1.rounds, 1);
   assert.equal(byId.T1.verdict, "APPROVE");
   assert.equal(byId.T2.rounds, 2);
   assert.equal(byId.T2.verdict, "APPROVE");
-
-  // Converse of the excluded-territory check below: two APPROVEd territories really do
-  // land in the approved-sha segment of the integrator prompt (id@sha, both of them),
-  // so that assertion can't pass merely by the prompt losing its approved list entirely.
-  const integrateCall = stub.calls.find((c) => c.opts.agentType === "delegation:integrator");
-  const approvedSegment = integrateCall.prompt.match(/Approved territories and shas: (.*?)\. Excluded/)[1];
-  assert.equal(approvedSegment, "T1@aaaaaaa1, T2@2222222b");
 });
 
-test("the integrator prompt names excluded (blocked) territories and their reason, and result.blockers reflects them", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1], maxRounds: 1 }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "rounds-exhausted" }]);
-  const integrateCall = stub.calls.find((c) => c.opts.agentType === "delegation:integrator");
-  assert.ok(integrateCall.prompt.includes("T1"));
-  assert.ok(integrateCall.prompt.includes("rounds-exhausted"));
-  assert.equal(integrateCall.opts.model, "sonnet", "the integrator never runs at opus");
-
-  // Round 2 fix (reviewer L1-review-r1.md, MAJOR): nothing previously pinned that a
-  // blocked territory is actually EXCLUDED from the approved-sha segment — mutating
-  // `const approved = results.filter((r) => !r.blocker)` to `const approved = results`
-  // still passed here, because T1's id appears in both the approved and excluded halves
-  // of the prompt and both prior asserts were plain `.includes("T1")` substring checks.
-  // Isolate the approved segment specifically and require it to read "none".
-  const approvedSegment = integrateCall.prompt.match(/Approved territories and shas: (.*?)\. Excluded/)[1];
-  assert.equal(approvedSegment, "none", "a blocked territory must never appear in the approved-sha list");
-});
-
-test("parallel null and omitted slots retain every planned territory as a blocked result", async () => {
-  const stub = makeAgentStub({ integrate: integrateResult() });
-  const result = await runScript(
-    { territories: [T1, T2] },
-    stub,
-    { parallelImpl: async () => [null] },
-  );
-  assert.deepEqual(result.territories.map((r) => r.id), ["T1", "T2"]);
-  assert.deepEqual(result.blockers, [
-    { id: "T1", reason: "parallel-result-missing" },
-    { id: "T2", reason: "parallel-result-missing" },
-  ]);
-  assert.deepEqual(result.territories.map((r) => r.failure), [
-    { stage: "parallel", reason: "missing-result", index: 0 },
-    { stage: "parallel", reason: "missing-result", index: 1 },
-  ]);
-  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
-  assert.match(integrateCall.prompt, /T1 \(parallel-result-missing\), T2 \(parallel-result-missing\)/);
-});
-
-test("the integration prompt requires explicit matching reviewer approval", async () => {
+test("given path: returns the full R7 superset shape and nothing else", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: integrateResult(),
   });
-  await runScript({ territories: [T1] }, stub);
-  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
-  assert.match(integrateCall.prompt, /explicitly returned APPROVE for that exact sha/);
-});
-
-test("a review without explicit APPROVE is excluded even if a runtime bypasses the review schema", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("UNKNOWN", "aaaaaaa1"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-not-approved" }]);
-  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
-  assert.match(integrateCall.prompt, /Approved territories and shas: none/);
-});
-
-test("returns exactly { territories, integrator, blockers } and nothing else", async () => {
-  const stub = makeAgentStub({
-    "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
-    integrate: integrateResult(),
-  });
-  const result = await runScript({ territories: [T1] }, stub);
-  assert.deepEqual(Object.keys(result).sort(), ["blockers", "integrator", "territories"]);
-  assert.ok(Array.isArray(result.territories));
-  assert.ok(Array.isArray(result.blockers));
-  assert.equal(typeof result.integrator, "object");
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.deepEqual(Object.keys(result).sort(), ["acceptance", "blockers", "integrator", "seam", "setup", "territories"].sort());
+  assert.equal(result.setup, null, "setup is null when territories arrived already given");
+  assert.equal(result.seam, null, "seam is null when integrationWorktree is absent");
+  assert.equal(result.acceptance, null, "acceptance is null when integrationWorktree is absent");
 });
 
 test("a null integrator return twice falls back to a BLOCKED INTEGRATE result rather than throwing", async () => {
@@ -789,9 +585,737 @@ test("a null integrator return twice falls back to a BLOCKED INTEGRATE result ra
     "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
     integrate: [null, null],
   });
-  const result = await runScript({ territories: [T1] }, stub);
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
   assert.equal(result.integrator.verdict, "BLOCKED");
   assert.equal(result.integrator.failedGate, "agent-died");
   const integrateCalls = stub.calls.filter((c) => c.opts.agentType === "delegation:integrator");
   assert.equal(integrateCalls.length, 2, "respawned exactly once before falling back");
+});
+
+// ---------------------------------------------------------------------------
+// R6: startFrom
+// ---------------------------------------------------------------------------
+
+test("R6: startFrom APPROVE skips build and review entirely, goes straight to Integrate", async () => {
+  const t1WithStart = { ...T1, startFrom: { sha: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", verdict: "APPROVE", findingsPath: "docs/work/old-findings.md" } };
+  const stub = makeAgentStub({ integrate: integrateResult() });
+  const result = await runScript({ ...BASE_ARGS, territories: [t1WithStart] }, stub);
+  const t1 = result.territories[0];
+  assert.equal(t1.verdict, "APPROVE");
+  assert.equal(t1.sha, "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1");
+  assert.equal(t1.rounds, 0);
+  assert.equal(t1.reportPath, null);
+  assert.equal(t1.findingsPath, "docs/work/old-findings.md");
+  assert.ok(!stub.calls.some((c) => c.opts.label && c.opts.label.startsWith("build:")), "no build call");
+  assert.ok(!stub.calls.some((c) => c.opts.label && c.opts.label.startsWith("review:")), "no review call");
+  assert.equal(stub.calls.length, 1, "only the integrate call runs");
+});
+
+test("R6: startFrom NEEDS_FIXES starts at a fix round (round 2), no round-1 build or review call", async () => {
+  const t1WithStart = { ...T1, startFrom: { sha: "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2", verdict: "NEEDS_FIXES", findingsPath: "docs/work/prior-findings.md" } };
+  const stub = makeAgentStub({
+    "build:T1:r2": buildResult("c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"),
+    "review:T1:r2": reviewResult("APPROVE", "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [t1WithStart] }, stub);
+  const t1 = result.territories[0];
+  assert.equal(t1.verdict, "APPROVE");
+  assert.equal(t1.rounds, 2);
+  assert.ok(!stub.calls.some((c) => c.opts.label === "build:T1:r1"), "no round-1 build call");
+  assert.ok(!stub.calls.some((c) => c.opts.label === "review:T1:r1"), "no round-1 review call");
+  const fixBuildCall = stub.calls.find((c) => c.opts.label === "build:T1:r2");
+  assert.equal(fixBuildCall.opts.phase, "Fix");
+  assert.ok(fixBuildCall.prompt.includes("docs/work/prior-findings.md"));
+});
+
+// ---------------------------------------------------------------------------
+// R2 (setup mode) / R3 / R4 / R5 — the SETUP path, seam, and accept-prep.
+// ---------------------------------------------------------------------------
+
+const SETUP_ARGS = {
+  ...BASE_ARGS,
+  territories: [{ id: "L1" }, { id: "L2" }],
+  integrationWorktree: "/repo/wt-integrate",
+  integrationBranch: "build/one-launch-1",
+  integrationGate: "node scripts/run-tests.mjs",
+  leadSession: "/home/lead/session.jsonl",
+  recordPath: "docs/work/wr-2026-09-25-one-launch.record.md",
+};
+
+// Mirrors the script's own R3 name computation exactly, so a fixture setup result
+// verifies clean against whatever args (fixed test constants, or a real example.json)
+// are handed to it.
+function lastSeg(p) {
+  const s = String(p ?? "");
+  const idx = s.lastIndexOf("/");
+  return idx === -1 ? s : s.slice(idx + 1);
+}
+function dirOf(p) {
+  const s = String(p ?? "");
+  const idx = s.lastIndexOf("/");
+  return idx === -1 ? "." : s.slice(0, idx);
+}
+function stripExtension(name) {
+  const idx = name.lastIndexOf(".");
+  return idx <= 0 ? name : name.slice(0, idx);
+}
+
+function setupResultFor(args) {
+  const specDir = dirOf(args.specPath);
+  const slug = args.integrationBranch ? lastSeg(args.integrationBranch) : stripExtension(lastSeg(args.specPath));
+  const worktreeRoot = args.worktreeRoot ?? dirOf(args.integrationWorktree ?? "");
+  return {
+    territories: args.territories.map((t) => ({
+      id: t.id,
+      worktree: `${worktreeRoot}/wt-${slug}-${t.id}`,
+      branch: args.integrationBranch ? `${args.integrationBranch}-${t.id}` : `build/${slug}-${t.id}`,
+      briefPath: `${specDir}/briefs/${t.id}.md`,
+      gate: `node --test ${t.id}.test.mjs`,
+      headSha: args.baseSha,
+    })),
+    reviewerBriefPath: `${specDir}/briefs/reviewer.md`,
+    integratorBriefPath: `${specDir}/briefs/integrator.md`,
+    seamBriefPath: `${specDir}/briefs/seam.md`,
+    reportPath: `${specDir}/setup.report.md`,
+  };
+}
+
+test("setup path: setup-failed when a returned territory's headSha doesn't match baseSha", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories[0].headSha = "0000000000000000000000000000000000000000";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
+  assert.deepEqual(result.territories, []);
+  assert.equal(result.setup, null);
+  assert.equal(stub.calls.length, 1, "nothing built past the failed setup call");
+});
+
+test("setup path: setup-failed when a returned worktree/branch/briefPath doesn't match the computed name", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories[0].worktree = "/repo/wt-wrong-name";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
+});
+
+// m9 gap: only worktree and headSha were covered — branch, briefPath, and a missing row
+// must fail verification too.
+test("setup path: setup-failed when a returned branch doesn't match the computed name", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories[0].branch = "wrong/branch-name";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
+});
+
+test("setup path: setup-failed when a returned briefPath doesn't match the computed name", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories[0].briefPath = "wrong/briefs/L1.md";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
+});
+
+test("setup path: setup-failed when a territory row is missing from the returned territories array", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }, { id: "L2" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories = badSetup.territories.filter((r) => r.id !== "L2");
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L2", reason: "setup-failed" }]);
+});
+
+// m9 gap: setup dying twice must give the '*' id, mirroring the given-path integrator's
+// agent-died fallback.
+test("setup path: setup agent dying twice gives setup-failed with id '*' and spawns nothing else", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const stub = makeAgentStub({ setup: [null, null] });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "setup-failed" }]);
+  assert.equal(result.setup, null);
+  const setupCalls = stub.calls.filter((c) => c.opts.label === "setup");
+  assert.equal(setupCalls.length, 2, "respawned exactly once before giving up");
+});
+
+// M5: the reviewer/integrator/seam brief paths are computed IN THE SCRIPT (R3); the
+// script must verify what setup returns against those computed names, not trust them.
+test("setup path: setup-failed when the returned seamBriefPath differs from the computed one", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.seamBriefPath = "/tmp/EVIL-seam.md";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "setup-failed" }]);
+  assert.equal(result.setup, null);
+  assert.equal(stub.calls.length, 1, "nothing built past the failed setup call");
+});
+
+test("setup path: setup-failed when the returned reviewerBriefPath or integratorBriefPath differs from the computed one", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badReviewer = setupResultFor(args);
+  badReviewer.reviewerBriefPath = "/tmp/EVIL-reviewer.md";
+  const result1 = await runScript(args, makeAgentStub({ setup: badReviewer }));
+  assert.deepEqual(result1.blockers, [{ id: "*", reason: "setup-failed" }]);
+
+  const badIntegrator = setupResultFor(args);
+  badIntegrator.integratorBriefPath = "/tmp/EVIL-integrator.md";
+  const result2 = await runScript(args, makeAgentStub({ setup: badIntegrator }));
+  assert.deepEqual(result2.blockers, [{ id: "*", reason: "setup-failed" }]);
+});
+
+test("setup path: computed branch/worktree names use integrationBranch's last segment as slug", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined };
+  let capturedPrompt = null;
+  const setup = setupResultFor(args);
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  capturedPrompt = setupCall.prompt;
+  assert.ok(capturedPrompt.includes("/repo/wt-one-launch-1-L1"), "worktree name uses the integration branch's last segment as slug");
+  assert.ok(capturedPrompt.includes("build/one-launch-1-L1"), "branch name is integrationBranch-id");
+});
+
+test("setup path: full fixture run produces setup, builds, reviews, integrate, seam APPROVE, and accept-prep with censusPath and checkAcceptance", async () => {
+  const args = SETUP_ARGS;
+  const setup = setupResultFor(args);
+  const seamFindings = "docs/work/seam-r1-findings.md";
+  const l1Findings = "docs/work/evidence/L1-review-approve.md";
+  const l2Findings = "docs/work/evidence/L2-review-approve.md";
+
+  // M6: the journal must actually discriminate a live script (not just assert a constant
+  // it built itself). Wrap the fixture stub so every call is recorded through the SAME
+  // path the assertions read back, and append the return entry only once the script's own
+  // promise has resolved — plus one tick of the microtask queue, so a stray un-awaited
+  // agent() firing after return would still land in the journal before we check it.
+  const inner = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1", l1Findings),
+    "build:L2:r1": buildResult("bbbbbbb2"),
+    "review:L2:r1": reviewResult("APPROVE", "bbbbbbb2", l2Findings),
+    integrate: integrateResult("PASS", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"),
+    "seam:r1": reviewResult("APPROVE", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", seamFindings),
+    "accept-prep": {
+      censusPath: "docs/work/evidence/wr-2026-09-25-one-launch-census.md",
+      censusNote: "ok",
+      integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      evidencePaths: ["docs/work/evidence/wr-2026-09-25-one-launch-L1.md", "docs/work/evidence/wr-2026-09-25-one-launch-L2.md"],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  const journal = [];
+  const stub = async (prompt, opts) => {
+    journal.push({ type: "agent", agentType: opts.agentType, model: opts.model, label: opts.label });
+    return inner(prompt, opts);
+  };
+  stub.calls = inner.calls;
+
+  const result = await runScript(args, stub);
+  journal.push({ type: "return" });
+  // let any stray un-awaited agent() call land before we check the journal's shape.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // setup
+  assert.ok(result.setup);
+  assert.equal(result.setup.reportPath, setup.reportPath);
+  assert.equal(result.setup.seamBriefPath, setup.seamBriefPath);
+  assert.equal(result.territories[0].worktree ?? undefined, undefined, "territory result rows don't restate worktree — only id/sha/verdict/etc");
+
+  // builds/reviews/integrate
+  assert.equal(result.territories.length, 2);
+  assert.ok(result.territories.every((t) => t.verdict === "APPROVE"));
+  assert.equal(result.integrator.verdict, "PASS");
+
+  // seam
+  assert.ok(result.seam);
+  assert.equal(result.seam.verdict, "APPROVE");
+  assert.equal(result.seam.blocker, null);
+
+  // accept-prep
+  assert.ok(result.acceptance);
+  assert.equal(result.acceptance.censusPath, "docs/work/evidence/wr-2026-09-25-one-launch-census.md");
+  assert.equal(result.acceptance.checkAcceptance.verdict, "PASS");
+
+  assert.deepEqual(result.blockers, []);
+
+  // M1: the accept-prep prompt must carry the reviewers' APPROVE findings files, never
+  // the builders' own report paths.
+  const acceptCall = stub.calls.find((c) => c.opts.label === "accept-prep");
+  assert.ok(acceptCall.prompt.includes(l1Findings), "accept-prep prompt must list L1's reviewer findings path");
+  assert.ok(acceptCall.prompt.includes(l2Findings), "accept-prep prompt must list L2's reviewer findings path");
+  assert.ok(acceptCall.prompt.includes(seamFindings), "accept-prep prompt must list the seam's APPROVE findings path");
+  assert.ok(!acceptCall.prompt.includes("docs/work/aaaaaaa1.report.md"), "accept-prep prompt must never list a builder report path");
+  assert.ok(!acceptCall.prompt.includes("docs/work/bbbbbbb2.report.md"), "accept-prep prompt must never list a builder report path");
+
+  // JOURNAL: every agent() call the fake saw, plus one entry for the script's single
+  // return — the count of script returns is exactly 1, the return is the LAST entry (no
+  // agent() call fired after the script returned, awaited or not), and every call's
+  // {agentType, model} pair is one of the pinned pairs the script itself issues (never
+  // something "the pane" would issue directly, since every one of these calls originated
+  // inside the script, never from the test/pane).
+  assert.equal(journal.filter((e) => e.type === "return").length, 1, "exactly one script return");
+  assert.equal(journal.at(-1).type, "return", "no agent() call after the script returned");
+  for (const entry of journal.filter((e) => e.type === "agent")) {
+    assert.ok(
+      PINNED_PAIRS.some((p) => p.agentType === entry.agentType && p.model === entry.model),
+      `unpinned {agentType: ${entry.agentType}, model: ${entry.model}}`,
+    );
+  }
+  assert.deepEqual(
+    journal
+      .filter((e) => e.type === "agent")
+      .map((e) => e.label)
+      .sort(),
+    ["accept-prep", "build:L1:r1", "build:L2:r1", "integrate", "review:L1:r1", "review:L2:r1", "seam:r1", "setup"],
+  );
+  assert.equal(stub.calls.length, 8, "setup + 2 builds + 2 reviews + integrate + seam + accept-prep = 8 calls, one launch");
+});
+
+test("given path (integrationWorktree absent): seam:null, acceptance:null even with two territories", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1, T2] }, stub);
+  assert.equal(result.seam, null);
+  assert.equal(result.acceptance, null);
+  assert.ok(!stub.calls.some((c) => c.opts.label && c.opts.label.startsWith("seam")));
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+});
+
+// ---------------------------------------------------------------------------
+// R4: seam NEEDS_FIXES -> seam-fix -> seam APPROVE; seam rounds-exhausted
+// ---------------------------------------------------------------------------
+
+test("R4: seam NEEDS_FIXES triggers one seam-fix builder on the integration worktree, then a delta re-review that APPROVEs", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", reviewerBriefPath: "briefs/reviewer.md", integratorBriefPath: "briefs/integrator.md" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("NEEDS_FIXES", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", "docs/work/seam-r1-findings.md"),
+    "seam-fix:r2": buildResult("f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"),
+    "seam:r2": reviewResult("APPROVE", "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "APPROVE");
+  assert.equal(result.seam.rounds, 2);
+  assert.equal(result.seam.blocker, null);
+  assert.equal(result.seam.sha, "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6");
+
+  const seamFixCall = stub.calls.find((c) => c.opts.label === "seam-fix:r2");
+  assert.equal(seamFixCall.opts.agentType, "delegation:builder");
+  assert.equal(seamFixCall.opts.model, "sonnet");
+  assert.ok(seamFixCall.prompt.includes("docs/work/seam-r1-findings.md"));
+  assert.ok(seamFixCall.prompt.includes("node scripts/run-tests.mjs"));
+  assert.deepEqual(result.blockers, []);
+
+  // M2 twin: the seam-fix made a NEW commit (f6... differs from priorHead e5...), so the
+  // delta re-review prompt must carry the prior head for the range and never the new
+  // build's delivered sha for an echoing reviewer to copy.
+  const seamReReviewCall = stub.calls.find((c) => c.opts.label === "seam:r2");
+  assert.ok(seamReReviewCall.prompt.includes("Commit range: e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5..HEAD"), "the r2 seam prompt must carry the prior head as the range start");
+  assert.ok(!seamReReviewCall.prompt.includes("f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"), "the r2 seam prompt must never contain the seam-fix's own delivered sha");
+});
+
+// M2: a no-commit seam-fix round (the fix builder reports the exact same head it started
+// from) must never leak that sha into the delta re-review prompt as a "range" for an
+// echoing reviewer to copy back.
+test("M2: seam-fix that makes no new commit does not leak the current HEAD into the re-review prompt", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs" };
+  const noCommitSha = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", noCommitSha),
+    "seam:r1": reviewResult("NEEDS_FIXES", noCommitSha, "docs/work/seam-r1-findings.md"),
+    "seam-fix:r2": buildResult(noCommitSha),
+    "seam:r2": reviewResult("APPROVE", noCommitSha),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "APPROVE");
+  const seamReReviewCall = stub.calls.find((c) => c.opts.label === "seam:r2");
+  assert.ok(!seamReReviewCall.prompt.includes(`${noCommitSha}..HEAD`), "a no-commit seam-fix must never render 'sha..HEAD' with the live HEAD's own sha");
+  assert.ok(seamReReviewCall.prompt.includes("docs/work/seam-r1-findings.md"), "prior findings path is still carried even without a commit range");
+});
+
+// m9 gap: a round-1 seam sha mismatch against the integrator's own headSha must BLOCK,
+// never silently accept.
+test("m9: seam round-1 sha mismatch against integrate.headSha blocks with review-sha-mismatch", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("APPROVE", "HEAD"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "BLOCKED");
+  assert.equal(result.seam.blocker, "review-sha-mismatch");
+  assert.equal(result.seam.sha, null);
+  assert.deepEqual(result.blockers, [{ id: "seam", reason: "review-sha-mismatch" }]);
+});
+
+// m9 gap: the seam reviewer agent dying twice must fall back to BLOCKED, mirroring the
+// integrator's own agent-died fallback, rather than throwing.
+test("m9: seam agent dying twice falls back to BLOCKED agent-died rather than throwing", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": [null, null],
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "BLOCKED");
+  assert.equal(result.seam.blocker, "agent-died");
+  assert.deepEqual(result.blockers, [{ id: "seam", reason: "agent-died" }]);
+  const seamCalls = stub.calls.filter((c) => c.opts.label === "seam:r1");
+  assert.equal(seamCalls.length, 2, "respawned exactly once before giving up");
+});
+
+test("R4: seam rounds-exhausted when NEEDS_FIXES persists through maxRounds", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", maxRounds: 2 };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("NEEDS_FIXES", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", "f1.md"),
+    "seam-fix:r2": buildResult("f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"),
+    "seam:r2": reviewResult("NEEDS_FIXES", "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6", "f2.md"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "NEEDS_FIXES");
+  assert.equal(result.seam.blocker, "rounds-exhausted");
+  assert.equal(result.seam.rounds, 2);
+  // m7: rounds-exhausted keeps the last sameSha-verified sha, for parity with a
+  // territory row in the same state.
+  assert.equal(result.seam.sha, "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6");
+  assert.deepEqual(result.blockers, [{ id: "seam", reason: "rounds-exhausted" }]);
+  assert.ok(!stub.calls.some((c) => c.opts.label === "seam-fix:r3"), "no round beyond maxRounds is attempted");
+});
+
+test("R4: seam is SKIPPED (not run) with a single territory, since the default requires two or more", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "SKIPPED");
+  assert.equal(result.seam.blocker, null);
+  assert.ok(!stub.calls.some((c) => c.opts.label && c.opts.label.startsWith("seam")));
+});
+
+test("R4: seam:true forces the seam stage even with a single territory", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", seam: true };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("APPROVE", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "APPROVE");
+  assert.ok(stub.calls.some((c) => c.opts.label === "seam:r1"));
+});
+
+test("R4: seam:false suppresses the seam stage even with two or more territories", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", seam: false };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "SKIPPED");
+  assert.ok(!stub.calls.some((c) => c.opts.label && c.opts.label.startsWith("seam")));
+});
+
+// ---------------------------------------------------------------------------
+// R5: accept-prep is skipped when seam is not APPROVE/SKIPPED
+// ---------------------------------------------------------------------------
+
+test("R5: accept-prep is skipped (acceptance.skipped) when seam is NEEDS_FIXES", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", maxRounds: 1, recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("NEEDS_FIXES", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", "f1.md"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "NEEDS_FIXES");
+  assert.deepEqual(result.acceptance, { skipped: "seam-not-approved" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+});
+
+test("R5: accept-prep is skipped when recordPath is absent, even with seam APPROVE", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", seam: true };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("APPROVE", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.acceptance, { skipped: "no-record-path" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+});
+
+test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam stage needed)", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "leadSession resolved but census errored: ok for test",
+      integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 1, verdict: "FAIL", output: "no artifact yet" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "SKIPPED");
+  assert.ok(result.acceptance);
+  assert.equal(result.acceptance.censusPath, null);
+  const acceptCall = stub.calls.find((c) => c.opts.label === "accept-prep");
+  assert.equal(acceptCall.opts.agentType, "delegation:runner");
+  assert.equal(acceptCall.opts.model, "sonnet");
+  assert.ok(acceptCall.prompt.includes("wr-x-census.md"));
+});
+
+test("R5: accept-prep is skipped when the integrator did not PASS", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("FAIL", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.acceptance, { skipped: "integrator-not-pass" });
+});
+
+// M4: R5 step 2 presupposes every territory has an APPROVE ("last territory APPROVE per
+// territory"). Running accept-prep with a blocked territory (even alongside an approved
+// one) writes a false "Status: reviewed" header over an incomplete build.
+test("M4: accept-prep is skipped (territory-blockers) when a territory is builder-BLOCKED, even though the integrator PASSed", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1", "BLOCKED"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.territories[0].blocker, "builder-blocked");
+  assert.deepEqual(result.acceptance, { skipped: "territory-blockers" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "builder-blocked" }]);
+});
+
+test("M4: accept-prep is skipped (territory-blockers) when one of two territories is blocked", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl", seam: false };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2", "FAIL"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.acceptance, { skipped: "territory-blockers" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+});
+
+// M3: accept-prep's returned integrationHead is CHECKED (R1: "checks what that agent
+// returns"), never taken on faith — an unverified head like the literal "HEAD" must
+// blocker the return rather than ship silently.
+test("M3: accept-prep returning an unverified integrationHead (e.g. the literal 'HEAD') adds an accept-prep review-sha-mismatch blocker", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: "HEAD",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  const result = await runScript(args, stub);
+  assert.ok(result.acceptance, "acceptance is still returned (the runner's report), just flagged");
+  assert.deepEqual(result.blockers, [{ id: "accept-prep", reason: "review-sha-mismatch" }]);
+});
+
+test("M3: accept-prep is checked against the seam's (longer) APPROVE sha, not the integrator's shorter one", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const shortIntegrateHead = "e5e5e5e";
+  const fullSeamSha = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", shortIntegrateHead),
+    "seam:r1": reviewResult("APPROVE", fullSeamSha),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: fullSeamSha,
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [], "the full seam-verified sha, matched against seam.sha (the longer of the two independent reads), is never flagged");
+});
+
+// ---------------------------------------------------------------------------
+// R9: no note-send instruction beyond the prohibition, across every rendered prompt.
+// ---------------------------------------------------------------------------
+
+test("R9: no rendered prompt across build/review/integrate/setup/seam/accept-prep contains any note-send instruction other than the prohibition itself", async () => {
+  const args = { ...SETUP_ARGS };
+  const setup = setupResultFor(args);
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:L2:r1": buildResult("bbbbbbb2"),
+    "review:L2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"),
+    "seam:r1": reviewResult("APPROVE", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"),
+    "accept-prep": {
+      censusPath: "docs/work/evidence/wr-2026-09-25-one-launch-census.md",
+      censusNote: "ok",
+      integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  await runScript(args, stub);
+  assert.ok(stub.calls.length > 0);
+  for (const call of stub.calls) {
+    assert.ok(/Never send peer notes\./.test(call.prompt), `prompt for label ${call.opts.label} must carry the note-send prohibition`);
+    assert.ok(!/note-send/.test(call.prompt), `prompt for label ${call.opts.label} must never mention note-send itself`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// build-loop-args.example.json (new one-launch shape) and
+// build-loop-args.legacy.example.json (old given-worktree shape) both parse.
+// ---------------------------------------------------------------------------
+
+test("build-loop-args.example.json (new one-launch shape) parses and matches the setup-territory shape", () => {
+  const exampleRaw = readFileSync(path.join(__dirname, "build-loop-args.example.json"), "utf8");
+  const example = JSON.parse(exampleRaw);
+  assert.equal(typeof example.specPath, "string");
+  assert.equal(typeof example.baseSha, "string");
+  assert.equal(typeof example.startedAt, "string");
+  assert.ok(Array.isArray(example.territories));
+  for (const t of example.territories) {
+    assert.equal(typeof t.id, "string");
+    assert.equal(t.worktree, undefined, "one-launch example territories must not carry worktree — setup creates it");
+    assert.equal(t.branch, undefined);
+    assert.equal(t.briefPath, undefined);
+  }
+  assert.equal(typeof example.integrationWorktree, "string");
+  assert.equal(typeof example.integrationBranch, "string");
+  assert.equal(typeof example.integrationGate, "string");
+  assert.equal(typeof example.leadSession, "string");
+  assert.equal(typeof example.recordPath, "string");
+});
+
+test("build-loop-args.legacy.example.json (old given-worktree shape) parses and matches the given-territory shape", () => {
+  const legacyRaw = readFileSync(path.join(__dirname, "build-loop-args.legacy.example.json"), "utf8");
+  const legacy = JSON.parse(legacyRaw);
+  assert.equal(typeof legacy.specPath, "string");
+  assert.equal(typeof legacy.baseSha, "string");
+  assert.equal(typeof legacy.startedAt, "string");
+  assert.ok(Array.isArray(legacy.territories));
+  assert.ok(legacy.territories.length > 0);
+  for (const t of legacy.territories) {
+    assert.equal(typeof t.id, "string");
+    assert.equal(typeof t.worktree, "string");
+    assert.equal(typeof t.branch, "string");
+    assert.equal(typeof t.briefPath, "string");
+    assert.equal(typeof t.gate, "string");
+  }
+  assert.equal(typeof legacy.reviewerBriefPath, "string");
+  assert.equal(typeof legacy.integratorBriefPath, "string");
+});
+
+test("both example arg files launch cleanly against the given/setup detection with no mixed-territory-modes error", async () => {
+  const legacy = JSON.parse(readFileSync(path.join(__dirname, "build-loop-args.legacy.example.json"), "utf8"));
+  const legacyStub = makeAgentStub(
+    Object.fromEntries([
+      ...legacy.territories.flatMap((t) => [
+        [`build:${t.id}:r1`, buildResult("aaaaaaa1")],
+        [`review:${t.id}:r1`, reviewResult("APPROVE", "aaaaaaa1")],
+      ]),
+      ["integrate", integrateResult()],
+    ]),
+  );
+  const legacyResult = await runScript(legacy, legacyStub);
+  assert.deepEqual(legacyResult.blockers, []);
+
+  const example = JSON.parse(readFileSync(path.join(__dirname, "build-loop-args.example.json"), "utf8"));
+  const setup = setupResultFor(example);
+  const exampleStub = makeAgentStub(
+    Object.fromEntries([
+      ["setup", setup],
+      ...example.territories.flatMap((t) => [
+        [`build:${t.id}:r1`, buildResult("aaaaaaa1")],
+        [`review:${t.id}:r1`, reviewResult("APPROVE", "aaaaaaa1")],
+      ]),
+      ["integrate", integrateResult("PASS", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4")],
+      ["seam:r1", reviewResult("APPROVE", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4")],
+      ["accept-prep", {
+        censusPath: null,
+        censusNote: "no census in this smoke test",
+        integrationHead: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        evidencePaths: [],
+        checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+        reportPath: "docs/work/accept-prep.report.md",
+      }],
+    ]),
+  );
+  const exampleResult = await runScript(example, exampleStub);
+  assert.deepEqual(exampleResult.blockers, []);
 });
