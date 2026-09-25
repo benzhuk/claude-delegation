@@ -356,7 +356,7 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("sha1"),
     "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "docs/work/t1-r1-findings.md", 1, 0),
-    "build:T1:r2": buildResult("sha2"),
+    "build:T1:r2": buildResult("sha2", "PASS", "docs/work/T1-report.md"),
     "review:T1:r2": reviewResult("APPROVE", "sha2"),
     integrate: integrateResult(),
   });
@@ -373,7 +373,30 @@ test("NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinne
   assert.ok(fixBuildCall.prompt.includes("docs/work/t1-r1-findings.md"), "the fix prompt must reference the prior findingsPath");
 
   const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
-  assert.ok(fixReviewCall.prompt.includes("Commit range: sha1..sha2"), "the fix review must compare the captured prior builder sha to the replacement build sha");
+  assert.ok(fixReviewCall.prompt.includes("Commit range: sha1..HEAD"), "the fix review must compare the captured prior builder sha to a live HEAD it resolves itself, never the new build sha as text");
+  assert.ok(!fixReviewCall.prompt.includes("sha2"), "the fix review prompt must never contain the new build's delivered sha for the reviewer to echo");
+});
+
+// MINOR 4 (T1 round-2 review): a fix-round builder that returns PASS with the SAME sha as
+// the prior round (no new commit) must never hand the reviewer a rendered prompt containing
+// that sha as text - an echoing reviewer could match it without ever running `git rev-parse
+// HEAD` itself.
+test("fix round with no new commit: the r2 review prompt never contains the unchanged sha as text", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "docs/work/t1-r1-findings.md"),
+    "build:T1:r2": buildResult("sha1", "PASS", "docs/work/T1-report.md"),
+    "review:T1:r2": reviewResult("APPROVE", "sha1"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  const t1 = result.territories[0];
+  assert.equal(t1.verdict, "APPROVE");
+  assert.equal(t1.sha, "sha1");
+
+  const fixReviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r2");
+  assert.ok(!fixReviewCall.prompt.includes("sha1"), "the r2 review prompt must not contain the sha for the reviewer to echo when no new commit was made");
+  assert.ok(fixReviewCall.prompt.includes("docs/work/t1-r1-findings.md"), "prior findings must still be referenced even without a commit range");
 });
 
 test("a fix review always receives the captured artifact range, even with an empty findings path and a retry", async () => {
@@ -389,8 +412,69 @@ test("a fix review always receives the captured artifact range, even with an emp
   const retryingReviewCalls = stub.calls.filter((c) => c.opts.label === "review:T1:r2");
   assert.equal(retryingReviewCalls.length, 2, "the fix review retries once after a null response");
   for (const call of retryingReviewCalls) {
-    assert.ok(call.prompt.includes("Commit range: sha1..sha2"), "each fix-review attempt receives the captured artifact range");
+    assert.ok(call.prompt.includes("Commit range: sha1..HEAD"), "each fix-review attempt receives the captured artifact range, resolved live rather than handed as text");
   }
+});
+
+// T1 (loop-gates spec item 3): the reviewer prompt must name the worktree and instruct an
+// independent `git rev-parse HEAD` there, and must never contain the delivered sha itself
+// (that self-reported string is exactly what a reviewer could echo back without checking).
+test("the review prompt names the worktree and never contains the delivered sha for the reviewer to echo", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha-secret-1", "PASS", "docs/work/T1-report.md"),
+    "review:T1:r1": reviewResult("APPROVE", "sha-secret-1"),
+    integrate: integrateResult(),
+  });
+  await runScript({ territories: [T1] }, stub);
+  const reviewCall = stub.calls.find((c) => c.opts.label === "review:T1:r1");
+  assert.ok(reviewCall.prompt.includes(`Worktree: ${T1.worktree}`), "the review prompt must name the worktree to check HEAD in");
+  assert.ok(/git rev-parse HEAD/.test(reviewCall.prompt), "the review prompt must instruct an independent git rev-parse HEAD");
+  assert.ok(!reviewCall.prompt.includes("sha-secret-1"), "the review prompt must never contain the delivered sha as text");
+});
+
+// Round-2 review MAJOR 1: the spec's "the builder likewise" item — the builder prompt
+// must also instruct a live `git rev-parse HEAD`, in both the first round and every fix
+// round, not just the reviewer prompt.
+test("the build prompt tells the builder to report git rev-parse HEAD as its sha field, in round 1 and every fix round", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("sha1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "sha1", "f1.md"),
+    "build:T1:r2": buildResult("sha2"),
+    "review:T1:r2": reviewResult("APPROVE", "sha2"),
+    integrate: integrateResult(),
+  });
+  await runScript({ territories: [T1] }, stub);
+  const round1Build = stub.calls.find((c) => c.opts.label === "build:T1:r1");
+  const round2Build = stub.calls.find((c) => c.opts.label === "build:T1:r2");
+  assert.match(round1Build.prompt, /git rev-parse HEAD/);
+  assert.match(round2Build.prompt, /git rev-parse HEAD/);
+});
+
+// Round-2 review MAJOR 1: build.sha and review.sha are now two independently-produced
+// `git rev-parse HEAD` reads of the same commit, so the equality check must normalize
+// case and surrounding whitespace rather than doing a raw string compare — otherwise a
+// reviewer that (correctly) reports the full lowercase 40-hex against a builder that
+// reported an uppercase or newline-padded value would be wrongly blocked.
+test("review sha comparison is case- and whitespace-normalized: an uppercase or padded reviewer sha still approves", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("abcdef1234567890abcdef1234567890abcdef12"),
+    "review:T1:r1": reviewResult("APPROVE", "ABCDEF1234567890ABCDEF1234567890ABCDEF12\n"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(result.territories[0].blocker, null);
+  assert.deepEqual(result.blockers, []);
+});
+
+test("review sha comparison still rejects a genuinely different sha (never equal on empty either side)", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult(""),
+    "review:T1:r1": reviewResult("APPROVE", ""),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "review-sha-mismatch" }]);
 });
 
 test("a review only approves the build sha it reviewed, including after a fix round", async () => {

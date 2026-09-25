@@ -78,18 +78,45 @@ const REVIEW_MANDATE =
 const INTEGRATE_MANDATE =
   'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push.'
 
+// T1 (loop-gates spec item 3, "the builder likewise"): the builder must also get its sha
+// from git, never type one from memory, so build.sha and review.sha are two independent
+// `git rev-parse HEAD` runs on the same commit rather than one value echoing the other.
+const SHA_FROM_GIT =
+  'After your last commit, run `git rev-parse HEAD` in the worktree and report its full 40-character output as your sha field; never type a sha from memory.'
+
 function buildPrompt(t, round, findingsPath) {
   if (findingsPath) {
-    return `Fix round ${round} for territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. Reviewer findings: ${findingsPath}. Apply every reviewer-verified finding in one round. ${BUILD_MANDATE}`
+    return `Fix round ${round} for territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. Reviewer findings: ${findingsPath}. Apply every reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
   }
-  return `Build territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. ${BUILD_MANDATE}`
+  return `Build territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
 }
 
+// Both build.sha and review.sha now come from separate, independent `git rev-parse HEAD`
+// runs (never one echoing the other); compare them normalized so formatting differences
+// (case, surrounding whitespace) between two honestly-independent reads never manufacture
+// a false review-sha-mismatch. Never equal when either side is empty/missing.
+function sameSha(x, y) {
+  const nx = String(x ?? '').trim().toLowerCase()
+  const ny = String(y ?? '').trim().toLowerCase()
+  return nx !== '' && nx === ny
+}
+
+// Never hands the reviewer the delivered sha to echo back (T1, loop-gates spec item 3):
+// the reviewer's own `sha` field must come from running `git rev-parse HEAD` in the named
+// worktree itself, then the workflow's own equality check (sameSha(review.sha, build.sha),
+// below) compares that independently-computed value to what the builder reported -
+// never a value read out of this prompt's text.
 function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath) {
-  let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Delivered sha: ${build.sha}. Builder report: ${build.reportPath}. ${REVIEW_MANDATE}`
-  if (round >= 2 && priorBuildSha) {
+  let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Worktree: ${t.worktree}. Builder report: ${build.reportPath}. Run \`git rev-parse HEAD\` in the worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${REVIEW_MANDATE}`
+  // MINOR 4 (T1 round-2 review): if a fix-round builder made no new commit, priorBuildSha
+  // equals build.sha, and appending "priorBuildSha..HEAD" would put the exact sha the
+  // reviewer is supposed to derive independently into the rendered prompt text for an
+  // echoing reviewer to copy. Only append the range when the two shas actually differ.
+  if (round >= 2 && priorBuildSha && !sameSha(priorBuildSha, build.sha)) {
     if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
-    p += ` Commit range: ${priorBuildSha}..${build.sha}.`
+    p += ` Commit range: ${priorBuildSha}..HEAD (run this in the worktree).`
+  } else if (round >= 2) {
+    if (priorFindingsPath) p += ` Prior findings: ${priorFindingsPath}.`
   }
   return p
 }
@@ -166,7 +193,7 @@ async function runTerritory(t) {
     return { ...state, blocker: 'agent-died' }
   }
   state = { ...state, findingsPath: review.findingsPath }
-  if (review.sha !== build.sha) {
+  if (!sameSha(review.sha, build.sha)) {
     log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
     return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
   }
@@ -227,7 +254,7 @@ async function runTerritory(t) {
       return { ...state, blocker: 'agent-died' }
     }
     state = { ...state, findingsPath: review.findingsPath }
-    if (review.sha !== build.sha) {
+    if (!sameSha(review.sha, build.sha)) {
       log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
       return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
     }

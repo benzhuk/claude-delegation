@@ -10,18 +10,32 @@ import { fileURLToPath } from "node:url";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"];
 export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority", "artifact", "evidence", "next", "opened"];
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class"];
+// "worktree" (T1, loop-gates spec item 2): the git worktree or branch path that produced
+// Artifact:. Optional for validateRecord/parseRecord (an old record without it still
+// parses cleanly) but checkAcceptance requires it - see the sha-not-in-git check below.
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
-  "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner",
+  "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner", "accepted-without-check",
 ];
+
+// T1 (round-2 review, MAJOR 3): before this, `Status: accepted` was enforced only by the
+// prose in SKILL.md - a hand-edited Status: line went unnoticed by every reader of a
+// record (continuation.mjs, hooks/backlog-notice.js). `acceptRecord` always appends
+// exactly one `Log: <iso> accepted <owner> artifact <40-hex>` line when it flips a
+// record; a record with no such line naming its own Artifact: was never accepted through
+// code. Gated by Opened: (not by the mere absence of Worktree:, which a hand-editor could
+// omit on purpose) so every record opened before this check existed is grandfathered.
+// Later than every record already in docs/work/ on any branch (newest Opened: 2026-09-24T12:05:41Z),
+// earlier than this build's own record (spec written 2026-09-24 evening, America/New_York).
+const ACCEPTED_WITHOUT_CHECK_CUTOFF = Date.parse("2026-09-24T13:00:00Z");
 
 const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
-  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"],
+  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log"]);
@@ -147,6 +161,37 @@ export function validateRecord(record, opts = {}) {
       level: "finding",
       message: "Status: accepted but Artifact: is none or missing",
     });
+  }
+
+  // accepted-without-check: see ACCEPTED_WITHOUT_CHECK_CUTOFF above. Never fires on a
+  // record opened before the cutoff, and never fires when Artifact: itself doesn't even
+  // shape-parse (accepted-without-artifact already covers that emptier case).
+  if (
+    isAccepted
+    && fields.opened !== undefined
+    // An unparseable Opened: is unknown, not grandfathered: NaN < cutoff is false, so it fires.
+    && !(Date.parse(fields.opened) < ACCEPTED_WITHOUT_CHECK_CUTOFF)
+    && fields.artifact !== undefined
+    && fields.artifact !== "none"
+  ) {
+    let expectedShaPrefix = null;
+    try {
+      expectedShaPrefix = artifactRevision(fields.artifact).toLowerCase();
+    } catch {
+      expectedShaPrefix = null;
+    }
+    const acceptedThroughCode = expectedShaPrefix !== null && log.some((l) => {
+      if ((l.status ?? "").toLowerCase() !== "accepted") return false;
+      const m = /^artifact[ \t]+([0-9a-f]{40})$/i.exec((l.note ?? "").trim());
+      return m !== null && m[1].toLowerCase().startsWith(expectedShaPrefix);
+    });
+    if (!acceptedThroughCode) {
+      findings.push({
+        code: "accepted-without-check",
+        level: "finding",
+        message: "Status: accepted but no Log: accepted ... artifact <40-hex> line names this record's own Artifact: — Status may have been hand-edited rather than moved by `work-record.mjs accept`",
+      });
+    }
   }
 
   // Evidence path checks only run when repoRoot is given (A4): without it we cannot tell
@@ -329,9 +374,9 @@ const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLow
 const DECIDING_VERDICTS = new Set(["APPROVE", "NEEDS_FIXES", "FAIL", "REJECTED"]);
 const VERDICT_RE = /^VERDICT:[ \t]*(APPROVE|NEEDS_FIXES|FAIL|REJECTED)(?:[ \t]+(?:—[ \t]+)?([0-9a-fA-F]{4,64}))?[ \t]*$/;
 
-function acceptanceError(message) {
+function acceptanceError(message, code = "acceptance-failed") {
   const error = new Error(message);
-  error.code = "acceptance-failed";
+  error.code = code;
   return error;
 }
 
@@ -491,7 +536,15 @@ export function checkAcceptance(opts = {}) {
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
 
-  const artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+  // A SHA git does not have at all is sha-not-in-git (T1 required item 4), the same code
+  // as an unresolvable Worktree: below - both are "the recorded commit identity does not
+  // exist in this git" - not the generic acceptance-failed used for shape errors.
+  let artifact;
+  try {
+    artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+  } catch (error) {
+    throw acceptanceError(`sha-not-in-git: ${error.message}`, "sha-not-in-git");
+  }
   const deliveryInput = opts.deliveryRef !== undefined ? opts.deliveryRef : opts.pinnedArtifact;
   if (opts.pinnedArtifact !== undefined && !/^[0-9a-fA-F]{4,64}$/.test(opts.pinnedArtifact)) {
     throw acceptanceError(`pinned artifact must be an explicit hexadecimal revision: ${opts.pinnedArtifact}`);
@@ -499,6 +552,72 @@ export function checkAcceptance(opts = {}) {
   const delivery = resolveCommit(repoRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
   if (artifact !== delivery) {
     throw acceptanceError(`Artifact ${artifact} does not match delivery ${delivery}`);
+  }
+
+  // sha-not-in-git (T1, loop-gates spec item 2): the record must independently name the
+  // git worktree or branch that produced Artifact: (Worktree:), and that path's live HEAD
+  // must be a real, git-resolvable commit - never trusted from a caller-supplied ref
+  // alone, and never a self-reported agent value. An old record with no Worktree: field
+  // fails closed here instead of silently passing acceptance.
+  const worktreeField = record.fields.worktree;
+  if (!worktreeField) {
+    throw acceptanceError(
+      "Worktree: field is required (the git worktree or branch this artifact came from); none is present",
+      "sha-not-in-git",
+    );
+  }
+  // T1 (loop-gates spec item 2, "branch or worktree"): Worktree: may name an absolute
+  // path, a repo-relative path, OR a local branch name. A real directory is read as a
+  // live worktree (its own HEAD); anything else is read as `refs/heads/<name>` in this
+  // repo - never a bare revision expression, so a leading "-" can never be read as an
+  // option by the git child process.
+  const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(repoRoot, worktreeField);
+  let worktreeIsDir = false;
+  try {
+    worktreeIsDir = fsImpl.statSync(worktreeTarget).isDirectory();
+  } catch {
+    worktreeIsDir = false;
+  }
+  const worktreeGitDir = worktreeIsDir ? worktreeTarget : repoRoot;
+  const worktreeRev = worktreeIsDir ? "HEAD^{commit}" : `refs/heads/${worktreeField}^{commit}`;
+  const worktreeResult = spawnImpl("git", ["-C", worktreeGitDir, "rev-parse", "--verify", worktreeRev], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if (worktreeResult.error || worktreeResult.status !== 0 || String(worktreeResult.stderr ?? "").trim()) {
+    throw acceptanceError(`sha-not-in-git: could not resolve HEAD in Worktree: ${worktreeField}`, "sha-not-in-git");
+  }
+  const worktreeHead = String(worktreeResult.stdout ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/i.test(worktreeHead)) {
+    throw acceptanceError(`sha-not-in-git: Worktree: ${worktreeField} did not resolve to a commit`, "sha-not-in-git");
+  }
+  // Freshness (the worktree's live HEAD really is the delivered sha) is only meaningful in
+  // live-delivery mode: pinned mode deliberately targets a fixed, possibly-historical
+  // artifact ("a source artifact may differ from the merge head", SKILL.md), so a worktree
+  // that has since moved on is not itself a finding there - only an unresolvable one is.
+  if (opts.deliveryRef !== undefined && worktreeHead !== artifact) {
+    throw acceptanceError(
+      `sha-not-in-git: Worktree: ${worktreeField} HEAD (${worktreeHead}) does not match delivery ${artifact}`,
+      "sha-not-in-git",
+    );
+  }
+  // Pinned mode still requires SOME relationship between the artifact and the named
+  // worktree/branch: not equality (a pinned artifact may be historical), but ancestry - the
+  // artifact must be reachable from that worktree's HEAD. Without this, an artifact that
+  // lives only on a wholly unrelated branch (or in a wholly unrelated repository) would
+  // pass pinned mode merely because Worktree: resolves to *some* commit, which is a check
+  // that passes because it isn't looking (T1 round-2 review, MAJOR 2).
+  if (opts.pinnedArtifact !== undefined && worktreeHead !== artifact) {
+    const ancestry = spawnImpl("git", ["-C", worktreeGitDir, "merge-base", "--is-ancestor", artifact, worktreeHead], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    if (ancestry.error || ancestry.status !== 0) {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact ${artifact} is not in the history of Worktree: ${worktreeField} (HEAD ${worktreeHead})`,
+        "sha-not-in-git",
+      );
+    }
   }
 
   let approved = false;
@@ -526,9 +645,66 @@ export function checkAcceptance(opts = {}) {
   return { ok: true, work: record.fields.work, artifact, delivery };
 }
 
+/**
+ * Accept path (T1, loop-gates spec item 1): the ONLY code-mediated way a record's Status:
+ * moves to `accepted`. Always runs checkAcceptance first, with the exact opts it was
+ * given - a failing check throws before anything on disk is touched, so there is no
+ * argument, flag, or alternate route here that can transition a record checkAcceptance
+ * would refuse. `check-acceptance` itself stays read-only, unchanged, for manual use;
+ * this is a separate, additive entry point, not a replacement.
+ * opts: same as checkAcceptance, plus optional { now }.
+ */
+export function acceptRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+
+  // T1 round-2 review, MINOR 4 (time-of-check/time-of-use): capture the record's exact
+  // bytes BEFORE checkAcceptance runs, so an edit that lands during the check (between
+  // this read and the write below) is caught rather than silently accepted. Any failure
+  // here is deliberately swallowed - checkAcceptance below re-derives the same path and
+  // reports the real reason (bad repo, escaping path, etc.) itself.
+  let preCheckRepoRoot;
+  let preCheckRepoReal;
+  let preCheckText;
+  try {
+    preCheckRepoRoot = path.resolve(opts.repoRoot);
+    preCheckRepoReal = fsImpl.realpathSync(preCheckRepoRoot);
+    preCheckText = readConfinedRegularFile(preCheckRepoReal, preCheckRepoRoot, opts.recordPath, fsImpl);
+  } catch {
+    preCheckText = undefined;
+  }
+
+  const result = checkAcceptance(opts); // fails closed: throws before any write below
+
+  const repoRoot = path.resolve(opts.repoRoot);
+  const repoReal = fsImpl.realpathSync(repoRoot);
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  if (preCheckText !== undefined && text !== preCheckText) {
+    throw acceptanceError("record changed during acceptance: re-run accept against the current text");
+  }
+  const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})reviewed([ \t]*)$/mi;
+  if (!statusRe.test(text)) {
+    throw acceptanceError("could not find a Status: reviewed header line to accept");
+  }
+  const record = parseRecord(text);
+  const at = (opts.now ?? new Date()).toISOString();
+  const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
+
+  const lines = text.split(/\r?\n/);
+  const blankIdx = lines.findIndex((line) => line.trim() === "");
+  const insertAt = blankIdx === -1 ? lines.length : blankIdx;
+  lines.splice(insertAt, 0, logLine);
+  const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}accepted${post}`);
+
+  const absPath = path.resolve(repoRoot, opts.recordPath);
+  fsImpl.writeFileSync(absPath, updated);
+  return { ...result, path: absPath };
+}
+
 export function parseAcceptanceArgs(argv) {
-  if (argv[0] !== "check-acceptance") throw acceptanceError("expected command: check-acceptance");
-  const opts = {};
+  if (argv[0] !== "check-acceptance" && argv[0] !== "accept") {
+    throw acceptanceError("expected command: check-acceptance or accept");
+  }
+  const opts = { command: argv[0] };
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
@@ -543,11 +719,12 @@ export function parseAcceptanceArgs(argv) {
 
 export function acceptanceMain(argv = process.argv.slice(2), io = process) {
   try {
-    const result = checkAcceptance(parseAcceptanceArgs(argv));
+    const { command, ...opts } = parseAcceptanceArgs(argv);
+    const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);
     io.stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {
-    io.stderr.write(`work-record: ${error.message}\n`);
+    io.stderr.write(`work-record: [${error.code ?? "error"}] ${error.message}\n`);
     return 1;
   }
 }
