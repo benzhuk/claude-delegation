@@ -12,20 +12,62 @@ file basenames.
 ## `build-census.mjs`
 
 ```
-node scripts/build-census.mjs --lead <session.jsonl> --tasks <dir> [--marker <text>] [--out <path>]
+node scripts/build-census.mjs --lead <session.jsonl> [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--out <path>] [--json <path>]
 ```
 
-- `--lead` — one Claude Code lead session transcript (`.jsonl`).
+Worked example, run against the committed fixtures (this is gate-10's own invocation —
+run it twice and the two outputs must be byte-identical):
+
+```
+node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --tasks scripts/build-census.fixtures/tasks
+```
+
+- `--lead` — one Claude Code lead session transcript (`.jsonl`). Required.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
+  May be given more than once; every file across every given directory is counted, each
+  exactly once — a directory given twice, or a file reachable through two directories (a
+  symlink, in real life), is de-duped by its resolved real path, not by its nominal path.
+  Optional: when omitted, the default subagents glob below may still supply files.
+- **Default subagents glob** — when `--lead <session.jsonl>` is given, the script also
+  globs `<dirname of lead>/<lead session id>/subagents/agent-*.jsonl` (`<lead session id>`
+  is the lead's basename with `.jsonl` stripped) so a lead's own Task-tool subagents are
+  counted without a flag. Unlike an explicitly-named `--tasks` dir (unreadable is an
+  error, never a silent zero — see below), a MISSING default dir is the common case (most
+  lead sessions spawn no subagents) and contributes zero files without complaint.
+- `--role-map <json>` (optional) — inline JSON, `{"agent-<id>": "<role>"}`, mapping a
+  subagent file's basename with its extension stripped (e.g. `agent-a5759bed32340205d`)
+  directly to a role string. See "Roles" below.
 - `--marker` (optional) — a substring; the "window" starts at the first line containing
   it (a bounded-depth/width search — it is never printed) and runs to the end of the lead
   file. Without `--marker`, the window is the whole file. A `--marker` that matches
   nothing in the lead file throws (`--marker text not found in <basename> (window would
   be empty)`) rather than silently printing a confident zero for both the window turn
   count and the combined split — the exact shape a reader skims first.
-- `--out` (optional) — write the full markdown report there; without it, the report goes
-  to stdout. Nothing else reaches stdout (with `--out`, only a `wrote: <path>` line does).
+- `--out` (optional) — write the full markdown report there; without it (and without
+  `--json`), the report goes to stdout. Nothing else reaches stdout (with `--out` and/or
+  `--json`, only one `wrote: <path>` line per file written does).
+- `--json` (optional) — write the same report as deterministic JSON (object keys sorted
+  recursively, so two runs over the same input are byte-identical) to this path,
+  independently of `--out`.
+
+### Roles
+
+A subagent file's role comes from two sources, in this order:
+
+1. **The Workflow's own journal** — `journal.jsonl`, committed next to the agent files it
+   labels, one line per agent: `{"agentId":"<id>","label":"<label>"}`, where `<id>` is
+   that agent's file basename with a leading `agent-` and its extension stripped (file
+   `agent-w1.jsonl` → id `w1`). When a journal entry matches, the role is the label's
+   segment before its first `:` — `build:T1:r2` → `build`, `review:T1:r1` → `review`,
+   `seam` → `seam` (no `:` — the whole label is the role), `integrate` → `integrate`.
+2. **`--role-map`** — when no journal entry matches, `--role-map`'s JSON maps the file's
+   bare basename (`agent-<id>`, extension stripped, prefix intact) directly to a role
+   string, verbatim.
+
+A file matched by neither lands under **`unassigned`** — never silently folded into
+another role's row. The by-role table (see below) always lists every role that actually
+occurred, `unassigned` included whenever it's non-empty.
 
 **The de-duplication fix, the reason this file exists in this shape:** Claude Code
 re-emits one logical assistant turn as several JSONL lines — one per `apiBlockIndex` —
@@ -47,11 +89,42 @@ so a naive (buggy) implementation produces a different, wrong number on this fix
 just a smaller one — `scripts/build-census.test.mjs` asserts the deduped values, and
 separately proves the naive per-line count would disagree.
 
-Report sections: lead turns (whole file and window, both deduped), turns/hour in the
-window, lead tokens by model (whole file and window), subagent totals by model per file,
-and a combined split (the build-window lead cost plus every subagent's cost — the only
-lead-side number actually comparable to subagent cost, since subagents only exist during
-the build). First line: `VERDICT: COUNTED <n> lead turns, <m> subagent files`.
+### `leadTurns`
+
+**`leadTurns` is the number of maximal runs of consecutive assistant messages in the lead
+transcript, where a run is broken by any user message that is not made up ENTIRELY of
+`tool_result` content — a plain-content user message (including a Task-tool completion
+notification, which the harness delivers as an ordinary user message) breaks a run, but a
+user message whose content is nothing but one or more `tool_result` blocks does not.**
+
+This is a genuinely different count from `totalTurns`/`windowTurns` above: those are the
+number of DE-DUPED assistant API requests (an `apiBlockIndex`-split request is one
+"turn"); `leadTurns` is a conversational notion — several de-duped API requests in a row,
+with only tool-result traffic between them, are still just one run. See
+`scripts/build-census.fixtures/lead-multi.jsonl` (5 de-duped requests, 3 conversational
+runs) and its pinning tests in `scripts/build-census.test.mjs`.
+
+### Header line
+
+Every report's markdown begins with a `VERDICT:` line, then (after a blank line) the
+exact literal line **`# Build census`**. That line, always present, always verbatim, is
+the header line other tools recognise a build-census report by — see
+`scripts/work-record.mjs`'s `accept --census <file>` (Territory C2), which refuses a file
+lacking it rather than parsing loosely.
+
+### Report sections
+
+`VERDICT: COUNTED <n> lead turns, <m> subagent files` (first line) · `# Build census`
+(the header line, see above) · **Summary** (flat, copyable lines: `leadTurns`,
+`wallClockHours`, a `by-model` line and a `by-role` line, each `key=totalTokens`,
+comma-separated) · lead turns (whole file and window, both de-duped, plus `leadTurns`),
+turns/hour in the window · lead tokens by model (whole file and window) · subagents: a
+`Roles: <role>=<fileCount>, ...` line, then a `| file | role | turns |` table (every
+counted file, its resolved path, its role, and its turn count — `unassigned` files are
+listed like any other, never dropped) · subagent totals by model · subagent totals by
+role (same shape as by-model) · a combined split (the build-window lead cost plus every
+subagent's cost — the only lead-side number actually comparable to subagent cost, since
+subagents only exist during the build).
 
 A subagent file that cannot be read shows `n/a` in the turns column rather than `0`; `0`
 is reserved for a file that was read and genuinely contained no turns (zero-byte

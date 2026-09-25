@@ -1,0 +1,4 @@
+{"agentId":"w1","label":"build:T1:r2"}
+{"agentId":"w2","label":"review:T1:r1"}
+{"agentId":"w3","label":"seam"}
+{"agentId":"w4","label":"integrate"}
