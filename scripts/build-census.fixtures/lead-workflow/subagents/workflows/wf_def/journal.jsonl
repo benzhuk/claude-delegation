@@ -1,0 +1,3 @@
+{"type":"launched"}
+{"type":"started","key":"k2","agentId":"y1","label":"review:T1:r1","phase":"review"}
+{"type":"result","key":"k2","agentId":"y1","result":"ok"}

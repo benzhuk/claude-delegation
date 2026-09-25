@@ -1,0 +1,6 @@
+{"type":"launched"}
+{"type":"started","key":"k1","agentId":"w1","label":"build:T1:r2","phase":"build"}
+{"type":"started","key":"k2","agentId":"w2","label":"review:T1:r1","phase":"review"}
+{"type":"started","key":"k3","agentId":"w3","label":"seam","phase":"seam"}
+{"type":"started","key":"k4","agentId":"w4","label":"integrate","phase":"integrate"}
+{"type":"result","key":"k4","agentId":"w4","result":"ok"}

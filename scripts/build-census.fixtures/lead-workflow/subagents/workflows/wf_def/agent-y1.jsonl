@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-09-23T09:03:00.000Z","message":{"role":"user","content":"you are a reviewer"}}
+{"type":"assistant","timestamp":"2026-09-23T09:04:00.000Z","requestId":"req-Y1","message":{"id":"msg-Y1","role":"assistant","model":"claude-opus-5","usage":{"input_tokens":60,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":15}}}
