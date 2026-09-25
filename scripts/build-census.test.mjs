@@ -73,12 +73,18 @@ function writeJsonl(filePath, objs) {
 test('parseArgs: --lead is required; --tasks may be omitted entirely (the default subagents glob can stand alone)', () => {
   assert.throws(() => parseArgs([]), /--lead/);
   const opts = parseArgs(['--lead', 'x.jsonl']);
-  assert.deepEqual(opts, { lead: 'x.jsonl', tasksDirs: [], marker: null, out: null, json: null, roleMap: null });
+  assert.deepEqual(opts, { lead: 'x.jsonl', tasksDirs: [], marker: null, from: null, to: null, out: null, json: null, roleMap: null });
 });
 
 test('parseArgs: --tasks may repeat, accumulating into tasksDirs in CLI order', () => {
   const opts = parseArgs(['--lead', 'a.jsonl', '--tasks', 'dir1', '--tasks', 'dir2', '--marker', 'text here', '--out', 'out.md', '--json', 'out.json']);
-  assert.deepEqual(opts, { lead: 'a.jsonl', tasksDirs: ['dir1', 'dir2'], marker: 'text here', out: 'out.md', json: 'out.json', roleMap: null });
+  assert.deepEqual(opts, { lead: 'a.jsonl', tasksDirs: ['dir1', 'dir2'], marker: 'text here', from: null, to: null, out: 'out.md', json: 'out.json', roleMap: null });
+});
+
+test('parseArgs: --from and --to are captured', () => {
+  const opts = parseArgs(['--lead', 'a.jsonl', '--from', '2026-01-01T00:00:00Z', '--to', '2026-01-02T00:00:00Z']);
+  assert.equal(opts.from, '2026-01-01T00:00:00Z');
+  assert.equal(opts.to, '2026-01-02T00:00:00Z');
 });
 
 test('parseArgs: --role-map parses its JSON value', () => {
@@ -512,13 +518,74 @@ test('--marker: window turns are deduped independently of the whole-file map, an
   assert.equal(windowStartAt, '2026-01-01T00:02:00.000Z');
 });
 
+// ── --from/--to (four-read spec.md Territory R1 item 3) ─────────────────────
+
+test('--from/--to: a window covering the whole fixture equals the unwindowed run', async () => {
+  const dir = mkTmp('build-census-fromto-whole-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 10 } }),
+    asstLine({ requestId: 'r2', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 2, input: 20 } }),
+  ]);
+  const unwindowed = await censusLeadFile(leadPath, {});
+  const windowed = await censusLeadFile(leadPath, { from: '2025-12-31T00:00:00.000Z', to: '2026-01-02T00:00:00.000Z' });
+  assert.equal(windowed.windowById.size, unwindowed.totalById.size);
+  assert.equal(windowed.leadTurns, unwindowed.leadTurns);
+  assert.deepEqual([...windowed.windowById.values()], [...unwindowed.totalById.values()]);
+});
+
+test('--from/--to: messages outside the window are not counted', async () => {
+  const dir = mkTmp('build-census-fromto-narrow-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'before', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 10 } }),
+    asstLine({ requestId: 'inside', ts: '2026-01-01T00:05:00.000Z', usageOpts: { output: 2, input: 20 } }),
+    asstLine({ requestId: 'after', ts: '2026-01-01T00:10:00.000Z', usageOpts: { output: 3, input: 30 } }),
+  ]);
+  const { totalById, windowById, windowStartAt } = await censusLeadFile(leadPath, {
+    from: '2026-01-01T00:02:00.000Z',
+    to: '2026-01-01T00:08:00.000Z',
+  });
+  assert.equal(totalById.size, 3, 'the whole-file map is unaffected');
+  assert.equal(windowById.size, 1, 'only "inside" falls in [from, to]');
+  assert.ok(windowById.has('req:inside'));
+  assert.equal(windowStartAt, '2026-01-01T00:05:00.000Z');
+});
+
+test('--marker and --from/--to together throw (ambiguous windowing)', async () => {
+  const dir = mkTmp('build-census-fromto-conflict-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } })]);
+  await assert.rejects(
+    () => censusLeadFile(leadPath, { marker: 'X', from: '2026-01-01T00:00:00.000Z' }),
+    /mutually exclusive/,
+  );
+});
+
+test('--from with no matching messages throws loudly through main(), same as an unmatched --marker', async () => {
+  const dir = mkTmp('build-census-fromto-empty-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } })]);
+  await assert.rejects(
+    () => main(['--lead', leadPath, '--from', '2027-01-01T00:00:00.000Z'], { write: () => {} }),
+    /window not found/,
+  );
+});
+
+test('--from/--to: Codex leads reject the flags rather than silently ignoring them', async () => {
+  await assert.rejects(
+    () => runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, from: '2026-01-01T00:00:00.000Z', out: null }),
+    /does not support --from\/--to/,
+  );
+});
+
 test('--marker given but not found in the file throws loudly instead of printing a silent zero', async () => {
   const dir = mkTmp('build-census-marker-missing-');
   const leadPath = path.join(dir, 'lead.jsonl');
   writeJsonl(leadPath, [asstLine({ requestId: 'r1', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1, input: 1 } })]);
   await assert.rejects(
     () => main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'NEVER-PRESENT'], { write: () => {} }),
-    /--marker text not found/,
+    /window not found/,
   );
 });
 
@@ -553,7 +620,7 @@ test('--marker: a marker that genuinely matches nothing still throws even when n
   assert.equal(markerFound, false);
   await assert.rejects(
     () => main(['--lead', leadPath, '--tasks', FIXTURES_TASKS, '--marker', 'NEVER-PRESENT'], { write: () => {} }),
-    /--marker text not found/,
+    /window not found/,
   );
 });
 

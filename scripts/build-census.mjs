@@ -185,21 +185,34 @@ function resolveAndStore(idMap, aliasByMsgId, obj, uniqueCounter, entry) {
  * starts); `leadTurnsTotal` is the same count over the WHOLE file regardless of --marker —
  * they're equal whenever no --marker is given.
  */
-export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
+// --from/--to (four-read spec.md Territory R1, item 3): a second, independent windowing
+// mode alongside --marker — narrows counted assistant messages to a plain ISO timestamp
+// range instead of a marker match. Mutually exclusive with --marker (ambiguous otherwise).
+// A window covering the whole fixture is required to equal the unwindowed run (pinned by
+// test): windowStartAt still lands on the first in-range timestamp, exactly as the no-
+// window case falls back to firstAt below.
+export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to } = {}) {
+  if (marker && (from || to)) throw new Error('--marker and --from/--to are mutually exclusive');
+  const fromMs = from ? Date.parse(from) : NaN;
+  const toMs = to ? Date.parse(to) : NaN;
+  if (from && Number.isNaN(fromMs)) throw new Error(`--from is not a valid date: ${from}`);
+  if (to && Number.isNaN(toMs)) throw new Error(`--to is not a valid date: ${to}`);
+  const windowed = Boolean(marker || from || to);
   const rl = await openLines(fsImpl, filePath);
   const totalById = new Map();
   const totalAlias = new Map();
-  const windowById = marker ? new Map() : totalById; // no marker: window == whole file
-  const windowAlias = marker ? new Map() : totalAlias;
+  const windowById = windowed ? new Map() : totalById; // no window: window == whole file
+  const windowAlias = windowed ? new Map() : totalAlias;
   const uniqueCounter = { n: 0 };
 
-  let windowStarted = !marker;
+  let windowStarted = !marker && !from;
+  let windowEnded = false; // only --to can end a window once started
   let windowStartAt = null;
   let firstAt = null;
   let lastAt = null;
 
-  let leadTurns = 0; // runs inside the --marker window (== whole file when no marker)
-  let leadTurnsTotal = 0; // runs in the whole file, always, regardless of --marker
+  let leadTurns = 0; // runs inside the window (== whole file when unwindowed)
+  let leadTurnsTotal = 0; // runs in the whole file, always, regardless of windowing
   let inRun = false;
   let inWindowRun = false;
 
@@ -221,19 +234,25 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
       windowStarted = true;
       windowStartAt = obj.timestamp || lastAt;
     }
+    if (from && !windowStarted && obj.timestamp && Date.parse(obj.timestamp) >= fromMs) {
+      windowStarted = true;
+      windowStartAt = obj.timestamp;
+    }
+    if (to && !windowEnded && obj.timestamp && Date.parse(obj.timestamp) > toMs) windowEnded = true;
+    const inWindowNow = windowStarted && !windowEnded;
 
     if (obj.type === 'assistant') {
       if (!inRun) {
         leadTurnsTotal += 1;
         inRun = true;
       }
-      // A --marker window's leadTurns must be windowed too — otherwise a persistent lead
-      // pane (one session across several builds) reports the WHOLE session's run count as
-      // if it were this build's, the same "unknown rendered as a confident number" failure
-      // this fix's sibling (the subagent window filter, below in runCensus) also guards
-      // against. Without --marker, windowStarted is true from the first line, so leadTurns
-      // === leadTurnsTotal, unchanged from before this fix.
-      if (windowStarted && !inWindowRun) {
+      // A windowed leadTurns must be windowed too — otherwise a persistent lead pane (one
+      // session across several builds) reports the WHOLE session's run count as if it
+      // were this build's, the same "unknown rendered as a confident number" failure this
+      // fix's sibling (the subagent window filter, below in runCensus) also guards
+      // against. Unwindowed, windowStarted is true from the first line and windowEnded
+      // never fires, so leadTurns === leadTurnsTotal, unchanged from before this fix.
+      if (inWindowNow && !inWindowRun) {
         leadTurns += 1;
         inWindowRun = true;
       }
@@ -249,10 +268,10 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker } = {}) {
 
     const entry = { model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt };
     resolveAndStore(totalById, totalAlias, obj, uniqueCounter, entry);
-    if (marker && windowStarted) resolveAndStore(windowById, windowAlias, obj, uniqueCounter, entry);
+    if (windowed && inWindowNow) resolveAndStore(windowById, windowAlias, obj, uniqueCounter, entry);
   }
 
-  if (!marker) windowStartAt = firstAt;
+  if (!windowed) windowStartAt = firstAt;
 
   return { totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal };
 }
@@ -623,9 +642,12 @@ export async function runCensus(opts, fsImpl = realFs()) {
   if (leadHost === 'codex' && (opts.tasksDirs || []).length) {
     throw new Error('Codex child transcript census is unsupported; native child discovery and usage attribution are not established');
   }
+  if (leadHost === 'codex' && (opts.from || opts.to)) {
+    throw new Error('Codex census does not support --from/--to windowing');
+  }
   const lead = leadHost === 'codex'
     ? await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker })
-    : await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker });
+    : await censusLeadFile(opts.lead, { fsImpl, marker: opts.marker, from: opts.from, to: opts.to });
 
   const { specs: dirSpecs, unreadableDirs: specUnreadableDirs } = buildDirSpecs(opts, fsImpl, { includeDefaultSubagents: leadHost !== 'codex' });
   const defaultSpec = dirSpecs.find((s) => s.isDefault) || null;
@@ -949,7 +971,7 @@ export function formatJson(report) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const opts = { lead: null, tasksDirs: [], marker: null, out: null, json: null, roleMap: null };
+  const opts = { lead: null, tasksDirs: [], marker: null, from: null, to: null, out: null, json: null, roleMap: null };
   const need = (flag) => {
     const v = argv[++i];
     if (!v) throw new Error(`${flag} needs a value`);
@@ -961,6 +983,8 @@ export function parseArgs(argv) {
     if (a === '--lead') opts.lead = need('--lead');
     else if (a === '--tasks') opts.tasksDirs.push(need('--tasks'));
     else if (a === '--marker') opts.marker = need('--marker');
+    else if (a === '--from') opts.from = need('--from');
+    else if (a === '--to') opts.to = need('--to');
     else if (a === '--out') opts.out = need('--out');
     else if (a === '--json') opts.json = need('--json');
     else if (a === '--role-map') {
@@ -983,8 +1007,8 @@ export async function main(argv = process.argv.slice(2), { fsImpl = realFs(), no
   // would otherwise print a confident VERDICT of 0 lead turns and a zeroed combined
   // split — the exact shape spec.md's "Done" comparison depends on. Loud failure instead
   // of a silent, plausible-looking zero. The marker text itself is never echoed.
-  if (opts.marker && !report.lead.markerFound) {
-    throw new Error(`--marker text not found in ${path.basename(opts.lead)} (window would be empty)`);
+  if ((opts.marker || opts.from) && !report.lead.markerFound) {
+    throw new Error(`--marker/--from window not found in ${path.basename(opts.lead)} (window would be empty)`);
   }
   const wrote = [];
   if (opts.json) {
