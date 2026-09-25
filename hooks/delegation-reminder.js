@@ -331,6 +331,13 @@ async function bearingsNotice(cwd) {
   return null;
 }
 
+async function leadIdHint(sessionId) {
+  try {
+    return (await goalContext()).leadIdHint(sessionId);
+  } catch {}
+  return null;
+}
+
 const joinContext = (...parts) => parts.filter(Boolean).join("\n\n") || null;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -392,10 +399,8 @@ async function handle(event, input) {
     // for both. Give the lead this session's own id as a hint (never proof — the SKILL text says
     // so) at the one point it is reliably known: the SessionStart hook. `agentId` is deliberately
     // excluded here (a subagent never sees bearings, guarded above by `!agentId`).
-    const leadIdHint = bearings && typeof sessionId === "string" && sessionId
-      ? "When recording completion, pass --lead-id " + sessionId + " (this session) and, as --reviewer-id, the agentId the Agent tool returned for the reviewer (or the reviewer pane's own session id), never this session id."
-      : null;
-    return { text: joinContext(card, bearings, leadIdHint), systemMessage };
+    const hint = bearings ? await leadIdHint(sessionId) : null;
+    return { text: joinContext(card, bearings, hint), systemMessage };
   }
 
   if (event === "PostCompact") {

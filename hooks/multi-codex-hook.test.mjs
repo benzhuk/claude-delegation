@@ -61,6 +61,14 @@ function notes() {
   };
 }
 
+function contextOf(result) { return result?.output?.hookSpecificOutput?.additionalContext ?? ''; }
+function systemOf(result) { return result?.output?.systemMessage ?? ''; }
+function absent(text) { assert.doesNotMatch(text, /GOAL:|Bearings (are due|status is unknown)/); }
+function peerPreserved(result) {
+  assert.match(contextOf(result), /peer → lead/);
+  assert.match(systemOf(result), /📨 peer → lead ASK:/);
+}
+
 test('confirmed child metadata suppresses inherited parent handle registration and inbox work', async (t) => {
   const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   fs.mkdirSync(path.join(home, '.agents', 'notes'), { recursive: true });
@@ -201,10 +209,45 @@ test('Codex leaves PostToolUse goal delivery unchanged and preserves peer output
   const out = await runCodexHook(input, { home, env, inbox: async () => notes() });
   const text = out?.output?.hookSpecificOutput?.additionalContext ?? '';
   assert.match(text, /new peer note/);
+  assert.match(text, /wait on a peer inside this turn\.\n\nGoal card for this project:/);
   assert.match(text, /GOAL: Ship the parity hook/);
   assert.match(out?.output?.systemMessage ?? '', /📨 peer/);
   const post = await runCodexHook({ ...input, hook_event_name: 'PostToolUse' }, { home, env });
   assert.equal(post, null);
+});
+
+test('Codex compact start keeps advisory context but suppresses its new pane notice', async (t) => {
+  const home = tmp(); const root = project();
+  t.after(() => { fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true }); });
+  agentsHome(t, home);
+  const env = { AGENTS_HOME: process.env.AGENTS_HOME, NOTE_SLUG: 'lead' };
+  const file = transcript(home, metadata({ id: LEAD, sessionId: LEAD, source: 'cli' }));
+  const out = await runCodexHook(
+    { hook_event_name: 'SessionStart', source: 'compact', session_id: LEAD, transcript_path: file, cwd: root },
+    { home, env, inbox: async () => notes() },
+  );
+  assert.match(contextOf(out), /GOAL: Ship the parity hook/);
+  assert.match(contextOf(out), /Bearings are due/);
+  assert.match(systemOf(out), /📨 peer/);
+  assert.doesNotMatch(systemOf(out), /Bearings (are due|status is unknown)/);
+});
+
+test('missing and rejected cards preserve peer delivery without adding model advisory', async (t) => {
+  const home = tmp(); const root = project();
+  t.after(() => { fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true }); });
+  agentsHome(t, home);
+  const env = { AGENTS_HOME: process.env.AGENTS_HOME, NOTE_SLUG: 'lead' };
+  const file = transcript(home, metadata({ id: LEAD, sessionId: LEAD, source: 'cli' }));
+  const input = { hook_event_name: 'SessionStart', session_id: LEAD, transcript_path: file, cwd: root };
+  fs.rmSync(path.join(root, 'docs', 'goals', 'card.md'));
+  const missing = await runCodexHook(input, { home, env, inbox: async () => notes() });
+  peerPreserved(missing);
+  absent(contextOf(missing));
+  fs.writeFileSync(path.join(root, 'docs', 'goals', 'card.md'), 'not a card');
+  const rejected = await runCodexHook(input, { home, env, inbox: async () => notes() });
+  peerPreserved(rejected);
+  absent(contextOf(rejected));
+  assert.match(systemOf(rejected), /goal card not injected/);
 });
 
 test('unknown identity and non-goal events preserve their peer output byte-for-byte', async (t) => {
@@ -224,4 +267,16 @@ test('unknown identity and non-goal events preserve their peer output byte-for-b
     { home, env, inbox: async () => peer },
   );
   assert.deepEqual(post?.output, contextOutput('PostToolUse', peer, { note: MID_TURN_NOTE, limit: POST_TOOL_LIMIT, maxChars: 220 }));
+});
+
+test('a rejecting or stalled advisory never erases peer delivery', async (t) => {
+  const home = tmp();
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const input = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, cwd: '/project' };
+  for (const goalContextForLead of [async () => { throw new Error('optional helper failed'); }, () => new Promise(() => {})]) {
+    const out = await runCodexHook(input, {
+      home, env: { NOTE_SLUG: 'lead' }, inbox: async () => notes(), goalContextForLead,
+    });
+    peerPreserved(out);
+  }
 });
