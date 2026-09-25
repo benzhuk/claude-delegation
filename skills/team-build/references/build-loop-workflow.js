@@ -122,8 +122,8 @@ function sameSha(x, y) {
 // the other its full 40-hex read of the same commit, the integrator prompt always carries
 // the full sha rather than whichever length the builder happened to report.
 function longerSha(x, y) {
-  const sx = String(x ?? '')
-  const sy = String(y ?? '')
+  const sx = String(x ?? '').trim().toLowerCase()
+  const sy = String(y ?? '').trim().toLowerCase()
   return sy.length > sx.length ? sy : sx
 }
 

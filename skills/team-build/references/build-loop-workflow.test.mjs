@@ -430,6 +430,7 @@ test("the review prompt names the worktree and never contains the delivered sha 
   assert.ok(reviewCall.prompt.includes(`Worktree: ${T1.worktree}`), "the review prompt must name the worktree to check HEAD in");
   assert.ok(/git rev-parse HEAD/.test(reviewCall.prompt), "the review prompt must instruct an independent git rev-parse HEAD");
   assert.ok(!reviewCall.prompt.includes("eeeeeee5"), "the review prompt must never contain the delivered sha as text");
+  assert.ok(reviewCall.prompt.includes("VERDICT: APPROVE <sha>"), "the review mandate must require the sha on the verdict line, the form checkAcceptance accepts");
 });
 
 // Round-2 review MAJOR 1: the spec's "the builder likewise" item — the builder prompt
@@ -465,6 +466,18 @@ test("review sha comparison is case- and whitespace-normalized: an uppercase or 
   assert.equal(result.territories[0].verdict, "APPROVE");
   assert.equal(result.territories[0].blocker, null);
   assert.deepEqual(result.blockers, []);
+});
+
+// Seam R2-1: longerSha must normalize (trim, lowercase) whichever side it picks, not pass
+// an honest-but-untrimmed/uppercase reviewer read through to the integrator prompt as-is.
+test("longerSha's chosen sha is trimmed and lowercased, never the raw padded/uppercase reviewer read", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("abcdef1234567890abcdef1234567890abcdef12"),
+    "review:T1:r1": reviewResult("APPROVE", "ABCDEF1234567890ABCDEF1234567890ABCDEF12\n"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ territories: [T1] }, stub);
+  assert.equal(result.territories[0].sha, "abcdef1234567890abcdef1234567890abcdef12");
 });
 
 test("review sha comparison still rejects a genuinely different sha (never equal on empty either side)", async () => {
