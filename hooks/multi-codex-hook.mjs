@@ -136,9 +136,10 @@ export async function runCodexHook(input = {}, deps = {}) {
   const me = deps.slug ? { slug: deps.slug, source: 'deps' } : codexSlug(env, home, fsImpl);
 
   const cwd = input.cwd ?? process.cwd();
-  // Goal/card work is advisory and bounded separately from peer delivery. A slow dynamic import or
-  // receipt read therefore cannot consume the peer/continuation budget; synchronous filesystem work
-  // remains subject to the host runtime and is deliberately not claimed preemptible.
+  // Goal/card work is advisory and raced separately from peer delivery, so an unresolved or rejected
+  // advisory promise (for example a slow dynamic import) drops only the goal context. The card read and
+  // bearings receipt/evidence reads are synchronous and are NOT preempted by this race: they still run
+  // on the event loop shared with peer delivery and main's BUDGET_MS.
   const advisoryFn = deps.goalContextForLead ?? goalContextForLead;
   const advisoryWork = withBudget(Promise.resolve().then(() => advisoryFn(input, cwd, role, env)).catch(() => null), 500);
 
