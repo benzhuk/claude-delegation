@@ -364,6 +364,68 @@ test("R2: a territory with only one or two of {worktree, branch, briefPath} is a
   assert.equal(stub.calls.length, 0);
 });
 
+// m2: startFrom is validated as part of R2's launch check, before anything spawns. The
+// new reason vocabulary needs the lead's OK, so an invalid startFrom folds into the
+// existing missing-args reason rather than a new 'invalid-start-from'.
+test("m2: startFrom with a non-sha string (e.g. the literal 'HEAD') is a launch error, nothing spawns", async () => {
+  const bad = { ...T1, startFrom: { sha: "HEAD", verdict: "APPROVE" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("m2: startFrom with an unrecognized verdict is a launch error, never silently runs from round 1", async () => {
+  const bad = { ...T1, startFrom: { sha: "aaaaaaa1", verdict: "PENDING" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("m2: startFrom NEEDS_FIXES without a findingsPath is a launch error", async () => {
+  const bad = { ...T1, startFrom: { sha: "aaaaaaa1", verdict: "NEEDS_FIXES" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+test("m2: startFrom on a setup territory is a launch error (R6: only valid on given territories)", async () => {
+  const bad = { id: "S1", startFrom: { sha: "aaaaaaa1", verdict: "APPROVE" } };
+  const stub = makeAgentStub({});
+  const result = await runScript({ ...BASE_ARGS, territories: [bad] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "missing-args" }]);
+  assert.equal(stub.calls.length, 0);
+});
+
+// m1: a trailing slash on integrationWorktree must never nest a setup worktree inside
+// the integration worktree itself (worktreeRoot is the PARENT directory of
+// integrationWorktree, per R2).
+test("m1: a trailing slash on integrationWorktree does not nest the setup worktree inside it", async () => {
+  const args = { ...BASE_ARGS, territories: [{ id: "L1" }], integrationWorktree: "/repo/wt-integrate/", integrationBranch: "build/x" };
+  // This test only reads the rendered setup prompt, so any well-shaped (even
+  // verification-failing) return that doesn't throw the stub is enough; the empty
+  // territories row deliberately fails verification, ending the run right after setup.
+  const stub = makeAgentStub({ setup: { territories: [], reviewerBriefPath: "x", integratorBriefPath: "x", seamBriefPath: "x", reportPath: "x" } });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall, "setup call must have fired");
+  assert.ok(setupCall.prompt.includes("/repo/wt-x-L1"), `worktreeRoot must be the PARENT of integrationWorktree, got: ${setupCall.prompt}`);
+  assert.ok(!setupCall.prompt.includes("/repo/wt-integrate/wt-x-L1"), "must never nest the setup worktree inside the integration worktree");
+});
+
+// m1: a trailing slash on integrationBranch must never produce an empty slug (baseName
+// of a trailing-slash path used to return "").
+test("m1: a trailing slash on integrationBranch does not produce an empty slug", async () => {
+  const args = { ...BASE_ARGS, territories: [{ id: "L1" }], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x/" };
+  const stub = makeAgentStub({ setup: setupResultFor({ ...args, integrationBranch: "build/x" }) });
+  await runScript(args, stub);
+  const setupCall = stub.calls.find((c) => c.opts.label === "setup");
+  assert.ok(setupCall.prompt.includes("wt-x-L1"), `slug must be 'x', never empty, got: ${setupCall.prompt}`);
+  assert.ok(!setupCall.prompt.includes("wt--L1"), "an empty slug would render as a double dash");
+});
+
 // ---------------------------------------------------------------------------
 // Given-worktree path — byte-for-byte preservation of the existing round loop,
 // sameSha, longerSha, and the respawn-once-on-death rule.
@@ -640,6 +702,73 @@ test("setup path: setup-failed when a returned worktree/branch/briefPath doesn't
   assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
 });
 
+// m9 gap: only worktree and headSha were covered — branch, briefPath, and a missing row
+// must fail verification too.
+test("setup path: setup-failed when a returned branch doesn't match the computed name", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories[0].branch = "wrong/branch-name";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
+});
+
+test("setup path: setup-failed when a returned briefPath doesn't match the computed name", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories[0].briefPath = "wrong/briefs/L1.md";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L1", reason: "setup-failed" }]);
+});
+
+test("setup path: setup-failed when a territory row is missing from the returned territories array", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }, { id: "L2" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.territories = badSetup.territories.filter((r) => r.id !== "L2");
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "L2", reason: "setup-failed" }]);
+});
+
+// m9 gap: setup dying twice must give the '*' id, mirroring the given-path integrator's
+// agent-died fallback.
+test("setup path: setup agent dying twice gives setup-failed with id '*' and spawns nothing else", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const stub = makeAgentStub({ setup: [null, null] });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "setup-failed" }]);
+  assert.equal(result.setup, null);
+  const setupCalls = stub.calls.filter((c) => c.opts.label === "setup");
+  assert.equal(setupCalls.length, 2, "respawned exactly once before giving up");
+});
+
+// M5: the reviewer/integrator/seam brief paths are computed IN THE SCRIPT (R3); the
+// script must verify what setup returns against those computed names, not trust them.
+test("setup path: setup-failed when the returned seamBriefPath differs from the computed one", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.seamBriefPath = "/tmp/EVIL-seam.md";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "setup-failed" }]);
+  assert.equal(result.setup, null);
+  assert.equal(stub.calls.length, 1, "nothing built past the failed setup call");
+});
+
+test("setup path: setup-failed when the returned reviewerBriefPath or integratorBriefPath differs from the computed one", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const badReviewer = setupResultFor(args);
+  badReviewer.reviewerBriefPath = "/tmp/EVIL-reviewer.md";
+  const result1 = await runScript(args, makeAgentStub({ setup: badReviewer }));
+  assert.deepEqual(result1.blockers, [{ id: "*", reason: "setup-failed" }]);
+
+  const badIntegrator = setupResultFor(args);
+  badIntegrator.integratorBriefPath = "/tmp/EVIL-integrator.md";
+  const result2 = await runScript(args, makeAgentStub({ setup: badIntegrator }));
+  assert.deepEqual(result2.blockers, [{ id: "*", reason: "setup-failed" }]);
+});
+
 test("setup path: computed branch/worktree names use integrationBranch's last segment as slug", async () => {
   const args = { ...SETUP_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined };
   let capturedPrompt = null;
@@ -660,14 +789,23 @@ test("setup path: computed branch/worktree names use integrationBranch's last se
 test("setup path: full fixture run produces setup, builds, reviews, integrate, seam APPROVE, and accept-prep with censusPath and checkAcceptance", async () => {
   const args = SETUP_ARGS;
   const setup = setupResultFor(args);
-  const stub = makeAgentStub({
+  const seamFindings = "docs/work/seam-r1-findings.md";
+  const l1Findings = "docs/work/evidence/L1-review-approve.md";
+  const l2Findings = "docs/work/evidence/L2-review-approve.md";
+
+  // M6: the journal must actually discriminate a live script (not just assert a constant
+  // it built itself). Wrap the fixture stub so every call is recorded through the SAME
+  // path the assertions read back, and append the return entry only once the script's own
+  // promise has resolved — plus one tick of the microtask queue, so a stray un-awaited
+  // agent() firing after return would still land in the journal before we check it.
+  const inner = makeAgentStub({
     setup,
     "build:L1:r1": buildResult("aaaaaaa1"),
-    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1", l1Findings),
     "build:L2:r1": buildResult("bbbbbbb2"),
-    "review:L2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    "review:L2:r1": reviewResult("APPROVE", "bbbbbbb2", l2Findings),
     integrate: integrateResult("PASS", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"),
-    "seam:r1": reviewResult("APPROVE", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", "docs/work/seam-r1-findings.md"),
+    "seam:r1": reviewResult("APPROVE", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", seamFindings),
     "accept-prep": {
       censusPath: "docs/work/evidence/wr-2026-09-25-one-launch-census.md",
       censusNote: "ok",
@@ -677,8 +815,17 @@ test("setup path: full fixture run produces setup, builds, reviews, integrate, s
       reportPath: "docs/work/accept-prep.report.md",
     },
   });
+  const journal = [];
+  const stub = async (prompt, opts) => {
+    journal.push({ type: "agent", agentType: opts.agentType, model: opts.model, label: opts.label });
+    return inner(prompt, opts);
+  };
+  stub.calls = inner.calls;
 
   const result = await runScript(args, stub);
+  journal.push({ type: "return" });
+  // let any stray un-awaited agent() call land before we check the journal's shape.
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   // setup
   assert.ok(result.setup);
@@ -703,19 +850,36 @@ test("setup path: full fixture run produces setup, builds, reviews, integrate, s
 
   assert.deepEqual(result.blockers, []);
 
+  // M1: the accept-prep prompt must carry the reviewers' APPROVE findings files, never
+  // the builders' own report paths.
+  const acceptCall = stub.calls.find((c) => c.opts.label === "accept-prep");
+  assert.ok(acceptCall.prompt.includes(l1Findings), "accept-prep prompt must list L1's reviewer findings path");
+  assert.ok(acceptCall.prompt.includes(l2Findings), "accept-prep prompt must list L2's reviewer findings path");
+  assert.ok(acceptCall.prompt.includes(seamFindings), "accept-prep prompt must list the seam's APPROVE findings path");
+  assert.ok(!acceptCall.prompt.includes("docs/work/aaaaaaa1.report.md"), "accept-prep prompt must never list a builder report path");
+  assert.ok(!acceptCall.prompt.includes("docs/work/bbbbbbb2.report.md"), "accept-prep prompt must never list a builder report path");
+
   // JOURNAL: every agent() call the fake saw, plus one entry for the script's single
-  // return — the count of script returns is exactly 1, and every call's agentType is one
-  // the script itself issues (never something "the pane" would issue directly, since
-  // every one of these calls originated inside the script, never from the test/pane).
-  const PANE_LEVEL_TYPES = new Set(["general-purpose", "delegation:orchestrator"]);
-  const journal = [
-    ...stub.calls.map((c) => ({ type: "agent", agentType: c.opts.agentType })),
-    { type: "return" },
-  ];
+  // return — the count of script returns is exactly 1, the return is the LAST entry (no
+  // agent() call fired after the script returned, awaited or not), and every call's
+  // {agentType, model} pair is one of the pinned pairs the script itself issues (never
+  // something "the pane" would issue directly, since every one of these calls originated
+  // inside the script, never from the test/pane).
   assert.equal(journal.filter((e) => e.type === "return").length, 1, "exactly one script return");
+  assert.equal(journal.at(-1).type, "return", "no agent() call after the script returned");
   for (const entry of journal.filter((e) => e.type === "agent")) {
-    assert.ok(!PANE_LEVEL_TYPES.has(entry.agentType), `agentType ${entry.agentType} looks like something the pane would issue directly, not the script`);
+    assert.ok(
+      PINNED_PAIRS.some((p) => p.agentType === entry.agentType && p.model === entry.model),
+      `unpinned {agentType: ${entry.agentType}, model: ${entry.model}}`,
+    );
   }
+  assert.deepEqual(
+    journal
+      .filter((e) => e.type === "agent")
+      .map((e) => e.label)
+      .sort(),
+    ["accept-prep", "build:L1:r1", "build:L2:r1", "integrate", "review:L1:r1", "review:L2:r1", "seam:r1", "setup"],
+  );
   assert.equal(stub.calls.length, 8, "setup + 2 builds + 2 reviews + integrate + seam + accept-prep = 8 calls, one launch");
 });
 
@@ -762,6 +926,75 @@ test("R4: seam NEEDS_FIXES triggers one seam-fix builder on the integration work
   assert.ok(seamFixCall.prompt.includes("docs/work/seam-r1-findings.md"));
   assert.ok(seamFixCall.prompt.includes("node scripts/run-tests.mjs"));
   assert.deepEqual(result.blockers, []);
+
+  // M2 twin: the seam-fix made a NEW commit (f6... differs from priorHead e5...), so the
+  // delta re-review prompt must carry the prior head for the range and never the new
+  // build's delivered sha for an echoing reviewer to copy.
+  const seamReReviewCall = stub.calls.find((c) => c.opts.label === "seam:r2");
+  assert.ok(seamReReviewCall.prompt.includes("Commit range: e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5..HEAD"), "the r2 seam prompt must carry the prior head as the range start");
+  assert.ok(!seamReReviewCall.prompt.includes("f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"), "the r2 seam prompt must never contain the seam-fix's own delivered sha");
+});
+
+// M2: a no-commit seam-fix round (the fix builder reports the exact same head it started
+// from) must never leak that sha into the delta re-review prompt as a "range" for an
+// echoing reviewer to copy back.
+test("M2: seam-fix that makes no new commit does not leak the current HEAD into the re-review prompt", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs" };
+  const noCommitSha = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", noCommitSha),
+    "seam:r1": reviewResult("NEEDS_FIXES", noCommitSha, "docs/work/seam-r1-findings.md"),
+    "seam-fix:r2": buildResult(noCommitSha),
+    "seam:r2": reviewResult("APPROVE", noCommitSha),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "APPROVE");
+  const seamReReviewCall = stub.calls.find((c) => c.opts.label === "seam:r2");
+  assert.ok(!seamReReviewCall.prompt.includes(`${noCommitSha}..HEAD`), "a no-commit seam-fix must never render 'sha..HEAD' with the live HEAD's own sha");
+  assert.ok(seamReReviewCall.prompt.includes("docs/work/seam-r1-findings.md"), "prior findings path is still carried even without a commit range");
+});
+
+// m9 gap: a round-1 seam sha mismatch against the integrator's own headSha must BLOCK,
+// never silently accept.
+test("m9: seam round-1 sha mismatch against integrate.headSha blocks with review-sha-mismatch", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": reviewResult("APPROVE", "HEAD"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "BLOCKED");
+  assert.equal(result.seam.blocker, "review-sha-mismatch");
+  assert.equal(result.seam.sha, null);
+  assert.deepEqual(result.blockers, [{ id: "seam", reason: "review-sha-mismatch" }]);
+});
+
+// m9 gap: the seam reviewer agent dying twice must fall back to BLOCKED, mirroring the
+// integrator's own agent-died fallback, rather than throwing.
+test("m9: seam agent dying twice falls back to BLOCKED agent-died rather than throwing", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r1": [null, null],
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "BLOCKED");
+  assert.equal(result.seam.blocker, "agent-died");
+  assert.deepEqual(result.blockers, [{ id: "seam", reason: "agent-died" }]);
+  const seamCalls = stub.calls.filter((c) => c.opts.label === "seam:r1");
+  assert.equal(seamCalls.length, 2, "respawned exactly once before giving up");
 });
 
 test("R4: seam rounds-exhausted when NEEDS_FIXES persists through maxRounds", async () => {
@@ -780,6 +1013,9 @@ test("R4: seam rounds-exhausted when NEEDS_FIXES persists through maxRounds", as
   assert.equal(result.seam.verdict, "NEEDS_FIXES");
   assert.equal(result.seam.blocker, "rounds-exhausted");
   assert.equal(result.seam.rounds, 2);
+  // m7: rounds-exhausted keeps the last sameSha-verified sha, for parity with a
+  // territory row in the same state.
+  assert.equal(result.seam.sha, "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6");
   assert.deepEqual(result.blockers, [{ id: "seam", reason: "rounds-exhausted" }]);
   assert.ok(!stub.calls.some((c) => c.opts.label === "seam-fix:r3"), "no round beyond maxRounds is attempted");
 });
@@ -891,6 +1127,82 @@ test("R5: accept-prep is skipped when the integrator did not PASS", async () => 
   });
   const result = await runScript(args, stub);
   assert.deepEqual(result.acceptance, { skipped: "integrator-not-pass" });
+});
+
+// M4: R5 step 2 presupposes every territory has an APPROVE ("last territory APPROVE per
+// territory"). Running accept-prep with a blocked territory (even alongside an approved
+// one) writes a false "Status: reviewed" header over an incomplete build.
+test("M4: accept-prep is skipped (territory-blockers) when a territory is builder-BLOCKED, even though the integrator PASSed", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1", "BLOCKED"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.territories[0].blocker, "builder-blocked");
+  assert.deepEqual(result.acceptance, { skipped: "territory-blockers" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "builder-blocked" }]);
+});
+
+test("M4: accept-prep is skipped (territory-blockers) when one of two territories is blocked", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl", seam: false };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2", "FAIL"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.acceptance, { skipped: "territory-blockers" });
+  assert.ok(!stub.calls.some((c) => c.opts.label === "accept-prep"));
+});
+
+// M3: accept-prep's returned integrationHead is CHECKED (R1: "checks what that agent
+// returns"), never taken on faith — an unverified head like the literal "HEAD" must
+// blocker the return rather than ship silently.
+test("M3: accept-prep returning an unverified integrationHead (e.g. the literal 'HEAD') adds an accept-prep review-sha-mismatch blocker", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: "HEAD",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  const result = await runScript(args, stub);
+  assert.ok(result.acceptance, "acceptance is still returned (the runner's report), just flagged");
+  assert.deepEqual(result.blockers, [{ id: "accept-prep", reason: "review-sha-mismatch" }]);
+});
+
+test("M3: accept-prep is checked against the seam's (longer) APPROVE sha, not the integrator's shorter one", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const shortIntegrateHead = "e5e5e5e";
+  const fullSeamSha = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", shortIntegrateHead),
+    "seam:r1": reviewResult("APPROVE", fullSeamSha),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: fullSeamSha,
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+      reportPath: "docs/work/accept-prep.report.md",
+    },
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [], "the full seam-verified sha, matched against seam.sha (the longer of the two independent reads), is never flagged");
 });
 
 // ---------------------------------------------------------------------------
