@@ -105,12 +105,18 @@ under `docs/work/evidence/` for this harness, and retain independent review when
 
 ### Strict Git-backed acceptance check
 
-Historical structural validation remains permissive. Code delivery and other Git-backed team
-builds must add this read-only check immediately before the owner changes a reviewed record to
-`accepted`:
+Historical structural validation remains permissive, but the owner never flips a reviewed
+record to `accepted` by hand for code delivery or other Git-backed team builds: the `accept`
+CLI command runs `checkAcceptance` itself and refuses to write the record when the check
+fails, printing the finding list. `check-acceptance` stays available for a manual, read-only
+run of the same check before calling `accept`:
 
 ```
 node <verified-plugin-root>/scripts/work-record.mjs check-acceptance \
+  --record <repo-relative-record> --repo <target-root> \
+  (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
+
+node <verified-plugin-root>/scripts/work-record.mjs accept \
   --record <repo-relative-record> --repo <target-root> \
   (--delivery-ref <actual-live-ref> | --pinned-artifact <explicit-sha>)
 ```
@@ -125,11 +131,20 @@ is unindented and begins at body start, after a blank line, or immediately after
 indented examples do not count. Every evidence path must be a readable regular file whose real
 path stays within the repository.
 
+The record must also carry a `Worktree:` field: an absolute path, a repo-relative path, or a
+local branch name naming the git worktree or branch that produced `Artifact:`. The check
+resolves that path's (or branch's) own live HEAD directly with git — never a value any agent
+self-reports — and a mismatch, or a `Worktree:` that does not resolve at all, is a failing
+finding named `sha-not-in-git`, the same code a SHA git does not have at all uses. In pinned
+mode the artifact only has to be an ancestor of the worktree's HEAD (a pinned artifact may be
+historical); live mode requires exact equality.
+
 At least one evidence file must begin exactly `VERDICT: APPROVE <sha>` or `VERDICT: APPROVE —
 <sha>` for the current artifact. A current `NEEDS_FIXES`, `FAIL`, or `REJECTED` refuses
 acceptance. Supporting verdicts and verdicts for other revisions remain history. Success prints
 `{"ok":true,"work":"...","artifact":"<full-sha>","delivery":"<full-sha>"}`; failure is
-nonzero with a diagnostic. Neither outcome writes the record, evidence, repository, or Git refs.
+nonzero with a diagnostic (`check-acceptance` never writes anything; `accept` writes the record
+only on success, appending an `accepted` `Log:` line and flipping `Status:` in one edit).
 
 This command proves local record, review, and delivery identity only. The owner still verifies
 integration gates, authority, goal satisfaction, and installed behavior. A merge that preserves

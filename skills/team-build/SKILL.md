@@ -260,8 +260,9 @@ for integration, authority, installed behavior, and goal satisfaction. A source 
 may differ from the merge head: unchanged reviewed source does not need ceremonial
 re-review, while integration changes or conflict resolutions do. Non-code outcomes keep
 their attributable evidence and owner judgment without inventing a Git commit for this
-Git-specific check. `check-acceptance` itself is unchanged and stays available read-only,
-for a dry run before `accept` or for manual proof outside the accept moment.
+Git-specific check. `check-acceptance` runs the identical check `accept` runs — including
+the `Worktree:` requirement above — and stays available read-only, for a dry run before
+`accept` or for manual proof outside the accept moment.
 
 Once every territory is `reviewed` and the integrator's gates are green — before the merge
 ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
