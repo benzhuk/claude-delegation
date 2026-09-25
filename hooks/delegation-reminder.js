@@ -387,6 +387,12 @@ async function handle(event, input) {
     }
     // Positive Claude child identity excludes only bearings. Child goal-card behaviour remains intact.
     const bearings = !bearingsOff && !agentId && cardUsable ? await bearingsNotice(cwd) : null;
+    // T2 Required #1: the due-notice must reach Ben, not only the model. SessionStart is the one
+    // event Ben actually sees (`systemMessage` is pane-visible), so a due/unknown bearings notice goes
+    // there too, in addition to `additionalContext` for the model. Not-due (bearings is null) emits no
+    // systemMessage. `cardUsable` already guards this off when the card itself was rejected, so the two
+    // systemMessage sources (card-rejection notice, bearings notice) never collide.
+    if (bearings && !systemMessage) systemMessage = bearings;
     return { text: joinContext(card, bearings), systemMessage };
   }
 
@@ -417,7 +423,10 @@ async function handle(event, input) {
     // The existing bounded reinjection cadence is the only active-session cadence. Completion is
     // independent of this per-session clock, and a child never opens bearings state.
     const bearings = !bearingsOff && !agentId && result.status === "ok" ? await bearingsNotice(cwd) : null;
-    return { text: joinContext(result.text, bearings), systemMessage: null }; // a rejection is reported at session start only
+    // Model-only, deliberately: `systemMessage` stays null here even when bearings is due. A rejection
+    // is reported at session start only, and a repeated pane notice every 40 batches is exactly the
+    // wallpaper this build exists to avoid — the model still sees it via `additionalContext`.
+    return { text: joinContext(result.text, bearings), systemMessage: null };
   }
 
   return nothing; // an event nobody wired for this hook: silence, exit 0
