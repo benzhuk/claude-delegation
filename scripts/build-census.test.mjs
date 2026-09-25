@@ -314,6 +314,24 @@ test('an unreadable subagent file is counted and surfaced at every quoted surfac
     `must print an Incomplete note when any file is unreadable:\n${text}`);
 });
 
+test('formatText: Summary carries an INCOMPLETE bullet naming the unreadable count when a subagent file could not be read — seam S2, so accept --census cannot copy a confident-looking but short count', async () => {
+  const real = fs;
+  const fsImpl = {
+    readdirSync: (...a) => real.readdirSync(...a),
+    statSync: (p, ...rest) => {
+      if (p.endsWith('split-request.output')) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return real.statSync(p, ...rest);
+    },
+    writeFileSync: (...a) => real.writeFileSync(...a),
+    createReadStream: (...a) => real.createReadStream(...a),
+  };
+  const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [FIXTURES_TASKS], marker: null, out: null }, fsImpl);
+  const text = formatText(report);
+  assert.ok(text.includes('- subagentFiles: 2'), `expected a subagentFiles bullet in Summary:\n${text}`);
+  assert.ok(text.includes('- INCOMPLETE: 1 subagent file(s) unreadable — subagent and combined totals exclude them'),
+    `expected an INCOMPLETE bullet in Summary when a file is unreadable:\n${text}`);
+});
+
 test('the healthy path (no unreadable files) prints no UNREADABLE/unreadable/Incomplete text anywhere', async () => {
   const report = await runCensus({ lead: FIXTURES_LEAD, tasksDirs: [FIXTURES_TASKS], marker: null, out: null });
   assert.equal(report.subagents.unreadable, 0);
@@ -442,6 +460,42 @@ test('--marker: a subagent file with entries both before and after the window st
   const text = formatText(report);
   assert.ok(text.includes(`Window-excluded subagent turns`), 'the exclusion must be surfaced, not silent');
   assert.ok(text.includes(`${f.file}=1`), 'per-file excluded count must be reported by name');
+});
+
+test('--marker: a subagent file whose EVERY entry is pre-window adds no role row and no role file count, but keeps its own perFile row at 0 turns — seam S3', async () => {
+  const dir = mkTmp('build-census-marker-wholly-pre-');
+  const leadPath = path.join(dir, 'lead.jsonl');
+  const tasksDir = path.join(dir, 'tasks');
+  writeJsonl(leadPath, [
+    asstLine({ requestId: 'pre', ts: '2026-01-01T00:00:00.000Z', usageOpts: { output: 1 } }),
+    { type: 'user', timestamp: '2026-01-01T00:05:00.000Z', message: { role: 'user', content: 'MARK-HERE now building' } },
+    asstLine({ requestId: 'post', ts: '2026-01-01T00:06:00.000Z', usageOpts: { output: 1 } }),
+  ]);
+  writeJsonl(path.join(tasksDir, 'agent-old.jsonl'), [
+    asstLine({ requestId: 'stale-1', ts: '2026-01-01T00:01:00.000Z', usageOpts: { output: 7, input: 3 } }), // wholly before the window
+  ]);
+  writeJsonl(path.join(tasksDir, 'agent-new.jsonl'), [
+    asstLine({ requestId: 'fresh-1', ts: '2026-01-01T00:07:00.000Z', usageOpts: { output: 11, input: 5 } }),
+  ]);
+  const roleMap = { 'agent-old': 'stale-role' };
+  const report = await runCensus({ lead: leadPath, tasksDirs: [tasksDir], marker: 'MARK-HERE', out: null, roleMap });
+  assert.equal(report.subagents.fileCount, 2, 'the wholly pre-window file is never dropped from the file list');
+  const oldFile = report.subagents.perFile.find((f) => f.file.endsWith('agent-old.jsonl'));
+  assert.equal(oldFile.turns, 0, 'the wholly pre-window file keeps its own row, at 0 in-window turns');
+  assert.equal(oldFile.excludedByWindow, 1);
+  assert.equal(report.subagents.roleFileCounts['stale-role'], undefined, 'a role whose only file is wholly pre-window gets no file count row at all');
+  assert.equal(report.subagents.totalByRole['stale-role'], undefined, 'and no zero-token role row either — no phantom role');
+  assert.equal(report.subagents.roleFileCounts.unassigned, 1, 'the genuinely in-window file still gets its real role row');
+  const text = formatText(report);
+  // The per-file table still names the file's real role in its own row (that identity is
+  // never hidden) — what must never appear is a phantom "stale-role" role-SUMMARY row: the
+  // Summary's by-role bullet, the Roles: file-count line, and the by-role token table.
+  assert.ok(text.includes('- by-role: unassigned='), `by-role Summary bullet must list only the real in-window role:\n${text}`);
+  assert.ok(!text.includes('- by-role: stale-role'), `by-role Summary bullet must never carry a phantom role:\n${text}`);
+  assert.ok(text.includes('Roles: unassigned=1'), `Roles: file-count line must list only the real in-window role:\n${text}`);
+  assert.ok(!/^Roles:.*stale-role/m.test(text), `Roles: file-count line must never carry a phantom role:\n${text}`);
+  const byRoleTable = text.slice(text.indexOf('### Subagent tokens by role'));
+  assert.ok(!byRoleTable.includes('stale-role'), `the by-role token table must never carry a phantom stale-role row:\n${byRoleTable}`);
 });
 
 test('--marker: a subagent file whose window-cutoff cannot be established (no timestamp anywhere at/before the marker) excludes nothing — no guessing', async () => {

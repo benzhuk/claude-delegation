@@ -158,7 +158,11 @@ other tool parses; do not confuse the two when changing either one.
 `VERDICT: COUNTED <n> lead requests (leadTurns <k>), <m> subagent files` (first line —
 see "Header line" above for which part of it is load-bearing) · `# Build census` (the
 section title) · **Summary** (flat, copyable lines: `leadTurns`, `wallClockHours`, a
-`by-model` line and a `by-role` line, each `key=totalTokens`, comma-separated) · lead
+`by-model` line and a `by-role` line, each `key=totalTokens`, comma-separated, then
+`subagentFiles` and, only when any subagent file is unreadable, an `INCOMPLETE` line
+naming the unreadable count — this is the one Summary line `accept --census` needs to
+carry the incompleteness flag into the record, since it copies flat bullets but not the
+VERDICT line or prose) · lead
 turns (whole file and window, both de-duped, plus `leadTurns` and, when `--marker` is
 given, `leadTurnsTotal` alongside it), turns/hour in the window · lead tokens by model
 (whole file and window) · subagents: a `Roles: <role>=<fileCount>, ...` line, then (when

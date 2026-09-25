@@ -1607,3 +1607,23 @@ test("`accept` CLI: --census end to end - refuses census-missing without a flag,
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   assert.match(updated, /^Census: - leadTurns: \*\*42\*\*$/m);
 });
+
+// Seam S1: the acceptance section's prose must actually reproduce this build's own
+// census (build-census.mjs --marker ... --out ...), not just gesture at "the lead's
+// session file and the subagents dir" — a persistent lead pane with no --marker silently
+// counts the WHOLE session (every prior build too), and accept --census takes that file
+// just as readily as a correctly scoped one. Pinning the exact flags here so a future
+// edit can't silently drop --marker (or --out) from the documented command again.
+test("skills/team-build/SKILL.md: the census command in the acceptance section names build-census.mjs with --lead, --marker and --out, run after the last review's Log line", () => {
+  const skillPath = fileURLToPath(new URL("../skills/team-build/SKILL.md", import.meta.url));
+  const text = fs.readFileSync(skillPath, "utf8");
+  const acceptanceIdx = text.indexOf("Run the census at accept time");
+  assert.ok(acceptanceIdx !== -1, "expected the acceptance section's census paragraph to still be present");
+  const section = text.slice(acceptanceIdx, acceptanceIdx + 800);
+  assert.match(section, /build-census\.mjs/, "the paragraph must name the actual script");
+  assert.match(section, /--lead\b/);
+  assert.match(section, /--marker\b/, "omitting --marker is exactly S1: a persistent lead pane then counts the whole session, silently");
+  assert.match(section, /--out\b/, "the census must be written to a file, since --json alone is refused by accept (census-missing)");
+  assert.match(section, /Log: \.\.\. reviewed/, "the census must run after the last review's Log line lands, not in the same command as it");
+  assert.match(section, /accept --census/);
+});

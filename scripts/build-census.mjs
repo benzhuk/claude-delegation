@@ -546,9 +546,14 @@ export async function runCensus(opts, fsImpl = realFs()) {
   for (const sf of subFiles) {
     const byModel = aggByModel(sf.byId);
     mergeAggInto(subTotalsByModel, byModel);
-    if (!subTotalsByRole[sf.role]) subTotalsByRole[sf.role] = newAgg();
-    for (const a of Object.values(byModel)) addAggInto(subTotalsByRole[sf.role], a);
-    roleFileCounts[sf.role] = (roleFileCounts[sf.role] || 0) + 1;
+    // Under --marker, a file whose every entry was pre-window belongs to an earlier build:
+    // it keeps its perFile row (turns 0, excludedByWindow N) but adds no role row or count.
+    const whollyPreWindow = sf.byId.size === 0 && (sf.excludedByWindow || 0) > 0;
+    if (!whollyPreWindow) {
+      if (!subTotalsByRole[sf.role]) subTotalsByRole[sf.role] = newAgg();
+      for (const a of Object.values(byModel)) addAggInto(subTotalsByRole[sf.role], a);
+      roleFileCounts[sf.role] = (roleFileCounts[sf.role] || 0) + 1;
+    }
     subTotalTurns += sf.byId.size;
     if (sf.unreadable) unreadableCount += 1;
     excludedByWindowTotal += sf.excludedByWindow || 0;
@@ -639,6 +644,8 @@ export function formatText(report) {
   md.push(`- by-model: ${modelLine}`);
   const roleLine = Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
+  md.push(`- subagentFiles: ${report.subagents.fileCount}`);
+  if (unread) md.push(`- INCOMPLETE: ${unread} subagent file(s) unreadable — subagent and combined totals exclude them`);
   md.push('');
   const tasksLine = report.tasksPaths.length ? report.tasksPaths.map((p) => `\`${p}\``).join(', ') : '(none)';
   md.push(`Lead: \`${path.basename(report.leadPath)}\` | Tasks dirs: ${tasksLine}${report.defaultSubagentsDir ? ` | Default subagents dir: \`${report.defaultSubagentsDir}\`` : ''}`);

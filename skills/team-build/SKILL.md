@@ -244,8 +244,7 @@ node <verified-plugin-root>/scripts/work-record.mjs accept \
   (--census <census-file> | --no-census "<reason>")
 ```
 
-Run the census at accept time, after the last review, over the lead's own session file and
-the subagents dir, and pass its output as `--census`; a genuinely broken census still
+Run the census at accept time, as its own command after the last review's `Log: ... reviewed` line is on the record: `node <verified-plugin-root>/scripts/build-census.mjs --lead <lead-session>.jsonl --marker "<text first seen in this build's opening message>" [--role-map '{"agent-<seam-id>":"seam"}'] --out <census.md>` (the lead's `subagents/` and `subagents/workflows/*/` dirs are read by default; `--marker` scopes a lead pane that spans several builds to this one; pass the `.md`, not `--json`), then `accept --census <census.md>`; a genuinely broken census still
 accepts via `--no-census "<reason>"`, visibly unmeasured rather than silently blocked — see
 `docs/census.md`. `accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
 same strict check `check-acceptance` runs (identity, evidence, and a live `git rev-parse
