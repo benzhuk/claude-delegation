@@ -7,10 +7,11 @@ vocabulary; don't re-derive the tier table here.
 ## The panes
 
 - **`<project>-fable`** — top tier (Claude Fable / GPT-6-Astra). Writes the spec, reads
-  the high-tier red-team's report, and is the pane that decides a release or install to
-  the owner's machines and any Waiting item a lane lead cannot resolve on its own (a
-  conflict, or a defect) — an ordinary accepted merge is the lane lead's own gate and
-  Closed entry, never fable's decision to make (`delegation:decisions`). Never executes:
+  the high-tier red-team's report, and is the pane that puts a release or install to the
+  owner's machines to the owner as a decision item, and any Waiting item a lane lead
+  cannot resolve on its own (a conflict, or a defect) — an ordinary accepted merge is the
+  lane lead's own gate and Closed entry, never fable's decision to make
+  (`delegation:decisions`). Never executes:
   no builds, no file edits outside the spec pack, no direct tool loops over code. Its
   tokens buy judgment, nothing else.
 - **`<project>-o`** — an Opus orchestrator pane. Runs `team-build` end to end (Setup

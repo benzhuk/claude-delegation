@@ -349,7 +349,7 @@ other test in this repo already uses for record fixtures.
 node scripts/collect-from-origin.mjs [--repo <dir>] [--main origin/main] [--no-fetch] [--json] [--skip <name>]...
 ```
 
-The collector is run before any lane dispatch and at every merge tick, never only when a
+The collector is run before any lane dispatch and after every merge to main, never only when a
 lead happens to remember to ask. Its table goes into the bearings packet alongside the
 other census numbers above, not just into a one-off terminal check. "In flight" may only
 be written about a lane whose origin record says `owned` — an origin branch whose record

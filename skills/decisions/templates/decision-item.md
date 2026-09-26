@@ -26,9 +26,9 @@ A request for the owner to do something by hand is the same shape, not a bare
 because [reason]`, last line `No default: needs your hands`.
 
 A release or install to the owner's machines is the same shape too — options
-`- [ ] Install now` and `- [ ] Hold`, last line `No default: installs take your word
-per item`; its evidence is the merged changelog lines copied from the Closed entries
-it covers, not a fresh writeup.
+`- [ ] Install now` and `- [ ] Hold`, last line
+`No default: installs take your word per item`; its evidence is the merged changelog
+lines copied from the Closed entries it covers, not a fresh writeup.
 
 ## Replying to an owner's comment (fenced — reference only, not a live decision)
 

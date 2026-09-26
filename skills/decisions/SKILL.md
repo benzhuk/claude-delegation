@@ -56,15 +56,17 @@ by any script).
 When the record on origin says accepted, its Opus verdicts are in its evidence, and the
 sealed suite is green on a second host from origin (a Windows host when built on Linux, a
 Linux host when built on Windows — the lane lead runs it through ssh as a prior lane did,
-or asks the spec lead, with that second-host gate log already committed as record
-evidence from before `accept` ran, since any record change after `accept` needs a fresh
-check), the lane lead merges its branch into main with a merge commit and pushes, then
+or asks the spec lead, with that second-host gate log already written into the record's
+evidence before `accept` ran (committed with the accepted record), since any record
+change after `accept` needs a fresh check; not checked by any script), the lane lead
+merges its branch into main with a merge commit and pushes, then
 posts ONE Closed entry to this page — a plain bullet, never starting with bold, the same
 smaller shape as an ordinary Closing entry below but with no toggle ever created:
 `Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.` —
 through the anchored-edit route above, and only then sends its RESULT. No Waiting item is
 posted for an ordinary accepted merge. Any conflict when merging into main, of any kind,
-means no merge: post a Waiting item naming the conflicting paths instead. When
+means no merge: post a decision item under Waiting (template shape, with options) naming
+the conflicting paths instead. When
 `origin/main` is not an ancestor of the branch tip, the merge result is a new tree: run
 the sealed suite on the merge commit (at least the lead's own host, no new failing test
 name vs main) before pushing main. Releases and installs to the owner's machines stay per
@@ -72,8 +74,10 @@ the owner's own word: the release item keeps the ordinary decision shape from "W
 item" above, its evidence made of the merged changelog lines rather than the merge
 itself.
 
-Two writers never edit the page at once: read the page fresh seconds before the write,
-make one `notion.js edit --safe` anchored edit, then reread it and confirm the Closed
+Two writers never edit the page at once: read the page fresh seconds before the write
+(if that read shows Done checked, do not write at all: the Closed entry goes verbatim
+into the RESULT, per the Done-window rules under "Reading answers"), make one
+`notion.js edit --safe` anchored edit, then reread it and confirm the Closed
 entry is there with a fresh `notion.js read` grep for the posted line —
 `scripts/decisions-read.mjs` parses toggles and their options under Open, not plain
 bullets under Closed, so it cannot confirm this write. If the anchor changed (exit 3),
@@ -90,7 +94,10 @@ New items go inside the open section, never appended past the page-level Done co
 has submitted choices/comments for accounting; it grants no authority by itself. Account
 those inputs, reconcile a changed fresh read if necessary, then clear it as `- [ ] Done
 (last cleared: <America/New_York timestamp>)`. An unchecked Done is valid with zero or
-open decisions; an absent Done line blocks the hand-back.
+open decisions; an absent Done line blocks the hand-back. In a registered pickup round
+the order is the reverse — clear Done first, then account — because any page edit while
+that round's Done is still checked moves its receipt to NEEDS_RECONCILIATION (the
+Done-window rules under "Reading answers") (not checked).
 
 Keep the page in two sections the owner reads, `# Waiting on you now` and `# Closed`;
 status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this
@@ -217,7 +224,7 @@ verbatim in its RESULT instead, and the owner lead posts it once Done is next cl
 Third, every round ends with `account`, or a later Done tick wakes no one. The pickup
 host is the host where the owner lead's inbox lives — `note-send` delivers only on the
 recipient's own host, so registering pickup on the wrong host silently dead-letters the
-wake.
+wake (not checked).
 
 `node ~/.claude/scripts/notion.js read <page-id> | node scripts/decisions-read.mjs`
 (path per above; page id from `.agents/project.json`'s `decisions_url`, else from the
