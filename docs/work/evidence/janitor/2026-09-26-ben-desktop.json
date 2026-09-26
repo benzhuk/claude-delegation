@@ -1,20 +1,20 @@
 {
   "date": "2026-09-26",
   "host": "ben-desktop",
-  "baseSha": "9c9f34bbdcaff2671020fbe556dbd10ada23baa4",
+  "baseSha": "36aea6eb019050012cc388e5171704edb2b62e18",
   "drift": {
-    "worktreeCount": 24,
-    "openBranchCount": 31,
-    "untrackedFileCount": 68,
-    "diskUsedKB": 38027
+    "worktreeCount": 20,
+    "openBranchCount": 29,
+    "untrackedFileCount": 0,
+    "diskUsedKB": 5790
   },
   "safeCounts": {
-    "worktrees": 4,
-    "branches": 4
+    "worktrees": 1,
+    "branches": 1
   },
   "judgmentCounts": {
-    "worktrees": 5,
-    "branches": 12,
+    "worktrees": 4,
+    "branches": 13,
     "untrackedFiles": 0,
     "remoteBranches": 8,
     "overdueWorkarounds": 0
