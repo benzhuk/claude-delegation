@@ -40,7 +40,9 @@ mention says where to find it once mirrored.
    verbatim into the scout's prompt: `references/scout-brief.md`. Fold each territory's
    scout file into that territory's brief (by path, as an addendum — never restate it)
    before spawning that territory's builder; a scout finding that contradicts the spec
-   loses to the spec once you've ruled on the discrepancy.
+   loses to the spec once you've ruled on the discrepancy. A Workflow launch with
+   "setup" territories (Running the loop, below) does this step, the worktrees and the
+   briefs itself; this step is the manual and Codex path.
 3. **Decompose by territory, not layer-step**: one builder per disjoint file territory
    (e.g. DB+API+shared-lib = one; UI = one; pipeline = one). Pinned contracts let
    territories build in parallel even when they call each other. A serial layer chain
@@ -272,11 +274,10 @@ the `Worktree:` requirement above — and stays available read-only, for a dry r
 
 Once every territory is `reviewed` and the integrator's gates are green — before the merge
 ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
-— run `node <plugin>/scripts/work-census.mjs docs/work` (and, if this build launched the
-loop from an Opus pane, `node <plugin>/scripts/build-census.mjs --lead <lead-session.jsonl>
---tasks <subagent-tasks-dir>`) to get the measures — elapsed per work id — that make the
-build's speed a number instead of an impression. The plugin repo's `docs/pane-setup.md`
-names what each measure means and which script reads it; don't restate that here.
+— run `node <plugin>/scripts/work-census.mjs docs/work` to get the measures — elapsed
+per work id — that make the build's speed a number instead of an impression. The plugin
+repo's `docs/pane-setup.md` names what each measure means and which script reads it;
+don't restate that here.
 
 After a release or review closeout in an ongoing goal, apply the `continue` skill before
 declaring the wave complete. Its canonical decision checks remaining outcomes and blockers;
@@ -305,57 +306,104 @@ you spawned and own; a peer note goes to a session you don't.
 
 ## Running the loop from an Opus pane
 
-This section is the file's last section — it follows Common mistakes above, not the Ship
-section earlier in this file, even though Ship is where a reader might expect a "how the
-build actually runs" note to live.
+This is the DEFAULT way to run a build with two or more territories — two lead turns,
+launch and accept — from an Opus orchestrator pane only, never Fable, never a builder or
+lead pane at a lower tier. Below two territories, run Setup through Ship above by hand;
+the loop earns its keep on genuine fan-out, not a single-file fix.
+`skills/team-build/references/build-loop-workflow.js` is the Workflow script; one
+`runTerritory(t)` drives each territory's build/review/fix loop concurrently under
+`parallel()` until every territory reaches `APPROVE`, exhausts `maxRounds`, or dies
+twice. Static contract, tests, and pinned agent-type/model pairs:
+`build-loop-workflow.test.mjs`.
 
-**When**: two or more territories, from an Opus orchestrator pane only — never Fable,
-never a builder or lead pane running at a lower tier. Below two territories, run the
-pipeline by hand as described in Setup through Ship above; the loop earns its keep on
-genuine fan-out, not a single-file fix.
+**Launch turn**: have ready — the spec pack on disk (spec, pinned contracts, territory
+map, Setup step 1), your lead session id (the hook's `Host: claude; session: <uuid>`
+context line, resolving to `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`), and `startedAt`
+(an ISO timestamp; the script has no clock). Cut the integration worktree/branch from
+`baseSha` and open ONE work record for the whole build inside it (`recordPath`,
+repo-relative to `integrationWorktree`; Setup step 7's fields, not one per territory).
+Then make ONE Workflow call, `{scriptPath:
+"skills/team-build/references/build-loop-workflow.js"}`, with `args`
+`{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, gate?, briefPath?,
+worktree?, branch?, startFrom? }], reviewerBriefPath?, integratorBriefPath?,
+integrationWorktree?, integrationBranch?, integrationGate?, worktreeRoot?, leadSession?,
+recordPath?, censusMarker?, seam? }` (worked examples:
+`references/build-loop-args.example.json`). A territory with
+`briefPath`/`worktree`/`branch` all given is "given", with all three absent the launch's
+setup stage cuts it from `baseSha` and writes its briefs; never mix the two in one call
+(`mixed-territory-modes`), and an all-given call also passes `reviewerBriefPath` and
+`integratorBriefPath`. `integrationWorktree` turns on the seam review (default: two or
+more territories; `seam: false` suppresses it); `integrationWorktree` plus `recordPath`
+and `integrationBranch` turn on accept-prep (`integrationGate` is the seam-fix builder's
+gate; a setup launch also needs `worktreeRoot` or `integrationWorktree`, whose parent is
+the default root); in an all-given call that reviewer brief is also the seam brief, so
+give it a seam section; `leadSession` gives it the census (without it, `censusPath` comes
+back `null`). The stages run in this order inside that one call: Setup (setup territories
+only), Build, Review, Fix, Integrate, Seam, Accept (accept-prep's census-and-check), which
+returns once, at the end:
+`{ territories, integrator, seam, acceptance, setup, blockers }` — `territories` one row
+each (`id`, `sha`, `verdict`, `rounds`, `reportPath`, `findingsPath`, `blocker`: `null` on
+a normal end, else `agent-died`, `builder-blocked`, `build-failed`,
+`review-sha-mismatch`, `review-not-approved`, `rounds-exhausted` or
+`parallel-result-missing`; launch errors come
+back only in `blockers`, as id `*` `missing-args`/`mixed-territory-modes` or as
+`setup-failed` carrying the failing territory's id when that territory's returned names
+or head do not match, `*` otherwise; an invalid `startFrom` (sha not 7-40 hex, verdict not
+APPROVE/NEEDS_FIXES, NEEDS_FIXES without `findingsPath`, or on a setup territory) is
+`missing-args`; a territory with only some of `briefPath`/`worktree`/`branch` is
+`mixed-territory-modes`; seam failures as id `seam`); `setup` is the setup stage's
+report and brief paths, or `null`;
+`seam`/`acceptance` are `null` only when no `integrationWorktree` was given; `blockers`
+is the territory, seam and accept-prep failures flattened to `[{ id, reason }]` (never the
+integrator's — read `integrator.verdict`).
 
-**What it is**: `skills/team-build/references/build-loop-workflow.js`, a Workflow script
-that runs the whole build → review → fix loop, for every territory, as one call. Inside
-it, one `runTerritory(t)` per territory drives that territory's own build/review/fix-round
-loop; every territory runs concurrently under `parallel()`, a barrier, so the script only
-moves on to the integrator once all of them have either reached `APPROVE`, exhausted
-`maxRounds`, or died twice. Static contract, tests, and the pinned agent-type/model pairs:
-`skills/team-build/references/build-loop-workflow.test.mjs`.
+**Accept turn**: read the return. Accept only when `blockers` is empty (every territory
+`APPROVE`, seam `APPROVE` or `SKIPPED`) AND `acceptance.checkAcceptance.verdict` is
+`PASS`: re-run the census now (Ship's `build-census.mjs` command, `--out
+<integrationWorktree>/docs/work/evidence/<work-id>-census.md`) — accept-prep's
+`acceptance.censusPath` predates its own `Log: ... reviewed` line, so `accept` refuses it
+as `census-stale` — then run `work-record.mjs accept --record <recordPath> --repo
+<integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
+(`--no-census "<reason>"` only when the census itself breaks) and send ONE RESULT.
+Otherwise the first of these that applies decides the one next step: a `blockers` entry
+(a territory id, `seam`, `accept-prep` when its `integrationHead` is not the reviewed
+head (`review-sha-mismatch`) or its `reportPath` is not the one the script computed
+(`report-path-mismatch`), or `*` for a launch error), `integrator.verdict` other than `PASS` (its
+`failedGate`/`territory`; integrator failure is never in `blockers`), `acceptance.skipped`,
+or `checkAcceptance.output` on `FAIL`; `acceptance: null` with no blockers and
+`integrator.verdict` `PASS` means this call ran without `integrationWorktree`, so seam and
+acceptance are still yours to run by hand.
 
-**Pre-launch steps, in order** — the script does none of these itself:
-1. Spec pack on disk (spec, contracts, territory map) per Setup step 1 above.
-2. One scout agent per build — not per territory — writing one file per territory to
-   `<spec-pack>/scout-<territory>.md` (`skills/team-build/references/scout-brief.md` has
-   the brief). Fold each territory's scout findings into its brief before any builder
-   spawns; where a scout report and the spec disagree, the spec wins.
-3. Worktrees and branches, one per territory, ALL cut from the SAME shared `baseSha`:
-   `git worktree add <worktree> -b <branch> <baseSha>`. The script never creates a
-   worktree of its own — that concept doesn't exist inside it, by design; every worktree
-   decision happens here, before launch.
-4. Briefs written, one per territory, plus the reviewer brief and the integrator brief.
-5. Open one work record per territory, as in Setup step 7 above, before spawning.
+Inside the loop the accept-prep runner is the one sanctioned second writer to the
+record: exactly `Status: reviewed`, `Artifact:`, `Worktree:`, `Evidence:` (the copied
+deciding reports in `docs/work/evidence/`) and one `Log: ... reviewed ...` line naming the
+seam round and sha, or `seam SKIPPED`, never `accepted`; per-event record moves (Ship)
+collapse into that one write, so don't pre-write them.
 
-**The launch call**: invoke the Workflow tool with
-`{scriptPath: "skills/team-build/references/build-loop-workflow.js"}` and an `args`
-object shaped `{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, briefPath,
-worktree, branch, gate }], reviewerBriefPath, integratorBriefPath }` — see
-`skills/team-build/references/build-loop-args.example.json` for a worked example.
-`startedAt` is required: the script has no clock of its own (`Date.now()`/`new Date()`
-are unavailable inside a Workflow script), so stamp it yourself before calling. `maxRounds`
-defaults to 3.
+**Three-wakes rule**: a lead wakes its requester at most three times across a build — ACK,
+RESULT, BLOCKED. **One-notification rule**: fix rounds, re-reviews, integration,
+the seam review and the census all run inside the one Workflow call, so the lead gets one
+notification for the whole build. **Census-at-accept rule**: run a fresh census after the
+last review lands, over the lead's own session file plus its subagents dirs, and pass it
+at accept (in the loop too: accept-prep's `acceptance.censusPath` ran before its own
+`Log: reviewed` line, so it is not that census); when the record supports `--four-read`,
+pass `--four-read` at accept too.
 
-**Reading the return**: one object, `{ territories, integrator, blockers }`.
-`territories` is one row per territory — `{ id, sha, verdict, rounds, reportPath,
-findingsPath, blocker }` — read `verdict` for the outcome and `blocker` for why a
-territory never reached one (`'agent-died'`, `'builder-blocked'`, `'build-failed'`, or
-`'rounds-exhausted'`; `null` means it reached the loop's normal end). `blockers` is the
-same information again as a flat `[{ id, reason }]` list, for a quick scan without
-walking every territory row. `integrator` is that stage's own verdict object — read it
-last, since it only ran over the territories that weren't excluded for a blocker.
+**Resuming a territory (`startFrom`)**: pick up a territory a prior run left mid-loop
+without rebuilding approved work by passing its `startFrom: { sha, verdict,
+findingsPath? }` — `APPROVE` skips straight to Integrate with no build or review;
+`NEEDS_FIXES` (requires `findingsPath`) starts with one fix-round builder against
+`findingsPath`, then the normal review/fix loop. Only valid on a "given" territory.
+
+**Codex**: no Workflow tool — the loop above is unsupported on Codex, so a Codex lead
+runs the same stages by hand, in the same order — Setup through Ship, above — never the
+one-call loop, and never an emulation of it. Its build is measured by the same census
+definitions as a Workflow-run build, and its record says so explicitly:
+`Evidence: Codex-led, manual sequence (no Workflow tool)`.
 
 **What breaks honestly**:
-- No warm-delta re-review across rounds — every fix round gets a full review, not a diff
-  against the prior one's findings.
+- No warm reviewer across rounds — each fix round spawns a fresh reviewer, briefed with
+  the prior findings path and commit range (a cold delta re-review, not a resumed agent).
 - No per-agent timeout. A hung agent is killed externally (outside the script) and the
   run resumed with `resumeFromRunId`; the longest unchanged prefix of `agent()` calls
   replays from cache, and only the stuck call and everything after it runs live.
@@ -363,9 +411,3 @@ last, since it only ran over the territories that weren't excluded for a blocker
   still-running loop; `journal.jsonl` in the run's transcript directory is the durable,
   inspectable record of every agent's actual return, read that before assuming a result
   was empty.
-
-**Making this a measured change, not just a launched one**: record `startedAt` and the
-full return value in the work record's `Log:` line for this run, then run the plugin
-repo's `scripts/build-census.mjs` (its `docs/census.md` has the CLI) against this run's
-own lead transcript. Those two steps are what let a future build compare its own
-turns-and-tokens cost against this one, honestly, instead of by memory.

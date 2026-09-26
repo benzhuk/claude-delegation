@@ -1,0 +1,24 @@
+{
+  "specPath": "docs/specs/example-build/spec.md",
+  "baseSha": "cc81d0c19e910d947d640040a658b10b67a0be7f",
+  "startedAt": "2026-09-21T14:05:00-04:00",
+  "maxRounds": 3,
+  "territories": [
+    {
+      "id": "T1",
+      "briefPath": "docs/specs/example-build/briefs/T1.md",
+      "worktree": "../example-build/wt-T1",
+      "branch": "feat/example-build-T1",
+      "gate": "node --test scripts/example-t1.test.mjs"
+    },
+    {
+      "id": "T2",
+      "briefPath": "docs/specs/example-build/briefs/T2.md",
+      "worktree": "../example-build/wt-T2",
+      "branch": "feat/example-build-T2",
+      "gate": "node --test scripts/example-t2.test.mjs"
+    }
+  ],
+  "reviewerBriefPath": "docs/specs/example-build/briefs/reviewer.md",
+  "integratorBriefPath": "docs/specs/example-build/briefs/integrator.md"
+}
