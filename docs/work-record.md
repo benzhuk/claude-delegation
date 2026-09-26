@@ -32,7 +32,7 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Work:` | yes | `wr-<yyyy-mm-dd>-<slug>`, unique, lowercase, `[a-z0-9-]` |
 | `Scope:` | yes | For Git-backed work, `<path>@<sha>` — the spec or brief and the commit it was read at; the path uses forward slashes, always. For non-code work, an attributable stable file or URI reference; record the reviewed snapshot, digest, or source/read time in the body. |
 | `Owner:` | yes | `<slug>` or `none` |
-| `Status:` | yes | one of `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `accepted`, `blocked` |
+| `Status:` | yes | one of `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `accepted`, `blocked`, `withdrawn` |
 | `Authority:` | yes | what may happen without Ben, and what may not |
 | `Artifact:` | yes | For Git-backed work, `<branch>@<sha>`; for non-code work, an attributable stable file or URI reference; or `none` before an artifact exists. |
 | `Evidence:` | yes | comma-separated report paths, or `none`; each path's first line must start `VERDICT:` |
@@ -44,6 +44,7 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Class:` | no | failure-class slug, bug fixes only |
 | `WORKAROUND:` | no, repeatable | `<cause> / <blocked by> / <remove when>`; `remove when` is `by <yyyy-mm-dd>` or a worded condition |
 | `Log:` | no, repeatable | `<ISO-8601 UTC> <status> <owner> [<note>]`, append-only, one per status or owner change |
+| `Superseded-by:` | no | the work id of the record that made this one moot; written by `withdraw` (below) |
 
 ### Status meanings
 
@@ -55,6 +56,9 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 - `accepted` — integrated and accepted within `Authority:`, or by Ben's word quoted in a
   `Log:` note.
 - `blocked` — cannot move; `Next:` names the blocker and its owner.
+- `withdrawn` — terminal, closed without a fix round; only `work-record.mjs withdraw` moves a
+  record here, from `rejected`, `blocked`, `runnable` or `owned` (never `accepted`, never a
+  second time), and every status list/count in this repo excludes it.
 
 ### `Log:` notes with fixed meaning
 

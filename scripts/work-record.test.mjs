@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 import {
-  STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet,
+  STATUSES, WITHDRAWABLE_STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet,
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
-  isIncompleteCensus, parseAcceptanceArgs,
+  isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -204,9 +204,10 @@ test("formatLogLine with and without a note", () => {
   assert.equal(formatLogLine("2026-09-21T10:00:00Z", "owned", "t1", ""), "Log: 2026-09-21T10:00:00Z owned t1");
 });
 
-test("STATUSES includes rejected and has seven values", () => {
-  assert.equal(STATUSES.length, 7);
+test("STATUSES includes rejected and withdrawn and has eight values (withdraw-status-1, R1)", () => {
+  assert.equal(STATUSES.length, 8);
   assert.ok(STATUSES.includes("rejected"));
+  assert.ok(STATUSES.includes("withdrawn"));
 });
 
 test("formatLogLine omits the trailing space and never emits the word undefined when note is absent (A4)", () => {
@@ -2222,4 +2223,190 @@ test("STALE regexes: fail when a stale claim returns in different words (mutatio
     "lead turns for the loop-gates build is 32 by the script (not 7 by hand)",
     "The loop-gates build's own record reported a 7-turn hand count (`docs/work/wr-2026-09-24-loop-gates.record.md`); the script counts 32 lead turns for that build's window",
   ]) assert.ok(STALE.some((re) => re.test(m)), `STALE must catch: ${m}`);
+});
+
+// --- withdraw (withdraw-status-1, W1: R1/R2) -----------------------------------------
+//
+// withdrawRecord needs no git fixture (no Artifact:/Worktree: check the way accept does) -
+// a plain temp directory with a docs/work/*.record.md file is enough, so these tests skip
+// makeAcceptanceFixture/makeGitFixtureEnv entirely.
+
+function makeWithdrawFixture(overrides = {}, extraLines = []) {
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-withdraw-"));
+  fs.mkdirSync(path.join(repo, "docs", "work"), { recursive: true });
+  const record = "docs/work/example.record.md";
+  fs.writeFileSync(path.join(repo, record), mkRecordText({
+    Work: "wr-2026-09-23-example",
+    Status: "rejected",
+    ...overrides,
+  }, extraLines, "Prose body, unrelated to the withdraw call."));
+  return { repo, record };
+}
+
+const WITHDRAW_ARGS = { by: "lead-session-9", at: "2026-09-26T18:00:00Z" };
+
+test("withdrawRecord: transition table — each of rejected/blocked/runnable/owned may be withdrawn, exactly one Log line each", () => {
+  for (const status of WITHDRAWABLE_STATUSES) {
+    const f = makeWithdrawFixture({ Status: status });
+    const result = withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: `closed: was ${status}`, ...WITHDRAW_ARGS });
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "withdrawn");
+    const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+    const parsed = parseRecord(updated);
+    assert.equal(parsed.fields.status, "withdrawn", `${status} -> withdrawn`);
+    assert.deepEqual(parsed.errors, []);
+    assert.equal(parsed.log.length, 1);
+    assert.deepEqual(parsed.log[0], { at: "2026-09-26T18:00:00.000Z", status: "withdrawn", owner: "lead-session-9", note: `closed: was ${status}` });
+  }
+});
+
+// Quoted verbatim (report evidence): the exact before/after Status: line and the exact new
+// Log: line text for one transition case (rejected -> withdrawn, the dogfood's own case).
+test("withdrawRecord: exact before/after Status: line and Log: line text for rejected -> withdrawn", () => {
+  const f = makeWithdrawFixture({ Status: "rejected" });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(before, /^Status: rejected$/m);
+  withdrawRecord({
+    repoRoot: f.repo, recordPath: f.record,
+    reason: "closed without a fix round: superseded by later work", ...WITHDRAW_ARGS,
+  });
+  const after = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(after, /^Status: withdrawn$/m);
+  assert.ok(!/^Status: rejected$/m.test(after));
+  assert.match(after, /^Log: 2026-09-26T18:00:00\.000Z withdrawn lead-session-9 closed without a fix round: superseded by later work$/m);
+});
+
+test("withdrawRecord: never from accepted, refused before any write (R2)", () => {
+  const f = makeWithdrawFixture({ Status: "accepted", Artifact: "territory/a@abc1234" });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "no", ...WITHDRAW_ARGS }),
+    (err) => { assert.equal(err.code, "not-withdrawable"); return true; },
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before, "file must be byte-identical after a refusal");
+});
+
+test("withdrawRecord: refuses a record that is already withdrawn, and never a second time", () => {
+  const f = makeWithdrawFixture({ Status: "withdrawn" });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "again", ...WITHDRAW_ARGS }),
+    (err) => { assert.equal(err.code, "already-withdrawn"); return true; },
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+test("withdrawRecord: refuses with no --reason, and with an empty/whitespace-only --reason", () => {
+  const f = makeWithdrawFixture();
+  for (const reason of [undefined, "", "   "]) {
+    assert.throws(
+      () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason, ...WITHDRAW_ARGS }),
+      (err) => { assert.equal(err.code, "reason-missing"); return true; },
+    );
+  }
+});
+
+test("withdrawRecord: requires --by and --at, as accept does", () => {
+  const f = makeWithdrawFixture();
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "x", at: WITHDRAW_ARGS.at }),
+    (err) => { assert.equal(err.code, "by-missing"); return true; },
+  );
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "x", by: WITHDRAW_ARGS.by }),
+    (err) => { assert.equal(err.code, "at-missing"); return true; },
+  );
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "x", by: WITHDRAW_ARGS.by, at: "not-a-date" }),
+    (err) => { assert.equal(err.code, "at-missing"); return true; },
+  );
+});
+
+test("withdrawRecord: refuses --superseded-by naming a record that does not exist on disk, file unchanged", () => {
+  const f = makeWithdrawFixture();
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => withdrawRecord({
+      repoRoot: f.repo, recordPath: f.record, reason: "x", supersededBy: "wr-2026-09-23-does-not-exist", ...WITHDRAW_ARGS,
+    }),
+    (err) => { assert.equal(err.code, "superseded-by-missing"); return true; },
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+test("withdrawRecord: --superseded-by writes a Superseded-by: header that round-trips through parseRecord (R1)", () => {
+  const f = makeWithdrawFixture();
+  fs.writeFileSync(
+    path.join(f.repo, "docs", "work", "wr-2026-09-23-instruction-consistency.record.md"),
+    mkRecordText({ Work: "wr-2026-09-23-instruction-consistency", Status: "owned" }),
+  );
+  const result = withdrawRecord({
+    repoRoot: f.repo, recordPath: f.record, reason: "superseded",
+    supersededBy: "wr-2026-09-23-instruction-consistency", ...WITHDRAW_ARGS,
+  });
+  assert.equal(result.supersededBy, "wr-2026-09-23-instruction-consistency");
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(updated, /^Superseded-by: wr-2026-09-23-instruction-consistency$/m);
+  const parsed = parseRecord(updated);
+  assert.deepEqual(parsed.errors, [], "Superseded-by: must be a known label, not rejected by the parser");
+  assert.equal(parsed.fields.supersededBy, "wr-2026-09-23-instruction-consistency");
+});
+
+test("withdrawRecord: preserves every other byte of the record (WORKAROUND lines, prose body, trailing newline)", () => {
+  const f = makeWithdrawFixture({}, ["WORKAROUND: flaky ci / runner / by 2026-10-01"]);
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "closed", ...WITHDRAW_ARGS });
+  const after = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.ok(after.includes("WORKAROUND: flaky ci / runner / by 2026-10-01"));
+  assert.ok(after.includes("Prose body, unrelated to the withdraw call."));
+  // Only the Status: line changed and two lines (Log:, no Superseded-by: here) were added.
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  assert.equal(afterLines.length, beforeLines.length + 1, "exactly one Log: line is appended (no Superseded-by: here)");
+});
+
+test("parseWithdrawArgs: positional record path plus flag map", () => {
+  const opts = parseWithdrawArgs([
+    "withdraw", "docs/work/x.record.md", "--reason", "closed", "--superseded-by", "wr-y",
+    "--by", "lead-1", "--at", "2026-09-26T18:00:00Z", "--repo", ".",
+  ]);
+  assert.deepEqual(opts, {
+    command: "withdraw", recordPath: "docs/work/x.record.md", reason: "closed",
+    supersededBy: "wr-y", by: "lead-1", at: "2026-09-26T18:00:00Z", repoRoot: ".",
+  });
+});
+
+test("parseWithdrawArgs: refuses when argv[0] is not withdraw, or the record path is missing", () => {
+  assert.throws(() => parseWithdrawArgs(["accept", "--record", "x"]));
+  assert.throws(() => parseWithdrawArgs(["withdraw"]));
+  assert.throws(() => parseWithdrawArgs(["withdraw", "--reason", "x"]));
+});
+
+test("acceptanceMain: withdraw dispatches end-to-end (CLI shape), writes the record and prints JSON", () => {
+  const f = makeWithdrawFixture({ Status: "runnable" });
+  const stdout = [];
+  const stderr = [];
+  const io = { stdout: { write: (s) => stdout.push(s) }, stderr: { write: (s) => stderr.push(s) } };
+  const code = acceptanceMain([
+    "withdraw", f.record, "--reason", "closed without a fix round", "--by", "lead-session-9",
+    "--at", "2026-09-26T18:00:00Z", "--repo", f.repo,
+  ], io);
+  assert.equal(code, 0);
+  assert.equal(stderr.length, 0);
+  const printed = JSON.parse(stdout.join(""));
+  assert.equal(printed.status, "withdrawn");
+  assert.equal(parseRecord(fs.readFileSync(path.join(f.repo, f.record), "utf8")).fields.status, "withdrawn");
+});
+
+test("acceptanceMain: withdraw refusal (no --reason) writes stderr, exit 1, no stdout, record unchanged", () => {
+  const f = makeWithdrawFixture();
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const stdout = [];
+  const stderr = [];
+  const io = { stdout: { write: (s) => stdout.push(s) }, stderr: { write: (s) => stderr.push(s) } };
+  const code = acceptanceMain(["withdraw", f.record, "--by", "lead-session-9", "--at", "2026-09-26T18:00:00Z", "--repo", f.repo], io);
+  assert.equal(code, 1);
+  assert.equal(stdout.length, 0);
+  assert.match(stderr.join(""), /\[reason-missing\]/);
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
 });

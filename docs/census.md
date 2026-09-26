@@ -353,8 +353,9 @@ The collector is run before any lane dispatch and after every merge to main, nev
 lead happens to remember to ask. Its table goes into the bearings packet alongside the
 other census numbers above, not just into a one-off terminal check. "In flight" may only
 be written about a lane whose origin record says `owned` — an origin branch whose record
-already reads `accepted` or `rejected` is reported by its collector state
-(`accepted-unmerged`, `accepted-merged`, `rejected`), never described as merely in flight.
+already reads `accepted`, `rejected`, or `withdrawn` is reported by its collector state
+(`accepted-unmerged`, `accepted-merged`, `rejected`, `withdrawn`), never described as merely
+in flight.
 The collector's own `accepted-unmerged` state together with its `hoursSinceLog` field IS
 the four-hour "accepted-unmerged" check: an `accepted-unmerged` row older than four hours
 is a defect the lead reports, not a normal state waiting on its turn.

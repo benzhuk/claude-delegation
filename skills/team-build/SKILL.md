@@ -167,8 +167,9 @@ mention says where to find it once mirrored.
 - **Use dependency-specific admission.** A workstream that consumes a named prerequisite
   waits until that exact prerequisite is integrated, whatever its current status
   (`owned`, `delivered`, `rejected`, or `reviewed`); record the dependency in its own
-  work record. Disjoint work with no such unmet prerequisite may continue under the
-  continue skill.
+  work record. A `withdrawn` prerequisite never resolves — escalate rather than wait on
+  one. Disjoint work with no such unmet prerequisite may continue under the continue
+  skill.
 
 ## Iteration mechanics
 
@@ -217,7 +218,9 @@ Move every territory's work record as it moves, in the same turn the event happe
 `owned` when you spawn its builder, `delivered` when the builder reports, `rejected` on a
 `NEEDS_FIXES` verdict (`Next:` names the fix round), `reviewed` on `APPROVE`, `accepted`
 only through `work-record.mjs accept` (below), once integrated within `Authority:` or by
-Ben's own quoted word — copy the deciding
+Ben's own quoted word — or, for a rejected/blocked/runnable/owned record nobody will run a
+fix round on, `withdrawn` only through `work-record.mjs withdraw <record> --reason "<...>"
+[--superseded-by <record-name>] --by <session-id> --at <iso>` — copy the deciding
 report to `docs/work/evidence/<work-id>-<lane>.md` at that moment, since `accepted`
 requires at least one evidence path inside the repo. Every copied report preserves its
 original bytes and provenance. The independent deciding review requires the author to
