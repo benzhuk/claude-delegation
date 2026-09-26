@@ -246,6 +246,9 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.10 — feat: scripts/four-read.mjs prints the goal's four numbers per build (or
+  unavailable with a reason), records carry Lead-session/Spec-session/Spec-from/Base,
+  accept takes --at and --four-read, GOALS.md stale status corrected.
 - 0.20.9 — Codex lead source parity: when native metadata on an event positively
   classifies a lead, it receives the shared goal card and due/unknown
   bearings advisory at SessionStart and each UserPromptSubmit. This deliberate
