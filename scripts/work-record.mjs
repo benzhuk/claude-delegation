@@ -17,7 +17,7 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // session that led this build, and the spec session's own usage window - optional here,
 // same as "worktree", because the enforcement (lead session required, spec fields a
 // WARN) lives in checkAcceptance below, not in validateRecord's generic missing-field.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom", "base"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -49,7 +49,7 @@ const FIELD_LABELS = [
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
   ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
-  ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"],
+  ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"], ["base", "Base"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
@@ -569,7 +569,7 @@ function requireStrictRecordShape(text, record) {
   const blank = lines.findIndex((line) => line.trim() === "");
   const header = blank === -1 ? lines : lines.slice(0, blank);
   const counts = new Map();
-  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.*)$/;
+  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z -]{0,40}):\**[ \t]{0,20}(.*)$/;
   for (const line of header) {
     const match = line.match(strictHeaderRe);
     if (!match) continue;
@@ -1101,7 +1101,12 @@ export function acceptRecord(opts = {}) {
     fourNumberLines = ["Four numbers: not run"];
   }
 
-  const at = (opts.now ?? new Date()).toISOString();
+  // MAJOR 2 (seam): --at T is the shared timestamp four-read.mjs's --accept-at T stood in
+  // for at read time — refuse a T before the record's own last Log:, or too far ahead.
+  const atDate = opts.acceptAt !== undefined ? new Date(opts.acceptAt) : (opts.now ?? new Date());
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  if (opts.acceptAt !== undefined && (Number.isNaN(atDate.getTime()) || atDate.getTime() < lastLogMs || atDate.getTime() > Date.now() + 300000)) throw acceptanceError(`invalid --at: ${opts.acceptAt} (before the record's last Log: or more than 5 minutes in the future)`, "invalid-at");
+  const at = atDate.toISOString();
   const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
 
   const lines = text.split(/\r?\n/);
@@ -1131,7 +1136,7 @@ export function parseAcceptanceArgs(argv) {
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
-    ["--census", "censusPath"], ["--no-census", "noCensusReason"], ["--four-read", "fourReadPath"],
+    ["--census", "censusPath"], ["--no-census", "noCensusReason"], ["--four-read", "fourReadPath"], ["--at", "acceptAt"],
   ]);
   for (let i = 1; i < argv.length; i += 2) {
     const key = names.get(argv[i]);

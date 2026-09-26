@@ -293,8 +293,12 @@ Run the read at accept time, after the last review, against a fresh `--census`: 
 scripts/four-read.mjs --record docs/work/<id>.record.md --census
 docs/work/evidence/<id>.census.json --ledger docs/ledger --lead-slug <slug> --json
 docs/work/evidence/<id>.four-read.json --out docs/work/evidence/<id>.four-read.md`, then
-`work-record.mjs accept --four-read <json>` copies the four lines into the record. When
-the spec writer's slice applies, run `build-census.mjs` a second time over the spec
+`work-record.mjs accept --four-read <json>` copies the four lines into the record. Because
+the record has no `accepted` Log: entry yet at this point, share one `T` between the two
+commands instead — `T=$(date -u +%FT%TZ)`, `four-read.mjs ... --accept-at $T` and `accept
+--at $T --four-read <json>` — so the accepted Log: line `accept` writes carries the same
+`T` the read already measured up to, and the four numbers it copies are real values, not
+`unavailable`. When the spec writer's slice applies, run `build-census.mjs` a second time over the spec
 session's window and pass its output file as `--spec-census` alongside `--census`. The
 accept-time `--census` itself runs `--from <Opened:>` (and `--to <last accepted Log:>`
 when it is re-run later, after a re-accept) — one window governs both Number 1 and the

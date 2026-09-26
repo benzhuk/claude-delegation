@@ -9,7 +9,7 @@ import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 import {
   STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet,
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
-  isIncompleteCensus,
+  isIncompleteCensus, parseAcceptanceArgs,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -1919,6 +1919,80 @@ test("checkAcceptance: Spec-from: WARN fires on non-ISO text that Date.parse wou
     assert.equal(result.warnings.length, 1, `Spec-from: ${bad} must WARN`);
     assert.match(result.warnings[0], /spec-from-missing/);
   }
+});
+
+// --- Seam fixes (seam-review: Base:, --at, hyphenated singleton dedup) -----------------
+
+// Seam (four-read R1 x R2): Base: is one of four-read.mjs's record inputs (Number 3's range
+// start), so a record carrying it must parse and accept - never refuse as an unknown label.
+test("parseRecord: four-read's own fixture record (with Base:) parses with no errors (seam)", () => {
+  const text = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "four-read", "record.md"), "utf8");
+  const parsed = parseRecord(text);
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.fields.base, "0000000000000000000000000000000000000000");
+});
+
+test("acceptRecord: a record carrying Base: accepts (seam: four-read's Number 3 range)", () => {
+  const f = makeAcceptanceFixture({ Base: "931588a4e366e8df75ce796beb1ead161fac9693" });
+  const result = acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, noCensusReason: "no census fixture in this test" });
+  assert.equal(result.ok, true);
+  assert.match(fs.readFileSync(path.join(f.repo, f.record), "utf8"), /^Base: 931588a4e366e8df75ce796beb1ead161fac9693$/m);
+});
+
+// MINOR 4 (seam): a duplicate hyphenated singleton label (Lead-session:, Spec-session:,
+// Spec-from:) must be caught by the same duplicate-singleton check as every other label.
+test("requireStrictRecordShape (via acceptRecord): a duplicate Lead-session: line refuses as a duplicate singleton field (MINOR 4, seam)", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(/^Lead-session:.*$/m, (line) => `${line}\n${line}`));
+  assert.throws(
+    () => acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, noCensusReason: "no census fixture in this test" }),
+    /duplicate singleton field: leadSession/,
+  );
+});
+
+// MAJOR 2 (seam): --at T is the shared timestamp four-read.mjs's --accept-at T stands in for
+// at read time - accept stamps the SAME T into its accepted Log: line, so a later re-read
+// against the accepted record reproduces the copied numbers instead of the accept flow
+// forever writing an unavailable-only read into every accepted record.
+test("acceptRecord: --at stamps the accepted Log: line at the given timestamp", () => {
+  const f = makeAcceptanceFixture();
+  const at = "2026-09-26T01:22:08.000Z";
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, acceptAt: at, noCensusReason: "no census fixture in this test" });
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(updated, new RegExp(`^Log: ${at} accepted `, "m"));
+});
+
+test("acceptRecord: --at refuses a timestamp earlier than the record's last Log: entry", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(/^(Opened:.*)$/m, "$1\nLog: 2026-09-24T00:00:00.000Z owned lead picked up the build"));
+  assert.throws(
+    () => acceptRecord({
+      repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+      acceptAt: "2026-09-23T00:00:00.000Z", noCensusReason: "no census fixture in this test",
+    }),
+    /invalid --at/,
+  );
+});
+
+test("acceptRecord: --at refuses a timestamp more than 5 minutes in the future", () => {
+  const f = makeAcceptanceFixture();
+  assert.throws(
+    () => acceptRecord({
+      repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha,
+      acceptAt: new Date(Date.now() + 3600000).toISOString(), noCensusReason: "no census fixture in this test",
+    }),
+    /invalid --at/,
+  );
+});
+
+test("acceptanceMain: --at is parsed into acceptAt (seam: shared timestamp with four-read.mjs --accept-at)", () => {
+  const { command, ...opts } = parseAcceptanceArgs(["accept", "--record", "r.md", "--repo", ".", "--at", "2026-09-26T01:22:08Z"]);
+  assert.equal(command, "accept");
+  assert.equal(opts.acceptAt, "2026-09-26T01:22:08Z");
 });
 
 // --- R2 item 3: --four-read -----------------------------------------------------

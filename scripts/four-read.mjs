@@ -4,8 +4,7 @@
 // `unavailable (<reason>)` — never a guess. Parses the record's own fields itself (fields
 // may not exist in work-record.mjs in this worktree yet) rather than importing it — see docs/census.md.
 // node scripts/four-read.mjs --record <record.md> --census <census.json>
-//   [--spec-census <json>] [--ledger docs/ledger] [--git <repo>] [--branch <ref>]
-//   [--lead-session <id>] [--lead-slug <slug>] [--out <path>] [--json <path>]
+//   [--spec-census <json>] [--ledger docs/ledger] [--git <repo>] [--branch <ref>] [--lead-session <id>] [--lead-slug <slug>] [--out <path>] [--json <path>] [--accept-at <iso>]
 // node --test scripts/four-read.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -86,7 +85,7 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
     const spec = sumTopTier(specCensus.combined, tiers);
     return { value: `${build.total + spec.total} tokens: ${buildPart} + spec slice ${spec.total}` };
   }
-  const reason = fields['spec-session'] && fields['spec-from'] ? 'spec-census not run' : 'Spec-session:/Spec-from: missing from record';
+  const reason = /^[(<[{"']*(?:none|null|undefined|unavailable|unknown|missing|unset|n.?a|tbd|pending|-+)(?![A-Za-z0-9_-])/i.test(fields['spec-session'] || 'none') || parseDateMs(fields['spec-from']) === null ? 'Spec-session:/Spec-from: missing from record' : 'spec-census not run';
   return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): ${reason}` }; // MINOR 4
 }
 // ── Lead-transcript timestamps — shared by numbers 2 and 4 (any JSONL line with a
@@ -299,6 +298,7 @@ function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedM
 // ── Orchestration ────────────────────────────────────────────────────────────────────────
 export function buildFourRead(opts, fsImpl = fs) {
   const { fields, logs } = parseRecordText(fsImpl.readFileSync(opts.record, 'utf8'));
+  if (opts.acceptAt && !logs.some((l) => l.status.toLowerCase() === 'accepted')) logs.push({ at: opts.acceptAt, status: 'accepted', owner: '-', note: `artifact ${(fields.artifact || '').split('@').pop()}` }); // MAJOR 2 (seam): T stands in for the first accept until `accept --at T` writes it for real
   let leadSessionId = fields['lead-session'] || null;
   let leadSessionSource = leadSessionId ? 'record' : null;
   if (!leadSessionId && opts.leadSession) { leadSessionId = opts.leadSession; leadSessionSource = 'cli'; }
@@ -326,7 +326,7 @@ export function buildFourRead(opts, fsImpl = fs) {
   const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value);
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };
   return {
-    record: opts.record,
+    record: opts.record, acceptAt: opts.acceptAt || null,
     leadSession: { id: leadSessionId, source: leadSessionSource || 'unavailable', note: leadSessionNotes[leadSessionSource || 'unavailable'] },
     numbers: [
       { key: 'topTierTokensPerBuild', label: 'Top-tier tokens per build', value: numberOne.value },
@@ -361,9 +361,9 @@ export function formatMarkdown(report) {
   return md.join('\n');
 }
 // ── CLI ──────────────────────────────────────────────────────────────────────────────────
-const ARG_FLAGS = { '--record': 'record', '--census': 'census', '--spec-census': 'specCensus', '--ledger': 'ledger', '--git': 'git', '--branch': 'branch', '--lead-session': 'leadSession', '--lead-slug': 'leadSlug', '--out': 'out', '--json': 'json' };
+const ARG_FLAGS = { '--record': 'record', '--census': 'census', '--spec-census': 'specCensus', '--ledger': 'ledger', '--git': 'git', '--branch': 'branch', '--lead-session': 'leadSession', '--lead-slug': 'leadSlug', '--out': 'out', '--json': 'json', '--accept-at': 'acceptAt' };
 export function parseArgs(argv) {
-  const opts = { record: null, census: null, specCensus: null, ledger: null, git: null, branch: 'HEAD', leadSession: null, leadSlug: null, out: null, json: null };
+  const opts = { record: null, census: null, specCensus: null, ledger: null, git: null, branch: 'HEAD', leadSession: null, leadSlug: null, out: null, json: null, acceptAt: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const key = ARG_FLAGS[a];

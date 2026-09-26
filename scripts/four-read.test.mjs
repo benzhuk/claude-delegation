@@ -135,7 +135,7 @@ test('computeTopTierTokens: a census with no lead.windowStartAt at all is unavai
 
 test('computeTopTierTokens: census present, no spec-census, Spec-session/Spec-from present in the record -> partial with the "not run" reason', () => {
   const census = { combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 2, output_tokens: 3 } }, lead: A_WINDOW };
-  const r = computeTopTierTokens(census, null, { 'spec-session': 'x', 'spec-from': 'y' });
+  const r = computeTopTierTokens(census, null, { 'spec-session': 'x', 'spec-from': '2026-09-01T00:00:00Z' });
   assert.match(r.value, /^6 tokens: build 6 \(claude-opus-5-5\); partial \(no spec slice\): spec-census not run$/);
 });
 
@@ -143,6 +143,15 @@ test('computeTopTierTokens: Spec-session/Spec-from missing from the record names
   const census = { combined: {}, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, {});
   assert.match(r.value, /Spec-session:\/Spec-from: missing from record/);
+});
+
+// MINOR 3 (seam): a placeholder Spec-session:/Spec-from: (what the facts file tells a lead
+// to write when it can't prove either) must get the "missing from record" reason, not the
+// "spec-census not run" reason a real-but-unrun spec session gets.
+test('computeTopTierTokens: a placeholder Spec-session:/Spec-from: (unavailable) gets the "missing from record" reason, not "not run" (MINOR 3, seam)', () => {
+  const census = { combined: {}, lead: A_WINDOW };
+  const r = computeTopTierTokens(census, null, { 'spec-session': 'unavailable', 'spec-from': 'unavailable' });
+  assert.match(r.value, /Spec-session:\/Spec-from: missing from record$/);
 });
 
 test('computeTopTierTokens: no top-tier model matched is named, not silently zero', () => {
@@ -512,6 +521,23 @@ test('buildFourRead: the companion counts over the census window, and the end ch
   assert.match(r.companions[0].value, /^2 messages;/); // Opened..first-accepted would give 1
 });
 
+// MAJOR 2 (seam): an accept-time run (record has no `accepted` Log: yet) must give real
+// values, not the `unavailable` every accepted record would otherwise be stuck copying —
+// the shared-timestamp design: `--accept-at T` stands in for the accept `accept --at T`
+// writes for real, both naming the same T.
+test('buildFourRead: --accept-at gives real values at accept time instead of unavailable (MAJOR 2, seam)', async () => {
+  const dir = mkTmp('four-read-accept-at-');
+  const censusPath = await buildCensusFile(dir);
+  const noAcceptRecord = path.join(dir, 'record.md');
+  fs.writeFileSync(noAcceptRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Log: .*accepted.*\n?/gm, ''));
+  const report = buildFourRead({ record: noAcceptRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead', acceptAt: '2026-09-01T02:00:00.000Z' }, fs);
+  assert.equal(report.acceptAt, '2026-09-01T02:00:00.000Z');
+  assert.doesNotMatch(report.numbers[0].value, /^unavailable/);
+  assert.doesNotMatch(report.numbers[1].value, /^unavailable/);
+  assert.match(report.numbers[0].value, /^193 tokens: build 193 \(claude-opus-5-5\)/);
+  assert.equal(report.numbers[1].value, '2.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z');
+});
+
 test('buildFourRead: an unparseable last accepted Log: timestamp falls back to the first accepted (tighter) bound for the census end check, not a silently-skipped one (MAJOR 3, r3)', async () => {
   const dir = mkTmp('four-read-last-accept-bad-');
   const censusPath = await buildCensusFile(dir);
@@ -566,6 +592,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
 
   assert.equal(formatJson(report), [
     '{',
+    '  "acceptAt": null,',
     '  "companions": [',
     '    {',
     '      "key": "topTierAssistantMessagesPerBuild",',
@@ -646,11 +673,11 @@ test('parseArgs: every optional flag is captured', () => {
   const opts = parseArgs([
     '--record', 'r.md', '--census', 'c.json', '--spec-census', 's.json', '--ledger', 'l',
     '--git', 'g', '--branch', 'b', '--lead-session', 'ls', '--lead-slug', 'slug',
-    '--out', 'o.md', '--json', 'o.json',
+    '--out', 'o.md', '--json', 'o.json', '--accept-at', '2026-09-25T12:00:00Z',
   ]);
   assert.deepEqual(opts, {
     record: 'r.md', census: 'c.json', specCensus: 's.json', ledger: 'l', git: 'g', branch: 'b',
-    leadSession: 'ls', leadSlug: 'slug', out: 'o.md', json: 'o.json',
+    leadSession: 'ls', leadSlug: 'slug', out: 'o.md', json: 'o.json', acceptAt: '2026-09-25T12:00:00Z',
   });
 });
 
