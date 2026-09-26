@@ -22,8 +22,8 @@ For anything irreversible, costly, or that changes the owner's machines, replace
 last line with `No default: <reason>` instead of a deadline.
 
 A request for the owner to do something by hand is the same shape, not a bare
-`<details>` with no options: options `- [ ] Done` and `- [ ] Not doing this, because
-[reason]`, last line `No default: needs your hands`.
+`<details>` with no options: options `- [ ] Done by hand` and `- [ ] Not doing this,
+because [reason]`, last line `No default: needs your hands`.
 
 ## Replying to an owner's comment (fenced — reference only, not a live decision)
 

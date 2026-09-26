@@ -1188,22 +1188,59 @@ test('the same optionless block under Closed does not WARN', () => {
   assert.ok(!doc.warnings.some((w) => w.text.startsWith('non-decision item under Waiting')));
 });
 
-test('OVERDUE: an OPEN decision past its default WARNs with --now, naming the original date string', () => {
+test('OVERDUE: an OPEN decision past its default prints a WARN line with the original date string, never in doc.warnings (pickup-safe)', () => {
   const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a');
   const doc = parseDocument(md, { now: new Date('2021-01-01T00:00:00Z') });
-  assert.ok(doc.warnings.some(
-    (w) => w.text === 'overdue: t, default was due 2020-01-01 00:00 +00:00',
-  ));
+  assert.ok(formatText(doc).includes('overdue: t, default was due 2020-01-01 00:00 +00:00'));
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('overdue:')), 'never a doc.warnings entry — pickup treats those as page-invalid');
 });
 
 test('OVERDUE: a decision not yet at its default does not WARN', () => {
   const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a');
   const doc = parseDocument(md, { now: new Date('2019-01-01T00:00:00Z') });
-  assert.ok(!doc.warnings.some((w) => w.text.startsWith('overdue:')));
+  assert.ok(!formatText(doc).includes('overdue:'));
 });
 
 test('OVERDUE: a "No default" item never warns on age, however far --now runs', () => {
   const md = L('<summary>t</summary>', '\t- [ ] a', '\tNo default: irreversible');
   const doc = parseDocument(md, { now: new Date('2099-01-01T00:00:00Z') });
-  assert.ok(!doc.warnings.some((w) => w.text.startsWith('overdue:')));
+  assert.ok(!formatText(doc).includes('overdue:'));
+});
+
+test('OVERDUE: pickup safety — an overdue item on a page with a ticked Done has zero doc.warnings (RECORDED, not INVALID)', () => {
+  const md = L(
+    '<summary>Old item</summary>',
+    '\t- [ ] a',
+    '\tDefault after 2020-01-01 00:00 +00:00: a',
+    '- [x] Done',
+  );
+  const doc = parseDocument(md, { now: new Date('2021-01-01T00:00:00Z') });
+  assert.equal(doc.warnings.length, 0, 'pickup refuses any page with a doc.warnings entry, so overdue must never add one');
+  assert.equal(doc.done, true);
+  assert.ok(formatText(doc).includes('overdue: Old item, default was due 2020-01-01 00:00 +00:00'));
+});
+
+test('by-hand action-request item is spelled "Done by hand", never read as the page Done: OPEN with no WARN unticked, TICKED when ticked', () => {
+  const untouched = parseDocument(L(
+    '<summary>Your steps today</summary>',
+    '\t- [ ] Done by hand',
+    '\t- [ ] Not doing this, because [reason]',
+    '\tNo default: needs your hands',
+    '- [ ] Done',
+  ));
+  assert.equal(untouched.decisions[0].status, 'OPEN');
+  assert.equal(untouched.warnings.length, 0);
+  assert.equal(untouched.done, false, 'the item option never satisfies the page-level Done control');
+
+  const ticked = parseDocument(L(
+    '<summary>Your steps today</summary>',
+    '\t- [x] Done by hand',
+    '\t- [ ] Not doing this, because [reason]',
+    '\tNo default: needs your hands',
+    '- [ ] Done',
+  ));
+  assert.equal(ticked.decisions[0].status, 'TICKED');
+  assert.equal(ticked.decisions[0].options.find((o) => o.ticked).text, 'Done by hand');
+  assert.equal(ticked.warnings.length, 0);
+  assert.equal(ticked.done, false);
 });

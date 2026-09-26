@@ -368,15 +368,6 @@ export function parseDocument(text, { now = new Date() } = {}) {
       return { ...rest, status: computeStatus(t, now) };
     });
 
-  // Ben's 2026-09-26 rule: an overdue default is a defect the lead must act on, not
-  // just a status line to notice on a careful read. `No default:` items never reach
-  // DUE (computeStatus requires `default`), so they never warn on age either.
-  for (const d of decisions) {
-    if (d.status === 'DUE') {
-      warnings.push({ text: `overdue: ${d.title}, default was due ${d.default.raw}`, line: d.line });
-    }
-  }
-
   // Round-2 M2: a `<summary>`-form title with zero checkbox options is the past bug's twin —
   // written outside the template shape, so no decision ever attaches to it and it is otherwise
   // completely invisible (it has no options, so it is filtered out of `decisions` above, and it
@@ -410,6 +401,13 @@ export function formatText(doc) {
     lines.push(`UNATTACHED\tline ${u.line}\t${u.text}${u.under !== undefined ? `\t(under ${u.under})` : ''}`);
   }
   for (const w of doc.warnings) lines.push(`WARN\t${w.text}`);
+  // Ben's 2026-09-26 rule: an overdue default is printed as a WARN line so a careful
+  // read never misses it, but it stays a display-only signal, never `doc.warnings` —
+  // pickup/handback treat a page warning as invalid, and a lapsed default is the normal
+  // life of a decision, not a broken page (review F1).
+  for (const d of doc.decisions) {
+    if (d.status === 'DUE') lines.push(`WARN\toverdue: ${d.title}, default was due ${d.default.raw}`);
+  }
   // Explicit, so a caller can tell "legitimately nothing to act on" apart from a format drift
   // that stopped matching decisions at all (finding 8): zero here on an otherwise non-trivial
   // page means the export shape moved, not that the owner has answered everything.
