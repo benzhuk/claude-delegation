@@ -227,6 +227,7 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   git(["push", "-q", "origin", "main"], root);
 
   const rows = rowsOf(root);
+  assert.deepEqual(rowsOf(path.join(root, "docs")), rows); // F5: a subdirectory --repo reads the same table
   // Look up rows by (branch, recordPath): a branch with several changed records yields one row
   // per record (R1), so recordPath - not just branch - is part of the row's identity.
   const rowFor = (branch, recordPath) => rows.find((r) => r.branch === branch && r.recordPath === recordPath);
@@ -388,7 +389,9 @@ test("F1 regression: piped/subprocess --json output past 64 KiB is never truncat
   }
 
   const scriptPath = fileURLToPath(new URL("./collect-from-origin.mjs", import.meta.url));
-  const out = execFileSync(process.execPath, [scriptPath, "--repo", root, "--no-fetch", "--json"], {
+  // A real shell pipe (`| cat`), not execFileSync's own capture: only a pipe the child sees as
+  // non-blocking reproduces the 64 KiB truncation that process.exit caused (F1).
+  const out = execFileSync("sh", ["-c", '"$0" "$1" --repo "$2" --no-fetch --json | cat', process.execPath, scriptPath, root], {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -417,10 +420,48 @@ test("attack: a branch that has already been fully merged into main disappears e
   // unresolved accepted/owned row. It must not appear at all: its tip is an ancestor of main.
   fs.writeFileSync(path.join(root, "later-merge.txt"), "later\n");
   commitAll(root, "main moves on");
+  const laterArtifact = git(["rev-parse", "HEAD"], root).trim();
+  writeRecord(root, "wr-2026-09-26-merged.record.md", ["Work: wr-2026-09-26-merged", "Status: accepted", `Artifact: build/x@${laterArtifact}`, ""]);
+  commitAll(root, "main rewrites the same record with a later Status");
   git(["push", "-q", "origin", "main"], root);
 
   const rows = rowsOf(root).filter((r) => r.branch === "feature/merged");
   assert.deepEqual(rows, []);
+});
+
+test("three-dot: a record main rewrote after an unmerged branch forked is not a row for that branch", () => {
+  const root = initRepoWithOrigin();
+  const shared = writeRecord(root, "wr-2026-09-26-shared.record.md", ["Work: wr-2026-09-26-shared", "Status: owned", "Artifact: none", ""]);
+  commitAll(root, "shared record on main");
+  git(["push", "-q", "origin", "main"], root);
+
+  newBranch(root, "feature/unmerged");
+  fs.writeFileSync(path.join(root, "branch-work.txt"), "w\n");
+  commitAll(root, "unmerged branch work, no record touched");
+  pushBranch(root, "feature/unmerged");
+  backToMain(root);
+
+  writeRecord(root, "wr-2026-09-26-shared.record.md", ["Work: wr-2026-09-26-shared", "Status: accepted", "Artifact: none", ""]);
+  commitAll(root, "main moves the shared record on");
+  git(["push", "-q", "origin", "main"], root);
+
+  const rows = rowsOf(root).filter((r) => r.branch === "feature/unmerged");
+  assert.equal(rows.find((r) => r.recordPath === shared), undefined); // the branch's stale copy is not its change
+  assert.deepEqual(rows.map((r) => r.state), ["no-record"]);
+});
+
+test("no merge base (orphan branch): its record is still a row, never a confident no-record", () => {
+  const root = initRepoWithOrigin();
+  git(["checkout", "-q", "--orphan", "orphan"], root);
+  git(["rm", "-rq", "--cached", "."], root);
+  const rec = writeRecord(root, "wr-2026-09-26-orphan.record.md", ["Work: wr-2026-09-26-orphan", "Status: accepted", "Artifact: none", ""]);
+  git(["add", rec], root);
+  git(["commit", "-q", "-m", "orphan record"], root);
+  pushBranch(root, "orphan");
+  git(["checkout", "-q", "-f", "main"], root);
+
+  const rows = rowsOf(root).filter((r) => r.branch === "orphan");
+  assert.deepEqual(rows.map((r) => [r.recordPath, r.state]), [[rec, "accepted-unmerged"]]);
 });
 
 test("never writes: every file under .git is byte-identical (by content hash) before and after a run", () => {
