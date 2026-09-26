@@ -57,11 +57,15 @@ A lane lead's own merge item — posted to this page after `accept --census` and
 push, per `skills/team-build/SKILL.md`'s Ship section — takes the ordinary item shape
 from "Writing an item" above: title `Merge <branch> into main (<tip sha>)`; a one- or
 two-line evidence entry carrying the record's four numbers and the census's
-lead-turns figure; options merge-now / merge-and-release / hold; and `No default:
-merges to main take your word per item`. It is one more item through the same
-anchored-edit route, never a second writer at once: the fresh-read, one-anchored-edit,
-retry-once-on-a-changed-anchor rule just above applies to it exactly as to any other
-write.
+lead-turns figure, copied, never recomputed (either one absent, from `--no-census` or a
+record with no `Four numbers:` line, is written `unmeasured`, never estimated); options
+merge-now / merge-and-release / hold; and `No default:
+merges to main take your word per item`. Two writers never edit the page at once: read
+the page fresh seconds before the write, make one `notion.js edit --safe` anchored edit,
+then reread it and confirm with `scripts/decisions-read.mjs` that the item is there. If
+the anchor changed (exit 3), the pass stops as above; reread fresh and retry once with a
+new anchor taken from those fresh bytes, never the same edit blind. A second exit 3, or
+any exit 4, leaves the item unposted and the RESULT carries its text verbatim.
 
 The page callout's owner instruction reads, written on the page as one line: "Tick a
 box, or add a line starting with ** anywhere; every such line is acted on and removed
