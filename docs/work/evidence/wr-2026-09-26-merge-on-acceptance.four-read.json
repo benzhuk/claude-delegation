@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-26T20:55:04.000Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "121 messages; tokens: cache-read 8319516, cache-write 550049, input 242, output 98333"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "0 note(s) to skills-n: (none)"
+    }
+  ],
+  "leadSession": {
+    "id": "f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "8968140 tokens: build 8968140 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.4h; largest gap 27.6min at 2026-09-26T20:20:06.223Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "0 gaps over 30min; 0 unanswered ASKs to skills-n"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-26-merge-on-acceptance.record.md"
+}

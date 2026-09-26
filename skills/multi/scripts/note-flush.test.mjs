@@ -1410,8 +1410,11 @@ test('F3: --status reports missing when the flusher has never run', () => {
   const home = tmp();
   const status = buildFlushStatus([], { home });
   assert.equal(status.exitCode, 1);
-  assert.equal(status.line, 'flusher has never run on this machine (no flush-last.json)');
-  assert.deepEqual(status.json, { missing: true, unreadable: false, age_s: null, timer_age_s: null, stale: true });
+  assert.equal(status.line, 'flusher has never run on this machine (no flush-last.json); pickup: not registered on this host');
+  assert.deepEqual(status.json, {
+    missing: true, unreadable: false, age_s: null, timer_age_s: null, stale: true,
+    pickup: { state: 'unregistered' },
+  });
 });
 
 // Review round 1, finding 2+3: a file that IS there but corrupt/unreadable is a different problem than
@@ -1424,8 +1427,11 @@ test('F3: --status reports a corrupt heartbeat as unreadable, not as never-run',
   fs.writeFileSync(flushLastPath(home), 'not json{{{', 'utf8');
   const status = buildFlushStatus([], { home });
   assert.equal(status.exitCode, 1);
-  assert.equal(status.line, 'flush-last.json is there but unreadable or not valid JSON: the flusher cannot be checked');
-  assert.deepEqual(status.json, { missing: false, unreadable: true, age_s: null, timer_age_s: null, stale: true });
+  assert.equal(status.line, 'flush-last.json is there but unreadable or not valid JSON: the flusher cannot be checked; pickup: not registered on this host');
+  assert.deepEqual(status.json, {
+    missing: false, unreadable: true, age_s: null, timer_age_s: null, stale: true,
+    pickup: { state: 'unregistered' },
+  });
 });
 
 test('F3: --status reports fresh when inside the stale window', async () => {
@@ -1435,7 +1441,7 @@ test('F3: --status reports fresh when inside the stale window', async () => {
   await runNoteFlush([], { home, orca, now: NOW, env: TYPING });
   const status = buildFlushStatus([], { home, now: NOW + 42_000 });
   assert.equal(status.exitCode, 0);
-  assert.equal(status.line, `flusher last ran 42s ago on ${os.hostname()}: queued 1, delivered 1, deferred 0, errors 0`);
+  assert.equal(status.line, `flusher last ran 42s ago on ${os.hostname()}: queued 1, delivered 1, deferred 0, errors 0; pickup: not registered on this host`);
   assert.equal(status.json.stale, false);
   assert.equal(status.json.age_s, 42);
 });
@@ -1445,7 +1451,7 @@ test('F3: --status reports STALE past the 5-minute window, and exits 1', async (
   await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW }); // empty outbox, still a heartbeat
   const status = buildFlushStatus([], { home, now: NOW + HEARTBEAT_STALE_MS + 60_000 });
   assert.equal(status.exitCode, 1);
-  assert.match(status.line, /^flusher last ran 360s ago on .+: queued 0, delivered 0, deferred 0, errors 0\. STALE: the one-minute timer is not running$/);
+  assert.match(status.line, /^flusher last ran 360s ago on .+: queued 0, delivered 0, deferred 0, errors 0\. STALE: the one-minute timer is not running; pickup: not registered on this host$/);
   assert.equal(status.json.stale, true);
 });
 
@@ -1465,7 +1471,7 @@ test('F1/F3: six piggyback passes with zero timer passes still read STALE - the 
   assert.equal('timer_at' in hb, false, 'no timer pass has ever run, so no timer_at to fall back on');
   const status = buildFlushStatus([], { home, now: NOW + 6 * 4 * 60_000 });
   assert.equal(status.exitCode, 1);
-  assert.match(status.line, /STALE: the one-minute timer is not running$/);
+  assert.match(status.line, /STALE: the one-minute timer is not running; pickup: not registered on this host$/);
   assert.equal(status.json.stale, true);
   assert.equal(status.json.timer_age_s, null);
 });
@@ -1491,6 +1497,59 @@ function enableRegisteredPickup(home) {
   fs.writeFileSync(file, '{"version":1,"entries":[]}\n', 'utf8');
   return file;
 }
+
+// M2 (merge-on-acceptance-1, contracts.md R1): buildFlushStatus's `; pickup: ...` suffix and
+// `status.json.pickup` report registered pickup's EXISTING state - never a new reader, state file, or
+// poll. `status.json.pickup` is `{ state: 'unregistered' | 'disabled' | 'annotated' | 'configured', ... }`.
+
+test('F3/M2: --status reports "not registered" when no registration file exists on this host', () => {
+  const home = tmp();
+  const status = buildFlushStatus([], { home });
+  assert.equal(status.line, 'flusher has never run on this machine (no flush-last.json); pickup: not registered on this host');
+  assert.deepEqual(status.json.pickup, { state: 'unregistered' });
+});
+
+test('F3/M2: --status reports a heartbeat pickup annotation\'s code and age', async () => {
+  const home = tmp();
+  await runNoteFlush([], { home, orca: mockOrca({ panes: [] }), now: NOW });
+  const heartbeat = readHeartbeat(home);
+  fs.writeFileSync(flushLastPath(home), `${JSON.stringify({
+    ...heartbeat,
+    pickup: { at: new Date(NOW).toISOString(), code: 'PICKUP_RECORDED', ordinal: 3 },
+  })}\n`, 'utf8');
+  const status = buildFlushStatus([], { home, now: NOW + 17_000 });
+  assert.match(status.line, /; pickup: PICKUP_RECORDED 17s$/);
+  assert.deepEqual(status.json.pickup, {
+    state: 'annotated', at: new Date(NOW).toISOString(), code: 'PICKUP_RECORDED', ordinal: 3, age_s: 17,
+  });
+});
+
+test('F3/M2: --status reports "disabled" for a kill-switch file, before and regardless of registration', () => {
+  const home = tmp();
+  enableRegisteredPickup(home); // registration also present - disabled must still win (contracts.md R1)
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off-decisions'), '', 'utf8');
+  const status = buildFlushStatus([], { home });
+  assert.match(status.line, /; pickup: disabled \(ws-off-decisions\)$/);
+  assert.deepEqual(status.json.pickup, { state: 'disabled', switch: 'ws-off-decisions' });
+});
+
+test('F3/M2: --status reports "configured" when registered, enabled, and not yet annotated', () => {
+  const home = tmp();
+  enableRegisteredPickup(home);
+  const status = buildFlushStatus([], { home });
+  assert.match(status.line, /; pickup: configured, awaiting first pickup pass$/);
+  assert.deepEqual(status.json.pickup, { state: 'configured' });
+});
+
+test('F3/M2: --status names ws-off, not ws-off-decisions, when both switches exist', () => {
+  const home = tmp();
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off'), '', 'utf8');
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off-decisions'), '', 'utf8');
+  const status = buildFlushStatus([], { home });
+  assert.deepEqual(status.json.pickup, { state: 'disabled', switch: 'ws-off' });
+});
 
 function postPickupDeps(home, overrides = {}) {
   return {
