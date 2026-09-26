@@ -6,8 +6,9 @@ Authority: spec lane three: build, review, push build/fresh-walk-1 on green with
 Worktree: /home/ben/Code/claude-delegation-wt/fresh-walk-1
 Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-w1-review-r1.md
 Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r2.md
+Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r3.md
 Evidence: Lead-session (pre-field): ad389ae1-f992-4dd3-8a19-2b51176675c1
-Next: fix round 3 (W1 only) against docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r2.md; W2 approved at eca3682
+Next: lead intervention (round cap reached): apply review-r3 text patches verbatim via runner, then Opus verification
 Opened: 2026-09-25T21:30:15.000Z
 Log: 2026-09-25T22:31:07.000Z opened skills-h base fbd7cf6 (0.20.9)
 Log: 2026-09-25T22:31:58Z owned w1-builder sonnet spawned, ETA 120m (00:35 NYC)
@@ -16,3 +17,6 @@ Log: 2026-09-26T18:44:28Z rejected opus reviewer NEEDS_FIXES 7c4e0be (R1-R3 high
 Log: 2026-09-26T18:45:44Z owned w1r2-builder sonnet fix round 2 (R1-R11), ETA 60m. BLOCKED sent to skills-fable on R12 (suite red on POSIX, outside lane)
 Log: 2026-09-26T19:17:39Z delivered w1r2-builder DONE eca3682 (R1-R11,R13 addressed, W2 = 3 commits, gate = only H6/V4)
 Log: 2026-09-26T19:23:53Z rejected opus delta reviewer W1 NEEDS_FIXES eca3682 (accept re-run not first-attempt and back-filled, census-ordering sentence false), W2 APPROVE eca3682
+Log: 2026-09-26T19:24:13Z owned w1r3-builder sonnet fix round 3 (W1 only, honest end-to-end re-run), ETA 60m
+Log: 2026-09-26T19:57:35Z delivered w1r3-builder DONE d791b1d (N1-N3 fixed, F10 found and fixed, r3b accepted 112s ask->accepted first attempt)
+Log: 2026-09-26T20:03:59Z rejected opus delta reviewer W1 NEEDS_FIXES d791b1d (r3b back-dated Log line certified clean, native-use.md:11 lets a top-tier lead build, residue); all text patches, no new run
