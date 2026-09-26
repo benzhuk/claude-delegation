@@ -246,6 +246,18 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.12 — feat(team-build): accept-prep runs the census after the reviewed Log
+  line and rewrites only its own record lines; given mode gets a seam brief; setup
+  paths compare normalised; Base is one sha (lane seven, 9f0dfee).
+- 0.20.12 — feat(team-build, decisions): lane leads merge on acceptance once the
+  sealed suite is green on a second host, and post a Closed entry instead of a
+  Waiting item; releases and installs stay the owner's decision; an
+  accepted-unmerged row older than four hours is a defect; note-flush --status
+  reports the decisions pickup state (lane eight, b7ddf11).
+- 0.20.12 — tests: the collect-from-origin fixture test pins its clock instead of
+  sampling it twice (4861e5f).
+- 0.20.12 — docs: lane two's Codex fresh-project walk, bounded PARTIAL evidence,
+  docs only (9c9f34b).
 - 0.20.11 — feat: the one-launch build loop (`skills/team-build/references/build-loop-workflow.js`
   and SKILL.md) runs a setup-territory launch through build, one review round, a
   second launch for fix rounds, integration, seam and accept-prep; the old
