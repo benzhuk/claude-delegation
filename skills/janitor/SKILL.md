@@ -8,8 +8,10 @@ description: >-
 
 Cleanup is nobody's job by default, so it doesn't happen. This skill makes it a
 five-second check: run `node <plugin>/scripts/janitor.mjs` from the project root, read
-two short tables and four numbers, done. This skill is for Claude Code sessions with
-the plugin installed; it is not mirrored to Codex yet.
+two short tables and four numbers, done. This skill is mirrored to
+`~/.agents/skills/janitor` for Codex the same way the other shared skills are; the
+script itself stays in the plugin checkout and is invoked there by its absolute path -
+only this skill text is mirrored.
 
 ## janitor never deletes a file
 
@@ -55,6 +57,11 @@ A tool with no unlink code path cannot delete the wrong file.
   only signal it has one - true whether that name is a ref or a directory checked out
   on it)
 - an untracked file matching the project's scratch patterns
+- an UNSTARTED worktree or branch, whose tip equals `origin/<main>`'s tip (or has zero
+  commits not on it), is reported as `unstarted (tip is main)` with its worktree's age,
+  never as SAFE and never as "merged"
+- anything younger than `--min-age-hours` (default 6) is never SAFE, whatever else is
+  true, and is reported with its age
 
 **No remote configured at all** is a real, common project shape (a fresh repo, a purely
 local one), and under it the worktree class - and now the branch class too - is
@@ -93,6 +100,15 @@ A builder's work is not done when the code is green. It is done when:
 
 A worktree with no owner named is a JUDGMENT item forever. Naming it in the report is
 what turns it into something janitor (or the next builder) can act on.
+
+## Cadence: fed, not run on a whim
+
+After every accepted build, the lane's integrator runs `janitor --record` and then
+`janitor --apply`, in that order, and pastes the JUDGMENT table into the RESULT. Once a
+day per host, a Sonnet runner does the same from the main checkout. JUDGMENT is never
+sent to the owner piecemeal: every JUDGMENT line from a run goes to the owner's
+decisions page as ONE item, with a recommendation per line, never as several separate
+asks.
 
 ## Cleanup is never chained onto productive work
 
