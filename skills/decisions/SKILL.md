@@ -66,7 +66,14 @@ open decisions; an absent Done line blocks the hand-back.
 
 Keep the page in two sections the owner reads, `# Waiting on you now` and `# Closed`;
 status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this
-page (not checked). Existing extra sections are not deleted by this skill; whether to
+page (not checked).
+
+Everything under Waiting is a decision item with options, including a request for
+the owner to do something by hand: post it with a Done option, per the template's
+action-request shape, and close it the turn its evidence lands. The reader warns on
+an item under Waiting with no options and on an item past its default date; a lead
+treats any WARN from its post-write check as its own defect to fix in the same turn
+(checked by `scripts/decisions-read.mjs`). Existing extra sections are not deleted by this skill; whether to
 remove one is the lead's call with the owner (not checked).
 
 An optionless summary below the exact, top-level `# Closed` heading is historical rather

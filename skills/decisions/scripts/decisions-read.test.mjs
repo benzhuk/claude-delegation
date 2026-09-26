@@ -1162,3 +1162,48 @@ test('P8: a page with only grouping titles and no real decisions does not need a
 function detailForTest(doc) {
   return formatText(doc).split('\n')[0].split('\t')[2];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ben's 2026-09-26 rule: a request for the owner's hands under Waiting is a decision
+// item too — optionless there WARNs, and an overdue default WARNs (build-decisions-actions.md)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('an optionless <summary> block directly under Waiting WARNs, naming the title', () => {
+  const md = L(
+    '# Waiting on you now',
+    '<summary>Your steps today</summary>',
+    '\t- do the thing by hand',
+  );
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'non-decision item under Waiting: Your steps today'));
+});
+
+test('the same optionless block under Closed does not WARN', () => {
+  const md = L(
+    '# Closed {toggle="true"}',
+    '<summary>Your steps today</summary>',
+    '\t- do the thing by hand',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('non-decision item under Waiting')));
+});
+
+test('OVERDUE: an OPEN decision past its default WARNs with --now, naming the original date string', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a');
+  const doc = parseDocument(md, { now: new Date('2021-01-01T00:00:00Z') });
+  assert.ok(doc.warnings.some(
+    (w) => w.text === 'overdue: t, default was due 2020-01-01 00:00 +00:00',
+  ));
+});
+
+test('OVERDUE: a decision not yet at its default does not WARN', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a');
+  const doc = parseDocument(md, { now: new Date('2019-01-01T00:00:00Z') });
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('overdue:')));
+});
+
+test('OVERDUE: a "No default" item never warns on age, however far --now runs', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tNo default: irreversible');
+  const doc = parseDocument(md, { now: new Date('2099-01-01T00:00:00Z') });
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('overdue:')));
+});
