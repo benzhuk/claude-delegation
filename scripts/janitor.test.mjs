@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 import {
   main,
@@ -1628,7 +1629,7 @@ test("J1 review round 2 F3: a branch re-created NOW at an old, already-merged co
   // A real, --no-ff-merged feature, but its own commit is backdated years into the past - the exact
   // shape of `git switch <name>` on a long-merged remote branch: the COMMIT is old, the REF is not.
   const wt = addWorktree(root, "feature-old-tip");
-  const oldEnv = { ...process.env, GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z" };
+  const oldEnv = childEnv(os.homedir(), { GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z" });
   fs.writeFileSync(path.join(wt, "old.txt"), "old\n");
   git(["add", "."], wt);
   execFileSync("git", ["commit", "-q", "-m", "backdated work", "--amend", "--no-edit"], { cwd: wt, encoding: "utf8", env: oldEnv });
