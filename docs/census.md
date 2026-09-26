@@ -12,7 +12,7 @@ file basenames.
 ## `build-census.mjs`
 
 ```
-node scripts/build-census.mjs --lead <session.jsonl> [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--out <path>] [--json <path>]
+node scripts/build-census.mjs --lead <session.jsonl> [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--from <iso>] [--to <iso>] [--out <path>] [--json <path>]
 ```
 
 Worked example, run against the committed fixtures (this is gate-10's own invocation —
@@ -95,6 +95,15 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   unknown, never dropped as a guess; when the window's own start timestamp can't be
   established (the marker-matching line carries none, and neither does any line before
   it), nothing is excluded at all.
+- `--from`/`--to` (optional, four-number-read spec.md Territory R1 item 3) — a SECOND,
+  independent windowing mode: a plain ISO timestamp range instead of a marker match.
+  Mutually exclusive with `--marker` (given together, both throw). Messages outside
+  `[--from, --to]` are not counted; a window covering the whole file equals the
+  unwindowed run. This is the mechanism `scripts/four-read.mjs` uses for the spec
+  writer's token slice: `build-census.mjs --lead <spec session> --from <Spec-from> --to
+  <Opened>`, its output file stored next to the record. Codex leads reject these flags
+  (native per-response usage has no assistant/user role ordering to window this way).
+  This is the ONLY change this build made to this file; everything else in it is frozen.
 - `--out` (optional) — write the full markdown report there; without it (and without
   `--json`), the report goes to stdout. Nothing else reaches stdout (with `--out` and/or
   `--json`, only one `wrote: <path>` line per file written does).
@@ -220,6 +229,84 @@ the combined split are **incomplete by an unknown amount** — do not quote them
 Secrecy: the file never reads `message.content` except to test membership of `--marker`
 inside a parsed line (a boolean-only, bounded-depth/width search) — output is numbers,
 model names and file basenames only.
+
+## `four-read.mjs` — the four-number read
+
+```
+node scripts/four-read.mjs --record <record.md> --census <census.json> [--spec-census <json>] [--ledger docs/ledger] [--git <repo>] [--branch <ref>] [--lead-session <id>] [--lead-slug <slug>] [--out <path>] [--json <path>]
+```
+
+Prints the goal's four measures (docs/GOALS.md) for one build. Every number is a
+computed `value` or `unavailable (<reason>)` — a guess is never printed. Definitions,
+verbatim from `docs/specs/2026-09-25-four-number-read.md`:
+
+1. **Top-tier tokens per build**: the sum over every counted file of input, output,
+   cache-read and cache-write tokens for messages whose `message.model` matches the top
+   tier (`DELEGATION_TOP_TIER`, default `fable,opus`), plus the spec writer's slice: the
+   spec session's top-tier usage between `Spec-from:` and `Opened:`. The census JSON
+   already holds the by-model sums; the spec slice is one extra
+   `build-census.mjs --lead <spec session> --from <Spec-from> --to <Opened>` run whose
+   output file is stored next to the record.
+2. **Hours ask to accepted**: `Opened:` to the FIRST `accepted` `Log:` entry, in hours to
+   one decimal, plus the largest gap between two consecutive messages of the lead session
+   inside that window (a stall indicator, printed beside it).
+3. **Rework after acceptance**: the count of commits on `main` (or the integration branch
+   when `main` does not yet contain the build) within 7 days after the first acceptance
+   that touch any file changed in the build's range, excluding the merge commit and the
+   release commit, plus the count of `accepted` `Log:` entries after the first. Both
+   counts print with their shas or log lines. The range is `Base:` to the accepted sha
+   from the record; a record without a resolvable range gives `unavailable (no range)`.
+4. **Work lost or stalled**: the number of gaps over 30 minutes between consecutive
+   messages of the lead session inside the build window, plus the number of ASK ids
+   addressed to the lead's slug in `docs/ledger/*.md` within the window that have no
+   RESULT or BLOCKED naming them with `re <id>`. Each gap prints its start time and
+   length; each unanswered id prints.
+
+Two companion lines print beside the four: top-tier assistant messages per build (each
+one re-reads the whole context, so this is the cost driver, not the turn count alone),
+with the tokens line split into cache-read, cache-write, input and output; and notes to
+the lead per build (ASK, RESULT and BLOCKED envelopes addressed to `Lead-session:`'s slug
+in the ledger within the window, since each one is a full lead turn). The messages
+companion shares Number 1's census verdict: when Number 1 is `unavailable`, so is the
+message count, never a confident `0 messages` beside a window it has already rejected.
+**Rule for every lane from now on: a lane wakes its lead at most three times, ACK at
+start, RESULT at the end, BLOCKED if stuck, and an ACK's content is never sent under the
+ASK kind to force delivery.**
+
+Inputs from the record: `Opened:`, `Base:`, the accepted sha (from the first `accepted`
+`Log:` entry's own `artifact <sha>` note, or, only when the record has a single
+`accepted` entry, the `Artifact:` field), `Lead-session:`,
+`Spec-session:`, `Spec-from:`. `four-read.mjs` parses these fields itself, independently
+of `scripts/work-record.mjs` (which may not carry `Lead-session:`/`Spec-session:`/
+`Spec-from:` in every worktree yet) — a record missing any of them yields `unavailable
+(<which field>)` for the numbers that need it, never a thrown error.
+
+**Open the record with the id your host reports (the hook's hint line in context, not an
+environment variable that may be unset).** Where a real build has no `Lead-session:`
+(true of every build before this one), the reader takes `--lead-session <id>` on the
+command line and the evidence file says the id came from the command line and how it was
+established — the census file names the lead session file it read (its `leadPath` field);
+`four-read.mjs` always sources the transcript from there, never by searching for a
+session id on disk.
+
+Run the read at accept time, after the last review, against a fresh `--census`: `node
+scripts/four-read.mjs --record docs/work/<id>.record.md --census
+docs/work/evidence/<id>.census.json --ledger docs/ledger --lead-slug <slug> --json
+docs/work/evidence/<id>.four-read.json --out docs/work/evidence/<id>.four-read.md`, then
+`work-record.mjs accept --four-read <json>` copies the four lines into the record. Because
+the record has no `accepted` Log: entry yet at this point, share one `T` between the two
+commands instead — `T=$(date -u +%FT%TZ)`, `four-read.mjs ... --accept-at $T` and `accept
+--at $T --four-read <json>` — so the accepted Log: line `accept` writes carries the same
+`T` the read already measured up to, and the four numbers it copies are real values, not
+`unavailable`. When the spec writer's slice applies, run `build-census.mjs` a second time over the spec
+session's window and pass its output file as `--spec-census` alongside `--census`. The
+accept-time `--census` itself runs `--from <Opened:>` (and `--to <last accepted Log:>`
+when it is re-run later, after a re-accept) — one window governs both Number 1 and the
+top-tier-messages companion; `four-read.mjs` refuses a census whose window starts outside the
+build or ends after its last acceptance.
+
+The prediction rule from the bearings: the lead writes the next build's predicted four
+numbers in the RESULT to skills-fable.
 
 ## `work-census.mjs`
 

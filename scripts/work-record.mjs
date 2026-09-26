@@ -13,7 +13,11 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // "worktree" (T1, loop-gates spec item 2): the git worktree or branch path that produced
 // Artifact:. Optional for validateRecord/parseRecord (an old record without it still
 // parses cleanly) but checkAcceptance requires it - see the sha-not-in-git check below.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree"];
+// "leadSession"/"specSession"/"specFrom" (R2, four-number read spec.md item 1): the
+// session that led this build, and the spec session's own usage window - optional here,
+// same as "worktree", because the enforcement (lead session required, spec fields a
+// WARN) lives in checkAcceptance below, not in validateRecord's generic missing-field.
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom", "base"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -45,17 +49,31 @@ const FIELD_LABELS = [
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
   ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
+  ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"], ["base", "Base"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
 // as WORKAROUND/Log - `accept --census` writes one per copied summary line - never a
 // FIELD_LABELS singleton, so several may coexist without tripping the duplicate-singleton
 // check in requireStrictRecordShape.
-const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census"]);
+// "four numbers" (R2, four-number read spec.md item 3): a repeatable header line, same
+// shape as census above - `accept --four-read <json>` writes one per copied number.
+const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census", "four numbers"]);
 const HEADER_LINE_RE = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.+)$/;
 
 function rtrim(s) {
   return s.replace(/[\r \t]+$/, "");
+}
+
+// R2 item 2 (seam-review M4): a session id is one real token, never a placeholder like
+// "none"/"unavailable"/"tbd" - the facts file tells leads to write "unavailable" in these
+// fields when a value is genuinely missing, so a bare-presence check alone passes every
+// placeholder and checks nothing. Used by both the lead-session refusal (unconditional)
+// and the spec-session WARN (m1: WARN on content, not just presence).
+const PLACEHOLDER_ID_RE = /^[(<[{"']*(?:none|null|undefined|unavailable|unknown|missing|unset|n\/?a|tbd|pending|-+)\b/i;
+function isSessionId(v) {
+  const t = typeof v === "string" ? v.trim() : "";
+  return /^\S{6,}$/.test(t) && /\d/.test(t) && !PLACEHOLDER_ID_RE.test(t);
 }
 
 function fieldRegex(label) {
@@ -123,7 +141,16 @@ export function parseRecord(text) {
     census.push(rtrim(cm[1]).trim());
   }
 
-  return { fields, workarounds, log, census, errors };
+  // four numbers (R2, four-number read): every `Four numbers:` line, verbatim, in file
+  // order - the same repeatable, copy-only shape as census just above; this file never
+  // re-derives one of the four numbers, only stores the read's own text.
+  const fourNumbers = [];
+  const fourNumbersRe = /^[ \t*+-]{0,20}Four numbers:\**[ \t]{0,20}(.+)$/gim;
+  for (const fm of headerText.matchAll(fourNumbersRe)) {
+    fourNumbers.push(rtrim(fm[1]).trim());
+  }
+
+  return { fields, workarounds, log, census, fourNumbers, errors };
 }
 
 function isInsideRepo(repoRoot, evidencePath) {
@@ -412,6 +439,29 @@ export function formatLogLine(at, status, owner, note) {
   return note ? `${base} ${note}` : base;
 }
 
+// R2 item 3 (seam-review B1): copies four-read.mjs's own numbers[] shape (an ARRAY of
+// exactly four { key, label, value } entries, each value already the formatted "value or
+// unavailable (<reason>)" text) - never guesses at a different shape, since this file
+// never re-derives one of the four numbers itself. A wrong-shaped or partial file refuses
+// (four-read-invalid) rather than silently stringifying whatever it finds; flat() collapses
+// any embedded newlines/whitespace in a copied label or value so a value can never inject
+// a blank line or a header-looking line into the record (M1).
+const FOUR_READ_KEYS = ["topTierTokensPerBuild", "hoursAskToAccepted", "reworkAfterAcceptance", "workLostOrStalled"];
+function fourReadLines(parsed) {
+  const rows = parsed && Array.isArray(parsed.numbers) ? parsed.numbers : null;
+  const flat = (s) => String(s).replace(/\s+/g, " ").trim();
+  if (
+    !rows || rows.length !== 4
+    || !rows.every((r, i) => r && r.key === FOUR_READ_KEYS[i] && typeof r.label === "string" && flat(r.label) && typeof r.value === "string" && flat(r.value))
+  ) {
+    throw acceptanceError(
+      "--four-read is not four-read.mjs JSON: expected numbers[4] of { label, value } strings",
+      "four-read-invalid",
+    );
+  }
+  return rows.map((r) => `Four numbers: ${flat(r.label)}: ${flat(r.value)}`);
+}
+
 const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLowerCase(), key]));
 const DECIDING_VERDICTS = new Set(["APPROVE", "NEEDS_FIXES", "FAIL", "REJECTED"]);
 // Seam S2: the loop's REVIEW_MANDATE and reviewer briefs ask for a `VERDICT: NEEDS_FIXES
@@ -519,7 +569,7 @@ function requireStrictRecordShape(text, record) {
   const blank = lines.findIndex((line) => line.trim() === "");
   const header = blank === -1 ? lines : lines.slice(0, blank);
   const counts = new Map();
-  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.*)$/;
+  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z -]{0,40}):\**[ \t]{0,20}(.*)$/;
   for (const line of header) {
     const match = line.match(strictHeaderRe);
     if (!match) continue;
@@ -748,6 +798,17 @@ export function checkAcceptance(opts = {}) {
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
 
+  // lead-session-missing (R2, four-number read spec.md item 2): the record must name the
+  // session that led this build - "no override: a record without its lead session cannot
+  // be read". Unconditional on every checkAcceptance call, live or pinned, exactly like
+  // the Worktree: check below - there is no cutoff date grandfathering an older record in.
+  if (!isSessionId(record.fields.leadSession)) {
+    throw acceptanceError(
+      "Lead-session: field is required (the session id that led this build); none is present, or it is a placeholder",
+      "lead-session-missing",
+    );
+  }
+
   // census-stale (C2 spec item 2): opt-in here - only runs when a caller passes
   // --census, so every census-agnostic caller (check-acceptance's existing read-only
   // uses, and every pre-census test of this function) is unaffected. The MANDATORY
@@ -898,12 +959,25 @@ export function checkAcceptance(opts = {}) {
   if (blockers.length > 0) throw acceptanceError(`current artifact has refusing evidence: ${blockers.join(", ")}`);
   if (!approved) throw acceptanceError("no evidence has an exact APPROVE verdict for the current artifact");
 
-  // censusText is only ever present as a key when --census was actually given - every
-  // pre-census caller (and every census-agnostic call, like check-acceptance without
-  // --census) keeps the exact result shape it always had.
-  return censusText !== undefined
-    ? { ok: true, work: record.fields.work, artifact, delivery, censusText }
-    : { ok: true, work: record.fields.work, artifact, delivery };
+  // spec-session/spec-from (R2, four-number read spec.md item 2): missing is a WARN, not
+  // a refusal - the read itself prints the token number as "partial (no spec slice)"
+  // when these are absent; this only surfaces the fact for a caller to see.
+  const warnings = [];
+  if (!isSessionId(record.fields.specSession)) {
+    warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/.test(record.fields.specFrom ?? "")) {
+    warnings.push("spec-from-missing: Spec-from: is absent or not a timestamp; the four-read's token number will be partial (no spec slice)");
+  }
+
+  // censusText/warnings are only ever present as keys when there is one to report - every
+  // caller that never opted into --census, and every record that already carries both
+  // spec fields, keeps the exact result shape it always had (a bare `assert.deepEqual`
+  // against `{ ok, work, artifact, delivery }` still holds).
+  const result = { ok: true, work: record.fields.work, artifact, delivery };
+  if (censusText !== undefined) result.censusText = censusText;
+  if (warnings.length > 0) result.warnings = warnings;
+  return result;
 }
 
 /**
@@ -1012,13 +1086,33 @@ export function acceptRecord(opts = {}) {
     censusLines = [`Census: skipped — ${noCensusReason}`];
   }
 
-  const at = (opts.now ?? new Date()).toISOString();
+  // Four numbers (R2, four-number read spec.md item 3): --four-read is optional - accept
+  // still passes without it, the record just shows the numbers were not run.
+  let fourNumberLines, parsed;
+  if (opts.fourReadPath !== undefined) {
+    try {
+      parsed = JSON.parse(fsImpl.readFileSync(opts.fourReadPath, "utf8"));
+    } catch (error) {
+      throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
+    }
+    fourNumberLines = fourReadLines(parsed);
+  } else {
+    fourNumberLines = ["Four numbers: not run"];
+  }
+
+  // MAJOR 2 (seam): --at T is the shared timestamp four-read.mjs's --accept-at T stood in
+  // for at read time — refuse a T before the record's own last Log:, or too far ahead.
+  const atDate = opts.acceptAt !== undefined ? new Date(opts.acceptAt) : (opts.now ?? new Date());
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  if (opts.acceptAt !== undefined && (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, Date.now() - 600000) || atDate.getTime() > Date.now() + 300000)) throw acceptanceError(`invalid --at: ${opts.acceptAt} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
+  if (parsed?.acceptAt && Date.parse(parsed.acceptAt) !== atDate.getTime()) throw acceptanceError(`--four-read was measured to ${parsed.acceptAt} but accept stamps ${atDate.toISOString()}: pass --at ${parsed.acceptAt}`, "four-read-invalid");
+  const at = atDate.toISOString();
   const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
 
   const lines = text.split(/\r?\n/);
   const blankIdx = lines.findIndex((line) => line.trim() === "");
   const insertAt = blankIdx === -1 ? lines.length : blankIdx;
-  lines.splice(insertAt, 0, ...censusLines, logLine);
+  lines.splice(insertAt, 0, ...censusLines, ...fourNumberLines, logLine);
   const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}accepted${post}`);
 
   if (censusCopy) {
@@ -1042,7 +1136,7 @@ export function parseAcceptanceArgs(argv) {
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
-    ["--census", "censusPath"], ["--no-census", "noCensusReason"],
+    ["--census", "censusPath"], ["--no-census", "noCensusReason"], ["--four-read", "fourReadPath"], ["--at", "acceptAt"],
   ]);
   for (let i = 1; i < argv.length; i += 2) {
     const key = names.get(argv[i]);
@@ -1060,6 +1154,9 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
     // printed result - it can be an entire census report's worth of bytes.
     const { censusText: _censusText, ...printable } = result;
     io.stdout.write(`${JSON.stringify(printable)}\n`);
+    // m2 (seam review): a lead scanning stdout for a WARN would otherwise see only the
+    // JSON blob. Exit code stays 0 - a WARN is visible, not a refusal.
+    for (const w of printable.warnings ?? []) io.stderr.write(`work-record: WARN ${w}\n`);
     return 0;
   } catch (error) {
     io.stderr.write(`work-record: [${error.code ?? "error"}] ${error.message}\n`);

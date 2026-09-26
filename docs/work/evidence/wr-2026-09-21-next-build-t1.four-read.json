@@ -1,0 +1,42 @@
+{
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (no census)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "unavailable (slug orchestrator not in ledger)"
+    }
+  ],
+  "leadSession": {
+    "id": null,
+    "note": "no Lead-session: field and no --lead-session given",
+    "source": "unavailable"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (no census)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.5h; gap unavailable (no Lead-session:)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (no range); 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "gaps unavailable (no Lead-session:); ASKs unavailable (slug orchestrator not in ledger)"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-21-next-build-t1.record.md"
+}
