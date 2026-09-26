@@ -220,7 +220,7 @@ Move every territory's work record as it moves, in the same turn the event happe
 only through `work-record.mjs accept` (below), once integrated within `Authority:` or by
 Ben's own quoted word — or, for a rejected/blocked/runnable/owned record nobody will run a
 fix round on, `withdrawn` only through `work-record.mjs withdraw <record> --reason "<...>"
-[--superseded-by <record-name>] --by <session-id> --at <iso> --repo <repo-root>` — copy the deciding
+[--superseded-by <work-id>] --by <session-id> --at <iso> --repo <repo-root>` — copy the deciding
 report to `docs/work/evidence/<work-id>-<lane>.md` at that moment, since `accepted`
 requires at least one evidence path inside the repo. Every copied report preserves its
 original bytes and provenance. The independent deciding review requires the author to

@@ -2388,6 +2388,10 @@ test("withdrawRecord: refuses a --superseded-by that is not a work id (path, sub
     path.join(f.repo, "docs", "work", "archive", "wr-2026-09-20-arch.record.md"),
     mkRecordText({ Work: "wr-2026-09-20-arch", Status: "owned" }),
   );
+  fs.writeFileSync(
+    path.join(f.repo, "docs", "work", "wr-2026-09-26-self.record.md"),
+    mkRecordText({ Work: "wr-2026-09-26-self", Status: "owned" }),
+  );
   const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   for (const supersededBy of [
     "../../other/wr-2026-09-20-other",
