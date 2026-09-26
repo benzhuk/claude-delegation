@@ -21,7 +21,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseRecord } from "./work-record.mjs";
 
-const ROW_FIELDS = ["branch", "tipSha", "tipDate", "recordPath", "status", "artifactSha", "merged", "hoursSinceLog", "state"], SHA_RE = /^[0-9a-f]{40}$/i;
+const ROW_FIELDS = ["branch", "tipSha", "tipDate", "recordPath", "status", "artifactSha", "merged", "hoursSinceLog", "state"];
+const SHA_RE = /^[0-9a-f]{40}$/i;
 
 const git = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 const tryGit = (args, cwd) => { try { return git(args, cwd); } catch { return null; } };
@@ -34,8 +35,10 @@ export function parseArgs(argv) {
   const out = { repo: null, main: "origin/main", noFetch: false, json: false, skip: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--repo") out.repo = argv[++i]; else if (a === "--main") out.main = argv[++i];
-    else if (a === "--no-fetch") out.noFetch = true; else if (a === "--json") out.json = true;
+    if (a === "--repo") out.repo = argv[++i];
+    else if (a === "--main") out.main = argv[++i];
+    else if (a === "--no-fetch") out.noFetch = true;
+    else if (a === "--json") out.json = true;
     else if (a === "--skip") out.skip.push(argv[++i]);
   }
   return out;
@@ -50,24 +53,33 @@ export const fullRef = (ref) => (ref.startsWith("refs/") ? ref : ref.includes("/
 export const refExists = (repo, full) => ok(["show-ref", "--verify", "--quiet", full], repo) === true;
 
 export function listOriginBranches(repo, skipSet) {
-  const out = tryGit(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"], repo) ?? "";
-  return out.split("\n").map((l) => l.trim()).filter(Boolean).map((ref) => ({ ref, name: ref.slice("refs/remotes/origin/".length) })).filter((b) => b.name && !skipSet.has(b.name));
+  const out = tryGit(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"], repo);
+  if (out === null) return [];
+  return out.split("\n").map((l) => l.trim()).filter(Boolean)
+    .map((ref) => ({ ref, name: ref.slice("refs/remotes/origin/".length) }))
+    .filter((b) => b.name && !skipSet.has(b.name));
 }
 
-const commitInfo = (repo, ref) => {
-  const out = tryGit(["log", "-1", "--format=%H%x1f%cI", ref], repo); if (!out) return null;
-  const [sha, date] = out.trim().split("\x1f"); return { sha, date };
-};
+function commitInfo(repo, ref) {
+  const out = tryGit(["log", "-1", "--format=%H%x1f%cI", ref], repo);
+  if (!out) return null;
+  const [sha, date] = out.trim().split("\x1f");
+  return { sha, date };
+}
 
 // Three-dot: only records the branch itself added or changed since it forked from --main.
 // --diff-filter=AM (added/modified, as seen from the branch side) excludes the D direction — a
 // record --main has and the branch's own tree lacks is not "this branch changed a record".
 // ":(top,glob)" anchors the pathspec at the repo root, so a --repo pointing at a subdirectory
 // (or a nested docs/work/x/y.record.md) can't silently under- or over-match (F5).
+function diffRecordPaths(repo, range) {
+  return tryGit(["diff", "--name-only", "--no-renames", "--diff-filter=AM", ...range, "--", ":(top,glob)docs/work/*.record.md"], repo);
+}
+
 export function changedRecordPaths(repo, mainFull, branchRef) {
-  const diff = (range) => tryGit(["diff", "--name-only", "--no-renames", "--diff-filter=AM", ...range, "--", ":(top,glob)docs/work/*.record.md"], repo);
-  // no merge base (orphan/shallow): fall back to R1's literal two-dot rather than reading it as no changes
-  const out = diff([`${mainFull}...${branchRef}`]) ?? diff([mainFull, branchRef]);
+  // No merge base (orphan branch / shallow clone): fall back to R1's literal two-dot range
+  // rather than reading the missing merge base as "no changes" (a confident false negative).
+  const out = diffRecordPaths(repo, [`${mainFull}...${branchRef}`]) ?? diffRecordPaths(repo, [mainFull, branchRef]);
   return out ? out.split("\n").map((s) => s.trim()).filter(Boolean) : [];
 }
 
@@ -77,9 +89,13 @@ const blobAt = (repo, ref, filePath) => tryGit(["show", `${ref}:${filePath}`], r
 // value if that alone is a 40-hex sha; anything else -> null (never shown as merged).
 export function extractArtifactSha(value) {
   if (typeof value !== "string") return null;
-  const v = value.trim(), at = v.lastIndexOf("@"), candidate = (at === -1 ? v : v.slice(at + 1)).trim();
+  const v = value.trim();
+  const at = v.lastIndexOf("@");
+  const candidate = at === -1 ? v : v.slice(at + 1).trim();
   return SHA_RE.test(candidate) ? candidate.toLowerCase() : null;
 }
+
+const objectExists = (repo, sha) => ok(["cat-file", "-e", `${sha}^{commit}`], repo) === true;
 
 // true/false/null (see `ok`) — a confirmed non-ancestor is `false`; an unresolvable check is
 // `null`, never a confident `false` (F7).
@@ -87,14 +103,20 @@ const isAncestor = (repo, a, b) => ok(["merge-base", "--is-ancestor", a, b], rep
 
 // null whenever ancestry can't be proven (no artifact sha, --main unresolved, or the sha names
 // no object this repo has) — "unknown is never shown as merged" (R1).
-const computeMerged = (repo, artifactSha, mainFull, mainVerified) => (!artifactSha || !mainVerified || ok(["cat-file", "-e", `${artifactSha}^{commit}`], repo) !== true) ? null : isAncestor(repo, artifactSha, mainFull);
+function computeMerged(repo, artifactSha, mainFull, mainVerified) {
+  if (!artifactSha || !mainVerified || !objectExists(repo, artifactSha)) return null;
+  return isAncestor(repo, artifactSha, mainFull);
+}
 
-// absent/unparseable/any other Status -> owned (R1).
-export const computeState = (status, merged) => status === "accepted" ? (merged === true ? "accepted-merged" : "accepted-unmerged") : status === "rejected" ? "rejected" : "owned";
+export function computeState(status, merged) {
+  if (status === "accepted") return merged === true ? "accepted-merged" : "accepted-unmerged";
+  return status === "rejected" ? "rejected" : "owned"; // absent/unparseable/any other -> owned (R1)
+}
 
 export function hoursSinceLog(log, now) {
   if (!Array.isArray(log) || log.length === 0) return null;
-  const t = Date.parse(log.at(-1).at); return Number.isNaN(t) ? null : Math.round(((now - t) / 3_600_000) * 100) / 100;
+  const t = Date.parse(log.at(-1).at);
+  return Number.isNaN(t) ? null : Math.round(((now - t) / 3_600_000) * 100) / 100;
 }
 
 const tipFields = (commit) => ({ tipSha: commit ? commit.sha : null, tipDate: commit ? commit.date : null });
@@ -104,31 +126,48 @@ const tipFields = (commit) => ({ tipSha: commit ? commit.sha : null, tipDate: co
 const noRecordRow = (branchInfo, commit) => ({ branch: branchInfo.name, ...tipFields(commit), recordPath: null, status: null, artifactSha: null, merged: null, hoursSinceLog: null, state: "no-record" });
 
 function buildRow(repo, branchInfo, filePath, mainFull, mainVerified, now, commit) {
-  const parsed = parseRecord(blobAt(repo, branchInfo.ref, filePath) ?? ""), status = parsed.fields.status ?? null;
-  const artifactSha = extractArtifactSha(parsed.fields.artifact), merged = computeMerged(repo, artifactSha, mainFull, mainVerified);
+  const parsed = parseRecord(blobAt(repo, branchInfo.ref, filePath) ?? "");
+  const status = parsed.fields.status ?? null;
+  const artifactSha = extractArtifactSha(parsed.fields.artifact);
+  const merged = computeMerged(repo, artifactSha, mainFull, mainVerified);
   return { branch: branchInfo.name, ...tipFields(commit), recordPath: filePath, status, artifactSha, merged, hoursSinceLog: hoursSinceLog(parsed.log, now), state: computeState(status, merged) };
 }
 
 export const formatTable = (rows) => [ROW_FIELDS.join("\t"), ...rows.map((r) => ROW_FIELDS.map((k) => String(r[k] ?? "-")).join("\t"))].join("\n");
 
 export function main(argv = process.argv.slice(2), opts = {}) {
-  const { write = (s) => console.log(s), warn = (s) => process.stderr.write(`${s}\n`), now = Date.now() } = opts;
+  const write = opts.write ?? ((s) => console.log(s));
+  const warn = opts.warn ?? ((s) => process.stderr.write(`${s}\n`));
+  const now = opts.now ?? Date.now();
   try {
-    const args = parseArgs(argv), repo = args.repo ?? opts.cwd ?? process.cwd();
-    if (!args.noFetch && tryGit(["fetch", "origin"], repo) === null) warn("collect-from-origin: git fetch failed, proceeding with local refs");
-    const mainFull = fullRef(args.main), mainVerified = refExists(repo, mainFull);
+    const args = parseArgs(argv);
+    const repo = args.repo ?? opts.cwd ?? process.cwd();
+    if (!args.noFetch) {
+      try {
+        git(["fetch", "origin"], repo);
+      } catch (err) {
+        warn(`collect-from-origin: git fetch failed, proceeding with local refs: ${err && err.message ? err.message : err}`);
+      }
+    }
+    const mainFull = fullRef(args.main);
+    const mainVerified = refExists(repo, mainFull);
     if (!mainVerified) warn(`collect-from-origin: --main ref "${args.main}" not found locally; merged and diff checks are skipped`);
-    const skipSet = new Set(["main", "HEAD", ...args.skip]), rows = [];
-    for (const branchInfo of mainVerified ? listOriginBranches(repo, skipSet) : []) {
-      if (isAncestor(repo, branchInfo.ref, mainFull) === true) continue; // fully merged: nothing left to report
-      const commit = commitInfo(repo, branchInfo.ref), paths = changedRecordPaths(repo, mainFull, branchInfo.ref);
-      if (paths.length === 0) { rows.push(noRecordRow(branchInfo, commit)); continue; }
-      for (const filePath of paths) rows.push(buildRow(repo, branchInfo, filePath, mainFull, mainVerified, now, commit));
+    const skipSet = new Set(["main", "HEAD", ...args.skip]);
+    const rows = [];
+    if (mainVerified) {
+      for (const branchInfo of listOriginBranches(repo, skipSet)) {
+        if (isAncestor(repo, branchInfo.ref, mainFull) === true) continue; // fully merged: nothing left to report
+        const commit = commitInfo(repo, branchInfo.ref);
+        const paths = changedRecordPaths(repo, mainFull, branchInfo.ref);
+        if (paths.length === 0) { rows.push(noRecordRow(branchInfo, commit)); continue; }
+        for (const filePath of paths) rows.push(buildRow(repo, branchInfo, filePath, mainFull, mainVerified, now, commit));
+      }
     }
     write(args.json ? JSON.stringify(rows) : formatTable(rows));
     return 0;
   } catch (err) {
-    warn(`collect-from-origin: ${err && err.message ? err.message : err}`); return 0; // exit 0 always (R1)
+    warn(`collect-from-origin: ${err && err.message ? err.message : err}`);
+    return 0; // exit 0 always (R1)
   }
 }
 
