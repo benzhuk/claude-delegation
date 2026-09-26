@@ -2322,6 +2322,47 @@ test("withdrawRecord: requires --by and --at, as accept does", () => {
   );
 });
 
+test("withdrawRecord: refuses a --by longer than the Log: owner slot (64), file unchanged", () => {
+  const f = makeWithdrawFixture();
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "x", by: "s".repeat(65), at: WITHDRAW_ARGS.at }),
+    (err) => { assert.equal(err.code, "by-missing"); return true; },
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+test("withdrawRecord: refuses a non-ISO or backdated --at, file unchanged", () => {
+  const f = makeWithdrawFixture();
+  // "1" parses as a local date under Date.parse but has no ISO shape.
+  const beforeShape = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "x", by: WITHDRAW_ARGS.by, at: "1" }),
+    (err) => { assert.equal(err.code, "at-missing"); return true; },
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), beforeShape);
+
+  const g = makeWithdrawFixture({}, ["Log: 2026-09-20T00:00:00.000Z rejected lead-session-1 previous log"]);
+  const beforeBackdated = fs.readFileSync(path.join(g.repo, g.record), "utf8");
+  assert.throws(
+    () => withdrawRecord({ repoRoot: g.repo, recordPath: g.record, reason: "x", by: WITHDRAW_ARGS.by, at: "2020-01-01T00:00:00Z" }),
+    (err) => { assert.equal(err.code, "at-missing"); return true; },
+  );
+  assert.equal(fs.readFileSync(path.join(g.repo, g.record), "utf8"), beforeBackdated);
+});
+
+test("withdrawRecord: every non-withdrawable source status is refused, file byte-identical", () => {
+  for (const status of ["delivered", "reviewed", "accepted", "not-a-status"]) {
+    const f = makeWithdrawFixture({ Status: status });
+    const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+    assert.throws(
+      () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "no", ...WITHDRAW_ARGS }),
+      (err) => { assert.equal(err.code, "not-withdrawable", status); return true; },
+    );
+    assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before, status);
+  }
+});
+
 test("withdrawRecord: refuses --superseded-by naming a record that does not exist on disk, file unchanged", () => {
   const f = makeWithdrawFixture();
   const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
@@ -2331,6 +2372,33 @@ test("withdrawRecord: refuses --superseded-by naming a record that does not exis
     }),
     (err) => { assert.equal(err.code, "superseded-by-missing"); return true; },
   );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+test("withdrawRecord: refuses a --superseded-by that is not a work id (path, subdirectory, or self-reference), file unchanged", () => {
+  const f = makeWithdrawFixture({ Work: "wr-2026-09-26-self" });
+  // Create targets so only the shape/self-reference check can be what refuses each value.
+  fs.mkdirSync(path.join(f.repo, "other"), { recursive: true });
+  fs.writeFileSync(
+    path.join(f.repo, "other", "wr-2026-09-20-other.record.md"),
+    mkRecordText({ Work: "wr-2026-09-20-other", Status: "owned" }),
+  );
+  fs.mkdirSync(path.join(f.repo, "docs", "work", "archive"), { recursive: true });
+  fs.writeFileSync(
+    path.join(f.repo, "docs", "work", "archive", "wr-2026-09-20-arch.record.md"),
+    mkRecordText({ Work: "wr-2026-09-20-arch", Status: "owned" }),
+  );
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  for (const supersededBy of [
+    "../../other/wr-2026-09-20-other",
+    "archive/wr-2026-09-20-arch",
+    "wr-2026-09-26-self",
+  ]) {
+    assert.throws(
+      () => withdrawRecord({ repoRoot: f.repo, recordPath: f.record, reason: "x", supersededBy, ...WITHDRAW_ARGS }),
+      (err) => { assert.equal(err.code, "superseded-by-missing", supersededBy); return true; },
+    );
+  }
   assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
 });
 

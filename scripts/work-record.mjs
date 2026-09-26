@@ -1155,11 +1155,14 @@ export function withdrawRecord(opts = {}) {
   }
   const by = typeof opts.by === "string" ? opts.by.trim() : "";
   if (!by) throw acceptanceError("--by is required to withdraw (the session id withdrawing the record)", "by-missing");
-  if (/\s/.test(by)) throw acceptanceError(`--by must be one token, with no whitespace: ${opts.by}`, "by-missing");
+  if (!/^\S{1,64}$/.test(by)) throw acceptanceError(`--by must be one token of at most 64 non-space characters (the Log: owner slot): ${opts.by}`, "by-missing");
   const atInput = typeof opts.at === "string" ? opts.at.trim() : "";
   const atMs = Date.parse(atInput);
   if (!atInput || Number.isNaN(atMs)) {
     throw acceptanceError(`--at is required and must be a parseable ISO-8601 timestamp: ${opts.at ?? "<missing>"}`, "at-missing");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(atInput)) {
+    throw acceptanceError(`--at must be an ISO-8601 timestamp with a zone: ${opts.at}`, "at-missing");
   }
   const at = new Date(atMs).toISOString();
   if (!opts.repoRoot) throw acceptanceError("--repo is required");
@@ -1174,23 +1177,6 @@ export function withdrawRecord(opts = {}) {
     throw acceptanceError(`repository is unreadable: ${error.message}`);
   }
 
-  // --superseded-by resolves against the record's OWN docs/work directory (R2), never the
-  // caller's cwd or repo root - a record filed anywhere else names its neighbour by slug only.
-  let supersededBy = null;
-  if (opts.supersededBy !== undefined && String(opts.supersededBy).trim() !== "") {
-    supersededBy = String(opts.supersededBy).trim();
-    const recordDir = path.posix.dirname(String(opts.recordPath).replace(/\\/g, "/"));
-    const supersededRelative = path.posix.join(recordDir, `${supersededBy}.record.md`);
-    try {
-      readConfinedRegularFile(repoReal, repoRoot, supersededRelative, fsImpl);
-    } catch {
-      throw acceptanceError(
-        `--superseded-by names a record that does not exist on disk: ${supersededBy}`,
-        "superseded-by-missing",
-      );
-    }
-  }
-
   const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
   const record = parseRecord(text);
   const currentStatus = record.fields.status;
@@ -1202,6 +1188,37 @@ export function withdrawRecord(opts = {}) {
       `cannot withdraw from Status: "${currentStatus ?? "<missing>"}" - only ${WITHDRAWABLE_STATUSES.join(", ")} may be withdrawn`,
       "not-withdrawable",
     );
+  }
+
+  // --at must not move the record's Log: backwards in time (MINOR 3): a backdated withdraw
+  // would make collect-from-origin.mjs's hoursSinceLog report a false age.
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  if (atMs < lastLogMs) {
+    throw acceptanceError(`--at ${at} is before the record's last Log: (${record.log.at(-1).at})`, "at-missing");
+  }
+
+  // --superseded-by is a work id (R2), resolved against the record's OWN docs/work directory,
+  // never the caller's cwd or repo root - a record filed anywhere else names its neighbour by
+  // slug only, and it can never name itself.
+  let supersededBy = null;
+  if (opts.supersededBy !== undefined && String(opts.supersededBy).trim() !== "") {
+    supersededBy = String(opts.supersededBy).trim();
+    if (!/^wr-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/.test(supersededBy)) {
+      throw acceptanceError(`--superseded-by must be a work id (wr-<yyyy-mm-dd>-<slug>), not a path: ${supersededBy}`, "superseded-by-missing");
+    }
+    if (supersededBy === record.fields.work) {
+      throw acceptanceError("--superseded-by cannot name the record being withdrawn", "superseded-by-missing");
+    }
+    const recordDir = path.posix.dirname(String(opts.recordPath).replace(/\\/g, "/"));
+    const supersededRelative = path.posix.join(recordDir, `${supersededBy}.record.md`);
+    try {
+      readConfinedRegularFile(repoReal, repoRoot, supersededRelative, fsImpl);
+    } catch {
+      throw acceptanceError(
+        `--superseded-by names a record that does not exist on disk: ${supersededBy}`,
+        "superseded-by-missing",
+      );
+    }
   }
 
   // The Status: line is rewritten in place, matched against the record's OWN current status
