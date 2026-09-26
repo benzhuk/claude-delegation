@@ -62,3 +62,8 @@ comparing (a relative path is resolved against integrationWorktree; strip traili
 leniency: a different file is still a mismatch), and render the computed ABSOLUTE paths in the setup
 prompt as the values to report verbatim. Test: relative-but-same passes, different-file fails,
 `../` escapes resolved before compare.
+
+R8 (lead, 2026-09-26 ~10:05 NYC, from lane six's re-accept): work-record.mjs rejects an unknown header
+label, so a `Base-of:` HEADER line makes accept fail (`unknown label: Base-of`). SKILL.md must say the two
+parents go in the record BODY (e.g. "Base parents: <sha>, <sha>" after the header's blank line), never as
+a header line, until the record CLI learns the label (scripts/ is not this lane's).
