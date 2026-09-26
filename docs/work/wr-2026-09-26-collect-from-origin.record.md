@@ -1,7 +1,7 @@
 Work: wr-2026-09-26-collect-from-origin
 Scope: docs/specs/collect-from-origin-1/spec.md (read at origin/docs/lane-specs-0925 ce7ca65) with lead rulings docs/specs/collect-from-origin-1/contracts.md; territories C1 (collector script, test, docs/census.md) and C2 (team-build and decisions skills, decision-item template)
 Owner: skills-n
-Status: accepted
+Status: rejected
 Authority: build, review, integrate, push build/collect-from-origin-1 on green, and post its merge item to Ben's decisions page, without Ben; merge to main waits for Ben's word
 Artifact: build/collect-from-origin-1@8de9e42aa5e05658956e5253a428f3ae9dc38db3
 Evidence: docs/work/evidence/wr-2026-09-26-collect-from-origin-C1.md, docs/work/evidence/wr-2026-09-26-collect-from-origin-C2.md, docs/work/evidence/wr-2026-09-26-collect-from-origin-seam.md
@@ -18,6 +18,7 @@ Log: 2026-09-26T13:15:49.000Z rejected skills-n launch wf_b9df59bc-46c returned:
 Log: 2026-09-26T13:16:38.000Z owned skills-n lead ruling docs/specs/collect-from-origin-1/reports/C1-lead-ruling-r4.md: 60-line pin WAIVED at real size, layout-only fix round; relaunch with C1 startFrom NEEDS_FIXES, C2 startFrom APPROVE
 Log: 2026-09-26T13:34:35.000Z delivered skills-n (lines 17-19 re-timed from the lead transcript after accept; the hand-typed estimates were wrong, one was in the future; launch-2 startedAt arg said 09:38 NYC, real 09:16) launch wf_5aa4c182-f5e returned: C1 APPROVE r4 at 4843ef7 (layout-only), C2 APPROVE (startFrom), integrator PASS at 8de9e42 (no new failure vs base), seam r1 APPROVE at 8de9e42; accept-prep replaced the whole record header with five lines (defect), lead restored the record from 2166a26 and wrote the lines by hand
 Log: 2026-09-26T13:35:12.000Z reviewed skills-n seam r1 APPROVE 8de9e42aa5e05658956e5253a428f3ae9dc38db3
+Log: 2026-09-26T13:49:20.000Z rejected skills-n rework after acceptance: 5 of 21 collector tests fail on Windows (path separators), skills-fable rerun at 33aa023; fix round dispatched per docs/specs/collect-from-origin-1/reports/C1-windows-findings.md
 Census: - leadTurns: 4
 Census: - wallClockHours: 1.37
 Census: - by-model: claude-opus-5-5=11626687, claude-sonnet-5=23262339
