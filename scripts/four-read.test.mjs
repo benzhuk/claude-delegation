@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 
 import { runCensus } from './build-census.mjs';
 import {
@@ -40,24 +41,27 @@ async function buildCensusFile(dir, name = 'census.json') {
   return p;
 }
 
-function git(dir, args) {
-  return execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+function git(dir, args, env) {
+  return execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', env });
 }
 
+// N2 ("no test file in this suite inherits the runner environment on its own"): every child this
+// file spawns to build a git fixture goes through childEnv(), never a bare process.env.
 function initRepo(dir) {
-  git(dir, ['init', '-q']);
+  const env = childEnv(mkTmp('four-read-git-home-'));
+  git(dir, ['init', '-q'], env);
   // The machine's git-identity-guard hook refuses a commit whose author/committer email is
   // not on its allowlist, even inside a disposable scratch repo — use an allowed identity.
-  git(dir, ['config', 'user.email', 'benzhuk@gmail.com']);
-  git(dir, ['config', 'user.name', 'fixture']);
+  git(dir, ['config', 'user.email', 'benzhuk@gmail.com'], env);
+  git(dir, ['config', 'user.name', 'fixture'], env);
+  return env;
 }
 
-function commit(dir, file, content, message, isoDate) {
+function commit(dir, file, content, message, isoDate, env) {
   fs.writeFileSync(path.join(dir, file), content);
-  git(dir, ['add', file]);
-  const env = { ...process.env, GIT_AUTHOR_DATE: isoDate, GIT_COMMITTER_DATE: isoDate };
-  execFileSync('git', ['-C', dir, 'commit', '-q', '-m', message], { encoding: 'utf8', env });
-  return git(dir, ['rev-parse', 'HEAD']).trim();
+  git(dir, ['add', file], env);
+  git(dir, ['commit', '-q', '-m', message], { ...env, GIT_AUTHOR_DATE: isoDate, GIT_COMMITTER_DATE: isoDate });
+  return git(dir, ['rev-parse', 'HEAD'], env).trim();
 }
 
 // ── parseRecordText ──────────────────────────────────────────────────────────
@@ -261,14 +265,14 @@ test('computeReworkAfterAcceptance: no Base:/accepted sha/--git -> unavailable (
 
 test('computeReworkAfterAcceptance: counts only commits touching build files within 7 days, excludes release commits and commits outside the pathspec, and reports re-accept Log: entries', () => {
   const dir = mkTmp('four-read-git-');
-  initRepo(dir);
+  const env = initRepo(dir);
   const now = Date.now();
   const iso = (offsetMs) => new Date(now + offsetMs).toISOString();
-  const baseSha = commit(dir, 'a.txt', 'base', 'chore: base', iso(-3600000));
-  const acceptedSha = commit(dir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000));
-  commit(dir, 'a.txt', 'post-fix', 'fix: rework on build file', iso(60000)); // counts
-  commit(dir, 'b.txt', 'unrelated', 'fix: unrelated file', iso(120000)); // does not touch a.txt
-  commit(dir, 'a.txt', 'release bump', 'release: 0.20.9', iso(180000)); // excluded by subject
+  const baseSha = commit(dir, 'a.txt', 'base', 'chore: base', iso(-3600000), env);
+  const acceptedSha = commit(dir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000), env);
+  commit(dir, 'a.txt', 'post-fix', 'fix: rework on build file', iso(60000), env); // counts
+  commit(dir, 'b.txt', 'unrelated', 'fix: unrelated file', iso(120000), env); // does not touch a.txt
+  commit(dir, 'a.txt', 'release bump', 'release: 0.20.9', iso(180000), env); // excluded by subject
 
   const fields = { base: baseSha };
   const logs = [
@@ -285,13 +289,13 @@ test('computeReworkAfterAcceptance: counts only commits touching build files wit
 
 test('computeReworkAfterAcceptance: excludes this repo\'s real release subject forms, not just "release: ..." (MAJOR 2)', () => {
   const dir = mkTmp('four-read-git-release-forms-');
-  initRepo(dir);
+  const env = initRepo(dir);
   const now = Date.now();
   const iso = (offsetMs) => new Date(now + offsetMs).toISOString();
-  const baseSha = commit(dir, 'a.txt', 'base', 'chore: base', iso(-3600000));
-  const acceptedSha = commit(dir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000));
-  commit(dir, 'a.txt', 'release bump 1', 'chore: release 0.20.9', iso(60000)); // excluded
-  commit(dir, 'a.txt', 'release bump 2', 'chore(release): 0.20.7', iso(120000)); // excluded
+  const baseSha = commit(dir, 'a.txt', 'base', 'chore: base', iso(-3600000), env);
+  const acceptedSha = commit(dir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000), env);
+  commit(dir, 'a.txt', 'release bump 1', 'chore: release 0.20.9', iso(60000), env); // excluded
+  commit(dir, 'a.txt', 'release bump 2', 'chore(release): 0.20.7', iso(120000), env); // excluded
   const fields = { base: baseSha };
   const logs = [{ status: 'accepted', at: new Date(now - 1800000).toISOString(), owner: 'x', note: `artifact ${acceptedSha}` }];
   const r = computeReworkAfterAcceptance(fields, logs, dir, 'HEAD');
@@ -302,9 +306,9 @@ test('computeReworkAfterAcceptance: excludes this repo\'s real release subject f
 
 test('computeReworkAfterAcceptance: the Artifact: fallback is only used with a single accepted entry — a re-accept without an artifact note gives unavailable, never the wrong (last) sha (MINOR 9)', () => {
   const dir = mkTmp('four-read-git-fallback-');
-  initRepo(dir);
+  const env = initRepo(dir);
   const iso = new Date().toISOString();
-  const sha = commit(dir, 'a.txt', 'x', 'chore: only commit', iso);
+  const sha = commit(dir, 'a.txt', 'x', 'chore: only commit', iso, env);
   const fields = { base: sha, artifact: `build/x@${sha}` };
   const logs = [
     { status: 'accepted', at: iso, owner: 'x', note: 'no artifact mentioned here' },
@@ -316,9 +320,9 @@ test('computeReworkAfterAcceptance: the Artifact: fallback is only used with a s
 
 test('computeReworkAfterAcceptance: base == accepted (no changed files) -> unavailable (no range)', () => {
   const dir = mkTmp('four-read-git-norange-');
-  initRepo(dir);
+  const env = initRepo(dir);
   const iso = new Date().toISOString();
-  const sha = commit(dir, 'a.txt', 'x', 'chore: only commit', iso);
+  const sha = commit(dir, 'a.txt', 'x', 'chore: only commit', iso, env);
   const fields = { base: sha };
   const logs = [{ status: 'accepted', at: iso, owner: 'x', note: `artifact ${sha}` }];
   assert.equal(computeReworkAfterAcceptance(fields, logs, dir, 'HEAD').value, 'unavailable (no range); 0 re-accept Log: entries after the first');
@@ -326,9 +330,9 @@ test('computeReworkAfterAcceptance: base == accepted (no changed files) -> unava
 
 test('computeReworkAfterAcceptance: an unresolvable git ref fails closed as unavailable, not a thrown error', () => {
   const dir = mkTmp('four-read-git-bad-');
-  initRepo(dir);
+  const env = initRepo(dir);
   const iso = new Date().toISOString();
-  commit(dir, 'a.txt', 'x', 'chore: only commit', iso);
+  commit(dir, 'a.txt', 'x', 'chore: only commit', iso, env);
   const fields = { base: 'not-a-real-ref' };
   const logs = [{ status: 'accepted', at: iso, owner: 'x', note: 'artifact 0123456' }];
   const r = computeReworkAfterAcceptance(fields, logs, dir, 'HEAD');
