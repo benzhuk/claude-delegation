@@ -14,7 +14,7 @@ Spec-from: docs/specs/2026-09-26-gate-under-load.md@b786916
 Base: 68d2a154505665f98280d73e88e4a4d6cf05b020
 Log: 2026-09-26T22:42:00Z runnable lead setup authorized; status creation pending branch push
 Log: 2026-09-26T22:51:26.927Z owned gate-builder
-Log: 2026-09-26T23:25:50.496Z delivered skills-a received builder idle baseline evidence: three focused file runs each PASS 43/43, durations 27.003s, 19.899s, and 12.181s
+Log: 2026-09-26T23:25:50.496Z delivered skills-a received builder idle baseline evidence: three focused file runs each PASS 43/43, durations 27.003s, 19.899s, and 12.181s; serial UTC intervals were not retained
 Log: 2026-09-26T23:00:57.227Z baseline CAPTURE_UNAVAILABLE for first paired prechange file run; no exit or stdout was retained
 Log: 2026-09-26T23:01:47.287Z baseline loaded FAIL 42/43, exit 1: 45 concurrent calls emitted 0 cards; raw log docs/work/evidence/wr-2026-09-26-gate-under-load-G1-prechange-loaded.log
 Log: 2026-09-26T23:16:34.431Z delivered skills-a artifact build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9; ten loaded post-change file runs exit 0 (suite PIDs 73596 and 71244, both exit 0)
