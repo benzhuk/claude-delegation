@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { childEnv } from "../../multi/scripts/test-child-env.mjs";
 import {
   parseArgs, editRecord, splitPreservingEol, joinPreservingEol, formatLogLine, main,
 } from "./accept-prep.mjs";
@@ -364,7 +365,7 @@ test("R3b ORDER: census sees the reviewed Log: line already present, and check-a
   const orderLog = path.join(tmp, "order.log");
   fs.writeFileSync(orderLog, "");
 
-  const env = { ...process.env, ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath };
+  const env = childEnv(tmp, { ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath });
   const result = spawnSync(process.execPath, baseCliArgs({ repo, recordRel, pluginRoot }), { encoding: "utf8", env });
 
   assert.equal(result.status, 0, `stderr: ${result.stderr}\nstdout: ${result.stdout}`);
@@ -392,7 +393,7 @@ test("R3c: a failing census leaves the record's edit in place, reports censusPat
   const orderLog = path.join(tmp, "order.log");
   fs.writeFileSync(orderLog, "");
 
-  const env = { ...process.env, ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath };
+  const env = childEnv(tmp, { ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath });
   const result = spawnSync(process.execPath, baseCliArgs({ repo, recordRel, pluginRoot }), { encoding: "utf8", env });
 
   assert.notEqual(result.status, 0, "accept-prep must exit non-zero when census fails");
@@ -420,7 +421,7 @@ test("m2: runCensus creates the --census-out directory when it does not already 
   fs.writeFileSync(orderLog, "");
   assert.ok(!fs.existsSync(path.join(repo, "docs/work/evidence")), "the evidence dir must not pre-exist for this test to be meaningful");
 
-  const env = { ...process.env, ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath };
+  const env = childEnv(tmp, { ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath });
   const result = spawnSync(process.execPath, baseCliArgs({ repo, recordRel, pluginRoot }), { encoding: "utf8", env });
 
   assert.equal(result.status, 0, `stderr: ${result.stderr}\nstdout: ${result.stdout}`);
@@ -438,7 +439,7 @@ test("R3d: a full successful run never writes Status: accepted and never invokes
   const orderLog = path.join(tmp, "order.log");
   fs.writeFileSync(orderLog, "");
 
-  const env = { ...process.env, ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath };
+  const env = childEnv(tmp, { ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath });
   const result = spawnSync(process.execPath, baseCliArgs({ repo, recordRel, pluginRoot }), { encoding: "utf8", env });
 
   assert.equal(result.status, 0, `stderr: ${result.stderr}`);
