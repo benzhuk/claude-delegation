@@ -23,9 +23,11 @@ import {
   applySafe,
   gatherWorkarounds,
   isUnstarted,
+  isTipOnMainline,
   summarizeCounts,
   writeRecord,
   gatherOutside,
+  classify,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -1472,6 +1474,72 @@ test("J1.1: a genuinely --no-ff-merged, pushed branch is still classified SAFE (
 });
 
 // ---------------------------------------------------------------------------
+// J1 review round 2, finding F1: SHA-equality-against-origin/main's-CURRENT-tip only holds while
+// main never advances again. Once another lane merges and pushes, a zero-commit branch/worktree cut
+// EARLIER stops equaling main's NEW tip and must still read UNSTARTED, never "merged"/SAFE.
+// ---------------------------------------------------------------------------
+
+test("J1 review round 2 F1: a worktree and a branch cut from main stay UNSTARTED (never SAFE) even after another lane merges and pushes", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const freshWt = addFreshWorktree(root, "lane-w");
+  git(["branch", "lane-b"], root);
+
+  // Another lane's real work lands on main and is pushed - main's tip moves past the point lane-w
+  // and lane-b were cut from.
+  addWorktree(root, "other-lane-work");
+  mergeIntoMain(root, "other-lane-work");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const freshWtReal = fs.realpathSync(freshWt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === freshWtReal), "lane-w must never become SAFE just because main moved on");
+  assert.ok(!state.safe.branches.some((b) => b.ref === "lane-b"), "lane-b must never become SAFE just because main moved on");
+
+  const wtRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === freshWtReal);
+  assert.ok(wtRow, "lane-w must still be a JUDGMENT row");
+  assert.match(wtRow.reason, /^unstarted \(tip is main\)/);
+
+  const branchRow = state.judgment.branches.find((b) => b.ref === "lane-b");
+  assert.ok(branchRow, "lane-b must still be a JUDGMENT row");
+  assert.match(branchRow.reason, /^unstarted \(tip is main\)/);
+
+  // sanity: the mechanical primitive itself agrees, independent of classify()'s wiring.
+  assert.ok(isTipOnMainline(toplevel, git(["rev-parse", "refs/heads/lane-b"], root).trim(), "main"));
+});
+
+test("J1 review round 2 F1/F9: a DIRTY worktree cut from main is reported unstarted too, and only once (no duplicate branch row)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const freshWt = addFreshWorktree(root, "lane-dirty");
+  fs.writeFileSync(path.join(freshWt, "scratch.txt"), "uncommitted\n");
+
+  addWorktree(root, "other-lane-work-2");
+  mergeIntoMain(root, "other-lane-work-2");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const freshWtReal = fs.realpathSync(freshWt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === freshWtReal));
+  const wtRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === freshWtReal);
+  assert.ok(wtRow);
+  assert.match(wtRow.reason, /tree not clean.*unstarted \(tip is main\)/, "a dirty unstarted worktree must say BOTH things");
+
+  const branchRows = state.judgment.branches.filter((b) => b.ref === "lane-dirty");
+  assert.equal(branchRows.length, 0, "the worktree row already told lane-dirty's story - no second row for the same lane");
+});
+
+// ---------------------------------------------------------------------------
 // J1 item 2: age floor - nothing younger than --min-age-hours (default 6) is SAFE.
 // ---------------------------------------------------------------------------
 
@@ -1552,6 +1620,72 @@ test("J1.2: --min-age-hours defaults to 6 on the CLI when the flag is omitted", 
   assert.equal(code, 1);
 });
 
+test("J1 review round 2 F3: a branch re-created NOW at an old, already-merged commit is JUDGMENT 'younger than the age floor', not old-commit-time SAFE", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // A real, --no-ff-merged feature, but its own commit is backdated years into the past - the exact
+  // shape of `git switch <name>` on a long-merged remote branch: the COMMIT is old, the REF is not.
+  const wt = addWorktree(root, "feature-old-tip");
+  const oldEnv = { ...process.env, GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z" };
+  fs.writeFileSync(path.join(wt, "old.txt"), "old\n");
+  git(["add", "."], wt);
+  execFileSync("git", ["commit", "-q", "-m", "backdated work", "--amend", "--no-edit"], { cwd: wt, encoding: "utf8", env: oldEnv });
+  mergeIntoMain(root, "feature-old-tip");
+  pushMain(root);
+  const oldSha = git(["rev-parse", "refs/heads/feature-old-tip"], root).trim();
+  git(["worktree", "remove", "--force", wt], root);
+  git(["branch", "-D", "feature-old-tip"], root);
+
+  // A brand-new ref, created right now, pointing at that same old commit.
+  git(["branch", "revive", oldSha], root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config }); // default floor (6h), real clock
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "revive"), "must never be SAFE just because the COMMIT it points at is old");
+  const row = state.judgment.branches.find((b) => b.ref === "revive");
+  assert.ok(row, "must be a JUDGMENT row");
+  assert.match(row.reason, /^younger than the age floor, [\d.]+h old, floor 6h$/);
+});
+
+test("J1 review round 2 F4: an unknown age (null) is never treated as 'old enough' - classify() sends it to JUDGMENT, never SAFE", () => {
+  const state = classify({
+    root: "/fixture-root",
+    mainBranch: "main",
+    worktrees: [
+      { path: "/fixture-root", branch: "main", main: true, bare: false },
+      {
+        path: "/fixture-root/wt",
+        branch: "feature-null-age",
+        main: false,
+        bare: false,
+        locked: false,
+        hasSubmodules: false,
+        prunable: false,
+        clean: true,
+        merged: true,
+        onOrigin: true,
+        unstarted: false,
+        ageHours: null,
+      },
+    ],
+    branches: [
+      { name: "feature-null-age-branch", merged: true, onOrigin: true, daysSinceCommit: 1, unstarted: false, ageHours: null },
+    ],
+    untrackedFiles: [],
+    minAgeHours: 6,
+  });
+  assert.ok(!state.safe.worktrees.some((w) => w.branch === "feature-null-age"));
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feature-null-age-branch"));
+  const wtRow = state.judgment.worktrees.find((w) => w.branch === "feature-null-age");
+  const bRow = state.judgment.branches.find((b) => b.ref === "feature-null-age-branch");
+  assert.ok(wtRow && /age unknown, floor 6h/.test(wtRow.reason));
+  assert.ok(bRow && /age unknown, floor 6h/.test(bRow.reason));
+});
+
 // ---------------------------------------------------------------------------
 // J1 item 3: remote class, report-only - origin/* branches merged into origin/main, excluding
 // protected names, with the exact human delete command. Never executed.
@@ -1574,7 +1708,9 @@ test("J1.3: a remote-only branch merged into origin/main is JUDGMENT with the ex
 
   const row = state.judgment.remoteBranches.find((r) => r.ref === "origin/feat-remote-merged");
   assert.ok(row, "a remote branch merged into origin/main must be a JUDGMENT row");
-  assert.equal(row.reason, "remote branch merged into main");
+  // J1 review round 2 (F6): the reason now names the tip sha the verdict was read against (another
+  // host's fetch could be stale), and the command is shell-quoted (a no-op for this ordinary name).
+  assert.match(row.reason, /^remote branch merged into main \(at [0-9a-f]{7}, as of last fetch\)$/);
   assert.equal(row.command, "git push origin --delete feat-remote-merged");
 
   const origLog = console.log;
@@ -1586,6 +1722,30 @@ test("J1.3: a remote-only branch merged into origin/main is JUDGMENT with the ex
   }
   const remoteRefsAfter = git(["for-each-ref", "refs/remotes/origin", "--format=%(refname)"], root);
   assert.match(remoteRefsAfter, /feat-remote-merged/, "the janitor never deletes a remote branch itself - report-only");
+});
+
+test("J1 review round 2 F2: an unstarted PUSHED branch (a lane base cut from main) is never called 'merged into main' even after main advances, and gets no delete command", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // A lane's base branch, pushed at main's tip before any work happened.
+  git(["push", "-q", "origin", "main:refs/heads/lane-r"], root);
+
+  // Main advances and is pushed - the exact condition under which the OLD ancestor-based remote
+  // check called this "merged into main".
+  addWorktree(root, "other-lane-work-3");
+  mergeIntoMain(root, "other-lane-work-3");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const row = state.judgment.remoteBranches.find((r) => r.ref === "origin/lane-r");
+  assert.ok(row, "an unstarted pushed branch must still be a JUDGMENT row");
+  assert.equal(row.reason, "unstarted remote branch (tip is main), a person decides");
+  assert.equal(row.command, "", "no delete command for a branch that is not actually merged");
 });
 
 test("J1.3: origin/<mainBranch> itself never appears as its own remote-class JUDGMENT row", () => {
@@ -1690,12 +1850,40 @@ test("J1.4: a bare --record defaults to docs/work/evidence/janitor/ under the pr
   } finally {
     console.log = origLog;
   }
-  const dateStr = new Date().toISOString().slice(0, 10);
+  // J1 review round 2 (F7): the date is now America/New_York, not UTC (facts.md fixes Ben's clock
+  // there) - compare against the same zone, not `toISOString()`, so this assertion cannot itself
+  // flake across the UTC/NY day boundary.
+  const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
   const dir = path.join(root, "docs", "work", "evidence", "janitor");
   const files = fs.readdirSync(dir);
   assert.ok(files.some((f) => f.startsWith(`${dateStr}-`) && f.endsWith(".json")), `expected a dated json file, got ${JSON.stringify(files)}`);
   assert.ok(files.includes("drift.md"));
   void code;
+});
+
+test("J1 review round 2 F7: --record is byte-identical given the same now/hostName - the same inputs must never write two different bytes", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-det");
+  mergeIntoMain(root, "feature-det");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const now = new Date("2026-09-26T23:30:00Z"); // 19:30 EDT - inside the UTC/NY mismatch window F7 fixes
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, now });
+
+  const dirA = mkTmp("janitor-record-a-");
+  const dirB = mkTmp("janitor-record-b-");
+  const a = writeRecord({ root: toplevel, dir: dirA, state, mainBranch: "main", now, hostName: "same-host" });
+  const b = writeRecord({ root: toplevel, dir: dirB, state, mainBranch: "main", now, hostName: "same-host" });
+
+  assert.equal(path.basename(a.jsonPath), "2026-09-26-same-host.json", "19:30 EDT on 2026-09-26 must file under the NY date, not UTC's 2026-09-27");
+  assert.equal(fs.readFileSync(a.jsonPath, "utf8"), fs.readFileSync(b.jsonPath, "utf8"), "identical inputs must write identical bytes");
+  const driftA = fs.readFileSync(a.driftPath, "utf8");
+  const driftB = fs.readFileSync(b.driftPath, "utf8");
+  assert.equal(driftA, driftB, "identical inputs must append identical drift.md lines");
 });
 
 // ---------------------------------------------------------------------------
@@ -1729,6 +1917,28 @@ test("J1.5: --outside lists rollout-backups/ws entries by size and date, recomme
 test("J1.5: gatherOutside never throws and returns [] for a missing ~/.agents directory", () => {
   const agentsDir = path.join(mkTmp("janitor-agents-missing-"), "does-not-exist");
   assert.deepEqual(gatherOutside({ agentsDir }), []);
+});
+
+test("J1 review round 2 F5: ws/* entries are always 'a person decides' - a live workspace's top-level mtime says nothing about activity inside it", () => {
+  const agentsDir = mkTmp("janitor-agents-ws-");
+  const ws = path.join(agentsDir, "ws");
+  fs.mkdirSync(ws, { recursive: true });
+  const names = ["ws-old", "ws-mid", "ws-new"];
+  const now = Date.now();
+  names.forEach((name, i) => {
+    const p = path.join(ws, name);
+    fs.mkdirSync(p);
+    fs.writeFileSync(path.join(p, "f.txt"), "x");
+    const t = new Date(now - (names.length - i) * 86400000);
+    fs.utimesSync(p, t, t);
+  });
+
+  const rows = gatherOutside({ agentsDir });
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
+    assert.match(row.reason, /a person decides/, `ws entries must never get a removal recommendation: ${row.reason}`);
+    assert.doesNotMatch(row.reason, /recommend: remove/);
+  }
 });
 
 after(() => {
