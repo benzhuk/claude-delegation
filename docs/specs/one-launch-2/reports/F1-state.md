@@ -7,37 +7,30 @@ the one SKILL.md sentence; R6 pins the gate; R7 setup-path normalisation; R8 say
 Base-of/parents go in the record BODY, never a header line — a lead ruling I applied to
 the R5 sentence this round after review finding M2).
 
-Done round 2 (F1-review.md round-1 findings, applied except M4):
-- B1 (BLOCKER): added `insertLine` helper in accept-prep.mjs; both header splices
-  (Worktree insert, Log append) now go through it so a header-only, no-trailing-newline
-  record never gets its last unowned line glued to the new one. Two new tests.
-- M1: build-loop-workflow.js's four sibling-path compares (reviewer/integrator/seam
-  brief, report) now use `samePath` like the territory rows already did (R7). 3 new tests.
-- M2: SKILL.md's one sentence reworded so Base parents go in the record body, matching
-  R8 (was contradicting it, per the review).
-- M3: acceptPrepPrompt now tells the runner to `cd` to the plugin root before running the
-  helper command, and names all three bracketed placeholders (was "two").
-- m1: `--evidence none` no longer appended as a literal evidence path (reuses
-  splitEvidenceList on both sides of the merge).
-- m2: runCensus now mkdirs the --census-out directory before spawning build-census.mjs.
-- m3: `--marker` is now single-quoted (shell-escaped) in the rendered command.
-- m4: an empty-string seamBriefPath now falls back to the reviewer brief (`||` not `??`).
-- m5: integratePrompt now says "report headSha as the full 40-character output of..."
-  explicitly, since nothing else in the mandate requires that length.
-- NOT applied: M4 (census-stale can still surface at the lead's real `accept --census`
-  even though accept-prep's own step 3 looks clean) — the review itself says this needs a
-  LEAD ruling on R2's pinned step-3 shape (three options given, one of which — passing
-  --census through step 3 — would change R2's pinned CLI). No R9 ruling exists in
-  contracts.md as of this round; applying any option unilaterally would exceed this
-  territory's "check in before changing... step order R2 pins" autonomy boundary. Flagged
-  for the lead/integrator, not silently dropped.
+Done round 2 (F1-review.md round-1 findings, applied except M4): B1 BLOCKER (insertLine
+helper fixes header-splice corruption, 2 tests); M1 (samePath for the 4 sibling-path
+compares, 3 tests); M2 (SKILL.md sentence reworded to match R8, body not header); M3
+(acceptPrepPrompt cd's to plugin root, names all 3 placeholders); m1 (`--evidence none`
+no longer a literal path); m2 (runCensus mkdirs --census-out dir); m3 (`--marker`
+single-quoted); m4 (empty-string seamBriefPath falls back via `||`); m5 (headSha wording
+says "full 40-character"). NOT applied: M4 (census-stale re-check) — needs a LEAD ruling
+on R2's pinned step-3 shape; flagged, not silently dropped; still open, see below.
 
-Gate: 100/100 pass (was 92; +8 new tests: B1 x2, M1 x3, m1 x1(2 cases), m2 x1, m4 x1, plus
-M3/m3/m5 asserted inline in existing tests). Re-ran the R3b ORDER negative demonstration
-in scratch against a step1/step2-swapped copy post-fix: 16/17 pass, only ORDER fails with
-`sawReviewedLog=false` — still discriminates correctly.
+Gate (round 2): 100/100 pass (was 92; +8 new tests). Re-ran R3b ORDER negative
+demonstration against a step1/step2-swapped copy: only ORDER fails, still discriminates.
 
-Next: nothing outstanding in this territory except the M4 lead ruling noted above.
+Done round 3 (integrator-report.md finding, N2 triaged to F1, sha
+4eb7bd1e91f716f902c86681a075eff67e473fc4): accept-prep.test.mjs's 4 spawnSync sites (orig
+lines 367/395/423/441) spread the runner env directly instead of the sealed `childEnv()`
+helper (skills/multi/scripts/test-child-env.mjs), tripping the repo-wide N2 invariant
+(hooks.test.mjs) even though this territory's own gate never runs that file. Fixed:
+imported `childEnv` (same relative path build-loop-workflow.test.mjs already uses),
+routed all 4 sites through `childEnv(tmp, { ORDER_LOG, RECORD_ABS_PATH })`, using each
+test's own fixture tmp dir as the "home" arg. No fixture files changed; R3(a) byte-diff
+assertions unaffected. Only file touched: accept-prep.test.mjs.
+
+Next: nothing outstanding except the M4 lead ruling (unresolved, lead's call, not
+re-litigated this round since no new finding named it).
 
 Open questions: M4's resolution (accept-prep report census-stale itself vs. lead re-runs
 census at accept-turn vs. a future scripts/ change) is the lead's call, not mine —
@@ -46,5 +39,7 @@ explicitly NOT this lane).
 
 How to run my gate:
 node --test skills/team-build/references/build-loop-workflow.test.mjs skills/team-build/references/accept-prep.test.mjs
-(run from /home/ben/Code/wt-one-launch-2-F1). Log at
-docs/specs/one-launch-2/reports/F1-gate.log (in wt-olfix): exit 0, 100/100 pass.
+(run from /home/ben/Code/wt-one-launch-2-F1): exit 0, 100/100 pass.
+Also (the reviewer-named repro): node --test --test-name-pattern=N2 skills/multi/scripts/hooks.test.mjs
+(same worktree): exit 0, 1/1 pass.
+Logs at docs/specs/one-launch-2/reports/F1-gate.log and F1-n2-gate.log (in wt-olfix).
