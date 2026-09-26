@@ -431,7 +431,24 @@ export function mainCheckout(dir, runner) {
   if (!common) return start;
   let c = toPosix(common.trim());
   if (!c) return start;
-  if (!path.posix.isAbsolute(c) && !/^[A-Za-z]:/.test(c)) c = toPosix(path.resolve(start, c));
+
+  const isDriveLettered = (p) => /^[A-Za-z]:/.test(p);
+  const isUNC = (p) => /^\/\/[^/]/.test(p);
+  const cIsAbsolute = path.posix.isAbsolute(c) || isDriveLettered(c);
+
+  if (!cIsAbsolute) {
+    if (path.posix.isAbsolute(start) || isDriveLettered(start)) {
+      // Compose onto `start`'s own string, never the process cwd (H6's bug: on Linux,
+      // `path.resolve` does not recognise a POSIX-relative-looking drive-lettered or UNC
+      // `start` as absolute, so it silently prefixes cwd). UNC's leading `//` must never
+      // pass through `path.posix.normalize`/`join`/`resolve` — they collapse it to a
+      // single `/` — so a UNC `start` is joined by hand, string-only, no such call.
+      const base = start.replace(/\/+$/, '');
+      c = isUNC(start) ? `${base}/${c}` : toPosix(path.posix.normalize(`${base}/${c}`));
+    } else {
+      c = toPosix(path.resolve(start, c)); // a genuinely relative `start`: cwd-relative is correct
+    }
+  }
   return c.replace(/\/?\.git\/?$/, '') || start;
 }
 

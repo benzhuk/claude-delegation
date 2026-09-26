@@ -368,6 +368,13 @@ test('H6: a plain checkout resolves to itself, and backslashes are normalised (L
   assert.equal(mainCheckout('C:\\Users\\benzh\\Code\\Zhuk Projects', () => '.git\n'), 'C:/Users/benzh/Code/Zhuk Projects');
 });
 
+test('H6: a drive-lettered checkout composes a bare `.git` common-dir with no platform branch (L1)', () => {
+  // Same drive-lettered/bare-`.git` shape as the test above, already forward-slashed so this one
+  // isolates the composition fix itself from the backslash-normalisation step. No `process.platform`
+  // check in this test: `mainCheckout`'s own string logic is what must make this pass on Linux too.
+  assert.equal(mainCheckout('C:/Users/benzh/Code/Zhuk Projects', () => '.git\n'), 'C:/Users/benzh/Code/Zhuk Projects');
+});
+
 test('a non-repo directory falls back to itself instead of throwing', () => {
   const git = () => { throw new Error('fatal: not a git repository'); };
   assert.equal(mainCheckout('/tmp/whatever', git), '/tmp/whatever');
