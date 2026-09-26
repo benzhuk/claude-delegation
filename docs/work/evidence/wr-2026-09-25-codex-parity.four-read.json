@@ -3,12 +3,12 @@
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "unavailable (no census combined sums)"
+      "value": "unavailable (no census)"
     },
     {
       "key": "notesToLeadPerBuild",
       "label": "Notes to the lead per build",
-      "value": "unavailable (no ledger dir)"
+      "value": "10 note(s) to skills-a: RESULT skills-o-codex-parity-4, RESULT skills-o-codex-parity-5, RESULT skills-o-codex-parity-p3-1, RESULT skills-o-codex-parity-p2-1, RESULT skills-o-codex-parity-p3-3, RESULT skills-o-codex-parity-p3-5, RESULT skills-o-codex-parity-p1-1, RESULT skills-o-codex-parity-p1-3, RESULT skills-o-codex-parity-final-3, RESULT skills-o-codex-parity-final-5"
     }
   ],
   "leadSession": {
@@ -35,7 +35,7 @@
     {
       "key": "workLostOrStalled",
       "label": "Work lost or stalled",
-      "value": "gaps unavailable (no Lead-session:); ASKs unavailable (no ledger dir)"
+      "value": "gaps unavailable (no Lead-session:); 0 unanswered ASKs to skills-a"
     }
   ],
   "record": "docs/work/wr-2026-09-25-codex-parity.record.md"

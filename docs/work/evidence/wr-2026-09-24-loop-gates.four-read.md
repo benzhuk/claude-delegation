@@ -2,6 +2,8 @@
 
 Lead session: `7ce97c6a-d864-448c-ac6a-4251cab72bb0` (id came from --lead-session on the command line; the census file names the lead session file it read)
 
+Census window (MINOR 3, r2): generated with `--from 2026-09-25T01:52:55.000Z --to 2026-09-25T03:02:25.078Z` (Opened: to the last Log: line); see `wr-2026-09-24-loop-gates.census.md`'s own Window: line for the observed span.
+
 | number | value |
 |---|---|
 | Top-tier tokens per build | unavailable (census window 2026-09-25T01:56:48.611Z is not the build window) |
@@ -13,5 +15,5 @@ Lead session: `7ce97c6a-d864-448c-ac6a-4251cab72bb0` (id came from --lead-sessio
 
 | line | value |
 |---|---|
-| Top-tier assistant messages per build | 0 messages; tokens: cache-read 4459061, cache-write 113268, input 90, output 38596 |
-| Notes to the lead per build | unavailable (no ledger dir) |
+| Top-tier assistant messages per build | unavailable (census window 2026-09-25T01:56:48.611Z is not the build window) |
+| Notes to the lead per build | unavailable (record opened at acceptance: no Log: entry before the first accepted) |

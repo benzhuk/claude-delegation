@@ -3,12 +3,12 @@
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "182 messages; tokens: cache-read 42232765, cache-write 2097440, input 998, output 440451"
+      "value": "490 messages; tokens: cache-read 42232765, cache-write 2097440, input 998, output 440451"
     },
     {
       "key": "notesToLeadPerBuild",
       "label": "Notes to the lead per build",
-      "value": "unavailable (no ledger dir)"
+      "value": "1 note(s) to skills-o: ASK skills-fable-census-complete-1"
     }
   ],
   "leadSession": {
@@ -35,7 +35,7 @@
     {
       "key": "workLostOrStalled",
       "label": "Work lost or stalled",
-      "value": "1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); ASKs unavailable (no ledger dir)"
+      "value": "1 gap(s) over 30min: 2026-09-25T03:12:39.717Z (505.2min); 0 unanswered ASKs to skills-o"
     }
   ],
   "record": "docs/work/wr-2026-09-25-census-complete.record.md"

@@ -3,12 +3,12 @@
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "unavailable (no census combined sums)"
+      "value": "unavailable (no census)"
     },
     {
       "key": "notesToLeadPerBuild",
       "label": "Notes to the lead per build",
-      "value": "unavailable (no ledger dir)"
+      "value": "unavailable (slug orchestrator not in ledger)"
     }
   ],
   "leadSession": {
@@ -35,7 +35,7 @@
     {
       "key": "workLostOrStalled",
       "label": "Work lost or stalled",
-      "value": "gaps unavailable (no Lead-session:); ASKs unavailable (no ledger dir)"
+      "value": "gaps unavailable (no Lead-session:); ASKs unavailable (slug orchestrator not in ledger)"
     }
   ],
   "record": "docs/work/wr-2026-09-21-next-build-t1.record.md"

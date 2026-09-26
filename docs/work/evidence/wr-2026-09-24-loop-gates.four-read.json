@@ -3,12 +3,12 @@
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "0 messages; tokens: cache-read 4459061, cache-write 113268, input 90, output 38596"
+      "value": "unavailable (census window 2026-09-25T01:56:48.611Z is not the build window)"
     },
     {
       "key": "notesToLeadPerBuild",
       "label": "Notes to the lead per build",
-      "value": "unavailable (no ledger dir)"
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted)"
     }
   ],
   "leadSession": {
