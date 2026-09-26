@@ -12,5 +12,6 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-26T09:39:55-04:00
 Base: 33aa023bd927b44b23292d540cc0c2aed4ced212
 Log: 2026-09-26T13:41:22.000Z owned skills-n launch dispatched, setup mode, one territory F1; ACK sent over ssh on ben-desktop
+Log: 2026-09-26T13:47:27.000Z owned skills-n launch wf_bc76a98a-05b returned setup-failed after setup had succeeded (relative briefPath vs absolute computed path, exact-string compare): added as contracts R7; relaunched in given mode on setup's own worktree and briefs
 
 Observed: pending.

@@ -52,3 +52,13 @@ skills/team-build/references/accept-prep.test.mjs`; integration `node scripts/ru
 failure vs base by failing test name (H6 note-send and V4 mirror-shim are known on base). Reviewer attack
 brief per spec Acceptance. Every agent: never send peer notes, never set a git identity, no destructive
 git, never push; a denied command stops the step and is reported, never routed around.
+
+R7 (added by the lead after this build's own first launch, 2026-09-26 ~09:55 NYC). The setup stage's
+check compares the setup agent's returned worktree/branch/briefPath to the script-computed values as
+exact strings, so a correct but RELATIVE briefPath (`docs/specs/one-launch-2/briefs/F1.md` against the
+computed absolute `/home/ben/Code/wt-olfix/docs/specs/one-launch-2/briefs/F1.md`) returned
+setup-failed after the setup work had fully succeeded (run wf_bc76a98a-05b). Fix: normalise before
+comparing (a relative path is resolved against integrationWorktree; strip trailing slashes; no other
+leniency: a different file is still a mismatch), and render the computed ABSOLUTE paths in the setup
+prompt as the values to report verbatim. Test: relative-but-same passes, different-file fails,
+`../` escapes resolved before compare.
