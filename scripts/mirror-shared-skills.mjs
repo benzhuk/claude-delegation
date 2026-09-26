@@ -74,7 +74,7 @@ const OWN_SOURCE_PATH = REPO.split(path.sep).join('/');
  */
 const CODEX_HOOK_SCRIPT = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
 
-export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server', 'bearings', 'continue'];
+export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server', 'bearings', 'continue', 'janitor'];
 export const CLAUDE_SKILLS = ['knowledge', 'triage', 'learn'];
 /** The docs every mirrored skill links to. Without these, `../_docs/model-tiers.md` dangles (S1). */
 const SHARED_DOC_FILES = [

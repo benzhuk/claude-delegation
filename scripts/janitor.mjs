@@ -31,6 +31,27 @@
 //   open one (not yet due, or a worded condition this tool can't evaluate) is display-only; a
 //   missing `docs/work` directory is not a finding either way.
 //
+// J1 (2026-09-26 sweep findings) additions:
+//   UNSTARTED: a worktree/branch whose tip sits on the FIRST-PARENT chain of origin/<main> (or local
+//   <main>'s, with no origin) never diverged, so it is never "merged" and never SAFE, whatever an
+//   ancestor-based check would otherwise say - reported under JUDGMENT as `unstarted (tip is main)`.
+//   J1 review round 2 (F1): a bare SHA-equality test against origin/<main>'s CURRENT tip only holds
+//   while main never moves again; the moment any other lane merges and pushes, a zero-commit branch
+//   or worktree cut earlier reads as "merged" and becomes SAFE. First-parent-chain membership does
+//   not have that hole: a --no-ff merge's feature tip is reachable only through the merge's SECOND
+//   parent, never the first-parent chain, so it stays correctly distinguishable from an unstarted
+//   tip no matter how far main has since moved.
+//   Age floor: nothing younger than `--min-age-hours` (CLI default 6) is ever SAFE. Age is the
+//   younger of the ref's last-commit time and its own reflog time (F3: a branch re-created at an old
+//   commit, e.g. by `git switch` on a merged remote branch, is not old just because the commit is),
+//   and a checked-out branch reports its worktree's own age, per item 1's "with its worktree's age".
+//   Remote class (report-only): an `origin/*` branch merged into origin/<main> is a JUDGMENT row
+//   with the exact `git push origin --delete <name>` a human would run - never executed here. An
+//   UNSTARTED remote branch (F2: same first-parent-chain test) is its own row instead, "a person
+//   decides", with no delete command - it is never called "merged".
+//   `--record <dir>` feeds the four drift numbers to `<dir>/<date>-<host>.json` + `<dir>/drift.md`.
+//   `--outside` (report-only) lists `~/.agents/rollout-backups/*` and `~/.agents/ws/*`.
+//
 // round-1 fix note: the artifact registry (scripts/artifact-registry.mjs) and commit-check
 // (scripts/commit-check.mjs) were CUT from this build per review — the registry read a file nothing
 // shipped ever wrote, and commit-check implemented no agent/owner distinction while blocking
@@ -62,10 +83,11 @@
 // (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
 // no destructive action has been taken yet).
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 import { checkWiring } from "./wiring-check.mjs";
@@ -74,6 +96,10 @@ import { listRecords } from "./work-record.mjs";
 const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
 const PROTECTED_BRANCH_PREFIXES = ["release/", "hotfix/"];
+// J1 item 2: nothing younger than this is ever SAFE, whatever else is true about it.
+const DEFAULT_MIN_AGE_HOURS = 6;
+// J1 item 4: default --record directory when the flag is given bare (no path after it).
+const DEFAULT_RECORD_DIR = "docs/work/evidence/janitor/";
 
 /**
  * Round-2/3 invariant, checked by hand against every git() call site in this file (see the table in
@@ -282,6 +308,140 @@ export function daysSinceLastCommit(root, branch, now = new Date()) {
   }
 }
 
+/** Existence-plus-value read of a full refname in one call: `show-ref --verify` (no `--quiet`)
+ * prints `<sha> <fullref>` on success and nothing on failure, so this both proves the ref exists
+ * (reading the ref store directly, never DWIMing) and returns its tip - the same safety shape as
+ * every other ref touch in this file, minus a second round-trip for the SHA. */
+export function refSha(root, fullRef) {
+  try {
+    const out = git(["show-ref", "--verify", fullRef], root);
+    return out.trim().split(/\s+/)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * UNSTARTED (J1 item 1, revised in review round 2, finding F1): true when `sha` sits on the
+ * FIRST-PARENT chain of origin/<mainBranch> (or, when there is no origin/<mainBranch> ref, of local
+ * <mainBranch>) - it was main's own tip at some point, so a branch/worktree sitting on it has no
+ * commits of its own. A builder worktree cut from main minutes earlier is the exact repro
+ * (2026-09-25 sweep finding): its tip sits on main's own history, so the OLD ancestor-based
+ * `isBranchMerged`/`isBranchOnOrigin` pair answered "merged" for it.
+ *
+ * Round 2 found that a bare SHA-equality test against origin/<mainBranch>'s CURRENT tip (the
+ * original J1 fix) only holds while main never advances again: the pinning tests never let main
+ * move after the cut, but in real use another lane merges and pushes constantly, and the moment
+ * that happens a zero-commit branch/worktree cut earlier stops equaling main's NEW tip and reads as
+ * "merged" - `--apply` deleted one seconds after it was cut (round-2 repro). First-parent-chain
+ * membership does not have that hole and needs no "was it ever equal" history: this project always
+ * merges real work with `--no-ff` (see `mergeIntoMain()` below and every build's own RESULT), so a
+ * genuinely completed branch's tip is reachable from main only through a merge commit's SECOND
+ * parent, never the first-parent chain, while an unstarted tip - main's own historical tip - is
+ * always ON that chain, no matter how far main has since moved. A fast-forward-merged branch also
+ * reads true here: conservative on purpose, it goes to JUDGMENT, never SAFE, exactly as before.
+ */
+const mainlineCache = new Map();
+export function isTipOnMainline(root, sha, mainBranch) {
+  if (!sha) return false;
+  for (const ref of [`refs/remotes/origin/${mainBranch}`, headRef(mainBranch)]) {
+    const tip = refSha(root, ref);
+    if (!tip) continue;
+    // Cached per (root, ref, tip): the same triple can be asked about many branches/worktrees in one
+    // run, and the cache key includes the CURRENT tip, so a ref that moves mid-process (never happens
+    // within a single janitor run, but does across the many gatherState() calls in this test file)
+    // is never read stale.
+    const key = [root, ref, tip].join("|");
+    if (!mainlineCache.has(key)) {
+      try {
+        mainlineCache.set(key, new Set(git(["rev-list", "--first-parent", ref], root).split(/\r?\n/).filter(Boolean)));
+      } catch {
+        mainlineCache.set(key, new Set());
+      }
+    }
+    if (mainlineCache.get(key).has(sha)) return true;
+  }
+  return false;
+}
+
+/** UNSTARTED for a local branch: its own tip, tested against `isTipOnMainline` above. */
+export function isUnstarted(root, branch, mainBranch) {
+  return isTipOnMainline(root, refSha(root, headRef(branch)), mainBranch);
+}
+
+/** Worktree age (J1 item 2): git records no worktree-add timestamp anywhere queryable, so the
+ * directory's own creation time is the simplest available proxy for "how long has this worktree
+ * existed". Falls back to mtime on a filesystem that does not report birthtime. */
+export function worktreeAgeHours(worktreePath, now = new Date()) {
+  try {
+    const st = statSync(worktreePath);
+    const createdMs = st.birthtimeMs && st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs;
+    return (now.getTime() - createdMs) / 3600000;
+  } catch {
+    return null;
+  }
+}
+
+/** Branch age (J1 item 2, revised in review round 2, finding F3): a bare branch ref has no directory
+ * to stat, so its last-commit time (already computed for the unmerged-staleness check below) is one
+ * age proxy - but it is wrong for a branch re-created AT an old commit (`git switch -c` or `git
+ * branch <name> <old-sha>` both point a brand-new ref at a commit made long ago; a merged remote
+ * branch checked out again to look at it is the exact repro). The ref's own reflog records when the
+ * REF itself last moved, creation included, so the younger of the two wins - never older than the
+ * ref has actually existed, which is what "age" means here. */
+export function branchAgeHours(root, branch, now = new Date()) {
+  const days = daysSinceLastCommit(root, branch, now);
+  if (days === null) return null;
+  let refHours = null;
+  try {
+    // -g walks the ref's reflog; %gd with --date=unix gives `<shortname>@{<epoch>}`, the time the ref
+    // was last updated (branch creation is itself a ref update, logged by default in a non-bare
+    // repo). %ct would be the COMMIT's own time, which is the bug this replaces.
+    const out = git(["log", "-g", "-1", "--date=unix", "--format=%gd", headRef(branch)], root);
+    const m = /@\{(\d+)\}/.exec(out);
+    const t = m ? Number(m[1]) : NaN;
+    if (Number.isFinite(t) && t > 0) refHours = (now.getTime() / 1000 - t) / 3600;
+  } catch {
+    // No reflog at all (core.logAllRefUpdates off, or a very old git) - fall back to commit time only.
+  }
+  return refHours === null ? days * 24 : Math.min(days * 24, refHours);
+}
+
+/** Remote class (J1 item 3), report-only: every `origin/*` branch except `origin/HEAD` (a symbolic
+ * ref, not a branch). `%(refname)` is the full, unambiguous name, exactly like `listLocalBranches`. */
+export function listRemoteBranches(root) {
+  try {
+    return git(["for-each-ref", "refs/remotes/origin", "--format=%(refname)"], root)
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.replace(/^refs\/remotes\/origin\//, ""))
+      .filter((name) => name !== "HEAD");
+  } catch {
+    return [];
+  }
+}
+
+/** Same show-ref-then-merge-base shape as `isBranchOnOrigin` above, both operands already
+ * remote-tracking refs: is `origin/<name>` contained in `origin/<mainBranch>`. Used only to build a
+ * report-only JUDGMENT row (J1 item 3) - this file never deletes a remote ref itself. */
+export function isRemoteBranchMergedIntoOrigin(root, name, mainBranch) {
+  const ref = `refs/remotes/origin/${name}`;
+  const mainRef = `refs/remotes/origin/${mainBranch}`;
+  try {
+    git(["show-ref", "--verify", "--quiet", ref], root);
+    git(["show-ref", "--verify", "--quiet", mainRef], root);
+  } catch {
+    return false;
+  }
+  try {
+    git(["merge-base", "--is-ancestor", ref, mainRef], root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** -z: NUL-separated and NEVER C-quoted. Without it a path with a space or non-ASCII byte comes
  * back quoted (e.g. "tmp-caf\303\251.md") and silently matches no scratch pattern. */
 export function listUntrackedFiles(root) {
@@ -349,11 +509,18 @@ export function classify({
   branches,
   untrackedFiles,
   scratchPatterns = [],
+  minAgeHours = DEFAULT_MIN_AGE_HOURS,
+  remoteBranches = [],
 }) {
   const safe = { worktrees: [], branches: [] };
   const judgment = { worktrees: [], branches: [], untrackedFiles: [] };
 
   const cur = currentBranchOf(worktrees, root);
+  // J1 review round 2 (F9): a lane that never diverged produces ONE row here (worktree) and, absent
+  // this set, a SECOND row in the branch loop below for the exact same branch - two lines on Ben's
+  // decisions item for one unstarted lane. Any branch named here got its "unstarted" story told by a
+  // worktree row already; the branch loop skips it rather than repeat it.
+  const unstartedBranchesReportedByWorktree = new Set();
 
   for (const w of worktrees) {
     if (w.bare) continue;
@@ -376,7 +543,21 @@ export function classify({
       continue;
     }
     if (!w.clean) {
-      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "tree not clean (uncommitted, untracked or ignored files present)" });
+      // J1 review round 2 (F9): the spec covers "clean or dirty" for unstarted - a dirty unstarted
+      // worktree used to fall straight into the generic "tree not clean" reason with no mention that
+      // it never diverged either.
+      if (w.branch && w.unstarted) unstartedBranchesReportedByWorktree.add(w.branch);
+      const unstartedNote = w.branch && w.unstarted ? ", unstarted (tip is main)" : "";
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `tree not clean (uncommitted, untracked or ignored files present)${unstartedNote}` });
+      continue;
+    }
+    // J1 item 1: UNSTARTED trumps the merged check entirely - a branch that never diverged is
+    // never "merged", it just never left the gate. Checked ahead of the unmerged/detached
+    // early-continue below because an unstarted branch's tip trivially IS an ancestor of main, so
+    // the OLD `merged` flag would otherwise be true for it too.
+    if (w.branch && w.unstarted) {
+      unstartedBranchesReportedByWorktree.add(w.branch);
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `unstarted (tip is main)${ageSuffix(w.ageHours)}` });
       continue;
     }
     if (!w.branch || !w.merged) continue; // unmerged/detached: normal in-progress state, not a finding
@@ -391,6 +572,13 @@ export function classify({
       judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: "protected branch name, a person decides" });
       continue;
     }
+    // J1 item 2: age floor - nothing younger than minAgeHours is SAFE, whatever else is true. A
+    // non-numeric age (F4: stat failure, unreadable log) is UNKNOWN, not "old enough" - it is never
+    // allowed to fall through to SAFE just because the numeric comparison below is vacuously false.
+    if (belowAgeFloor(w.ageHours, minAgeHours)) {
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: ageFloorReason(w.ageHours, minAgeHours) });
+      continue;
+    }
     safe.worktrees.push({ ref: w.path, branch: w.branch, reason: "branch merged into main (and on origin), tree fully clean" });
   }
 
@@ -400,9 +588,27 @@ export function classify({
   // out anywhere else, it goes to JUDGMENT with one row, not two silently-contradicting tables.
   const checkedOutAnywhere = new Set(worktrees.map((w) => w.branch).filter(Boolean));
   const removedHere = new Set(safe.worktrees.map((w) => w.branch).filter(Boolean));
+  // J1 review round 2 (F3): a branch checked out in a worktree reports THAT worktree's own age, not
+  // its last-commit time - item 1's own wording ("with its worktree's age"). A branch re-created at
+  // an old, already-merged commit (`git switch` on a merged remote branch does exactly this) is
+  // seconds old as a ref/worktree even though the commit it points at is not.
+  const worktreeAgeByBranch = new Map();
+  for (const w of worktrees) {
+    if (w.branch && typeof w.ageHours === "number") worktreeAgeByBranch.set(w.branch, w.ageHours);
+  }
   for (const b of branches) {
     if (b.name === mainBranch) continue;
     if (b.name === cur) continue; // never the current branch
+    const bAgeHours = worktreeAgeByBranch.has(b.name) ? worktreeAgeByBranch.get(b.name) : b.ageHours;
+    // J1 item 1: same UNSTARTED trump as the worktree loop above, checked before anything else -
+    // this branch is not "merged", it never diverged. F9: a worktree row already told this branch's
+    // unstarted story - one row per lane, not two.
+    if (b.unstarted) {
+      if (!unstartedBranchesReportedByWorktree.has(b.name)) {
+        judgment.branches.push({ ref: b.name, reason: `unstarted (tip is main)${ageSuffix(bAgeHours)}` });
+      }
+      continue;
+    }
     if (checkedOutAnywhere.has(b.name) && !removedHere.has(b.name)) {
       if (b.merged) {
         judgment.branches.push({ ref: b.name, reason: "merged, but checked out in a worktree this run is not removing" });
@@ -428,7 +634,14 @@ export function classify({
       // confirmed anywhere else, and the branch name is the only handle on that work.
       judgment.branches.push({ ref: b.name, reason: `merged locally, not confirmed on origin/${mainBranch}` });
     } else if (b.merged) {
-      safe.branches.push({ ref: b.name, reason: "merged into main (and on origin)" });
+      // J1 item 2: age floor applies here too - a merged, on-origin branch younger than the floor
+      // is JUDGMENT, not SAFE, whatever else is true about it. F4: an unknown age is never treated
+      // as old enough.
+      if (belowAgeFloor(bAgeHours, minAgeHours)) {
+        judgment.branches.push({ ref: b.name, reason: ageFloorReason(bAgeHours, minAgeHours) });
+      } else {
+        safe.branches.push({ ref: b.name, reason: "merged into main (and on origin)" });
+      }
     } else if (b.daysSinceCommit === null || b.daysSinceCommit >= UNMERGED_STALE_DAYS) {
       judgment.branches.push({
         ref: b.name,
@@ -443,6 +656,41 @@ export function classify({
     }
   }
 
+  // J1 item 3: remote class, report-only. Never `origin/<mainBranch>` itself, never a protected
+  // name (a bookmark/alias is never mechanically safe, same reasoning as the local classes above),
+  // and the exact human command is printed, never run - this tool's two destructive actions
+  // (worktree remove, local branch delete) stay exactly two.
+  const judgmentRemoteBranches = [];
+  for (const rb of remoteBranches) {
+    if (rb.name === mainBranch) continue;
+    const protectedName = PROTECTED_BRANCH_NAMES.has(rb.name) || PROTECTED_BRANCH_PREFIXES.some((p) => rb.name.startsWith(p));
+    if (protectedName) continue;
+    // J1 review round 2 (F2): an unstarted pushed branch (a lane's base branch, cut from main and
+    // pushed before any work happened) is checked BEFORE the merged test, same trump as the local
+    // classes above - its tip sitting on main's own history is not "merged", and item 1 says an
+    // unstarted branch is never called that. No delete command: it is real, if empty, work someone
+    // may still push to, not a candidate for the same recommendation a truly merged branch gets.
+    if (rb.unstarted) {
+      judgmentRemoteBranches.push({ ref: `origin/${rb.name}`, reason: "unstarted remote branch (tip is main), a person decides", command: "" });
+      continue;
+    }
+    if (rb.merged) {
+      // J1 review round 2 (F6): the verdict was read off `refs/remotes/origin/*` as of this host's
+      // last fetch - another host may have pushed new commits to the same name since. Naming the tip
+      // sha this verdict actually used lets a human compare before running the command against
+      // whatever is there NOW. The command itself is unchanged (the spec asks for the plain
+      // `git push origin --delete <name>`) except for shell-quoting the name, which only ever changes
+      // anything for a name no sane branch would have.
+      const tipNote = rb.tip ? ` (at ${rb.tip.slice(0, 7)}, as of last fetch)` : "";
+      judgmentRemoteBranches.push({
+        ref: `origin/${rb.name}`,
+        reason: `remote branch merged into main${tipNote}`,
+        command: `git push origin --delete ${shellQuote(rb.name)}`,
+      });
+    }
+  }
+  judgment.remoteBranches = judgmentRemoteBranches;
+
   return {
     safe,
     judgment,
@@ -453,6 +701,37 @@ export function classify({
       // diskUsedKB is filled in by the caller.
     },
   };
+}
+
+/** Formats an optional age (hours) as a trailing report clause, e.g. ", 0.2h old" - never throws on
+ * a null/undefined/NaN age, it just omits the clause. */
+function ageSuffix(ageHours) {
+  return typeof ageHours === "number" && Number.isFinite(ageHours) ? `, ${ageHours.toFixed(1)}h old` : "";
+}
+
+/** J1 review round 2 (F4): an UNKNOWN age (stat failure, unreadable log - `ageHours` is `null`) is
+ * not "old enough for SAFE" just because `age < floor` is vacuously false for a non-number. It is
+ * below the floor, same as a too-young age: an unknown is never rendered as a confident "yes,
+ * SAFE". */
+function belowAgeFloor(ageHours, minAgeHours) {
+  return !(typeof ageHours === "number" && Number.isFinite(ageHours)) || ageHours < minAgeHours;
+}
+
+/** The JUDGMENT reason text for `belowAgeFloor` above - distinguishes "too young" from "unknown"
+ * rather than printing a age clause that silently vanishes for the null case. */
+function ageFloorReason(ageHours, minAgeHours) {
+  if (typeof ageHours === "number" && Number.isFinite(ageHours)) {
+    return `younger than the age floor${ageSuffix(ageHours)}, floor ${minAgeHours}h`;
+  }
+  return `age unknown, floor ${minAgeHours}h`;
+}
+
+/** J1 review round 2 (F6): `git check-ref-format --branch` accepts a branch name containing shell
+ * metacharacters (`;`, `$(...)`, backticks - a real reproduction, not theoretical). The printed
+ * delete command is advice a human copies and runs; quote the one variable part of it so pasting it
+ * verbatim can never execute anything embedded in the name. A no-op for every ordinary branch name. */
+function shellQuote(name) {
+  return /^[A-Za-z0-9._/-]+$/.test(name) ? name : `'${name.replace(/'/g, `'\\''`)}'`;
 }
 
 function samePath(a, b) {
@@ -524,7 +803,7 @@ export function gatherWorkarounds(root, { now = new Date(), fsImpl } = {}) {
  * Returns either a normal state object, or `{ __blind: true, reason }` when git state could not be
  * read at all.
  */
-export function gatherState({ root, config, now = new Date() }) {
+export function gatherState({ root, config, now = new Date(), minAgeHours = DEFAULT_MIN_AGE_HOURS }) {
   const mainBranch = config.main_branch || "main";
   const rawWorktrees = listWorktrees(root);
   if (rawWorktrees === null) return { __blind: true, reason: "could not read git worktree state" };
@@ -533,7 +812,9 @@ export function gatherState({ root, config, now = new Date() }) {
     const clean = w.bare ? true : isTreeClean(w.path);
     const merged = w.branch ? isBranchMerged(root, w.branch, mainBranch) : false;
     const onOrigin = w.branch && merged ? isBranchOnOrigin(root, w.branch, mainBranch) : false;
-    return { ...w, clean, merged, onOrigin, hasSubmodules: w.bare ? false : hasSubmodules(w.path) };
+    const unstarted = w.branch ? isUnstarted(root, w.branch, mainBranch) : false;
+    const ageHours = w.bare ? null : worktreeAgeHours(w.path, now);
+    return { ...w, clean, merged, onOrigin, unstarted, ageHours, hasSubmodules: w.bare ? false : hasSubmodules(w.path) };
   });
 
   const branchNames = listLocalBranches(root);
@@ -546,8 +827,21 @@ export function gatherState({ root, config, now = new Date() }) {
       merged,
       onOrigin: merged ? isBranchOnOrigin(root, name, mainBranch) : false,
       daysSinceCommit: daysSinceLastCommit(root, name, now),
+      unstarted: isUnstarted(root, name, mainBranch),
+      ageHours: branchAgeHours(root, name, now),
     };
   });
+
+  const remoteBranches = listRemoteBranches(root)
+    .filter((name) => name !== mainBranch)
+    .map((name) => ({
+      name,
+      merged: isRemoteBranchMergedIntoOrigin(root, name, mainBranch),
+      // J1 review round 2 (F2): same first-parent-chain test as the local UNSTARTED class, applied to
+      // the remote tip - an unstarted pushed branch must never read as "merged into main" either.
+      unstarted: isTipOnMainline(root, refSha(root, `refs/remotes/origin/${name}`), mainBranch),
+      tip: refSha(root, `refs/remotes/origin/${name}`),
+    }));
 
   const untrackedFiles = listUntrackedFiles(root);
   const diskUsedKB = diskUsageKB(root);
@@ -559,6 +853,8 @@ export function gatherState({ root, config, now = new Date() }) {
     branches,
     untrackedFiles,
     scratchPatterns: config.scratch_patterns || [],
+    minAgeHours,
+    remoteBranches,
   });
   result.drift.diskUsedKB = diskUsedKB;
   // T4: workarounds are gathered independently of git state - a missing docs/work directory (no
@@ -658,20 +954,46 @@ function table(rows, columns) {
   return rows.map((r) => `  ${columns.map((c) => r[c] ?? "").join("  |  ")}`).join("\n");
 }
 
-function printReport(state, wiring) {
+/**
+ * Packet finding (2026-09-26): a Windows sweep's prose said "39 SAFE worktrees" while its own table
+ * and JSON listed 43 - a hand-typed count had drifted from the list it was describing. Every count
+ * here is a `.length` read directly off the exact arrays `printReport`/the JSON output print, so a
+ * summary number can never diverge from its own table again - there is no second, separately
+ * maintained counter to drift.
+ */
+export function summarizeCounts(state) {
+  return {
+    safeWorktrees: state.safe.worktrees.length,
+    safeBranches: state.safe.branches.length,
+    judgmentWorktrees: state.judgment.worktrees.length,
+    judgmentBranches: state.judgment.branches.length,
+    judgmentUntrackedFiles: state.judgment.untrackedFiles.length,
+    judgmentRemoteBranches: (state.judgment.remoteBranches || []).length,
+    judgmentOverdueWorkarounds: state.judgment.workarounds.filter((w) => w.overdue).length,
+  };
+}
+
+function printReport(state, wiring, outsideRows) {
+  const counts = summarizeCounts(state);
   console.log("SAFE:");
+  console.log(`  summary: ${counts.safeWorktrees} worktree(s), ${counts.safeBranches} branch(es)`);
   console.log("  worktrees:");
   console.log(table(state.safe.worktrees, ["ref", "branch", "reason"]));
   console.log("  branches:");
   console.log(table(state.safe.branches, ["ref", "reason"]));
   console.log("");
   console.log("JUDGMENT:");
+  console.log(
+    `  summary: ${counts.judgmentWorktrees} worktree(s), ${counts.judgmentBranches} branch(es), ${counts.judgmentUntrackedFiles} untracked file(s), ${counts.judgmentRemoteBranches} remote branch(es), ${counts.judgmentOverdueWorkarounds} overdue workaround(s)`,
+  );
   console.log("  worktrees:");
   console.log(table(state.judgment.worktrees, ["ref", "branch", "reason"]));
   console.log("  branches:");
   console.log(table(state.judgment.branches, ["ref", "reason"]));
   console.log("  untracked files:");
   console.log(table(state.judgment.untrackedFiles, ["ref", "reason"]));
+  console.log("  remote branches (report-only, never applied):");
+  console.log(table(state.judgment.remoteBranches || [], ["ref", "reason", "command"]));
   console.log("  workarounds:");
   console.log(table(state.judgment.workarounds, ["ref", "reason"]));
   console.log("");
@@ -685,6 +1007,12 @@ function printReport(state, wiring) {
     console.log("WIRING (read-only visibility, never acted on by janitor):");
     console.log(table(wiring.results, ["id", "state", "why"]));
   }
+  if (outsideRows) {
+    // J1 item 5: report-only, never a SAFE/JUDGMENT class, never affects the exit code.
+    console.log("");
+    console.log("OUTSIDE (report-only, never acted on by janitor):");
+    console.log(table(outsideRows, ["ref", "reason"]));
+  }
 }
 
 function hasFindings(state) {
@@ -694,12 +1022,157 @@ function hasFindings(state) {
     state.judgment.worktrees.length > 0 ||
     state.judgment.branches.length > 0 ||
     state.judgment.untrackedFiles.length > 0 ||
+    (state.judgment.remoteBranches || []).length > 0 ||
     // T4: only an OVERDUE workaround is a finding; an open one is display-only.
     state.judgment.workarounds.some((w) => w.overdue)
   );
 }
 
+// ---------- --record (J1 item 4): drift numbers, fed and kept, not printed and lost ----------
+
+function sanitizeHost(name) {
+  const cleaned = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "unknown-host";
+}
+
+/** The base sha a --record snapshot is taken against: local mainBranch's own tip when it exists
+ * (proven via show-ref, never DWIMed), else whatever HEAD currently resolves to - HEAD is git's one
+ * reserved, unshadowable pointer to the current checkout, never a bare/guessable name. */
+function baseShaFor(root, mainBranch) {
+  const mainSha = refSha(root, headRef(mainBranch));
+  if (mainSha) return mainSha;
+  try {
+    return git(["rev-parse", "HEAD"], root).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Writes `<dir>/<YYYY-MM-DD>-<host>.json` (the four drift numbers, the SAFE/JUDGMENT counts, the
+ * base sha, the host) and appends one line to `<dir>/drift.md`. Deterministic apart from `now` and
+ * `hostName`, both parameters here rather than read from the live clock/os.hostname() inside this
+ * function, so a test can assert exact bytes. `dir` resolves relative to `root` unless already
+ * absolute; bare `--record` (no path) resolves to DEFAULT_RECORD_DIR by the caller in main().
+ */
+export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname() }) {
+  const host = sanitizeHost(hostName);
+  // J1 review round 2 (F7): `toISOString()` is UTC. facts.md fixes Ben's clock as America/New_York,
+  // so a run between 20:00 and 24:00 EDT/EST filed under UTC's tomorrow - a drift record dated a day
+  // it wasn't taken on. `en-CA` formats as YYYY-MM-DD directly, no reassembly of parts needed.
+  const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(now);
+  const targetDir = path.isAbsolute(dir) ? dir : path.join(root, dir);
+  mkdirSync(targetDir, { recursive: true });
+  const counts = summarizeCounts(state);
+  const record = {
+    date: dateStr,
+    host,
+    baseSha: baseShaFor(root, mainBranch),
+    drift: state.drift,
+    safeCounts: { worktrees: counts.safeWorktrees, branches: counts.safeBranches },
+    judgmentCounts: {
+      worktrees: counts.judgmentWorktrees,
+      branches: counts.judgmentBranches,
+      untrackedFiles: counts.judgmentUntrackedFiles,
+      remoteBranches: counts.judgmentRemoteBranches,
+      overdueWorkarounds: counts.judgmentOverdueWorkarounds,
+    },
+  };
+  const jsonPath = path.join(targetDir, `${dateStr}-${host}.json`);
+  writeFileSync(jsonPath, `${JSON.stringify(record, null, 2)}\n`);
+  const diskStr = state.drift.diskUsedKB === null ? "unknown" : String(state.drift.diskUsedKB);
+  const driftLine = `- ${dateStr} ${host}: worktrees=${state.drift.worktreeCount} branches=${state.drift.openBranchCount} untracked=${state.drift.untrackedFileCount} diskKB=${diskStr}\n`;
+  const driftPath = path.join(targetDir, "drift.md");
+  appendFileSync(driftPath, driftLine);
+  return { jsonPath, driftPath, record };
+}
+
+// ---------- --outside (J1 item 5): report-only visibility into ~/.agents, never acted on ----------
+
+function listOutsideEntries(dir) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .map((name) => {
+      const p = path.join(dir, name);
+      let sizeKB = null;
+      let mtimeMs = null;
+      try {
+        const st = statSync(p);
+        mtimeMs = st.mtimeMs;
+        // diskUsageKB (F5: was a byte-for-byte copy of this file's own du wrapper) already shells
+        // `du -sk` for a directory; a plain file's size is just its stat size.
+        sizeKB = st.isDirectory() ? diskUsageKB(p) : Math.ceil(st.size / 1024);
+      } catch {
+        // unreadable entry: report it with unknown size/date rather than dropping it silently.
+      }
+      return { name, sizeKB, mtimeMs };
+    })
+    .sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0));
+}
+
+/**
+ * J1 item 5: sizes and dates of `<agentsDir>/rollout-backups/*` and `<agentsDir>/ws/*` under
+ * JUDGMENT - report-only, never read by classify() or applySafe(), never affects SAFE or the exit
+ * code. `agentsDir` defaults to the real `~/.agents` only when this is actually run (main()); tests
+ * always pass a fixture directory.
+ *
+ * J1 review round 2 (F5): "keep the newest two" is the spec's rule for BACKUPS, disposable copies
+ * where "older than the two newest" is a reasonable removal signal on its own. A `ws/*` entry may be
+ * a live workspace a person is still using - its top-level mtime says nothing about activity inside
+ * it (a long-running checkout whose own files changed recently but whose directory entry itself
+ * didn't) - so `ws/*` always reads "a person decides", never a removal recommendation. An entry whose
+ * stat failed (unreadable, permissions) sorts oldest by the `?? 0` fallback above but must not then
+ * read as a confident "recommend: remove" over an unknown date - it gets "a person decides" too.
+ */
+export function gatherOutside({ agentsDir = path.join(os.homedir(), ".agents") } = {}) {
+  const rows = [];
+  for (const sub of ["rollout-backups", "ws"]) {
+    const entries = listOutsideEntries(path.join(agentsDir, sub));
+    entries.forEach((e, i) => {
+      const dateStr = e.mtimeMs ? new Date(e.mtimeMs).toISOString().slice(0, 10) : "unknown date";
+      const sizeStr = e.sizeKB === null ? "unknown size" : `${e.sizeKB} KB`;
+      const canRecommend = sub === "rollout-backups" && e.mtimeMs !== null;
+      const rec = !canRecommend ? "a person decides" : i < 2 ? "keep (one of the newest two)" : "recommend: remove (older than the newest two)";
+      rows.push({ ref: `~/.agents/${sub}/${e.name}`, reason: `${sizeStr}, ${dateStr} - ${rec}` });
+    });
+  }
+  return rows;
+}
+
 // ---------- main ----------
+
+/** All CLI flag parsing in one place. `--record` takes an optional path (defaulting to
+ * DEFAULT_RECORD_DIR when bare or immediately followed by another flag); `--min-age-hours` takes a
+ * required number (defaulting to DEFAULT_MIN_AGE_HOURS when absent or unparsable). */
+function parseFlags(argv) {
+  const applyFlag = argv.includes("--apply");
+  const jsonFlag = argv.includes("--json");
+  const outsideFlag = argv.includes("--outside");
+
+  let minAgeHours = DEFAULT_MIN_AGE_HOURS;
+  const ageIdx = argv.indexOf("--min-age-hours");
+  if (ageIdx !== -1) {
+    const n = Number(argv[ageIdx + 1]);
+    if (Number.isFinite(n) && n >= 0) minAgeHours = n;
+  }
+
+  let record = null;
+  const recordIdx = argv.indexOf("--record");
+  if (recordIdx !== -1) {
+    const next = argv[recordIdx + 1];
+    record = next && !next.startsWith("--") ? next : DEFAULT_RECORD_DIR;
+  }
+
+  return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record };
+}
 
 export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
   let startedApplying = false;
@@ -723,13 +1196,22 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       return 3;
     }
 
-    const applyFlag = argv.includes("--apply");
-    const jsonFlag = argv.includes("--json");
+    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record } = parseFlags(argv);
 
-    const state = gatherState({ root: toplevel, config });
+    const state = gatherState({ root: toplevel, config, minAgeHours });
     if (state.__blind) {
       process.stderr.write(`janitor: ${state.reason}\n`);
       return 3;
+    }
+
+    if (record) {
+      // J1 item 4: fed and measured, not printed and lost. A write failure here is reported but
+      // never blinds or fails the rest of the report - --record is additive, not load-bearing.
+      try {
+        writeRecord({ root: toplevel, dir: record, state, mainBranch: config.main_branch || "main" });
+      } catch (err) {
+        process.stderr.write(`janitor: --record failed: ${String(err && err.message ? err.message : err)}\n`);
+      }
     }
 
     if (applyFlag) {
@@ -755,10 +1237,21 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       wiring = null;
     }
 
+    // J1 item 5: report-only, never affects findings or the exit code. F5: gatherOutside() never
+    // throws (listOutsideEntries already catches readdir/stat failures per entry), so no wrapping
+    // try/catch is needed here.
+    const outsideRows = outsideFlag ? gatherOutside() : null;
+
     if (jsonFlag) {
-      console.log(JSON.stringify({ safe: state.safe, judgment: state.judgment, drift: state.drift, wiring, applied: applyFlag ? applyLog : null }, null, 2));
+      console.log(
+        JSON.stringify(
+          { safe: state.safe, judgment: state.judgment, drift: state.drift, summary: summarizeCounts(state), wiring, outside: outsideRows, applied: applyFlag ? applyLog : null },
+          null,
+          2,
+        ),
+      );
     } else {
-      printReport(state, wiring);
+      printReport(state, wiring, outsideRows);
       if (applyFlag) {
         console.log("");
         console.log("APPLIED:");
@@ -772,6 +1265,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
         state.judgment.worktrees.length > 0 ||
         state.judgment.branches.length > 0 ||
         state.judgment.untrackedFiles.length > 0 ||
+        (state.judgment.remoteBranches || []).length > 0 ||
         state.judgment.workarounds.some((w) => w.overdue);
       return applyFailed || judgmentRemains ? 1 : 0;
     }

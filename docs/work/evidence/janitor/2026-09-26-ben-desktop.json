@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-26",
+  "host": "ben-desktop",
+  "baseSha": "36aea6eb019050012cc388e5171704edb2b62e18",
+  "drift": {
+    "worktreeCount": 20,
+    "openBranchCount": 29,
+    "untrackedFileCount": 0,
+    "diskUsedKB": 5790
+  },
+  "safeCounts": {
+    "worktrees": 1,
+    "branches": 1
+  },
+  "judgmentCounts": {
+    "worktrees": 4,
+    "branches": 13,
+    "untrackedFiles": 0,
+    "remoteBranches": 8,
+    "overdueWorkarounds": 0
+  }
+}
