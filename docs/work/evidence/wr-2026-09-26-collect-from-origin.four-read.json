@@ -1,10 +1,10 @@
 {
-  "acceptAt": "2026-09-26T13:35:18Z",
+  "acceptAt": "2026-09-26T14:01:05Z",
   "companions": [
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "unavailable (no census)"
+      "value": "unavailable (census window ends 2026-09-26T14:01:04.314Z, after the last acceptance)"
     },
     {
       "key": "notesToLeadPerBuild",
@@ -21,22 +21,22 @@
     {
       "key": "topTierTokensPerBuild",
       "label": "Top-tier tokens per build",
-      "value": "unavailable (no census)"
+      "value": "unavailable (census window ends 2026-09-26T14:01:04.314Z, after the last acceptance)"
     },
     {
       "key": "hoursAskToAccepted",
       "label": "Hours ask to accepted",
-      "value": "1.4h; gap unavailable (no lead transcript)"
+      "value": "1.4h; largest gap 61.0min at 2026-09-26T12:14:48.050Z"
     },
     {
       "key": "reworkAfterAcceptance",
       "label": "Rework after acceptance",
-      "value": "unavailable (git: Command failed: git -C . diff --name-only ac9c842+05b9bcc..8de9e42aa5e05658956e5253a428f3ae9dc38db3)"
+      "value": "3 commit(s) touching build files within 7 days: 5e67b85 \"fix(collect-from-origin): round-5 Windows path-separator fix (skills-fable findings)\", 5da8fb9 \"docs(work): collect-from-origin reopened for the Windows path fix\", 33aa023 \"docs(work): accept wr-2026-09-26-collect-from-origin at 8de9e42 with census, four-read, collector table and reports\"; 0 re-accept Log: entries after the first"
     },
     {
       "key": "workLostOrStalled",
       "label": "Work lost or stalled",
-      "value": "gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-collect-from-origin-1"
+      "value": "1 gap(s) over 30min: 2026-09-26T12:14:48.050Z (61.0min); 1 unanswered ASK(s) to skills-n: skills-fable-collect-from-origin-1"
     }
   ],
   "record": "docs/work/wr-2026-09-26-collect-from-origin.record.md"
