@@ -1,1 +1,2 @@
 - 2026-09-26 ben-desktop: worktrees=23 branches=29 untracked=65 diskKB=36931
+- 2026-09-26 ben-desktop: worktrees=24 branches=31 untracked=68 diskKB=38027
