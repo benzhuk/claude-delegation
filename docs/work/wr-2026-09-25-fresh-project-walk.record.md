@@ -1,14 +1,18 @@
 Work: wr-2026-09-25-fresh-project-walk
 Scope: docs/specs/2026-09-25-fresh-project-walk.md read at origin/docs/lane-specs-0925 63cecb8; territories W1 (walk evidence + docs/native-use.md + README install/quickstart) and W2 (conditional small code fixes)
 Owner: skills-h
-Status: rejected
+Status: reviewed
 Authority: spec lane three: build, review, push build/fresh-walk-1 on green without Ben; merge waits for Ben's word; no Notion writes; no Codex command on this host
+Artifact: build/fresh-walk-1@4229f7a8f4f85d9e2ea6d11a8cc999edf6e6dd1d
 Worktree: /home/ben/Code/claude-delegation-wt/fresh-walk-1
 Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-w1-review-r1.md
 Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r2.md
+Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r5.md
+Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r4.md
+Evidence: docs/work/evidence/2026-09-25-fresh-project-walk.md
 Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r3.md
 Evidence: Lead-session (pre-field): ad389ae1-f992-4dd3-8a19-2b51176675c1
-Next: lead intervention (round cap reached): apply review-r3 text patches verbatim via runner, then Opus verification
+Next: accept once R12 (H6, V4 red on POSIX in skills/multi/scripts, also on main) is fixed on main or Ben waives it; census taken; merge waits for Ben
 Opened: 2026-09-25T21:30:15.000Z
 Log: 2026-09-25T22:31:07.000Z opened skills-h base fbd7cf6 (0.20.9)
 Log: 2026-09-25T22:31:58Z owned w1-builder sonnet spawned, ETA 120m (00:35 NYC)
@@ -20,3 +24,7 @@ Log: 2026-09-26T19:23:53Z rejected opus delta reviewer W1 NEEDS_FIXES eca3682 (a
 Log: 2026-09-26T19:24:13Z owned w1r3-builder sonnet fix round 3 (W1 only, honest end-to-end re-run), ETA 60m
 Log: 2026-09-26T19:57:35Z delivered w1r3-builder DONE d791b1d (N1-N3 fixed, F10 found and fixed, r3b accepted 112s ask->accepted first attempt)
 Log: 2026-09-26T20:03:59Z rejected opus delta reviewer W1 NEEDS_FIXES d791b1d (r3b back-dated Log line certified clean, native-use.md:11 lets a top-tier lead build, residue); all text patches, no new run
+Log: 2026-09-26T20:08:42Z delivered runner (sonnet) applied review-r3 patches verbatim d6f7c3b, gate only H6/V4
+Log: 2026-09-26T20:11:24Z reviewed opus reviewer APPROVE 4229f7a8f4f85d9e2ea6d11a8cc999edf6e6dd1d (W1 and W2), lead applied the one-line r4 fix after round cap
+
+Observed: The W1 walk produced 10 findings (5 high, 5 med). Dispositions: 4 fixed in docs with clean re-runs (F1, F4, F5, F10), 4 fixed in docs and handed on (F3, F6, F7, F8), 1 fixed in code (F2, the goal-card rejection notice), and 1 handed on as a lesson (F9, the 19.5h approval stall). W2 is 3 small commits. The sealed suite shows only the two pre-existing POSIX failures H6 and V4 (R12), outside this lane, so acceptance waits.
