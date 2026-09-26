@@ -342,3 +342,16 @@ No fixtures directory is committed for this tool (unlike `build-census.mjs`'s, w
 gate-10 runs the CLI against directly): `scripts/work-census.test.mjs` builds its
 `.record.md` fixtures under a fresh `mkdtempSync` temp dir, the same convention every
 other test in this repo already uses for record fixtures.
+
+## `collect-from-origin.mjs` — the durable signal for accepted-but-unmerged work
+
+```
+node scripts/collect-from-origin.mjs [--repo <dir>] [--main origin/main] [--no-fetch] [--json] [--skip <name>]...
+```
+
+The collector is run before any lane dispatch and at every merge tick, never only when a
+lead happens to remember to ask. Its table goes into the bearings packet alongside the
+other census numbers above, not just into a one-off terminal check. "In flight" may only
+be written about a lane whose origin record says `owned` — an origin branch whose record
+already reads `accepted` or `rejected` is reported by its collector state
+(`accepted-unmerged`, `accepted-merged`, `rejected`), never described as merely in flight.
