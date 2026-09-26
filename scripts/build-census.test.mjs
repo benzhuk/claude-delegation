@@ -629,7 +629,8 @@ test('--to caps wallClockHours and windowEndAt at the window\'s own last in-wind
   ]);
   const report = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, to: '2026-01-01T00:10:00.000Z', out: null });
   assert.equal(report.lead.windowEndAt, '2026-01-01T00:05:00.000Z', 'windowEndAt must be the last IN-WINDOW message, not the file\'s last line');
-  assert.ok(report.lead.wallClockHours < 1, `wallClockHours must not run past --to: got ${report.lead.wallClockHours}`);
+  assert.equal(report.lead.windowStartAt, '2026-01-01T00:00:00.000Z', 'a --to-only window must not leave windowStartAt null (MAJOR 2)');
+  assert.equal(report.lead.wallClockHours, 5 / 60, `wallClockHours must be the in-window span: got ${report.lead.wallClockHours}`);
 });
 
 test('--from is after --to throws (MINOR 3)', async () => {

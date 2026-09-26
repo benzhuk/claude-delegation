@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // four-read — prints the goal's four measures (docs/specs/2026-09-25-four-number-read.md,
 // Territory R1) for one build. Every number prints a computed `value` or
-// `unavailable (<reason>)` — never a guess. Parses the record's own fields itself
-// (Lead-session:/Spec-session:/Spec-from: may not exist in work-record.mjs in this
-// worktree yet) rather than importing that file — see docs/census.md.
+// `unavailable (<reason>)` — never a guess. Parses the record's own fields itself (fields
+// may not exist in work-record.mjs in this worktree yet) rather than importing it — see docs/census.md.
 // node scripts/four-read.mjs --record <record.md> --census <census.json>
 //   [--spec-census <json>] [--ledger docs/ledger] [--git <repo>] [--branch <ref>]
 //   [--lead-session <id>] [--lead-slug <slug>] [--out <path>] [--json <path>]
@@ -62,17 +61,20 @@ function sumTopTier(combined, tiers) {
   }
   return { total: matched.reduce((n, m) => n + totalTokens(combined[m]), 0), matched, split };
 }
-// BLOCKER 1(b): stop trusting the census shape, and reject a census whose window doesn't
-// match this build's own Opened:/accepted window (a persistent lead pane's other build).
-export function computeTopTierTokens(census, specCensus, fields, openedMs = null, acceptedMs = null) {
+// BLOCKER 1(b): reject a census whose window doesn't match this build's own window.
+export function computeTopTierTokens(census, specCensus, fields, openedMs = null, acceptedMs = null, lastAcceptedMs = null) {
   if (!census) return { value: 'unavailable (no census)' };
   if (!census.combined) return { value: 'unavailable (census has no combined by-model sums)' };
+  const tolerance = 5 * 60000;
   const windowStartAt = census.lead && census.lead.windowStartAt ? Date.parse(census.lead.windowStartAt) : NaN;
-  if (!Number.isNaN(windowStartAt)) {
-    const tolerance = 5 * 60000;
-    if ((acceptedMs !== null && windowStartAt > acceptedMs) || (openedMs !== null && windowStartAt < openedMs - tolerance)) {
-      return { value: `unavailable (census window ${census.lead.windowStartAt} is not the build window)` };
-    }
+  if (Number.isNaN(windowStartAt)) return { value: 'unavailable (census has no window start)' }; // MAJOR 1
+  if ((acceptedMs !== null && windowStartAt > acceptedMs) || (openedMs !== null && windowStartAt < openedMs - tolerance)) {
+    return { value: `unavailable (census window ${census.lead.windowStartAt} is not the build window)` };
+  }
+  // MAJOR 1: check the end too, or a persistent pane's next build's tokens mix in.
+  const windowEndAt = census.lead && census.lead.windowEndAt ? Date.parse(census.lead.windowEndAt) : NaN;
+  if (!Number.isNaN(windowEndAt) && lastAcceptedMs !== null && windowEndAt > lastAcceptedMs + tolerance) {
+    return { value: `unavailable (census window ends ${census.lead.windowEndAt}, after the last acceptance)` };
   }
   const tiers = topTierModels();
   const build = sumTopTier(census.combined, tiers);
@@ -247,11 +249,11 @@ export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug
   return { value: `${gapPart}; ${askPart}` };
 }
 // ── Companion lines (item 5) ─────────────────────────────────────────────────────────────
-function computeNotesToLead(ledgerEntries, leadSlug, { openedMs, acceptedMs }) {
+function computeNotesToLead(ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }) {
   if (!leadSlug) return { value: 'unavailable (no --lead-slug)' };
   if (ledgerEntries === null) return { value: 'unavailable (no ledger dir)' };
   if (!ledgerHasSlug(ledgerEntries, leadSlug)) return { value: `unavailable (slug ${leadSlug} not in ledger)` }; // MAJOR 3
-  if (openedMs === null || acceptedMs === null) return { value: 'unavailable (no Opened:/accepted window)' };
+  if (openedMs === null || acceptedMs === null) return { value: `unavailable (${reason || 'no Opened:/accepted window'})` }; // MINOR 1
   const notes = ledgerInWindow(ledgerEntries, ['ASK', 'RESULT', 'BLOCKED'], leadSlug, openedMs, acceptedMs);
   return { value: `${notes.length} note(s) to ${leadSlug}: ${notes.map((e) => `${e.kind} ${e.id}`).join(', ') || '(none)'}` };
 }
@@ -275,16 +277,20 @@ function countTopTierMessages(fsImpl, filePath, tiers, sinceMs, untilMs) {
   }
   return ids.size;
 }
-function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedMs, acceptedMs) {
-  if (!census || !census.combined) return { value: 'unavailable (no census combined sums)' };
+// BLOCKER 1/MAJOR 1 (r2): gate on Number 1's own census verdict and count over its window.
+function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedMs, acceptedMs, numberOneValue) {
+  if (numberOneValue.startsWith('unavailable')) return { value: numberOneValue };
+  if (openedMs === null || acceptedMs === null) return { value: 'unavailable (no Opened:/accepted window)' };
   const tiers = topTierModels();
   const { split } = sumTopTier(census.combined, tiers);
   const splitPart = `cache-read ${split.cacheRead}, cache-write ${split.cacheWrite}, input ${split.input}, output ${split.output}`;
   if (leadGapReason) return { value: `unavailable (${leadGapReason}); tokens: ${splitPart}` };
+  const sinceMs = census.lead && census.lead.windowStartAt ? Date.parse(census.lead.windowStartAt) : null;
+  const untilMs = census.lead && census.lead.windowEndAt ? Date.parse(census.lead.windowEndAt) : null;
   const files = [leadPath, ...((census.subagents && census.subagents.perFile) || []).map((f) => f.file)].filter(Boolean);
   let total = 0;
   for (const f of files) {
-    const n = countTopTierMessages(fsImpl, f, tiers, openedMs, acceptedMs);
+    const n = countTopTierMessages(fsImpl, f, tiers, sinceMs, untilMs);
     if (n === null) return { value: `unavailable (${f} unreadable); tokens: ${splitPart}` };
     total += n;
   }
@@ -308,17 +314,17 @@ export function buildFourRead(opts, fsImpl = fs) {
   const ledgerEntries = opts.ledger ? collectLedgerEntries(opts.ledger, fsImpl) : null;
   const numberTwo = computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason);
   const windowMs = { openedMs: numberTwo.openedMs, acceptedMs: numberTwo.acceptedMs, reason: numberTwo.reason };
-  // BLOCKER 1(b): judge the census window against the real accepted ts, not MAJOR 4's null.
-  const numberOne = computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, numberTwo.rawAcceptedMs);
+  const acceptedLogs = logs.filter((l) => l.status.toLowerCase() === 'accepted');
+  const lastAcceptedMs = acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null;
+  // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b) judges the real accepted ts.
+  const numberOne = windowMs.openedMs === null || numberTwo.rawAcceptedMs === null
+    ? { value: `unavailable (${numberTwo.reason}: census window cannot be checked)` }
+    : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, numberTwo.rawAcceptedMs, lastAcceptedMs);
   const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason);
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
-  const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs);
-  const leadSessionNotes = {
-    cli: 'id came from --lead-session on the command line; the census file names the lead session file it read',
-    record: "from the record's Lead-session: field",
-    unavailable: 'no Lead-session: field and no --lead-session given',
-  };
+  const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value);
+  const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };
   return {
     record: opts.record,
     leadSession: { id: leadSessionId, source: leadSessionSource || 'unavailable', note: leadSessionNotes[leadSessionSource || 'unavailable'] },
@@ -355,22 +361,16 @@ export function formatMarkdown(report) {
   return md.join('\n');
 }
 // ── CLI ──────────────────────────────────────────────────────────────────────────────────
+const ARG_FLAGS = { '--record': 'record', '--census': 'census', '--spec-census': 'specCensus', '--ledger': 'ledger', '--git': 'git', '--branch': 'branch', '--lead-session': 'leadSession', '--lead-slug': 'leadSlug', '--out': 'out', '--json': 'json' };
 export function parseArgs(argv) {
   const opts = { record: null, census: null, specCensus: null, ledger: null, git: null, branch: 'HEAD', leadSession: null, leadSlug: null, out: null, json: null };
-  let i; const need = (flag) => { const v = argv[++i]; if (!v) throw new Error(`${flag} needs a value`); return v; };
-  for (i = 0; i < argv.length; i++) {
+  for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--record') opts.record = need('--record');
-    else if (a === '--census') opts.census = need('--census');
-    else if (a === '--spec-census') opts.specCensus = need('--spec-census');
-    else if (a === '--ledger') opts.ledger = need('--ledger');
-    else if (a === '--git') opts.git = need('--git');
-    else if (a === '--branch') opts.branch = need('--branch');
-    else if (a === '--lead-session') opts.leadSession = need('--lead-session');
-    else if (a === '--lead-slug') opts.leadSlug = need('--lead-slug');
-    else if (a === '--out') opts.out = need('--out');
-    else if (a === '--json') opts.json = need('--json');
-    else throw new Error(`unknown argument: ${a}`);
+    const key = ARG_FLAGS[a];
+    if (!key) throw new Error(`unknown argument: ${a}`);
+    const v = argv[++i];
+    if (!v) throw new Error(`${a} needs a value`);
+    opts[key] = v;
   }
   if (!opts.record) throw new Error('--record <record.md> is required');
   if (!opts.census) throw new Error('--census <census.json> is required');

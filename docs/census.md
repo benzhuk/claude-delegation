@@ -263,16 +263,19 @@ verbatim from `docs/specs/2026-09-25-four-number-read.md`:
    length; each unanswered id prints.
 
 Two companion lines print beside the four: top-tier assistant messages per build (each
-one re-reads the whole context, so this is the cost driver, not the turn count alone) —
-`four-read.mjs` reports this one `unavailable` today, since `build-census.mjs` sums
-tokens by model but does not count messages per model; and notes to the lead per build
-(ASK, RESULT and BLOCKED envelopes addressed to `Lead-session:`'s slug in the ledger
-within the window, since each one is a full lead turn). **Rule for every lane from now
-on: a lane wakes its lead at most three times, ACK at start, RESULT at the end, BLOCKED
-if stuck, and an ACK's content is never sent under the ASK kind to force delivery.**
+one re-reads the whole context, so this is the cost driver, not the turn count alone),
+with the tokens line split into cache-read, cache-write, input and output; and notes to
+the lead per build (ASK, RESULT and BLOCKED envelopes addressed to `Lead-session:`'s slug
+in the ledger within the window, since each one is a full lead turn). Both companions
+share Number 1's own census-window verdict: when Number 1 is `unavailable`, so is the
+message count, never a confident `0 messages` beside a window it has already rejected.
+**Rule for every lane from now on: a lane wakes its lead at most three times, ACK at
+start, RESULT at the end, BLOCKED if stuck, and an ACK's content is never sent under the
+ASK kind to force delivery.**
 
 Inputs from the record: `Opened:`, `Base:`, the accepted sha (from the first `accepted`
-`Log:` entry's own `artifact <sha>` note, or the `Artifact:` field), `Lead-session:`,
+`Log:` entry's own `artifact <sha>` note, or, only when the record has a single
+`accepted` entry, the `Artifact:` field), `Lead-session:`,
 `Spec-session:`, `Spec-from:`. `four-read.mjs` parses these fields itself, independently
 of `scripts/work-record.mjs` (which may not carry `Lead-session:`/`Spec-session:`/
 `Spec-from:` in every worktree yet) — a record missing any of them yields `unavailable
@@ -292,7 +295,11 @@ docs/work/evidence/<id>.census.json --ledger docs/ledger --lead-slug <slug> --js
 docs/work/evidence/<id>.four-read.json --out docs/work/evidence/<id>.four-read.md`, then
 `work-record.mjs accept --four-read <json>` copies the four lines into the record. When
 the spec writer's slice applies, run `build-census.mjs` a second time over the spec
-session's window and pass its output file as `--spec-census` alongside `--census`.
+session's window and pass its output file as `--spec-census` alongside `--census`. The
+accept-time `--census` itself runs `--from <Opened:>` (and `--to <last accepted Log:>`
+when it is re-run later, after a re-accept) — one window governs both Number 1 and the
+top-tier-messages companion; the census reports mismatches at either end, not just the
+start (MAJOR 1, r2).
 
 The prediction rule from the bearings: the lead writes the next build's predicted four
 numbers in the RESULT to skills-fable.

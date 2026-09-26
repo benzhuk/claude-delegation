@@ -122,26 +122,33 @@ test('computeTopTierTokens: a census window inside the build window (within tole
   assert.match(r.value, /^1 tokens: build 1/);
 });
 
+const A_WINDOW = { windowStartAt: '2026-01-01T00:00:00.000Z', windowEndAt: '2026-01-01T01:00:00.000Z' };
+
+test('computeTopTierTokens: a census with no lead.windowStartAt at all is unavailable, not silently trusted (MAJOR 1)', () => {
+  const r = computeTopTierTokens({ combined: {} }, null, {});
+  assert.equal(r.value, 'unavailable (census has no window start)');
+});
+
 test('computeTopTierTokens: census present, no spec-census, Spec-session/Spec-from present in the record -> partial with the "not run" reason', () => {
-  const census = { combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 2, output_tokens: 3 } } };
+  const census = { combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 2, output_tokens: 3 } }, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, { 'spec-session': 'x', 'spec-from': 'y' });
   assert.match(r.value, /^6 tokens: build 6 \(claude-opus-5-5\); partial \(no spec slice\): spec-census not run$/);
 });
 
 test('computeTopTierTokens: Spec-session/Spec-from missing from the record names that reason instead', () => {
-  const census = { combined: {} };
+  const census = { combined: {}, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, {});
   assert.match(r.value, /Spec-session:\/Spec-from: missing from record/);
 });
 
 test('computeTopTierTokens: no top-tier model matched is named, not silently zero', () => {
-  const census = { combined: { 'claude-sonnet-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } } };
+  const census = { combined: { 'claude-sonnet-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, {});
   assert.match(r.value, /no top-tier model matched/);
 });
 
 test('computeTopTierTokens: a spec-census combines the build slice and the spec slice into one total', () => {
-  const census = { combined: { 'claude-opus-5-5': { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } } };
+  const census = { combined: { 'claude-opus-5-5': { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
   const specCensus = { combined: { 'claude-opus-5-5': { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } } };
   const r = computeTopTierTokens(census, specCensus, {});
   assert.match(r.value, /^15 tokens: build 10 \(claude-opus-5-5\) \+ spec slice 5$/);
@@ -150,9 +157,15 @@ test('computeTopTierTokens: a spec-census combines the build slice and the spec 
 test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the default fable,opus tier list', (t) => {
   t.after(() => delete process.env.DELEGATION_TOP_TIER);
   process.env.DELEGATION_TOP_TIER = 'sonnet';
-  const census = { combined: { 'claude-sonnet-5': { input_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } } };
+  const census = { combined: { 'claude-sonnet-5': { input_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, {});
   assert.match(r.value, /^7 tokens: build 7/);
+});
+
+test('computeTopTierTokens: a census window ending after the last acceptance (plus tolerance) is rejected — it would mix in the next build (MAJOR 1)', () => {
+  const census = { combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: { windowStartAt: '2026-01-01T00:00:00.000Z', windowEndAt: '2026-01-01T05:00:00.000Z' } };
+  const r = computeTopTierTokens(census, null, {}, null, null, Date.parse('2026-01-01T01:00:00.000Z'));
+  assert.equal(r.value, 'unavailable (census window ends 2026-01-01T05:00:00.000Z, after the last acceptance)');
 });
 
 // ── scanTimestamps ───────────────────────────────────────────────────────────
@@ -359,6 +372,11 @@ test('computeWorkLostOrStalled: a slug that never appears in the ledger reads un
   assert.match(r.value, /ASKs unavailable \(slug nobody not in ledger\)$/);
 });
 
+test('computeWorkLostOrStalled: fewer than 2 in-window lead messages -> gaps unavailable, never a confident "0 gaps" (R1 r1 BLOCKER 2, pinned against reversion in r2)', () => {
+  const r = computeWorkLostOrStalled([1000], null, null, { openedMs: 0, acceptedMs: 3000 });
+  assert.match(r.value, /^gaps unavailable \(fewer than 2 lead messages in window\);/);
+});
+
 test('computeWorkLostOrStalled: on the fixture record + lead session + ledger, one gap over 30min and one unanswered ASK', () => {
   const { fields, logs } = parseRecordText(fs.readFileSync(RECORD, 'utf8'));
   const ts = scanTimestamps(fs, LEAD);
@@ -412,6 +430,30 @@ test('buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a who
   const report = buildFourRead({ record: openedAtAcceptRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
   assert.match(report.numbers[1].value, /^unavailable \(record opened at acceptance/); // Number 2, MAJOR 4
   assert.match(report.numbers[0].value, /^unavailable \(census window 2026-09-02T02:00:00\.000Z is not the build window\)$/); // Number 1, BLOCKER 1(b)
+  // BLOCKER 1 (r2): the companion must equal Number 1's own verdict — never a confident
+  // "0 messages" beside a census Number 1 has already called wrong.
+  assert.equal(report.companions[0].value, report.numbers[0].value);
+  assert.doesNotMatch(report.companions[0].value, /^0 messages/);
+});
+
+test('buildFourRead: a record with no Opened: makes Number 1 and its companion both unavailable, never a confident count (BLOCKER 1)', async () => {
+  const dir = mkTmp('four-read-no-opened-');
+  const censusPath = await buildCensusFile(dir);
+  const noOpenedRecord = path.join(dir, 'record.md');
+  fs.writeFileSync(noOpenedRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Opened:.*$/m, ''));
+  const report = buildFourRead({ record: noOpenedRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(report.numbers[0].value, /^unavailable \(no Opened:: census window cannot be checked\)$/);
+  assert.equal(report.companions[0].value, report.numbers[0].value);
+});
+
+test('buildFourRead: a Lead-session: that does not match the census\'s own lead file gives a named mismatch reason on Numbers 2 and 4, not a silently-wrong transcript (MAJOR 1, pinned against reversion in r2)', async () => {
+  const dir = mkTmp('four-read-lead-mismatch-');
+  const censusPath = await buildCensusFile(dir);
+  const mismatchedRecord = path.join(dir, 'record.md');
+  fs.writeFileSync(mismatchedRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Lead-session:.*$/m, 'Lead-session: not-the-census-file'));
+  const report = buildFourRead({ record: mismatchedRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(report.numbers[1].value, /gap unavailable \(census lead file lead-session is not Lead-session not-the-census-file\)$/);
+  assert.match(report.numbers[3].value, /^gaps unavailable \(census lead file lead-session is not Lead-session not-the-census-file\)/);
 });
 
 test('formatJson: deterministic, sorted keys, over the fixture build', async () => {

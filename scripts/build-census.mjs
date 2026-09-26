@@ -276,7 +276,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
     if (windowed && inWindowNow) resolveAndStore(windowById, windowAlias, obj, uniqueCounter, entry);
   }
 
-  if (!windowed) windowStartAt = firstAt;
+  if (!marker && !from) windowStartAt = firstAt; // unwindowed or --to-only: window starts at the file's start (MAJOR 2, r2)
 
   return {
     totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal,
