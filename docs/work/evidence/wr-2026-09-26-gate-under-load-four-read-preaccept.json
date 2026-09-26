@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-26T23:44:09.888Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (census lead file rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee is not Lead-session 01a0df4c-2809-7520-b1d7-876cc51a87ee)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "unavailable (no --lead-slug)"
+    }
+  ],
+  "leadSession": {
+    "id": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (census lead file rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee is not Lead-session 01a0df4c-2809-7520-b1d7-876cc51a87ee)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.0h; gap unavailable (census lead file rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee is not Lead-session 01a0df4c-2809-7520-b1d7-876cc51a87ee)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "gaps unavailable (census lead file rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee is not Lead-session 01a0df4c-2809-7520-b1d7-876cc51a87ee); ASKs unavailable (no --lead-slug)"
+    }
+  ],
+  "record": "C:\\Users\\benzh\\orca\\workspaces\\claude-delegation\\build-gate-under-load-1\\docs\\work\\wr-2026-09-26-gate-under-load.record.md"
+}

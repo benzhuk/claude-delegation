@@ -1,0 +1,12 @@
+VERDICT: PASS 99c7c0110f4f5933e580e1c2a42ff1dfaf5d2f64 — baseline-qualified Linux disposition
+
+Host: Netcup Linux, separate checkout fetched from origin. Exact source: 99c7c0110f4f5933e580e1c2a42ff1dfaf5d2f64; direct native exit: 1. The full raw output is docs/work/evidence/wr-2026-09-26-gate-under-load-linux-sealed.log; stderr is docs/work/evidence/wr-2026-09-26-gate-under-load-linux-sealed.stderr.log.
+
+Counts: 1777 tests, 1772 pass, 2 fail, 0 cancelled, 3 skipped, 0 todo; runner duration 8177.791054 ms. The only failures were the pre-authorized, lane-ten-unmerged baseline exceptions:
+
+- V4: a real install writes one shim per command, each naming ITS OWN command in its errors
+- H6: a plain checkout resolves to itself, and backslashes are normalised (L1)
+
+Lane ten spec commit 0bac9c650078415e96d216b618512e46bc56e341 is not an ancestor of either current origin/main or 99c7c0110f4f5933e580e1c2a42ff1dfaf5d2f64; its H6/V4 fixes are absent from the tested tree. This exit 1 therefore qualifies only under that explicit baseline rule, not as a raw green exit. The three skipped entries were the lowercased linked-worktree case (Linux case-sensitive filesystem), the Windows-only deregistered-worktree-directory case, and timeout terminates the exact owned descendant tree (# SKIP).
+
+The runner wrote malformed timestamp text (2026-09-26T631Z / 2026-09-26T953Z). Direct remote file mtimes provide the retained interval instead: start 2026-09-26T23:34:45.630241387Z and end 2026-09-26T23:34:53.950296996Z.

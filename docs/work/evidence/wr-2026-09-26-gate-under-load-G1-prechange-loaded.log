@@ -1,0 +1,70 @@
+C:\Users\benzh\AppData\Local\Temp\sealed-home-93Vrhr
+✔ SessionStart injects the card, on every source (1637.2904ms)
+✔ seam S7: a self-reviewed (reviewer-not-independent) receipt gets a specific due-notice, not the generic one (586.38ms)
+✔ seam S7: a plain "no completion receipt" due reason still gets the generic due-notice (81.6161ms)
+✔ seam S4: SessionStart hints the lead its own session id for --lead-id, in additionalContext only (251.3551ms)
+✔ seam S4: no lead-id hint when bearings is not due (current) (259.3095ms)
+✔ seam S4: a subagent (agent_id present) gets neither bearings nor the lead-id hint (231.5499ms)
+✔ UserPromptSubmit never carries the card — that is what made the last standing text wallpaper (771.3207ms)
+✔ PostCompact emits nothing — the docs give it no decision control — but it resets the counter (110.9274ms)
+✔ an event nobody wired this hook for is silent, including SubagentStart (build 0921-S ruling) (2887.8261ms)
+✔ MAJOR 3: every agent_type gets the card at its own batch threshold, and only builder/reviewer/integrator get the report line (4311.2432ms)
+✔ MINOR 7: the subagent line is a factual statement, not an imperative system instruction (0.2278ms)
+✔ MAJOR 2: concurrent PostToolBatch hooks lose no increments beyond what the design accepts (2602.4621ms)
+✖ MAJOR 2: concurrent PostToolBatch hooks past the threshold DO fire (round 1 fired zero times) (6424.0461ms)
+✔ MAJOR 2: a subagent’s tool batches do not advance the parent’s counter (65.6416ms)
+✔ PostToolBatch injects on the 40th batch, resets, and not before (377.7053ms)
+✔ MAJOR 2: the time floor fires even when the tally is nearly empty (316.8846ms)
+✔ SessionStart resets the counter and the clock, so a fresh session never fires early (311.5558ms)
+✔ a hostile session or agent id cannot escape the state directory (252.267ms)
+✔ an unreadable or oversized state file fails open: no crash, no stall, exit 0 (886.1154ms)
+✔ MINOR 3: the sweep removes a stale file that sits past the 500th directory entry (1174.6556ms)
+✔ NIT 4 (round-1 review): the hook's duplicated SWEEP_MAX_UNLINKS and STATE_MAX_AGE_MS agree with the module's (0.3195ms)
+✔ MAJOR 4: a malformed card produces exactly one systemMessage at SessionStart and nothing elsewhere (240.3136ms)
+✔ MAJOR 4: a valid card and a missing card produce no card-rejection systemMessage (334.1638ms)
+✔ bearings due is advisory, completion is only the explicit helper receipt, and child bearings writes nothing (299.6324ms)
+✔ T2: not-due emits no systemMessage, even though the card itself still injects (228.323ms)
+✔ T2: PostToolBatch never puts the due-notice in systemMessage or any other pane-visible field (391.2526ms)
+✔ bearings switch preserves the existing goal card and master/goalcard switches silence cadence (480.8686ms)
+✔ T2: a file where the bearings dir should be counts as no receipt, not a crash or a block (67.2476ms)
+✔ T2: an unreadable bearings receipt reaches Ben as unknown, in both fields, and still fails open (207.2494ms)
+✔ MAJOR 1: with a switch file present the hook writes, deletes and reads nothing (1745.1401ms)
+✔ MAJOR 1: the master switch silences even the routing line; the feature switch does not (287.3228ms)
+✔ a malformed card injects nothing and exits 0 (855.0036ms)
+✔ MINOR 5: a card path that is not a regular file renders nothing and returns promptly (60.7259ms)
+✔ no card and no project config: a quiet no-op, plus the one short prompt line (749.6483ms)
+✔ the per-prompt payload is under budget, well under what it replaced, and keeps its two clauses (454.3071ms)
+✔ the card payload is under budget wherever it is injected (647.0093ms)
+✔ nothing this hook does ever exits 2 (13343.5557ms)
+✔ every output is a valid harness object, and never a block (659.81ms)
+✔ MINOR 2: the whole payload reaches stdout over a pipe, never a half-written object (1321.9013ms)
+✔ with no event in argv and none on stdin, it behaves as the UserPromptSubmit hook it shipped as (47.2026ms)
+✔ a stdin that never closes releases the hook inside its budget (712.1688ms)
+✔ the hook spawns nothing and opens no socket (0.5398ms)
+✔ the hook is fast enough to sit on every tool batch (1792.1114ms)
+ℹ tests 43
+ℹ suites 0
+ℹ pass 42
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 48719.1603
+
+✖ failing tests:
+
+test at hooks\delegation-reminder.test.mjs:340:1
+✖ MAJOR 2: concurrent PostToolBatch hooks past the threshold DO fire (round 1 fired zero times) (6424.0461ms)
+  AssertionError [ERR_ASSERTION]: 45 concurrent batches fired 0 times; never firing is the one unacceptable outcome
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/gate-under-load-1-g1/hooks/delegation-reminder.test.mjs:354:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+run-tests: leaving the sealed home for inspection: C:\Users\benzh\AppData\Local\Temp\sealed-home-93Vrhr

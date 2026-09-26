@@ -1,0 +1,58 @@
+{
+  "combined": null,
+  "defaultSubagentsDir": null,
+  "lead": {
+    "coverageReason": "complete per-build response coverage is not established",
+    "coverageSupported": false,
+    "host": "codex",
+    "leadLastMessageAt": "2026-09-26T23:43:19.681Z",
+    "leadTurns": null,
+    "leadTurnsTotal": null,
+    "markerFound": true,
+    "nativeTurnCount": null,
+    "nativeTurnCountWindow": null,
+    "observedLeadRequests": 72,
+    "observedLeadTokens": 11989508,
+    "observedNativeTurnCount": 2,
+    "observedNativeTurnCountWindow": 1,
+    "observedTotalByModel": {
+      "unknown": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 22703872,
+        "input_tokens": 387373,
+        "output_tokens": 52759
+      }
+    },
+    "observedWindowByModel": {
+      "unknown": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 11869184,
+        "input_tokens": 93509,
+        "output_tokens": 26815
+      }
+    },
+    "totalByModel": null,
+    "totalTurns": null,
+    "turnsPerHour": null,
+    "wallClockHours": 0.866705,
+    "windowByModel": null,
+    "windowEndAt": "2026-09-26T23:43:19.681Z",
+    "windowStartAt": "2026-09-26T22:51:19.543Z",
+    "windowTurns": null
+  },
+  "leadPath": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
+  "marker": "wr-2026-09-26-gate-under-load",
+  "subagents": {
+    "excludedByWindow": 0,
+    "fileCount": 0,
+    "incomplete": false,
+    "perFile": [],
+    "roleFileCounts": null,
+    "totalByModel": null,
+    "totalByRole": null,
+    "totalTurns": null,
+    "unreadable": 0,
+    "unreadableDirs": []
+  },
+  "tasksPaths": []
+}
