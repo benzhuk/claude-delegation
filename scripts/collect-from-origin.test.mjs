@@ -97,9 +97,11 @@ function snapshotGitDir(root) {
     .map((f) => `${path.relative(root, f)}:${crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex")}`);
 }
 
-function rowsOf(root, extraArgs = []) {
+function rowsOf(root, extraArgs = [], now) {
   const written = [];
-  const code = main(["--repo", root, "--no-fetch", "--json", ...extraArgs], { write: (s) => written.push(s) });
+  const opts = { write: (s) => written.push(s) };
+  if (now !== undefined) opts.now = now;
+  const code = main(["--repo", root, "--no-fetch", "--json", ...extraArgs], opts);
   assert.equal(code, 0);
   return JSON.parse(written[0]);
 }
@@ -229,8 +231,13 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   commitAll(root, "main-only record");
   git(["push", "-q", "origin", "main"], root);
 
-  const rows = rowsOf(root);
-  assert.deepEqual(rowsOf(path.join(root, "docs")), rows); // F5: a subdirectory --repo reads the same table
+  // Pin one fixed `now` for both calls below: hoursSinceLog rounds to 0.01h, so two independent
+  // Date.now() samples can straddle a rounding boundary and make an otherwise-identical row
+  // differ by 0.01 (a real, once-observed flake). Comparing two calls against the wall clock is
+  // never valid; every row's Log: is well before this fixed instant.
+  const NOW = Date.parse("2026-09-26T12:00:00Z");
+  const rows = rowsOf(root, [], NOW);
+  assert.deepEqual(rowsOf(path.join(root, "docs"), [], NOW), rows); // F5: a subdirectory --repo reads the same table
   // Look up rows by (branch, recordPath): a branch with several changed records yields one row
   // per record (R1), so recordPath - not just branch - is part of the row's identity.
   const rowFor = (branch, recordPath) => rows.find((r) => r.branch === branch && r.recordPath === recordPath);
