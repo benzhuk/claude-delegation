@@ -22,6 +22,8 @@ There were **0 code fixes**. The reconciliation contains **2 proposed operator-d
 
 Exact ask time and ask-to-accepted duration are unavailable. `leadTurns` is unsupported. The observed incomplete lead usage is 11,582,987 tokens over 99 requests; it is not a complete per-build usage measure. The next decision is owner merge disposition, retaining unavailable synthetic-isolation and missed-note evidence.
 
+The post-review bounded census command was `node scripts/build-census.mjs --lead C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T18-23-14-01a0daaa-63a0-7f81-a42f-6883d7c68961.jsonl --out docs\\reports\\codex-fresh-0925\\census-accepted-0926.md`; it exited 0 and its complete `VERDICT: UNSUPPORTED` output is retained at `census-accepted-0926.md`. Acceptance used the recorded `--no-census` reason because that result cannot be a complete census.
+
 Predictions only: the next Codex-led build uses fewer than 20 lead turns, finishes within one hour after dispatch, has zero post-acceptance fixes over seven days, and loses or stalls zero admitted items. These are not measured outcomes.
 
 No peer note was sent from this lane. The packaging commit and verified remote tip are recorded in the closeout handoff after this packet is committed.
