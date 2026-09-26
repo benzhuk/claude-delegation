@@ -10,9 +10,53 @@ Open the target project in Codex or Claude Code after choosing the installed rou
 
 The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
 
-The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. See [work records](work-record.md).
+The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. **Before opening a record, read [work records](work-record.md) for the exact field schema** (`Work:`, `Scope:`, `Owner:`, `Status:`, `Authority:`, `Artifact:`, `Evidence:`, `Next:`, `Opened:`, plus repeatable `Log:` lines) — `work-record.mjs check-acceptance`/`accept` parse it strictly and reject a hand-guessed shape.
+
+### Script paths, the goal card, and closing a build in a fresh project
+
+The scripts named below (`goal-card.mjs`, `build-census.mjs`, `work-record.mjs`,
+`bearings-state.mjs`) are **the installed plugin's own scripts**, not files that exist in
+your project. Run them from the installed plugin root, not `scripts/<name>.mjs` relative
+to your project: find that root with `claude plugin list` (its cache path is typically
+`~/.claude/plugins/cache/benzhuk/delegation/<version>/`), then invoke
+`node <plugin-root>/scripts/<name>.mjs ...` with your project as `--repo .` or by running
+from your project's own working directory. This is the same pattern the shared docs
+already use for `docs/<name>.md` links (see below).
+
+The goal card is the five-line file the routing-reminder hook injects at session start.
+It lives at `docs/goals/card.md` by default (override with `.agents/project.json`'s
+`goal_card` key), in exactly this shape — five labelled lines, each non-empty, nothing
+else:
+
+```
+GOAL: <the one outcome this project is trying to reach>
+NOT: <one or more non-goals, all on this line>
+DONE: <the acceptance test>
+KILL: <the kill criterion and the budget>
+SOURCE: <path of the full goals doc> (parent: <path of its parent doc, or none>)
+```
+
+Check it with `node <plugin-root>/scripts/goal-card.mjs check` (0 valid/off, 1
+malformed, 3 cannot see the project) and preview the injected text with
+`... goal-card.mjs show`. The full format, byte caps and worked example are in
+`<plugin-root>/templates/goal-card.md`.
+
+To close a build once a reviewer has approved it: take a census of the lead session's own
+transcript (`~/.claude/projects/<project-slug>/<session-id>.jsonl`) with
+`node <plugin-root>/scripts/build-census.mjs --lead <transcript.jsonl> > docs/work/<id>.census.md`,
+confirm the record parses with
+`node <plugin-root>/scripts/work-record.mjs check-acceptance --repo . --record docs/work/<id>.record.md`,
+then close it with exactly one of `--delivery-ref <ref>` or `--pinned-artifact <sha>` plus
+either `--census <file>` or `--no-census "<reason>"`:
+`node <plugin-root>/scripts/work-record.mjs accept --repo . --record docs/work/<id>.record.md --pinned-artifact <sha> --census docs/work/<id>.census.md`.
 
 Use `continue` at a pause or workstream closeout to select finite ready work. Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
+
+Running `bearings` to completion (a published assessment plus a recorded completion
+receipt) needs a configured Notion page for this project; without one it still writes the
+packet, assessment and lead-response files under `docs/bearings/` and gives a verdict, but
+stays `due` indefinitely because nothing gets published or receipted. That is expected on
+a project with no Notion page yet, not a failure of the skill.
 
 Honor an explicit user stop or pause. Otherwise, before closing, check the actual result against the requested outcome. Continue useful authorized work that remains. Close when the outcome has evidence or all remaining useful actions have concrete external dependencies; report those dependencies and the resumable work identity. Use the native binding/accounting commands below only when current hook context is available. Missing hooks do not prevent ordinary useful work, but automatic correction must remain unclaimed.
 
