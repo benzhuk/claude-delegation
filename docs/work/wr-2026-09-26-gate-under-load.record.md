@@ -1,12 +1,12 @@
 Work: wr-2026-09-26-gate-under-load
 Scope: docs/specs/2026-09-26-gate-under-load.md@b786916
 Owner: skills-a
-Status: delivered
+Status: reviewed
 Authority: engineering, independent review, and branch pushes are authorized; merge is conditional on the recorded accepted-merge standing grant and all acceptance gates; release or installation requires Ben's word.
 Artifact: build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9
 Worktree: build/gate-under-load-1
-Evidence: docs/work/evidence/wr-2026-09-26-gate-under-load-G1-report.md
-Next: fresh native Opus review of artifact 0c00422e97755df7d01127e529c8216c756ee8f9 reruns only the disposable mutation checks using an explicitly allowed Write route; no integration or merge yet.
+Evidence: docs/work/evidence/wr-2026-09-26-gate-under-load-G1-report.md, docs/work/evidence/wr-2026-09-26-gate-under-load-G1-review.md
+Next: lead consumes compliant independent APPROVE, then authorizes Windows and prepared-Netcup sealed acceptance gates; no integration or merge yet.
 Opened: 2026-09-26T22:42:00Z
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
@@ -21,5 +21,7 @@ Log: 2026-09-26T23:16:34.431Z delivered skills-a artifact build/gate-under-load-
 Log: 2026-09-26T23:20:00Z delivered skills-a artifact origin/build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9 verified recoverable; builder report copied to integration evidence
 Log: 2026-09-26T23:21:47.930Z reviewed native-opus artifact build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9 original explicit APPROVE; nondeciding because the Write tool was denied and the reviewer then created focus.mjs through Bash
 Log: 2026-09-26T23:27:22.005Z delivered skills-a compliance correction: original review retained as nondeciding evidence; fresh compliant review pending
+
+Log: 2026-09-26T23:31:22.577Z reviewed native-opus artifact build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9 fresh Claude Opus claude-opus-5-5 session 6f7e742c-b18b-4ef4-80cb-d58bc65f874f explicit APPROVE; exit 0, permission denials 0, disposable Write route compliant
 
 Observed: Opened is the peer request minute-precision timestamp. The local pack preserves the pinned spec, scout, lead ruling, and contract checks. Windows evidence is three idle 43/43 file passes, an earlier CAPTURE_UNAVAILABLE overlap, the durable loaded prechange 42/43 failure at 45 concurrent calls with zero cards, and ten durable postchange loaded file passes with both load suites exiting 0. Source artifact 0c00422e97755df7d01127e529c8216c756ee8f9 is recoverable at origin/build/gate-under-load-1-g1; no sealed acceptance, integration, or merge has run.
