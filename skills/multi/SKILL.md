@@ -126,6 +126,12 @@ ls -l ~/.agents/notes/inboxes.json                        # there? recently modi
 grep 'inbox' ~/.agents/notes/flush.log | tail             # what the flusher did, per note
 ```
 
+The status line also reports registered pickup's own state — the existing decisions-pickup
+mechanism, never a second one — ending in `; pickup: not registered on this host` (no
+`registrations.json` under `~/.agents/ws/decisions-pickup/`, i.e. pickup was never opted into on
+this machine, which is the normal state on most hosts), `; pickup: <code> <age>` once a pass has
+annotated one, or `; pickup: disabled (<switch>)` when `ws-off`/`ws-off-decisions` is present.
+
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
 nothing is wrong: the file is protected by the profile's ACL, like everything else under `C:\Users\benzh`.

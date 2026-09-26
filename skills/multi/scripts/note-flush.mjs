@@ -291,6 +291,50 @@ function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt, prevPickup
 }
 
 /**
+ * R1 (merge-on-acceptance-1, contracts.md): the `; pickup: ...` suffix `buildFlushStatus` appends on
+ * BOTH of its return branches, and the `pickup` field its `json` carries either way. This reports the
+ * EXISTING registered-pickup mechanism's state - never a new reader, state file, or poll - by reusing
+ * the same on-disk checks `runPostFlushPickup` already does before it acts:
+ *   1. `heartbeatPickup` (the CURRENT heartbeat's own `pickup` annotation, when the caller has one -
+ *      only the normal/non-missing branch ever does) -> `{ state: 'annotated', code, age_s }`, `age_s`
+ *      derived from `pickup.at` the same way `ageS` is derived from `heartbeat.at` above.
+ *   2. Else `ws-off` / `ws-off-decisions` (the same `switchActive` lstat-based check
+ *      `runPostFlushPickup` uses; `ws-off` named first if both exist - scout-M2.md's 2nd open
+ *      question) -> `{ state: 'disabled', switch }`. Checked BEFORE registration existence: a disabled
+ *      switch is reported regardless of whether a registration file also happens to exist, matching
+ *      `runPostFlushPickup`'s own precedence (it computes `disabled` before it ever gates on
+ *      `configured`).
+ *   3. Else exactly ONE `lstat` of `<agentsHome>/ws/decisions-pickup/registrations.json` (existence
+ *      only, never parsed - scout-M2.md's 3rd open question; ENOENT/ENOTDIR = absent, anything else
+ *      counts as present, mirroring `runPostFlushPickup`'s own check) -> absent:
+ *      `{ state: 'unregistered' }` ("not registered on this host"); present but nothing annotated yet
+ *      (registered, enabled, no full pass has recorded a pickup outcome since): `{ state: 'configured' }`.
+ */
+function buildPickupStatus(home, fsImpl, now, heartbeatPickup) {
+  const pickup = safePickupAnnotation(heartbeatPickup);
+  if (pickup) {
+    const pickupAtMs = Date.parse(pickup.at);
+    const ageS = Number.isFinite(pickupAtMs) ? Math.max(0, Math.round((now - pickupAtMs) / 1000)) : 0;
+    return { line: `; pickup: ${pickup.code} ${ageS}s`, json: { state: 'annotated', code: pickup.code, age_s: ageS } };
+  }
+  const base = path.resolve(home, '.agents');
+  const switchName = switchActive(path.join(base, 'ws-off'), fsImpl) ? 'ws-off'
+    : switchActive(path.join(base, 'ws-off-decisions'), fsImpl) ? 'ws-off-decisions'
+      : null;
+  if (switchName) return { line: `; pickup: disabled (${switchName})`, json: { state: 'disabled', switch: switchName } };
+  let configured = false;
+  try {
+    fsImpl.lstatSync(path.join(base, 'ws', 'decisions-pickup', 'registrations.json'));
+    configured = true;
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') configured = true;
+  }
+  return configured
+    ? { line: '; pickup: configured, awaiting first pickup pass', json: { state: 'configured' } }
+    : { line: '; pickup: not registered on this host', json: { state: 'unregistered' } };
+}
+
+/**
  * F3: `note-flush --status` - what the heartbeat says, without running a pass. Pure and injectable
  * (`fsImpl`, `home`, `now`), so fresh/stale/missing are all testable without a real clock or a real drain.
  *
@@ -307,12 +351,13 @@ export function buildFlushStatus(argv, deps = {}) {
     // send you to different places. Either way there is no full pass on record, so the json carries
     // `stale: true` rather than leaving a consumer reading `.stale` as `undefined` (falsy).
     const there = (() => { try { return Boolean(fsImpl.statSync(flushLastPath(home))); } catch { return false; } })();
+    const pickupStatus = buildPickupStatus(home, fsImpl, now, null);
     return {
       exitCode: 1,
-      line: there
+      line: (there
         ? 'flush-last.json is there but unreadable or not valid JSON: the flusher cannot be checked'
-        : 'flusher has never run on this machine (no flush-last.json)',
-      json: { missing: !there, unreadable: there, age_s: null, timer_age_s: null, stale: true },
+        : 'flusher has never run on this machine (no flush-last.json)') + pickupStatus.line,
+      json: { missing: !there, unreadable: there, age_s: null, timer_age_s: null, stale: true, pickup: pickupStatus.json },
     };
   }
   const atMs = Date.parse(String(heartbeat.at ?? ''));
@@ -324,10 +369,11 @@ export function buildFlushStatus(argv, deps = {}) {
   const stale = timerAgeS === null || timerAgeS * 1000 > HEARTBEAT_STALE_MS;
   const base = `flusher last ran ${ageS === null ? 'an unknown time' : `${ageS}s`} ago on ${heartbeat.host ?? 'unknown host'}: `
     + `queued ${heartbeat.queued ?? 0}, delivered ${heartbeat.delivered ?? 0}, deferred ${heartbeat.deferred ?? 0}, errors ${heartbeat.errors ?? 0}`;
+  const pickupStatus = buildPickupStatus(home, fsImpl, now, heartbeat.pickup);
   return {
     exitCode: stale ? 1 : 0,
-    line: stale ? `${base}. STALE: the one-minute timer is not running` : base,
-    json: { ...heartbeat, age_s: ageS, timer_age_s: timerAgeS, stale },
+    line: (stale ? `${base}. STALE: the one-minute timer is not running` : base) + pickupStatus.line,
+    json: { ...heartbeat, age_s: ageS, timer_age_s: timerAgeS, stale, pickup: pickupStatus.json },
   };
 }
 
