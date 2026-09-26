@@ -1,12 +1,12 @@
 Work: wr-2026-09-26-gate-under-load
 Scope: docs/specs/2026-09-26-gate-under-load.md@b786916
 Owner: skills-a
-Status: delivered
+Status: reviewed
 Authority: engineering, independent review, and branch pushes are authorized; merge is conditional on the recorded accepted-merge standing grant and all acceptance gates; release or installation requires Ben's word.
 Artifact: build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9
 Worktree: build/gate-under-load-1
-Evidence: docs/work/evidence/wr-2026-09-26-gate-under-load-G1-report.md
-Next: fresh native Opus review of artifact 0c00422e97755df7d01127e529c8216c756ee8f9, then lead consumes its explicit verdict.
+Evidence: docs/work/evidence/wr-2026-09-26-gate-under-load-G1-report.md, docs/work/evidence/wr-2026-09-26-gate-under-load-G1-review.md
+Next: lead consumes independent APPROVE, then authorizes the Windows and prepared-Netcup sealed acceptance gates; no integration or merge yet.
 Opened: 2026-09-26T22:42:00Z
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
