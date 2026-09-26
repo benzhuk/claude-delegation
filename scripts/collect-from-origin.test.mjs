@@ -42,7 +42,10 @@ function writeRecord(root, filename, lines) {
   const dir = path.join(root, "docs", "work");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, filename), lines.join("\n"));
-  return path.join("docs", "work", filename);
+  // git diff --name-only always prints forward slashes, on every OS - the expected recordPath
+  // built here must match that, not the platform's path.sep (path.join would emit a backslash
+  // on Windows, mismatching the code's real, always-forward-slash output).
+  return path.posix.join("docs", "work", filename);
 }
 
 function commitAll(root, msg) {
@@ -503,6 +506,27 @@ test("changedRecordPaths: diff --name-only against docs/work/*.record.md, added 
   pushBranch(root, "feature/diffcheck");
   assert.deepEqual(changedRecordPaths(root, "refs/remotes/origin/main", "refs/remotes/origin/feature/diffcheck"), [p]);
   assert.deepEqual(changedRecordPaths(root, "refs/remotes/origin/main", "refs/remotes/origin/main"), []);
+});
+
+// Windows regression: git diff --name-only always prints forward slashes, on every OS - a
+// recordPath built with path.join (which emits '\' on Windows, path.sep there) would mismatch
+// the real, always-forward-slash value. Pin this independently of path.sep, on every platform.
+test("changedRecordPaths / row.recordPath: always forward-slash, never path.sep, regardless of OS", () => {
+  const root = initRepoWithOrigin();
+  newBranch(root, "feature/slashcheck");
+  const p = writeRecord(root, "wr-2026-09-26-slash.record.md", ["Work: wr-2026-09-26-slash", "Status: owned", "Artifact: none", ""]);
+  commitAll(root, "slash record");
+  pushBranch(root, "feature/slashcheck");
+  backToMain(root);
+
+  const [diffPath] = changedRecordPaths(root, "refs/remotes/origin/main", "refs/remotes/origin/feature/slashcheck");
+  assert.equal(diffPath, "docs/work/wr-2026-09-26-slash.record.md");
+  assert.ok(!diffPath.includes("\\"), `expected no backslash in ${diffPath}`);
+
+  const rows = rowsOf(root).filter((r) => r.branch === "feature/slashcheck");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].recordPath, p);
+  assert.ok(!rows[0].recordPath.includes("\\"), `expected no backslash in ${rows[0].recordPath}`);
 });
 
 after(() => {
