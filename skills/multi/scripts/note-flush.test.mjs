@@ -1519,7 +1519,9 @@ test('F3/M2: --status reports a heartbeat pickup annotation\'s code and age', as
   })}\n`, 'utf8');
   const status = buildFlushStatus([], { home, now: NOW + 17_000 });
   assert.match(status.line, /; pickup: PICKUP_RECORDED 17s$/);
-  assert.deepEqual(status.json.pickup, { state: 'annotated', code: 'PICKUP_RECORDED', age_s: 17 });
+  assert.deepEqual(status.json.pickup, {
+    state: 'annotated', at: new Date(NOW).toISOString(), code: 'PICKUP_RECORDED', ordinal: 3, age_s: 17,
+  });
 });
 
 test('F3/M2: --status reports "disabled" for a kill-switch file, before and regardless of registration', () => {
@@ -1530,6 +1532,23 @@ test('F3/M2: --status reports "disabled" for a kill-switch file, before and rega
   const status = buildFlushStatus([], { home });
   assert.match(status.line, /; pickup: disabled \(ws-off-decisions\)$/);
   assert.deepEqual(status.json.pickup, { state: 'disabled', switch: 'ws-off-decisions' });
+});
+
+test('F3/M2: --status reports "configured" when registered, enabled, and not yet annotated', () => {
+  const home = tmp();
+  enableRegisteredPickup(home);
+  const status = buildFlushStatus([], { home });
+  assert.match(status.line, /; pickup: configured, awaiting first pickup pass$/);
+  assert.deepEqual(status.json.pickup, { state: 'configured' });
+});
+
+test('F3/M2: --status names ws-off, not ws-off-decisions, when both switches exist', () => {
+  const home = tmp();
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off'), '', 'utf8');
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off-decisions'), '', 'utf8');
+  const status = buildFlushStatus([], { home });
+  assert.deepEqual(status.json.pickup, { state: 'disabled', switch: 'ws-off' });
 });
 
 function postPickupDeps(home, overrides = {}) {

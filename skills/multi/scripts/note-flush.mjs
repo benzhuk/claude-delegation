@@ -296,8 +296,10 @@ function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt, prevPickup
  * EXISTING registered-pickup mechanism's state - never a new reader, state file, or poll - by reusing
  * the same on-disk checks `runPostFlushPickup` already does before it acts:
  *   1. `heartbeatPickup` (the CURRENT heartbeat's own `pickup` annotation, when the caller has one -
- *      only the normal/non-missing branch ever does) -> `{ state: 'annotated', code, age_s }`, `age_s`
- *      derived from `pickup.at` the same way `ageS` is derived from `heartbeat.at` above.
+ *      only the normal/non-missing branch ever does) -> `{ state: 'annotated', at, code, ordinal, age_s }`,
+ *      `age_s` derived from `pickup.at` the same way `ageS` is derived from `heartbeat.at` above. `at`
+ *      and `ordinal` are carried through unchanged from the raw annotation (review round 1 finding 1:
+ *      this must stay a superset of the annotation status previously reported, never drop fields).
  *   2. Else `ws-off` / `ws-off-decisions` (the same `switchActive` lstat-based check
  *      `runPostFlushPickup` uses; `ws-off` named first if both exist - scout-M2.md's 2nd open
  *      question) -> `{ state: 'disabled', switch }`. Checked BEFORE registration existence: a disabled
@@ -315,7 +317,7 @@ function buildPickupStatus(home, fsImpl, now, heartbeatPickup) {
   if (pickup) {
     const pickupAtMs = Date.parse(pickup.at);
     const ageS = Number.isFinite(pickupAtMs) ? Math.max(0, Math.round((now - pickupAtMs) / 1000)) : 0;
-    return { line: `; pickup: ${pickup.code} ${ageS}s`, json: { state: 'annotated', code: pickup.code, age_s: ageS } };
+    return { line: `; pickup: ${pickup.code} ${ageS}s`, json: { state: 'annotated', ...pickup, age_s: ageS } };
   }
   const base = path.resolve(home, '.agents');
   const switchName = switchActive(path.join(base, 'ws-off'), fsImpl) ? 'ws-off'

@@ -129,8 +129,9 @@ grep 'inbox' ~/.agents/notes/flush.log | tail             # what the flusher did
 The status line also reports registered pickup's own state — the existing decisions-pickup
 mechanism, never a second one — ending in `; pickup: not registered on this host` (no
 `registrations.json` under `~/.agents/ws/decisions-pickup/`, i.e. pickup was never opted into on
-this machine, which is the normal state on most hosts), `; pickup: <code> <age>` once a pass has
-annotated one, or `; pickup: disabled (<switch>)` when `ws-off`/`ws-off-decisions` is present.
+this machine, which is the normal state on most hosts), `; pickup: configured, awaiting first pickup
+pass` when the file exists but no pass has annotated a result yet, `; pickup: <code> <age>` once a pass
+has annotated one, or `; pickup: disabled (<switch>)` when `ws-off`/`ws-off-decisions` is present.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
