@@ -24,4 +24,6 @@ Log: 2026-09-26T23:27:22.005Z delivered skills-a compliance correction: original
 
 Log: 2026-09-26T23:31:22.577Z reviewed native-opus artifact build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9 fresh Claude Opus claude-opus-5-5 session 6f7e742c-b18b-4ef4-80cb-d58bc65f874f explicit APPROVE; exit 0, permission denials 0, disposable Write route compliant
 
+Log: 2026-09-26T23:32:10.099Z reviewed skills-a artifact 0c00422e97755df7d01127e529c8216c756ee8f9 record-validator correction: compliant native Opus approval remains the deciding evidence
+
 Observed: Opened is the peer request minute-precision timestamp. The local pack preserves the pinned spec, scout, lead ruling, and contract checks. Windows evidence is three idle 43/43 file passes, an earlier CAPTURE_UNAVAILABLE overlap, the durable loaded prechange 42/43 failure at 45 concurrent calls with zero cards, and ten durable postchange loaded file passes with both load suites exiting 0. Source artifact 0c00422e97755df7d01127e529c8216c756ee8f9 is recoverable at origin/build/gate-under-load-1-g1; no sealed acceptance, integration, or merge has run.
