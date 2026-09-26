@@ -1,4 +1,4 @@
-VERDICT: PARTIAL — the installed 0.20.9 mirror and adapter provide the expected source behavior, but a fresh native interactive Codex lead could not be started from this Orca child because the host rejected creation of its outer Store/MSIX PowerShell process (OS error 5). `codex exec` did run, but its `source: "exec"` transcript is deliberately classified as unknown, so it is not a lead-card proof.
+VERDICT: PARTIAL — a live native Codex `source: "cli"` lead through an Orca-managed `powershell.exe` terminal received card, bearings, and a scratch-Claude note. This verifies that launch route only. Earlier synthetic evidence used the parent identity and is retained as historical, superseded evidence rather than proof of isolation or acceptance.
 
 # X1 fresh-project walk — 2026-09-25
 
@@ -10,7 +10,7 @@ All scratch repositories were outside any project:
 - `C:/Users/benzh/AppData/Local/Temp/codex-fresh-x1-missing-20260925` (no card)
 - `C:/Users/benzh/AppData/Local/Temp/codex-fresh-x1-invalid-20260925` (two-line card)
 
-Direct adapter probes used the existing lead transcript only as a native-shaped fixture and set an isolated `NOTE_SLUG` where inbox behavior was tested. They are labeled **synthetic adapter proof**; no parent pane was targeted.
+The original direct adapter probes used the parent lead transcript and session id. They were not fully isolated: retained note state shows the parent pane was bound to `x1-scratch-codex` at 6:43:53 PM America/New_York. The source did not retain exact environment, commands, or output for the claimed later isolated rerun, so that rerun and its historical continuation hash are not independently reproducible. Do not treat either synthetic route as native delivery proof.
 
 ## 1. Install and wiring — PARTIAL
 
@@ -27,7 +27,7 @@ Output head: actual `CODEX_HOME` is `C:\Users\benzh\AppData\Roaming\orca\codex-a
 
 `$env:NOTE_SLUG='x1-scratch-codex'; codex exec --json 'Reply exactly X1_OK.'` completed at 18:26 America/New_York with `thread.started` id `01a0daad-974d-7bb0-aec3-89948887a119`, two unrelated ignored-`sandbox` configuration notices, and agent message `X1_OK`. It did **not** print a hook line. Its first transcript row says `source: "exec"`; `hooks/continuation-native.mjs:71-73` accepts only `cli`/`vscode` as a lead. This is a real installed Codex execution but cannot demonstrate the lead-only goal/advisory injection.
 
-An attempted normal interactive session, with the scratch cwd and `NOTE_SLUG=x1-scratch-codex`, was blocked before Codex started: `CreateProcessW ... Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe ... failed: Access is denied. (os error 5)`. Selecting system PowerShell in the command call did not affect the unified-exec outer shell. This matches the host boundary described at `docs/native-use.md:114`, so no claim of a fresh live lead is made.
+An attempted normal interactive session, with the scratch cwd and `NOTE_SLUG=x1-scratch-codex`, was blocked before Codex started: `CreateProcessW ... Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe ... failed: Access is denied. (os error 5)`. This was a unified-exec outer-shell failure. It is a different process boundary from the Codex hook-shell issue described at `docs/native-use.md:114`.
 
 Gap X1-1 (MAJOR, operator proof): `docs/native-use.md:52-56` requires normal-session hook execution, but the `codex exec` command available for a noninteractive walk creates an intentionally non-lead transcript and prints no hook receipt. The guide needs an observable interactive-lead verification procedure or must say `exec` is only an installation smoke test. This is a documentation gap, not an adapter defect.
 
@@ -40,7 +40,7 @@ git init C:/Users/benzh/AppData/Local/Temp/codex-fresh-x1-20260925
 # write docs/goals/card.md with five valid GOAL/NOT/DONE/KILL/SOURCE lines
 ```
 
-**Synthetic adapter proof against installed durable code:** feeding SessionStart and UserPromptSubmit with a real `source: "cli"` lead transcript and the valid scratch cwd returned this exact card in `hookSpecificOutput.additionalContext` both times:
+**Historical synthetic evidence, superseded and not independently reproducible:** feeding SessionStart and UserPromptSubmit with the parent `source: "cli"` lead transcript returned this card. It supports source behavior only and must not be used as isolated native proof:
 
 ```
 Goal card for this project:
@@ -73,7 +73,7 @@ node skills/bearings/scripts/bearings-state.mjs check --repo C:/Users/benzh/AppD
 
 Output head: `{"status":"due","reason":"no completion receipt",...}`. The valid-card synthetic SessionStart output contained the exact one-line due notice in both `additionalContext` and `systemMessage`; UserPromptSubmit contained it only in `additionalContext`. That agrees with `hooks/multi-codex-hook.mjs:83-88` and `hooks/lib/goal-context.mjs:30-35`.
 
-This proves composition and event shaping in the installed adapter, not transcript-visible SessionStart delivery in a fresh interactive lead, because that native process was blocked as described in step 1.
+This historical synthetic attempt supports composition and event shaping only; the retained live transcript below is the native evidence for this route.
 
 ## 4. Multi — PARTIAL
 
@@ -95,7 +95,7 @@ Output head: `recorded and queued for note-flush (to: x1-scratch-codex)`. A **sy
 
 and `systemMessage: "📨 x1-claude → x1-scratch-codex ASK: Harmless X1 hook delivery probe."`.
 
-The earlier FYI ledger probe was read with `note-inbox --me x1-scratch-codex --ack --json --cold-start-hours 0`, yielding one note and a scratch binding. The ASK was not directed to the lead or any working peer. No actual Claude scratch session nor native interactive Codex lead was available through this host boundary, so cross-host live delivery is unproven.
+The earlier FYI ledger probe used `note-inbox --me x1-scratch-codex --ack --json --cold-start-hours 0`. Retained state shows it bound the parent pane to the scratch slug; potential missed notes cannot be reconstructed. It is not live cross-host evidence.
 
 ## 5. Census on the lead — PASS (truthful unsupported result)
 
@@ -115,9 +115,17 @@ It reports `leadTurns: unsupported`; observed deduplicated response usage `16561
 
 ## Doc corrections for docs/native-use.md
 
-- At `docs/native-use.md:52-56`, replace “Finally verify a normal session's hook execution on that host; listings and configuration alone do not prove event delivery.” with “Finally verify a normal interactive Codex lead session's hook execution on that host; `codex exec` uses `source: \"exec\"`, is not classified as a lead by the goal-card adapter, and is only an installation smoke test. Listings and configuration alone do not prove event delivery.”
-- At `docs/native-use.md:114`, replace “The identical disposable fixture worked when its PATH selected system Windows PowerShell.” with “The identical disposable fixture worked when its PATH selected system Windows PowerShell; verify the outer host process can also start that shell before relying on this procedure.”
+- At `docs/native-use.md:52-56`, replace “Finally verify a normal session's hook execution on that host; listings and configuration alone do not prove event delivery.” with “Finally verify a normal interactive Codex lead session's hook execution on that host; `codex exec` uses `source: "exec"`, is not classified as a lead by the goal-card adapter, and is only an installation smoke test. Listings and configuration alone do not prove event delivery.”
+- At `docs/native-use.md:114`, replace the sentence with: “On 2026-09-25, Codex 0.156.1 launched through an Orca-managed `powershell.exe` terminal executed its hook handlers and ran its in-session command through Store PowerShell. The separate unified-exec outer-shell error does not establish hook-shell behavior for other launchers.”
 
 ## Findings count
 
-Two: X1-1 documentation/proof gap; X1-2 specification contradiction. Neither requires an X2 code edit.
+The historical synthetic route is superseded and unavailable for independent reproduction. The remaining findings are specification/documentation discrepancies; no adapter code defect is established.
+
+## Recovery: verified native route, 2026-09-25
+
+An Orca-managed terminal launched Codex with `powershell.exe`, scratch `NOTE_SLUG=x1-native-codex`, and the scratch repository. The retained native transcript is `C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f8bc0bab-fa9c-4317-b296-797e4dc50024/home/sessions/2026/09/25/rollout-2026-09-25T18-31-35-01a0dab2-065e-7a31-bff4-9aecfe1fa833.jsonl` (51 lines; SHA-256 `f1faefecac92f7a6b53dc3dcd8495ea6761553d8fc2f77e73ed7fd471e45bd76`). Its session metadata identifies a Codex TUI `source: "cli"` session. Line 9 contains hook additional-context with the card and due bearings advisory; line 12 reinjects them at UserPromptSubmit; lines 24–25 preserve the answer after the requested `Get-Content docs/goals/card.md` call.
+
+A separate scratch Claude CLI session sent `x1-native-claude → x1-native-codex` through the queue. The Codex transcript preserves the note as user input at line 31 and hook additional-context at line 33. The sender transcript and ledger are retained outside this repository at `C:/Users/benzh/.claude/projects/C--Users-benzh-AppData-Local-Temp-codex-fresh-x1-20260925/2e91f34a-07b0-42e2-97ac-d1507fbdf6ab.jsonl` and `C:/Users/benzh/.agents/notes/2026-09-25.md:67`.
+
+This evidence proves SessionStart, UserPromptSubmit, and peer-delivery context for this launch route. It does not prove `systemMessage` persistence in the transcript, PostToolUse/Stop behavior, other launchers, clean global scratch state, or acceptance. The old scratch terminal is closed and unwritable according to Orca; the current pane cannot safely unbind its foreign registry entries. The possible missed-note outcome is unavailable from retained evidence.
