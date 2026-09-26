@@ -1,6 +1,6 @@
 # collect-from-origin-1 — lead rulings (win over spec.md where they differ)
 
-Base ac9c842 (0.20.10). Integration worktree /home/ben/Code/wt-collect-1 on build/collect-from-origin-1.
+Base ac9c842+05b9bcc: origin/main 0.20.10 merged with build/one-launch-1 (skills-fable ruling, note collect-from-origin-2). If Ben declines one-launch, C2 is redone on main. Integration worktree /home/ben/Code/wt-collect-1 on build/collect-from-origin-1.
 Territories: C1 (scripts/collect-from-origin.mjs, scripts/collect-from-origin.test.mjs, fixtures under
 scripts/fixtures/collect-from-origin/ if any, docs/census.md) and C2 (skills/team-build/SKILL.md,
 skills/decisions/SKILL.md, skills/decisions/templates/decision-item.md). Nothing else. Off-limits:
@@ -27,7 +27,7 @@ in skills/decisions/SKILL.md; do not invent a new command. Merge item title
 `Merge <branch> into main (<tip sha>)`; evidence line carries the record's four numbers (four-read) and
 the census leadTurns; options merge-now / merge-and-release / hold; `No default: merges to main take your
 word per item`. Keep additions short; the team-build rule is one step in the accept sequence, not a section.
-Note build/one-launch-1 (unmerged) also rewrote skills/team-build/SKILL.md: edit against base ac9c842 and
+Note build/one-launch-1 (unmerged) also rewrote skills/team-build/SKILL.md: this base already carries one-launch's SKILL.md; edit against it and
 keep the change a small, local insertion so the later conflict pass is trivial.
 
 R4 (integration dogfood): after the sealed suite, the integrator also runs
