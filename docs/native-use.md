@@ -8,7 +8,7 @@ Open the target project in Codex or Claude Code after choosing the installed rou
 
 > Deliver [outcome] in this project. Success means [observable acceptance evidence]. You may [authorized actions]; stay within [constraints and any budget]. Use the installed harness skills and existing project conventions. Keep independent ready work moving in parallel, diagnose causes, and simplify the design. Continue useful work within this scope without waiting for me; record decisions only I can make and advance other work while those wait. Finish with evidence of the outcome, or the specific external dependencies that prevent further useful work.
 
-The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
+The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team: one mid-tier builder and one independent reviewer are enough, and a top- or high-tier lead writes no code itself beyond a single-file edit. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
 
 The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. **Before opening a record, read [work records](work-record.md) for the exact field schema** (`Work:`, `Scope:`, `Owner:`, `Status:`, `Authority:`, `Artifact:`, `Evidence:`, `Next:`, `Opened:`, `Worktree:`, plus repeatable `Log:` lines and an `Observed:` paragraph) — `work-record.mjs check-acceptance`/`accept` parse it strictly and reject a hand-guessed shape.
 
@@ -68,7 +68,9 @@ branch of the build's worktree>`; on plugin 0.20.10 and later `Lead-session: <th
 session's id>`; a top-level `Observed:` paragraph after a blank line; the reviewer's
 report (first line `VERDICT: APPROVE <sha>`) listed in `Evidence:`; and a line `Log:
 <ISO-8601 UTC> reviewed
-<reviewer-id> artifact <sha>` written by the lead session when the review lands. Then take
+<reviewer-id> artifact <sha>` written by the lead session when the review lands. Every `Log:` stamp is the real UTC
+time of the event it records (`date -u +%Y-%m-%dT%H:%M:%SZ` taken then); never back-fill
+an earlier event with a guessed time. Then take
 the census of that same, still-running lead session: a census is dated by its first
 line's `leadLastMessageAt` (the lead transcript's last message), not by when you run it,
 and `accept` refuses one whose `leadLastMessageAt` is older than the last `reviewed` entry.
