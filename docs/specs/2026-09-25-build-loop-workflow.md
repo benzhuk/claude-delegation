@@ -1,0 +1,38 @@
+# Lane four: the whole build in one launch, so a lead spends two turns, not thirty
+
+Written by skills-fable, 2026-09-25 midday, for skills-n (a NEW Claude pane on Netcup, zhuk-netcup, Opus) leading from a fresh session. Ben's tick of Sep 25: four lanes at once, disjoint territories, push on green, one merge tick per day. This lane feeds an existing mechanism: `skills/team-build/references/build-loop-workflow.js` already runs build, review, fix and integrate as one Workflow call, and the two loop builds that used it took 19 and 67 orchestrator turns; the census build's lead took 32 by the script. The turns that remain are the ones the loop does not cover. This lane moves them inside, or into one runner agent, so that a lead's build is: read the spec and launch; read the return and accept.
+
+Why now, in numbers (measured on Netcup on 2026-09-25 from a Fable lead's session file): 147 turns, 1,416 assistant messages, 273.6M cache-read tokens in one day, about 190k per assistant message; 44 percent of the cache reads were on turns that began with one of the lead's own subagents finishing, one notification per agent. A fan-out that completes as one notification, and a loop that leaves the lead nothing mechanical to do, is the direct fix. Measure this lane moves: top-tier tokens per build and lead turns. Must not worsen: Sonnet builds, Opus reviews, nothing lost, no new mechanism (extend the loop; do not add a second one).
+
+Base: origin/main once it carries 0.20.9 (lands about 12:00 NYC Sep 25; if main is still 28a222c, base on origin/build/integrate-0925 at 931588a). Branch `build/one-launch-1`, one worktree per builder, never the main checkout. The Netcup checkout `~/Code/claude-delegation` sits on `feat/working-smarter` with unpushed work: add worktrees from `origin/main`, never switch that checkout's branch.
+
+## Evidence to read first
+- `docs/work/evidence/2026-09-25-census-build-lead-turns.md` on the branch `docs/lane-specs-0925` (a turn-by-turn classification of the census build's 32 lead turns: trigger, tool calls, tokens, and which fell before, during and after the Workflow). If it is not there yet when you start, scout it yourself from the records under `docs/work/` and the team-build skill's own account, and say so in the record.
+- `skills/team-build/SKILL.md` section "Running the loop from an Opus pane" and the script's header comment (pre-launch steps the script does not do: spec pack, worktrees, briefs, record open; post-return steps: seam review, acceptance, census, notes).
+- `docs/census.md` for the turn definition; lane one adds the four-number read and `Lead-session:` this week, so do not depend on their exact flags; call `work-record.mjs` and `build-census.mjs` through their documented interfaces and pin nothing about their internals.
+
+## Rules that bind every lane this week
+- Fresh lead session; the record carries your session id (`Lead-session:` if the field exists on your base, else an `Evidence:` line `Lead-session (pre-field): <id>`).
+- You wake skills-fable at most three times: ACK, RESULT, BLOCKED. Reviews are Opus subagents, never notes.
+- No README.md changelog edit; the RESULT carries the one-line entry. Nothing under scripts/ (build-census.mjs is frozen, work-record.mjs and four-read are lane one's), hooks/, .codex-plugin/, docs/native-use.md (lane three), skills/decisions/, skills/bearings/.
+- Codex has no Workflow tool. The skill states plainly what a Codex lead does instead (the manual sequence it has today), and the record of any Codex-led build says so. Unsupported stays explicit; no emulation.
+
+## Territory L1: the script (skills/team-build/references/build-loop-workflow.js, .test.mjs, build-loop-args.example.json, scout-brief.md)
+1. Pre-launch inside the launch: the script (or a first-stage runner agent it spawns) creates the per-territory worktrees and branches from `baseSha` and writes the builder briefs from the spec pack, so the pane passes `specPath`, `baseSha`, `startedAt` and the territory ids only. Keep the current behaviour reachable when `territories[].worktree` is given (backward compatible; the test pins both paths).
+2. Post-return inside the launch: after Integrate, one Opus seam review across the territories' joints when there are two or more territories or any cross-territory handoff; then one Sonnet runner that runs the census on the lead's own session file and subagents dir, appends the census summary and the integration head to the record through `work-record.mjs` (the record's writer is still the lead, so the runner writes only through that CLI and only the lines the skill lists), and runs `check-acceptance`. The script returns the acceptance result alongside the territories; it never calls `accept` itself: acceptance is the lead's one judgment after reading the return.
+3. Wake discipline is structural: the script sends no notes; the only note the lead sends is the RESULT after accept. Fix rounds, re-reviews, integration and the census all happen inside the one call, so the lead receives one notification.
+4. The lead's session file: the script cannot read its own lead's session id, so the pane passes `leadSession` (path or id) in args; the census stage uses it. Document where the id comes from (the hook's hint line in context).
+5. Tests: the existing static contract test extended for the new args and phases; a fixture run that proves one launch produces worktrees, briefs, a census file and a `check-acceptance` result without any Agent call from the pane between launch and return (pin the count of Workflow returns to one per build in the fixture journal).
+
+## Territory L2: the skill (skills/team-build/SKILL.md)
+1. Rewrite "Running the loop from an Opus pane" as the default way to run a build: two lead turns, launch and accept; what the pane must have ready (spec pack, base sha, lead session id, start time); what the return contains; the acceptance turn (read the return, `accept --census`, one RESULT).
+2. State the three-wakes rule and the one-notification rule in one sentence each; state the census-at-accept rule (fresh census after the last review, lead file plus subagents) and, when lane one's `--four-read` exists on main, that it is passed at accept; if it does not exist on your base, write the sentence conditionally ("when the record supports `--four-read`").
+3. State what Codex does instead, in one paragraph, and that Codex-led builds are counted by the same census definitions.
+4. Cut what the new flow makes redundant. Fewer lines than before is the expected shape; report the line delta.
+
+## Dogfood (this is the acceptance)
+- Run this lane's own build through the new script once it exists: the first version is built the old way (that is unavoidable), then the fix round and integration of this very build go through the new launch, and the record shows one Workflow return for that part and the census of your session. Report both numbers: turns before the new launch existed, turns after.
+- Sealed suite green on the branch on this host. Opus reviewers per territory with `JUDGMENT:` lines; one seam review between L1 and L2 (does the skill describe exactly what the script does).
+- Record `docs/work/wr-2026-09-25-one-launch.record.md`, `check-acceptance`, `accept --census`.
+- The RESULT to skills-fable carries: your `leadTurns` from the census, the count of Workflow returns and Agent-tool calls from your pane during the build, wall clock from this spec's timestamp, the skill's line delta, the branch and sha, a one-line changelog entry, and your predicted lead turns and top-tier tokens for the next build run through the new launch.
+- Push on green. Merge waits for Ben's word. No trailers; the git identity is never set by an agent.
