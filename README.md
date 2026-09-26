@@ -29,6 +29,13 @@ claude plugin install delegation@benzhuk
 > not delivering at all — and the sender cannot tell, because a held post looks delivered on the wire.
 > `mirror-shared-skills.mjs` warns when it is missing and never edits settings itself.
 
+On a brand-new project, the plugin's skills read your goal from a five-line card and your
+build pipeline closes through two of the plugin's own scripts (`build-census.mjs`,
+`work-record.mjs`) — none of that lives in your project's `scripts/` directory. See
+[native-use.md](docs/native-use.md#script-paths-the-goal-card-and-closing-a-build-in-a-fresh-project)
+for the exact card format, default path, and script invocations once the plugin is
+installed.
+
 
 ## What you get
 
