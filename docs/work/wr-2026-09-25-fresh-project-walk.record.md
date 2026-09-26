@@ -4,7 +4,7 @@ Owner: skills-h
 Status: reviewed
 Authority: spec lane three: build, review, push build/fresh-walk-1 on green without Ben; merge waits for Ben's word; no Notion writes; no Codex command on this host
 Artifact: build/fresh-walk-1@4229f7a8f4f85d9e2ea6d11a8cc999edf6e6dd1d
-Worktree: /home/ben/Code/claude-delegation-wt/fresh-walk-1
+Worktree: build/fresh-walk-1
 Evidence: docs/work/evidence/wr-2026-09-25-fresh-project-walk-w1-review-r1.md, docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r2.md, docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r5.md, docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r4.md, docs/work/evidence/2026-09-25-fresh-project-walk.md, docs/work/evidence/wr-2026-09-25-fresh-project-walk-review-r3.md, docs/work/evidence/wr-2026-09-25-fresh-project-walk-census.md
 Next: accept once R12 (H6, V4 red on POSIX in skills/multi/scripts, also on main) is fixed on main or Ben waives it; census taken; merge waits for Ben
 Opened: 2026-09-25T21:30:15.000Z
