@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import {
   main,
@@ -71,6 +73,25 @@ function pushBranch(root, name) {
 
 function backToMain(root) {
   git(["checkout", "-q", "main"], root);
+}
+
+/** Every file under .git, by path, paired with a sha256 of its bytes — used to prove a run
+ * never writes anything (F8: HEAD/branch/status alone would miss a write to refs, config or
+ * loose objects). */
+function snapshotGitDir(root) {
+  const gitDir = path.join(root, ".git");
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else files.push(full);
+    }
+  };
+  walk(gitDir);
+  return files
+    .sort()
+    .map((f) => `${path.relative(root, f)}:${crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex")}`);
 }
 
 function rowsOf(root, extraArgs = []) {
@@ -191,10 +212,13 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   pushBranch(root, "feature/rejected");
   backToMain(root);
 
-  // no-record: this branch is cut BEFORE a record lands on main, so main ends up with a
-  // docs/work/*.record.md path this branch's own tree never had at all.
-  newBranch(root, "feature/behind-main");
-  pushBranch(root, "feature/behind-main");
+  // no-record: this branch has real unmerged work of its own (so it is not skipped as fully
+  // merged, F3) but never touches any docs/work/*.record.md path at all - it should get
+  // exactly one row, with recordPath: null, rather than disappear from the table entirely (F2).
+  newBranch(root, "feature/no-record");
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "unrelated\n");
+  commitAll(root, "no-record work");
+  pushBranch(root, "feature/no-record");
   backToMain(root);
   const recOnMainOnly = writeRecord(root, "wr-2026-09-26-main-only.record.md", [
     "Work: wr-2026-09-26-main-only", "Status: accepted", "Artifact: none", "",
@@ -203,11 +227,8 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   git(["push", "-q", "origin", "main"], root);
 
   const rows = rowsOf(root);
-  // Every earlier branch also picks up its OWN "no-record" row for wr-2026-09-26-main-only
-  // (added to main after that branch diverged, so main has it and the branch doesn't) -
-  // that is real, intended behavior (docs/census.md's third sentence exists because of
-  // exactly this: a branch can carry more than one changed-record row), so look up rows by
-  // (branch, recordPath) rather than collapsing to one row per branch.
+  // Look up rows by (branch, recordPath): a branch with several changed records yields one row
+  // per record (R1), so recordPath - not just branch - is part of the row's identity.
   const rowFor = (branch, recordPath) => rows.find((r) => r.branch === branch && r.recordPath === recordPath);
 
   const am = rowFor("feature/accepted-merged", recAM);
@@ -223,15 +244,16 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   assert.equal(rowFor("feature/owned", recOwned).state, "owned");
   assert.equal(rowFor("feature/rejected", recRejected).state, "rejected");
 
-  const behind = rowFor("feature/behind-main", recOnMainOnly);
-  assert.equal(behind.state, "no-record");
-  assert.equal(behind.status, null);
-  assert.equal(behind.artifactSha, null);
-  assert.equal(behind.merged, null);
+  const noRecord = rowFor("feature/no-record", null);
+  assert.equal(noRecord.state, "no-record");
+  assert.equal(noRecord.status, null);
+  assert.equal(noRecord.artifactSha, null);
+  assert.equal(noRecord.merged, null);
 
-  // Every other branch also carries its own no-record row for the same main-only path.
-  for (const b of ["feature/accepted-merged", "feature/accepted-unmerged", "feature/owned", "feature/rejected"]) {
-    assert.equal(rowFor(b, recOnMainOnly).state, "no-record");
+  // recOnMainOnly lives only on main, added after every other branch forked - it never shows up
+  // as a row for any of them (that was the old, noisy D-direction behavior F2 removed).
+  for (const b of ["feature/accepted-merged", "feature/accepted-unmerged", "feature/owned", "feature/rejected", "feature/no-record"]) {
+    assert.equal(rowFor(b, recOnMainOnly), undefined);
   }
 
   // Row shape and key order are exactly R1's pinned field list, for every row.
@@ -350,7 +372,58 @@ test("attack: tip equals main and Artifact: is missing never reads as merged, ev
   assert.equal(row.state, "accepted-unmerged");
 });
 
-test("never writes: HEAD, branch and working tree are unchanged after a run", () => {
+test("F1 regression: piped/subprocess --json output past 64 KiB is never truncated", () => {
+  const root = initRepoWithOrigin();
+  const branches = 5;
+  const recordsPerBranch = 100;
+  for (let b = 0; b < branches; b++) {
+    const name = `feature/bulk-${b}`;
+    newBranch(root, name);
+    for (let i = 0; i < recordsPerBranch; i++) {
+      writeRecord(root, `wr-2026-09-26-bulk-${b}-${i}.record.md`, ["Work: wr-2026-09-26-bulk", "Status: owned", "Artifact: none", ""]);
+    }
+    commitAll(root, `bulk ${b}`);
+    pushBranch(root, name);
+    backToMain(root);
+  }
+
+  const scriptPath = fileURLToPath(new URL("./collect-from-origin.mjs", import.meta.url));
+  const out = execFileSync(process.execPath, [scriptPath, "--repo", root, "--no-fetch", "--json"], {
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  assert.ok(out.length > 65536, `expected output over 64 KiB, got ${out.length} bytes`);
+  assert.equal(JSON.parse(out).length, branches * recordsPerBranch); // throws if truncated mid-string
+});
+
+test("attack: a branch that has already been fully merged into main disappears entirely, even though main later rewrites the same record with a later Status", () => {
+  const root = initRepoWithOrigin();
+
+  newBranch(root, "feature/merged");
+  writeRecord(root, "wr-2026-09-26-merged.record.md", ["Work: wr-2026-09-26-merged", "Status: accepted", "Artifact: none", ""]);
+  commitAll(root, "merged record");
+  pushBranch(root, "feature/merged");
+
+  // Fast-forward main onto the branch's own tip - the branch's tip is now literally an
+  // ancestor of main (F3's real-world evidence: a merged branch whose record was later
+  // superseded on main still showed up as a false "owned" row).
+  backToMain(root);
+  git(["merge", "-q", "--ff-only", "feature/merged"], root);
+  git(["push", "-q", "origin", "main"], root);
+
+  // main moves on again and rewrites the SAME record path with a later Status and a real,
+  // merged artifact - a reader that fell back to the branch's now-stale blob, or that only
+  // checked "does the record differ from main", would still show this branch as an
+  // unresolved accepted/owned row. It must not appear at all: its tip is an ancestor of main.
+  fs.writeFileSync(path.join(root, "later-merge.txt"), "later\n");
+  commitAll(root, "main moves on");
+  git(["push", "-q", "origin", "main"], root);
+
+  const rows = rowsOf(root).filter((r) => r.branch === "feature/merged");
+  assert.deepEqual(rows, []);
+});
+
+test("never writes: every file under .git is byte-identical (by content hash) before and after a run", () => {
   const root = initRepoWithOrigin();
   newBranch(root, "feature/readonly-check");
   writeRecord(root, "wr-2026-09-26-ro.record.md", ["Work: wr-2026-09-26-ro", "Status: owned", "Artifact: none", ""]);
@@ -358,9 +431,11 @@ test("never writes: HEAD, branch and working tree are unchanged after a run", ()
   pushBranch(root, "feature/readonly-check");
   backToMain(root);
 
-  const before = { head: git(["rev-parse", "HEAD"], root).trim(), branch: git(["rev-parse", "--abbrev-ref", "HEAD"], root).trim(), status: git(["status", "--porcelain"], root) };
-  rowsOf(root);
-  const after = { head: git(["rev-parse", "HEAD"], root).trim(), branch: git(["rev-parse", "--abbrev-ref", "HEAD"], root).trim(), status: git(["status", "--porcelain"], root) };
+  // Snapshots every file under .git (not just HEAD/branch/status, which would miss a write to
+  // refs, config or a loose object - F8), before and after a --no-fetch run.
+  const before = snapshotGitDir(root);
+  rowsOf(root); // always --no-fetch
+  const after = snapshotGitDir(root);
   assert.deepEqual(after, before);
 });
 
