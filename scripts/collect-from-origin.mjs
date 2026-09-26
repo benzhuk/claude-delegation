@@ -110,6 +110,9 @@ function computeMerged(repo, artifactSha, mainFull, mainVerified) {
 
 export function computeState(status, merged) {
   if (status === "accepted") return merged === true ? "accepted-merged" : "accepted-unmerged";
+  // withdrawn (R3, withdraw-status-1): its own terminal state - never shown as owned (the
+  // "still needs attention" fallback below) or rejected (a false "awaiting a fix round" signal).
+  if (status === "withdrawn") return "withdrawn";
   return status === "rejected" ? "rejected" : "owned"; // absent/unparseable/any other -> owned (R1)
 }
 

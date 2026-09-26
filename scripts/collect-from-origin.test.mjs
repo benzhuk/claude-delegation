@@ -119,11 +119,14 @@ test("extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything el
   assert.equal(extractArtifactSha(undefined), null);
 });
 
-test("computeState: accepted maps by merged, rejected passes through, everything else is owned", () => {
+test("computeState: accepted maps by merged, rejected and withdrawn pass through as their own states, everything else is owned", () => {
   assert.equal(computeState("accepted", true), "accepted-merged");
   assert.equal(computeState("accepted", false), "accepted-unmerged");
   assert.equal(computeState("accepted", null), "accepted-unmerged"); // unknown is never merged
   assert.equal(computeState("rejected", null), "rejected");
+  // R3 (withdraw-status-1): withdrawn is its own terminal state - never shown as owned (the
+  // "still needs attention" fallback) or rejected (a false "awaiting a fix round" signal).
+  assert.equal(computeState("withdrawn", null), "withdrawn");
   assert.equal(computeState("owned", null), "owned");
   assert.equal(computeState(undefined, null), "owned"); // absent Status: -> owned, not no-record
   assert.equal(computeState("some-typo'd-status", null), "owned");
@@ -163,7 +166,7 @@ test("formatTable: header row plus one tab-separated row per record, with '-' fo
 // accepted-merged / owned - plus rejected and no-record for full state coverage.
 // ---------------------------------------------------------------------------
 
-test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, no-record all classify correctly", () => {
+test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, withdrawn, no-record all classify correctly", () => {
   const root = initRepoWithOrigin();
 
   // accepted-merged: the artifact commit ("A") lands on main FIRST, so any branch built on
@@ -217,6 +220,17 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   pushBranch(root, "feature/rejected");
   backToMain(root);
 
+  // withdrawn (R3, withdraw-status-1): must never classify as owned or rejected - its own
+  // terminal state.
+  newBranch(root, "feature/withdrawn");
+  const recWithdrawn = writeRecord(root, "wr-2026-09-26-withdrawn.record.md", [
+    "Work: wr-2026-09-26-withdrawn", "Status: withdrawn", "Artifact: none",
+    "Log: 2026-09-26T04:30:00Z withdrawn t1 closed without a fix round", "",
+  ]);
+  commitAll(root, "withdrawn record");
+  pushBranch(root, "feature/withdrawn");
+  backToMain(root);
+
   // no-record: this branch has real unmerged work of its own (so it is not skipped as fully
   // merged, F3) but never touches any docs/work/*.record.md path at all - it should get
   // exactly one row, with recordPath: null, rather than disappear from the table entirely (F2).
@@ -254,6 +268,7 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
 
   assert.equal(rowFor("feature/owned", recOwned).state, "owned");
   assert.equal(rowFor("feature/rejected", recRejected).state, "rejected");
+  assert.equal(rowFor("feature/withdrawn", recWithdrawn).state, "withdrawn");
 
   const noRecord = rowFor("feature/no-record", null);
   assert.equal(noRecord.state, "no-record");

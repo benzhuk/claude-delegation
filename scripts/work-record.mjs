@@ -8,7 +8,11 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"];
+export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked", "withdrawn"];
+// R2 (withdraw-status-1): the only statuses `withdrawRecord` may withdraw FROM. `withdrawn`
+// itself is terminal and one-way - never in this set, never reachable a second time, never
+// reachable from `accepted`.
+export const WITHDRAWABLE_STATUSES = ["rejected", "blocked", "runnable", "owned"];
 export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority", "artifact", "evidence", "next", "opened"];
 // "worktree" (T1, loop-gates spec item 2): the git worktree or branch path that produced
 // Artifact:. Optional for validateRecord/parseRecord (an old record without it still
@@ -17,7 +21,7 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // session that led this build, and the spec session's own usage window - optional here,
 // same as "worktree", because the enforcement (lead session required, spec fields a
 // WARN) lives in checkAcceptance below, not in validateRecord's generic missing-field.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom", "base"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -50,6 +54,10 @@ const FIELD_LABELS = [
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
   ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
   ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"], ["base", "Base"],
+  // R1 (withdraw-status-1): a known, optional, single-valued label so it round-trips through
+  // the parser and requireStrictRecordShape's singleton check, exactly like Worktree: above -
+  // `withdrawRecord` is the only writer, but any hand-written record may carry it too.
+  ["supersededBy", "Superseded-by"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
@@ -1128,6 +1136,131 @@ export function acceptRecord(opts = {}) {
   return { ...publicResult, path: absPath };
 }
 
+/**
+ * withdraw (R2, withdraw-status-1 spec.md Territory W1 item 2): the only code-mediated way a
+ * record's Status: moves to `withdrawn` - a terminal state, one Log line, one optional
+ * Superseded-by: header, every other byte of the record preserved (same discipline as
+ * acceptRecord). Allowed from rejected, blocked, runnable or owned; refused, exit non-zero,
+ * file untouched, otherwise (no --reason, empty reason, an unresolvable --superseded-by, a
+ * source status outside that set, or a record already withdrawn).
+ * opts: { repoRoot, recordPath, reason, supersededBy?, by, at, fsImpl }
+ */
+export function withdrawRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+
+  // Refuse on the cheap, argument-only checks first - none of these need the record's bytes.
+  const reason = typeof opts.reason === "string" ? opts.reason.replace(/\s+/g, " ").trim() : "";
+  if (!reason) {
+    throw acceptanceError('--reason is required to withdraw (a non-empty one-sentence reason)', "reason-missing");
+  }
+  const by = typeof opts.by === "string" ? opts.by.trim() : "";
+  if (!by) throw acceptanceError("--by is required to withdraw (the session id withdrawing the record)", "by-missing");
+  if (!/^\S{1,64}$/.test(by)) throw acceptanceError(`--by must be one token of at most 64 non-space characters (the Log: owner slot): ${opts.by}`, "by-missing");
+  const atInput = typeof opts.at === "string" ? opts.at.trim() : "";
+  const atMs = Date.parse(atInput);
+  if (!atInput || Number.isNaN(atMs)) {
+    throw acceptanceError(`--at is required and must be a parseable ISO-8601 timestamp: ${opts.at ?? "<missing>"}`, "at-missing");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(atInput)) {
+    throw acceptanceError(`--at must be an ISO-8601 timestamp with a zone: ${opts.at}`, "at-missing");
+  }
+  const at = new Date(atMs).toISOString();
+  if (!opts.repoRoot) throw acceptanceError("--repo is required");
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+
+  let repoRoot;
+  let repoReal;
+  try {
+    repoRoot = path.resolve(opts.repoRoot);
+    repoReal = fsImpl.realpathSync(repoRoot);
+  } catch (error) {
+    throw acceptanceError(`repository is unreadable: ${error.message}`);
+  }
+
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  const record = parseRecord(text);
+  const currentStatus = record.fields.status;
+  if (currentStatus === "withdrawn") {
+    throw acceptanceError("record is already withdrawn", "already-withdrawn");
+  }
+  if (!WITHDRAWABLE_STATUSES.includes(currentStatus)) {
+    throw acceptanceError(
+      `cannot withdraw from Status: "${currentStatus ?? "<missing>"}" - only ${WITHDRAWABLE_STATUSES.join(", ")} may be withdrawn`,
+      "not-withdrawable",
+    );
+  }
+
+  // --at must not move the record's Log: backwards in time (MINOR 3): a backdated withdraw
+  // would make collect-from-origin.mjs's hoursSinceLog report a false age.
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  if (atMs < lastLogMs) {
+    throw acceptanceError(`--at ${at} is before the record's last Log: (${record.log.at(-1).at})`, "at-missing");
+  }
+
+  // --superseded-by is a work id (R2), resolved against the record's OWN docs/work directory,
+  // never the caller's cwd or repo root - a record filed anywhere else names its neighbour by
+  // slug only, and it can never name itself.
+  let supersededBy = null;
+  if (opts.supersededBy !== undefined && String(opts.supersededBy).trim() !== "") {
+    supersededBy = String(opts.supersededBy).trim();
+    if (!/^wr-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/.test(supersededBy)) {
+      throw acceptanceError(`--superseded-by must be a work id (wr-<yyyy-mm-dd>-<slug>), not a path: ${supersededBy}`, "superseded-by-missing");
+    }
+    if (supersededBy === record.fields.work) {
+      throw acceptanceError("--superseded-by cannot name the record being withdrawn", "superseded-by-missing");
+    }
+    const recordDir = path.posix.dirname(String(opts.recordPath).replace(/\\/g, "/"));
+    const supersededRelative = path.posix.join(recordDir, `${supersededBy}.record.md`);
+    try {
+      readConfinedRegularFile(repoReal, repoRoot, supersededRelative, fsImpl);
+    } catch {
+      throw acceptanceError(
+        `--superseded-by names a record that does not exist on disk: ${supersededBy}`,
+        "superseded-by-missing",
+      );
+    }
+  }
+
+  // The Status: line is rewritten in place, matched against the record's OWN current status
+  // word (never a fixed literal) - every other byte is preserved untouched, same discipline as
+  // acceptRecord's statusRe swap.
+  const statusRe = new RegExp(`^([ \\t*+-]{0,20}Status:\\**[ \\t]{0,20})${currentStatus}([ \\t]*)$`, "mi");
+  if (!statusRe.test(text)) {
+    throw acceptanceError("could not find the record's Status: header line to withdraw");
+  }
+
+  const logLine = formatLogLine(at, "withdrawn", by, reason);
+  const lines = text.split(/\r?\n/);
+  const blankIdx = lines.findIndex((line) => line.trim() === "");
+  const insertAt = blankIdx === -1 ? lines.length : blankIdx;
+  const newLines = supersededBy ? [`Superseded-by: ${supersededBy}`, logLine] : [logLine];
+  lines.splice(insertAt, 0, ...newLines);
+  const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}withdrawn${post}`);
+
+  const absPath = path.resolve(repoRoot, opts.recordPath);
+  fsImpl.writeFileSync(absPath, updated);
+  return { ok: true, work: record.fields.work, path: absPath, status: "withdrawn", supersededBy };
+}
+
+export function parseWithdrawArgs(argv) {
+  if (argv[0] !== "withdraw") throw acceptanceError("expected command: withdraw");
+  const recordPath = argv[1];
+  if (!recordPath || recordPath.startsWith("--")) {
+    throw acceptanceError("withdraw requires a record path as its first argument");
+  }
+  const opts = { command: "withdraw", recordPath };
+  const names = new Map([
+    ["--reason", "reason"], ["--superseded-by", "supersededBy"],
+    ["--by", "by"], ["--at", "at"], ["--repo", "repoRoot"],
+  ]);
+  for (let i = 2; i < argv.length; i += 2) {
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+  }
+  return opts;
+}
+
 export function parseAcceptanceArgs(argv) {
   if (argv[0] !== "check-acceptance" && argv[0] !== "accept") {
     throw acceptanceError("expected command: check-acceptance or accept");
@@ -1148,6 +1281,16 @@ export function parseAcceptanceArgs(argv) {
 
 export function acceptanceMain(argv = process.argv.slice(2), io = process) {
   try {
+    // withdraw (R2) has its own positional-record-path shape, checked and dispatched before
+    // parseAcceptanceArgs - which stays exactly as it was for check-acceptance/accept, so its
+    // own "unrecognized command" refusal (and message) is unaffected for any argv[0] that
+    // isn't literally "withdraw".
+    if (argv[0] === "withdraw") {
+      const { command, ...opts } = parseWithdrawArgs(argv);
+      const result = withdrawRecord(opts);
+      io.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
     const { command, ...opts } = parseAcceptanceArgs(argv);
     const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);
     // censusText (MINOR 5) is an internal comparison value only, never part of the CLI's
