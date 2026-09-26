@@ -251,7 +251,19 @@ node <verified-plugin-root>/scripts/work-record.mjs accept \
 
 Run the census at accept time, as its own command after the last review's `Log: ... reviewed` line is on the record: `node <verified-plugin-root>/scripts/build-census.mjs --lead <lead-session>.jsonl --marker "<text first seen in this build's opening message>" [--role-map '{"agent-<seam-id>":"seam"}'] --out <census.md>` (the lead's `subagents/` and `subagents/workflows/*/` dirs are read by default; `--marker` scopes a lead pane that spans several builds to this one; pass the `.md`, not `--json`), then `accept --census <census.md>`; a genuinely broken census still
 accepts via `--no-census "<reason>"`, visibly unmeasured rather than silently blocked — see
-`docs/census.md`. `accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
+`docs/census.md`.
+
+After that `accept --census` (or `--no-census`) succeeds, push the branch with its
+accepted record; then the lane lead posts its own merge item for that branch to the
+owner's decisions page —
+through the decisions skill's existing `notion.js edit --safe` anchored-edit route and
+`skills/decisions/templates/decision-item.md`'s fill-in shape (`skills/decisions/SKILL.md`
+names the exact shape) — and only then sends its RESULT; the lead who wrote the spec
+verifies the item exists on the page instead of waiting for a note. A Codex lane whose
+mirror of the decisions skill cannot yet post the item carries the merge item text
+verbatim in its RESULT instead, so the collector still finds the branch.
+
+`accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
 same strict check `check-acceptance` runs (identity, evidence, and a live `git rev-parse
 HEAD` against `Worktree:`, never a value an agent merely reports) and refuses, unchanged,
 if that check fails; there is no flag or older command that skips it. Only on success
@@ -364,7 +376,8 @@ integrator's — read `integrator.verdict`).
 `acceptance.censusPath` predates its own `Log: ... reviewed` line, so `accept` refuses it
 as `census-stale` — then run `work-record.mjs accept --record <recordPath> --repo
 <integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
-(`--no-census "<reason>"` only when the census itself breaks) and send ONE RESULT.
+(`--no-census "<reason>"` only when the census itself breaks), push the branch, post its
+merge item to the decisions page (Ship), and only then send ONE RESULT.
 Otherwise the first of these that applies decides the one next step: a `blockers` entry
 (a territory id, `seam`, `accept-prep` when its `integrationHead` is not the reviewed
 head (`review-sha-mismatch`) or its `reportPath` is not the one the script computed
