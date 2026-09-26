@@ -209,3 +209,12 @@ gate is expected to show exactly these two failures and no others — that is wh
 for this lane. Acceptance of the whole workstream still needs one of: a small fix lane owned
 by multi/mirror taking the two patches the round-1 review worked out, or Ben's explicit
 waiver recorded in the work record.
+
+A third, unrelated failure was observed intermittently across several gate runs during this
+round: `skills/decisions/scripts/registered-pickup.contract.test.mjs`'s "one injected
+selection invokes exactly one bound entry..." test (assertion "ordinal selects canonical
+repo/page order, not fixture creation order"), 1-2 times out of 5 full-suite runs, always
+passing standalone (8/8) and never failing on pristine `main` at `ac9c842` in the same runs.
+`skills/decisions/` is explicitly forbidden territory for this lane; this is recorded as an
+observation, not fixed, not counted against this lane's gate, and not one of the two
+failures the round-2 mandate names.
