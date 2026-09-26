@@ -246,6 +246,17 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.11 — feat: the one-launch build loop (`skills/team-build/references/build-loop-workflow.js`
+  and SKILL.md) runs a setup-territory launch through build, one review round, a
+  second launch for fix rounds, integration, seam and accept-prep; the old
+  given-worktree call shape is kept as a documented legacy example.
+- 0.20.11 — fix(decisions): the reader now warns (not INVALID) on optionless items
+  and on overdue OPEN decisions past their default under Waiting, and reads the
+  by-hand action-request option as "Done by hand" rather than the page's own Done
+  line.
+- 0.20.11 — feat: `scripts/collect-from-origin.mjs` collects accepted work from
+  origin lanes for review; the team-build and decisions skills gain a lane lead's
+  own merge item shape, so lanes post their own merge item to Ben's decisions page.
 - 0.20.10 — feat: scripts/four-read.mjs prints the goal's four numbers per build (or
   unavailable with a reason), records carry Lead-session/Spec-session/Spec-from/Base,
   accept takes --at and --four-read, GOALS.md stale status corrected.
