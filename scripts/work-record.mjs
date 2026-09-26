@@ -1088,9 +1088,8 @@ export function acceptRecord(opts = {}) {
 
   // Four numbers (R2, four-number read spec.md item 3): --four-read is optional - accept
   // still passes without it, the record just shows the numbers were not run.
-  let fourNumberLines;
+  let fourNumberLines, parsed;
   if (opts.fourReadPath !== undefined) {
-    let parsed;
     try {
       parsed = JSON.parse(fsImpl.readFileSync(opts.fourReadPath, "utf8"));
     } catch (error) {
@@ -1105,7 +1104,8 @@ export function acceptRecord(opts = {}) {
   // for at read time — refuse a T before the record's own last Log:, or too far ahead.
   const atDate = opts.acceptAt !== undefined ? new Date(opts.acceptAt) : (opts.now ?? new Date());
   const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
-  if (opts.acceptAt !== undefined && (Number.isNaN(atDate.getTime()) || atDate.getTime() < lastLogMs || atDate.getTime() > Date.now() + 300000)) throw acceptanceError(`invalid --at: ${opts.acceptAt} (before the record's last Log: or more than 5 minutes in the future)`, "invalid-at");
+  if (opts.acceptAt !== undefined && (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, Date.now() - 600000) || atDate.getTime() > Date.now() + 300000)) throw acceptanceError(`invalid --at: ${opts.acceptAt} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
+  if (parsed?.acceptAt && Date.parse(parsed.acceptAt) !== atDate.getTime()) throw acceptanceError(`--four-read was measured to ${parsed.acceptAt} but accept stamps ${atDate.toISOString()}: pass --at ${parsed.acceptAt}`, "four-read-invalid");
   const at = atDate.toISOString();
   const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
 

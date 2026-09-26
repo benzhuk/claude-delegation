@@ -1958,7 +1958,7 @@ test("requireStrictRecordShape (via acceptRecord): a duplicate Lead-session: lin
 // forever writing an unavailable-only read into every accepted record.
 test("acceptRecord: --at stamps the accepted Log: line at the given timestamp", () => {
   const f = makeAcceptanceFixture();
-  const at = "2026-09-26T01:22:08.000Z";
+  const at = new Date(Date.now() - 60000).toISOString();
   acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, acceptAt: at, noCensusReason: "no census fixture in this test" });
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   assert.match(updated, new RegExp(`^Log: ${at} accepted `, "m"));
@@ -1987,6 +1987,26 @@ test("acceptRecord: --at refuses a timestamp more than 5 minutes in the future",
     }),
     /invalid --at/,
   );
+});
+
+test("acceptRecord: --at refuses a stale T more than 10 minutes old, even when it is after the record's last Log: entry (seam r2)", () => {
+  const f = makeAcceptanceFixture();
+  assert.throws(
+    () => acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, acceptAt: new Date(Date.now() - 3600000).toISOString(), noCensusReason: "no census fixture in this test" }),
+    /invalid --at/,
+  );
+});
+
+test("acceptRecord: a --four-read measured to one T refuses when accept stamps another (seam r2)", () => {
+  const f = makeAcceptanceFixture();
+  const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-at-")), "four-read.json");
+  fs.writeFileSync(fourReadPath, JSON.stringify(fourReadFixture({ acceptAt: new Date(Date.now() - 120000).toISOString() })));
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, fourReadPath, noCensusReason: "no census fixture in this test" }),
+    (error) => error.code === "four-read-invalid",
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
 });
 
 test("acceptanceMain: --at is parsed into acceptAt (seam: shared timestamp with four-read.mjs --accept-at)", () => {
