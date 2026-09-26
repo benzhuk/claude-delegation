@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-26T13:35:18Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (no census)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "1 note(s) to skills-n: ASK skills-fable-collect-from-origin-1"
+    }
+  ],
+  "leadSession": {
+    "id": "f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (no census)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.4h; gap unavailable (no lead transcript)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (git: Command failed: git -C . diff --name-only ac9c842+05b9bcc..8de9e42aa5e05658956e5253a428f3ae9dc38db3)"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-collect-from-origin-1"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-26-collect-from-origin.record.md"
+}

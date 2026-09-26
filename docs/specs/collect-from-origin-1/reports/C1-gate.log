@@ -1,24 +1,24 @@
-✔ extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything else (0.97572ms)
-✔ computeState: accepted maps by merged, rejected passes through, everything else is owned (0.144477ms)
-✔ hoursSinceLog: hours since the LAST Log: line in file order, null with no log or a bad date (0.14646ms)
-✔ parseArgs: flags, --main default, repeatable --skip (0.67588ms)
-✔ fullRef: origin/main -> refs/remotes/origin/main; a bare name -> refs/heads/<name>; refs/* passes through (0.151137ms)
-✔ formatTable: header row plus one tab-separated row per record, with '-' for null/undefined (0.197898ms)
-✔ bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, no-record all classify correctly (842.495159ms)
-✔ main branch and HEAD are never listed as rows; --skip removes a named branch (174.379827ms)
-✔ a branch with several changed records yields one row per record (R1) (165.768814ms)
-✔ a branch identical to main (no changed record) contributes zero rows (111.625727ms)
-✔ --no-fetch skips the network call entirely: origin unreachable still exits 0 on local refs (165.873152ms)
-✔ a real fetch failure still exits 0, with a stderr warning, using whatever local refs exist (87.87776ms)
-✔ attack: tip equals main and Artifact: is missing never reads as merged, even with a later-Status record on main for the same path (304.861435ms)
-✔ F1 regression: piped/subprocess --json output past 64 KiB is never truncated (2349.824077ms)
-✔ attack: a branch that has already been fully merged into main disappears entirely, even though main later rewrites the same record with a later Status (280.873987ms)
-✔ three-dot: a record main rewrote after an unmerged branch forked is not a row for that branch (284.715518ms)
-✔ no merge base (orphan branch): its record is still a row, never a confident no-record (169.811359ms)
-✔ never writes: every file under .git is byte-identical (by content hash) before and after a run (169.087759ms)
-✔ refExists: true for a real ref, false for an absent one (74.32043ms)
-✔ listOriginBranches: skips names in the skip set, strips the origin/ prefix (101.318497ms)
-✔ changedRecordPaths: diff --name-only against docs/work/*.record.md, added and identical cases (141.056542ms)
+✔ extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything else (1.671219ms)
+✔ computeState: accepted maps by merged, rejected passes through, everything else is owned (0.60866ms)
+✔ hoursSinceLog: hours since the LAST Log: line in file order, null with no log or a bad date (0.241646ms)
+✔ parseArgs: flags, --main default, repeatable --skip (0.866051ms)
+✔ fullRef: origin/main -> refs/remotes/origin/main; a bare name -> refs/heads/<name>; refs/* passes through (0.226583ms)
+✔ formatTable: header row plus one tab-separated row per record, with '-' for null/undefined (0.25711ms)
+✔ bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, no-record all classify correctly (855.757006ms)
+✔ main branch and HEAD are never listed as rows; --skip removes a named branch (169.306482ms)
+✔ a branch with several changed records yields one row per record (R1) (173.571776ms)
+✔ a branch identical to main (no changed record) contributes zero rows (106.366892ms)
+✔ --no-fetch skips the network call entirely: origin unreachable still exits 0 on local refs (149.404986ms)
+✔ a real fetch failure still exits 0, with a stderr warning, using whatever local refs exist (121.378325ms)
+✔ attack: tip equals main and Artifact: is missing never reads as merged, even with a later-Status record on main for the same path (742.148838ms)
+✔ F1 regression: piped/subprocess --json output past 64 KiB is never truncated (4713.215048ms)
+✔ attack: a branch that has already been fully merged into main disappears entirely, even though main later rewrites the same record with a later Status (524.393268ms)
+✔ three-dot: a record main rewrote after an unmerged branch forked is not a row for that branch (592.487854ms)
+✔ no merge base (orphan branch): its record is still a row, never a confident no-record (389.459833ms)
+✔ never writes: every file under .git is byte-identical (by content hash) before and after a run (325.20675ms)
+✔ refExists: true for a real ref, false for an absent one (153.440095ms)
+✔ listOriginBranches: skips names in the skip set, strips the origin/ prefix (191.767228ms)
+✔ changedRecordPaths: diff --name-only against docs/work/*.record.md, added and identical cases (261.131955ms)
 ℹ tests 21
 ℹ suites 0
 ℹ pass 21
@@ -26,4 +26,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 5530.81193
+ℹ duration_ms 9620.534663

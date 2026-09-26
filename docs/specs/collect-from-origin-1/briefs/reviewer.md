@@ -74,3 +74,5 @@ JUDGMENT: collector-never-lies-about-merged-state, merge-item-shape-matches-cont
 
 Termination: report to the path above, first line `VERDICT: <word>`, then stop. A bare
 "Done" means read the file; nothing is trusted from a final message alone.
+
+If your prompt names a SEAM review, follow seam.md next to this file instead of the territory attack brief.
