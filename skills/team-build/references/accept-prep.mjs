@@ -98,6 +98,20 @@ export function joinPreservingEol(lines) {
   return lines.map((l) => l.text + l.eol).join("");
 }
 
+// Inserts a new { text, eol } line at index `at`, without ever gluing it onto a final
+// line that has no EOL (a body-less/header-only record with no trailing newline): in
+// that one case the previous last line first gains the EOL it was missing, and the new
+// line becomes the (still EOL-less) final line, so the file's "no trailing newline"
+// property is preserved and the unowned last line's text is never touched.
+function insertLine(lines, at, text, eol) {
+  if (at > 0 && at === lines.length && lines[at - 1].eol === "") {
+    lines[at - 1] = { ...lines[at - 1], eol };
+    lines.splice(at, 0, { text, eol: "" });
+  } else {
+    lines.splice(at, 0, { text, eol });
+  }
+}
+
 function firstBlankIdx(lines) {
   const idx = lines.findIndex((l) => l.text.trim() === "");
   return idx === -1 ? lines.length : idx;
@@ -194,7 +208,7 @@ export function editRecord(opts) {
     throw new AcceptPrepError("no Evidence: header line found; accept-prep has no in-place setter for a missing field", "missing-field");
   }
   const existingEvidence = splitEvidenceList(evidenceMatch.value);
-  const newEvidence = String(opts.evidence).split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  const newEvidence = splitEvidenceList(String(opts.evidence));
   const mergedEvidence = [...existingEvidence];
   for (const p of newEvidence) {
     if (!mergedEvidence.includes(p)) mergedEvidence.push(p);
@@ -207,14 +221,14 @@ export function editRecord(opts) {
     lines[worktreeMatch.idx].text = `${worktreeMatch.prefix}${opts.worktree}`;
   } else {
     const insertAt = lastSingletonIdx(lines, headerEnd) + 1;
-    lines.splice(insertAt, 0, { text: `Worktree: ${opts.worktree}`, eol });
+    insertLine(lines, insertAt, `Worktree: ${opts.worktree}`, eol);
     headerEnd += 1;
   }
   changed.push("Worktree");
 
   const now = opts.now ?? new Date().toISOString();
   const logLineText = formatLogLine(now, "reviewed", opts.owner, opts.logNote);
-  lines.splice(headerEnd, 0, { text: logLineText, eol });
+  insertLine(lines, headerEnd, logLineText, eol);
   changed.push("Log");
 
   writeAtomic(recordAbsPath, joinPreservingEol(lines));
@@ -226,6 +240,7 @@ export function editRecord(opts) {
 export function runCensus(opts) {
   const buildCensusPath = path.join(opts.pluginRoot, "scripts", "build-census.mjs");
   const outAbsPath = path.resolve(opts.repo, opts.censusOut);
+  fs.mkdirSync(path.dirname(outAbsPath), { recursive: true });
   const args = [buildCensusPath, "--lead", opts.lead];
   if (opts.marker !== undefined) args.push("--marker", opts.marker);
   if (opts.from !== undefined) args.push("--from", opts.from);

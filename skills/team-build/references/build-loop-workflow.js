@@ -299,7 +299,7 @@ function integratePrompt(integratorBriefPath, baseSha, approved, excluded, integ
   const approvedText = approved.length ? approved.map((r) => `${r.id}@${r.sha}`).join(', ') : 'none'
   const excludedText = excluded.length ? excluded.map((r) => `${r.id} (${r.blocker})`).join(', ') : 'none'
   const where = integration && integration.worktree
-    ? ` Integration worktree: ${integration.worktree}${integration.branch ? ` (branch ${integration.branch})` : ''}; merge the approved territories there and report headSha from \`git rev-parse HEAD\` run in it.${integration.gate ? ` Full-suite gate: ${integration.gate}.` : ''}`
+    ? ` Integration worktree: ${integration.worktree}${integration.branch ? ` (branch ${integration.branch})` : ''}; merge the approved territories there and report headSha as the full 40-character output of \`git rev-parse HEAD\` run in it.${integration.gate ? ` Full-suite gate: ${integration.gate}.` : ''}`
     : ''
   return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}.${where} Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. ${INTEGRATE_MANDATE}`
 }
@@ -351,13 +351,13 @@ function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, le
     ? decidingItems.map((d, i) => `${d.path} -> ${integrationWorktree}/${evidenceDestPaths[i]}`).join('; ')
     : 'none'
   const censusOut = `docs/work/evidence/${workId}-census.md`
-  const markerFlag = censusMarker ? ` --marker ${censusMarker}` : ''
+  const markerFlag = censusMarker ? ` --marker '${String(censusMarker).replace(/'/g, `'\\''`)}'` : ''
   const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha}` : 'seam SKIPPED'
   const evidenceFlag = evidenceDestPaths.length ? evidenceDestPaths.join(',') : 'none'
   const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --census-out ${censusOut} --json`
   let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `
   p += `First, copy each deciding report (last territory APPROVE per territory, last seam APPROVE) to its evidence destination with original bytes, creating the destination directory if needed (source -> destination, destinations are repo-relative under ${integrationWorktree}): ${copyText}. `
-  p += `Then run exactly this one command, filling in only the two bracketed values yourself (--plugin-root and --owner) and changing nothing else — this command is the ONLY way you may change the record; never hand-edit its header, its Status:, or any Log: line any other way: \`${cmd}\`. `
+  p += `Then, with the delegation plugin root (the same directory you pass as --plugin-root) as your working directory, run exactly this one command, filling in only the three bracketed values yourself (--plugin-root, --owner and --lead) and changing nothing else — this command is the ONLY way you may change the record; never hand-edit its header, its Status:, or any Log: line any other way: \`${cmd}\`. `
   p += `Report recordChanged from that command's own JSON output; integrationHead from running \`git rev-parse HEAD\` in ${integrationWorktree} yourself (never copy ${artifactSha} verbatim); censusPath, censusNote (explain a null censusPath), and checkAcceptance verbatim from the command's JSON output; evidencePaths as the evidence destination paths listed above; and reportPath. `
   p += `Report path: ${reportPath}. `
   p += ACCEPT_MANDATE
@@ -524,10 +524,10 @@ if (setupMode) {
   // trust the computed names, but only after confirming the runner actually wrote where
   // it was told, so a wrong or attacker-controlled path can never be silently substituted.
   if (
-    setupResult.reviewerBriefPath !== setupReviewerBriefPath ||
-    setupResult.integratorBriefPath !== setupIntegratorBriefPath ||
-    setupResult.seamBriefPath !== setupSeamBriefPath ||
-    setupResult.reportPath !== setupReportPath
+    !samePath(pathBase, setupResult.reviewerBriefPath, setupReviewerBriefPath) ||
+    !samePath(pathBase, setupResult.integratorBriefPath, setupIntegratorBriefPath) ||
+    !samePath(pathBase, setupResult.seamBriefPath, setupSeamBriefPath) ||
+    !samePath(pathBase, setupResult.reportPath, setupReportPath)
   ) {
     log('setup: returned reviewer/integrator/seam brief path or report path differs from the computed one, nothing built')
     return earlyReturn([{ id: '*', reason: 'setup-failed' }])
@@ -719,7 +719,7 @@ if (!integrationWorktree) {
   phase('Seam')
   // R4 (defect 3): given mode now threads its own seamBriefPath (falling back to the
   // reviewer brief only when absent), the same fallback shape setup mode already had.
-  const seamBriefToUse = setupMode ? seamBriefPathFinal : (seamBriefPath ?? reviewerBriefPathFinal)
+  const seamBriefToUse = setupMode ? seamBriefPathFinal : (seamBriefPath || reviewerBriefPathFinal)
   const approvedIds = approved.map((r) => r.id)
 
   let seamRound = 1

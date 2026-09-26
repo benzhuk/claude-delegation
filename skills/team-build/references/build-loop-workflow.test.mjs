@@ -654,6 +654,9 @@ test("S1: the integrate prompt names the integration worktree/branch/gate when i
   assert.ok(integrateCall.prompt.includes("Integration worktree: /repo/wt-integrate"));
   assert.ok(integrateCall.prompt.includes("branch build/x"));
   assert.ok(integrateCall.prompt.includes("Full-suite gate: node scripts/run-tests.mjs"));
+  // m5 (round 2 fix, review finding): nothing else mandates the integrator's headSha be
+  // full-length, so the prompt itself must say so explicitly.
+  assert.ok(integrateCall.prompt.includes("report headSha as the full 40-character output of `git rev-parse HEAD` run in it"), "the prompt must spell out the 40-character requirement itself");
 });
 
 // ---------------------------------------------------------------------------
@@ -846,6 +849,53 @@ test("setup path: setup-failed when the returned reviewerBriefPath or integrator
   badIntegrator.integratorBriefPath = "/tmp/EVIL-integrator.md";
   const result2 = await runScript(args, makeAgentStub({ setup: badIntegrator }));
   assert.deepEqual(result2.blockers, [{ id: "*", reason: "setup-failed" }]);
+});
+
+// M1 (round 2 fix, review finding): the R7 fix normalised the per-TERRITORY
+// worktree/briefPath compares, but reviewerBriefPath/integratorBriefPath/seamBriefPath/
+// reportPath were still compared as exact strings, so the same relative-but-same shape
+// that R7 fixed for territories still failed here. Mirrors the R7 tests above.
+test("M1: a correct but relative reviewerBriefPath (resolved against integrationWorktree) passes setup verification", async () => {
+  const args = { ...R7_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined };
+  const setup = setupResultFor(args);
+  const worktreeRoot = dirOf(args.integrationWorktree);
+  assert.equal(setup.reviewerBriefPath, "/repo/specs/example/briefs/reviewer.md");
+  setup.reviewerBriefPath = `../${setup.reviewerBriefPath.slice(worktreeRoot.length + 1)}`;
+  assert.equal(setup.reviewerBriefPath, "../specs/example/briefs/reviewer.md");
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, []);
+});
+
+test("M1: a correct but relative integratorBriefPath, seamBriefPath and reportPath (each resolved against integrationWorktree) all pass setup verification", async () => {
+  const args = { ...R7_ARGS, territories: [{ id: "L1" }], recordPath: undefined, leadSession: undefined };
+  const setup = setupResultFor(args);
+  const worktreeRoot = dirOf(args.integrationWorktree);
+  setup.integratorBriefPath = `../${setup.integratorBriefPath.slice(worktreeRoot.length + 1)}`;
+  setup.seamBriefPath = `../${setup.seamBriefPath.slice(worktreeRoot.length + 1)}`;
+  setup.reportPath = `../${setup.reportPath.slice(worktreeRoot.length + 1)}`;
+  const stub = makeAgentStub({
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, []);
+});
+
+test("M1: no other leniency — a genuinely different reviewerBriefPath still fails setup verification after normalising", async () => {
+  const args = { ...R7_ARGS, territories: [{ id: "L1" }] };
+  const badSetup = setupResultFor(args);
+  badSetup.reviewerBriefPath = "../specs/example/briefs/DIFFERENT.md";
+  const stub = makeAgentStub({ setup: badSetup });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, [{ id: "*", reason: "setup-failed" }]);
 });
 
 // ---------------------------------------------------------------------------
@@ -1208,6 +1258,30 @@ test("R4: given mode with NO seamBriefPath falls back to the reviewer brief for 
   assert.ok(seamCall.prompt.includes("Seam brief: briefs/reviewer.md"), "absent seamBriefPath must fall back to the reviewer brief, same as before");
 });
 
+// m4 (round 2 fix, review finding): an EMPTY-STRING seamBriefPath (as distinct from
+// absent/null) must also fall back to the reviewer brief, never render "Seam brief: .".
+test("m4: given mode with an EMPTY-STRING seamBriefPath falls back to the reviewer brief, same as absent", async () => {
+  const args = {
+    ...BASE_ARGS, territories: [T1, T2],
+    integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x",
+    reviewerBriefPath: "briefs/reviewer.md", integratorBriefPath: "briefs/integrator.md",
+    seamBriefPath: "",
+  };
+  const headSha = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", headSha),
+    "seam:r1": reviewResult("APPROVE", headSha),
+  });
+  await runScript(args, stub);
+  const seamCall = stub.calls.find((c) => c.opts.label === "seam:r1");
+  assert.ok(seamCall.prompt.includes("Seam brief: briefs/reviewer.md"), "an empty-string seamBriefPath must fall back, never render 'Seam brief: .'");
+  assert.ok(!seamCall.prompt.includes("Seam brief: ."), "must never render a bare dot as the seam brief");
+});
+
 // ---------------------------------------------------------------------------
 // R4: seam NEEDS_FIXES -> seam-fix -> seam APPROVE; seam rounds-exhausted
 // ---------------------------------------------------------------------------
@@ -1404,7 +1478,7 @@ test("R5: accept-prep is skipped when recordPath is absent, even with seam APPRO
 });
 
 test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam stage needed)", async () => {
-  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl" };
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl", censusMarker: "LANE SEVEN go" };
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
     "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
@@ -1436,6 +1510,16 @@ test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam s
   assert.ok(!/seam r\d+ APPROVE/.test(acceptCall.prompt), "never claims an APPROVE that never happened");
   // s11: the runner is given its own report path.
   assert.ok(acceptCall.prompt.includes(`Report path: ${acceptReportPathFor(args)}`));
+  // M3 (round 2 fix): the runner must be told to change its working directory to the
+  // delegation plugin root before running the helper command (a bare relative path to
+  // accept-prep.mjs is MODULE_NOT_FOUND from anywhere else), and the "N bracketed
+  // values" count must match the actual number of bracketed placeholders (--plugin-root,
+  // --owner, --lead).
+  assert.ok(acceptCall.prompt.includes("with the delegation plugin root (the same directory you pass as --plugin-root) as your working directory"), "the rendered prompt must anchor the runner's working directory");
+  assert.ok(acceptCall.prompt.includes("three bracketed values yourself (--plugin-root, --owner and --lead)"), "must name all three placeholders, not two");
+  // m3 (round 2 fix): a marker with spaces must be single-quoted, never rendered as
+  // separate unquoted words the runner is forbidden from altering.
+  assert.ok(acceptCall.prompt.includes("--marker 'LANE SEVEN go'"), "a multi-word --marker must be single-quoted in the rendered command");
 });
 
 test("R5: accept-prep is skipped when the integrator did not PASS", async () => {

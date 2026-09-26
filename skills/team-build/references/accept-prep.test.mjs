@@ -210,6 +210,105 @@ test("R3a: editRecord throws missing-field, changes nothing on disk, when Status
   assert.equal(fs.readFileSync(recordAbsPath, "utf8"), text, "a failed edit must never touch the file");
 });
 
+// B1 (round 2 fix, review finding): a header-only record with NO trailing newline must
+// never have its last unowned line glued onto the newly inserted line. Both edge cases
+// the reviewer named: a record ending on its sixth Log line, and one ending at Base: with
+// no Log lines at all.
+test("B1: editRecord on a no-trailing-newline record ending in a Log line inserts a new line, never gluing it onto the last one", () => {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-notrail.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  const text = [
+    "Work: wr-x",
+    "Status: owned",
+    "Artifact: none",
+    "Evidence: none",
+    "Base: x",
+    "Log: 2026-09-20T10:00:00.000Z owned o six",
+  ].join("\n");
+  fs.writeFileSync(recordAbsPath, text);
+  editRecord({
+    repo, recordPath: recordRel, deliveryRef: "b", artifactSha: "8".repeat(40),
+    worktree: "b", owner: "o", logNote: "n", evidence: "none",
+    now: "2026-09-20T11:00:00.000Z",
+  });
+  const updated = fs.readFileSync(recordAbsPath, "utf8");
+  const expected = [
+    "Work: wr-x",
+    "Status: reviewed",
+    "Artifact: b@8888888888888888888888888888888888888888",
+    "Evidence: none",
+    "Base: x",
+    "Worktree: b",
+    "Log: 2026-09-20T10:00:00.000Z owned o six",
+    "Log: 2026-09-20T11:00:00.000Z reviewed o n",
+  ].join("\n");
+  assert.equal(updated, expected, "the unowned sixth Log line must survive untouched, on its own line, with no trailing newline added");
+  assert.ok(!updated.endsWith("\n"), "no-trailing-newline property must be preserved");
+});
+
+test("B1: editRecord on a no-trailing-newline record with NO Log lines at all still inserts one cleanly", () => {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-notrail2.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  const text = [
+    "Work: wr-x",
+    "Status: owned",
+    "Artifact: none",
+    "Evidence: none",
+    "Base: x",
+  ].join("\n");
+  fs.writeFileSync(recordAbsPath, text);
+  editRecord({
+    repo, recordPath: recordRel, deliveryRef: "b", artifactSha: "9".repeat(40),
+    worktree: "b", owner: "o", logNote: "n", evidence: "none",
+    now: "2026-09-20T11:00:00.000Z",
+  });
+  const updated = fs.readFileSync(recordAbsPath, "utf8");
+  const expected = [
+    "Work: wr-x",
+    "Status: reviewed",
+    "Artifact: b@9999999999999999999999999999999999999999",
+    "Evidence: none",
+    "Base: x",
+    "Worktree: b",
+    "Log: 2026-09-20T11:00:00.000Z reviewed o n",
+  ].join("\n");
+  assert.equal(updated, expected, "Base: must survive untouched, on its own line");
+  assert.ok(!updated.endsWith("\n"), "no-trailing-newline property must be preserved");
+});
+
+// m1 (round 2 fix, review finding): the loop script can render `--evidence none` (e.g. a
+// startFrom APPROVE territory with no findingsPath and a skipped seam); "none" must never
+// be appended as a literal evidence path.
+test("m1: --evidence none is never appended as an evidence path, whether existing Evidence: is real paths or already 'none'", () => {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-evnone.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  fs.writeFileSync(recordAbsPath, "Work: wr-x\nStatus: owned\nArtifact: none\nEvidence: docs/a.md\n\nObserved: x.\n");
+  editRecord({
+    repo, recordPath: recordRel, deliveryRef: "b", artifactSha: "a".repeat(40),
+    worktree: "b", owner: "o", logNote: "n", evidence: "none",
+    now: "2026-09-20T11:00:00.000Z",
+  });
+  assert.match(fs.readFileSync(recordAbsPath, "utf8"), /^Evidence: docs\/a\.md$/m, "existing evidence must stay untouched, with no ', none' appended");
+
+  const repo2 = mkTmp("accept-prep-repo-");
+  const recordRel2 = "docs/work/wr-evnone2.record.md";
+  const recordAbsPath2 = path.join(repo2, recordRel2);
+  fs.mkdirSync(path.dirname(recordAbsPath2), { recursive: true });
+  fs.writeFileSync(recordAbsPath2, "Work: wr-x\nStatus: owned\nArtifact: none\nEvidence: none\n\nObserved: x.\n");
+  editRecord({
+    repo: repo2, recordPath: recordRel2, deliveryRef: "b", artifactSha: "a".repeat(40),
+    worktree: "b", owner: "o", logNote: "n", evidence: "none",
+    now: "2026-09-20T11:00:00.000Z",
+  });
+  assert.match(fs.readFileSync(recordAbsPath2, "utf8"), /^Evidence: none$/m, "'none' plus 'none' must stay 'none', never 'none, none'");
+});
+
 // -------------------------------------------------------------------------------------
 // R3(b): ORDER — census must see the record's reviewed Log: line already written, and
 // check-acceptance must run only after census. Fake --plugin-root stubs, per contracts.md
@@ -308,6 +407,24 @@ test("R3c: a failing census leaves the record's edit in place, reports censusPat
 
   const updated = fs.readFileSync(recordAbsPath, "utf8");
   assert.match(updated, /^Status: reviewed$/m, "the record edit from step 1 must remain in place despite the census failure");
+});
+
+// m2 (round 2 fix, review finding): accept-prep must create the census-out directory
+// itself when it does not already exist (the runner's own copy step only creates
+// evidence directories, and copies nothing when there are no deciding items).
+test("m2: runCensus creates the --census-out directory when it does not already exist", () => {
+  const tmp = mkTmp("accept-prep-mkdir-");
+  const { repo, recordRel, recordAbsPath } = makeRepoWithRecord(FIXTURE_NO_WORKTREE, "docs/work/wr-x.record.md");
+  const pluginRoot = makeFakePluginRoot(tmp, CENSUS_STUB, WORK_RECORD_STUB);
+  const orderLog = path.join(tmp, "order.log");
+  fs.writeFileSync(orderLog, "");
+  assert.ok(!fs.existsSync(path.join(repo, "docs/work/evidence")), "the evidence dir must not pre-exist for this test to be meaningful");
+
+  const env = { ...process.env, ORDER_LOG: orderLog, RECORD_ABS_PATH: recordAbsPath };
+  const result = spawnSync(process.execPath, baseCliArgs({ repo, recordRel, pluginRoot }), { encoding: "utf8", env });
+
+  assert.equal(result.status, 0, `stderr: ${result.stderr}\nstdout: ${result.stdout}`);
+  assert.ok(fs.existsSync(path.join(repo, "docs/work/evidence")), "runCensus must create the missing directory before spawning build-census.mjs");
 });
 
 // -------------------------------------------------------------------------------------

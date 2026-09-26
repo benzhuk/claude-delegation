@@ -336,7 +336,8 @@ context line, resolving to `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`), and `s
 repo-relative to `integrationWorktree`; Setup step 7's fields, not one per territory).
 When a build needs two bases, make the merge commit on the integration branch yourself
 before launch and pass its sha as `baseSha` (which must always be exactly one sha); the
-record then carries `Base: <merge sha>` and a `Base-of: <sha>, <sha>` line for humans.
+record then carries `Base: <merge sha>` in its header and the two parents in its body
+(e.g. `Base parents: <sha>, <sha>` after the header's blank line), never as a header line.
 Then make ONE Workflow call, `{scriptPath:
 "skills/team-build/references/build-loop-workflow.js"}`, with `args`
 `{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, gate?, briefPath?,
