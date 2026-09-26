@@ -266,8 +266,8 @@ Two companion lines print beside the four: top-tier assistant messages per build
 one re-reads the whole context, so this is the cost driver, not the turn count alone),
 with the tokens line split into cache-read, cache-write, input and output; and notes to
 the lead per build (ASK, RESULT and BLOCKED envelopes addressed to `Lead-session:`'s slug
-in the ledger within the window, since each one is a full lead turn). Both companions
-share Number 1's own census-window verdict: when Number 1 is `unavailable`, so is the
+in the ledger within the window, since each one is a full lead turn). The messages
+companion shares Number 1's census verdict: when Number 1 is `unavailable`, so is the
 message count, never a confident `0 messages` beside a window it has already rejected.
 **Rule for every lane from now on: a lane wakes its lead at most three times, ACK at
 start, RESULT at the end, BLOCKED if stuck, and an ACK's content is never sent under the
@@ -298,8 +298,8 @@ the spec writer's slice applies, run `build-census.mjs` a second time over the s
 session's window and pass its output file as `--spec-census` alongside `--census`. The
 accept-time `--census` itself runs `--from <Opened:>` (and `--to <last accepted Log:>`
 when it is re-run later, after a re-accept) — one window governs both Number 1 and the
-top-tier-messages companion; the census reports mismatches at either end, not just the
-start (MAJOR 1, r2).
+top-tier-messages companion; `four-read.mjs` refuses a census whose window misses the
+build at either end.
 
 The prediction rule from the bearings: the lead writes the next build's predicted four
 numbers in the RESULT to skills-fable.

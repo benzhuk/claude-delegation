@@ -114,7 +114,7 @@ test('computeTopTierTokens: a census window starting well before Opened: (a whol
 test('computeTopTierTokens: a census window inside the build window (within tolerance) is trusted', () => {
   const census = {
     combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } },
-    lead: { windowStartAt: '2026-09-25T01:53:00.000Z' },
+    lead: { windowStartAt: '2026-09-25T01:53:00.000Z', windowEndAt: '2026-09-25T04:00:00.000Z' },
   };
   const openedMs = Date.parse('2026-09-25T01:52:55.000Z');
   const acceptedMs = Date.parse('2026-09-25T05:00:00.000Z');
@@ -166,6 +166,11 @@ test('computeTopTierTokens: a census window ending after the last acceptance (pl
   const census = { combined: { 'claude-opus-5-5': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: { windowStartAt: '2026-01-01T00:00:00.000Z', windowEndAt: '2026-01-01T05:00:00.000Z' } };
   const r = computeTopTierTokens(census, null, {}, null, null, Date.parse('2026-01-01T01:00:00.000Z'));
   assert.equal(r.value, 'unavailable (census window ends 2026-01-01T05:00:00.000Z, after the last acceptance)');
+});
+
+test('computeTopTierTokens: a census with no lead.windowEndAt at all is unavailable, not a silent "0 messages" companion (MAJOR 3, r3)', () => {
+  const r = computeTopTierTokens({ combined: {}, lead: { windowStartAt: '2026-01-01T00:00:00.000Z' } }, null, {});
+  assert.equal(r.value, 'unavailable (census has no window end)');
 });
 
 // ── scanTimestamps ───────────────────────────────────────────────────────────
@@ -429,11 +434,24 @@ test('buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a who
   fs.writeFileSync(openedAtAcceptRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Log: .*owned.*\n/m, ''));
   const report = buildFourRead({ record: openedAtAcceptRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
   assert.match(report.numbers[1].value, /^unavailable \(record opened at acceptance/); // Number 2, MAJOR 4
-  assert.match(report.numbers[0].value, /^unavailable \(census window 2026-09-02T02:00:00\.000Z is not the build window\)$/); // Number 1, BLOCKER 1(b)
+  assert.match(report.numbers[0].value, /^unavailable \(record opened at acceptance: no Log: entry before the first accepted: census window cannot be checked\)$/); // Number 1 refuses with Number 2 (MAJOR 1, r3)
   // BLOCKER 1 (r2): the companion must equal Number 1's own verdict — never a confident
   // "0 messages" beside a census Number 1 has already called wrong.
   assert.equal(report.companions[0].value, report.numbers[0].value);
   assert.doesNotMatch(report.companions[0].value, /^0 messages/);
+  assert.match(report.companions[1].value, /^unavailable \(record opened at acceptance/); // M8 (r3): notes-to-lead too
+});
+
+test('buildFourRead: a record opened at acceptance still prints a confident Number 1 today unless it refuses with Number 2 — against a census that fits the window (MAJOR 1, r3)', async () => {
+  const dir = mkTmp('four-read-opened-at-accept-fits-');
+  const censusPath = await buildCensusFile(dir);
+  const openedAtAcceptRecord = path.join(dir, 'record.md');
+  // remove the `owned` line only: the first Log: entry becomes the first `accepted` one, and
+  // the fixture census (00:05..01:05) fits comfortably inside Opened:..first-accepted.
+  fs.writeFileSync(openedAtAcceptRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Log: .*owned.*\n/m, ''));
+  const report = buildFourRead({ record: openedAtAcceptRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(report.numbers[0].value, /^unavailable \(record opened at acceptance/);
+  assert.equal(report.companions[0].value, report.numbers[0].value);
 });
 
 test('buildFourRead: a record with no Opened: makes Number 1 and its companion both unavailable, never a confident count (BLOCKER 1)', async () => {
@@ -454,6 +472,54 @@ test('buildFourRead: a Lead-session: that does not match the census\'s own lead 
   const report = buildFourRead({ record: mismatchedRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
   assert.match(report.numbers[1].value, /gap unavailable \(census lead file lead-session is not Lead-session not-the-census-file\)$/);
   assert.match(report.numbers[3].value, /^gaps unavailable \(census lead file lead-session is not Lead-session not-the-census-file\)/);
+  // MAJOR 2 (r3): Number 1 must refuse on the same mismatch, not print tokens from a sibling
+  // pane's census.
+  assert.match(report.numbers[0].value, /^unavailable \(census lead file lead-session is not Lead-session not-the-census-file\)$/);
+  assert.equal(report.companions[0].value, report.numbers[0].value);
+});
+
+test('buildFourRead: a census with no lead.windowEndAt is unavailable, never a confident "0 messages" companion (MAJOR 3, r3)', async () => {
+  const dir = mkTmp('four-read-no-window-end-');
+  const censusPath = await buildCensusFile(dir);
+  const c = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  delete c.lead.windowEndAt;
+  fs.writeFileSync(censusPath, JSON.stringify(c));
+  const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(report.numbers[0].value, 'unavailable (census has no window end)');
+  assert.equal(report.companions[0].value, report.numbers[0].value);
+  assert.doesNotMatch(report.companions[0].value, /^0 messages/);
+});
+
+test('buildFourRead: the companion counts over the census window, and the end check uses the LAST accepted (r2 MAJOR 1, pinned in r3)', async () => {
+  const dir = mkTmp('four-read-census-window-');
+  const censusPath = await buildCensusFile(dir);
+  const rec = path.join(dir, 'record.md');
+  fs.writeFileSync(rec, fs.readFileSync(RECORD, 'utf8').replace('2026-09-02T00:00:00.000Z accepted', '2026-09-01T00:30:00.000Z accepted').replace('2026-09-02T01:00:00.000Z accepted', '2026-09-01T01:10:00.000Z accepted'));
+  const r = buildFourRead({ record: rec, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(r.numbers[0].value, /^193 tokens/);
+  assert.match(r.companions[0].value, /^2 messages;/); // Opened..first-accepted would give 1
+});
+
+test('buildFourRead: an unparseable last accepted Log: timestamp falls back to the first accepted (tighter) bound for the census end check, not a silently-skipped one (MAJOR 3, r3)', async () => {
+  const dir = mkTmp('four-read-last-accept-bad-');
+  const censusPath = await buildCensusFile(dir);
+  const c = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  fs.writeFileSync(censusPath, JSON.stringify({ ...c, lead: { ...c.lead, windowEndAt: '2026-09-05T00:00:00.000Z' } }));
+  const rec = path.join(dir, 'record.md');
+  fs.writeFileSync(rec, fs.readFileSync(RECORD, 'utf8').replace('2026-09-02T01:00:00.000Z accepted', 'not-a-date accepted'));
+  const r = buildFourRead({ record: rec, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(r.numbers[0].value, 'unavailable (census window ends 2026-09-05T00:00:00.000Z, after the last acceptance)');
+  assert.equal(r.companions[0].value, r.numbers[0].value);
+});
+
+test('buildFourRead: passes the last acceptance into the census end check (r2 MAJOR 1, pinned in r3)', async () => {
+  const dir = mkTmp('four-read-census-end-');
+  const censusPath = await buildCensusFile(dir);
+  const c = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  fs.writeFileSync(censusPath, JSON.stringify({ ...c, lead: { ...c.lead, windowEndAt: '2026-09-05T00:00:00.000Z' } }));
+  const r = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(r.numbers[0].value, 'unavailable (census window ends 2026-09-05T00:00:00.000Z, after the last acceptance)');
+  assert.equal(r.companions[0].value, r.numbers[0].value);
 });
 
 test('formatJson: deterministic, sorted keys, over the fixture build', async () => {

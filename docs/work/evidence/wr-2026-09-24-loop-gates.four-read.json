@@ -3,7 +3,7 @@
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "unavailable (census window 2026-09-25T01:56:48.611Z is not the build window)"
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted: census window cannot be checked)"
     },
     {
       "key": "notesToLeadPerBuild",
@@ -20,7 +20,7 @@
     {
       "key": "topTierTokensPerBuild",
       "label": "Top-tier tokens per build",
-      "value": "unavailable (census window 2026-09-25T01:56:48.611Z is not the build window)"
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted: census window cannot be checked)"
     },
     {
       "key": "hoursAskToAccepted",

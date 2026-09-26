@@ -73,7 +73,8 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
   }
   // MAJOR 1: check the end too, or a persistent pane's next build's tokens mix in.
   const windowEndAt = census.lead && census.lead.windowEndAt ? Date.parse(census.lead.windowEndAt) : NaN;
-  if (!Number.isNaN(windowEndAt) && lastAcceptedMs !== null && windowEndAt > lastAcceptedMs + tolerance) {
+  if (Number.isNaN(windowEndAt)) return { value: 'unavailable (census has no window end)' }; // MAJOR 3 (r3)
+  if (lastAcceptedMs !== null && windowEndAt > lastAcceptedMs + tolerance) {
     return { value: `unavailable (census window ends ${census.lead.windowEndAt}, after the last acceptance)` };
   }
   const tiers = topTierModels();
@@ -280,7 +281,6 @@ function countTopTierMessages(fsImpl, filePath, tiers, sinceMs, untilMs) {
 // BLOCKER 1/MAJOR 1 (r2): gate on Number 1's own census verdict and count over its window.
 function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedMs, acceptedMs, numberOneValue) {
   if (numberOneValue.startsWith('unavailable')) return { value: numberOneValue };
-  if (openedMs === null || acceptedMs === null) return { value: 'unavailable (no Opened:/accepted window)' };
   const tiers = topTierModels();
   const { split } = sumTopTier(census.combined, tiers);
   const splitPart = `cache-read ${split.cacheRead}, cache-write ${split.cacheWrite}, input ${split.input}, output ${split.output}`;
@@ -315,11 +315,11 @@ export function buildFourRead(opts, fsImpl = fs) {
   const numberTwo = computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason);
   const windowMs = { openedMs: numberTwo.openedMs, acceptedMs: numberTwo.acceptedMs, reason: numberTwo.reason };
   const acceptedLogs = logs.filter((l) => l.status.toLowerCase() === 'accepted');
-  const lastAcceptedMs = acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null;
-  // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b) judges the real accepted ts.
-  const numberOne = windowMs.openedMs === null || numberTwo.rawAcceptedMs === null
-    ? { value: `unavailable (${numberTwo.reason}: census window cannot be checked)` }
-    : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, numberTwo.rawAcceptedMs, lastAcceptedMs);
+  const lastAcceptedMs = (acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null) ?? windowMs.acceptedMs; // unparseable last -> the tighter first bound
+  // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b)/MAJOR 1/2 (r3): refuse with Number 2.
+  const numberOne = leadGapReason && leadSessionId ? { value: `unavailable (${leadGapReason})` } // the census read another session
+    : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason}: census window cannot be checked)` }
+    : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, windowMs.acceptedMs, lastAcceptedMs);
   const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason);
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
