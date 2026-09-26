@@ -73,6 +73,12 @@ node ~/.agents/skills/multi/scripts/note-send.mjs --from <your-slug> --to <peer-
 to guess between two panes with the same title, and `note-inbox` refuses to guess which pane it is.
 Renaming is a step Ben or the orchestrator performs; it is not something you send a note about.
 
+**A nested `claude -p` started inside your pane is not you.** It inherits your shell's
+`ORCA_TERMINAL_HANDLE`/`NOTE_SLUG`, so its own hooks register IT as your inbox and it ACKs whatever
+lands there — a peer note meant for you is consumed and lost inside a throwaway child session, and
+your own next `note-inbox` then reports nothing new. Start a nested session with
+`env -u ORCA_TERMINAL_HANDLE -u NOTE_SLUG claude -p …` to keep it out of your inbox.
+
 ## For Ben: installing and checking the Codex hooks
 
 Hook installation is OPT-IN, because it edits live Codex homes that Orca also writes to:
