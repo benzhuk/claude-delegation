@@ -1,12 +1,12 @@
 Work: wr-2026-09-26-gate-under-load
 Scope: docs/specs/2026-09-26-gate-under-load.md@b786916
-Owner: gate-builder
-Status: owned
+Owner: skills-a
+Status: delivered
 Authority: engineering, independent review, and branch pushes are authorized; merge is conditional on the recorded accepted-merge standing grant and all acceptance gates; release or installation requires Ben's word.
-Artifact: none
+Artifact: build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9
 Worktree: build/gate-under-load-1
 Evidence: none
-Next: G1 builder runs the three idle file baselines; the lane lead schedules the demonstrated full-suite load and ten loaded post-change file runs without a competing suite.
+Next: fresh native Opus review of artifact 0c00422e97755df7d01127e529c8216c756ee8f9, then lead consumes its explicit verdict.
 Opened: 2026-09-26T22:42:00Z
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
@@ -16,5 +16,6 @@ Log: 2026-09-26T22:42:00Z runnable lead setup authorized; status creation pendin
 Log: 2026-09-26T22:51:26.927Z owned gate-builder
 Log: 2026-09-26T23:00:57.227Z baseline CAPTURE_UNAVAILABLE for first paired prechange file run; no exit or stdout was retained
 Log: 2026-09-26T23:01:47.287Z baseline loaded FAIL 42/43, exit 1: 45 concurrent calls emitted 0 cards; raw log docs/work/evidence/wr-2026-09-26-gate-under-load-G1-prechange-loaded.log
+Log: 2026-09-26T23:16:34.431Z delivered skills-a artifact build/gate-under-load-1-g1@0c00422e97755df7d01127e529c8216c756ee8f9; ten loaded post-change file runs exit 0 (suite PIDs 73596 and 71244, both exit 0)
 
 Observed: Opened time is the peer request's minute-precision timestamp. The copied local pack preserves the supplied spec, scout, and lead ruling; source provenance remains the tracked spec path at b786916. The current Windows host has a different lane's full sealed suite active, so this lane has launched no tests or load work.
