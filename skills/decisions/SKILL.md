@@ -53,6 +53,16 @@ pass: reread the page fresh, do not retry the same edit blind (checked by
 `skill-text.test.mjs` that this rule is written down; the stop itself is not checked
 by any script).
 
+A lane lead's own merge item — posted to this page after `accept --census` and the
+push, per `skills/team-build/SKILL.md`'s Ship section — takes the ordinary item shape
+from "Writing an item" above: title `Merge <branch> into main (<tip sha>)`; a one- or
+two-line evidence entry carrying the record's four numbers and the census's
+lead-turns figure; options merge-now / merge-and-release / hold; and `No default:
+merges to main take your word per item`. It is one more item through the same
+anchored-edit route, never a second writer at once: the fresh-read, one-anchored-edit,
+retry-once-on-a-changed-anchor rule just above applies to it exactly as to any other
+write.
+
 The page callout's owner instruction reads, written on the page as one line: "Tick a
 box, or add a line starting with ** anywhere; every such line is acted on and removed
 before this page comes back to you." (not checked)

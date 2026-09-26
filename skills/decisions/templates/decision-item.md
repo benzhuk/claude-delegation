@@ -21,6 +21,11 @@ result under the Open section of the page.
 For anything irreversible, costly, or that changes the owner's machines, replace the
 last line with `No default: <reason>` instead of a deadline.
 
+A lane lead's own merge item is an ordinary use of this same shape — title `Merge
+<branch> into main (<tip sha>)`, options merge-now / merge-and-release / hold, and
+`No default: merges to main take your word per item`; see `skills/decisions/SKILL.md`'s
+Page rules for the exact evidence-line content.
+
 ## Replying to an owner's comment (fenced — reference only, not a live decision)
 
 ```
