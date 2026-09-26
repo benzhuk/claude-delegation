@@ -36,8 +36,7 @@ export function parseRecordText(text) {
   }
   return { fields, logs };
 }
-// MINOR 9: Artifact: is the CURRENT artifact — wrong once a re-accept overwrote it, so the
-// fallback is only safe with a single accepted entry.
+// MINOR 9: Artifact: is the CURRENT artifact (wrong after a re-accept): fallback only with one accepted entry.
 function acceptedShaFrom(fields, note, singleAccepted) {
   const fromNote = /artifact\s+([0-9a-f]{7,40})/i.exec(note || '');
   if (fromNote) return fromNote[1];
@@ -80,7 +79,10 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
   const tiers = topTierModels();
   const build = sumTopTier(census.combined, tiers);
   const buildPart = `build ${build.total}${build.matched.length ? ` (${build.matched.sort().join(', ')})` : ' (no top-tier model matched)'}`;
-  if (specCensus) {
+  if (specCensus) { // r1 BLOCKER 1's twin: the spec slice is Spec-session's Spec-from:..Opened:, checked like the census
+    const sl = specCensus.lead || {}, sFrom = parseDateMs(fields['spec-from']), sStart = parseDateMs(sl.windowStartAt), sEnd = parseDateMs(sl.windowEndAt);
+    const sFile = specCensus.leadPath ? path.basename(specCensus.leadPath).replace(/\.jsonl$/i, '') : null;
+    if (!specCensus.combined || sFile !== fields['spec-session'] || [sFrom, sStart, sEnd, openedMs].includes(null) || sStart < sFrom - tolerance || sEnd > openedMs + tolerance) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): spec-census is not Spec-session:'s Spec-from:..Opened: window` };
     const spec = sumTopTier(specCensus.combined, tiers);
     return { value: `${build.total + spec.total} tokens: ${buildPart} + spec slice ${spec.total}` };
   }
@@ -116,20 +118,18 @@ function gaps(msList, mode, thresholdMinutes = 0) {
   return mode === 'max' ? best : out;
 }
 // ── Number 2 — hours ask to accepted, plus the largest gap inside that window ──────────
-// leadGapReason (MAJOR 1): why leadTimestamps is null, printed when it's the lead-session
-// mismatch rather than a plain missing transcript.
+// leadGapReason (MAJOR 1): why leadTimestamps is null (a lead-session mismatch, not a missing transcript).
 export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason) {
   const openedMs = parseDateMs(fields.opened);
-  if (openedMs === null) return { value: 'unavailable (no Opened:)', openedMs: null, acceptedMs: null, rawAcceptedMs: null, reason: 'no Opened:' };
+  if (openedMs === null) return { value: 'unavailable (no Opened:)', openedMs: null, acceptedMs: null, reason: 'no Opened:' };
   const first = logs.find((l) => l.status.toLowerCase() === 'accepted');
-  if (!first) return { value: 'unavailable (no accepted Log: entry)', openedMs, acceptedMs: null, rawAcceptedMs: null, reason: 'no accepted Log: entry' };
+  if (!first) return { value: 'unavailable (no accepted Log: entry)', openedMs, acceptedMs: null, reason: 'no accepted Log: entry' };
   const acceptedMs = parseDateMs(first.at);
-  if (acceptedMs === null) return { value: 'unavailable (unparseable accepted Log: timestamp)', openedMs, acceptedMs: null, rawAcceptedMs: null, reason: 'unparseable accepted Log: timestamp' };
-  // MAJOR 4: first Log: is itself the first accepted -> no earlier entry ever recorded;
-  // 0.0h would be a confident non-answer. rawAcceptedMs keeps the real ts for BLOCKER 1(b).
+  if (acceptedMs === null) return { value: 'unavailable (unparseable accepted Log: timestamp)', openedMs, acceptedMs: null, reason: 'unparseable accepted Log: timestamp' };
+  // MAJOR 4: first Log: is the first accepted -> no earlier entry; 0.0h would be a confident non-answer.
   if (logs.indexOf(first) === 0) {
     const reason = 'record opened at acceptance: no Log: entry before the first accepted';
-    return { value: `unavailable (${reason})`, openedMs, acceptedMs: null, rawAcceptedMs: acceptedMs, reason };
+    return { value: `unavailable (${reason})`, openedMs, acceptedMs: null, reason };
   }
   const hours = (acceptedMs - openedMs) / 3600000;
   let gapPart;
@@ -141,7 +141,7 @@ export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapR
       ? `largest gap ${gap.minutes.toFixed(1)}min at ${new Date(gap.startMs).toISOString()}`
       : 'gap unavailable (fewer than 2 lead messages in window)';
   }
-  return { value: `${hours.toFixed(1)}h; ${gapPart}`, openedMs, acceptedMs, rawAcceptedMs: acceptedMs };
+  return { value: `${hours.toFixed(1)}h; ${gapPart}`, openedMs, acceptedMs };
 }
 // ── Number 3 — rework after acceptance ──────────────────────────────────────────────────
 function runGit(repoDir, args) { return execFileSync('git', ['-C', repoDir, ...args], { encoding: 'utf8' }); }
@@ -318,7 +318,7 @@ export function buildFourRead(opts, fsImpl = fs) {
   const lastAcceptedMs = (acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null) ?? windowMs.acceptedMs; // unparseable last -> the tighter first bound
   // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b)/MAJOR 1/2 (r3): refuse with Number 2.
   const numberOne = leadGapReason && leadSessionId ? { value: `unavailable (${leadGapReason})` } // the census read another session
-    : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason}: census window cannot be checked)` }
+    : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason.replace(/:$/, '')}: census window cannot be checked)` } // MINOR 3 (r4): no doubled colon
     : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, windowMs.acceptedMs, lastAcceptedMs);
   const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason);

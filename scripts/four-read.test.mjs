@@ -147,11 +147,19 @@ test('computeTopTierTokens: no top-tier model matched is named, not silently zer
   assert.match(r.value, /no top-tier model matched/);
 });
 
-test('computeTopTierTokens: a spec-census combines the build slice and the spec slice into one total', () => {
-  const census = { combined: { 'claude-opus-5-5': { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
-  const specCensus = { combined: { 'claude-opus-5-5': { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } } };
-  const r = computeTopTierTokens(census, specCensus, {});
+const SPEC_FIELDS = { 'spec-session': 'spec-s', 'spec-from': '2025-12-31T23:00:00.000Z' };
+const SPEC_CENSUS = { combined: { 'claude-opus-5-5': { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, leadPath: '/x/spec-s.jsonl', lead: { windowStartAt: '2025-12-31T23:00:00.000Z', windowEndAt: '2025-12-31T23:59:00.000Z' } };
+const TEN = { combined: { 'claude-opus-5-5': { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
+test('computeTopTierTokens: a spec-census over Spec-session:\'s Spec-from:..Opened: combines the build slice and the spec slice into one total', () => {
+  const r = computeTopTierTokens(TEN, SPEC_CENSUS, SPEC_FIELDS, Date.parse('2026-01-01T00:00:00.000Z'));
   assert.match(r.value, /^15 tokens: build 10 \(claude-opus-5-5\) \+ spec slice 5$/);
+});
+test('computeTopTierTokens: a spec-census that is not Spec-session:\'s Spec-from:..Opened: window is never summed (r1 BLOCKER 1 twin)', () => {
+  const opened = Date.parse('2026-01-01T00:00:00.000Z');
+  for (const bad of [{}, { ...SPEC_CENSUS, lead: A_WINDOW }, { ...SPEC_CENSUS, lead: { windowStartAt: '2025-12-31T20:00:00.000Z', windowEndAt: '2025-12-31T23:59:00.000Z' } }, { ...SPEC_CENSUS, leadPath: '/x/other.jsonl' }]) {
+    assert.equal(computeTopTierTokens(TEN, bad, SPEC_FIELDS, opened).value, "10 tokens: build 10 (claude-opus-5-5); partial (no spec slice): spec-census is not Spec-session:'s Spec-from:..Opened: window");
+  }
+  assert.match(computeTopTierTokens(TEN, SPEC_CENSUS, { 'spec-session': 'spec-s' }, opened).value, /partial \(no spec slice\)/); // no Spec-from: in the record
 });
 
 test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the default fable,opus tier list', (t) => {
@@ -442,7 +450,7 @@ test('buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a who
   assert.match(report.companions[1].value, /^unavailable \(record opened at acceptance/); // M8 (r3): notes-to-lead too
 });
 
-test('buildFourRead: a record opened at acceptance still prints a confident Number 1 today unless it refuses with Number 2 — against a census that fits the window (MAJOR 1, r3)', async () => {
+test('buildFourRead: a record opened at acceptance makes Number 1 refuse with Number 2, even against a census that fits the window (MAJOR 1, r3)', async () => {
   const dir = mkTmp('four-read-opened-at-accept-fits-');
   const censusPath = await buildCensusFile(dir);
   const openedAtAcceptRecord = path.join(dir, 'record.md');
@@ -460,7 +468,7 @@ test('buildFourRead: a record with no Opened: makes Number 1 and its companion b
   const noOpenedRecord = path.join(dir, 'record.md');
   fs.writeFileSync(noOpenedRecord, fs.readFileSync(RECORD, 'utf8').replace(/^Opened:.*$/m, ''));
   const report = buildFourRead({ record: noOpenedRecord, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
-  assert.match(report.numbers[0].value, /^unavailable \(no Opened:: census window cannot be checked\)$/);
+  assert.match(report.numbers[0].value, /^unavailable \(no Opened: census window cannot be checked\)$/);
   assert.equal(report.companions[0].value, report.numbers[0].value);
 });
 

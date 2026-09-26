@@ -298,8 +298,8 @@ the spec writer's slice applies, run `build-census.mjs` a second time over the s
 session's window and pass its output file as `--spec-census` alongside `--census`. The
 accept-time `--census` itself runs `--from <Opened:>` (and `--to <last accepted Log:>`
 when it is re-run later, after a re-accept) — one window governs both Number 1 and the
-top-tier-messages companion; `four-read.mjs` refuses a census whose window misses the
-build at either end.
+top-tier-messages companion; `four-read.mjs` refuses a census whose window starts outside the
+build or ends after its last acceptance.
 
 The prediction rule from the bearings: the lead writes the next build's predicted four
 numbers in the RESULT to skills-fable.
