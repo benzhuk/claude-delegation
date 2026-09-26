@@ -363,6 +363,8 @@ test('MAJOR 4: goalCardResult keeps the REASON a card was refused, and the notic
   assert.match(notice, /goal card not injected/);
   assert.match(notice, /No goals are being restated/);
   assert.ok(notice.includes(r.path));
+  assert.ok(notice.includes(fileURLToPath(new URL('./goal-card.mjs', import.meta.url))), 'the remedy names the script by its real path');
+  assert.ok(!notice.includes('node scripts/goal-card.mjs'), 'no project-relative path a fresh project lacks');
 
   const ok = goalCardResult(project({ card: GOOD }), { env: { AGENTS_HOME: tmpdir('goal-card-home-') } });
   assert.equal(ok.status, 'ok');
