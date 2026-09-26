@@ -100,7 +100,11 @@ function parseDefaultAfter(text) {
   const roundTrip = new Date(Date.UTC(y, mo - 1, d, hh, mm));
   if (roundTrip.getUTCFullYear() !== y || roundTrip.getUTCMonth() + 1 !== mo || roundTrip.getUTCDate() !== d
       || roundTrip.getUTCHours() !== hh || roundTrip.getUTCMinutes() !== mm) return null;
-  return { text: optionText.trim(), at: when.toISOString(), atMs: when.getTime() };
+  // `raw` is the original written date/time/offset, kept verbatim (never reformatted)
+  // so an OVERDUE WARN can name the deadline the owner actually wrote.
+  return {
+    text: optionText.trim(), at: when.toISOString(), atMs: when.getTime(), raw: `${date} ${time} ${offset}`,
+  };
 }
 
 /** The true last line of the document, ignoring trailing blank and `<empty-block/>` lines. */
@@ -168,6 +172,11 @@ export function parseDocument(text, { now = new Date() } = {}) {
   let detailsDepth = 0;
   let detailsBalanced = true;
   let inArchive = false;
+  // Ben's 2026-09-26 rule: only a real, page-level `# Waiting on you now` heading (never
+  // a nested lookalike, gated the same way as `inArchive` below) puts later titles
+  // "under Waiting" for the optionless-item WARN — a title before any heading, or under
+  // any other section, is not touched by that WARN.
+  let underWaiting = false;
 
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i];
@@ -191,7 +200,10 @@ export function parseDocument(text, { now = new Date() } = {}) {
     // `<details>` is still nested, and headings in fences were already skipped above.
     if (detailsDepth === 0) {
       const topLevelHeading = matchTopLevelHeading(raw);
-      if (topLevelHeading !== null) inArchive = topLevelHeading === 'Closed';
+      if (topLevelHeading !== null) {
+        inArchive = topLevelHeading === 'Closed';
+        underWaiting = topLevelHeading === 'Waiting on you now';
+      }
     }
 
     if (/<summary\b/i.test(raw) && matchTitle(raw) === null) {
@@ -207,6 +219,10 @@ export function parseDocument(text, { now = new Date() } = {}) {
         default: null,
         noDefaultLine: false,
         shape: titleMatch.shape,
+        // Snapshot, not live: a title's own place in the structure is fixed the moment
+        // its <summary>/heading line is read.
+        openDepth: detailsDepth,
+        underWaiting,
         _openComment: null,
       };
       titles.push(currentTitle);
@@ -315,6 +331,16 @@ export function parseDocument(text, { now = new Date() } = {}) {
     }
   }
 
+  // Ben's 2026-09-26 rule: a request for the owner's hands is a decision item too — a
+  // `<summary>` block directly under Waiting (never one nested inside another item's own
+  // `<details>`, per `openDepth`) with zero option lines is a defect to fix, not a silent
+  // no-op. Blocks under Closed, or before any `# Waiting on you now` heading, are untouched.
+  for (const t of titles) {
+    if (t.shape !== 'summary' || t.options.length > 0) continue;
+    if (!t.underWaiting || t.openDepth > 1) continue;
+    warnings.push({ text: `non-decision item under Waiting: ${t.title}`, line: t.line });
+  }
+
   // R5: a comment, or a stray ticked (non-canonical) Done line, attached to a title that
   // never gained a real option (a grouping section, not a decision) is reported, never
   // silently dropped. An unticked/untied option still makes a title a decision, as in v1.
@@ -337,7 +363,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
     .filter((t) => t.options.length > 0)
     .map((t) => {
       const {
-        _openComment, noDefaultLine, shape, ...rest
+        _openComment, noDefaultLine, shape, openDepth, underWaiting: _underWaiting, ...rest
       } = t;
       return { ...rest, status: computeStatus(t, now) };
     });
@@ -375,6 +401,13 @@ export function formatText(doc) {
     lines.push(`UNATTACHED\tline ${u.line}\t${u.text}${u.under !== undefined ? `\t(under ${u.under})` : ''}`);
   }
   for (const w of doc.warnings) lines.push(`WARN\t${w.text}`);
+  // Ben's 2026-09-26 rule: an overdue default is printed as a WARN line so a careful
+  // read never misses it, but it stays a display-only signal, never `doc.warnings` —
+  // pickup/handback treat a page warning as invalid, and a lapsed default is the normal
+  // life of a decision, not a broken page (review F1).
+  for (const d of doc.decisions) {
+    if (d.status === 'DUE') lines.push(`WARN\toverdue: ${d.title}, default was due ${d.default.raw}`);
+  }
   // Explicit, so a caller can tell "legitimately nothing to act on" apart from a format drift
   // that stopped matching decisions at all (finding 8): zero here on an otherwise non-trivial
   // page means the export shape moved, not that the owner has answered everything.
