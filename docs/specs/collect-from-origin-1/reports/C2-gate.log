@@ -1,0 +1,18 @@
+✔ no file in the skill dir contains the stale chat wording (3.716675ms)
+✔ SKILL.md pins the hand-back and attended renderer sequences (0.361149ms)
+✔ SKILL.md contains "notion.js read" (0.144355ms)
+✔ SKILL.md contains "decisions-read.mjs" (0.122613ms)
+✔ SKILL.md contains "decisions-handback.mjs --decisions" (0.119879ms)
+✔ SKILL.md names disabled publication and targeted writer edits (0.106219ms)
+✔ no SKILL.md line starts with ** (a pasted wrap would read back as an owner note) (0.192148ms)
+✔ SKILL.md says exit 3 from the hand-back check means do not hand back, fix the read first (1.55243ms)
+✔ SKILL.md bans publish/replace-md on the decisions and goals pages, anchored edits only (0.20798ms)
+✔ SKILL.md says exit 3 or exit 4 from that edit stops the pass (0.218587ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 70.109901
