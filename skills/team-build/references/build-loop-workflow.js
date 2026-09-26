@@ -117,10 +117,12 @@ const SETUP = {
   required: ['territories', 'reviewerBriefPath', 'integratorBriefPath', 'seamBriefPath', 'reportPath'],
 }
 
-// R5: the Accept-prep stage's schema.
+// R5: the Accept-prep stage's schema. R4: unchanged except recordChanged (the accept-
+// prep.mjs helper's own list of header fields it actually touched) is now allowed.
 const ACCEPT_PREP = {
   type: 'object',
   properties: {
+    recordChanged: { type: 'array', items: { type: 'string' } },
     censusPath: { type: ['string', 'null'] },
     censusNote: { type: 'string' },
     integrationHead: { type: 'string' },
@@ -182,6 +184,46 @@ function dirName(p) {
 function stripExt(name) {
   const idx = name.lastIndexOf('.')
   return idx <= 0 ? name : name.slice(0, idx)
+}
+
+// R7: pure-string path normalisation (still no `path` module — R1). Collapses "." and
+// ".." segments and strips a trailing slash, never escaping above an absolute path's
+// root. Used to compare a setup-agent-returned path against the script's own computed
+// one without being fooled by a relative-vs-absolute rendering of the same file, or by a
+// harmless "../" detour that still lands on the same normalized path.
+function normalizePath(p) {
+  const s = String(p ?? '').replace(/\/+$/, '')
+  if (s === '') return s
+  const isAbs = s.startsWith('/')
+  const out = []
+  for (const seg of s.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') {
+      if (out.length && out[out.length - 1] !== '..') out.pop()
+      else if (!isAbs) out.push('..')
+      // else: an absolute path's ".." above root has nowhere to go — dropped.
+    } else {
+      out.push(seg)
+    }
+  }
+  return (isAbs ? '/' : '') + out.join('/')
+}
+
+// R7: resolves `p` against `base` when `p` is not already absolute, then normalizes —
+// "a relative path is resolved against integrationWorktree" (R7's own words). An empty
+// base leaves a relative `p` relative (normalized only), rather than gaining a spurious
+// leading slash.
+function resolveAgainst(base, p) {
+  const s = String(p ?? '')
+  if (s.startsWith('/')) return normalizePath(s)
+  const b = String(base ?? '')
+  return normalizePath(b ? `${b}/${s}` : s)
+}
+
+// R7: same path identity check for two possibly-relative-vs-absolute renderings of the
+// same file — "no other leniency: a different file is still a mismatch".
+function samePath(base, a, b) {
+  return resolveAgainst(base, a) === resolveAgainst(base, b)
 }
 
 function workIdFromRecordPath(p) {
@@ -271,7 +313,7 @@ function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorB
   const integrationText = integrationWorktree
     ? ` The integrator brief names integration worktree ${integrationWorktree}${integrationBranch ? `, branch ${integrationBranch}` : ''}${integrationGate ? `, full-suite gate ${integrationGate}` : ''}.`
     : ''
-  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed names, never your own choice: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}.${integrationText} Report path: ${reportPath}. ${SETUP_MANDATE}`
+  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed ABSOLUTE names, never your own choice and never a relative equivalent of the same path — report worktree and briefPath back exactly as written here, verbatim: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}.${integrationText} Report path: ${reportPath}. ${SETUP_MANDATE}`
 }
 
 // R4: the Seam stage's review prompt — same independent-git-read shape as reviewPrompt,
@@ -296,16 +338,27 @@ function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round
   return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate ?? 'the full-suite gate named in the integrator brief'}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
 }
 
-// R5: the accept-prep runner's prompt — the four numbered steps of R5, verbatim.
-function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports, seam, reportPath) {
-  const decidingText = decidingReports.length ? decidingReports.join(', ') : 'none'
-  const markerText = censusMarker ? ` --marker ${censusMarker}` : ''
+// R1/R2: the accept-prep runner's prompt. A Workflow script has no fs or shell, so a
+// prompt alone can only ever be checked for its TEXT, never for the real order it runs
+// things in or whether a header edit really preserved every unowned line — "a check that
+// passes because it isn't looking" (R1). The order and header-preservation guarantees
+// therefore live in accept-prep.mjs, a deterministic Node helper tested against real
+// fixture files (accept-prep.test.mjs); this prompt's only job is to render that helper's
+// ONE command exactly (R2's pinned flags and step order) and forbid any other edit path.
+function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, artifactSha, reportPath) {
+  const evidenceDestPaths = decidingItems.map((d) => `docs/work/evidence/${workId}-${d.lane}.md`)
+  const copyText = decidingItems.length
+    ? decidingItems.map((d, i) => `${d.path} -> ${integrationWorktree}/${evidenceDestPaths[i]}`).join('; ')
+    : 'none'
+  const censusOut = `docs/work/evidence/${workId}-census.md`
+  const markerFlag = censusMarker ? ` --marker ${censusMarker}` : ''
   const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha}` : 'seam SKIPPED'
+  const evidenceFlag = evidenceDestPaths.length ? evidenceDestPaths.join(',') : 'none'
+  const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --census-out ${censusOut} --json`
   let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `
-  p += `1) From the delegation plugin root (resolve it yourself; scripts/build-census.mjs is the plugin's own script, never the integration worktree's or target repo's \`scripts/\`), run \`node scripts/build-census.mjs --lead <leadSession .jsonl>${markerText} --out ${integrationWorktree}/docs/work/evidence/${workId}-census.md\`, resolving leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path. If leadSession is absent or the census errors, write nothing and report censusPath: null with the reason in censusNote. `
-  p += `2) Copy the deciding reports (last territory APPROVE per territory, last seam APPROVE) to ${integrationWorktree}/docs/work/evidence/${workId}-<lane>.md with original bytes (list them repo-relative in Evidence:): ${decidingText}. `
-  p += `3) Write exactly these header lines of ${integrationWorktree}/${recordPath} and no others, before the first blank line: Status: reviewed, Artifact: ${integrationBranch}@<40-hex head>, Worktree: ${integrationBranch}, Evidence: (the copied paths), one Log: <iso> reviewed <owner> ${seamLogText} line. Never write accepted and never run accept. `
-  p += `4) From the same delegation plugin root, run \`node scripts/work-record.mjs check-acceptance --record ${recordPath} --repo ${integrationWorktree} --delivery-ref ${integrationBranch}\` (read-only), capturing exit code and output. `
+  p += `First, copy each deciding report (last territory APPROVE per territory, last seam APPROVE) to its evidence destination with original bytes, creating the destination directory if needed (source -> destination, destinations are repo-relative under ${integrationWorktree}): ${copyText}. `
+  p += `Then run exactly this one command, filling in only the two bracketed values yourself (--plugin-root and --owner) and changing nothing else — this command is the ONLY way you may change the record; never hand-edit its header, its Status:, or any Log: line any other way: \`${cmd}\`. `
+  p += `Report recordChanged from that command's own JSON output; integrationHead from running \`git rev-parse HEAD\` in ${integrationWorktree} yourself (never copy ${artifactSha} verbatim); censusPath, censusNote (explain a null censusPath), and checkAcceptance verbatim from the command's JSON output; evidencePaths as the evidence destination paths listed above; and reportPath. `
   p += `Report path: ${reportPath}. `
   p += ACCEPT_MANDATE
   return p
@@ -318,6 +371,10 @@ const startedAt = a.startedAt
 const territories = Array.isArray(a.territories) ? a.territories : []
 const reviewerBriefPath = a.reviewerBriefPath
 const integratorBriefPath = a.integratorBriefPath
+// R4 (defect 3): given-territory mode's own seam brief — same meaning as setup mode's
+// computed seamBriefPath, falling back to reviewerBriefPathFinal only when absent (never
+// the other way around: an explicit seamBriefPath always wins).
+const seamBriefPath = a.seamBriefPath
 const maxRoundsCandidate = Number(a.maxRounds)
 const maxRounds = a.maxRounds != null && Number.isFinite(maxRoundsCandidate) ? maxRoundsCandidate : 3
 const integrationWorktree = a.integrationWorktree
@@ -337,6 +394,14 @@ function earlyReturn(blockers) {
 if (!specPath || !baseSha || !startedAt) {
   log('build-loop: missing-args, nothing spawned')
   return earlyReturn([{ id: '*', reason: 'missing-args' }])
+}
+
+// spec item 4 / R4: baseSha must be exactly ONE git sha (7-40 hex characters) — never a
+// two-sha shape like "a+b" (lane six's actual defect) or anything else unresolvable as a
+// single commit. Checked before anything spawns, same as every other launch-error above.
+if (!/^[0-9a-f]{7,40}$/i.test(String(baseSha).trim())) {
+  log('build-loop: bad-base-sha, nothing spawned')
+  return earlyReturn([{ id: '*', reason: 'bad-base-sha' }])
 }
 
 // R2: mixed-territory-modes. A territory is GIVEN when worktree, branch and briefPath are
@@ -429,14 +494,20 @@ if (setupMode) {
     return earlyReturn([{ id: '*', reason: 'setup-failed' }])
   }
 
+  // R7: a correct but RELATIVE worktree/briefPath (relative to integrationWorktree) is
+  // the SAME file as the computed absolute one and must not fail verification merely for
+  // being spelled differently — normalise both sides before comparing (strip a trailing
+  // slash, resolve "." and ".." segments, resolve a relative path against
+  // integrationWorktree). No other leniency: a different file is still a mismatch.
   const byId = new Map((Array.isArray(setupResult.territories) ? setupResult.territories : []).map((r) => [r.id, r]))
+  const pathBase = integrationWorktree ?? ''
   for (const c of computed) {
     const row = byId.get(c.id)
     const mismatch =
       !row ||
-      row.worktree !== c.worktree ||
-      row.branch !== c.branch ||
-      row.briefPath !== c.briefPath ||
+      !samePath(pathBase, row.worktree, c.worktree) ||
+      normalizePath(row.branch) !== normalizePath(c.branch) ||
+      !samePath(pathBase, row.briefPath, c.briefPath) ||
       !sameSha(row.headSha, baseSha)
     if (mismatch) {
       log(`setup: territory ${c.id} failed verification, nothing built`)
@@ -646,7 +717,9 @@ if (!integrationWorktree) {
 } else {
   // m3: only mark the Seam phase entered when it actually runs.
   phase('Seam')
-  const seamBriefToUse = setupMode ? seamBriefPathFinal : reviewerBriefPathFinal
+  // R4 (defect 3): given mode now threads its own seamBriefPath (falling back to the
+  // reviewer brief only when absent), the same fallback shape setup mode already had.
+  const seamBriefToUse = setupMode ? seamBriefPathFinal : (seamBriefPath ?? reviewerBriefPathFinal)
   const approvedIds = approved.map((r) => r.id)
 
   let seamRound = 1
@@ -761,14 +834,23 @@ if (!integrationWorktree) {
   const workId = workIdFromRecordPath(recordPath)
   // M1: the deciding evidence is each territory's last APPROVE — the reviewer's findings
   // file — never the builder's own report, which never carries the approving verdict.
-  const decidingReports = approved.map((r) => r.findingsPath).filter(Boolean)
-  if (seam && seam.verdict === 'APPROVE' && seam.findingsPath) decidingReports.push(seam.findingsPath)
+  // Each item carries the LANE it decided (a territory id, or 'seam') so its evidence
+  // destination path (docs/work/evidence/<workId>-<lane>.md) is computed here, in pure
+  // JS, rather than left to the accept-prep runner to invent a filename for.
+  const decidingItems = approved.map((r) => ({ lane: r.id, path: r.findingsPath })).filter((d) => d.path)
+  if (seam && seam.verdict === 'APPROVE' && seam.findingsPath) decidingItems.push({ lane: 'seam', path: seam.findingsPath })
+
+  // M3 (moved earlier): the accept-prep runner needs the already-reviewed head sha as an
+  // INPUT (R2's --artifact-sha), not just as something to check afterward — it is the
+  // same seam-or-integrator head this stage already verified, never a value the runner
+  // is trusted to pick itself.
+  const expectedHead = seam && seam.verdict === 'APPROVE' ? seam.sha : integrate.headSha
 
   const acceptReportPath = specPath.startsWith('/')
     ? `${dirName(specPath)}/reports/accept-prep.md`
     : `${integrationWorktree}/${dirName(specPath)}/reports/accept-prep.md`
   const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
-  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingReports, seam, acceptReportPath)
+  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, expectedHead, acceptReportPath)
   let acceptResult = await agent(acceptPromptText, acceptOpts)
   if (acceptResult === null) {
     log('accept-prep: agent died, respawning once')
@@ -782,7 +864,6 @@ if (!integrationWorktree) {
     // M3: check what the accept-prep agent returns, per R1, rather than taking its
     // integrationHead on faith — it must name the same head the seam or integrator
     // already verified, never an unreviewed one (including a literal echo like "HEAD").
-    const expectedHead = seam && seam.verdict === 'APPROVE' ? seam.sha : integrate.headSha
     if (!sameSha(acceptResult.integrationHead, expectedHead)) {
       log(`accept-prep: integrationHead ${acceptResult.integrationHead} did not match reviewed head ${expectedHead}`)
       acceptHeadMismatch = true

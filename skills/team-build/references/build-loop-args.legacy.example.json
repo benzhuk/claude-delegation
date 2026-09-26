@@ -20,5 +20,6 @@
     }
   ],
   "reviewerBriefPath": "docs/specs/example-build/briefs/reviewer.md",
-  "integratorBriefPath": "docs/specs/example-build/briefs/integrator.md"
+  "integratorBriefPath": "docs/specs/example-build/briefs/integrator.md",
+  "seamBriefPath": "docs/specs/example-build/briefs/seam.md"
 }
