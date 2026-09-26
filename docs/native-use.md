@@ -61,12 +61,17 @@ then close it with that same flag plus either `--census <file>` or
 `node <plugin-root>/scripts/work-record.mjs accept --repo . --record docs/work/<id>.record.md --pinned-artifact <sha> --census docs/work/<id>.census.md`.
 
 Before `check-acceptance`, the record needs, besides the fields in [work
-records](work-record.md): `Status: reviewed`; `Worktree: <path or branch of the build's
-worktree>`; on plugin 0.20.10 and later `Lead-session: <the lead session's id>`; a
-top-level `Observed:` paragraph after a blank line; the reviewer's report (first line
-`VERDICT: APPROVE <sha>`) listed in `Evidence:`; and a line `Log: <ISO-8601 UTC> reviewed
-<reviewer-id> artifact <sha>` written when the review lands. Take the census **after**
-that Log line; `accept` refuses a census older than the last `reviewed` entry.
+records](work-record.md): a `Work:` line matching `wr-<yyyy-mm-dd>-<slug>` (lowercase,
+digits and hyphens only — e.g. `wr-2026-09-26-wordcount`) — any other shape fails with
+`invalid Work: <value>` and no further hint; `Status: reviewed`; `Worktree: <path or
+branch of the build's worktree>`; on plugin 0.20.10 and later `Lead-session: <the lead
+session's id>`; a top-level `Observed:` paragraph after a blank line; the reviewer's
+report (first line `VERDICT: APPROVE <sha>`) listed in `Evidence:`; and a line `Log:
+<ISO-8601 UTC> reviewed
+<reviewer-id> artifact <sha>` written by the lead session when the review lands. Then take
+the census of that same, still-running lead session: a census is dated by its first
+line's `leadLastMessageAt` (the lead transcript's last message), not by when you run it,
+and `accept` refuses one whose `leadLastMessageAt` is older than the last `reviewed` entry.
 
 Running `bearings` to completion (a published assessment plus a recorded completion
 receipt) needs a configured Notion page for this project; without one it still writes the
