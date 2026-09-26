@@ -7,10 +7,12 @@ vocabulary; don't re-derive the tier table here.
 ## The panes
 
 - **`<project>-fable`** — top tier (Claude Fable / GPT-6-Astra). Writes the spec, reads
-  the high-tier red-team's report, renders the merge/ship verdict, and is the only pane
-  that writes the decisions page (`delegation:decisions`). Never executes: no builds, no
-  file edits outside the spec pack, no direct tool loops over code. Its tokens buy
-  judgment, nothing else.
+  the high-tier red-team's report, and is the pane that decides a release or install to
+  the owner's machines and any Waiting item a lane lead cannot resolve on its own (a
+  conflict, or a defect) — an ordinary accepted merge is the lane lead's own gate and
+  Closed entry, never fable's decision to make (`delegation:decisions`). Never executes:
+  no builds, no file edits outside the spec pack, no direct tool loops over code. Its
+  tokens buy judgment, nothing else.
 - **`<project>-o`** — an Opus orchestrator pane. Runs `team-build` end to end (Setup
   through Ship, `skills/team-build/SKILL.md`); launches the build-review-fix loop
   (`skills/team-build/references/build-loop-workflow.js`, that file's own new SKILL.md
@@ -35,8 +37,10 @@ vocabulary; don't re-derive the tier table here.
    territory in parallel, `parallel()` as the barrier) from its own pane — never from
    `<project>-fable`, never from a builder or Sonnet-tier pane.
 4. `<project>-o` reads the loop's return (`{ territories, integrator, blockers }`),
-   applies Ship (work-record transitions, evidence copies), and reports the merge-ready
-   state back to `<project>-fable` for the actual ship decision.
+   applies Ship (work-record transitions, evidence copies, each lane lead's own merge and
+   Closed entry once its second-host suite is green), and reports up to `<project>-fable`
+   only what still needs the owner's word — a release or install, or a Waiting item a
+   lane lead couldn't resolve itself.
 5. If this build also uses the ladder for a bounded research/judge pass, `<project>-o`
    launches it the same way — its own pane, never a subordinate one. Both the ladder and
    the build loop are live as of 2026-09-22, each having had its first real run from an
@@ -114,8 +118,8 @@ reviewers, the integrator); `multi` is for talking to the fable pane.
 
 Run both census scripts from `<project>-o`'s pane once a build's Ship step completes
 (`skills/team-build/SKILL.md`'s Ship section names the exact moment); the numbers go into
-the merge ask `<project>-fable` puts on the decisions page, not into a pane's own
-transcript alone.
+the Closed entry a lane lead posts on its own gate, not into a pane's own transcript
+alone.
 
 ## Releasing
 

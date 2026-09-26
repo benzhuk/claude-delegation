@@ -254,14 +254,26 @@ accepts via `--no-census "<reason>"`, visibly unmeasured rather than silently bl
 `docs/census.md`.
 
 After that `accept --census` (or `--no-census`) succeeds, push the branch with its
-accepted record; then the lane lead posts its own merge item for that branch to the
-owner's decisions page —
-through the decisions skill's existing `notion.js edit --safe` anchored-edit route and
-`skills/decisions/templates/decision-item.md`'s fill-in shape (`skills/decisions/SKILL.md`
-names the exact shape) — and only then sends its RESULT; the lead who wrote the spec
-verifies the item exists on the page instead of waiting for a note. A Codex lane whose
-mirror of the decisions skill cannot yet post the item carries the merge item text
-verbatim in its RESULT instead, so the collector still finds the branch.
+accepted record. Then, once the sealed suite is green on a second host from origin (a
+Windows host when built on Linux, a Linux host when built on Windows — the lane lead runs
+it through ssh as a prior lane did, or asks the spec lead), with that second-host gate log
+already committed as record evidence from before `accept` ran (any record change after
+`accept` needs a fresh check), the record on origin says accepted, and its Opus review
+verdicts are in its evidence, the lane lead merges its branch into main with a merge
+commit and pushes. Any conflict when merging into main — not just a non-additive one —
+means no merge: the lead posts a Waiting item naming the conflicting paths instead. When
+`origin/main` is not an ancestor of the branch tip, the merge result is a new tree: run the
+sealed suite on the merge commit (at least the lead's own host, no new failing test name
+vs main) before pushing main. Once main is pushed, the lead posts ONE Closed entry — a
+plain bullet, never starting with bold: `Merged <branch> at <sha>, <M-D>: <one-line
+changelog>; suite <n> of <n> on <host>.` — on the owner's decisions page through the
+decisions skill's existing `notion.js edit --safe` anchored-edit route
+(`skills/decisions/SKILL.md` names the exact shape), and only then sends its RESULT; no
+Waiting item is posted for an ordinary accepted merge. A Codex lane whose mirror of the
+decisions skill cannot yet post the Closed entry carries its text verbatim in its RESULT
+instead, so the collector still finds the branch. Releases and installs to the owner's
+machines stay per Ben's own word: the release item remains a decision, with the merged
+changelog lines as its evidence.
 
 `accept` is the only intended code path that moves `Status:` to `accepted` — it runs the
 same strict check `check-acceptance` runs (identity, evidence, and a live `git rev-parse
@@ -285,8 +297,9 @@ the `Worktree:` requirement above — and stays available read-only, for a dry r
 `accept` or for manual proof outside the accept moment.
 
 Once every territory is `reviewed` and the integrator's gates are green — before the merge
-ask, so its numbers go into it, not after `accepted`, which is downstream of that decision
-— run `node <plugin>/scripts/work-census.mjs docs/work` to get the measures — elapsed
+and its Closed entry, so its numbers go into that entry's evidence, not after `accepted`,
+which is downstream of that decision — run `node <plugin>/scripts/work-census.mjs
+docs/work` to get the measures — elapsed
 per work id — that make the build's speed a number instead of an impression. The plugin
 repo's `docs/pane-setup.md` names what each measure means and which script reads it;
 don't restate that here.
@@ -376,8 +389,9 @@ integrator's — read `integrator.verdict`).
 `acceptance.censusPath` predates its own `Log: ... reviewed` line, so `accept` refuses it
 as `census-stale` — then run `work-record.mjs accept --record <recordPath> --repo
 <integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
-(`--no-census "<reason>"` only when the census itself breaks), push the branch, post its
-merge item to the decisions page (Ship), and only then send ONE RESULT.
+(`--no-census "<reason>"` only when the census itself breaks), push the branch, merge into
+main per the M1 rule once the second-host suite is green, post the Closed entry, and only
+then send ONE RESULT.
 Otherwise the first of these that applies decides the one next step: a `blockers` entry
 (a territory id, `seam`, `accept-prep` when its `integrationHead` is not the reviewed
 head (`review-sha-mismatch`) or its `reportPath` is not the one the script computed

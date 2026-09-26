@@ -53,19 +53,33 @@ pass: reread the page fresh, do not retry the same edit blind (checked by
 `skill-text.test.mjs` that this rule is written down; the stop itself is not checked
 by any script).
 
-A lane lead's own merge item — posted to this page after `accept --census` and the
-push, per `skills/team-build/SKILL.md`'s Ship section — takes the ordinary item shape
-from "Writing an item" above: title `Merge <branch> into main (<tip sha>)`; a one- or
-two-line evidence entry carrying the record's four numbers and the census's
-lead-turns figure, copied, never recomputed (either one absent, from `--no-census` or a
-record with no `Four numbers:` line, is written `unmeasured`, never estimated); options
-merge-now / merge-and-release / hold; and `No default:
-merges to main take your word per item`. Two writers never edit the page at once: read
-the page fresh seconds before the write, make one `notion.js edit --safe` anchored edit,
-then reread it and confirm with `scripts/decisions-read.mjs` that the item is there. If
-the anchor changed (exit 3), the pass stops as above; reread fresh and retry once with a
-new anchor taken from those fresh bytes, never the same edit blind. A second exit 3, or
-any exit 4, leaves the item unposted and the RESULT carries its text verbatim.
+When the record on origin says accepted, its Opus verdicts are in its evidence, and the
+sealed suite is green on a second host from origin (a Windows host when built on Linux, a
+Linux host when built on Windows — the lane lead runs it through ssh as a prior lane did,
+or asks the spec lead, with that second-host gate log already committed as record
+evidence from before `accept` ran, since any record change after `accept` needs a fresh
+check), the lane lead merges its branch into main with a merge commit and pushes, then
+posts ONE Closed entry to this page — a plain bullet, never starting with bold, the same
+smaller shape as an ordinary Closing entry below but with no toggle ever created:
+`Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.` —
+through the anchored-edit route above, and only then sends its RESULT. No Waiting item is
+posted for an ordinary accepted merge. Any conflict when merging into main, of any kind,
+means no merge: post a Waiting item naming the conflicting paths instead. When
+`origin/main` is not an ancestor of the branch tip, the merge result is a new tree: run
+the sealed suite on the merge commit (at least the lead's own host, no new failing test
+name vs main) before pushing main. Releases and installs to the owner's machines stay per
+the owner's own word: the release item keeps the ordinary decision shape from "Writing an
+item" above, its evidence made of the merged changelog lines rather than the merge
+itself.
+
+Two writers never edit the page at once: read the page fresh seconds before the write,
+make one `notion.js edit --safe` anchored edit, then reread it and confirm the Closed
+entry is there with a fresh `notion.js read` grep for the posted line —
+`scripts/decisions-read.mjs` parses toggles and their options under Open, not plain
+bullets under Closed, so it cannot confirm this write. If the anchor changed (exit 3),
+the pass stops as above; reread fresh and retry once with a new anchor taken from those
+fresh bytes, never the same edit blind. A second exit 3, or any exit 4, leaves the Closed
+entry unposted and the RESULT carries its text verbatim.
 
 The page callout's owner instruction reads, written on the page as one line: "Tick a
 box, or add a line starting with ** anywhere; every such line is acted on and removed
@@ -193,6 +207,17 @@ existing attended fresh-read and anchored-edit route below to clear it. A later 
 admitted only after this host has observed a valid unchecked page; an invisible same-byte
 uncheck/recheck between reads cannot be detected. `UNKNOWN` has no automatic repair in
 this first slice.
+
+Feeding this same page from a lane lead's own Closed-entry writes (the merge rule above)
+wedges a pickup round in progress unless three rules hold. First, the owner lead's own
+first write in a pickup round clears Done, then works items from the saved capture
+(`open`) plus a fresh read, then runs `account`. Second, a lane lead whose own fresh read
+shows Done already checked does not write the page itself: it carries its Closed entry
+verbatim in its RESULT instead, and the owner lead posts it once Done is next cleared.
+Third, every round ends with `account`, or a later Done tick wakes no one. The pickup
+host is the host where the owner lead's inbox lives — `note-send` delivers only on the
+recipient's own host, so registering pickup on the wrong host silently dead-letters the
+wake.
 
 `node ~/.claude/scripts/notion.js read <page-id> | node scripts/decisions-read.mjs`
 (path per above; page id from `.agents/project.json`'s `decisions_url`, else from the

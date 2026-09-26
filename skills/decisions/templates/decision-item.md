@@ -25,10 +25,10 @@ A request for the owner to do something by hand is the same shape, not a bare
 `<details>` with no options: options `- [ ] Done by hand` and `- [ ] Not doing this,
 because [reason]`, last line `No default: needs your hands`.
 
-A lane lead's own merge item is an ordinary use of this same shape — title `Merge
-<branch> into main (<tip sha>)`, options merge-now / merge-and-release / hold, and
-`No default: merges to main take your word per item`; see `skills/decisions/SKILL.md`'s
-Page rules for the exact evidence-line content.
+A release or install to the owner's machines is the same shape too — options
+`- [ ] Install now` and `- [ ] Hold`, last line `No default: installs take your word
+per item`; its evidence is the merged changelog lines copied from the Closed entries
+it covers, not a fresh writeup.
 
 ## Replying to an owner's comment (fenced — reference only, not a live decision)
 
