@@ -4,8 +4,8 @@ Owner: none
 Status: reviewed
 Authority: Run the specified fresh-project walk and scoped fixes in fresh worktrees; commit and push on green. Merge to main requires Ben.
 Artifact: build/codex-fresh-1@4c2bd1e2b6dfffee0b11164c8cdbad18309feb8e
-Evidence: docs/work/evidence/2026-09-25-codex-fresh-project.md, docs/work/evidence/codex-fresh-x1-initial-review.md, docs/work/evidence/codex-fresh-x1-recovery-review.md, docs/work/evidence/codex-fresh-x1-final-review.md
-Next: verify recovery lead owns skills-a, then run the specified sealed suite and acceptance gates; this reviewed PARTIAL evidence is not accepted.
+Evidence: docs/work/evidence/2026-09-25-codex-fresh-project.md, docs/work/evidence/codex-fresh-x1-initial-review.md, docs/work/evidence/codex-fresh-x1-recovery-review.md, docs/work/evidence/codex-fresh-x1-final-review.md, docs/reports/codex-fresh-0925/integration-gate-4c2bd1e.md
+Next: lead may authorize the prepared pinned-artifact acceptance gate; this reviewed PARTIAL evidence is not accepted.
 Opened: 2026-09-25T22:23:17.093Z
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-fresh-1
 Builder: gpt-5.6-terra
