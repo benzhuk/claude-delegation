@@ -64,5 +64,72 @@
     "var": "NOTE_SLUG",
     "why": "this pane's peer-note inbox registers from its session name (/rename <slug> or claude --name <slug>) first, or NOTE_SLUG, or a panes.json binding - this check only sees NOTE_SLUG, so a pane named the new way may correctly show 'not set' here while still being fully registered",
     "fix": "no fix needed either way, this is a visibility check: name the session with /rename <slug> (the primary route, docs/pane-setup.md), or fall back to NOTE_SLUG=<slug> in the --command string, or bind by hand with `note-inbox --bind <slug>`"
+  },
+  {
+    "id": "hook-delete-guard",
+    "type": "hook_present",
+    "file": "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json",
+    "event": "PreToolUse",
+    "matcher": "Bash|PowerShell",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"",
+    "why": "the plugin's own hooks/hooks.json still registers the PreToolUse delete-guard hook under the Bash|PowerShell matcher; if it is not wired, nothing in this plugin catches an accidental rm -rf",
+    "fix": "reinstall or repair the plugin so Claude Code re-registers the PreToolUse delete-guard hook from the plugin's own hooks/hooks.json"
+  },
+  {
+    "id": "hook-post-tool-use-inbox",
+    "type": "hook_present",
+    "file": "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json",
+    "event": "PostToolUse",
+    "matcher": "*",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js\" PostToolUse",
+    "why": "the plugin's own hooks/hooks.json still registers the PostToolUse multi-inbox hook, which delivers a peer note into this session after a tool call; without it a sent note never reaches the pane",
+    "fix": "reinstall or repair the plugin so Claude Code re-registers the PostToolUse multi-inbox hook from the plugin's own hooks/hooks.json"
+  },
+  {
+    "id": "hook-delete-guard-script",
+    "type": "file_exists",
+    "file": "${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs",
+    "why": "the PreToolUse delete-guard hook registration is useless if the script it runs is missing",
+    "fix": "reinstall or repair the plugin so hooks/delete-guard.mjs is present at its install root"
+  },
+  {
+    "id": "hook-post-tool-use-inbox-script",
+    "type": "file_exists",
+    "file": "${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js",
+    "why": "the PostToolUse multi-inbox hook registration is useless if the script it runs is missing",
+    "fix": "reinstall or repair the plugin so hooks/multi-inbox.js is present at its install root"
+  },
+  {
+    "id": "note-send-shim",
+    "type": "file_exists",
+    "file": "~/.local/bin/note-send",
+    "why": "the note-send shim on PATH is how a peer note is actually sent from a shell; without it a caller has to know the longer node invocation, or sending silently fails",
+    "fix": "run node scripts/mirror-shared-skills.mjs to (re)generate the PATH shims into ~/.local/bin"
+  },
+  {
+    "id": "notes-dir",
+    "type": "file_exists",
+    "file": "~/.agents/notes",
+    "why": "peer notes and the flusher's own state live under ~/.agents/notes; if the directory itself is missing, nothing on this host has ever run that creates it",
+    "fix": "run any note-flush/note-send/note-inbox command once, or create it by hand: mkdir -p ~/.agents/notes"
+  },
+  {
+    "id": "cross-session-inbound",
+    "type": "json_value",
+    "file": "~/.claude/settings.json",
+    "path": "crossSessionInbound",
+    "expected": "accept",
+    "why": "without \"crossSessionInbound\": \"accept\" in Claude's own settings, an arriving peer note is held behind a modal approval dialog instead of delivered, and the sender cannot tell",
+    "fix": "add \"crossSessionInbound\": \"accept\" to ~/.claude/settings.json"
+  },
+  {
+    "id": "janitor-last-run",
+    "type": "file_fresh",
+    "file": "~/.agents/janitor/last-run.log",
+    "maxAgeSeconds": 93600,
+    "whenMissing": "missing",
+    "requiresFile": "~/.agents/janitor/installed.json",
+    "why": "the daily janitor timer's own log proves it actually ran in the last 26 hours; a stale or absent log after install means the schedule stopped firing",
+    "fix": "check the host's own scheduler (systemd --user janitor-record.timer, the Windows task janitor-record, or the launchd agent) and rerun scripts/install-janitor-timer.mjs to repair it"
   }
 ]
