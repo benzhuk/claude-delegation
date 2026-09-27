@@ -153,8 +153,17 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
   waiting (honouring `stop_hook_active`). Silent when there are no notes, when the
   session is not in an Orca pane, and on any error — a hook must never break a session.
 - **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line`): prints one line
-  at session start when a required guard, hook, timer or switch looks missing or stale;
-  silent when everything is wired, and honours `~/.agents/ws-off`.
+  at session start when a required guard, hook, timer or switch looks missing, stale or
+  unknown; silent when everything is wired, and honours `~/.agents/ws-off`. The CLI
+  itself now exits 1 whenever `checkWiring().ok` is false (a check is missing, stale or
+  unknown; `info` never fails) — a caller that just wants the visibility line, like the
+  SessionStart hook above, is unaffected either way. `scripts/required-wiring.default.json`
+  carries the checks the plugin can actually verify: the PreToolUse delete-guard and
+  PostToolUse peer-note hooks are wired (`hook_present` against the plugin's own
+  `hooks/hooks.json`), the `note-send` shim and `~/.agents/notes/` exist (`file_exists`),
+  `crossSessionInbound: accept` is set (`json_value`), and the daily janitor timer's own
+  `~/.agents/janitor/last-run.log` is under 26 hours old once installed (`file_fresh`,
+  `unknown` rather than `missing` on a host that never installed the timer).
 
 ## Model tiers
 
