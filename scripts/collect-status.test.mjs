@@ -225,11 +225,11 @@ test("buildStatusMd: header carries fetch: failed only on failure; attention fir
   const lines = md.split("\n");
   assert.match(lines[0], /generatedAt: 2026-09-27T18:20:00\.000Z \(.*America\/New_York\) \| main: a{40} \| rows: 1/);
   assert.ok(!lines[0].includes("fetch: failed"));
-  assert.equal(lines[1], "lane: every non-terminal Status shows as owned");
-  assert.equal(lines[2], "attention (1)");
-  assert.equal(lines[3], "- b1\tp\towned\tsilent-over-6-h");
-  assert.ok(lines[4].startsWith("branch\ttipSha\t"));
-  assert.ok(lines[4].endsWith("\tlane"));
+  assert.equal(lines[1], "attention (1)");
+  assert.equal(lines[2], "- b1\tp\towned\tsilent-over-6-h");
+  assert.ok(lines[3].startsWith("branch\ttipSha\t"));
+  assert.ok(lines[3].endsWith("\tlane"));
+  assert.equal(lines[4], "lane: every non-terminal Status shows as owned");
 
   const failedMd = buildStatusMd({ status, fetchStatus: "failed", sendOutcome: { attempted: false, sent: false, reason: null } });
   assert.ok(failedMd.split("\n")[0].includes("fetch: failed"));

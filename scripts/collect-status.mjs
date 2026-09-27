@@ -248,13 +248,12 @@ export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATU
   if (sendOutcome.reason) lines.push(sendOutcome.reason);
   if (status.summary.skipped) lines.push(`skipped: ${status.summary.skipped.count} (outside ${status.summary.skipped.prefixes.join(", ")})`);
   const attention = status.summary.attention;
-  lines.push("lane: every non-terminal Status shows as owned");
   lines.push(`attention (${attention.length})`);
 
-  const fixedCount = lines.length; // header [+ reason] + the "attention (n)" line
+  const fixedCount = lines.length; // header [+ reason] [+ skipped] + the "attention (n)" line
   const rows = status.rows;
-  // Reserve the table's own header row so the table is never starved to nothing.
-  let remaining = Math.max(0, budget - fixedCount - 1);
+  // Reserve both the table header and its immediately following lane legend.
+  let remaining = Math.max(0, budget - fixedCount - 2);
   let attnShown = Math.min(attention.length, remaining);
   let rowsShown = Math.min(rows.length, remaining - attnShown);
   let cutAttn = attention.length - attnShown;
@@ -273,7 +272,10 @@ export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATU
     const a = attention[i];
     lines.push(`- ${a.branch}\t${a.recordPath ?? "-"}\t${a.state}\t${a.reason}`);
   }
-  lines.push(formatTable(rows.slice(0, rowsShown)).replace(/^([^\n]*)\tstate(?=\n|$)/, "$1\tlane"));
+  const [tableHeader, ...tableRows] = formatTable(rows.slice(0, rowsShown))
+    .replace(/^([^\n]*)\tstate(?=\n|$)/, "$1\tlane")
+    .split("\n");
+  lines.push(tableHeader, "lane: every non-terminal Status shows as owned", ...tableRows);
   if (anyCut) lines.push(`(+${cutAttn + cutRows} more, see status.json)`);
   return `${lines.join("\n")}\n`;
 }
