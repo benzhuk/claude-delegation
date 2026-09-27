@@ -134,10 +134,49 @@ what turns it into something janitor (or the next builder) can act on.
 
 After every accepted build, the lane's integrator runs `janitor --record` and then
 `janitor --apply`, in that order, and pastes the JUDGMENT table into the RESULT. Once a
-day per host, a Sonnet runner does the same from the main checkout. JUDGMENT is never
-sent to the owner piecemeal: every JUDGMENT line from a run goes to the owner's
-decisions page as ONE item, with a recommendation per line, never as several separate
-asks.
+day per host, the installed timer (below) does the same from the main checkout — a node
+script running unattended, never a Sonnet or Opus turn, so a stale worktree is found
+daily at zero top-tier token cost. JUDGMENT is never sent to the owner piecemeal: every
+JUDGMENT line from a run goes to the owner's decisions page as ONE item, with a
+recommendation per line, never as several separate asks.
+
+## Installing the daily timer
+
+`node <plugin>/scripts/install-janitor-timer.mjs` creates ONE host-native scheduled
+entry — a systemd `--user` service+timer pair (`janitor-record.service`/`.timer`) on
+Linux, a Task Scheduler task (`janitor-record`) on Windows, a launchd agent
+(`com.delegation.janitor-record`) on macOS — that runs
+`node <installed plugin>/scripts/janitor.mjs --record --repo <repo>` once a day, at
+06:00 local time by default (`--hour <n>` to change it). Report-only, forever: the
+string `--apply` never appears in anything this installer generates, and `--apply`
+stays a human's own command, run by hand, never scheduled.
+
+- **Which repo it watches**: `~/Code/claude-delegation`, or the path in
+  `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both. The installer
+  refuses (no files written) when the janitor script or that repo does not exist, so a
+  misconfigured host is told at install time rather than getting a green `installed.json` that
+  will never actually run.
+- **Which host name it records under**: the installing machine's own hostname, baked into the
+  scheduled command at install time — stable even if the machine is later renamed — or `--host
+  <name>` to set it explicitly.
+- **Where the record lands**: the same place a manual `--record` already writes to —
+  `docs/work/evidence/janitor/<date>-<host>.json` plus one appended `docs/work/evidence/
+  janitor/drift.md` line, in the watched repo. Ben's page links `drift.md` directly, so
+  a host that never installs this timer is a host whose drift line never updates on its
+  own.
+- **The timer's own log**: `~/.agents/janitor/last-run.log` (stdout+stderr, truncated
+  every run — always today's run, never last week's).
+- **Idempotent, self-repairing**: re-running the installer after a node upgrade (or a
+  plugin move) rewrites the unit/task/plist with the new absolute node path; running it
+  twice with nothing changed touches nothing. `--dry-run --json` previews every file
+  it would write (or already matches) without writing anything at all.
+- **`--remove`** deletes exactly what the installer made — every file it manages
+  carries its own marker line, so a same-named file it did not create (something you
+  wrote by hand) is left alone and reported, never overwritten or removed.
+- The installer never calls `systemctl`/`schtasks`/`launchctl` unless you pass
+  `--enable`; without it, the files exist but the entry is not yet live — review them,
+  then re-run with `--enable` (or run your platform's own enable command by hand) once
+  you're satisfied.
 
 ## Cleanup is never chained onto productive work
 
