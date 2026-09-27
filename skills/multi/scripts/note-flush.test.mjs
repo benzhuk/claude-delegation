@@ -1845,10 +1845,10 @@ test('overdue-asks: answered by a RESULT re-ing the id is never nudged', async (
   assert.equal(result.open, 0);
 });
 
-test('overdue-asks: an ACK re-ing the id does NOT answer it - still nudged', async () => {
+test('overdue-asks: an ACK re-ing a Needs: review id does NOT answer it - still nudged', async () => {
   const home = tmp();
   seedOverdueState(home);
-  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  writeOverdueLedgerLine(home, '2026-09-26', askLine()); // needs: review (default)
   // The ACK is also this test's observability line (R8): a recipient-to-sender line of kind ACK is
   // enough for the answer side to be observable here, without either slug being registered.
   writeOverdueLedgerLine(home, '2026-09-26', ackLine());
@@ -1858,6 +1858,51 @@ test('overdue-asks: an ACK re-ing the id does NOT answer it - still nudged', asy
   assert.equal(calls.length, 1);
   assert.equal(result.open, 1);
   assert.equal(result.nudged, 1);
+});
+
+// Defect 2 pinned rule (spec docs/specs/multi-cross-host-1/spec.md, 2026-09-27): a Needs: ack ask IS
+// answered by an on-time ACK from the ASK's own `to`; a sender self-ACK or a stale ACK still does not
+// count, and this must not weaken the Needs: review rule proven above.
+
+test('overdue-asks: a Needs: ack ask IS answered by an on-time ACK from its `to` - never nudged', async () => {
+  const home = tmp();
+  seedOverdueState(home);
+  writeOverdueLedgerLine(home, '2026-09-26', askLine({ needs: 'ack' }));
+  // ackLine() defaults to from: taxonomy (the ask's `to`), to: astra, at 20:10 - after the ask's 20:00.
+  writeOverdueLedgerLine(home, '2026-09-26', ackLine());
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4b', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 0, 'an on-time ACK from the recipient answers a Needs: ack ask');
+  assert.equal(result.open, 0);
+});
+
+test('overdue-asks: a SENDER self-ACK does not answer a Needs: ack ask - still nudged', async () => {
+  const home = tmp();
+  seedOverdueState(home);
+  writeOverdueLedgerLine(home, '2026-09-26', askLine({ needs: 'ack' }));
+  // Self-ACK: from astra, the ASK's own sender (its `from`), not its `to` — must not count.
+  writeOverdueLedgerLine(home, '2026-09-26', ackLine({ from: 'astra', to: 'taxonomy' }));
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4c', cwd: home }, { now: DEADLINE });
+  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4d' }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 1, 'a sender self-ACK never answers its own Needs: ack ask');
+  assert.equal(result.open, 1);
+});
+
+test("overdue-asks: a STALE ACK (before the ask's own instant) does not answer a Needs: ack ask - still nudged", async () => {
+  const home = tmp();
+  seedOverdueState(home);
+  writeOverdueLedgerLine(home, '2026-09-26', askLine({ needs: 'ack', time: '20:05' }));
+  // Stale: timestamped BEFORE the ask it claims to answer (e.g. a leftover ACK id reused by mistake).
+  writeOverdueLedgerLine(home, '2026-09-26', ackLine({ time: '19:00' }));
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4e', cwd: home }, { now: DEADLINE });
+  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4f' }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 1, "a stale ACK (before the ask) never answers it");
+  assert.equal(result.open, 1);
 });
 
 test('overdue-asks: a by-time earlier than the note\'s own time means the deadline is the next day', async () => {
