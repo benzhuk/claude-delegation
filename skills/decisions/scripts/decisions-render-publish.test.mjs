@@ -46,13 +46,20 @@ function baseFiles(overrides = {}) {
   };
 }
 
-/** A fake git: ls-tree always "tracked"; add/commit/push/fetch/rebase/branch recorded, never real. */
+/** A fake git: ls-tree always "tracked"; rev-parse reports a clean, up-to-date main checkout by
+ * default (F6's pre-write guard); add/commit/push/fetch/rebase/branch/show recorded, never real.
+ * `diff --cached --quiet` (M10's empty-commit check) THROWS by default — a real `git diff
+ * --cached --quiet` exits non-zero exactly when there IS a staged difference, and a real publish
+ * always has something new to commit — so the default here is "there is something to commit". */
 function fakeGit(overrides = {}) {
   const calls = [];
   const impl = (args, cwd) => {
     calls.push(args);
-    if (args[0] === 'ls-tree') return args[args.length - 1];
     if (overrides[args[0]]) return overrides[args[0]](args, cwd);
+    if (args[0] === 'ls-tree') return args[args.length - 1];
+    if (args[0] === 'rev-parse') return args.includes('--abbrev-ref') ? 'main' : 'sha-fixed';
+    if (args[0] === 'show') return '';
+    if (args[0] === 'diff') throw new Error('there is a staged difference');
     return '';
   };
   return { git: impl, calls };
@@ -288,6 +295,181 @@ test('publish: a second push failure is exit 6, and the commit is left on render
   assert.ok(calls.some((c) => c[0] === 'branch' && /^render\/last-/.test(c[1])));
 });
 
+// Review round-2 F5: an ISO timestamp's `:`/`.` are not valid in a git ref, a conflicted rebase
+// must be aborted, and the exit-6 message must only claim the branch exists once it actually does.
+test('publish: F5 — a conflicted rebase is aborted, the parking branch name is sanitised, and the message only claims it once it exists', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { readPage, replaceMd } = wireNotion(PAGE_NO_INPUT);
+  let rebaseAborted = false;
+  const { deps, calls } = baseDeps({
+    files,
+    readPage,
+    replaceMd,
+    gitOverrides: {
+      push: () => { throw new Error('non-fast-forward, always'); },
+      rebase: (args) => {
+        if (args[1] === '--abort') { rebaseAborted = true; return ''; }
+        throw new Error('CONFLICT (content): last-render.md');
+      },
+      branch: (args) => {
+        const name = args[1];
+        if (/[:~^?*[\\ ]|\.\.|@\{/.test(name)) throw new Error(`fatal: '${name}' is not a valid branch name`);
+        return '';
+      },
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 6 && /render\/last-2026-09-27T19-00-00-000Z/.test(e.message),
+  );
+  assert.equal(rebaseAborted, true, 'rebase --abort must run before the branch is created');
+  const branchCall = calls.find((c) => c[0] === 'branch');
+  assert.ok(branchCall, 'a branch call was made');
+  assert.equal(branchCall[1], 'render/last-2026-09-27T19-00-00-000Z');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F6: a pre-write guard requires an up-to-date main checkout before any Notion write
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('publish: F6 — refuses (exit 2) before any Notion write when the checkout is not on main', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  let replaceMdCalled = false;
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    replaceMd: async () => { replaceMdCalled = true; },
+    gitOverrides: {
+      'rev-parse': (args) => (args.includes('--abbrev-ref') ? 'build/decisions-render-1' : 'sha-fixed'),
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 2 && /not main/.test(e.message),
+  );
+  assert.equal(replaceMdCalled, false);
+});
+
+test('publish: F6 — refuses (exit 2) when HEAD is not origin/main (unpushed local commits)', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  let replaceMdCalled = false;
+  let nonAbbrevCalls = 0;
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    replaceMd: async () => { replaceMdCalled = true; },
+    gitOverrides: {
+      'rev-parse': (args) => {
+        if (args.includes('--abbrev-ref')) return 'main';
+        nonAbbrevCalls += 1;
+        return nonAbbrevCalls === 1 ? 'local-only-sha' : 'origin-main-sha';
+      },
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 2 && /HEAD is not origin\/main/.test(e.message),
+  );
+  assert.equal(replaceMdCalled, false);
+});
+
+test('publish --adopt-live: F6 — the same pre-write guard applies to --adopt-live', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const driftedLive = PAGE_NO_INPUT.replace('Text.', 'Different live text.');
+  const { deps, calls } = baseDeps({
+    files,
+    readPage: async () => driftedLive,
+    gitOverrides: {
+      'rev-parse': (args) => (args.includes('--abbrev-ref') ? 'not-main' : 'sha-fixed'),
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', adoptLive: true }, deps),
+    (e) => e instanceof PublishError && e.code === 2,
+  );
+  assert.equal(calls.some((c) => c[0] === 'commit'), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F4: the replace-md backup path is captured, logged, and used to catch a mid-flight edit
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('publish: F4 — a backup that does not match the fresh read (a mid-flight edit) is exit 5 before readback', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const backupPath = '/backups/PAGE/2026-09-27T18-59-00.md';
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    replaceMd: async () => ({ backupFile: backupPath }),
+  });
+  const baseReadFile = deps.readFile;
+  deps.readFile = (f) => (f === backupPath ? 'A DIFFERENT page — someone edited between step 1 and step 5' : baseReadFile(f));
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 5 && /changed between the fresh read/.test(e.message),
+  );
+});
+
+test('publish: F4 — a backup that matches the fresh read is logged and does not block the publish', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const backupPath = '/backups/PAGE/2026-09-27T18-59-00.md';
+  const writes = [];
+  const { readPage, replaceMd: baseReplaceMd } = wireNotion(PAGE_NO_INPUT);
+  const { deps } = baseDeps({
+    files,
+    readPage,
+    replaceMd: async (pg, md) => { await baseReplaceMd(pg, md); return { backupFile: backupPath }; },
+    deps: { write: (s) => writes.push(s) },
+  });
+  const baseReadFile = deps.readFile;
+  deps.readFile = (f) => (f === backupPath ? PAGE_NO_INPUT : baseReadFile(f));
+  const result = await publish({ repo: REPO, page: 'PAGE' }, deps);
+  assert.equal(result.code, 0);
+  assert.ok(writes.some((w) => w.includes(backupPath)));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M4: a step 7 retitle failure does not block step 8
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('publish: M4 — a step 7 retitle failure still runs step 8 (commit/push happen), then reports the failure', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { readPage, replaceMd } = wireNotion(PAGE_NO_INPUT);
+  const { deps, calls } = baseDeps({
+    files,
+    readPage,
+    replaceMd,
+    titleSet: async () => { throw new Error('decisions-title.mjs set exited 1'); },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => /decisions-title\.mjs set failed/.test(e.message),
+  );
+  assert.ok(calls.some((c) => c[0] === 'commit'), 'step 8 must still commit last-render.md');
+  assert.ok(calls.some((c) => c[0] === 'push'), 'step 8 must still push');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M10: an empty (byte-identical) republish never falls through to a bare exit 1
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('publish: M10 — a republish whose readback is byte-identical to last-render.md skips commit/push', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { readPage, replaceMd } = wireNotion(PAGE_NO_INPUT);
+  const { deps, calls } = baseDeps({
+    files,
+    readPage,
+    replaceMd,
+    gitOverrides: {
+      diff: () => '', // does NOT throw: "no staged difference"
+    },
+  });
+  const result = await publish({ repo: REPO, page: 'PAGE' }, deps);
+  assert.equal(result.code, 0);
+  assert.equal(calls.some((c) => c[0] === 'commit'), false);
+  assert.equal(calls.some((c) => c[0] === 'push'), false);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Step 6: readback verification failure -> exit 5
 // ─────────────────────────────────────────────────────────────────────────────
@@ -325,6 +507,29 @@ function pageWithComment(comment) {
   ].join('\n');
 }
 
+/** Review round-2 F1: the ONLY page shape `last-render.md` can ever actually hold in production —
+ * a clean render, never Ben's input (that only ever lives in the fresh Notion read). Every
+ * `--clear-done` test below drifts the fresh read from THIS, never the other way around. */
+const CLEAN_PAGE_WITH_DECISION = [
+  '<details>',
+  '<summary>**A decision**</summary>',
+  '\t- [ ] Option one',
+  '\tDefault after 2030-01-01 00:00 -05:00: Option one',
+  '</details>',
+  '- [ ] Done',
+].join('\n');
+
+/** Review round-2 F2: today's history file and every waiting item are read via `git show
+ * origin/main:<path>`, never the working tree — this maps those exact ref:path keys the
+ * production code builds to fixture text. */
+function showOverride(map) {
+  return (args) => {
+    const ref = args[1];
+    if (!(ref in map)) { throw new Error(`fatal: no such ref/path: ${ref}`); }
+    return map[ref];
+  };
+}
+
 test('publish --clear-done: with no captured pickup round at all, exit 3', async () => {
   const live = pageWithComment('please look at this');
   const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: live });
@@ -351,7 +556,7 @@ test('publish --clear-done: a captured round whose owner inputs do not match the
 
 test('publish --clear-done: matching capture but the owner text is missing from today\'s history and every waiting item is exit 3', async () => {
   const live = pageWithComment('please look at this');
-  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: live });
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
   const { deps } = baseDeps({
     files,
     readPage: async () => live,
@@ -364,23 +569,123 @@ test('publish --clear-done: matching capture but the owner text is missing from 
 });
 
 test('publish --clear-done: happy path — verbatim text in today\'s history file, since: set from the round\'s tick time, Done cleared with a timestamp', async () => {
+  // Review round-2 F1 (probe5): last-render.md is the clean, PRE-input render; the fresh read is
+  // that page plus Ben's lines (a comment and a ticked Done) — the only shape a real round ever
+  // has. This must reach step 4 and render, not exit 4.
   const live = pageWithComment('please look at this');
   const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
     + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
-  const files = baseFiles({
-    [p('docs', 'decisions', 'last-render.md')]: live,
-    [p('docs', 'decisions', 'history', '2026-09-27.md')]: historyWithAnswer,
-  });
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
   const { deps, fsMap } = baseDeps({
     files,
     readPage: async () => live,
     readPickupCapture: async () => ({ round: 1, tickAt: '2026-09-27T19:05:00Z', triples: [['comment', 'A decision', 'please look at this']] }),
+    gitOverrides: {
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }),
+    },
   });
   const result = await publish({
     repo: REPO, page: 'PAGE', clearDone: true, dryRun: true,
   }, deps);
   assert.equal(result.code, 0);
   assert.match(result.rendered, /- \[ \] Done \(last cleared: Sep 27, 2026, 3:00 PM America\/New_York\)/);
+});
+
+test('publish --clear-done: a fresh read with Ben\'s lines PLUS one other edited line still exits 4', async () => {
+  // Review round-2 F1: the drift check must revert exactly the owner-input lines step 2 captured
+  // and nothing else — any other change (here, "Option one" renamed) must still trip drift.
+  const live = pageWithComment('please look at this').replace('Option one', 'Option ONE, RENAMED');
+  const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
+    + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: async () => ({ round: 1, tickAt: '2026-09-27T19:05:00Z', triples: [['comment', 'A decision', 'please look at this']] }),
+    gitOverrides: {
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }),
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
+    (e) => e instanceof PublishError && e.code === 4,
+  );
+});
+
+test('publish --clear-done: F2 — a short comment must be quoted verbatim, never pass as a substring of unrelated prose ("no" inside "note")', async () => {
+  const live = pageWithComment('no');
+  const historyNoQuote = '# Sep 27, 2026\nSummary: a note about something else entirely.\n- some bullet\n';
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: async () => ({ round: 1, tickAt: '2026-09-27T19:05:00Z', triples: [['comment', 'A decision', 'no']] }),
+    gitOverrides: { show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyNoQuote }) },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
+    (e) => e instanceof PublishError && e.code === 3 && /not present verbatim/.test(e.message),
+  );
+});
+
+function pageWithTick() {
+  return [
+    '<details>',
+    '<summary>**A decision**</summary>',
+    '\t- [x] Option B',
+    '\t- [ ] Option A',
+    '\tDefault after 2030-01-01 00:00 -05:00: Option A',
+    '</details>',
+    '- [x] Done',
+  ].join('\n');
+}
+
+const CLEAN_PAGE_WITH_TICK_DECISION = [
+  '<details>',
+  '<summary>**A decision**</summary>',
+  '\t- [ ] Option B',
+  '\t- [ ] Option A',
+  '\tDefault after 2030-01-01 00:00 -05:00: Option A',
+  '</details>',
+  '- [ ] Done',
+].join('\n');
+
+test('publish --clear-done: F2 — a tick must not pass merely because its own (unticked) option line still exists in its waiting item', async () => {
+  const live = pageWithTick();
+  const waitingItemText = [
+    '<details>',
+    '<summary>**A decision**</summary>',
+    '\t- [ ] Option B',
+    '\t- [ ] Option A',
+    '\tDefault after 2030-01-01 00:00 -05:00: Option A',
+    '</details>',
+  ].join('\n');
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_TICK_DECISION });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: async () => ({ round: 1, tickAt: '2026-09-27T19:05:00Z', triples: [['selection', 'A decision', 'Option B']] }),
+    gitOverrides: {
+      'ls-tree': (args) => (args.includes('-r') ? 'docs/decisions/waiting/2026-09-20-a.md' : args[args.length - 1]),
+      show: showOverride({ 'origin/main:docs/decisions/waiting/2026-09-20-a.md': waitingItemText }),
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
+    (e) => e instanceof PublishError && e.code === 3 && /not present verbatim/.test(e.message),
+  );
+});
+
+test('publish --adopt-live --clear-done: refused outright (exit 2) — adopt-live cannot also clear Done', async () => {
+  const live = pageWithComment('please look at this');
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const { deps } = baseDeps({ files, readPage: async () => live });
+  await assert.rejects(
+    publish({
+      repo: REPO, page: 'PAGE', clearDone: true, adoptLive: true,
+    }, deps),
+    (e) => e instanceof PublishError && e.code === 2 && /cannot be combined/.test(e.message),
+  );
 });
 
 test('publish: since: is set only under --clear-done — an ordinary publish never rewrites session.md', async () => {
@@ -397,16 +702,16 @@ test('publish --clear-done: the accepted round\'s commit adds session.md alongsi
   const live = pageWithComment('please look at this');
   const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
     + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
-  const files = baseFiles({
-    [p('docs', 'decisions', 'last-render.md')]: live,
-    [p('docs', 'decisions', 'history', '2026-09-27.md')]: historyWithAnswer,
-  });
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
   const { readPage, replaceMd } = wireNotion(live);
   const { deps, calls, fsMap } = baseDeps({
     files,
     readPage,
     readPickupCapture: async () => ({ round: 1, tickAt: '2026-09-27T19:05:00Z', triples: [['comment', 'A decision', 'please look at this']] }),
     replaceMd,
+    gitOverrides: {
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }),
+    },
   });
   const result = await publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps);
   assert.equal(result.code, 0);

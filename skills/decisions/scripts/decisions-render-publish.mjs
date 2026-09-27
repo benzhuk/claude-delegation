@@ -109,6 +109,11 @@ export async function defaultReadPickupCapture({ repo, page }) {
   }
   const round = st?.receipt?.round;
   if (!Number.isSafeInteger(round)) return null;
+  // Review round-2 M8: only an unaccounted captured round can back a --clear-done publish. A
+  // status of ACCOUNTED, NEEDS_RECONCILIATION, or any legacy/unknown status means this round was
+  // already closed out (or is broken) and must not be treated as fresh, verbatim-checked capture.
+  const acceptableStatuses = new Set(['PREPARED', 'RECORDED', 'WAITING_OWNER']);
+  if (!acceptableStatuses.has(st?.receipt?.status)) return null;
   let originalBuf;
   try {
     originalBuf = pickupMod.openPrivateCapture({ repo, page, round });
@@ -162,27 +167,155 @@ function extractDoneLineVerbatim(doc) {
   return `- [${doc.done ? 'x' : ' '}] ${doc.doneLabel}`;
 }
 
+/** Review round-2 F1: under `--clear-done`, the fresh read always carries Ben's own input (a
+ * ticked option, an escaped `\*\*` comment, a ticked Done) that `last-render.md` never does — a
+ * plain drift compare exits 4 on every real round. This reverts exactly the lines `decisions-read`
+ * attributed to owner input (by the same `line` numbers `parseDocument` already returns), and
+ * nothing else, so anything ELSE Ben (or an agent) changed still trips the drift check. */
+export function revertOwnerInput(freshText, doc) {
+  const lines = freshText.split(/\r\n|\n/);
+  const deleteLines = new Set();
+  const flipLines = new Set();
+  for (const d of doc.decisions) {
+    for (const c of d.comments) deleteLines.add(c.line);
+    for (const o of d.options) if (o.ticked) flipLines.add(o.line);
+  }
+  for (const u of doc.unattached) {
+    if (u.kind === 'comment') deleteLines.add(u.line);
+    else if (u.kind === 'tick') flipLines.add(u.line);
+  }
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const lineNo = i + 1;
+    if (deleteLines.has(lineNo)) continue;
+    out.push(flipLines.has(lineNo) ? lines[i].replace(/\[[xX]\]/, '[ ]') : lines[i]);
+  }
+  let text = out.join('\n');
+  if (doc.done === true && doc.doneLabel !== null) {
+    const escLabel = doc.doneLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^-\\s*\\[[xX]\\]\\s*${escLabel}\\s*$`, 'gm');
+    const matches = [...text.matchAll(re)];
+    if (matches.length) {
+      const last = matches[matches.length - 1];
+      const start = last.index;
+      text = `${text.slice(0, start)}- [ ] ${doc.doneLabel}${text.slice(start + last[0].length)}`;
+    }
+  }
+  return text;
+}
+
+/** Review round-2 F2: reads committed, pushed content only — the same trust basis the render-time
+ * `ls-tree` refusal already uses — never the working tree, so an uncommitted or unpushed "answer"
+ * cannot pass the verbatim check. */
+function gitShow(execGit, repo, ref, relPath) {
+  try {
+    return String(execGit(['show', `${ref}:${relPath}`], repo));
+  } catch {
+    return null;
+  }
+}
+
+function gitLsTreeFiles(execGit, repo, ref, relDir) {
+  try {
+    const out = execGit(['ls-tree', '--name-only', '-r', ref, '--', relDir], repo);
+    return String(out).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+const OPTION_LINE_RE = /^\s*-\s*\[[ xX]\]/;
+
+/** A waiting item's own lines that are NOT one of its option checkboxes — used so a ticked
+ * option's bare, unticked sibling line in the same file can never itself count as "the item
+ * recorded the choice" (review F2: that always exists, ticked or not). */
+function textOutsideOptionLines(text) {
+  return text.split(/\r\n|\n/).filter((l) => !OPTION_LINE_RE.test(l)).join('\n');
+}
+
+/** Review round-2 F2: does today's committed history file, or the waiting item this triple
+ * answers, carry a durable, verbatim, quoted record of it? A short comment (`** no`) must not
+ * pass as a substring of unrelated prose, and a ticked option must not pass merely because its
+ * own (unticked) checkbox line exists in its waiting item. */
+function verbatimAnswerPresent({
+  kind, title, text,
+}, todayText, waitingFiles) {
+  const quoted = `"${text}"`;
+  const inHistory = kind === 'comment' ? todayText.includes(quoted) : todayText.includes(text);
+  if (inHistory) return true;
+  return waitingFiles.some(({ text: waitingText }) => {
+    if (waitingText === null) return false;
+    let wDoc;
+    try {
+      wDoc = parseDocument(waitingText);
+    } catch {
+      return false;
+    }
+    const wTitle = wDoc.decisions[0]?.title;
+    if (wTitle === undefined || wTitle !== title) return false;
+    if (kind === 'comment') return waitingText.includes(quoted);
+    return textOutsideOptionLines(waitingText).includes(quoted);
+  });
+}
+
+/** Review round-2 F6: before any page write (a real publish OR `--adopt-live`), require an
+ * up-to-date `main` checkout — nothing unpushed, nothing to fetch — so a stale or lane checkout
+ * refuses before touching Notion rather than after, leaving `last-render.md` off `main`. */
+function checkOnMain(execGit, repo) {
+  const fail = (detail) => {
+    throw new PublishError(2, `push main first; publish runs from an up-to-date main checkout (${detail})`);
+  };
+  try {
+    execGit(['fetch', 'origin', 'main'], repo);
+  } catch (e) {
+    fail(`git fetch origin main failed: ${e instanceof Error ? e.message : e}`);
+  }
+  let branch;
+  try {
+    branch = String(execGit(['rev-parse', '--abbrev-ref', 'HEAD'], repo)).trim();
+  } catch (e) {
+    fail(`cannot determine the current branch: ${e instanceof Error ? e.message : e}`);
+  }
+  if (branch !== 'main') fail(`currently on ${branch}, not main`);
+  let head;
+  let originMain;
+  try {
+    head = String(execGit(['rev-parse', 'HEAD'], repo)).trim();
+    originMain = String(execGit(['rev-parse', 'origin/main'], repo)).trim();
+  } catch (e) {
+    fail(`cannot compare HEAD to origin/main: ${e instanceof Error ? e.message : e}`);
+  }
+  if (head !== originMain) fail('HEAD is not origin/main — push or pull first');
+}
+
 /** Step 8's push, with the one non-fast-forward retry the spec allows (fetch, rebase, push
- * again); a second failure leaves the commit on `render/last-<ISO>` and throws exit 6. */
+ * again); a second failure leaves the commit on `render/last-<ISO>` and throws exit 6. Review
+ * round-2 F5/F6: push and retry target `origin`/`main` explicitly (never the caller's own
+ * upstream, and never linearising an unrelated unpushed merge with a bare `rebase`); the parking
+ * branch name is sanitised (an ISO timestamp's `:`/`.` are not valid in a git ref), a conflicted
+ * rebase is aborted first, and the message only claims the branch exists once creating it in fact
+ * succeeded. */
 function pushWithRebase(execGit, repo, nowIso) {
   try {
-    execGit(['push'], repo);
+    execGit(['push', 'origin', 'HEAD:main'], repo);
     return;
   } catch {
     // fall through to the one allowed retry
   }
   try {
-    execGit(['fetch'], repo);
-    execGit(['rebase'], repo);
-    execGit(['push'], repo);
+    execGit(['fetch', 'origin', 'main'], repo);
+    execGit(['rebase', 'origin/main'], repo);
+    execGit(['push', 'origin', 'HEAD:main'], repo);
   } catch (e2) {
-    const branch = `render/last-${nowIso}`;
+    const branch = `render/last-${nowIso.replace(/[:.]/g, '-')}`;
+    try { execGit(['rebase', '--abort'], repo); } catch { /* no rebase in progress */ }
+    let where = `on ${branch}`;
     try {
-      execGit(['branch', branch], repo);
-    } catch {
-      /* best-effort: the commit still exists on the current branch even if this fails */
+      execGit(['branch', branch, 'HEAD'], repo);
+    } catch (e3) {
+      where = `on the current branch only (creating ${branch} failed: ${e3 instanceof Error ? e3.message : e3})`;
     }
-    throw new PublishError(6, `push failed twice; the page is already updated, the commit is left on ${branch} for the caller (${e2 instanceof Error ? e2.message : e2})`);
+    throw new PublishError(6, `push failed twice; the page is already updated, the commit is left ${where} for the caller (${e2 instanceof Error ? e2.message : e2})`);
   }
 }
 
@@ -201,6 +334,12 @@ export async function publish(opts, deps = {}) {
   } = opts;
   if (!repo) throw new PublishError(2, 'publish requires --repo');
   if (!page) throw new PublishError(2, 'publish requires --page');
+  // Review round-2 F1: --adopt-live is a crash-recovery shortcut ("Notion already carries this
+  // content verbatim") that adopts the fresh read as-is; it cannot also compute a cleared Done
+  // state, so the combination must never return 0 before Done is actually cleared.
+  if (adoptLive && clearDone) {
+    throw new PublishError(2, '--adopt-live and --clear-done cannot be combined: adopt-live adopts the page as-is and cannot also clear Done; clear the pickup round with a plain --clear-done publish first, or adopt without it');
+  }
 
   const now = deps.now ? deps.now() : new Date();
   const readFile = deps.readFile ?? defaultReadFile;
@@ -237,25 +376,18 @@ export async function publish(opts, deps = {}) {
     if (!multisetsEqual(freshTriples, capture.triples)) {
       throw new PublishError(3, `clear-done: captured owner inputs do not match the fresh read (${describeMismatch(freshTriples, capture.triples)})`);
     }
-    const todayFile = path.join(repo, 'docs', 'decisions', 'history', `${todayYmdNY(now)}.md`);
-    let todayText = '';
-    try {
-      todayText = readFile(todayFile);
-    } catch {
-      todayText = '';
-    }
-    const waitingDir = path.join(repo, 'docs', 'decisions', 'waiting');
-    let waitingTexts = [];
-    try {
-      waitingTexts = readdirSync(waitingDir)
-        .filter((f) => f.endsWith('.md'))
-        .map((f) => readFile(path.join(waitingDir, f)));
-    } catch {
-      waitingTexts = [];
-    }
-    for (const [, , text] of freshTriples) {
-      if (!todayText.includes(text) && !waitingTexts.some((w) => w.includes(text))) {
-        throw new PublishError(3, `clear-done: owner text is not present verbatim in today's history file or a waiting item: "${text}"`);
+    // Review round-2 F2: read committed, pushed content only (origin/main), require the spec's
+    // quoted form for a comment, and for a selection require either today's history to name the
+    // option text or the waiting item's OWN prose (never just its own unticked option line) to
+    // quote the choice — so a short comment can never pass as a substring of unrelated text, and
+    // a tick can never pass merely because its own waiting item still exists.
+    const todayRelPath = `docs/decisions/history/${todayYmdNY(now)}.md`;
+    const todayText = gitShow(execGit, repo, 'origin/main', todayRelPath) ?? '';
+    const waitingRelPaths = gitLsTreeFiles(execGit, repo, 'origin/main', 'docs/decisions/waiting');
+    const waitingFiles = waitingRelPaths.map((rel) => ({ rel, text: gitShow(execGit, repo, 'origin/main', rel) }));
+    for (const [kind, title, text] of freshTriples) {
+      if (!verbatimAnswerPresent({ kind, title, text }, todayText, waitingFiles)) {
+        throw new PublishError(3, `clear-done: owner text is not present verbatim (quoted) in today's committed history file, or in the waiting item it answers: "${text}"`);
       }
     }
     doneLineForRender = `- [ ] Done (last cleared: ${formatClearedTimestamp(now)})`;
@@ -272,11 +404,20 @@ export async function publish(opts, deps = {}) {
   } catch (e) {
     throw new PublishError(3, `cannot read last-render.md: ${e instanceof Error ? e.message : e}`);
   }
-  const freshNorm = normalize(fresh);
+  // Review round-2 F1: under --clear-done, compare last-render.md against the fresh read with
+  // exactly the owner-input lines decisions-read found taken back out (comments deleted, ticked
+  // options and Done flipped back) — never against the raw fresh read, which always carries Ben's
+  // input and so would never match a clean render. Anything ELSE changed still trips this check.
+  const compareFresh = clearDone ? revertOwnerInput(fresh, doc) : fresh;
+  const freshNorm = normalize(compareFresh);
   if (freshNorm !== normalize(lastRender)) {
     if (!adoptLive) {
       const backup = await readLatestBackup(page);
-      const crashed = backup !== null && normalize(backup) === freshNorm;
+      // Review round-2 M6: the notion.js backup is the PRE-write snapshot, so a crash right after
+      // a write shows `backup ≈ last-render.md` (what the page looked like right before this
+      // publish overwrote it with a new render) — never `backup ≈ fresh` (comparing the crash
+      // signature against itself would always accidentally read true for the current page).
+      const crashed = backup !== null && normalize(backup) === normalize(lastRender);
       const diff = lineDiff(normalize(lastRender), freshNorm);
       throw new PublishError(
         4,
@@ -294,17 +435,20 @@ export async function publish(opts, deps = {}) {
       return { code: 0, adopted: true };
     }
     if (!writeFile) throw new PublishError(3, 'publish requires deps.writeFile to adopt the live page');
+    checkOnMain(execGit, repo); // F6: a write must never land off an up-to-date main checkout.
     writeFile(lastRenderPath, fresh);
     const nowIso = now.toISOString();
     execGit(['add', 'docs/decisions/last-render.md'], repo);
-    execGit(['commit', '-m', `chore: decisions page adopted ${nowIso}`], repo);
+    execGit(['commit', '-m', `chore: decisions page adopted ${nowIso}`, '--', 'docs/decisions/last-render.md'], repo);
     pushWithRebase(execGit, repo, nowIso);
     write('adopted the live page as last-render.md (--adopt-live)\n');
     return { code: 0, adopted: true };
   }
 
   // Step 4: render.
-  const rendered = render({ repo, doneLine: doneLineForRender }, { readFile, readdirSync, execGit });
+  const rendered = render({
+    repo, doneLine: doneLineForRender, now,
+  }, { readFile, readdirSync, execGit });
 
   if (dryRun) {
     write(rendered);
@@ -315,8 +459,34 @@ export async function publish(opts, deps = {}) {
   if (!deps.titleSet) throw new PublishError(3, 'publish requires deps.titleSet (decisions-title.mjs)');
   if (!writeFile) throw new PublishError(3, 'publish requires deps.writeFile (to write last-render.md/session.md)');
 
+  // Review round-2 F6: refuse before any Notion write, not after, when this checkout is not an
+  // up-to-date main.
+  checkOnMain(execGit, repo);
+
   // Step 5: notion.js replace-md.
-  await deps.replaceMd(page, rendered);
+  const replaceResult = await deps.replaceMd(page, rendered);
+  const backupFile = (replaceResult && typeof replaceResult === 'object' && replaceResult.backupFile) || null;
+  if (backupFile) {
+    write(`backup: ${backupFile}\n`);
+    // Review round-2 F4: reread the pre-write backup immediately — it is the page exactly as it
+    // stood right before this write. If it does not match the step-1 fresh read, something wrote
+    // in the window between steps 1 and 5, and that line must never be silently overwritten by an
+    // exit 0.
+    let backupText = null;
+    try {
+      backupText = readFile(backupFile);
+    } catch {
+      backupText = null;
+    }
+    if (backupText !== null && normalize(backupText) !== normalize(fresh)) {
+      throw new PublishError(
+        5,
+        'the page changed between the fresh read (step 1) and the write (step 5); the pre-write '
+        + `backup at ${backupFile} holds what was actually overwritten: restore it with `
+        + `\`notion.js replace-md ${page} ${backupFile} --force\`, then run the pickup again before publishing`,
+      );
+    }
+  }
 
   // Step 6: fresh readback.
   const readback = await deps.readPage(page);
@@ -329,11 +499,18 @@ export async function publish(opts, deps = {}) {
   }
   if (readbackOk && normalize(readback) !== normalize(rendered)) readbackOk = false;
   if (!readbackOk) {
-    throw new PublishError(5, 'readback did not verify (decisions-read.mjs was not exit 0, or the normalised diff against the render is nonempty); restore from the backup notion.js logged at step 5');
+    throw new PublishError(5, `readback did not verify (decisions-read.mjs was not exit 0, or the normalised diff against the render is nonempty); restore from the backup${backupFile ? ` at ${backupFile}` : ' notion.js logged at step 5'}`);
   }
 
-  // Step 7: retitle.
-  await deps.titleSet({ page, topic });
+  // Step 7: retitle. Review round-2 M4: a retitle failure must not abort before step 8 — the page
+  // is already written and verified, so last-render.md must still be updated (else every later
+  // publish exits 4 on drift this publish itself caused). Report the failure after step 8 instead.
+  let retitleError = null;
+  try {
+    await deps.titleSet({ page, topic });
+  } catch (e) {
+    retitleError = e instanceof Error ? e.message : String(e);
+  }
 
   // Step 8: last-render.md, session.md (clear-done only), commit, push.
   writeFile(lastRenderPath, readback);
@@ -345,9 +522,36 @@ export async function publish(opts, deps = {}) {
   const nowIso = now.toISOString();
   const toAdd = ['docs/decisions/last-render.md'];
   if (clearDone) toAdd.push('docs/decisions/session.md');
-  execGit(['add', ...toAdd], repo);
-  execGit(['commit', '-m', `chore: decisions page published ${nowIso}`], repo);
-  pushWithRebase(execGit, repo, nowIso);
+  try {
+    execGit(['add', ...toAdd], repo);
+  } catch (e) {
+    throw new PublishError(6, `git add failed after the page was written and verified: ${e instanceof Error ? e.message : e}`);
+  }
+  // Review round-2 M10: a republish whose readback is byte-identical to the last commit has
+  // nothing new to commit — `git commit` would exit non-zero and fall through to a bare exit 1
+  // after a successful, verified write. `git diff --cached --quiet` exits non-zero exactly when
+  // there IS a staged difference, so a thrown call here means "there is something to commit".
+  let hasChanges = true;
+  try {
+    execGit(['diff', '--cached', '--quiet'], repo);
+    hasChanges = false;
+  } catch {
+    hasChanges = true;
+  }
+  if (hasChanges) {
+    try {
+      execGit(['commit', '-m', `chore: decisions page published ${nowIso}`, '--', ...toAdd], repo);
+    } catch (e) {
+      throw new PublishError(6, `git commit failed after the page was written and verified: ${e instanceof Error ? e.message : e}`);
+    }
+    pushWithRebase(execGit, repo, nowIso);
+  } else {
+    write('nothing to commit: last-render.md (and session.md) already match the readback\n');
+  }
+
+  if (retitleError) {
+    throw new Error(`decisions-title.mjs set failed after the page was written, verified and committed: ${retitleError}`);
+  }
 
   return { code: 0, rendered };
 }

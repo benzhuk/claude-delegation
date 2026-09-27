@@ -40,7 +40,7 @@ export {
   defaultReadFile, defaultReaddir, defaultExecGit,
   publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, describeMismatch,
   lineDiff, defaultReadPickupCapture,
-  defaultReadPageWithCli, defaultReplaceMdWithCli,
+  defaultReadPageWithCli, defaultReplaceMdWithCli, defaultReadLatestBackup,
 };
 
 function parseArgs(argv) {
@@ -83,13 +83,16 @@ function runReaderCli(reader, args, env) {
   if (result.status !== 0) {
     throw new Error(`--reader exited ${result.status}: ${result.stderr || result.stdout}`);
   }
-  return result.stdout;
+  // Review round-2 F4: notion.js prints its pre-write backup path to stderr
+  // (`console.error(\`[backup] ${file}\`)`); returning stderr alongside stdout lets
+  // `defaultReplaceMdWithCli` parse it out instead of discarding it.
+  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 /** `env` is test-only (a sealed `childEnv()`); production leaves it unset, inheriting the real
  * process environment the same way `decisions-pickup.mjs`'s `readPageWithCli` already does. */
 function defaultReadPageWithCli(reader, env) {
-  return async (page) => runReaderCli(reader, ['read', page], env);
+  return async (page) => runReaderCli(reader, ['read', page], env).stdout;
 }
 
 function defaultReplaceMdWithCli(reader, env) {
@@ -97,9 +100,35 @@ function defaultReplaceMdWithCli(reader, env) {
     const tmp = path.join(os.tmpdir(), `decisions-render-publish-${process.pid}-${Date.now()}.md`);
     fs.writeFileSync(tmp, md, 'utf8');
     try {
-      runReaderCli(reader, ['replace-md', page, tmp, '--force'], env);
+      const { stderr } = runReaderCli(reader, ['replace-md', page, tmp, '--force'], env);
+      const m = /^\[backup\] (.+)$/m.exec(stderr || '');
+      return { backupFile: m ? m[1].trim() : null };
     } finally {
       try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    }
+  };
+}
+
+/** Review round-2 M6: wired for real (was never called from the CLI before) — the newest
+ * `<NOTION_BACKUP_DIR>/<page>/*.md` file, the same directory convention notion.js's own
+ * `backupDirFor()` uses (`NOTION_BACKUP_DIR`, default `~/.local/state/notion-backups/<page-id>/`).
+ * Purely a local, read-only filesystem probe: never a network call, never a write. */
+function defaultReadLatestBackup() {
+  return async (page) => {
+    const dir = path.join(process.env.NOTION_BACKUP_DIR || path.join(os.homedir(), '.local', 'state', 'notion-backups'), page);
+    let names;
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      return null;
+    }
+    const mdFiles = names.filter((n) => n.endsWith('.md')).sort();
+    if (mdFiles.length === 0) return null;
+    const latest = mdFiles[mdFiles.length - 1];
+    try {
+      return fs.readFileSync(path.join(dir, latest), 'utf8');
+    } catch {
+      return null;
     }
   };
 }
@@ -139,6 +168,7 @@ export async function run({
         writeFile: (f, c) => fs.writeFileSync(f, c),
         titleSet: defaultTitleSet(opts.page),
         write,
+        readLatestBackup: defaultReadLatestBackup(),
         ...(opts.reader ? { readPage: defaultReadPageWithCli(opts.reader), replaceMd: defaultReplaceMdWithCli(opts.reader) } : {}),
         ...deps,
       };
