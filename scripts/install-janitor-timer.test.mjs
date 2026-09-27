@@ -1110,6 +1110,128 @@ test("C2: --job collect-status refuses when collect-status.mjs is missing from t
   assert.ok(!fs.existsSync(path.join(home, ".agents")));
 });
 
+test("C2 review round 2, N1: on Windows, --name reuse across jobs is refused before any write or exec (Task Scheduler's single task-name namespace)", () => {
+  const home = mkTmp("janitor-timer-home-n1-win32-");
+  fixtureDefaultRepoGit(home);
+  const pluginRoot = fixturePluginRoot();
+  const calls = [];
+  const fakeExec = (cmd, args) => { calls.push([cmd, ...args].join(" ")); return ""; };
+
+  // Install the janitor first, --enable, on win32 (its default name janitor-record).
+  const capJanitor = capture();
+  const codeJanitor = main(["--force-root", "--json", "--enable"], {
+    home, platform: "win32", execPath: "C:\\node\\node.exe", pluginRoot, exec: fakeExec, ...capJanitor,
+  });
+  assert.equal(codeJanitor, 0, capJanitor.text());
+  calls.length = 0;
+  const janitorTaskXml = path.join(home, ".agents", "janitor", "janitor-record.task.xml");
+  const janitorInstalledPath = path.join(home, ".agents", "janitor", "installed.json");
+  const janitorXmlBefore = fs.readFileSync(janitorTaskXml, "utf8");
+  const janitorInstalledBefore = fs.readFileSync(janitorInstalledPath, "utf8");
+
+  // Before the fix: an install of the collect job under the janitor's own --name would run
+  // `schtasks /Create /TN janitor-record /XML <home>/.agents/collect/janitor-record.task.xml /F`,
+  // replacing the janitor's live scheduled task, because the marker check only ever looks at the
+  // CURRENT job's own artifact directory and never sees the other job's task.
+  const capInstall = capture();
+  const codeInstall = main(
+    ["--force-root", "--json", "--enable", "--job", "collect-status", "--to", "skills-fable", "--name", "janitor-record"],
+    { home, platform: "win32", execPath: "C:\\node\\node.exe", pluginRoot, exec: fakeExec, ...capInstall },
+  );
+  assert.equal(codeInstall, 1, capInstall.text());
+  const installResult = JSON.parse(capInstall.text());
+  assert.ok(
+    installResult.refusals.some((r) => r.includes("is already the janitor-record job's scheduled task")),
+    JSON.stringify(installResult.refusals),
+  );
+  assert.equal(calls.length, 0, "no exec call must run before the refusal");
+  assert.equal(fs.readFileSync(janitorTaskXml, "utf8"), janitorXmlBefore, "the janitor's task xml must be byte-identical");
+  assert.equal(fs.readFileSync(janitorInstalledPath, "utf8"), janitorInstalledBefore, "the janitor's installed.json must be byte-identical");
+  assert.ok(!fs.existsSync(path.join(home, ".agents", "collect", "janitor-record.task.xml")), "no collect task xml must be written");
+
+  // The twin case: `--remove --enable --job collect-status --name janitor-record` used to run
+  // `schtasks /Delete /TN janitor-record /F`, deleting the janitor's live task.
+  const capRemove = capture();
+  const codeRemove = main(
+    ["--remove", "--enable", "--json", "--job", "collect-status", "--name", "janitor-record"],
+    { home, platform: "win32", pluginRoot, exec: fakeExec, ...capRemove },
+  );
+  assert.equal(codeRemove, 1, capRemove.text());
+  const removeResult = JSON.parse(capRemove.text());
+  assert.ok(
+    removeResult.refusals.some((r) => r.includes("is already the janitor-record job's scheduled task")),
+    JSON.stringify(removeResult.refusals),
+  );
+  assert.equal(calls.length, 0, "no exec call must run before the refusal");
+  assert.ok(fs.existsSync(janitorTaskXml), "the janitor's task must still exist");
+  assert.equal(fs.readFileSync(janitorTaskXml, "utf8"), janitorXmlBefore, "the janitor's task xml must be byte-identical");
+
+  // Reverse direction: with a collect job installed under its own default name, a default-job
+  // `--remove --enable --name collect-status` used to run `schtasks /Delete /TN collect-status /F`,
+  // deleting the collect job's live task.
+  const home2 = mkTmp("janitor-timer-home-n1-win32-reverse-");
+  fixtureDefaultRepoGit(home2);
+  const pluginRoot2 = fixturePluginRoot();
+  const calls2 = [];
+  const fakeExec2 = (cmd, args) => { calls2.push([cmd, ...args].join(" ")); return ""; };
+  main(["--force-root", "--json", "--enable", "--job", "collect-status", "--to", "skills-fable"], {
+    home: home2, platform: "win32", execPath: "C:\\node\\node.exe", pluginRoot: pluginRoot2, exec: fakeExec2, ...capture(),
+  });
+  calls2.length = 0;
+  const collectTaskXml = path.join(home2, ".agents", "collect", "collect-status.task.xml");
+  const collectXmlBefore = fs.readFileSync(collectTaskXml, "utf8");
+  const capReverse = capture();
+  const codeReverse = main(
+    ["--remove", "--enable", "--json", "--name", "collect-status"],
+    { home: home2, platform: "win32", pluginRoot: pluginRoot2, exec: fakeExec2, ...capReverse },
+  );
+  assert.equal(codeReverse, 1, capReverse.text());
+  const reverseResult = JSON.parse(capReverse.text());
+  assert.ok(
+    reverseResult.refusals.some((r) => r.includes("is already the collect-status job's scheduled task")),
+    JSON.stringify(reverseResult.refusals),
+  );
+  assert.equal(calls2.length, 0, "no exec call must run before the refusal");
+  assert.equal(fs.readFileSync(collectTaskXml, "utf8"), collectXmlBefore, "the collect job's task xml must be byte-identical");
+});
+
+test("C2 review round 2, N2: --remove --job collect-status without --to must not throw on darwin or win32 (launchdPlist argv coercion)", () => {
+  for (const platform of ["darwin", "win32"]) {
+    const home = mkTmp(`janitor-timer-home-n2-${platform}-`);
+    fixtureDefaultRepoGit(home);
+    const pluginRoot = fixturePluginRoot();
+    const execPath = platform === "darwin" ? "/usr/local/bin/node" : "C:\\node\\node.exe";
+
+    // Install first (--to is required for an install).
+    const capInstall = capture();
+    const codeInstall = main(
+      ["--force-root", "--json", "--job", "collect-status", "--to", "skills-fable"],
+      { home, platform, execPath, pluginRoot, ...capInstall },
+    );
+    assert.equal(codeInstall, 0, capInstall.text());
+
+    const agentsDir = path.join(home, ".agents", "collect");
+    const installedPath = path.join(agentsDir, "installed.json");
+    const artifactPath = platform === "darwin"
+      ? path.join(home, "Library", "LaunchAgents", "com.delegation.collect-status.plist")
+      : path.join(agentsDir, "collect-status.task.xml");
+    assert.ok(fs.existsSync(installedPath), `installed.json must exist after install on ${platform}`);
+    assert.ok(fs.existsSync(artifactPath), `the scheduled artifact must exist after install on ${platform}`);
+
+    // Before the fix: on darwin, `launchdPlist`'s `.map((a) => a.replace(...))` threw
+    // `TypeError: Cannot read properties of null (reading 'replace')` because the remove path's
+    // `to` is null and every argv element was assumed to already be a string.
+    const capRemove = capture();
+    const codeRemove = main(
+      ["--remove", "--json", "--job", "collect-status"],
+      { home, platform, pluginRoot, ...capRemove },
+    );
+    assert.equal(codeRemove, 0, capRemove.text());
+    assert.ok(!fs.existsSync(installedPath), `installed.json must be removed on ${platform}`);
+    assert.ok(!fs.existsSync(artifactPath), `the scheduled artifact must be removed on ${platform}`);
+  }
+});
+
 after(() => {
   for (const dir of tracked) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort cleanup of this file's own fixtures */ }

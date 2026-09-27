@@ -310,7 +310,7 @@ export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, jo
  * executed on this Linux host — text-generation only, same caveat as the Windows XML above. */
 export function launchdPlist({ node, pluginRoot, repo, host, hour, logPath, label, job = DEFAULT_JOB, to, out, every }) {
   const inner = scheduledCommandArgv({ node, pluginRoot, repo, host, job, to, out })
-    .map((a) => a.replace(/'/g, "'\\''"))
+    .map((a) => String(a).replace(/'/g, "'\\''"))
     .map((a) => `'${a}'`)
     .join(" ");
   const shCmd = `${inner} > '${logPath.replace(/'/g, "'\\''")}' 2>&1`;
@@ -665,6 +665,24 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     }
     if (!fs.existsSync(path.join(repo, ".git"))) {
       refusals.push(`repo ${repo} is not a git checkout (set ~/.agents/janitor-repo or --repo)`);
+    }
+  }
+
+  // C2 review round 2, N1: Task Scheduler has ONE task-name namespace, but each job keeps its task
+  // XML in its own directory (~/.agents/janitor/<name>.task.xml vs ~/.agents/collect/<name>.task.xml),
+  // so the marker check above (which only ever reads the CURRENT job's own artifact path) can never
+  // see the other job's same-named task. Refuse any --name the other job already holds, before any
+  // write or exec, on both the install and the --remove path (a --remove --enable --job collect-status
+  // --name janitor-record used to delete the janitor's live task by name; an install used to overwrite
+  // it, replacing the running janitor task with the collector's).
+  if (platform === "win32") {
+    const otherDir = job === "collect-status" ? "janitor" : "collect";
+    const otherTaskXml = path.join(home, ".agents", otherDir, `${name}.task.xml`);
+    if (fs.existsSync(otherTaskXml)) {
+      const otherJobLabel = otherDir === "janitor" ? "janitor-record" : "collect-status";
+      refusals.push(
+        `refusing: --name ${name} is already the ${otherJobLabel} job's scheduled task (${otherTaskXml}); pick another --name`,
+      );
     }
   }
 
