@@ -1323,12 +1323,20 @@ function readOverdueState(home, fsImpl) {
   return parsed;
 }
 
+/**
+ * R8: a state entry is either the plain ISO string R1 always wrote, or — only for an id gated by the
+ * cross-host observability check — `{ at: iso, crossHost: true }`. Both shapes carry `at` for pruning;
+ * only the object shape marks "recorded, not nudged" for the status counters below.
+ */
+function overdueEntryAt(entry) { return typeof entry === 'string' ? entry : entry?.at; }
+function isCrossHostEntry(entry) { return Boolean(entry) && typeof entry === 'object' && entry.crossHost === true; }
+
 /** R1: "entries older than 8 days are pruned on each write." */
 function pruneOverdueState(state, now) {
   const out = {};
-  for (const [id, iso] of Object.entries(state)) {
-    const at = Date.parse(String(iso));
-    if (Number.isFinite(at) && (now - at) <= OVERDUE_PRUNE_MS) out[id] = iso;
+  for (const [id, entry] of Object.entries(state)) {
+    const at = Date.parse(String(overdueEntryAt(entry)));
+    if (Number.isFinite(at) && (now - at) <= OVERDUE_PRUNE_MS) out[id] = entry;
   }
   return out;
 }
@@ -1350,12 +1358,30 @@ function writeOverdueState(home, state, fsImpl) {
   return file;
 }
 
-/** R1: the id is recorded BEFORE a send is ever attempted, so a throwing send is never retried. */
-function recordOverdueId(home, state, id, now, fsImpl) {
+/**
+ * R1: the id is recorded BEFORE a send is ever attempted, so a throwing send is never retried.
+ * R8, point 3: `opts.crossHost` marks an id gated by the observability check — recorded, not nudged.
+ */
+function recordOverdueId(home, state, id, now, fsImpl, opts = {}) {
   const pruned = pruneOverdueState(state, now);
-  pruned[id] = new Date(now).toISOString();
+  pruned[id] = opts.crossHost ? { at: new Date(now).toISOString(), crossHost: true } : new Date(now).toISOString();
   writeOverdueState(home, pruned, fsImpl);
   return pruned;
+}
+
+/**
+ * R8: an overdue ASK is nudged only when its answer side is observable on this host — otherwise this
+ * host has, at best, half the conversation (O1-final-review.md MAJOR 1). Either:
+ *   (a) the corpus holds at least one envelope, of any kind, from the ASK's recipient to its sender; or
+ *   (b) both the sender and the recipient slugs are registered in this host's inbox registry.
+ */
+function observableAnswerSide(ask, lines, inboxes) {
+  const hasReplyLine = lines.some((line) => {
+    const g = parseEnvelope(line);
+    return Boolean(g) && g.from === ask.to && g.to === ask.from;
+  });
+  if (hasReplyLine) return true;
+  return Boolean(inboxes[ask.from]) && Boolean(inboxes[ask.to]);
 }
 
 /**
@@ -1401,8 +1427,16 @@ export function buildOverdueStatus(home, fsImpl, now) {
   try { state = readOverdueState(home, fsImpl); } catch { state = {}; }
   const { overdue } = collectOverdueAsks(home, fsImpl, now);
   const open = overdue.length;
-  const nudged = overdue.filter((o) => Object.hasOwn(state, o.id)).length;
-  return { line: `; overdue: ${open} open, ${nudged} nudged`, json: { open, nudged } };
+  // R8, point 3: a cross-host id is recorded but never nudged. `nudged` keeps its pre-R8 meaning
+  // (recorded AND not cross-host); `crossHost` is the smallest new field that makes the difference
+  // visible, rather than folding it into `nudged`'s existing count.
+  let nudged = 0;
+  let crossHost = 0;
+  for (const o of overdue) {
+    if (!Object.hasOwn(state, o.id)) continue;
+    if (isCrossHostEntry(state[o.id])) crossHost += 1; else nudged += 1;
+  }
+  return { line: `; overdue: ${open} open, ${nudged} nudged`, json: { open, nudged, crossHost } };
 }
 
 /**
@@ -1434,13 +1468,19 @@ export async function runOverdueAsks(argv, context, deps = {}) {
   // Same admission budget as runPostFlushPickup: a drain that spent most of its own ceiling must not
   // spend what is left on a pass nobody is waiting on this second for.
   if (!Number.isFinite(Number(context.elapsedMs)) || Number(context.elapsedMs) >= PICKUP_ADMISSION_MS) {
-    return { ok: true, ran: false, reason: 'budget', open: 0, nudged: 0 };
+    return { ok: true, ran: false, reason: 'budget', open: 0, nudged: 0, crossHost: 0 };
   }
 
   if (switchActive(path.join(agentsBase, 'ws-off'), fsImpl) || switchActive(overdueKillSwitchPath(home), fsImpl)) {
     appendFlushLog(home, `${stamp} overdue-skipped [*] -> * — kill switch`, fsImpl);
-    return { ok: true, ran: false, reason: 'kill-switch', open: 0, nudged: 0 };
+    return { ok: true, ran: false, reason: 'kill-switch', open: 0, nudged: 0, crossHost: 0 };
   }
+
+  // R8, point 2: "missing" and "corrupt/unreadable" are different problems and must not be confused —
+  // a corrupt file keeps R1's existing fail-closed behaviour (logged, nothing sent, nothing reseeded);
+  // only a file that TRULY does not exist yet gets the silent seed below. Checked before the read, since
+  // `readOverdueState` itself treats ENOENT as "empty" (returns `{}`) rather than throwing.
+  const stateFileExisted = fsImpl.existsSync(overdueStatePath(home));
 
   let state;
   try {
@@ -1448,16 +1488,31 @@ export async function runOverdueAsks(argv, context, deps = {}) {
   } catch {
     // R1: a corrupt or unreadable state file fails CLOSED on the nudge — logged once, nothing sent.
     appendFlushLog(home, `${stamp} overdue-skipped [*] -> * — state file unreadable; nudging skipped this pass`, fsImpl);
-    return { ok: true, ran: false, reason: 'state-error', open: 0, nudged: 0 };
+    return { ok: true, ran: false, reason: 'state-error', open: 0, nudged: 0, crossHost: 0 };
   }
 
   const { overdue, ledgerTexts } = collectOverdueAsks(home, fsImpl, now);
   const inboxes = deps.inboxes ?? readInboxes(home, fsImpl);
+
+  if (!stateFileExisted) {
+    // R8: seed silently on the first run — record every currently overdue id without sending, write
+    // the file (same atomic write, mode 600), and log one line. Nudging starts from the second pass on.
+    const seeded = {};
+    for (const { id } of overdue) seeded[id] = new Date(now).toISOString();
+    writeOverdueState(home, seeded, fsImpl);
+    appendFlushLog(home, `${stamp} overdue-seeded ${overdue.length}`, fsImpl);
+    return { ok: true, ran: true, seeded: true, open: overdue.length, nudged: 0, crossHost: 0 };
+  }
+
   // Dynamic import (matching runPostFlushPickup's own `importer`): note-send.mjs imports `drainQuietly`
   // and `deliverToInbox` from THIS file, so a static top-level import here would be a direct two-file
   // cycle rather than the three-file one already tolerated at the pickup call site.
   const importer = deps.importer ?? (() => import('./note-send.mjs'));
   const send = deps.send ?? (await importer()).runNoteSend;
+
+  // R8: the corpus lines the observability check reads — the same split `collectOverdueAsks` already
+  // did internally, recomputed here rather than exported from it, since only this pass needs it.
+  const lines = ledgerTexts.flatMap((text) => String(text).split('\n'));
 
   const nudgeCounters = new Map();
   const nextNudgeId = (topic) => {
@@ -1469,8 +1524,26 @@ export async function runOverdueAsks(argv, context, deps = {}) {
   };
 
   let nudgedCount = 0;
+  let crossHostCount = 0;
   for (const { id, ask, pastMs, topic } of overdue) {
-    if (Object.hasOwn(state, id)) { nudgedCount += 1; continue; } // R1: once per id, ever
+    if (Object.hasOwn(state, id)) { // R1: once per id, ever
+      if (isCrossHostEntry(state[id])) crossHostCount += 1; else nudgedCount += 1;
+      continue;
+    }
+
+    // R8: nudge only when the answer side is observable on this host — applied before any target is
+    // chosen, so a cross-host pair is never sent to, even when one side happens to have a registered
+    // inbox here (the sender-first preference below is not a substitute for actually seeing the reply).
+    if (!observableAnswerSide(ask, lines, inboxes)) {
+      appendFlushLog(
+        home,
+        `${stamp} overdue-cross-host [${id}] -> ${ask.to} — answer side not observable on this host`,
+        fsImpl,
+      );
+      state = recordOverdueId(home, state, id, now, fsImpl, { crossHost: true });
+      crossHostCount += 1;
+      continue;
+    }
 
     // Spec item 3: sender's inbox first, then the recipient's, else log and record without a send.
     // Review round 2, MAJOR 1 (twin): registered alone is not enough — a registered inbox whose `cwd`
@@ -1505,8 +1578,9 @@ export async function runOverdueAsks(argv, context, deps = {}) {
     // With the `reachable()` preference above, this branch is now reached only when NEITHER party's
     // registered inbox has a resolvable `cwd` — a genuinely unresolvable case, not merely "the sender
     // happened to be checked first." A reachable recipient is never dropped in favor of a stale sender.
-    const inboxRecord = inboxes[target];
-    const recipientRepo = inboxRecord?.cwd && fsImpl.existsSync(inboxRecord.cwd) ? inboxRecord.cwd : null;
+    // Final review NIT 1: `reachable()` was already computed above; re-deriving `recipientRepo` from
+    // the raw record duplicated it for no behavioural difference.
+    const recipientRepo = reachable(target) ? inboxes[target].cwd : null;
     if (!recipientRepo) {
       appendFlushLog(
         home,
@@ -1543,7 +1617,7 @@ export async function runOverdueAsks(argv, context, deps = {}) {
     }
   }
 
-  return { ok: true, ran: true, open: overdue.length, nudged: nudgedCount };
+  return { ok: true, ran: true, open: overdue.length, nudged: nudgedCount, crossHost: crossHostCount };
 }
 
 export async function drainQuietly(deps = {}, opts = {}) {
