@@ -27,6 +27,8 @@ const STATUS_COLOR = { MET: 'green', PARTIAL: 'orange', NONE: 'red', UNKNOWN: 'r
 export class RefusedError extends Error {}
 /** A read or parse failure the caller cannot trust (exit 3), never a silent false-clean. */
 export class BlindError extends Error {}
+/** The pinned exit-2 table-sentence refusal (hex token / test count / session id). */
+export class TableRefusalError extends RefusedError {}
 
 function checkForbidden(text, lineNo, sourceLabel) {
   const t = text.trim();
@@ -80,19 +82,19 @@ function findHexToken(s) {
   return null;
 }
 
-/** Throws RefusedError naming the goal heading and the offending token, else returns. */
+/** Throws TableRefusalError (CLI exit 2) naming the goal heading and the offending token. */
 function checkTableSentence(sentence, heading, lineNo) {
   const session = SESSION_ID_RE.exec(sentence);
   if (session) {
-    throw new RefusedError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a session id "${session[0]}": fix the Status line at the source`);
+    throw new TableRefusalError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a session id "${session[0]}": fix the Status line at the source`);
   }
   const testCount = TEST_COUNT_RE.exec(sentence);
   if (testCount) {
-    throw new RefusedError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a test count "${testCount[0]}": fix the Status line at the source`);
+    throw new TableRefusalError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a test count "${testCount[0]}": fix the Status line at the source`);
   }
   const hex = findHexToken(sentence);
   if (hex) {
-    throw new RefusedError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a hex token "${hex}": fix the Status line at the source`);
+    throw new TableRefusalError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a hex token "${hex}": fix the Status line at the source`);
   }
 }
 
@@ -320,7 +322,7 @@ export function run({
       return 3;
     }
     writeErr(`goals-mirror: ${err instanceof Error ? err.message : err}\n`);
-    return 1;
+    return err instanceof TableRefusalError ? 2 : 1;
   }
 }
 

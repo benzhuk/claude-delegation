@@ -248,6 +248,18 @@ test('a 7-digit count and a plain date do not trip the hex-token rule', () => {
   assert.match(page, /\| Ran 1234567 times on 2026-09-22\. \|/);
 });
 
+test('a table-sentence refusal exits 2 at the CLI, distinct from every other refusal (exit 1)', () => {
+  const goals = '# Goals\n\n## G\nStatus: PARTIAL. Fixed in 7dfc59d today.\n';
+  let err = '';
+  const code = run({ argv: ['render', '--repo', fixtureRepo, '--sha', 't'], readFile: readFileFor(goals), writeErr: (s) => { err += s; } });
+  assert.equal(code, 2);
+  assert.match(err, /carries a hex token "7dfc59d"/);
+  // An ordinary (non-table) refusal still exits 1, unchanged.
+  let err2 = '';
+  const code2 = run({ argv: ['render', '--repo', fixtureRepo, '--sha', 't'], readFile: readFileFor('# Goals\n\n## A\n- [ ] unsafe\n'), writeErr: (s) => { err2 += s; } });
+  assert.equal(code2, 1);
+});
+
 test('a refusing token past the first ". " never blocks the render (only the table sentence is checked)', () => {
   const goals = '# Goals\n\n## G\nStatus: PARTIAL. All clear here. But fixed in 7dfc59d later.\n';
   const page = renderPage({ repo: fixtureRepo, sha: 't', readFile: readFileFor(goals) });
