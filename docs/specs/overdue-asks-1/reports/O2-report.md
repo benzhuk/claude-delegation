@@ -155,9 +155,13 @@ byte-for-byte unchanged (grepped and diffed).
   I `mkdir -p`'d and am leaving in place) included.
 
 ## Commit
-`90a5fb8f232cabbd5d13c75b9ea4fe8e86aea992` on branch `build/overdue-asks-1-O2` in
-`/home/ben/Code/wt-overdue-asks-1-O2`:
+Round 1: `90a5fb8f232cabbd5d13c75b9ea4fe8e86aea992` on branch `build/overdue-asks-1-O2`
+in `/home/ben/Code/wt-overdue-asks-1-O2`:
 `docs(O2): add directory-deletion rule to builder.md and BUILD_MANDATE`.
+
+Round 2 (fix for review F1): `17719c0b262c262f29d2da9c4cbff15fcbf0e1d5` on the same
+branch: `fix(O2): move directory-deletion bullet out of shared safety-block fence`.
+This is the sha reported to the lead as this round's `git rev-parse HEAD`.
 
 ## Cleanup
 No dev server, no background process, no scratch directory was started or created by
