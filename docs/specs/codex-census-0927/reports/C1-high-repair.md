@@ -1,4 +1,4 @@
-VERDICT: PASS 5dc4c36d39c490d4f45accb0a2459657349d85dc
+VERDICT: PASS d73ef36b4abf2de53a6bb72c371f867d2de29902
 
 Work: `wr-2026-09-27-codex-census`
 
@@ -32,3 +32,24 @@ Changed paths:
 Verification: `node --check scripts/build-census.mjs` exited 0; `git diff --check` exited 0 before the implementation commit. Per the task boundary, no test command or Claude golden command was run. The integrator owns the nondeleting-mutex contract gate and exact Claude golden comparison.
 
 Limitations: integrator gate results are pending. The independent contract-test defects listed in `C1-C2-review.md` were intentionally left for their separate writer; no integration contract test file was touched. The current tree has a standalone synthetic `scripts/build-census.fixtures/codex-lead.jsonl` and the synthetic `codexFixtureTree()` helper, but no committed whitelist-trimmed native lead-plus-two-child fixture set with provenance to root `01a0df4c-2809-7520-b1d7-876cc51a87ee`. That exact gap was reported to `/root` and `/root/integrator` for the mid-tier fixture/test lane; this repair did not access or copy private transcript fields. The pre-existing untracked round-one through round-three logs, exits, report and state were left untouched.
+
+## Round-two high repair
+
+Implementation artifact: `d73ef36b4abf2de53a6bb72c371f867d2de29902` (`fix: validate Codex timeline evidence`).
+
+Cause: response time was parsed independently by window filtering while missing-time detection used truthiness and timeline completeness checked only null, so malformed nonempty values escaped. Required ids were type-checked without semantic content, and model availability used truthiness rather than a normalized unknown predicate. Finally, discovery's selected-lead identity conflict stayed local to aggregate coverage and never lowered the independently consumed lead timeline trust flag.
+
+Discriminating check: durable unit regressions cover missing, empty, malformed and non-string response timestamps for bounded and unbounded lead and child evidence; empty/whitespace session, response and turn ids; literal, case/space-varied, blank and whitespace-only unknown models plus a valid Terra model; conflicting and exact selected-lead copies; and child-only discovery failure. Invalid time evidence stays observed where independently countable but makes coverage/timing partial. A selected-lead conflict alone lowers `responseTimelineComplete`; exact copies and child-only failure preserve it.
+
+Fix location: `scripts/build-census.mjs` now uses `isUsableCodexString`, `normalizeCodexModel` and `normalizeCodexTimestamp` at the native reader boundary. Discovery exposes `selectedLeadIdentityVerified`, and `runCodexCensus` combines only that lead-specific trust fact with reader-local timeline completeness. `scripts/build-census.test.mjs` owns the new table-driven regressions.
+
+Simplification: three small predicates feed the existing response maps, window comparison and timeline rows; one boolean leaves the existing identity registry. No alternate parser, timeline, consumer fallback or blanket aggregate-coverage gate was added.
+
+Round-two changed paths:
+
+- `scripts/build-census.mjs`
+- `scripts/build-census.test.mjs`
+- `docs/specs/codex-census-0927/reports/C1-high-repair.md`
+- `docs/specs/codex-census-0927/reports/C1-high-repair-state.md`
+
+Round-two verification: no test, syntax or formatting gate was run, per the explicit no-self-gates boundary. The integrator owns execution of the focused and contract gates.
