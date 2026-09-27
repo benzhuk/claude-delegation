@@ -94,12 +94,14 @@ export function describeMismatch(fresh, captured) {
 // Default pickup-capture reader — read-only through decisions-pickup.mjs's own exports.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function defaultReadPickupCapture({ repo, page }) {
-  let pickupMod;
-  try {
-    pickupMod = await import('./decisions-pickup.mjs');
-  } catch {
-    return null;
+export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) {
+  let pickupMod = pickup;
+  if (!pickupMod) {
+    try {
+      pickupMod = await import('./decisions-pickup.mjs');
+    } catch {
+      return null;
+    }
   }
   let st;
   try {
@@ -113,7 +115,7 @@ export async function defaultReadPickupCapture({ repo, page }) {
   // status of ACCOUNTED, NEEDS_RECONCILIATION, or any legacy/unknown status means this round was
   // already closed out (or is broken) and must not be treated as fresh, verbatim-checked capture.
   const acceptableStatuses = new Set(['PREPARED', 'RECORDED', 'WAITING_OWNER']);
-  if (!acceptableStatuses.has(st?.receipt?.status)) return null;
+  if (!acceptableStatuses.has(st?.status)) return null;
   let originalBuf;
   try {
     originalBuf = pickupMod.openPrivateCapture({ repo, page, round });
@@ -533,7 +535,7 @@ export async function publish(opts, deps = {}) {
   // there IS a staged difference, so a thrown call here means "there is something to commit".
   let hasChanges = true;
   try {
-    execGit(['diff', '--cached', '--quiet'], repo);
+    execGit(['diff', '--cached', '--quiet', '--', ...toAdd], repo);
     hasChanges = false;
   } catch {
     hasChanges = true;

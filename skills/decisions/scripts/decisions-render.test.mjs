@@ -274,6 +274,17 @@ test('checkWaitingItem: a pre-ticked option in the source file is refused', () =
   assert.throws(() => checkWaitingItem(item, 'waiting/pre-ticked.md'), (e) => e instanceof RefusedError && /pre-ticked option/.test(e.message));
 });
 
+test('checkWaitingItem: an unticked Done line as the item\'s own last line is refused, naming the file and line (round-2 R2-3)', () => {
+  // No warning fires here: there is only one Done candidate and it truly is the last line, so
+  // the pre-R2-3 code let it through as a source-file defect the composed-page self-check would
+  // then wrongly blame on the renderer.
+  const item = `${GOOD_ITEM}\n- [ ] Done`;
+  assert.throws(
+    () => checkWaitingItem(item, 'waiting/done-in-item.md'),
+    (e) => e instanceof RefusedError && /waiting\/done-in-item\.md:\d+ carries a Done line \(only the renderer writes Done\)/.test(e.message),
+  );
+});
+
 test('checkWaitingItem: a stray Done line inside the item is refused (more than one Done line)', () => {
   const item = `${GOOD_ITEM}\n- [ ] Done\n- [ ] Done`;
   assert.throws(() => checkWaitingItem(item, 'waiting/stray-done.md'), RefusedError);

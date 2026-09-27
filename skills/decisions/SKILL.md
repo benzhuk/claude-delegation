@@ -351,9 +351,9 @@ both pages (a read is two `notion.js read` calls, run through a mid-tier native-
 runner choice is not checked) plus one `decisions-title.mjs meta` read of the decisions
 page's own title and last-edit time. The check also compares the decisions read against
 `docs/decisions/last-render.md`, normalised the same way `decisions-render.mjs` does,
-prints a `DRIFT` line and blocks (`HANDBACK blocked`, rescued by the kill switch like any
-other content objection) when they differ (Lane 26) — a page a hand or a crashed publish
-edited since the last successful render is caught here, not handed back:
+prints a `DRIFT` line and ends with `HANDBACK page-drift` (rescued by the kill switch like
+any other content objection) when they differ (Lane 26) — a page a hand or a crashed
+publish edited since the last successful render is caught here, not handed back:
 
 ```
 node ~/.claude/scripts/notion.js read <decisions-page-id> > <scratch>/decisions.md

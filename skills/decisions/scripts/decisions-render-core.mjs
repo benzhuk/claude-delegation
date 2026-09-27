@@ -213,6 +213,22 @@ function itemWarnings(doc) {
   return doc.warnings.filter((w) => w.text !== 'no Done line found');
 }
 
+/** 1-based line number of a document's true last content line (ignores trailing blank lines
+ * and one trailing `<empty-block/>`) — the same "true last line" decisions-read.mjs itself uses
+ * for its DONE_NOT_LAST rule, recomputed here (never imported: this lane only reads
+ * decisions-read.mjs through its exports) so a Done line sitting exactly there can be named by
+ * file and line (round-2 R2-3). */
+function lastContentLineNumber(text) {
+  const lines = text.split('\n');
+  let i = lines.length - 1;
+  while (i >= 0) {
+    const trimmed = lines[i].trim();
+    if (trimmed === '' || trimmed === '<empty-block/>') { i -= 1; continue; }
+    break;
+  }
+  return i + 1;
+}
+
 function hasReadDefect(doc, warnings = doc.warnings) {
   const actionableStatuses = new Set(['AMBIGUOUS', 'TICKED', 'COMMENTED', 'DUE']);
   return doc.done === true
@@ -256,6 +272,14 @@ export function checkWaitingItem(text, label, now = new Date()) {
   }
   if (doc.decisions.length === 0) {
     throw new RefusedError(`${label}: missing options (no decision item found by decisions-read.mjs)`);
+  }
+  // Review round-2 R2-3: a Done line that is the item's own true last line raises no
+  // decisions-read.mjs warning (there is only one, and it is not "not last"), and when it is
+  // unticked doc.done is false, so hasReadDefect below never sees it either. Only the renderer
+  // ever writes a Done line — refused here, by file and line, before the composed-page
+  // self-check would otherwise blame the renderer for a source-file defect.
+  if (doc.doneLabel !== null) {
+    throw new RefusedError(`${label}:${lastContentLineNumber(text)} carries a Done line (only the renderer writes Done)`);
   }
   const warnings = itemWarnings(doc);
   if (hasReadDefect(doc, warnings)) {

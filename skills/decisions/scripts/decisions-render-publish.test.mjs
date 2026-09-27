@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {
-  publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual,
+  publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture,
 } from './decisions-render-publish.mjs';
 import { normalize } from './decisions-render-core.mjs';
 import { parseDocument } from './decisions-read.mjs';
@@ -148,6 +148,39 @@ test('hasOwnerInput: a ticked option counts, and ownerInputTriples records it as
 test('multisetsEqual: order does not matter, counts do', () => {
   assert.equal(multisetsEqual([['a', 'b', 'c'], ['d', 'e', 'f']], [['d', 'e', 'f'], ['a', 'b', 'c']]), true);
   assert.equal(multisetsEqual([['a', 'b', 'c']], [['a', 'b', 'c'], ['a', 'b', 'c']]), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// defaultReadPickupCapture — round-2 R2-1 regression. decisions-pickup.mjs's real `status()`
+// puts the lifecycle word on the WRAPPER (`st.status`, from receiptStatus's `effectiveStatus`,
+// decisions-pickup.mjs:804-829) — a receipt itself only ever has `.state`, never `.status`. A
+// fake `pickup` module (never the real decisions-pickup.mjs) is injected through the second
+// argument so this exercises the exact wrapper shape production code receives.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('defaultReadPickupCapture: a real RECORDED wrapper (status lives on st, not st.receipt) yields the captured triples', async () => {
+  const pickup = {
+    status: () => ({
+      status: 'RECORDED',
+      receipt: { state: 'RECORDED', round: 4, captureReadAt: '2026-09-27T21:55:00Z' },
+    }),
+    openPrivateCapture: () => Buffer.from(pageWithComment('hello'), 'utf8'),
+  };
+  const capture = await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup });
+  assert.deepEqual(capture, {
+    round: 4,
+    tickAt: '2026-09-27T21:55:00Z',
+    triples: [['comment', 'A decision', 'hello']],
+  });
+});
+
+test('defaultReadPickupCapture: an ACCOUNTED wrapper (round already closed out) yields null and never opens the private capture', async () => {
+  const pickup = {
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 4 } }),
+    openPrivateCapture: () => { throw new Error('must not be called once status is rejected'); },
+  };
+  const capture = await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup });
+  assert.equal(capture, null);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
