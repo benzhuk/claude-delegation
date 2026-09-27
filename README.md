@@ -152,18 +152,22 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
   session without anyone typing into its pane. `Stop` blocks the stop while something is
   waiting (honouring `stop_hook_active`). Silent when there are no notes, when the
   session is not in an Orca pane, and on any error — a hook must never break a session.
-- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line`): prints one line
-  at session start when a required guard, hook, timer or switch looks missing, stale or
-  unknown; silent when everything is wired, and honours `~/.agents/ws-off`. The CLI
-  itself now exits 1 whenever `checkWiring().ok` is false (a check is missing, stale or
-  unknown; `info` never fails) — a caller that just wants the visibility line, like the
-  SessionStart hook above, is unaffected either way. `scripts/required-wiring.default.json`
-  carries the checks the plugin can actually verify: the PreToolUse delete-guard and
-  PostToolUse peer-note hooks are wired (`hook_present` against the plugin's own
-  `hooks/hooks.json`), the `note-send` shim and `~/.agents/notes/` exist (`file_exists`),
-  `crossSessionInbound: accept` is set (`json_value`), and the daily janitor timer's own
-  `~/.agents/janitor/last-run.log` is under 26 hours old once installed (`file_fresh`,
-  `unknown` rather than `missing` on a host that never installed the timer).
+- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line --hook`): prints one
+  line at session start when a required guard, hook, timer or switch looks missing,
+  stale or unknown; silent when everything is wired, and honours `~/.agents/ws-off`. The
+  CLI now exits 1 whenever `checkWiring().ok` is false (a check is missing, stale or
+  unknown; `info` never fails), so a human or agent running it directly (bare `--line`,
+  `--json` or the table) sees a real red exit code — but the SessionStart hook above
+  passes `--hook`, which always exits 0, because Claude Code drops a command hook's
+  stdout on any non-zero exit and the visibility line has to reach the session either
+  way. `scripts/required-wiring.default.json` carries the checks the plugin can actually
+  verify: the PreToolUse delete-guard and PostToolUse peer-note hooks are wired by exact
+  command and matcher, not a raw substring (`hook_present` against the plugin's own
+  `hooks/hooks.json`), their own hook scripts exist (`file_exists`), the `note-send` shim
+  and `~/.agents/notes/` exist (`file_exists`), `crossSessionInbound: accept` is set
+  (`json_value`), and the daily janitor timer's own `~/.agents/janitor/last-run.log` is
+  under 26 hours old once installed (`file_fresh`; `info` — never `missing`, and never
+  counted against `ok` — on a host that never installed the timer).
 
 ## Model tiers
 

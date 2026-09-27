@@ -47,13 +47,14 @@ function write(home, rel, content) {
   return full;
 }
 
-/** J2: the shipped default list gained five checks (besides lean-rules-file) that can actually
- * fail. A fixture home used to prove "the CLI stays quiet / exits 0 when everything is wired" now
- * has to wire all of them - this is the whole point of the change (a bare scratch home is now
- * genuinely red). Callers add `.agents/lean-rules.md` themselves so a test can isolate that one
- * check by omitting it. Does not touch the two hook_present checks: those read the plugin's OWN
- * hooks.json via CLAUDE_PLUGIN_ROOT, which every runCli() call below pins at the real repo root, so
- * they are already 'ok' against this checkout's real, unmodified hooks/hooks.json. */
+/** J2: the shipped default list gained checks (besides lean-rules-file) that can actually fail. A
+ * fixture home used to prove "the CLI stays quiet / exits 0 when everything is wired" now has to
+ * wire all of them - this is the whole point of the change (a bare scratch home is now genuinely
+ * red). Callers add `.agents/lean-rules.md` themselves so a test can isolate that one check by
+ * omitting it. Does not touch the two hook_present checks or the two hook-script file_exists
+ * checks: those all read the plugin's OWN install root via CLAUDE_PLUGIN_ROOT, which every
+ * runCli() call below pins at the real repo root, so they are already 'ok' against this checkout's
+ * real, unmodified hooks/hooks.json, hooks/delete-guard.mjs and hooks/multi-inbox.js. */
 function wireEverythingElse(home) {
   write(home, ".local/bin/note-send", "#!/bin/sh\nexit 0\n");
   fs.mkdirSync(path.join(home, ".agents", "notes"), { recursive: true });
@@ -726,20 +727,30 @@ function shippedRow(id) {
   return row;
 }
 
-test("the shipped list gained exactly six new checks: two hook_present, two file_exists, one json_value, one file_fresh with a requiresFile gate", () => {
+test("the shipped list gained exactly eight new checks: two hook_present (exact command+matcher), four file_exists, one json_value, one file_fresh with a requiresFile gate", () => {
   const list = shippedList();
-  assert.equal(list.length, 15, "9 original + 6 new");
+  assert.equal(list.length, 17, "9 original + 8 new");
   const delGuard = shippedRow("hook-delete-guard");
   assert.equal(delGuard.type, "hook_present");
   assert.equal(delGuard.event, "PreToolUse");
   assert.equal(delGuard.file, "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json");
-  assert.match(delGuard.substring, /delete-guard\.mjs/);
+  assert.equal(delGuard.matcher, "Bash|PowerShell");
+  assert.equal(delGuard.command, "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"");
 
   const postInbox = shippedRow("hook-post-tool-use-inbox");
   assert.equal(postInbox.type, "hook_present");
   assert.equal(postInbox.event, "PostToolUse");
   assert.equal(postInbox.file, "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json");
-  assert.match(postInbox.substring, /multi-inbox\.js/);
+  assert.equal(postInbox.matcher, "*");
+  assert.equal(postInbox.command, "node \"${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js\" PostToolUse");
+
+  const delGuardScript = shippedRow("hook-delete-guard-script");
+  assert.equal(delGuardScript.type, "file_exists");
+  assert.equal(delGuardScript.file, "${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs");
+
+  const postInboxScript = shippedRow("hook-post-tool-use-inbox-script");
+  assert.equal(postInboxScript.type, "file_exists");
+  assert.equal(postInboxScript.file, "${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js");
 
   const shim = shippedRow("note-send-shim");
   assert.equal(shim.type, "file_exists");
@@ -787,32 +798,36 @@ test("hook-delete-guard and hook-post-tool-use-inbox: ok against this repo's own
   assert.equal(missing.results[1].state, "missing");
 });
 
-test("hook-delete-guard does not match a commented-out or wrong-command PreToolUse hook - only a real parsed command string", () => {
-  const home = mkHome();
-  const pluginRoot = mkHome();
-  write(pluginRoot, "hooks/hooks.json", JSON.stringify({
-    hooks: {
-      // Same event, but the only command present is unrelated - a substring match against raw
-      // text (rather than the parsed command field) would be fooled by a comment-shaped string
-      // like this one; this is real, structured JSON, so there is no such thing as a "commented
-      // out" hook here, only a present-or-absent command field.
-      PreToolUse: [{ hooks: [{ type: "command", command: "echo 'hooks/delete-guard.mjs is disabled for now'" }] }],
-    },
-  }));
-  const check = { ...shippedRow("hook-delete-guard"), substring: "hooks/delete-guard.mjs" };
-  const { results } = checkWiring({ home, pluginRoot, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
-  // The evaluator only ever compares check.substring against the parsed h.command string - it
-  // cannot distinguish an echoed mention from the real invocation with a short substring, so the
-  // shipped substring must be specific enough that this fixture's unrelated command still matches
-  // (proving the match is real) while a genuinely different command would not.
-  assert.equal(results[0].state, "ok", "the echoed mention happens to contain the exact substring, same as the real command would - proving the match reads h.command, not file text out of band");
+test("hook-delete-guard's exact command+matcher pin does not match a commented-out, echoed, disabled, renamed-file or wrong-matcher hook - only the real parsed command string under the real matcher", () => {
+  const check = shippedRow("hook-delete-guard");
+  const real = "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"";
 
-  const trulyDifferent = { ...check };
-  write(pluginRoot, "hooks/hooks.json", JSON.stringify({
-    hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "node \"${CLAUDE_PLUGIN_ROOT}/hooks/some-other-guard.mjs\"" }] }] },
-  }));
-  const { results: other } = checkWiring({ home, pluginRoot, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [trulyDifferent], private: [] } });
-  assert.equal(other[0].state, "missing", "a different hook command must never satisfy the delete-guard check");
+  function withCommand(command, matcher = check.matcher) {
+    const pluginRoot = mkHome();
+    write(pluginRoot, "hooks/hooks.json", JSON.stringify({
+      hooks: { PreToolUse: [{ matcher, hooks: [{ type: "command", command }] }] },
+    }));
+    return pluginRoot;
+  }
+
+  const home = mkHome();
+  function stateFor(pluginRoot) {
+    const { results } = checkWiring({ home, pluginRoot, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+    return results[0].state;
+  }
+
+  assert.equal(stateFor(withCommand(real)), "ok", "the real command under the real matcher must still read ok");
+
+  // Round-2 (B1): a raw substring match would be fooled by every one of these - an exact `command`
+  // equality plus a `matcher` equality is what tells them apart from the real thing.
+  assert.equal(stateFor(withCommand(`# ${real}`)), "missing", "a shell-commented command must not satisfy the pin");
+  assert.equal(stateFor(withCommand(`echo 'hooks/delete-guard.mjs is disabled for now'`)), "missing", "an echoed mention must not satisfy the pin");
+  assert.equal(stateFor(withCommand(`true || ${real}`)), "missing", "a true-|| disabled command must not satisfy the pin");
+  assert.equal(stateFor(withCommand(`node "\${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs.bak"`)), "missing", "a renamed-file command must not satisfy the pin");
+  assert.equal(stateFor(withCommand(real, "Read")), "missing", "the real command parked under a different matcher never fires for Bash and must not satisfy the pin");
+
+  const trulyDifferent = withCommand("node \"${CLAUDE_PLUGIN_ROOT}/hooks/some-other-guard.mjs\"");
+  assert.equal(stateFor(trulyDifferent), "missing", "a different hook command must never satisfy the delete-guard check");
 });
 
 test("note-send-shim and notes-dir: file_exists against ~/.local/bin/note-send and ~/.agents/notes", () => {
@@ -852,9 +867,12 @@ test("janitor-last-run (file_fresh + requiresFile): the J1/J2 seam contract's ex
   const check = shippedRow("janitor-last-run");
   const home = mkHome();
 
-  // installed.json absent: unknown, never missing - even though the log is also absent.
+  // installed.json absent: info (round-2 amendment: spec.md J2.2 says a host without J1 is not
+  // red for that reason, so this must never count against checkWiring().ok), never missing - even
+  // though the log is also absent.
   const neverInstalled = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
-  assert.equal(neverInstalled.results[0].state, "unknown");
+  assert.equal(neverInstalled.results[0].state, "info");
+  assert.ok(neverInstalled.ok, "an uninstalled J1 timer must not make checkWiring().ok false");
 
   // installed.json present, log absent: missing.
   write(home, ".agents/janitor/installed.json", JSON.stringify({ schema: 1 }));
@@ -967,6 +985,21 @@ test("CLI --line names lean-rules-file when ~/.agents/lean-rules.md is absent, a
   assert.equal(code, 1);
   assert.match(stdout.trim(), /^wiring: \d+ flagged \(.*\)\. Run wiring-check for the fixes\.$/);
   assert.match(stdout, /lean rules file/);
+});
+
+test("CLI --line --hook (the SessionStart caller): still prints the line when something is flagged, but always exits 0", () => {
+  const home = mkHome();
+  wireEverythingElse(home); // everything but lean-rules.md, so it is the ONLY finding
+  const { code, stdout } = runCli(["--line", "--hook"], home);
+  assert.equal(code, 0, "B2: a Claude Code command hook's non-zero exit drops its stdout, so --hook must keep exit 0 even while red");
+  assert.match(stdout, /lean rules file/, "the visibility line must still reach the session under --hook");
+});
+
+test("CLI --line --hook against a bare scratch home (nothing configured) still exits 0 and prints the line", () => {
+  const home = mkHome();
+  const { code, stdout } = runCli(["--line", "--hook"], home);
+  assert.equal(code, 0);
+  assert.match(stdout, /^wiring: \d+ flagged/);
 });
 
 test("CLI --line prints one line naming what is missing when something is", () => {
@@ -1207,13 +1240,16 @@ test("a check naming inboxes.json in ANY letter case is refused before any fs ca
 // Wired into hooks.json: SessionStart shows the wiring check on its own
 // ---------------------------------------------------------------------------
 
-test("hooks.json runs wiring-check.mjs --line on SessionStart, pointed at a real file, with a timeout", () => {
+test("hooks.json runs wiring-check.mjs --line --hook on SessionStart, pointed at a real file, with a timeout", () => {
   const repoRoot = path.join(HERE, "..");
   const hooksPath = path.join(repoRoot, "hooks", "hooks.json");
   const cfg = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
   const sessionStartHooks = cfg.hooks.SessionStart.flatMap((g) => g.hooks);
   const entry = sessionStartHooks.find((h) => h.command.includes("wiring-check.mjs") && h.command.includes("--line"));
   assert.ok(entry, "SessionStart must run wiring-check.mjs --line");
+  // Round-2 (B2): a bare --line's non-zero exit is a non-blocking hook error that Claude Code
+  // discards the stdout for, so the SessionStart caller must also pass --hook to keep exit 0.
+  assert.match(entry.command, /--hook\b/, "the SessionStart hook must pass --hook so its non-zero exit never drops the printed line");
   assert.match(entry.command, /\$\{CLAUDE_PLUGIN_ROOT\}/, "must be plugin-root relative like its neighbours");
   assert.equal(typeof entry.timeout, "number");
   assert.ok(entry.timeout > 0);

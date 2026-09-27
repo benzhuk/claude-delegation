@@ -70,8 +70,9 @@
     "type": "hook_present",
     "file": "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json",
     "event": "PreToolUse",
-    "substring": "hooks/delete-guard.mjs",
-    "why": "the PreToolUse delete-guard hook is what stops a destructive shell command before it runs; if it is not wired, nothing in this plugin catches an accidental rm -rf",
+    "matcher": "Bash|PowerShell",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"",
+    "why": "the plugin's own hooks/hooks.json still registers the PreToolUse delete-guard hook under the Bash|PowerShell matcher; if it is not wired, nothing in this plugin catches an accidental rm -rf",
     "fix": "reinstall or repair the plugin so Claude Code re-registers the PreToolUse delete-guard hook from the plugin's own hooks/hooks.json"
   },
   {
@@ -79,9 +80,24 @@
     "type": "hook_present",
     "file": "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json",
     "event": "PostToolUse",
-    "substring": "hooks/multi-inbox.js",
-    "why": "the PostToolUse multi-inbox hook is what delivers a peer note into this session after a tool call; without it a sent note never reaches the pane",
+    "matcher": "*",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js\" PostToolUse",
+    "why": "the plugin's own hooks/hooks.json still registers the PostToolUse multi-inbox hook, which delivers a peer note into this session after a tool call; without it a sent note never reaches the pane",
     "fix": "reinstall or repair the plugin so Claude Code re-registers the PostToolUse multi-inbox hook from the plugin's own hooks/hooks.json"
+  },
+  {
+    "id": "hook-delete-guard-script",
+    "type": "file_exists",
+    "file": "${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs",
+    "why": "the PreToolUse delete-guard hook registration is useless if the script it runs is missing",
+    "fix": "reinstall or repair the plugin so hooks/delete-guard.mjs is present at its install root"
+  },
+  {
+    "id": "hook-post-tool-use-inbox-script",
+    "type": "file_exists",
+    "file": "${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js",
+    "why": "the PostToolUse multi-inbox hook registration is useless if the script it runs is missing",
+    "fix": "reinstall or repair the plugin so hooks/multi-inbox.js is present at its install root"
   },
   {
     "id": "note-send-shim",

@@ -21,15 +21,20 @@
 // location. That is for a check that names a file the plugin ships (e.g. its own hooks.json),
 // never a per-user home file):
 //   json_value    { file, path (dotted), expected }         - ok / stale (differs) / missing (file or path absent)
-//   hook_present  { file, event, substring }                - ok (found) / missing (not found or file absent)
-//   hook_absent   { file, event, substring }                - ok (not found or file absent) / stale (found - should have been removed)
+//   hook_present  { file, event, substring | command, matcher? } - ok (found) / missing (not found or
+//                 file absent). `command` (an exact match of the parsed command string, once
+//                 trimmed) and `matcher` (an exact match of the hook group's own matcher) are
+//                 stricter alternatives to `substring` - use them for a check that must not be
+//                 satisfied by a commented-out, disabled, renamed-file or wrong-matcher hook.
+//   hook_absent   { file, event, substring | command, matcher? } - ok (not found or file absent) / stale (found - should have been removed)
 //   file_exists   { file }                                  - ok / missing
 //   file_absent   { file }                                  - ok / stale (still there)
 //   file_fresh    { file, maxAgeSeconds, whenMissing?, requiresFile? } - ok / stale (too old, or
 //                 missing - default 'stale') / whenMissing: 'info' or 'missing' overrides the
-//                 missing case / requiresFile: another file whose own absence forces 'unknown'
-//                 (never 'missing' or 'stale') before `file` is even looked at - for a record a
-//                 separate installer produces, so a host that never ran that installer is not red
+//                 missing case / requiresFile: another file whose own absence forces 'info'
+//                 (never 'missing' or 'stale', and never counted against `ok`) before `file` is
+//                 even looked at - for a record a separate installer produces, so a host that never
+//                 ran that installer is not red
 //   switch        { file }                                  - known 'info' (ON/off), unreadable 'unknown'
 //   env_presence  { var }                                   - always 'info', why says set or not set
 //   (anything else)                                         - 'unknown' - never a crash
@@ -42,8 +47,9 @@
 // or a number (those are never secrets and are useful to see directly).
 //
 // CLI: no flag prints a small table. `--line` prints ONE line when something is missing, stale or
-// unknown, and nothing at all when everything is ok/info. `--json` prints `{ ok, results }`. Exit 0
-// always, except an unknown flag (usage error) - a wiring check never fails its caller.
+// unknown, and nothing at all when everything is ok/info. `--json` prints `{ ok, results }`. Exit 1
+// when checkWiring().ok is false (any missing/stale/unknown) or on an unknown flag (usage error),
+// else 0. `--hook` (the SessionStart caller) always exits 0. checkWiring() itself never throws.
 
 import fs from "node:fs";
 import { homedir } from "node:os";
@@ -160,7 +166,12 @@ function hasValidDefinition(check) {
     case "hook_present":
     case "hook_absent":
       // An empty substring intentionally means "any command hook" through String.includes("").
-      return isNonemptyString(check.file) && isNonemptyString(check.event) && typeof check.substring === "string";
+      // A check may instead (or also) pin an exact `command` string and an exact `matcher`, so a
+      // commented-out, disabled, renamed-file or wrong-matcher hook cannot satisfy it (J2 ruling).
+      return isNonemptyString(check.file) && isNonemptyString(check.event)
+        && (typeof check.substring === "string" || isNonemptyString(check.command))
+        && (check.command === undefined || isNonemptyString(check.command))
+        && (check.matcher === undefined || typeof check.matcher === "string");
     case "json_value":
       return isNonemptyString(check.file) && isNonemptyString(check.path) && Object.hasOwn(check, "expected");
     case "file_exists":
@@ -207,7 +218,7 @@ function evalJsonValue(check, { home, fsImpl, pluginRoot }) {
   return { state: "stale", why: `${check.why} (${detail})` };
 }
 
-function inspectHookGroup(data, event, substring) {
+function inspectHookGroup(data, event, substring, command, matcher) {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return { kind: "unknown" };
   if (!Object.hasOwn(data, "hooks")) return { kind: "known", present: false };
   const hooksSection = data.hooks;
@@ -217,12 +228,19 @@ function inspectHookGroup(data, event, substring) {
   if (!Array.isArray(group)) return { kind: "unknown" };
   for (const entry of group) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !Array.isArray(entry.hooks)) return { kind: "unknown" };
+    // J2 ruling: when the check pins a matcher, a hook under any other matcher does not count - a
+    // delete-guard parked under "Read" never fires for Bash.
+    if (typeof matcher === "string" && entry.matcher !== matcher) continue;
     const list = entry.hooks;
     for (const h of list) {
       if (h === null || typeof h !== "object" || Array.isArray(h)) return { kind: "unknown" };
       const hasCommand = Object.hasOwn(h, "command");
       if ((h.type === "command" && !hasCommand) || (hasCommand && typeof h.command !== "string")) return { kind: "unknown" };
-      if (typeof h.command === "string" && h.command.includes(substring)) return { kind: "known", present: true };
+      if (typeof h.command !== "string") continue;
+      // J2 ruling: an exact `command` pin compares the whole parsed command string, so a
+      // shell-commented, echoed, `true ||`-disabled or renamed-file hook never satisfies it.
+      const hit = typeof command === "string" ? h.command.trim() === command : h.command.includes(substring);
+      if (hit) return { kind: "known", present: true };
     }
   }
   return { kind: "known", present: false };
@@ -238,11 +256,11 @@ function evalHookPresence(check, { home, fsImpl, pluginRoot }, wantPresent) {
       : { state: "ok" };
   }
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
-  const inspected = inspectHookGroup(evidence.value, check.event, check.substring);
+  const inspected = inspectHookGroup(evidence.value, check.event, check.substring, check.command, check.matcher);
   if (inspected.kind === "unknown") return { state: "unknown", why: "could not inspect required hook evidence" };
   const present = inspected.present;
   const eventLabel = check.event ?? "(unspecified event)";
-  const substringLabel = check.substring ?? "(unspecified substring)";
+  const substringLabel = typeof check.command === "string" ? check.command : (check.substring ?? "(unspecified substring)");
   if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (no ${eventLabel} hook in ${file} contains "${substringLabel}")` };
   return present ? { state: "stale", why: `${check.why} (a ${eventLabel} hook in ${file} still contains "${substringLabel}")` } : { state: "ok" };
 }
@@ -258,14 +276,16 @@ function evalFileExistence(check, { home, fsImpl, pluginRoot }, wantPresent) {
 
 function evalFileFresh(check, { home, fsImpl, now, pluginRoot }) {
   const file = resolveCheckPath(check.file, { home, pluginRoot });
-  // J1/J2 seam contract: a check may name a `requiresFile` (e.g. the installer's own
-  // installed.json) that gates the whole check to 'unknown' when absent - a host that never ran
-  // the installer is not red for lacking a record it was never told to produce, but it is not
-  // silently 'ok' either.
+  // J1/J2 seam contract (round-2 amendment, spec.md J2.2: "a host without J1 is not red for that
+  // reason"): a check may name a `requiresFile` (e.g. the installer's own installed.json) that
+  // gates the whole check to 'info' when absent - a host that never ran the installer is not red
+  // for lacking a record it was never told to produce. 'info' (not 'unknown') is required so this
+  // never counts against checkWiring().ok; the wording still says "unknown" because it genuinely is
+  // - installed or not is simply not knowable from this file alone.
   if (typeof check.requiresFile === "string") {
     const gateFile = resolveCheckPath(check.requiresFile, { home, pluginRoot });
     const gate = statEvidence(fsImpl, gateFile);
-    if (gate.kind === "absent") return { state: "unknown", why: `${check.why} (${gateFile} does not exist - not installed on this host)` };
+    if (gate.kind === "absent") return { state: "info", why: `${check.why} (unknown: ${gateFile} does not exist - the timer was never installed on this host)` };
     if (gate.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
   }
   const evidence = statEvidence(fsImpl, file);
@@ -448,11 +468,11 @@ function wsOffActive(opts = {}) {
 }
 
 export function main(argv = process.argv.slice(2), opts = {}) {
-  const known = new Set(["--line", "--json"]);
+  const known = new Set(["--line", "--json", "--hook"]);
   const unknown = argv.filter((a) => !known.has(a));
   if (unknown.length > 0) {
     process.stderr.write(`wiring-check: unknown argument(s): ${unknown.join(", ")}\n`);
-    return 1; // usage error - the only non-zero exit this tool ever returns
+    return 1; // usage error
   }
 
   let result;
@@ -472,6 +492,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // shapes are unchanged; only this return value differs from before. `checkWiring()` itself never
   // changes shape or meaning for its other callers (the janitor's embedded WIRING section calls the
   // library function directly and never runs this CLI, so its own exit code is untouched).
+  // --hook: a Claude Code command hook's non-zero exit drops its stdout (a non-blocking error), so
+  // the SessionStart caller keeps exit 0 and the line still reaches the session; the red exit is
+  // for a human or agent running the CLI directly (bare `--line`, `--json`, or the table).
+  if (argv.includes("--hook")) return 0;
   return result.ok ? 0 : 1;
 }
 
