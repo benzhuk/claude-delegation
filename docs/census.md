@@ -374,3 +374,5 @@ SessionStart line only rides with a rendering goal card — it is computed insid
 (status `blind`, `absent`, or `rejected`) — so a live check of the line must run from a project
 that carries one, such as this repo's own checkout; a scratch directory with no card shows none
 (round-1 review, MAJOR 2).
+
+Codex: the read counter is unsupported on Codex, because Codex hook payloads carry no file path, so Codex sessions' reads are never counted. The SessionStart line still renders in Codex sessions, and its read count there covers Claude sessions on the same host only.
