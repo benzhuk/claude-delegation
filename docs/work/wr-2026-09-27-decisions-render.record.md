@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-decisions-render
 Scope: docs/specs/2026-09-27-decisions-render.md@952c6ef (origin/docs/lane-specs-0925), section Lane 26, decisions-render
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-26-1: build, review, live proof on the decisions page (dry-run plus one publish after a session.md edit), merge on acceptance under the standing grant of 2026-09-26, Closed bullet in docs/decisions/history in the merge commit. No release, chezmoi or install. Never fake owner input.
 Artifact: build/decisions-render-1@4a2b21c279e058f98cc009747ce1162c64d7930f
 Worktree: build/decisions-render-1
@@ -52,6 +52,8 @@ Four numbers: Hours ask to accepted: 1.8h; largest gap 49.1min at 2026-09-27T20:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 1 gap(s) over 30min stalled; 2 waiting-on-agents (80.1 min); agent a08096cc56c5a4a93 silent 31.5 min from 2026-09-27T21:52:18.672Z; 0 unanswered ASKs to skills-o
 Log: 2026-09-27T22:40:17.000Z accepted skills-o artifact 4a2b21c279e058f98cc009747ce1162c64d7930f
+Log: 2026-09-27T22:43:36Z closed skills-o merged to main at a4ae147 after the merged-tree suite passed 2477/2479 with 0 fail on Windows; first real publish d58835f at 2026-09-27T22:43:15Z (18:43 NY) after editing one session.md bullet: exit 0, backup 2026-09-27T22-43-16-196Z.md, title Skills: 9/27 6:43PM Decisions, readback diff against the previous last-render.md touches only the edited This-session bullet and the Sep 27 History bullet whose Summary changed in the merge
+Log: 2026-09-27T22:43:36Z gap skills-o publish renders the working tree and commits only last-render.md, so a lead-edited session.md stayed uncommitted until the lead committed it by hand; follow-up: publish should refuse uncommitted source files under docs/decisions
 
 Observed: round 1 would have made every real --clear-done exit 4 (drift compared against a page still holding the owner input); round 2 fixed that but read the pickup status from the wrong field, so every real --clear-done exited 3; round 3 fixed it with a test on the real receipt shape, and the Opus end-to-end probe (real pickup receipt, real reader and git, fake Notion and push) dropped only the committed owner line and cleared Done. Open minors: M3(b), M3(c), M5, M9 deferred with reasons in review-r2; the Done-line refusal names the item last line rather than the Done line (decisions-render-core.mjs:282, patch in review-r3). No clear-done round runs live: faking owner input on the real page is forbidden, so that path is proved by unit test and the scratch probe only.
 
