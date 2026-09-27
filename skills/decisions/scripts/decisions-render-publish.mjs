@@ -309,16 +309,17 @@ function checkOnMain(execGit, repo) {
 const DIRTY_DECISIONS_MESSAGE = 'publish renders only what origin/main holds. Commit and push '
   + 'the listed files if they are intended, otherwise git restore -- <files>, then rerun.';
 
-/** Parses `git status --porcelain` output into `{status, path}` entries, resolving a rename's
- * `orig -> new` to the new path (the one that would actually need `git restore`). */
+/** Parses `git status --porcelain` output into `{status, paths, rest}` entries. A rename line
+ * (`orig -> new`) keeps BOTH paths — `git restore -- <new>` alone does not undo a staged rename,
+ * the old path is needed too — and `rest` keeps the raw `orig -> new` text for the printed list. */
 function parsePorcelainEntries(output) {
   const lines = String(output ?? '').split(/\r?\n/).filter((l) => l.length > 0);
   return lines.map((line) => {
     const status = line.slice(0, 2);
     const rest = line.slice(3);
     const arrow = rest.indexOf(' -> ');
-    const relPath = arrow === -1 ? rest : rest.slice(arrow + 4);
-    return { status, path: relPath };
+    const paths = arrow === -1 ? [rest] : [rest.slice(0, arrow), rest.slice(arrow + 4)];
+    return { status, paths, rest };
   });
 }
 
@@ -332,13 +333,17 @@ function parsePorcelainEntries(output) {
 function checkDecisionsTreeClean(execGit, repo, { dryRun, writeErr }) {
   let output;
   try {
-    output = execGit(['status', '--porcelain', '--', 'docs/decisions'], repo);
+    output = execGit(['status', '--porcelain', '--untracked-files=all', '--', 'docs/decisions'], repo);
   } catch (e) {
     throw new PublishError(7, `cannot check docs/decisions for a dirty tree: ${e instanceof Error ? e.message : e}`);
   }
-  const entries = parsePorcelainEntries(output).filter((e) => e.path !== 'docs/decisions/last-render.md');
+  // A rename onto or from last-render.md still counts as dirty: drop an entry only when EVERY
+  // path it names (both sides of a rename) is last-render.md — step 8 writes that file in place,
+  // it never renames it away.
+  const entries = parsePorcelainEntries(output)
+    .filter((e) => !e.paths.every((path) => path === 'docs/decisions/last-render.md'));
   if (entries.length === 0) return;
-  const list = entries.map((e) => `  ${e.status} ${e.path}`).join('\n');
+  const list = entries.map((e) => `  ${e.status} ${e.rest}`).join('\n');
   if (dryRun) {
     writeErr(`warning: ${DIRTY_DECISIONS_MESSAGE}\n${list}\n`);
     return;
