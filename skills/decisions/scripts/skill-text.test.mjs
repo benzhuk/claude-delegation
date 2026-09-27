@@ -69,6 +69,13 @@ test('SKILL.md\'s Page rules says every runner or session retitles the page as t
   assert.equal(skillText.includes('no call to `decisions-title.mjs` is added there'), true);
 });
 
+// Round-2 review MINOR-3: a session must know what to do when its own retitle fails.
+test('SKILL.md\'s Page rules says what to do when the retitle exits 2, 3, or 4', () => {
+  assert.equal(skillText.includes('Pass `--topic <Topic>` when neither'), true);
+  assert.equal(skillText.includes('exit 2 names this'), true);
+  assert.match(skillText, /Exit 3 or exit 4 means the\ntitle was not changed/);
+});
+
 test('SKILL.md\'s hand-back section reads decisions-title.mjs meta and passes --title-meta', () => {
   assert.match(skillText, /decisions-title\.mjs meta --page <decisions-page-id> > <scratch>\/title-meta\.json/);
   assert.match(skillText, /decisions-handback\.mjs --decisions \S+ --goals \S+ --repo \. --title-meta \S+/);

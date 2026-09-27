@@ -958,6 +958,13 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
   ], { encoding: 'utf8', cwd: unrelated, env });
   assert.equal(missingDependencyExplicitGoals.status, 0, missingDependencyExplicitGoals.stderr);
   assert.match(missingDependencyExplicitGoals.stdout, /HANDBACK ok\n$/);
+  // MINOR-4 (round-2 review): with the loader gone, the page-match check could not run at all —
+  // a distinct unknown from "no decisions_url configured" — and the fresh title line says so
+  // rather than reading as an unqualified, confident pass.
+  assert.match(
+    missingDependencyExplicitGoals.stdout,
+    /^title ok: .+ \(page unverified: project-config\.mjs not found\)$/m,
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1157,6 +1164,34 @@ test('titleTimeMillis: New Year — a title written 12/31 11:59PM read back the 
   const titleMillis = titleTimeMillis(parsed, lastEdited);
   assert.equal(titleMillis, titleInstant);
   assert.equal(lastEdited - titleMillis, 60 * 1000); // within the 2-minute tolerance
+});
+
+test('titleTimeMillis: spring-forward — 3/8 3:00AM EDT read back a minute later is fresh', () => {
+  const lastEdited = Date.parse('2026-03-08T07:01:00.000Z'); // 3:01AM EDT
+  const parsed = { month: 3, day: 8, hour24: 3, minute: 0 };
+  assert.equal(lastEdited - titleTimeMillis(parsed, lastEdited), 60 * 1000);
+});
+
+test('titleTimeMillis: fall-back — the first 1:30AM (EDT) read back a minute later is fresh', () => {
+  const lastEdited = Date.parse('2026-11-01T05:31:00.000Z'); // 1:31AM EDT
+  const parsed = { month: 11, day: 1, hour24: 1, minute: 30 };
+  assert.equal(lastEdited - titleTimeMillis(parsed, lastEdited), 60 * 1000);
+});
+
+test('titleTimeMillis: fall-back — the repeated 1:30AM (EST) resolves to EDT, so it reads stale (deliberate, fail-closed)', () => {
+  const lastEdited = Date.parse('2026-11-01T06:31:00.000Z'); // 1:31AM EST, second pass
+  const parsed = { month: 11, day: 1, hour24: 1, minute: 30 };
+  assert.equal(lastEdited - titleTimeMillis(parsed, lastEdited), 61 * 60 * 1000);
+});
+
+test('--title-meta across DST: a fresh retitle on fall-back day after 2:00AM EST is title ok', () => {
+  const meta = freshTitleMetaJson({ now: new Date('2026-11-01T07:10:00.000Z'), lastEditedTime: '2026-11-01T07:11:00.000Z' });
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22', '--title-meta', 'title-meta'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /^title ok: Test: 11\/1 2:10AM Decisions$/m);
 });
 
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {

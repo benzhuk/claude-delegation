@@ -35,9 +35,18 @@ const TITLE_RE = /^(.+): (\d{1,2})\/(\d{1,2}) (\d{1,2}):(\d{2})(AM|PM) Decisions
 // A Notion page id, 32 hex chars or the same 32 chars dashed as a UUID (C5: "32-hex or dashed").
 const PAGE_ID_RE = /^[0-9a-fA-F]{32}$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-/** Two page ids name the same page regardless of dashes or letter case. */
+/** Two page ids name the same page regardless of dashes or letter case, and regardless of
+ * whether either side is given as a bare id or as a page URL (a project.json `decisions_url` is
+ * documented as accepting either, docs/specs/2026-09-22-decisions-current.md:40, and
+ * decisions-pickup.mjs's own `normalizedPage` already accepts URLs for registration pages). A
+ * value with no recognizable 32-hex/dashed id anywhere in it is returned unchanged but
+ * dash-stripped and lower-cased, matching this function's prior (id-only) behavior exactly. */
 export function canonicalPageId(id) {
-  return String(id).replace(/-/g, '').toLowerCase();
+  const raw = String(id ?? '').trim();
+  const withoutQuery = raw.split(/[?#]/, 1)[0].replace(/\/$/, '');
+  const last = withoutQuery.slice(withoutQuery.lastIndexOf('/') + 1);
+  const m = /([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(last);
+  return (m ? m[1] : raw).replace(/-/g, '').toLowerCase();
 }
 
 /**

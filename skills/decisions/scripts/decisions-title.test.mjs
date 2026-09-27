@@ -119,6 +119,14 @@ test('canonicalPageId: dashes and letter case never matter', () => {
   assert.equal(canonicalPageId(dashed.toUpperCase()), canonicalPageId(plain));
 });
 
+// Round-2 review MINOR-2: `decisions_url` is documented as accepting a page URL, not only a bare
+// or dashed id (docs/specs/2026-09-22-decisions-current.md:40), and decisions-pickup.mjs's own
+// `normalizedPage` already accepts the URL form for registration pages.
+test('canonicalPageId: the URL form of a page id resolves to the same id as the bare form', () => {
+  const url = 'https://www.notion.so/Skills-3e1da11277a18174bccfea187d5c3972?pvs=4';
+  assert.equal(canonicalPageId(url), '3e1da11277a18174bccfea187d5c3972');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // C3: lookupRegisteredTopic
 // ─────────────────────────────────────────────────────────────────────────────

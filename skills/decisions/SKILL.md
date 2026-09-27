@@ -125,7 +125,10 @@ Every runner or session that edits the decisions page runs
 of the same job, right after its last edit, so the owner sees the topic and the last-change
 time in the Notion toolbar without opening the page (not checked). This is a write path's own
 step, not the pickup's: `decisions-pickup.mjs` never edits the page or clears Done (above), so
-no call to `decisions-title.mjs` is added there.
+no call to `decisions-title.mjs` is added there. Pass `--topic <Topic>` when neither the page's
+registration nor its current title supplies one (exit 2 names this). Exit 3 or exit 4 means the
+title was not changed: report it, and the hand-back check below will block on the stale title
+(not checked).
 
 ## Reading answers
 

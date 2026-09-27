@@ -27,6 +27,12 @@ try {
 /** Thrown for anything that leaves this check unable to trust its inputs (exit 3, never a crash). */
 class BlindError extends Error {}
 
+// A distinct "cannot tell" for `readDecisionsUrl`, never conflated with the known, stated "no
+// decisions_url configured" (a bare `null`) — round-2 review MINOR-4, the twin of round-2 R2-1
+// below (`defaultReadGoalsParentPage`) for the goals mirror. Kept module-private:
+// `titleCheckLine` reads it, no test needs to name it.
+const DECISIONS_URL_UNVERIFIABLE = Symbol('decisions-url-unverifiable');
+
 // The same four statuses `decisions-read.mjs` treats as actionable (computeExitCode) — a
 // decision that needs a reaction, quoted here rather than re-derived, since the reader owns
 // the vocabulary and this check only asks "did the reader flag anything to react to".
@@ -141,7 +147,22 @@ function nyOffsetMinutesAt(utcMillis) {
 }
 
 /** The UTC instant (ms) for a given America/New_York wall-clock time. Two passes resolve the
- * offset (DST at the target date, not "now") without pulling in a timezone database. */
+ * offset (DST at the target date, not "now") without pulling in a timezone database.
+ *
+ * The fall-back hour (1:00-1:59AM local, repeated once as clocks move from EDT to EST) is
+ * ambiguous by construction: the same wall-clock reading names two different UTC instants. This
+ * resolver's two-pass fixed point always settles on the earlier of the two (the EDT reading),
+ * because the first guess uses no offset at all, so the loop converges toward whichever offset
+ * is in effect at that near-UTC guess -- consistently the earlier, larger (EDT, UTC-4) one. That
+ * is deliberate and fail-closed for this file's one caller: a retitle made during the *second*,
+ * repeated instance of that hour (1:00-1:59AM EST) reads as up to ~61 minutes stale until the
+ * wall clock reaches 2:00AM EST, because `titleTimeMillis` below computes the earlier (EDT)
+ * instant for that same wall time and compares it against the true, later `last_edited_time`. The
+ * alternative (resolving to the later, EST instant) would instead let a title genuinely set at
+ * 1:30AM EDT pass a hand-back check run a minute later at 1:31AM EST as if it were fresh, by
+ * silently skipping 61 minutes of margin from checked to unchecked. Between "blocks a fresh
+ * retitle for up to an hour once a year" and "an unnoticed pass-through" this contract, and this
+ * resolver, deliberately choose the former. See decisions-handback.test.mjs's "fall-back" tests. */
 function nyWallTimeToUtcMillis(year, month, day, hour, minute) {
   let guess = Date.UTC(year, month - 1, day, hour, minute, 0);
   for (let i = 0; i < 2; i += 1) {
@@ -176,9 +197,11 @@ export function titleTimeMillis(parsed, lastEditedMillis) {
  * which is a normal (if blocking) result, not a defect in an input this check was given.
  */
 function titleCheckLine(args, readFile, readDecisionsUrl) {
-  const decisionsUrl = readDecisionsUrl(args.repo);
+  const decisionsUrlResult = readDecisionsUrl(args.repo);
+  const pageUnverified = decisionsUrlResult === DECISIONS_URL_UNVERIFIABLE;
+  const decisionsUrl = pageUnverified ? null : decisionsUrlResult;
   if (!args.titleMeta) {
-    const pageHint = decisionsUrl || '<id>';
+    const pageHint = decisionsUrl ? canonicalPageId(decisionsUrl) : '<id>';
     return {
       line: `TITLE unchecked: run decisions-title.mjs meta --page ${pageHint} and pass --title-meta`,
       blocks: true,
@@ -215,7 +238,11 @@ function titleCheckLine(args, readFile, readDecisionsUrl) {
   if (staleBy > TITLE_STALE_TOLERANCE_MS) {
     return { line: `TITLE stale: ${meta.title} vs last edit ${meta.last_edited_time}`, blocks: true };
   }
-  return { line: `title ok: ${meta.title}`, blocks: false };
+  // MINOR-4: when this project's decisions_url could not even be determined (no loader beside
+  // this skill), the page-match check above was skipped, not satisfied -- say so, rather than
+  // rendering that unknown as a plain, confident "title ok".
+  const suffix = pageUnverified ? ' (page unverified: project-config.mjs not found)' : '';
+  return { line: `title ok: ${meta.title}${suffix}`, blocks: false };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,15 +390,24 @@ function defaultReadGoalsParentPage(repo) {
 }
 
 /**
- * The repo's configured `decisions_url`, or `null` when there is none or it cannot be
- * determined (no loader beside this skill, or an unreadable/unparsable project.json) -- the
- * title-meta page-match check is skipped rather than blind in that case (a judgment call: unlike
- * the goals mirror, an unresolved decisions_url is not itself evidence of a defect worth
- * stopping the hand-back for; the title's own off-pattern/stale checks still run either way).
+ * The repo's configured `decisions_url`, or `null` when it is known and simply absent (an
+ * unreadable/unparsable project.json also returns `null` here — the title-meta page-match check
+ * is skipped rather than blind in that case; a judgment call: unlike the goals mirror, an
+ * unresolved decisions_url is not itself evidence of a defect worth stopping the hand-back for,
+ * and the title's own off-pattern/stale checks still run either way).
+ *
+ * Round-2 review MINOR-4: when the loader itself cannot be found at all
+ * (`tryLoadProjectConfigModule()` returns null — the copied-skill layout with the loader absent,
+ * the twin of R2-1's same case for the goals mirror), that is a genuine unknown, not a stated "no
+ * decisions_url configured" — returning a plain `null` there rendered an unknown as a confident
+ * "not configured" and let a wrong-page meta file through unchallenged in exactly that layout.
+ * `titleCheckLine` resolves the distinction: the page-match check is still skipped (this was
+ * already the accepted, non-blind outcome for "not configured"), but the `title ok` line it
+ * prints then says so, rather than reading as a plain, unqualified pass.
  */
 function defaultReadDecisionsUrl(repo) {
   const mod = tryLoadProjectConfigModule();
-  if (!mod) return null;
+  if (!mod) return DECISIONS_URL_UNVERIFIABLE;
   const { config, source } = mod.loadProjectConfig(repo);
   if (source === 'unreadable') return null;
   return config.decisions_url || null;
