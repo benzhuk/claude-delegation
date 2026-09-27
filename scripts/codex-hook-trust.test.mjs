@@ -247,6 +247,39 @@ test('MERGE with a marker updates its own handler without ever matching the OTHE
   assert.equal(updated.json.hooks.SessionStart[0].hooks[0].command, ORCA_HOOKS.hooks.SessionStart[0].hooks[0].command);
 });
 
+// review round 1, MAJOR 1: an unmatched PreToolUse group fires on every Codex tool call, not just Bash.
+test('the delete-guard group written by mergeHooksJson carries matcher: "Bash"', () => {
+  const { json, placements } = mergeHooksJson(
+    {}, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  assert.equal(json.hooks.PreToolUse[0].matcher, 'Bash');
+  assert.equal(placements[0].matcher, 'Bash');
+  assert.equal(
+    codexHookHash(placements[0].handler, 'PreToolUse', placements[0].matcher),
+    codexHookHash(placements[0].handler, 'PreToolUse', 'Bash'),
+    'the placement carries the matcher the trust hash must be computed with',
+  );
+  // The note-delivery events carry no matcher key at all — this fix must not add one.
+  const notes = mergeHooksJson({}, '/x/hooks/multi-codex-hook.mjs');
+  for (const event of Object.keys(notes.json.hooks)) {
+    assert.equal(notes.json.hooks[event][0].matcher, undefined, `${event} group must stay unmatched`);
+  }
+});
+
+test('a guard group that exists without a matcher (an older install) gains one, with changed: true', () => {
+  const unmatched = {
+    hooks: {
+      PreToolUse: [{ hooks: [{ type: 'command', command: `${process.execPath} /x/hooks/delete-guard.mjs`, timeout: 10 }] }],
+    },
+  };
+  const { json, changed } = mergeHooksJson(
+    unmatched, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  assert.equal(changed, true);
+  assert.equal(json.hooks.PreToolUse[0].matcher, 'Bash');
+  assert.equal(json.hooks.PreToolUse.length, 1, 'repaired in place, not a second group');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The config.toml edit
 // ─────────────────────────────────────────────────────────────────────────────

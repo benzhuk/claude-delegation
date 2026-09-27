@@ -172,6 +172,8 @@ test('D2: --codex-hooks-only wires the delete-guard automatically (or cleanly re
     assert.equal(json.codexDeleteGuardHooks[0].wroteHooks, true);
     const hooks = JSON.parse(fs.readFileSync(path.join(codex, 'hooks.json'), 'utf8'));
     assert.ok(hooks.hooks.PreToolUse[0].hooks[0].command.includes('delete-guard.mjs'));
+    // review round 1, MAJOR 1: an unmatched group fired on every Codex tool, not just Bash.
+    assert.equal(hooks.hooks.PreToolUse[0].matcher, 'Bash');
     // The note-delivery script's own groups (SessionStart etc.) are untouched by the guard landing in
     // the same file — the two scripts' groups never collide.
     assert.ok(

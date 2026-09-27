@@ -399,6 +399,16 @@ export const CODEX_EVENTS = [
  * Ten seconds: long enough for a cold `node` start on a loaded box, short enough that a hung hook
  * cannot sit on the very approval prompt this guard exists to preempt.
  *
+ * `matcher: 'Bash'` (review round 1, MAJOR 1): D1's `decide()` reads `tool_input.command` whatever the
+ * tool, so an unmatched group fires on EVERY Codex tool call — `apply_patch` included, whose
+ * `tool_input.command` is the entire patch text (codex-rs/core/src/tools/handlers/apply_patch.rs:459-463)
+ * — and any doc, test or script edit that merely mentions a delete verb gets refused. Codex treats
+ * `matcher: "Bash"` as an exact string match (hooks/src/events/common.rs:169-173) and the shell tool is
+ * always named `Bash`, Windows included (core/src/tools/hook_names.rs:53-56); `apply_patch` only aliases
+ * `Write`/`Edit` (hook_names.rs:33-38), so it and every MCP tool are excluded. `codexHookHash` already
+ * folds the matcher into the trust hash (below), and `mergeHooksJson` writes and repairs it.
+ *
+
  * The deny shape is ESTABLISHED, not assumed (see docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md
  * for the full writeup): Codex's own upstream source (openai/codex, `codex-rs/hooks/src/events/
  * pre_tool_use.rs`) hashes and matches the exact JSON `hooks/agent-dispatch-guard.mjs` already emits for
@@ -411,7 +421,7 @@ export const CODEX_EVENTS = [
  * probe delete and being refused) rather than a static confirmation; that is tracked as a follow-up in the
  * gap doc, not a gate on shipping the wiring.
  */
-export const CODEX_DELETE_GUARD_EVENTS = [{ event: 'PreToolUse', timeout: 10 }];
+export const CODEX_DELETE_GUARD_EVENTS = [{ event: 'PreToolUse', timeout: 10, matcher: 'Bash' }];
 
 /**
  * Timeouts our handler has shipped with and no longer writes, per event.
@@ -505,13 +515,13 @@ export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, node
   const placements = [];
   let changed = false;
 
-  for (const { event, timeout } of events) {
+  for (const { event, timeout, matcher } of events) {
     const groups = Array.isArray(json.hooks[event]) ? json.hooks[event].map((g) => ({ ...g })) : [];
     let groupIndex = groups.findIndex((g) => Array.isArray(g?.hooks) && g.hooks.some((h) => isOurHandler(h, marker)));
     let handlerIndex = 0;
 
     if (groupIndex === -1) {
-      groups.push({ hooks: [{ type: 'command', command, timeout }] });
+      groups.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command, timeout }] });
       groupIndex = groups.length - 1;
       changed = true;
     } else {
@@ -523,6 +533,13 @@ export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, node
         changed = true;
       }
       groups[groupIndex] = { ...groups[groupIndex], hooks };
+      // A group we placed ourselves earlier (before this fix, or by an older version) but that is
+      // missing the matcher we now require: repair it in place. Never touches a matcher we did not ask
+      // for — only fills in ours when it is absent or wrong.
+      if (matcher && groups[groupIndex].matcher !== matcher) {
+        groups[groupIndex] = { ...groups[groupIndex], matcher };
+        changed = true;
+      }
     }
 
     json.hooks[event] = groups;

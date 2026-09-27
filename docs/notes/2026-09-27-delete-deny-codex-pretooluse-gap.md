@@ -70,6 +70,22 @@ source directly:
   guarded command from running (the test's own marker-file/`.git`-directory checks never appear), not
   merely that the hook process is invoked.
 
+**3. On Codex, the guard only denies calls that carry `agent_id` — top-level Codex sessions are not
+guarded** (review round 1, MAJOR 3). D1's `decide()` passes the call through (logs `passed-lead`, does not
+deny) when `agent_id === undefined` (wt-d1 `hooks/delete-guard.mjs:396-398`) — by design, so a human's own
+watched pane keeps today's permission prompt instead of being silently refused. On Claude that field is
+present exactly on a dispatched subagent's tool call. On Codex it is narrower: Codex fills `agent_id` only
+from `thread_spawn_subagent_hook_context` (`codex-rs/core/src/hook_runtime.rs:199`), and the field is
+dropped entirely (not sent as `null`) when there is no subagent context
+(`codex-rs/hooks/src/schema.rs:282-285`, `skip_serializing_if = "Option::is_none"`). So the guard denies a
+**Codex subagent's** (`spawn_agent`) recursive delete, but a **top-level Codex session** — a `codex exec`
+run, or a lane lead's own Codex pane — gets no `agent_id`, logs `passed-lead`, and the command runs. That
+top-level case is exactly the "unwatched permission prompt" this whole effort exists to close for a
+`codex exec` builder or a skills-a pane running unattended: the wiring here does not yet close it. Probe,
+run against a scratch `CODEX_HOME` with D1's script present: a top-level payload
+`{"tool_name":"Bash","tool_input":{"command":"mkdir -p x && rm -rf x"}}` (no `agent_id`) printed nothing,
+exited 0, and logged `passed-lead`; the same payload with `agent_id` set was denied.
+
 This is stronger evidence than the "Live check when possible" language in `pack/spec.md` Territory D2
 describes as the validating step — it is the actual, authoritative implementation and its own test suite,
 not an inference from a compiled binary's string table. The spec's primary instruction ("find it in the
@@ -78,14 +94,21 @@ the absence of separately published hook-contract docs.
 
 ## What was NOT proven, originally (superseded by the above)
 
-Earlier in this same build, before finding the upstream source checkout, this section said: no
-hook-contract documentation ships with the installed `@openai/codex@0.157.0` package, and a scan of the
-compiled `codex.exe`'s embedded string table found a distinct approval-outcome vocabulary
-(`approved`/`denied`/`rejection`/`timed_out`/`abort`, `HookRunSummary`, `ExecApprovalRequestEvent`) but
-neither `permissionDecision` nor `hookSpecificOutput` as literal strings — circumstantial, and explicitly
-called "not a disproof" at the time. That scan's inconclusiveness is now explained: a compiled binary's
-string table need not contain the literal JSON key names a `serde` deserializer matches structurally, so
-the absence proved nothing either way. The upstream source settles it directly.
+Earlier in this same build, before finding the upstream source checkout, this section reported a string
+scan of the installed `codex.exe` and said it found neither `permissionDecision` nor `hookSpecificOutput`
+as literal strings, and explained that as a compiled binary "need not contain the literal JSON key names a
+`serde` deserializer matches structurally." **Both parts of that were wrong** (review round 1, MINOR 1):
+serde's derive macros do embed field names as literals, and a corrected scan of the same binary finds them.
+Measured directly against the installed `@openai/codex@0.157.0` binary (path:
+`…/@openai/codex/…/bin/codex.exe`, found via `codex --version` → `0.157.0`), `grep -c -a -F` gives
+`permissionDecision` 5 hits, `hookSpecificOutput` 8 hits, and the literal string `"Command blocked by
+PreToolUse hook"` 1 hit. That ties the upstream source reading to the exact installed version: the source
+workspace itself is checked out at `version = "0.0.0"` in `codex-rs/Cargo.toml:159`, so it cannot be
+matched to `0.157.0` by version number alone, and the binary scan is what closes that gap. The upstream
+checkout used for this note lives at `%TEMP%/codex-hook-source` (commit
+`7dae8c53d97e61cd774e4d6bcca5243c29ca615c`) — a temporary research artifact on this build's host, not part
+of this repository and not guaranteed to persist; the durable citations in the owned files and this note
+are to the commit hash and the specific test/function names, not to that path.
 
 ## What is still outstanding
 
@@ -105,20 +128,41 @@ flag and no UNVERIFIED marking in the code comments. The doc comments in both ow
 upstream test/function names as the durable evidence, rather than depending on the local checkout path
 (a temporary research artifact, not part of this repository) remaining available.
 
+This decision is about the deny **shape**, not the guard's **reach**: per item 3 above, the wiring as
+delivered only denies a Codex subagent's recursive delete, not a top-level Codex session's. That
+narrower-than-Claude reach is shipped as-is in this territory (D2's Owns is the wiring, not D1's `decide()`
+scoping rule), and is named as an open decision for the lead below rather than silently shipped as if it
+matched Claude's coverage.
+
+**Open decision for the lead:** should a top-level Codex lane (a `codex exec` builder, a skills-a pane) be
+denied too, not just a Codex subagent? On the spec's own rule for ambiguity ("the reading that refuses
+more"), probably yes — but that is a change to D1's `decide()` contract (for example, a CLI argument that
+treats every Codex caller as if it had an `agent_id`, which D2 would then need to append to the Codex
+command), and must not be made inside D2 alone.
+
 ## Follow-ups (not this territory's Owns — flagging, not doing)
 
-1. **The live end-to-end check.** From a Codex session (`skills-a`'s, or a scratch `codex exec` against a
-   throwaway `CODEX_HOME`) with `node scripts/mirror-shared-skills.mjs --codex-hooks-only --codex-home
-   <scratch>` applied (once `hooks/delete-guard.mjs` exists — D1's build), attempt the same probe D1
-   item 8 uses (`mkdir -p SCRATCH/dg && rm -rf SCRATCH/dg`) and record: did the tool call actually not
-   run, what did Codex's turn transcript show, and how long it took. Quote the result the way D1 item 8
-   asks for its own live check. Valuable confirmation, no longer a blocker for shipping the wiring.
+1. **The live end-to-end check — must be run BY a Codex subagent, not a top-level session** (revised,
+   review round 1 MAJOR 3). Per item 3 above, `agent_id` is only present on a Codex `spawn_agent`
+   subagent's tool call, so a top-level `codex exec` probe is **expected to pass, not be refused** — that
+   result would not mean the deny shape is broken, and running the probe's actual delete at the top level
+   is not safe until a refusal has first been demonstrated from a subagent. Correct procedure: from a lead
+   Codex session, use `spawn_agent` to dispatch a child, and have that child (not the lead) run
+   `mkdir -p SCRATCH/dg && rm -rf SCRATCH/dg` against a scratch `CODEX_HOME` that has
+   `node scripts/mirror-shared-skills.mjs --codex-hooks-only --codex-home <scratch>` applied (once
+   `hooks/delete-guard.mjs` exists — D1's build). Record whether the child's tool call was refused, what
+   the transcript showed, and how long it took. Separately, and only as a documented negative control, a
+   top-level `codex exec` attempt against the SAME scratch home may run the probe (in a directory that is
+   safe to actually delete) and is expected to succeed — i.e. NOT be refused — which is itself the
+   confirmation of item 3's scope finding, not a failure.
 2. **SKILL.md.** The spec's original fallback text said "the SKILL.md sentence says Codex support is
-   pending" for the UNVERIFIED case; that case no longer applies. `SKILL.md` is outside D2's `Owns:` list
+   pending" for the UNVERIFIED case; that case no longer applies, but "Codex delete-guard support is
+   wired" (this build's earlier draft of this follow-up) overstates it too — it reads as full parity with
+   Claude's coverage, which item 3 shows is not the case. `SKILL.md` is outside D2's `Owns:` list
    (`pack/brief-D2.md` item 5/6), so it is not touched here. Whoever integrates this should add a sentence
-   to `skills/multi/SKILL.md` (or wherever the plugin documents Codex parity) saying Codex delete-guard
-   support is wired and rides along with `--codex-hooks`, pending only the live end-to-end confirmation
-   above.
+   to `skills/multi/SKILL.md` (or wherever the plugin documents Codex parity) saying: "Codex: wired for
+   Codex subagents; top-level Codex lanes are not guarded" — and resolve the open decision above (this
+   note's "Decision" section) before deciding whether that sentence needs revisiting.
 3. **D1's item 4 (live `agent_id` confirmation).** The upstream source's `command_input_json()` (cited
    above) already shows Codex's PreToolUse payload carries `agent_id`/`agent_type` when the caller is a
    subagent, sourced from `Option<SubagentHookContext>` — this corroborates D1's scoping-by-caller design
