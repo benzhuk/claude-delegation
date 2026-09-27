@@ -1,0 +1,6 @@
+kind	index	startUtc	endUtc	exit	log	note
+file	7	2026-09-26T23:10:50.7613379Z	2026-09-26T23:11:31.0148883Z	0	C:\Users\benzh\AppData\Local\Temp\gate-under-load-0926\postchange-batch-2\postchange-loaded-07.log	suitePid=71244
+file	8	2026-09-26T23:11:31.0298864Z	2026-09-26T23:12:07.4821058Z	0	C:\Users\benzh\AppData\Local\Temp\gate-under-load-0926\postchange-batch-2\postchange-loaded-08.log	suitePid=71244
+file	9	2026-09-26T23:12:07.4889034Z	2026-09-26T23:12:48.8794609Z	0	C:\Users\benzh\AppData\Local\Temp\gate-under-load-0926\postchange-batch-2\postchange-loaded-09.log	suitePid=71244
+file	10	2026-09-26T23:12:48.8811717Z	2026-09-26T23:13:29.2289229Z	0	C:\Users\benzh\AppData\Local\Temp\gate-under-load-0926\postchange-batch-2\postchange-loaded-10.log	suitePid=71244
+suite	0	2026-09-26T23:10:49.9854259Z	2026-09-26T23:14:22.6036158Z	0	C:\Users\benzh\AppData\Local\Temp\gate-under-load-0926\postchange-batch-2\suite.stdout.log	pid=71244
