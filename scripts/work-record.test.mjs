@@ -9,7 +9,7 @@ import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 import {
   STATUSES, WITHDRAWABLE_STATUSES, FINDING_CODES, parseRecord, validateRecord, listRecords, formatLogLine, checkRecordSet,
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
-  isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs,
+  isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs, closeRecord, parseCloseArgs,
   STRICT_FROM, MODEL_TIER_TOKENS, countedModelTiers, isStrictRecord, checkMeasureTruthRules,
 } from "./work-record.mjs";
 
@@ -210,9 +210,10 @@ test("formatLogLine with and without a note", () => {
   assert.equal(formatLogLine("2026-09-21T10:00:00Z", "owned", "t1", ""), "Log: 2026-09-21T10:00:00Z owned t1");
 });
 
-test("STATUSES includes rejected and withdrawn and has eight values (withdraw-status-1, R1)", () => {
-  assert.equal(STATUSES.length, 8);
+test("STATUSES includes rejected, closed, and withdrawn", () => {
+  assert.equal(STATUSES.length, 9);
   assert.ok(STATUSES.includes("rejected"));
+  assert.ok(STATUSES.includes("closed"));
   assert.ok(STATUSES.includes("withdrawn"));
 });
 
@@ -529,12 +530,21 @@ test("seam S3: accepted-without-check never fires for a non-code Artifact: path 
   assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
 });
 
-test("accepted-without-check: every record already in this repo's docs/work/ is grandfathered (zero hits)", () => {
+test("accepted-without-check: existing accepted records remain grandfathered", () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dir = path.join(repoRoot, "docs", "work");
-  const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".record.md")).filter((f) =>
-    codes(validateRecord(parseRecord(fs.readFileSync(path.join(dir, f), "utf8")))).includes("accepted-without-check"));
+  const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".record.md")).filter((f) => {
+    const record = parseRecord(fs.readFileSync(path.join(dir, f), "utf8"));
+    return record.fields.status === "accepted" && codes(validateRecord(record)).includes("accepted-without-check");
+  });
   assert.deepEqual(hits, []);
+});
+
+test("validateRecord: closed fixtures require the exact closed merge receipt", () => {
+  for (const extra of [[], ["Log: 2026-09-27T18:00:00Z closed someone-else merge aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]) {
+    const record = parseRecord(mkRecordText({ Status: "closed", Artifact: "docs/work-record.md", Evidence: "docs/work-record.md", Opened: "2026-09-27T17:00:00Z" }, extra));
+    assert.ok(codes(validateRecord(record, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+  }
 });
 
 // Named failure case 3 (T1 brief): "fresh worker on an obsolete fact" -> scope-drift, on a
@@ -2389,6 +2399,32 @@ function makeWithdrawFixture(overrides = {}, extraLines = []) {
 }
 
 const WITHDRAW_ARGS = { by: "lead-session-9", at: "2026-09-26T18:00:00Z" };
+
+test("closeRecord: accepted record closes only after its merge is on main, and writes the full merge receipt", () => {
+  const f = makeAcceptanceFixture();
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  const result = closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha.slice(0, 12), main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") });
+  assert.equal(result.status, "closed");
+  assert.equal(result.merge, f.sha);
+  const parsed = parseRecord(fs.readFileSync(path.join(f.repo, f.record), "utf8"));
+  assert.equal(parsed.fields.status, "closed");
+  assert.deepEqual(codes(validateRecord(parsed, { repoRoot: f.repo })), []);
+  assert.deepEqual(parsed.log.at(-1), { at: "2026-09-24T10:01:00.000Z", status: "closed", owner: "lead", note: `merge ${f.sha}` });
+});
+
+test("closeRecord: rejects non-accepted, unmerged, repeated, and stale closure attempts without changing the record", () => {
+  const f = makeAcceptanceFixture();
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD" }), /only accepted/);
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "does-not-exist", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") }), /not an ancestor/);
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", now: new Date("2026-09-24T10:01:00Z") }), /--at is required/);
+  closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") });
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") }), /already closed/);
+  const parsed = parseCloseArgs(["close", "--record", "docs/work/a.record.md", "--repo", ".", "--merge", "abc", "--at", "2026-09-24T10:01:00Z"]);
+  assert.equal(parsed.main, "origin/main");
+});
 
 test("withdrawRecord: transition table — each of rejected/blocked/runnable/owned may be withdrawn, exactly one Log line each", () => {
   for (const status of WITHDRAWABLE_STATUSES) {

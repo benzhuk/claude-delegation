@@ -8,7 +8,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked", "withdrawn"];
+export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "closed", "blocked", "withdrawn"];
 // R2 (withdraw-status-1): the only statuses `withdrawRecord` may withdraw FROM. `withdrawn`
 // itself is terminal and one-way - never in this set, never reachable a second time, never
 // reachable from `accepted`.
@@ -210,7 +210,9 @@ export function validateRecord(record, opts = {}) {
     });
   }
 
-  const isAccepted = fields.status === "accepted";
+  // A closed record retains every proof required for acceptance. Closing only records
+  // the merge after that proof; it must never provide a back door around it.
+  const isAccepted = fields.status === "accepted" || fields.status === "closed";
 
   if (isAccepted && (fields.artifact === undefined || fields.artifact === "none")) {
     findings.push({
@@ -313,6 +315,20 @@ export function validateRecord(record, opts = {}) {
       level: "finding",
       message: "Status: accepted but no evidence path is inside the repo",
     });
+  }
+
+  if (fields.status === "closed") {
+    const closedThroughCode = log.some((l) => {
+      if ((l.status ?? "").toLowerCase() !== "closed" || l.owner !== fields.owner) return false;
+      return /^merge[ \t]+[0-9a-f]{40}$/i.test((l.note ?? "").trim());
+    });
+    if (!closedThroughCode) {
+      findings.push({
+        code: "accepted-without-check",
+        level: "finding",
+        message: "Status: closed but no Log: closed <Owner> merge <40-hex> line records the merged commit",
+      });
+    }
   }
 
   // stale-result-candidate (RT-8, A4): an owner-change Log line is one whose owner differs
@@ -1542,6 +1558,69 @@ export function withdrawRecord(opts = {}) {
   return { ok: true, work: record.fields.work, path: absPath, status: "withdrawn", supersededBy };
 }
 
+/**
+ * close is the sole code-mediated transition from accepted to closed. It resolves the
+ * supplied merge revision to a full commit id and proves it is already on main; no fetch
+ * occurs because closure records the main the caller actually inspected.
+ * opts: { recordPath, repoRoot?, merge, at, main?, fsImpl, execImpl, now? }
+ */
+export function closeRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+  const execImpl = opts.execImpl ?? execFileSync;
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+  const merge = typeof opts.merge === "string" ? opts.merge.trim() : "";
+  if (!merge) throw acceptanceError("--merge is required", "merge-missing");
+  let repoRoot;
+  let repoReal;
+  try {
+    repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
+    repoReal = fsImpl.realpathSync(repoRoot);
+  } catch (error) {
+    throw acceptanceError(`repository is unreadable: ${error.message}`);
+  }
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  const record = parseRecord(text);
+  if (record.fields.status === "closed") throw acceptanceError("record is already closed", "already-closed");
+  if (record.fields.status !== "accepted") {
+    throw acceptanceError(`cannot close from Status: \"${record.fields.status ?? "<missing>"}\" - only accepted may be closed`, "not-accepted");
+  }
+  if (validateRecord(record, { repoRoot, fsImpl, execImpl }).some((finding) => finding.level === "finding")) {
+    throw acceptanceError("accepted record does not satisfy closure validation", "invalid-accepted");
+  }
+  let fullMerge;
+  try {
+    fullMerge = String(execImpl("git", ["rev-parse", "--verify", `${merge}^{commit}`], { cwd: repoRoot, encoding: "utf8" })).trim();
+  } catch {
+    throw acceptanceError(`--merge is not a commit available in --repo: ${merge}`, "merge-missing");
+  }
+  const main = opts.main ?? "origin/main";
+  try {
+    execImpl("git", ["merge-base", "--is-ancestor", fullMerge, main], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    throw acceptanceError(`--merge ${fullMerge} is not an ancestor of --main ${main}`, "merge-not-ancestor");
+  }
+  const atInput = typeof opts.at === "string" ? opts.at.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(atInput)) {
+    throw acceptanceError(`--at is required and must be an ISO-8601 timestamp with a zone: ${opts.at ?? "<missing>"}`, "invalid-at");
+  }
+  const atDate = new Date(atInput);
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  const nowMs = (opts.now ?? new Date()).getTime();
+  if (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, nowMs - 600000) || atDate.getTime() > nowMs + 300000) {
+    throw acceptanceError(`invalid --at: ${opts.at} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
+  }
+  const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})accepted([ \t]*)$/mi;
+  if (!statusRe.test(text)) throw acceptanceError("could not find a Status: accepted header line to close");
+  const lines = text.split(/\r?\n/);
+  const blankIdx = lines.findIndex((line) => line.trim() === "");
+  const insertAt = blankIdx === -1 ? lines.length : blankIdx;
+  lines.splice(insertAt, 0, formatLogLine(atDate.toISOString(), "closed", record.fields.owner ?? "", `merge ${fullMerge}`));
+  const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}closed${post}`);
+  const absPath = path.resolve(repoRoot, opts.recordPath);
+  fsImpl.writeFileSync(absPath, updated);
+  return { ok: true, work: record.fields.work, path: absPath, status: "closed", merge: fullMerge };
+}
+
 export function parseWithdrawArgs(argv) {
   if (argv[0] !== "withdraw") throw acceptanceError("expected command: withdraw");
   const recordPath = argv[1];
@@ -1579,6 +1658,18 @@ export function parseAcceptanceArgs(argv) {
   return opts;
 }
 
+export function parseCloseArgs(argv) {
+  if (argv[0] !== "close") throw acceptanceError("expected command: close");
+  const opts = { command: "close", main: "origin/main" };
+  const names = new Map([["--record", "recordPath"], ["--repo", "repoRoot"], ["--merge", "merge"], ["--at", "at"], ["--main", "main"]]);
+  for (let i = 1; i < argv.length; i += 2) {
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+  }
+  return opts;
+}
+
 export function acceptanceMain(argv = process.argv.slice(2), io = process) {
   try {
     // withdraw (R2) has its own positional-record-path shape, checked and dispatched before
@@ -1588,6 +1679,12 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
     if (argv[0] === "withdraw") {
       const { command, ...opts } = parseWithdrawArgs(argv);
       const result = withdrawRecord(opts);
+      io.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+    if (argv[0] === "close") {
+      const { command, ...opts } = parseCloseArgs(argv);
+      const result = closeRecord(opts);
       io.stdout.write(`${JSON.stringify(result)}\n`);
       return 0;
     }

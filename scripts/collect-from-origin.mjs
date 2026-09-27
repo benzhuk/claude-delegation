@@ -14,7 +14,7 @@
 // exception is the `git fetch` this CLI is itself specified to run (skip with --no-fetch).
 // Exit 0 always, including a failed fetch (stderr warning, then it proceeds with local refs).
 //
-// node scripts/collect-from-origin.mjs [--repo <dir>] [--main <ref>] [--no-fetch] [--json] [--skip <name>]...
+// node scripts/collect-from-origin.mjs [--repo <dir>] [--main <ref>] [--no-fetch] [--json] [--skip <name>]... [--only-prefix <prefix>]...
 
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -32,7 +32,7 @@ const tryGit = (args, cwd) => { try { return git(args, cwd); } catch { return nu
 const ok = (args, repo) => { try { git(args, repo); return true; } catch (err) { return err && err.status === 1 ? false : null; } };
 
 export function parseArgs(argv) {
-  const out = { repo: null, main: "origin/main", noFetch: false, json: false, skip: [] };
+  const out = { repo: null, main: "origin/main", noFetch: false, json: false, skip: [], onlyPrefix: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--repo") out.repo = argv[++i];
@@ -40,6 +40,7 @@ export function parseArgs(argv) {
     else if (a === "--no-fetch") out.noFetch = true;
     else if (a === "--json") out.json = true;
     else if (a === "--skip") out.skip.push(argv[++i]);
+    else if (a === "--only-prefix") out.onlyPrefix.push(argv[++i]);
   }
   return out;
 }
@@ -156,9 +157,14 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const mainVerified = refExists(repo, mainFull);
     if (!mainVerified) warn(`collect-from-origin: --main ref "${args.main}" not found locally; merged and diff checks are skipped`);
     const skipSet = new Set(["main", "HEAD", ...args.skip]);
+    const candidates = listOriginBranches(repo, skipSet);
+    const prefixes = args.onlyPrefix;
+    const listedBranches = prefixes.length ? candidates.filter((branch) => prefixes.some((prefix) => branch.name.startsWith(prefix))) : candidates;
+    const skippedOutsidePrefix = candidates.length - listedBranches.length;
+    opts.onSkipped?.({ count: skippedOutsidePrefix, prefixes });
     const rows = [];
     if (mainVerified) {
-      for (const branchInfo of listOriginBranches(repo, skipSet)) {
+      for (const branchInfo of listedBranches) {
         if (isAncestor(repo, branchInfo.ref, mainFull) === true) continue; // fully merged: nothing left to report
         const commit = commitInfo(repo, branchInfo.ref);
         const paths = changedRecordPaths(repo, mainFull, branchInfo.ref);

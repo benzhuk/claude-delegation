@@ -443,7 +443,7 @@ other test in this repo already uses for record fixtures.
 ## `collect-from-origin.mjs` — the durable signal for accepted-but-unmerged work
 
 ```
-node scripts/collect-from-origin.mjs [--repo <dir>] [--main origin/main] [--no-fetch] [--json] [--skip <name>]...
+node scripts/collect-from-origin.mjs [--repo <dir>] [--main origin/main] [--no-fetch] [--json] [--skip <name>]... [--only-prefix <prefix>]...
 ```
 
 The collector is run before any lane dispatch and after every merge to main, never only when a
@@ -456,6 +456,14 @@ in flight.
 The collector's own `accepted-unmerged` state together with its `hoursSinceLog` field IS
 the four-hour "accepted-unmerged" check: an `accepted-unmerged` row older than four hours
 is a defect the lead reports, not a normal state waiting on its turn.
+
+`collect-status.mjs` passes `--only-prefix build/` by default, so status reports only lane
+branches. Repeat `--only-prefix` to select different prefixes; `--only-prefix ""` deliberately
+disables the default and includes every candidate branch. Excluded candidate branches are one
+`skipped: n (outside build/)` line, never `no-record` attention rows. The first report after
+this filter is introduced has a new row-only change key and therefore sends one expected RESULT.
+In `status.md` the rendered derived-state column is named `lane`; every non-terminal `Status:`
+renders as `owned` there. JSON retains the `state` field for callers.
 
 ## Knowledge read counting (not yet a census)
 

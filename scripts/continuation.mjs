@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseRecord, validateRecord } from "./work-record.mjs";
+import { parseRecord, validateRecord, STATUSES } from "./work-record.mjs";
 export { CONTINUATION_VERSION, CONTINUATION_EVENTS, CONTINUATION_HOSTS } from "./continuation-contract.mjs";
 
 const VERSION = 1;
@@ -162,7 +162,7 @@ export function selectContinuationSnapshot(options, deps = {}) {
       visiting.delete(id); visited.add(id); selected.push(item); if (selected.length > MAX_SELECTED) throw new Error("SELECTION_LIMIT");
     };
     for (const root of options.roots) visit(root);
-    const buckets = Object.fromEntries(["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"].map((x) => [x, []]));
+    const buckets = Object.fromEntries(STATUSES.map((x) => [x, []]));
     const digest = crypto.createHash("sha256"); digest.update(`authority\0${options.authorityRef}\0${authority.text.length}\0${authority.text}`);
     const evidenceRefs = new Set();
     for (const item of selected.sort((a, b) => a.record.fields.work.localeCompare(b.record.fields.work))) {
