@@ -548,6 +548,43 @@ test('a stuck NEEDS_RECONCILIATION round with a genuinely different reconciliati
   );
 });
 
+test('C1 stuck path derives reconciliation inputs from verified bytes, never the saved items field', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+  assert.equal(recorded.status, 'RECORDED');
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+  const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, receipt), 'utf8'));
+  // The reconciliation bytes carry a genuine new owner comment; only the saved `items` field claims
+  // otherwise. The digest matches the bytes, so the capture verifies; a reader trusting `items`
+  // would wrongly account this round.
+  const observedDigest = crypto.createHash('sha256').update(Buffer.from(NEW_COMMENT, 'utf8')).digest('hex');
+  const ref = `captures/${receipt.projectScope}/r1-changed-${observedDigest}.json`;
+  const reconPath = privateFile(fx, receipt, ref);
+  fs.mkdirSync(path.dirname(reconPath), { recursive: true });
+  fs.writeFileSync(reconPath, `${JSON.stringify({
+    ...originalCapture,
+    digest: observedDigest,
+    originalBytes: Buffer.from(NEW_COMMENT, 'utf8').toString('base64'),
+    items: originalCapture.items,
+  }, null, 2)}\n`);
+  fs.writeFileSync(paths.receipt, `${JSON.stringify({
+    ...receipt,
+    previousState: 'NEEDS_RECONCILIATION',
+    state: 'NEEDS_RECONCILIATION',
+    reconciliationReason: 'checked page bytes changed during the active round',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+    observedAt: NOW,
+  }, null, 2)}\n`);
+  const report = path.join(fx.repo, 'outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\nAccounted-ref: comment-002 answered\n');
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+});
+
 test('uncertain-delivery provenance is never accepted by the stuck-round account path, even with sub-multiset inputs', async (t) => {
   // The realistic uncertain-delivery shape: SENDING -> UNKNOWN, then a byte-only page change during
   // the active round gives NEEDS_RECONCILIATION with previousState UNKNOWN, uncertainAt set, and no
