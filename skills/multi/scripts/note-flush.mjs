@@ -1489,13 +1489,32 @@ export async function runOverdueAsks(argv, context, deps = {}) {
     // R1: written BEFORE the send is attempted — a send that throws or fails is never retried.
     state = recordOverdueId(home, state, id, now, fsImpl);
 
+    // Review round 1, MAJOR 1: R5 says the repo ledger is written only when a repo can actually be
+    // named for the target. `runNoteSend`'s own inbox-cwd fallback (out of this territory to edit)
+    // otherwise falls back to THIS process's own cwd, which is never the recipient's repo. Rather than
+    // rely on that fallback, this pre-checks the registered inbox's own `cwd` and only sends — with
+    // `--recipient-repo` passed explicitly — when that path still exists on disk. Otherwise nothing is
+    // sent at all: the id stays recorded (never retried), and the failure is logged so it is visible.
+    const inboxRecord = inboxes[target];
+    const recipientRepo = inboxRecord?.cwd && fsImpl.existsSync(inboxRecord.cwd) ? inboxRecord.cwd : null;
+    if (!recipientRepo) {
+      appendFlushLog(
+        home,
+        `${stamp} overdue-send-failed [${id}] -> ${target} — no repo resolvable for ${target}'s `
+        + 'registered inbox; not sent',
+        fsImpl,
+      );
+      continue;
+    }
+
     const minutesPast = Math.floor(pastMs / 60_000);
     const text = `ASK [${id}] from ${ask.from} to ${ask.to} is ${minutesPast} min past its by-time `
       + `${ask.by} with no RESULT or BLOCKED`;
     const nudgeId = nextNudgeId(topic);
     const sendArgv = [
       '--from', 'note-flush', '--to', target, '--kind', 'BLOCKED', '--topic', topic,
-      '--text', text, '--re', id, '--id', nudgeId,
+      '--text', text, '--needs', 'none', '--re', id, '--id', nudgeId,
+      '--recipient-repo', recipientRepo,
     ];
     try {
       const result = await send(sendArgv, deps.sendDeps ?? { fsImpl, env, home, now });

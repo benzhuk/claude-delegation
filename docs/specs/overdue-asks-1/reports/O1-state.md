@@ -12,37 +12,31 @@ scout-O1.md (read from /home/ben/Code/wt-oa/... since not copied into this workt
 numbers and the "topic has no field on parseEnvelope" open question.
 
 ## Done
-- `runOverdueAsks(argv, context, deps)` added: same guards/budget as `runPostFlushPickup`, own kill
-  switch `ws-off-overdue` beside `ws-off`, wired into `main()` right after `runPostFlushPickup`, never
-  in `drainQuietly` (test asserts both behaviorally and by reading `drainQuietly`'s own source text).
-- State file `~/.agents/notes/.overdue-nudged.json` (mode 600, tmp+rename, pruned >8d on every write).
-- Deadline math (`overdueDeadlineMs`), topic recovery from id (`overdueTopicFromId`), 15-min grace,
-  7-day window, R2 answer/retirement rules, R5 send (dynamic `import('./note-send.mjs')` to avoid a
-  2-file static cycle — note-send.mjs already imports this file).
-- `--status`/`--json` gain `; overdue: <n> open, <m> nudged` / `overdue: {open,nudged}`, after the
-  pickup suffix. 9 pre-existing status-line assertions updated to match (see report).
-- 17 new tests added (all 11 spec item-6 cases plus R1/R2/R4 edge cases); one real (unstubbed, dynamic
-  import) end-to-end sanity run done outside the suite, then discarded.
-- Verbs: `overdue-nudged`, `overdue-no-inbox`, `overdue-skipped (kill switch | state file unreadable)`,
-  `overdue-send-failed` (contracts R1, not in spec item 5's list).
-- SKILL.md: sentence extension (line ~32) + one paragraph near the `--status` pickup-suffix discussion.
+Round 1 (all as before) plus round 2 fixes against `O1-review-1.md` (all reviewer-verified findings):
+- **MAJOR 1**: `--recipient-repo` is now passed explicitly, pre-checked against `inboxes[target].cwd`
+  existing on disk (`note-flush.mjs:1489-1506`); when it doesn't resolve, nothing is sent at all
+  (`overdue-send-failed ... no repo resolvable`, id still recorded). Replaces round 1's reliance on
+  `runNoteSend`'s own cwd fallback, which the review showed can write a repo ledger under the flusher's
+  own cwd. Option (a) (a `note-send.mjs` change) was left to the lead, per the review's own framing.
+- **MAJOR 2**: SKILL.md's two kill-switch paths corrected from `~/.agents/notes/ws-off*` to
+  `~/.agents/ws-off*`, matching the code. This report's own line was fixed too.
+- **MINOR 3**: `--needs none` added to the nudge's send argv.
+- **MINOR 4**: 3 tests added verbatim from the review (ASK-re-ASK, mixed malformed `by`s, prune+mode
+  600), plus one more proving the shared `ws-off` switch alone also skips the pass.
+- **MINOR 5**: SKILL.md's `; overdue: <n> open, <m> nudged` explanation reworded — the review's exact
+  replacement text — to say what "nudged" actually counts (recorded, not necessarily delivered).
+- NIT 6/7 and "observations for the lead": left as-is, not builder defects.
+- All pre-existing tests that expect an actual send now register their inbox with `cwd: home` (an
+  existing tmp dir) so the MAJOR 1 gate still lets the stub through — mechanical test-only change.
 
 ## Next
-Nothing outstanding for O1. Open items to flag to the integrator/reviewer, not blocking:
-- We never pass `--recipient-repo`/`--sender-repo` to `runNoteSend` (no repo is derivable from a raw
-  host-ledger line). `runNoteSend`'s own fallback (`inboxRecord.cwd`, else `process.cwd()`) decides
-  where the repo-ledger copy lands, or whether the send throws instead — out of this territory to
-  change. A send that throws for ANY reason (unresolved repo, failed inbox post) is
-  `overdue-send-failed` and never retried, per R1's literal wording.
-- "nudged" in both `--status` and the pass's own return value counts every id RECORDED in the state
-  file among currently-open asks, regardless of whether the underlying send actually succeeded (R1
-  records the id before attempting the send) — a defensible reading of "once per id ever" flagged in
-  the report as an autonomy call.
+Nothing outstanding for O1. Flagged for the lead in the report's "Deviations" section: option (b)
+(implemented) means a registered inbox with no/stale `cwd` now gets NO nudge, vs. round 1's
+possibly-misrouted one. Worth a lead ruling on option (a) if that turns out to matter on real hosts.
 
 ## Open questions
-None unresolved — scout-O1.md's one open question (topic recovery) is resolved: `overdueTopicFromId`
-strips the sender prefix then the trailing `-<counter>` from the id.
+None unresolved.
 
 ## How to run my gate
 `cd /home/ben/Code/wt-overdue-asks-1-O1 && node --test skills/multi/scripts/note-flush.test.mjs`
-Last run: 134/134 pass, 0 fail. Log: `docs/specs/overdue-asks-1/reports/O1-gate.log`.
+Last run: 141/141 pass, 0 fail (round 1 was 134/134). Log: `docs/specs/overdue-asks-1/reports/O1-gate.log`.

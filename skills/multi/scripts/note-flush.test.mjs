@@ -1741,7 +1741,7 @@ const DEADLINE = nyInstant(2026, 9, 26, 21, 30);
 test('overdue-asks: sender registered gets the nudge, once - a second drain posts nothing for the same id', async () => {
   const home = tmp();
   writeOverdueLedgerLine(home, '2026-09-26', askLine());
-  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't1' }, { now: DEADLINE });
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't1', cwd: home }, { now: DEADLINE });
   const calls = [];
   const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
   assert.equal(result.open, 1);
@@ -1754,6 +1754,8 @@ test('overdue-asks: sender registered gets the nudge, once - a second drain post
   assert.equal(flag('kind'), 'BLOCKED');
   assert.equal(flag('topic'), 'lane10');
   assert.equal(flag('re'), 'astra-lane10-1');
+  assert.equal(flag('needs'), 'none');
+  assert.equal(flag('recipient-repo'), home);
   assert.equal(flag('id'), 'note-flush-lane10-overdue-1');
   assert.equal(
     flag('text'),
@@ -1778,7 +1780,7 @@ test('overdue-asks: sender registered gets the nudge, once - a second drain post
 test('overdue-asks: sender absent, recipient registered - the nudge goes to the recipient', async () => {
   const home = tmp();
   writeOverdueLedgerLine(home, '2026-09-26', askLine());
-  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't2' }, { now: DEADLINE });
+  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't2', cwd: home }, { now: DEADLINE });
   const calls = [];
   const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
   assert.equal(calls.length, 1);
@@ -1823,7 +1825,7 @@ test('overdue-asks: an ACK re-ing the id does NOT answer it - still nudged', asy
   const home = tmp();
   writeOverdueLedgerLine(home, '2026-09-26', askLine());
   writeOverdueLedgerLine(home, '2026-09-26', ackLine());
-  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4' }, { now: DEADLINE });
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4', cwd: home }, { now: DEADLINE });
   const calls = [];
   const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
   assert.equal(calls.length, 1);
@@ -1835,7 +1837,7 @@ test('overdue-asks: a by-time earlier than the note\'s own time means the deadli
   const home = tmp();
   const nextDayDeadline = nyInstant(2026, 9, 27, 0, 10);
   writeOverdueLedgerLine(home, '2026-09-26', askLine({ time: '23:50', by: '00:10' }));
-  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't5' }, { now: nextDayDeadline });
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't5', cwd: home }, { now: nextDayDeadline });
   const calls = [];
   const tooSoon = await runOverdueAsks([], overdueContext(), {
     home, now: nextDayDeadline + 5 * 60_000, send: stubSend(calls),
@@ -1877,6 +1879,19 @@ test('overdue-asks: the ws-off-overdue kill switch skips the whole pass and logs
   assert.match(log, /overdue-skipped \[\*\] -> \* — kill switch/);
 });
 
+test('overdue-asks: the shared ws-off kill switch (not just ws-off-overdue) also skips the whole pass', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't7b', cwd: home }, { now: DEADLINE });
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'ws-off'), '', 'utf8');
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 0);
+  assert.equal(result.ran, false);
+  assert.equal(result.reason, 'kill-switch');
+});
+
 test('overdue-asks: --status folds "; overdue: <n> open, <m> nudged" in after the pickup suffix', async () => {
   const home = tmp();
   writeOverdueLedgerLine(home, '2026-09-26', askLine());
@@ -1914,7 +1929,7 @@ test('overdue-asks: a malformed by ("tonight") is ignored - never nudged, never 
 test('overdue-asks: a send that throws is logged overdue-send-failed and is not retried', async () => {
   const home = tmp();
   writeOverdueLedgerLine(home, '2026-09-26', askLine());
-  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't9' }, { now: DEADLINE });
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't9', cwd: home }, { now: DEADLINE });
   const calls = [];
   const result = await runOverdueAsks([], overdueContext(), {
     home, now: DEADLINE + 16 * 60_000, send: stubSend(calls, { fail: true, failMessage: 'inbox-error: ECONNRESET' }),
@@ -1931,6 +1946,44 @@ test('overdue-asks: a send that throws is logged overdue-send-failed and is not 
   });
   assert.equal(calls.length, 1, 'the failed send is not retried on a later pass');
   assert.equal(second.nudged, 1);
+});
+
+test('review MAJOR 1: --recipient-repo is passed explicitly, and only when the inbox cwd exists on disk', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  const repoDir = tmp(); // a second real, existing directory stands in for the recipient's own worktree
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-repo', cwd: repoDir }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 1);
+  const { argv } = calls[0];
+  assert.equal(argv[argv.indexOf('--recipient-repo') + 1], repoDir);
+  assert.equal(result.nudged, 1);
+});
+
+test('review MAJOR 1: a registered inbox whose cwd no longer exists is never sent to - no fallback ledger write', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  const goneCwd = toPosix(path.join(os.tmpdir(), 'note-flush-gone-worktree-does-not-exist'));
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-gone', cwd: goneCwd }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 0, 'no send is attempted when the inbox cwd is gone');
+  assert.equal(result.nudged, 0);
+  const log = fs.readFileSync(flushLogPath(home), 'utf8');
+  assert.match(log, /overdue-send-failed \[astra-lane10-1\] -> astra — no repo resolvable/);
+  const state = JSON.parse(fs.readFileSync(overdueStatePath(home), 'utf8'));
+  assert.ok(Object.hasOwn(state, 'astra-lane10-1'), 'still recorded once, so this is never retried');
+});
+
+test('review MAJOR 1: a registered inbox with no cwd recorded at all is never sent to either', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-nocwd' }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 0);
+  assert.equal(result.nudged, 0);
 });
 
 test('overdue-asks: budget, missing/malformed argv guards, and a not-ok drain never run the pass', async () => {
@@ -2013,4 +2066,46 @@ test('R4: drainQuietly never calls runOverdueAsks - neither by behavior nor by i
   const end = source.indexOf('\n// ─', start);
   const body = source.slice(start, end === -1 ? undefined : end);
   assert.equal(body.includes('runOverdueAsks'), false, 'drainQuietly\'s own source never names runOverdueAsks');
+});
+
+test('overdue-asks: an ASK carrying re <id> does not answer the original (R2)', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  writeOverdueLedgerLine(home, '2026-09-26',
+    'taxonomy → astra, 9.26.26 20:10 NYC [taxonomy-lane10-1 re astra-lane10-1] ASK: Which branch? Needs: decision by 23:00');
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't15', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].argv[calls[0].argv.indexOf('--re') + 1], 'astra-lane10-1');
+  assert.equal(result.open, 1);
+});
+
+test('overdue-asks: malformed by-times never stop a well-formed ASK in the same corpus', async () => {
+  const home = tmp();
+  for (const [n, by] of [[1, 'tonight'], [2, '15:00 NY'], [3, '25:00'], [4, '21:30']]) {
+    writeOverdueLedgerLine(home, '2026-09-26', askLine({ id: `astra-lane10-${n}`, by }));
+  }
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't16', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.deepEqual(calls.map((c) => c.argv[c.argv.indexOf('--re') + 1]), ['astra-lane10-4']);
+  assert.equal(result.open, 1);
+});
+
+test('overdue-asks: state entries older than 8 days are pruned on write; file is mode 600', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine());
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't17' }, { now: DEADLINE });
+  fs.mkdirSync(notesDir(home), { recursive: true });
+  fs.writeFileSync(overdueStatePath(home), `${JSON.stringify({
+    'old-x-1': new Date(DEADLINE - 9 * 86_400_000).toISOString(),
+    'recent-x-1': new Date(DEADLINE - 86_400_000).toISOString(),
+  })}\n`, { mode: 0o644 });
+  await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend([]) });
+  const state = JSON.parse(fs.readFileSync(overdueStatePath(home), 'utf8'));
+  assert.deepEqual(Object.keys(state).sort(), ['astra-lane10-1', 'recent-x-1']);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(overdueStatePath(home)).mode & 0o777, 0o600);
+  }
 });

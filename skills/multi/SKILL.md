@@ -139,9 +139,10 @@ with no RESULT or BLOCKED yet — an ACK does not answer one. It nudges once per
 note from `note-flush` into whichever of the sender or the recipient has a registered inbox on this
 host (neither registered logs it and moves on). BLOCKED, not FYI or ACK, because the multi skill
 already tells you what to do with one — remove the blocker, escalate, or send a RESULT dropping the
-ask. `~/.agents/notes/ws-off-overdue` turns this off, beside the shared `~/.agents/notes/ws-off`; the
-status line's own `; overdue: <n> open, <m> nudged` suffix says how many are still unanswered and how
-many of those have already been nudged.
+ask. `~/.agents/ws-off-overdue` turns this off, beside the shared `~/.agents/ws-off`; the
+status line's own `; overdue: <n> open, <m> nudged` suffix counts the overdue asks still unanswered and,
+of those, how many were already handled once without a nudge landing (no inbox here, or the send
+failed) — a nudge that lands is itself a BLOCKED `re` the ask, so it closes the ask and leaves the count.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
