@@ -120,6 +120,16 @@ reader signals; archive scope never hides them. The scope ends at the next top-l
 (`#`) heading. An optionless summary under any other top-level section blocks both pickup and
 hand-back.
 
+Every runner or session that edits the decisions page runs
+`node <skill-dir>/scripts/decisions-title.mjs set --page <decisions-page-id>` as the last step
+of the same job, right after its last edit, so the owner sees the topic and the last-change
+time in the Notion toolbar without opening the page (not checked). This is a write path's own
+step, not the pickup's: `decisions-pickup.mjs` never edits the page or clears Done (above), so
+no call to `decisions-title.mjs` is added there. Pass `--topic <Topic>` when neither the page's
+registration nor its current title supplies one (exit 2 names this). Exit 3 or exit 4 means the
+title was not changed: report it, and the hand-back check below will block on the stale title
+(not checked).
+
 ## Reading answers
 
 ### One-shot pickup and owner accounting
@@ -294,18 +304,23 @@ reads as a live OPEN item and nothing flags it).
 
 Before giving the owner the decisions URL, run the hand-back check on fresh reads of
 both pages (a read is two `notion.js read` calls, run through a mid-tier native-provider
-runner choice is not checked):
+runner choice is not checked) plus one `decisions-title.mjs meta` read of the decisions
+page's own title and last-edit time:
 
 ```
 node ~/.claude/scripts/notion.js read <decisions-page-id> > <scratch>/decisions.md
 node ~/.claude/scripts/notion.js read <goals-page-id> > <scratch>/goals.md
-node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
+node <skill-dir>/scripts/decisions-title.mjs meta --page <decisions-page-id> > <scratch>/title-meta.json
+node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo . --title-meta <scratch>/title-meta.json
 ```
 
 Run from the project root; `<skill-dir>` is this skill's folder (`skills/decisions` in
 this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the id on
 the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
-<goals_parent_page>` (not checked).
+<goals_parent_page>` (not checked). `--title-meta` is required, like `--goals`; a missing
+flag prints `TITLE unchecked: run decisions-title.mjs meta --page <id> and pass
+--title-meta` and blocks the hand-back the same as a stale or off-pattern title (checked
+by `scripts/decisions-handback.mjs`).
 
 ### Copied layout
 
@@ -316,7 +331,8 @@ not the skill directory:
 
 ```powershell
 node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --config --repo .
-node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
+node ~/.agents/skills/decisions/scripts/decisions-title.mjs meta --page <decisions-page-id> > <scratch>/title-meta.json
+node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo . --title-meta <scratch>/title-meta.json
 ```
 
 An explicit `--goals` remains safe when a page is already known. An absent project config uses
@@ -339,6 +355,13 @@ cannot exist unless the check ran (not checked by any script: the owner sees whe
 the line is there). Exit 3 means a page could not be read: do not hand back, fix the
 read first — rerun both `notion.js read` calls and the check (checked by
 `scripts/decisions-handback.mjs`'s exit code).
+
+The check also prints exactly one title line: `title ok: <title>` (fresh — the last edit
+ended with `decisions-title.mjs set`, above) or one of `TITLE off-pattern: <title>`,
+`TITLE stale: <title> vs last edit <ISO>`, `TITLE unchecked: run decisions-title.mjs meta
+--page <id> and pass --title-meta` — every one of these three blocks `HANDBACK ok` with
+exit 1, the same as a COMMENTED or UNATTACHED line (checked by
+`scripts/decisions-handback.mjs`).
 
 ## Keeping the goals mirror current
 

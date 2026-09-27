@@ -61,3 +61,29 @@ test('SKILL.md bans publish/replace-md on the decisions and goals pages, anchore
 test('SKILL.md says exit 3 or exit 4 from that edit stops the pass', () => {
   assert.equal(skillText.includes('Exit 3 or exit 4 from that edit stops the'), true);
 });
+
+// P3 (contracts.md C2/C3/C5): the retitle-on-last-edit rule in Page rules, and the `meta` read
+// plus `--title-meta` flag in the hand-back section.
+test('SKILL.md\'s Page rules says every runner or session retitles the page as the last step of its own edit', () => {
+  assert.match(skillText, /runs\n`node <skill-dir>\/scripts\/decisions-title\.mjs set --page <decisions-page-id>` as the last step/);
+  assert.equal(skillText.includes('no call to `decisions-title.mjs` is added there'), true);
+});
+
+// Round-2 review MINOR-3: a session must know what to do when its own retitle fails.
+test('SKILL.md\'s Page rules says what to do when the retitle exits 2, 3, or 4', () => {
+  assert.equal(skillText.includes('Pass `--topic <Topic>` when neither'), true);
+  assert.equal(skillText.includes('exit 2 names this'), true);
+  assert.match(skillText, /Exit 3 or exit 4 means the\ntitle was not changed/);
+});
+
+test('SKILL.md\'s hand-back section reads decisions-title.mjs meta and passes --title-meta', () => {
+  assert.match(skillText, /decisions-title\.mjs meta --page <decisions-page-id> > <scratch>\/title-meta\.json/);
+  assert.match(skillText, /decisions-handback\.mjs --decisions \S+ --goals \S+ --repo \. --title-meta \S+/);
+});
+
+test('SKILL.md names all four --title-meta output lines and that only "title ok" does not block', () => {
+  assert.equal(skillText.includes('title ok: <title>'), true);
+  assert.equal(skillText.includes('TITLE off-pattern: <title>'), true);
+  assert.equal(skillText.includes('TITLE stale: <title> vs last edit <ISO>'), true);
+  assert.match(skillText, /TITLE unchecked: run decisions-title\.mjs meta\n--page <id> and pass --title-meta/);
+});
