@@ -137,7 +137,7 @@ test("parseArgs: defaults and every flag", () => {
 });
 
 test("defaultOutDir: ~/.agents/collect/<basename of repo>", () => {
-  assert.equal(defaultOutDir("/home/ben", "/home/ben/Code/claude-delegation"), "/home/ben/.agents/collect/claude-delegation");
+  assert.equal(defaultOutDir("/home/ben", "/home/ben/Code/claude-delegation"), path.join("/home/ben", ".agents", "collect", "claude-delegation"));
 });
 
 test("sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host", () => {

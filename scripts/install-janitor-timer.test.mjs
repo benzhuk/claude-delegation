@@ -743,7 +743,7 @@ test("C2: installedJsonText for --job collect-status is schema, repo, node, ever
   );
 });
 
-test("C2: systemd unit and timer text for --job collect-status — exact bytes", () => {
+test("C2: systemd unit and timer text for --job collect-status — exact bytes", { skip: process.platform === "win32" ? "the systemd generator runs only on linux hosts, and these fixtures are POSIX paths" : false }, () => {
   const inputs = {
     node: "/usr/bin/node", pluginRoot: "/opt/plugin", repo: "/home/x/Code/claude-delegation",
     host: "hostA", logPath: "/home/x/.agents/collect/last-run.log", name: "collect-status",
@@ -928,7 +928,7 @@ test("C2: --job with an unrecognized value is refused; --out is refused for --jo
   assert.ok(JSON.parse(cap2.text()).refusals.some((r) => r.includes("--out is refused for --job janitor-record")));
 });
 
-test("C2 review round 1, m2: --out is resolved to an absolute path (never left relative to the repo's own WorkingDirectory), and a control character (e.g. a real newline) is refused outright", () => {
+test("C2 review round 1, m2: --out is resolved to an absolute path (never left relative to the repo's own WorkingDirectory), and a control character (e.g. a real newline) is refused outright", { skip: process.platform === "win32" ? "the systemd generator runs only on linux hosts, and these fixtures are POSIX paths" : false }, () => {
   const home1 = mkTmp("janitor-timer-home-out-relative-");
   fixtureDefaultRepoGit(home1);
   const pluginRoot = fixturePluginRoot();
