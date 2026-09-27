@@ -312,6 +312,43 @@ test("--remove on a host where nothing was ever installed reports absent, not an
   for (const f of result.files) assert.equal(f.status, "absent");
 });
 
+test("seam review round 1, M1: installed.json is name-owned — a second --name install is refused, and --remove for that name never touches a different name's installed.json", () => {
+  const home = mkTmp("janitor-timer-home-name-owned-");
+  fixtureDefaultRepoGit(home);
+  const pluginRoot = fixturePluginRoot();
+  const env = { XDG_CONFIG_HOME: path.join(home, ".config") };
+  const installedPath = path.join(home, ".agents", "janitor", "installed.json");
+
+  // 1. Real (default-name) install.
+  const cap1 = capture();
+  const code1 = main(["--force-root", "--json"], { home, env, platform: "linux", execPath: "/usr/bin/node", pluginRoot, ...cap1 });
+  assert.equal(code1, 0);
+  const installedAfterReal = fs.readFileSync(installedPath, "utf8");
+  assert.equal(JSON.parse(installedAfterReal).name, "janitor-record");
+
+  // 2. A --name janitor-record-test install must be refused outright, leaving installed.json
+  // byte-identical — a test install must never blind the real one's shared installed.json.
+  const cap2 = capture();
+  const code2 = main(["--force-root", "--json", "--name", "janitor-record-test"], {
+    home, env, platform: "linux", execPath: "/usr/bin/node", pluginRoot, ...cap2,
+  });
+  assert.equal(code2, 1, "a second named install while a different name is recorded must be refused");
+  assert.equal(fs.readFileSync(installedPath, "utf8"), installedAfterReal, "installed.json must be untouched by the refused install");
+  const result2 = JSON.parse(cap2.text());
+  assert.ok(result2.refusals.some((r) => r.includes("janitor-record")), "the refusal must name the recorded name");
+
+  // 3. --remove --name janitor-record-test must leave installed.json present (it records a
+  // different name), even though the test's own unit files (never created above) report absent.
+  const cap3 = capture();
+  const code3 = main(["--remove", "--json", "--name", "janitor-record-test"], { home, env, platform: "linux", pluginRoot, ...cap3 });
+  assert.equal(code3, 0);
+  assert.ok(fs.existsSync(installedPath), "installed.json must still be present after removing an unrelated name");
+  assert.equal(fs.readFileSync(installedPath, "utf8"), installedAfterReal);
+  const result3 = JSON.parse(cap3.text());
+  const installedResult3 = result3.files.find((f) => f.path === installedPath);
+  assert.equal(installedResult3.status, "left-untouched-foreign");
+});
+
 test("--hour sets the systemd OnCalendar hour and installed.json's hour field", () => {
   const home = mkTmp("janitor-timer-home-hour-");
   fixtureDefaultRepoGit(home);

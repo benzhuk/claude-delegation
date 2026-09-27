@@ -129,7 +129,7 @@
     "maxAgeSeconds": 93600,
     "whenMissing": "missing",
     "requiresFile": "~/.agents/janitor/installed.json",
-    "why": "the daily janitor timer's own log proves it actually ran in the last 26 hours; a stale or absent log after install means the schedule stopped firing",
-    "fix": "check the host's own scheduler (systemd --user janitor-record.timer, the Windows task janitor-record, or the launchd agent) and rerun scripts/install-janitor-timer.mjs to repair it"
+    "why": "the daily janitor timer's own log proves it actually ran in the last 26 hours; a log still absent more than 26 hours after install means the schedule stopped firing. An absent log right after install is expected — the timer has no earlier trigger to catch up on, so it stays missing until the first scheduled run (up to ~24h later)",
+    "fix": "check the host's own scheduler first (systemd --user list-timers janitor-record.timer, the Windows task janitor-record, or the launchd agent) to confirm it is registered and enabled; only rerun scripts/install-janitor-timer.mjs with --enable if the timer is not registered there"
   }
 ]

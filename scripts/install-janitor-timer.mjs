@@ -514,9 +514,20 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     }
 
     for (const a of artifacts) result.files.push(planRemove(a.file, a.marker, dryRun));
-    // installed.json is entirely ours by convention (no other tool ever writes this exact path), so
-    // no marker check is needed to know it is safe to remove — pass marker=null to skip that check.
-    result.files.push(planRemove(installedJsonPath, null, dryRun));
+    // installed.json is shared by every --name: remove it only when it records THIS name, so
+    // removing a janitor-record-test install never blinds J2's check on a real janitor-record one
+    // (seam review round 1, M1).
+    let installedName = null;
+    try {
+      installedName = JSON.parse(fs.readFileSync(installedJsonPath, "utf8")).name ?? null;
+    } catch {
+      /* absent or unreadable */
+    }
+    if (installedName === null || installedName === name) {
+      result.files.push(planRemove(installedJsonPath, null, dryRun));
+    } else {
+      result.files.push({ path: installedJsonPath, status: "left-untouched-foreign", changed: false });
+    }
 
     if (enableFlag && !dryRun && scheduler === "systemd-user") {
       // Reload after the unit files are gone and disable has run, so systemd's view matches disk.
@@ -543,6 +554,22 @@ export function main(argv = process.argv.slice(2), opts = {}) {
         `registered/running — pass --enable to also run: ${disableCmds.map((c) => `${c.cmd} ${c.args.join(" ")}`).join(" && ")}`;
     }
   } else {
+    // installed.json is shared by every --name: refuse a second named install while one already
+    // exists, before any artifact write, so two named timers can never coexist and blind each
+    // other's shared last-run.log (seam review round 1, M1).
+    let priorName = null;
+    try {
+      priorName = JSON.parse(fs.readFileSync(installedJsonPath, "utf8")).name ?? null;
+    } catch {
+      /* absent or unreadable */
+    }
+    if (priorName !== null && priorName !== name) {
+      refusals.push(`refusing: ${installedJsonPath} already records name=${priorName}; --remove --name ${priorName} first`);
+      if (jsonFlag) stdout(`${JSON.stringify(result, null, 2)}\n`);
+      else for (const r of refusals) stdout(`refused: ${r}\n`);
+      return 1;
+    }
+
     // --dry-run writes nothing (spec item 3) — not even the directory that would hold the artifacts.
     if (!dryRun) fs.mkdirSync(agentsJanitorDir, { recursive: true });
     for (const a of artifacts) result.files.push(planWrite(a.file, a.desired, a.marker, dryRun));

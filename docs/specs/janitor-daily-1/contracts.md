@@ -32,7 +32,7 @@ These are skills-h's rulings on docs/specs/janitor-daily-1/spec.md, the spec wri
 - `--remove` deletes `installed.json` together with the entries the installer made.
 - The scheduled command is exactly `<node> <pluginRoot>/scripts/janitor.mjs --record --repo <repo>`, plus `--host <name>` if J1 adds that flag. Output goes to `~/.agents/janitor/last-run.log`, truncated on every run. The string `--apply` never appears anywhere.
 - J2's `file_fresh` check on `~/.agents/janitor/last-run.log` (26 h) behaves as follows:
-  - `installed.json` absent: state `unknown`, never `missing`.
+  - `installed.json` absent: state `info` (its reason text says unknown / never installed), never `missing`, never counted against `ok`.
   - `installed.json` present and the log absent: `missing`.
   - log older than 26 h: `stale`.
   - otherwise: `ok`.
