@@ -146,7 +146,7 @@ const ACCEPT_PREP = {
 // there... it never restates the full briefs." R9: every rendered prompt carries the
 // note-send prohibition, so it is baked into every mandate constant below.
 const BUILD_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead\'s own standalone command. Never send peer notes.'
 const REVIEW_MANDATE =
   'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git. Never send peer notes.'
 const INTEGRATE_MANDATE =
