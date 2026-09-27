@@ -431,7 +431,21 @@ export function mainCheckout(dir, runner) {
   if (!common) return start;
   let c = toPosix(common.trim());
   if (!c) return start;
-  if (!path.posix.isAbsolute(c) && !/^[A-Za-z]:/.test(c)) c = toPosix(path.resolve(start, c));
+
+  const isDriveLettered = (p) => /^[A-Za-z]:/.test(p);
+  const isUNC = (p) => /^\/\/[^/]/.test(p);
+  // path.posix.normalize collapses a UNC `//host` to `/host` (the scout's landmine): put the slash back.
+  const normalise = (p) => (isUNC(p) ? '/' : '') + path.posix.normalize(p);
+
+  if (path.posix.isAbsolute(c) || isDriveLettered(c)) {
+    c = normalise(c); // already absolute (POSIX, drive-lettered or UNC): used as-is, normalised
+  } else if (path.posix.isAbsolute(start) || isDriveLettered(start)) {
+    // Compose onto `start`'s own string, never the process cwd (H6: on Linux `path.resolve`
+    // does not see a drive-lettered or UNC `start` as absolute and silently prefixes cwd).
+    c = normalise(`${start.replace(/\/+$/, '')}/${c}`);
+  } else {
+    c = toPosix(path.resolve(start, c)); // a genuinely relative `start`: cwd-relative is correct
+  }
   return c.replace(/\/?\.git\/?$/, '') || start;
 }
 
