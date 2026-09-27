@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-knowledge-counted
 Scope: docs/specs/2026-09-27-knowledge-counted.md@4941309 (origin/docs/lane-specs-0925)
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-knowledge-counted-1: build K1 to K3, review, push build/knowledge-counted-1, merge on acceptance under the lane eight rule, post the Closed entry. No install, chezmoi, release, Notion.
 Artifact: build/knowledge-counted-1@2ea22bf8c71b8b2d0f4c144ca35ef189cd990764
 Worktree: build/knowledge-counted-1
@@ -56,6 +56,7 @@ Four numbers: Hours ask to accepted: 2.1h; largest gap 76.9min at 2026-09-27T12:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 1 gap(s) over 30min: 2026-09-27T12:13:15.324Z (76.9min); 0 unanswered ASKs to skills-o
 Log: 2026-09-27T14:05:53.000Z accepted skills-o artifact 2ea22bf8c71b8b2d0f4c144ca35ef189cd990764
+Log: 2026-09-27T14:10:09Z closed skills-o merged to main at 83c415d after the merged-tree suite passed 2187/2187 on Windows
 
 Research evidence: docs/reports/2026-09-27-knowledge-sync-research.md
 
