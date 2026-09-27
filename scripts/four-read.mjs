@@ -110,11 +110,199 @@ function gaps(msList, mode, thresholdMinutes = 0) {
   let best = null;
   for (let i = 1; i < msList.length; i++) {
     const minutes = (msList[i] - msList[i - 1]) / 60000;
-    const g = { startMs: msList[i - 1], minutes };
+    const g = { startMs: msList[i - 1], endMs: msList[i], minutes };
     if (mode === 'over' && minutes > thresholdMinutes) out.push(g);
     else if (mode === 'max' && (!best || minutes > best.minutes)) best = g;
   }
   return mode === 'max' ? best : out;
+}
+// ── R6/R7 — Agent/Task/Workflow spans and subagent stall scanning (docs/census.md) ──────────
+const SPAN_TOOL_NAMES = new Set(['Agent', 'Task', 'Workflow']);
+
+// Every tool_use/tool_result in the LEAD's own transcript (not just the Agent/Task/Workflow
+// trio — TaskStop is a tool_use too). tool_result items are kept whole, not just
+// tool_use_id, so R7's direct-subagent end-bound match can read a real (untrimmed)
+// transcript's own agent-id field if one exists; the committed trimmed fixtures never carry
+// one, so that match always falls through to the window end there (see docs/census.md).
+export function scanLeadToolEvents(fsImpl, filePath) {
+  const text = tryOr(() => fsImpl.readFileSync(filePath, 'utf8'), null);
+  if (text === null) return null;
+  const toolUses = []; // {ms, name, id}
+  const toolResults = []; // {ms, item}
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const obj = tryOr(() => JSON.parse(line), null);
+    if (!obj) continue;
+    const ms = obj.timestamp ? Date.parse(obj.timestamp) : NaN;
+    if (Number.isNaN(ms)) continue;
+    const content = obj.message && Array.isArray(obj.message.content) ? obj.message.content : [];
+    for (const item of content) {
+      if (!item || typeof item !== 'object') continue;
+      if (item.type === 'tool_use' && item.id) toolUses.push({ ms, name: item.name, id: item.id });
+      else if (item.type === 'tool_result' && item.tool_use_id) toolResults.push({ ms, item });
+    }
+  }
+  return { toolUses, toolResults };
+}
+function firstToolResultMs(toolResults, id) {
+  let found = null;
+  for (const r of toolResults) if (r.item.tool_use_id === id && (found === null || r.ms < found)) found = r.ms;
+  return found;
+}
+// R6 Spans: literal for Agent/Task (tool_use ts -> its own tool_result ts, else window end).
+// Workflow is different BY EVIDENCE, not by guess: in both committed fixtures (lane10,
+// lane16) the Workflow tool_use's OWN tool_result returns in under a second while its
+// dispatched builders/reviewers keep running for up to ~80 more minutes (see
+// scripts/fixtures/four-read/sessions/*/*/subagents/workflows/*/agent-*.jsonl) — that quick
+// result is a dispatch ack, not completion. So a Workflow span instead runs to the first
+// LATER lead `TaskStop` tool_use (the same signal R7 uses for a Workflow agent's own end
+// bound), or to the window end when no TaskStop follows it. This is a deviation from R6's
+// one-line wording, needed to make lane16 read 0 stalled/1 waiting-on-agents (41.8min) as
+// contracts.md's Facts section pins — flagged here and in the F2 report.
+export function buildAgentSpans(toolUses, toolResults, windowEndMs) {
+  const taskStopMs = toolUses.filter((t) => t.name === 'TaskStop').map((t) => t.ms).sort((a, b) => a - b);
+  const spans = [];
+  for (const t of toolUses) {
+    if (!SPAN_TOOL_NAMES.has(t.name)) continue;
+    let end;
+    if (t.name === 'Workflow') {
+      const later = taskStopMs.find((ms) => ms > t.ms);
+      end = later !== undefined ? later : windowEndMs;
+    } else {
+      const resultMs = firstToolResultMs(toolResults, t.id);
+      end = resultMs !== null ? resultMs : windowEndMs;
+    }
+    spans.push([t.ms, Math.max(end, t.ms)]);
+  }
+  return spans;
+}
+export function mergeSpans(spans) {
+  const sorted = spans.slice().sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const [s, e] of sorted) {
+    if (out.length && s <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+// Splits [gStart, gEnd) at the union's boundaries: a piece overlapping a span is
+// waiting-on-agents (any length); a piece outside is stalled only when that piece alone is
+// over 30 min (R6 Splitting).
+export function splitGapByUnion(gStart, gEnd, union) {
+  let cursor = gStart;
+  const insidePieces = [];
+  const outsidePieces = [];
+  for (const [s, e] of union) {
+    if (e <= cursor || s >= gEnd) continue;
+    const os = Math.max(s, cursor);
+    const oe = Math.min(e, gEnd);
+    if (os > cursor) outsidePieces.push({ startMs: cursor, minutes: (os - cursor) / 60000 });
+    insidePieces.push({ startMs: os, minutes: (oe - os) / 60000 });
+    cursor = oe;
+  }
+  if (cursor < gEnd) outsidePieces.push({ startMs: cursor, minutes: (gEnd - cursor) / 60000 });
+  return { insidePieces, outsidePieces };
+}
+// ── R7 — subagent stall scanning ─────────────────────────────────────────────────────────────
+const AGENT_FILE_RE = /^agent-(.+)\.jsonl$/;
+// A timestamp is accepted only when it parses AND carries an explicit Z or +/-HH:MM offset —
+// never guessed as local time (R7).
+function isStrictIsoInstant(s) {
+  return typeof s === 'string' && /(Z|[+-]\d{2}:?\d{2})$/.test(s) && !Number.isNaN(Date.parse(s));
+}
+// One subagent file's own timestamps, plus whether its LAST record (in file order) holds a
+// tool_use with no later tool_result in the same file — waiting on a tool, R7 tail silence.
+// A single bad timestamp anywhere in the file rejects the WHOLE file, never a partial guess.
+export function scanSubagentFile(fsImpl, filePath) {
+  const text = tryOr(() => fsImpl.readFileSync(filePath, 'utf8'), null);
+  if (text === null) return { unreadable: true };
+  const objs = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const obj = tryOr(() => JSON.parse(line), null);
+    if (!obj) continue;
+    if (obj.timestamp !== undefined && !isStrictIsoInstant(obj.timestamp)) return { unreadable: true };
+    objs.push(obj);
+  }
+  const timestamps = objs.filter((o) => o.timestamp !== undefined).map((o) => Date.parse(o.timestamp)).sort((a, b) => a - b);
+  const last = objs.length ? objs[objs.length - 1] : null;
+  const lastContent = last && last.message && Array.isArray(last.message.content) ? last.message.content : [];
+  const pending = lastContent.find((c) => c && c.type === 'tool_use' && c.id);
+  let tailPendingToolUseId = null;
+  if (pending) {
+    const hasLaterResult = objs.some((o) => o.message && Array.isArray(o.message.content)
+      && o.message.content.some((c) => c && c.type === 'tool_result' && c.tool_use_id === pending.id));
+    if (!hasLaterResult) tailPendingToolUseId = pending.id;
+  }
+  return { unreadable: false, timestamps, tailPendingToolUseId };
+}
+// Every `<lead-dir>/<session>/subagents/agent-*.jsonl` and
+// `.../subagents/workflows/<run>/agent-*.jsonl` file (R7 Files); `journal.jsonl` and any
+// `*.meta.json` never match `agent-*.jsonl` and are skipped by construction, not by name.
+function listSubagentFiles(fsImpl, leadPath, sessionId) {
+  const baseDir = path.join(path.dirname(leadPath), sessionId, 'subagents');
+  const dirs = [{ dir: baseDir, isWorkflow: false }];
+  const workflowsDir = path.join(baseDir, 'workflows');
+  const runEntries = tryOr(() => fsImpl.readdirSync(workflowsDir, { withFileTypes: true }), []);
+  for (const e of runEntries) {
+    const isDir = typeof e.isDirectory === 'function' ? e.isDirectory() : true;
+    if (isDir) dirs.push({ dir: path.join(workflowsDir, e.name), isWorkflow: true });
+  }
+  const files = [];
+  for (const { dir, isWorkflow } of dirs) {
+    const names = tryOr(() => fsImpl.readdirSync(dir), []);
+    for (const name of names.slice().sort()) {
+      const m = AGENT_FILE_RE.exec(name);
+      if (m) files.push({ file: path.join(dir, name), id: m[1], isWorkflow });
+    }
+  }
+  return files;
+}
+// R7 end bounds: a direct subagent's is the lead's own tool_result for its spawning
+// Agent/Task call, matched by an agent-id field the lead result names (our trimmed fixtures
+// never carry one, so this always falls to the window end there); a Workflow agent's is the
+// first lead TaskStop after the file's last timestamp, else the Workflow tool_result, else
+// the window end.
+function subagentEndBound(isWorkflow, agentId, fileLastMs, toolUses, toolResults, windowEndMs) {
+  if (!isWorkflow) {
+    for (const r of toolResults) if (r.item.agentId === agentId || r.item.agent_id === agentId) return r.ms;
+    return windowEndMs;
+  }
+  const taskStopAfter = toolUses.filter((t) => t.name === 'TaskStop' && t.ms > fileLastMs).map((t) => t.ms).sort((a, b) => a - b);
+  if (taskStopAfter.length) return taskStopAfter[0];
+  const workflowUse = toolUses.find((t) => t.name === 'Workflow');
+  if (workflowUse) {
+    const resultMs = firstToolResultMs(toolResults, workflowUse.id);
+    if (resultMs !== null) return resultMs;
+  }
+  return windowEndMs;
+}
+// Scans every subagent file in scope (R7 Scope: its timestamp range overlaps the window).
+// `stalls` entries ({id, atMs, minutes}) each count as +1 toward N; `unreadableIds` files are
+// named but never guessed at or counted.
+export function collectSubagentStalls(fsImpl, leadPath, sessionId, windowStartMs, windowEndMs, toolUses, toolResults) {
+  const files = listSubagentFiles(fsImpl, leadPath, sessionId);
+  const stalls = [];
+  const unreadableIds = [];
+  for (const f of files) {
+    const scanned = scanSubagentFile(fsImpl, f.file);
+    if (scanned.unreadable) { unreadableIds.push(f.id); continue; }
+    if (!scanned.timestamps.length) continue;
+    const first = scanned.timestamps[0];
+    const last = scanned.timestamps[scanned.timestamps.length - 1];
+    if (last < windowStartMs || first > windowEndMs) continue; // R7 Scope
+    const inWindow = scanned.timestamps.filter((m) => m >= windowStartMs && m <= windowEndMs);
+    for (let i = 1; i < inWindow.length; i++) {
+      const minutes = (inWindow[i] - inWindow[i - 1]) / 60000;
+      if (minutes > 30) stalls.push({ id: f.id, atMs: inWindow[i - 1], minutes });
+    }
+    if (scanned.tailPendingToolUseId) {
+      const endBound = subagentEndBound(f.isWorkflow, f.id, last, toolUses, toolResults, windowEndMs);
+      const minutes = (endBound - last) / 60000;
+      if (minutes > 30) stalls.push({ id: f.id, atMs: last, minutes });
+    }
+  }
+  return { stalls, unreadableIds };
 }
 // ── Number 2 — hours ask to accepted, plus the largest gap inside that window ──────────
 // leadGapReason (MAJOR 1): why leadTimestamps is null (a lead-session mismatch, not a missing transcript).
@@ -219,7 +407,13 @@ function ledgerInWindow(entries, kinds, leadSlug, openedMs, acceptedMs) {
 }
 function ledgerHasSlug(entries, leadSlug) { return entries.some((e) => e.from === leadSlug || e.to === leadSlug); }
 // ── Number 4 — work lost or stalled. leadGapReason (MAJOR 1): see computeHoursAskToAccepted.
-export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, leadGapReason) {
+// `spans` (R6, a merged union of [start,end] Agent/Task/Workflow intervals from
+// buildAgentSpans+mergeSpans) and `agentResults` (R7, {stalls, unreadableIds} from
+// collectSubagentStalls) are both precomputed by the caller (buildFourRead) and may be null
+// when unavailable; the fewer-than-2-messages and no-lead-transcript wordings are kept
+// exactly as before (R6 says to keep the former) and never fold in R7's agent stalls, since
+// neither case can even locate the lead's own session file to derive a subagents/ dir from.
+export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, leadGapReason, spans = null, agentResults = null) {
   if (openedMs === null) return { value: 'unavailable (no Opened:)' };
   if (acceptedMs === null) return { value: `unavailable (${reason || 'no accepted Log: entry'})` }; // MAJOR 4
   let gapPart;
@@ -229,10 +423,30 @@ export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug
     // BLOCKER 2: fewer than 2 in-window messages must not print a confident "0 gaps".
     const inWindow = leadTimestamps.filter((t) => t >= openedMs && t <= acceptedMs);
     const over30 = inWindow.length < 2 ? null : gaps(inWindow, 'over', 30);
-    gapPart = over30 === null ? 'gaps unavailable (fewer than 2 lead messages in window)'
-      : over30.length
-        ? `${over30.length} gap(s) over 30min: ${over30.map((g) => `${new Date(g.startMs).toISOString()} (${g.minutes.toFixed(1)}min)`).join(', ')}`
-        : '0 gaps over 30min';
+    if (over30 === null) {
+      gapPart = 'gaps unavailable (fewer than 2 lead messages in window)'; // R6: keep this wording
+    } else {
+      const union = spans || [];
+      const leadStalled = []; // outside the union, over 30min alone (R6 Splitting)
+      const waiting = []; // inside the union, any length
+      for (const g of over30) {
+        const { insidePieces, outsidePieces } = splitGapByUnion(g.startMs, g.endMs, union);
+        for (const p of outsidePieces) if (p.minutes > 30) leadStalled.push(p);
+        for (const p of insidePieces) waiting.push(p);
+      }
+      const agentStalls = (agentResults && agentResults.stalls) || [];
+      const unreadableIds = (agentResults && agentResults.unreadableIds) || [];
+      const n = leadStalled.length + agentStalls.length; // R6 Line: "N counts lead stalled pieces plus agent stalls"
+      const waitingMinutes = waiting.reduce((sum, p) => sum + p.minutes, 0);
+      const stalledList = leadStalled.map((p) => `${new Date(p.startMs).toISOString()} (${p.minutes.toFixed(1)}min)`).join(', ');
+      const agentLines = [
+        ...agentStalls.map((a) => `agent ${a.id} silent ${a.minutes.toFixed(1)} min from ${new Date(a.atMs).toISOString()}`), // R7 Output
+        ...unreadableIds.map((id) => `agent ${id} unreadable timestamps`),
+      ];
+      gapPart = `${n} gap(s) over 30min stalled${leadStalled.length ? `: ${stalledList}` : ''}`
+        + `; ${waiting.length} waiting-on-agents (${waitingMinutes.toFixed(1)} min)`
+        + `${agentLines.length ? `; ${agentLines.join('; ')}` : ''}`;
+    }
   }
   let askPart;
   if (!leadSlug) askPart = 'ASKs unavailable (no --lead-slug)';
@@ -311,9 +525,18 @@ export function buildFourRead(opts, fsImpl = fs) {
   const leadGapReason = !leadSessionId ? 'no Lead-session:'
     : leadFileId && leadFileId !== leadSessionId ? `census lead file ${leadFileId} is not Lead-session ${leadSessionId}` : null;
   const leadTimestamps = leadPath && !leadGapReason ? scanTimestamps(fsImpl, leadPath) : null;
+  // R6/R7: the same lead file's own Agent/Task/Workflow/TaskStop tool events, read once and
+  // reused for both the lead-gap union (R6) and the subagent-file scan (R7).
+  const leadToolEvents = leadPath && !leadGapReason ? scanLeadToolEvents(fsImpl, leadPath) : null;
   const ledgerEntries = opts.ledger ? collectLedgerEntries(opts.ledger, fsImpl) : null;
   const numberTwo = computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason);
   const windowMs = { openedMs: numberTwo.openedMs, acceptedMs: numberTwo.acceptedMs, reason: numberTwo.reason };
+  const agentSpans = (leadToolEvents && windowMs.acceptedMs !== null)
+    ? mergeSpans(buildAgentSpans(leadToolEvents.toolUses, leadToolEvents.toolResults, windowMs.acceptedMs))
+    : null;
+  const agentStallResults = (leadToolEvents && leadFileId && windowMs.openedMs !== null && windowMs.acceptedMs !== null)
+    ? collectSubagentStalls(fsImpl, leadPath, leadFileId, windowMs.openedMs, windowMs.acceptedMs, leadToolEvents.toolUses, leadToolEvents.toolResults)
+    : null;
   const acceptedLogs = logs.filter((l) => l.status.toLowerCase() === 'accepted');
   const lastAcceptedMs = (acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null) ?? windowMs.acceptedMs; // unparseable last -> the tighter first bound
   // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b)/MAJOR 1/2 (r3): refuse with Number 2.
@@ -321,7 +544,7 @@ export function buildFourRead(opts, fsImpl = fs) {
     : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason.replace(/:$/, '')}: census window cannot be checked)` } // MINOR 3 (r4): no doubled colon
     : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, windowMs.acceptedMs, lastAcceptedMs);
   const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');
-  const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason);
+  const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason, agentSpans, agentStallResults);
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
   const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value);
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };

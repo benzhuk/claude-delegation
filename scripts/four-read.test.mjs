@@ -6,6 +6,11 @@
 //                            over the 30-minute threshold), split across a top-tier model
 //                            (claude-opus-5-5) and a non-top-tier one (claude-sonnet-5).
 //   - ledger/2026-09-01.md — one answered ASK, one unanswered ASK, one ASK to someone else.
+//   - record-lane10.md, record-lane16.md — point at the two already-committed real session
+//     fixtures under sessions/lane10/ and sessions/lane16/ (contracts.md's Facts section,
+//     R6/R7): lane10 has exactly one subagent stall (216.8min); lane16 has 0 stalled and one
+//     41.8min waiting-on-agents lead gap. Their census.json is built fresh per test via
+//     runCensus, never committed (it's a pure function of the committed .jsonl files).
 // A tiny git repo (rework-after-acceptance) is built fresh per test under mkdtempSync,
 // never committed, per the spec's own fixture note.
 import test from 'node:test';
@@ -22,6 +27,7 @@ import {
   parseRecordText, computeTopTierTokens, scanTimestamps, computeHoursAskToAccepted,
   computeReworkAfterAcceptance, collectLedgerEntries, computeWorkLostOrStalled,
   buildFourRead, formatJson, formatMarkdown, parseArgs, main,
+  mergeSpans, splitGapByUnion, buildAgentSpans, scanSubagentFile, collectSubagentStalls,
 } from './four-read.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -389,7 +395,7 @@ test('computeWorkLostOrStalled: no Opened:/accepted window -> unavailable', () =
 
 test('computeWorkLostOrStalled: no --lead-slug -> ASKs part is explicitly unavailable, gaps part still computes', () => {
   const r = computeWorkLostOrStalled([1000, 2000], null, null, { openedMs: 0, acceptedMs: 3000 });
-  assert.match(r.value, /^0 gaps over 30min; ASKs unavailable \(no --lead-slug\)$/);
+  assert.match(r.value, /^0 gap\(s\) over 30min stalled; 0 waiting-on-agents \(0\.0 min\); ASKs unavailable \(no --lead-slug\)$/);
 });
 
 test('computeWorkLostOrStalled: a slug that never appears in the ledger reads unavailable, not a confident 0 (MAJOR 3)', () => {
@@ -409,7 +415,206 @@ test('computeWorkLostOrStalled: on the fixture record + lead session + ledger, o
   const window = computeHoursAskToAccepted(fields, logs, ts);
   const ledgerEntries = collectLedgerEntries(LEDGER, fs);
   const r = computeWorkLostOrStalled(ts, ledgerEntries, 'test-lead', { openedMs: window.openedMs, acceptedMs: window.acceptedMs });
-  assert.match(r.value, /^1 gap\(s\) over 30min: 2026-09-01T00:15:00\.000Z \(45\.0min\); 1 unanswered ASK\(s\) to test-lead: fixture-ask-2$/);
+  assert.match(r.value, /^1 gap\(s\) over 30min stalled: 2026-09-01T00:15:00\.000Z \(45\.0min\); 0 waiting-on-agents \(0\.0 min\); 1 unanswered ASK\(s\) to test-lead: fixture-ask-2$/);
+});
+
+// ── R6: Agent/Task/Workflow spans, union/merge, and gap splitting ──────────
+
+test('mergeSpans: merges overlapping/adjacent intervals, leaves disjoint ones apart', () => {
+  assert.deepEqual(mergeSpans([[0, 10], [5, 15], [20, 30]]), [[0, 15], [20, 30]]);
+  assert.deepEqual(mergeSpans([]), []);
+  assert.deepEqual(mergeSpans([[10, 20], [0, 5]]), [[0, 5], [10, 20]]);
+});
+
+test('splitGapByUnion: a gap entirely outside the union is one stalled piece', () => {
+  const { insidePieces, outsidePieces } = splitGapByUnion(0, 60 * 60000, []);
+  assert.deepEqual(insidePieces, []);
+  assert.equal(outsidePieces.length, 1);
+  assert.equal(outsidePieces[0].minutes, 60);
+});
+
+test('splitGapByUnion: a gap entirely inside one span is all waiting-on-agents, no stalled piece', () => {
+  const gStart = 10 * 60000, gEnd = 50 * 60000;
+  const { insidePieces, outsidePieces } = splitGapByUnion(gStart, gEnd, [[0, 60 * 60000]]);
+  assert.equal(outsidePieces.length, 0);
+  assert.equal(insidePieces.length, 1);
+  assert.equal(insidePieces[0].minutes, 40);
+});
+
+// Acceptance attack: "nested spans (a Workflow whose agents are the lead's own subagents
+// too, counted twice)" — the union must merge them into one interval, not double the gap.
+test('splitGapByUnion: nested/overlapping spans in the union never double-count a gap piece', () => {
+  const union = mergeSpans([[0, 100 * 60000], [10 * 60000, 20 * 60000]]); // Agent nested inside Workflow
+  const { insidePieces, outsidePieces } = splitGapByUnion(5 * 60000, 95 * 60000, union);
+  assert.equal(outsidePieces.length, 0);
+  assert.equal(insidePieces.length, 1);
+  assert.equal(insidePieces[0].minutes, 90);
+});
+
+// Acceptance attack: "a gap that spans two adjacent Agent calls with a 2-minute lead turn
+// between them" — a real lead message between the two spans ends the raw gap early (this is
+// `gaps()`'s own consecutive-pairs behavior, not span logic), so each half is judged alone.
+test('computeWorkLostOrStalled: a 2-minute lead turn between two adjacent Agent calls splits one big window into two separately-judged gaps', () => {
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  // t0 .. t0+40min (gap1, 40min) .. turn .. t0+42min .. t0+82min (gap2, 40min)
+  const leadTimestamps = [t0, t0 + 40 * min, t0 + 42 * min, t0 + 82 * min];
+  const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: t0 + 82 * min }, null, []);
+  assert.match(r.value, /^2 gap\(s\) over 30min stalled: .*40\.0min.*40\.0min.*; 0 waiting-on-agents \(0\.0 min\)/);
+});
+
+test('buildAgentSpans: Agent/Task use their own tool_result; a missing result falls back to the window end', () => {
+  const toolUses = [{ ms: 0, name: 'Agent', id: 'a' }, { ms: 100, name: 'Task', id: 'b' }, { ms: 200, name: 'Bash', id: 'c' }];
+  const toolResults = [{ ms: 50, item: { type: 'tool_result', tool_use_id: 'a' } }];
+  const spans = buildAgentSpans(toolUses, toolResults, 1000);
+  assert.deepEqual(spans, [[0, 50], [100, 1000]]); // Bash is not a span source
+});
+
+test('buildAgentSpans: a Workflow tool_use ignores its own quick tool_result — its span runs to the first later TaskStop, else the window end (R6 deviation, see code comment)', () => {
+  const toolUses = [
+    { ms: 0, name: 'Workflow', id: 'w' },
+    { ms: 5000, name: 'TaskStop', id: 'ts' }, // AFTER the Workflow call
+  ];
+  const toolResults = [{ ms: 2, item: { type: 'tool_result', tool_use_id: 'w' } }]; // near-instant ack
+  assert.deepEqual(buildAgentSpans(toolUses, toolResults, 9999), [[0, 5000]]);
+  // no later TaskStop -> falls all the way to the window end, not the quick ack
+  assert.deepEqual(buildAgentSpans([{ ms: 0, name: 'Workflow', id: 'w' }], toolResults, 9999), [[0, 9999]]);
+});
+
+// ── R7: subagent stall scanning ─────────────────────────────────────────────
+
+function writeJsonl(dir, name, lines) {
+  const p = path.join(dir, name);
+  fs.writeFileSync(p, lines.map((l) => JSON.stringify(l)).join('\n'));
+  return p;
+}
+
+test('scanSubagentFile: an internal gap over 30min between consecutive timestamps is reported; a tool_use tail with a later tool_result is not tail-pending', () => {
+  const dir = mkTmp('four-read-subagent-');
+  const p = writeJsonl(dir, 'agent-x.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+    { timestamp: '2026-01-01T00:00:31.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+    { timestamp: '2026-01-01T01:20:00.000Z', type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] } },
+  ]);
+  const r = scanSubagentFile(fs, p);
+  assert.equal(r.unreadable, false);
+  assert.equal(r.tailPendingToolUseId, null); // the tool_use's own result did arrive later
+  assert.equal(r.timestamps.length, 3);
+});
+
+test('scanSubagentFile: a killed agent (last record is a tool_use with no later tool_result) is tail-pending', () => {
+  const dir = mkTmp('four-read-subagent-killed-');
+  const p = writeJsonl(dir, 'agent-y.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+    { timestamp: '2026-01-01T00:00:05.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]);
+  const r = scanSubagentFile(fs, p);
+  assert.equal(r.tailPendingToolUseId, 't1');
+});
+
+test('scanSubagentFile: a timestamp with no Z or offset (local time) rejects the whole file, never guessed', () => {
+  const dir = mkTmp('four-read-subagent-local-');
+  const p = writeJsonl(dir, 'agent-z.jsonl', [{ timestamp: '2026-01-01T00:00:00.000', type: 'user' }]);
+  assert.deepEqual(scanSubagentFile(fs, p), { unreadable: true });
+});
+
+test('scanSubagentFile: an unparseable timestamp also rejects the whole file', () => {
+  const dir = mkTmp('four-read-subagent-bad-');
+  const p = writeJsonl(dir, 'agent-z.jsonl', [{ timestamp: 'not-a-date', type: 'user' }]);
+  assert.deepEqual(scanSubagentFile(fs, p), { unreadable: true });
+});
+
+test('scanSubagentFile: a file with one timestamp has no internal gap and (with no trailing tool_use) no tail stall', () => {
+  const dir = mkTmp('four-read-subagent-one-');
+  const p = writeJsonl(dir, 'agent-one.jsonl', [{ timestamp: '2026-01-01T00:00:00.000Z', type: 'user' }]);
+  const r = scanSubagentFile(fs, p);
+  assert.equal(r.timestamps.length, 1);
+  assert.equal(r.tailPendingToolUseId, null);
+});
+
+test('collectSubagentStalls: an out-of-window file is skipped (R7 Scope); an in-window internal gap over 30min counts once', () => {
+  const dir = mkTmp('four-read-collect-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  fs.mkdirSync(path.join(sessionDir, 'subagents', 'workflows', 'wf1'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-far-away.jsonl', [ // outside the window entirely
+    { timestamp: '2020-01-01T00:00:00.000Z', type: 'user' },
+  ]);
+  writeJsonl(path.join(sessionDir, 'subagents'), 'journal.jsonl', [{ timestamp: '2026-01-01T00:00:00.000Z' }]); // must be skipped
+  writeJsonl(path.join(sessionDir, 'subagents', 'workflows', 'wf1'), 'agent-builder.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+    { timestamp: '2026-01-01T01:00:00.000Z', type: 'user' }, // 60min internal gap
+  ]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const windowStartMs = Date.parse('2026-01-01T00:00:00.000Z');
+  const windowEndMs = Date.parse('2026-01-01T02:00:00.000Z');
+  const { stalls, unreadableIds } = collectSubagentStalls(fs, leadPath, 'lead-session', windowStartMs, windowEndMs, [], []);
+  assert.equal(unreadableIds.length, 0);
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].id, 'builder');
+  assert.equal(Math.round(stalls[0].minutes), 60);
+});
+
+test('collectSubagentStalls: an unreadable subagent file is named, never silently skipped or guessed', () => {
+  const dir = mkTmp('four-read-collect-unreadable-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-bad.jsonl', [{ timestamp: 'not-a-date', type: 'user' }]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const { stalls, unreadableIds } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, Date.now(), [], []);
+  assert.equal(stalls.length, 0);
+  assert.deepEqual(unreadableIds, ['bad']);
+});
+
+// Acceptance attack: "an agent whose tool_result never arrives (killed)" — a direct
+// subagent's tail silence is judged against the window end since our fixtures never carry
+// an agent-id field on the lead's own tool_result (see code comment on subagentEndBound).
+test('collectSubagentStalls: a killed direct subagent (tail tool_use, no later result) is judged against the window end', () => {
+  const dir = mkTmp('four-read-collect-killed-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-killed.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const windowEndMs = Date.parse('2026-01-01T01:00:00.000Z'); // 60min after the file's last (and only) timestamp
+  const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, [], []);
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].id, 'killed');
+  assert.equal(Math.round(stalls[0].minutes), 60);
+});
+
+// ── R6/R7 against the two real committed session fixtures (contracts.md Facts) ─────────────
+// lane10: lead f6c8ae21…, window 2026-09-26T22:35:00Z..2026-09-27T02:49:52Z. Its builder
+// (workflows/wf_7223f595-b7d/agent-a314563636ff6b931.jsonl) is silent for 216.8 min from
+// 2026-09-26T22:44:29.665Z — exactly one stall (R7), 0 stalled/0 waiting-on-agents at the
+// lead level (R6: the lead's own transcript never runs long enough to raise a >30min gap).
+test('buildFourRead: lane10\'s real session gives exactly one agent stall (216.8min), 0 lead-stalled, 0 waiting-on-agents', async () => {
+  const dir = mkTmp('four-read-lane10-');
+  const leadPath = path.join(FIXTURES, 'sessions', 'lane10', 'f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e.jsonl');
+  const census = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, out: null });
+  const censusPath = path.join(dir, 'census.json');
+  fs.writeFileSync(censusPath, JSON.stringify(census));
+  const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane10.md'), census: censusPath, ledger: null }, fs);
+  const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
+  assert.equal(value, '1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a314563636ff6b931 silent 216.8 min from 2026-09-26T22:44:29.665Z; ASKs unavailable (no --lead-slug)');
+});
+
+// lane16: lead 588290d9…, window 2026-09-27T06:20:18Z..2026-09-27T07:50:17Z. The lead gap of
+// 41.8 min from 2026-09-27T06:20:46.606Z lies inside its one Workflow tool_use span — 0
+// stalled, 1 waiting-on-agents (41.8min).
+test('buildFourRead: lane16\'s real session gives 0 stalled, 1 waiting-on-agents (41.8min), no agent stalls', async () => {
+  const dir = mkTmp('four-read-lane16-');
+  const leadPath = path.join(FIXTURES, 'sessions', 'lane16', '588290d9-ee43-400b-a808-cf44c407171c.jsonl');
+  const census = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, out: null });
+  const censusPath = path.join(dir, 'census.json');
+  fs.writeFileSync(censusPath, JSON.stringify(census));
+  const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane16.md'), census: censusPath, ledger: null }, fs);
+  const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
+  assert.equal(value, '0 gap(s) over 30min stalled; 1 waiting-on-agents (41.8 min); ASKs unavailable (no --lead-slug)');
 });
 
 // ── buildFourRead / formatJson / formatMarkdown (integration) ──────────────
@@ -629,7 +834,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '    {',
     '      "key": "workLostOrStalled",',
     '      "label": "Work lost or stalled",',
-    '      "value": "1 gap(s) over 30min: 2026-09-01T00:15:00.000Z (45.0min); 1 unanswered ASK(s) to test-lead: fixture-ask-2"',
+    '      "value": "1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2"',
     '    }',
     '  ],',
     '  "record": "scripts/fixtures/four-read/record.md"',
@@ -646,7 +851,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '| Top-tier tokens per build | 193 tokens: build 193 (claude-opus-5-5); partial (no spec slice): spec-census not run |',
     '| Hours ask to accepted | 24.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z |',
     '| Rework after acceptance | unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00.000Z artifact abcdef01234567890123456789012345abcdef0 reaccepted for fix round |',
-    '| Work lost or stalled | 1 gap(s) over 30min: 2026-09-01T00:15:00.000Z (45.0min); 1 unanswered ASK(s) to test-lead: fixture-ask-2 |',
+    '| Work lost or stalled | 1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2 |',
     '',
     '## Companions',
     '',

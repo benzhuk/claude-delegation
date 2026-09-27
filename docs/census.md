@@ -257,10 +257,42 @@ verbatim from `docs/specs/2026-09-25-four-number-read.md`:
    counts print with their shas or log lines. The range is `Base:` to the accepted sha
    from the record; a record without a resolvable range gives `unavailable (no range)`.
 4. **Work lost or stalled**: the number of gaps over 30 minutes between consecutive
-   messages of the lead session inside the build window, plus the number of ASK ids
-   addressed to the lead's slug in `docs/ledger/*.md` within the window that have no
-   RESULT or BLOCKED naming them with `re <id>`. Each gap prints its start time and
-   length; each unanswered id prints.
+   messages of the lead session inside the build window that are `stalled`, plus every
+   subagent stall, plus the number of ASK ids addressed to the lead's slug in
+   `docs/ledger/*.md` within the window that have no RESULT or BLOCKED naming them with
+   `re <id>`. Each stalled gap prints its start time and length; each unanswered id
+   prints. The leading integer is always the stalled count (`work-record.mjs`'s stall
+   check parses only that leading integer).
+
+A lead gap over 30 minutes is split into two classes, never counted as one plain number.
+For every lead `tool_use` named `Agent`, `Task` or `Workflow`, a span runs from that
+tool_use's own timestamp to its matching `tool_result`'s timestamp (or to the window end
+when no result arrives); overlapping/nested spans are merged into one union first, so a
+Workflow whose own agents are also directly spawned is never counted twice. A gap is then
+split at the union's boundaries: the piece(s) inside the union are `waiting-on-agents`
+(any length counts, since the lead is legitimately waiting on dispatched work, the
+"intended shape of a cheap lead"); a piece outside the union is `stalled` only when that
+piece alone still exceeds 30 minutes. A `Workflow` tool_use is the one exception to the
+literal tool_result rule: its own tool_result reliably returns in under a second while
+its dispatched builders and reviewers keep running for far longer (confirmed against both
+committed session fixtures), so a Workflow's span instead runs to the first later lead
+`TaskStop` tool_use, or to the window end when none follows — never to that quick ack.
+
+Every subagent transcript the lead's own session spawned is also scanned directly:
+`<lead-dir>/<session id>/subagents/agent-*.jsonl` and
+`.../subagents/workflows/<run>/agent-*.jsonl` (both read; `journal.jsonl` and any
+`*.meta.json` are skipped). A file counts only when its own timestamp range overlaps the
+build window; a gap over 30 minutes between two of its consecutive in-window timestamps
+is one stall, and its tail silence (last timestamp to its end bound) is a stall too, but
+only when its last record holds a `tool_use` with no later `tool_result` — i.e. the agent
+was left waiting on a tool, such as a permission prompt, not merely between turns. A
+direct subagent's end bound is the lead's own `tool_result` for its spawning
+Agent/Task call when that result names the agent's id, else the window end; a Workflow
+agent's end bound prefers the first lead `TaskStop` after the file's last timestamp, then
+the Workflow's own `tool_result`, then the window end. A timestamp that fails to parse,
+or that has no `Z` or offset, rejects the whole file rather than being guessed as local
+time; that file prints `agent <id> unreadable timestamps` instead of a count. Each real
+stall prints `agent <id> silent <N> min from <ISO>` and adds one to the leading count.
 
 Two companion lines print beside the four: top-tier assistant messages per build (each
 one re-reads the whole context, so this is the cost driver, not the turn count alone),
