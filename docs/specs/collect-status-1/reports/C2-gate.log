@@ -1,0 +1,53 @@
+/tmp/sealed-home-PtUQ1S
+✔ byte-stability: every generator is a pure function of its inputs — called twice, identical bytes (1.754343ms)
+✔ --apply never appears in any generated text, for any of the three schedulers (0.294596ms)
+✔ scheduledCommandArgv is exactly <node> <pluginRoot>/scripts/janitor.mjs --record --repo <repo>, plus --host when given (0.746811ms)
+✔ installed.json is byte-stable and matches the pinned seam shape exactly (key order included) (0.150798ms)
+✔ resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if present; else ~/Code/claude-delegation (0.553517ms)
+✔ refuses to install from a temporary/worktree checkout unless --force-root, and writes nothing when refused (1.493731ms)
+✔ L2: a plugin root inside the installed Claude plugin cache installs without --force-root (1.411837ms)
+✔ L2 review: the allowlist itself rejects this host's real worktree layout and accepts only the two caches (0.548379ms)
+✔ L2: a real worktree name, a durable non-cache path, and a fresh non-cache root all refuse under --dry-run and a real install, on the pluginRoot check alone, nothing written (2.429596ms)
+✔ --force-root (tests only) bypasses the checkout-durability refusal (0.771727ms)
+✔ --remove is never gated by the checkout-durability check (only install creates a new reference) (0.483271ms)
+✔ a real install (fixture plugin root) writes the systemd unit+timer and installed.json, idempotently (1.887444ms)
+✔ --dry-run writes nothing at all, even the containing directory, but still reports the generated content (0.581239ms)
+✔ --remove --dry-run reports would-remove, never claiming a file was removed when it was not (1.007785ms)
+✔ --remove deletes only the files it made (marker-checked) and leaves a same-named foreign file alone (0.904038ms)
+✔ --remove on a host where nothing was ever installed reports absent, not an error (0.362469ms)
+✔ seam review round 1, M1: installed.json is name-owned — a second --name install is refused, and --remove for that name never touches a different name's installed.json (1.15013ms)
+✔ --hour sets the systemd OnCalendar hour and installed.json's hour field (0.650354ms)
+✔ --hour out of range (or non-integer) refuses outright and writes nothing, rather than silently falling back (1.685119ms)
+✔ J1 review round 2, m2: a valueless --hour (nothing follows, or another --flag follows) refuses rather than silently falling back to the default hour (0.546507ms)
+✔ --enable runs the platform's own enable command through the injected exec, never spawning a real one — and is skipped entirely under --dry-run (1.202731ms)
+✔ J1 review round 2, m3: a failing post-remove daemon-reload is reported in result.commands, not swallowed silently (1.079884ms)
+✔ J1 review round 1, M1: a foreign (unmarked) same-named unit blocks --enable entirely, on both install and --remove — zero exec calls, the user's unit left alone (0.696084ms)
+✔ windows and macos generation (text-only; schtasks/launchctl are never executed on this host) (1.112304ms)
+✔ J1 review round 1, B1: --repo or --host carrying the literal string --apply is refused outright, nothing written (0.502411ms)
+✔ J1 review round 1, B1: an ordinary space-bearing repo (no --apply) still generates a single, correctly quoted ExecStart argv element (0.648221ms)
+✔ J1 review round 1, M5: refuses when the janitor script is missing, or the repo is not a git checkout — nothing written, exit 1 (1.284203ms)
+✔ L1: --help prints usage, exits 0, and writes nothing — even against the installer's own default (worktree) pluginRoot (0.216548ms)
+✔ L1: an unrecognized flag (--bogus) exits 2 and writes nothing (0.205903ms)
+✔ L1: a stray positional argument exits 2 and writes nothing (0.183216ms)
+✔ L1 review: a valueless/empty --repo/--host/--name, or a repeated value flag, refuses and touches nothing (2.019596ms)
+✔ C2: scheduledCommandArgv for --job collect-status is exactly <node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>, plus --host and --out when given (0.29773ms)
+✔ C2: installedJsonText for --job collect-status is schema, repo, node, every, scheduler, name, to — key order exact, no hour field at all (0.141392ms)
+✔ C2: systemd unit and timer text for --job collect-status — exact bytes (0.203797ms)
+✔ C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --job collect-status (0.252151ms)
+✔ C2: a real install (--job collect-status) writes to ~/.agents/collect/, never ~/.agents/janitor/, with installed.json matching the pinned K1 shape (0.833572ms)
+✔ C2: --every bounds — 5 and 60 accepted, out of range or non-integer refused, default is 15 (2.471641ms)
+✔ C2: --to is required for --job collect-status and refused for --job janitor-record; slug pattern enforced (0.708923ms)
+✔ C2: --hour is refused for --job collect-status; --every is refused for --job janitor-record (0.449932ms)
+✔ C2: --job with an unrecognized value is refused; --out is refused for --job janitor-record (0.447467ms)
+✔ C2 (contracts.md K3 B1 twin): --to or --out carrying the literal string --apply is refused outright, nothing written (0.577844ms)
+✔ C2 (seam, K1): installed.json records both jobs, each in its own name-owned file — installing collect-status never touches the janitor's installed.json and vice versa (0.925741ms)
+✔ C2 (seam, K3): --remove --job collect-status removes only the collect job's own files, leaving the janitor's timer/service/installed.json in place (1.228028ms)
+✔ C2: --job collect-status refuses when collect-status.mjs is missing from the plugin root — job-scoped, distinct from the janitor's own missing-script message (0.301736ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 132.483506
