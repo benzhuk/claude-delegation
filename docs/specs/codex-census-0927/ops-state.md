@@ -21,4 +21,6 @@ T0 contract: `contracts.md` freezes the existing report shape and the minimum Co
 
 Scout correction: direct child `usage.session_id` and `meta.session_id` both equal the lead session id, while `meta.id` is the child census key. C1 validates usage against `meta.session_id` only after it verifies the ancestry edge; a depth-two probe remains pending before any grandchild assumption is made.
 
+Final scout clarification: depth-two evidence confirms the same root session namespace at depth one and two while `source.subagent.thread_spawn.parent_thread_id` names the immediate logical parent. C1 deduplicates by logical child id plus response id, confines default discovery to the canonical two-day UTC horizon, allows explicit verified `--tasks` candidates outside it, and reports unsupported windows visibly.
+
 The native lead transcript must use `C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home` as `CODEX_HOME`. The private rollout routing note is not copied into this repository.
