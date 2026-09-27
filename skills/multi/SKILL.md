@@ -435,7 +435,9 @@ already map it, so the line mirrors back to this machine too (`--sender-host` na
 you're already on has no effect from a local shell). Pass `--local-ok` when you know this machine's
 ledger genuinely is what the recipient reads (a same-host peer with a pane that just hasn't
 registered its inbox yet); that restores the exact pre-2026-09-27 behaviour for this one send.
-`--dry-run` never refuses — it previews the send it would attempt, unaffected by exit 6.
+`--dry-run` refuses the same way (exit 6, same JSON, nothing written) whenever that is knowable
+without a pane lookup: a ledger-only ACK/FYI, `--no-type`, or a foreign-host inbox record. A typed
+send in the same situation exits 1 under `--dry-run` instead (no `--recipient-repo`, no pane to plan from).
 
 **Two kill switches**, both a file whose mere presence restores the pre-2026-09-20 behaviour (`touch`
 to pause, `rm` to resume — no deploy, no restart):

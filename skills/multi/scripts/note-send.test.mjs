@@ -1268,13 +1268,26 @@ test('Defect 1: an inbox registered on a DIFFERENT HOST does not exempt --to - s
   assert.deepEqual(err.ledgers ?? [], []);
 });
 
-test('Defect 1: a SAME-host registered inbox still exempts --to as before (no host field, or matches os.hostname())', async () => {
+test('Defect 1: a SAME-host registered inbox still exempts --to as before (no host field)', async () => {
   const repo = tmp(); const home = tmp();
   writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', cwd: repo }, { now: NOW });
   const orca = mockOrca({ panes: [] });
   const res = await runNoteSend(
     ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
     { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+  );
+  assert.equal(res.exitCode, 0);
+});
+
+// review R2-2: every REAL registration is stamped with `host: os.hostname()` (transport.mjs:1517,
+// :1539) — the no-host test above never exercises that stamp, so a mutation that treats any stamped
+// record as foreign (`!localInboxRec.host`) survives it and would refuse every real registered peer.
+test('Defect 1: a registered inbox stamped with THIS host (as every real registration is) still exempts --to', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', cwd: repo, host: os.hostname() }, { now: NOW });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
   );
   assert.equal(res.exitCode, 0);
 });

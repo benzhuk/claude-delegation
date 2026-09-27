@@ -183,7 +183,8 @@ has no safety gate of its own, so the SENDER is the gate:
    for a caller that means this machine's ledger to be what the recipient actually reads.
    `--recipient-repo` (the cross-repo collector path) is exempt and unaffected. An inbox record
    stamped with a DIFFERENT machine's hostname does not exempt the refusal either (C7) — this machine
-   still has no inbox for that slug. `--dry-run` never refuses.
+   still has no inbox for that slug. `--dry-run` reports the same exit-6 refusal on every path that
+   needs no pane lookup (quiet kind, `--no-type`, foreign inbox); a typed dry-run exits 1 there.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,
    notified:true`. A BLOCKED to ben, or a `Needs: decision` to ben, is also appended to
    `~/.agents/notes/ben-inbox.md` — one file Ben reads. Ben sends with

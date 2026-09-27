@@ -529,8 +529,9 @@ export async function runNoteSend(argv, deps = {}) {
     `"${toRaw}" has no registered inbox on this machine and no mirror target — a plain local send here `
     + 'would append the ledger and reach nobody. Run note-send on the recipient\'s machine over ssh — '
     + 'inside that command, add --sender-host <the host you came from> if SSH_CONNECTION does not map, '
-    + 'so the line mirrors back here too. Pass --local-ok if this machine\'s ledger is what the '
-    + 'recipient actually reads. NO ledger line was written.',
+    + 'so the line mirrors back here too (--sender-host naming the machine you are running on now has '
+    + 'no effect). Pass --local-ok if this machine\'s ledger is what the recipient actually reads. '
+    + 'NO ledger line was written.',
     {
       refused: 'no-local-recipient', to: toRaw,
       hint: 'run note-send on the recipient\'s machine over ssh, or pass --sender-host <this host>',
