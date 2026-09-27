@@ -18,10 +18,11 @@
 // with no card at all, so `goalCardResult` reports WHY it refused, the hook surfaces that once per
 // session on `systemMessage`, and `check` exits 1 with the same sentence (review D, MAJOR 4).
 import { readFileSync, existsSync, statSync, readdirSync, realpathSync } from "node:fs";
-import { join, isAbsolute, resolve, basename, sep } from "node:path";
+import { join, isAbsolute, resolve, basename, sep, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { loadProjectConfig } from "./project-config.mjs";
+import { knowledgeCounts } from "./knowledge-counts.mjs";
 
 /** Per-feature switch name: `~/.agents/ws-off-goalcard`. Master is `~/.agents/ws-off`. */
 export const SWITCH_NAME = "goalcard";
@@ -313,11 +314,111 @@ const HANDWRITTEN_ASOF = /\s*(?:[-–—,]\s*)?as of\b.*$/i;
 /** The header the card is injected under. Factual framing, per the hooks doc's advice on context. */
 export const CARD_HEADER = "Goal card for this project:";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The knowledge line (spec.md Territory K2, combined with K3 in the Lead addendum) — one
+// unconditional, bounded extra line reporting the knowledge store's own numbers, appended after
+// the card by `renderInjection` itself so no caller (`hooks/lib/goal-context.mjs`,
+// `hooks/delegation-reminder.js`) needs to change to carry it into the SessionStart notice; both
+// were read (never edited — outside this territory) to confirm `opts.extra`'s existing single
+// slot already reaches there unconditionally, per the scout brief's open question.
+//
+// NOT SESSIONSTART-ONLY (round-1 review, MINOR 1): because the line rides inside `renderInjection`
+// via `goalCardResult`, it appears at every event that renders a card — Claude's PostToolBatch
+// reinjection (`hooks/delegation-reminder.js`), every Codex lead UserPromptSubmit
+// (`hooks/multi-codex-hook.mjs`), and `goal-card.mjs show`/`check`'s own byte count — not only
+// SessionStart. It is also gated by the SAME switches that gate the card: the master `ws-off`
+// switch (upstream, `switchedOff` in `goalCardResult`) and the per-feature `ws-off-goalcard`
+// switch both silence it, even though `knowledgeSessionLine` called directly ignores
+// `ws-off-goalcard` (it only honours its own `no-knowledge-log` switch) — the gating happens one
+// layer up, in `goalCardResult`, before `renderInjection` ever runs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** K1's own kill switch for the read-logging hook; the knowledge line honours it too (spec.md K2
+ * item 2: "Same kill switches as K1"). The master `ws-off` switch already gates everything
+ * upstream of this function via `goalCardResult`'s own `switchedOff` check. */
+export const NO_KNOWLEDGE_LOG_SWITCH = "no-knowledge-log";
+
+/** "At most 160 characters" (spec.md K2 item 1); measured in bytes, matching every other cap in
+ * this file (`LINE_MAX_BYTES`, `CARD_MAX_BYTES`). */
+export const KNOWLEDGE_LINE_MAX_BYTES = 160;
+
+/** The literal path text named in spec.md K2 item 1 — a human-readable nudge, not a resolved
+ * absolute path (a real path would differ by host and by whether `AGENTS_HOME` is overridden). */
+export const KNOWLEDGE_INDEX_HINT = "~/.claude/knowledge/INDEX.md";
+
+/**
+ * The pure half: turn already-computed counts into the line text, or null if even a shortened
+ * form cannot fit (spec.md K2 item 1's exact template, item 2's byte cap). Kept separate from
+ * `knowledgeSessionLine`'s filesystem work so the byte-cap fallback is testable without needing
+ * an absurd number of real fixture files on disk.
+ *
+ * @param {{topics: number, pending: number, oldest: string|null, reads: number}} counts
+ */
+export function formatKnowledgeLine(counts) {
+  const pendingPart = counts.pending > 0
+    ? `${counts.pending} inbox notes pending (oldest ${counts.oldest})`
+    : "0 inbox notes pending";
+  const full =
+    `knowledge: ${counts.topics} topics, ${pendingPart}, ${counts.reads} topic reads on this `
+    + `host in 7 days; INDEX ${KNOWLEDGE_INDEX_HINT}`;
+  if (Buffer.byteLength(full, "utf8") <= KNOWLEDGE_LINE_MAX_BYTES) return full;
+  // Over the line's own 160-byte cap (large numbers, an unusually old oldest date): drop the
+  // INDEX hint first — it is the least essential part of what is "a nudge, nothing more"
+  // (spec.md K2 item 2) — before giving up on the line entirely.
+  const short =
+    `knowledge: ${counts.topics} topics, ${pendingPart}, ${counts.reads} topic reads on this host in 7 days`;
+  return Buffer.byteLength(short, "utf8") <= KNOWLEDGE_LINE_MAX_BYTES ? short : null;
+}
+
+/**
+ * The knowledge nudge's text, or null when there is nothing to say (spec.md K2 item 2: "Absent
+ * store: no line. Any error: no line.").
+ *
+ * @param {{env?: object, now?: number}} opts
+ *   `env.KNOWLEDGE_HOME` overrides the home directory `.claude/knowledge` is read from — the
+ *   same convention `AGENTS_HOME` already uses for this file's other state, so a test can supply
+ *   a scratch home in the SAME `env` object it already builds, and never touch the real
+ *   `~/.claude`/`~/.agents` (Lead addendum: "no test reads or writes the real ~/.agents or
+ *   ~/.claude"). `now` exists so a test gets a fixed clock. Production passes neither: neither
+ *   `goal-context.mjs` nor `delegation-reminder.js` sets `KNOWLEDGE_HOME`, so the real
+ *   `homedir()` and `Date.now()` are used, same as `agentsHome`'s own default. When
+ *   `KNOWLEDGE_HOME` is absent but `AGENTS_HOME` is set (every in-process test file outside this
+ *   one that drives a card through `goalCardResult`/`cardResult`/`runCodexHook` sets only
+ *   `AGENTS_HOME`), the home is derived from `AGENTS_HOME` instead of falling to the real
+ *   `homedir()` — the repo's own convention is `AGENTS_HOME === "<home>/.agents"`
+ *   (`scripts/test-home.mjs`), so `dirname` of it is that home (round-1 review, MAJOR 1).
+ *   Production never sets `AGENTS_HOME`, so this fallback never fires there.
+ */
+export function knowledgeSessionLine(opts = {}) {
+  try {
+    const env = opts.env || process.env;
+    if (switchPresent(join(agentsHome(env), NO_KNOWLEDGE_LOG_SWITCH))) return null;
+    const home = env && env.KNOWLEDGE_HOME
+      ? String(env.KNOWLEDGE_HOME)
+      : env && env.AGENTS_HOME ? dirname(String(env.AGENTS_HOME)) : homedir();
+    const now = typeof opts.now === "number" ? opts.now : Date.now();
+    const counts = knowledgeCounts(home, now);
+    if (!counts.storeExists) return null;
+    return formatKnowledgeLine(counts);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The exact text the hook injects, or null when there is nothing to inject or the result is over cap.
+ *
+ * PURE, per the file header's own promise ("this file only answers 'what text'"): unlike every
+ * other piece of this module, this function used to call `knowledgeSessionLine` (filesystem I/O)
+ * itself when no caller supplied one, which meant a bare in-process `renderInjection(text, mtime)`
+ * — exactly what `hooks/delegation-reminder.test.mjs`'s own "MINOR 2" test calls, with no `env` —
+ * read THIS machine's real `~/.claude/knowledge` (round-1 review, BLOCKER 1). The knowledge line
+ * is now computed once by `goalCardResult`, the one caller that owns opts.env/now, and handed in
+ * as `opts.knowledgeLine`; a bare call with no `knowledgeLine` renders the card (and `extra`) alone.
+ *
  * @param {string} text   raw card file contents
  * @param {number} mtimeMs
- * @param {{extra?: string}} opts
+ * @param {{extra?: string, knowledgeLine?: string|null}} opts
  */
 export function renderInjection(text, mtimeMs, opts = {}) {
   const v = validateCard(text);
@@ -325,10 +426,20 @@ export function renderInjection(text, mtimeMs, opts = {}) {
   const lines = v.lines.slice();
   lines[4] = `${lines[4].replace(HANDWRITTEN_ASOF, "")} — as of ${asOfStamp(mtimeMs)}`;
   const body = [CARD_HEADER, ...lines];
-  if (opts.extra) body.push(String(opts.extra));
-  const out = body.join("\n");
-  if (Buffer.byteLength(out, "utf8") > RENDER_MAX_BYTES) return null;
-  return out;
+  const extra = opts.extra ? String(opts.extra) : null;
+  const fits = (parts) => {
+    const out = parts.join("\n");
+    return Buffer.byteLength(out, "utf8") <= RENDER_MAX_BYTES ? out : null;
+  };
+  const knowledgeLine = typeof opts.knowledgeLine === "string" && opts.knowledgeLine ? opts.knowledgeLine : null;
+  if (knowledgeLine) {
+    const withKnowledge = fits(extra ? [...body, knowledgeLine, extra] : [...body, knowledgeLine]);
+    if (withKnowledge !== null) return withKnowledge;
+    // Over the render cap once the knowledge line is added: drop the knowledge line, never the
+    // card or the pre-existing `extra` line — "shorten the line before the card, never the card"
+    // (spec.md K2 item 2), read here as "before anything the render already carried."
+  }
+  return fits(extra ? [...body, extra] : body);
 }
 
 /** The one sentence the owner sees when his card exists but will not be injected. */
@@ -359,7 +470,7 @@ export function goalCardResult(cwd = process.cwd(), opts = {}) {
     }
     const v = validateCard(card.text);
     if (!v.ok) return { status: "rejected", text: null, reason: v.error, path: card.path };
-    const text = renderInjection(card.text, card.mtimeMs, opts);
+    const text = renderInjection(card.text, card.mtimeMs, { ...opts, knowledgeLine: knowledgeSessionLine(opts) });
     if (text === null) {
       return { status: "rejected", text: null, path: card.path,
         reason: `the rendered card is over the ${RENDER_MAX_BYTES}-byte cap` };
