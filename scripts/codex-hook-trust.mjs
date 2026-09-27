@@ -399,14 +399,17 @@ export const CODEX_EVENTS = [
  * Ten seconds: long enough for a cold `node` start on a loaded box, short enough that a hung hook
  * cannot sit on the very approval prompt this guard exists to preempt.
  *
- * UNVERIFIED (see docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md): Codex is confirmed to
- * EXECUTE a PreToolUse hook — this file's own trust machinery and Orca's own `codex-hook.cmd` wiring
- * both prove that a command hook fires. What this build could NOT confirm on this host is whether
- * Codex's PreToolUse contract honors the deny shape Claude's hooks use
- * (`hookSpecificOutput.permissionDecision: 'deny'`) as an actual refusal, or silently accepts the tool
- * call anyway — a false green, which is worse than shipping no guard. `mirror-shared-skills.mjs` gates
- * wiring this list behind its own opt-in flag (`--codex-hooks-delete-guard`), never turned on by
- * `--codex-hooks` alone, until that is proven live.
+ * The deny shape is ESTABLISHED, not assumed (see docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md
+ * for the full writeup): Codex's own upstream source (openai/codex, `codex-rs/hooks/src/events/
+ * pre_tool_use.rs`) hashes and matches the exact JSON `hooks/agent-dispatch-guard.mjs` already emits for
+ * Claude — `{ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
+ * permissionDecisionReason } }` — and that file's own unit tests (`permission_decision_deny_blocks_
+ * processing`, plus the integration suite in `codex-rs/core/tests/suite/hooks.rs`) confirm this actually
+ * blocks the tool call, not merely that the hook fires. `mirror-shared-skills.mjs` therefore wires this
+ * list alongside the note-delivery hooks whenever `--codex-hooks`/`--codex-hooks-only` is used — no
+ * separate opt-in. What is still outstanding is a LIVE end-to-end check (a real Codex turn attempting the
+ * probe delete and being refused) rather than a static confirmation; that is tracked as a follow-up in the
+ * gap doc, not a gate on shipping the wiring.
  */
 export const CODEX_DELETE_GUARD_EVENTS = [{ event: 'PreToolUse', timeout: 10 }];
 

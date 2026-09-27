@@ -116,11 +116,13 @@ test('isNewerVersion: malformed on either side is null, never true or false', ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// delete-deny Territory D2 — hooks/delete-guard.mjs wired as a Codex PreToolUse hook, behind its own
-// opt-in flag. A real child process, exactly like `skills/multi/scripts/mirror-shim.test.mjs` uses for
-// every other installer-behaviour case in this file's family — HOME/APPDATA/LOCALAPPDATA are all faked
-// so `codexHomes()` can never reach a real Codex home on this machine (the 2026-09-14 incident that
-// file's own header documents).
+// delete-deny Territory D2 — hooks/delete-guard.mjs wired as a Codex PreToolUse hook, riding along with
+// the existing --codex-hooks/--codex-hooks-only opt-in (no separate flag: the deny shape it relies on is
+// established, not merely assumed — see docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md). A
+// real child process, exactly like `skills/multi/scripts/mirror-shim.test.mjs` uses for every other
+// installer-behaviour case in this file's family — HOME/APPDATA/LOCALAPPDATA are all faked so
+// `codexHomes()` can never reach a real Codex home on this machine (the 2026-09-14 incident that file's
+// own header documents).
 // ─────────────────────────────────────────────────────────────────────────────
 
 function fakeCodexEnv(home) {
@@ -143,27 +145,14 @@ function runMirrorOnly(args, home) {
   return JSON.parse(stdout);
 }
 
-test('D2: --codex-hooks-delete-guard is its OWN flag — --codex-hooks alone never wires it', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-delete-guard-off-'));
+test('D2: --codex-hooks-only wires the delete-guard automatically (or cleanly refuses), no separate flag needed', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-delete-guard-'));
   const codex = path.join(home, 'scratch-codex');
   fs.mkdirSync(codex, { recursive: true });
 
+  // No `--codex-hooks-delete-guard` flag exists any more: the guard rides along with the SAME opt-in as
+  // note delivery, and neither script's group collides with the other's in the same hooks.json.
   const json = runMirrorOnly(['--codex-home', codex], home);
-  assert.deepEqual(json.codexDeleteGuardHooks, [], '--codex-hooks-only without the extra flag must not touch the guard');
-  assert.equal(fs.existsSync(path.join(codex, 'hooks.json')), true, 'the note-delivery hook still installs');
-  const hooks = JSON.parse(fs.readFileSync(path.join(codex, 'hooks.json'), 'utf8'));
-  assert.equal(hooks.hooks.PreToolUse, undefined, 'no PreToolUse group was ever created for the note hooks');
-});
-
-test('D2: --codex-hooks-delete-guard wires (or cleanly refuses) hooks/delete-guard.mjs, independent of --codex-hooks', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-delete-guard-on-'));
-  const codex = path.join(home, 'scratch-codex');
-  fs.mkdirSync(codex, { recursive: true });
-
-  // `--codex-hooks-only` always wires the note-delivery hooks too (its documented behaviour since
-  // before this build); what THIS flag adds is the extra `codexDeleteGuardHooks` entry alongside it,
-  // with neither script's group colliding with the other's in the same hooks.json.
-  const json = runMirrorOnly(['--codex-home', codex, '--codex-hooks-delete-guard'], home);
   assert.ok(json.codexHooks.length > 0, 'the note-delivery hooks still install alongside the guard');
 
   const deleteGuardScript = path.join(REPO, 'hooks', 'delete-guard.mjs');
@@ -183,5 +172,21 @@ test('D2: --codex-hooks-delete-guard wires (or cleanly refuses) hooks/delete-gua
     assert.equal(json.codexDeleteGuardHooks[0].wroteHooks, true);
     const hooks = JSON.parse(fs.readFileSync(path.join(codex, 'hooks.json'), 'utf8'));
     assert.ok(hooks.hooks.PreToolUse[0].hooks[0].command.includes('delete-guard.mjs'));
+    // The note-delivery script's own groups (SessionStart etc.) are untouched by the guard landing in
+    // the same file — the two scripts' groups never collide.
+    assert.ok(
+      hooks.hooks.SessionStart?.some((g) => g.hooks.some((h) => h.command.includes('multi-codex-hook.mjs'))),
+      'note-delivery hooks must survive unchanged alongside the guard',
+    );
   }
+});
+
+test('D2: an unknown flag (the old --codex-hooks-delete-guard) is refused, not silently accepted', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-delete-guard-oldflag-'));
+  const codex = path.join(home, 'scratch-codex');
+  fs.mkdirSync(codex, { recursive: true });
+
+  const json = runMirrorOnly(['--codex-home', codex, '--codex-hooks-delete-guard'], home);
+  assert.equal(json.ok, false);
+  assert.ok(json.refusals.some((r) => r.includes('unknown flag --codex-hooks-delete-guard')));
 });
