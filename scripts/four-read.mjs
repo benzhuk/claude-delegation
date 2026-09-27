@@ -205,18 +205,6 @@ export function buildAgentSpans(fsImpl, leadPath, sessionId, toolUses, toolResul
     lastMsCache.set(cacheKey, last);
     return last;
   }
-  function earliestAgentMsInDir(dir) {
-    const names = tryOr(() => fsImpl.readdirSync(dir), []);
-    let earliest = null;
-    for (const name of names) {
-      if (!AGENT_FILE_RE.test(name)) continue;
-      const scanned = scanSubagentFile(fsImpl, path.join(dir, name));
-      if (scanned.unreadable || !scanned.timestamps.length) continue;
-      const t = scanned.timestamps[0];
-      if (earliest === null || t < earliest) earliest = t;
-    }
-    return earliest;
-  }
   function fileLastMs(filePath, agentId) {
     const scanned = scanSubagentFile(fsImpl, filePath);
     return (!scanned.unreadable && scanned.timestamps.length) ? activityEndMs(scanned, false, agentId) : null;
@@ -243,16 +231,17 @@ export function buildAgentSpans(fsImpl, leadPath, sessionId, toolUses, toolResul
         const toMs = nextSameRunLaunchMs(t.ms, ownResult.runId);
         agentsLastMs = lastAgentMsInDir(path.join(workflowsDir, ownResult.runId), t.ms, toMs);
       } else {
-        // No runId (the trimmed fixtures never carry one): every candidate run directory
-        // whose earliest agent falls in [this Workflow, the next Workflow of ANY kind) is a
-        // match — take the MAX of their last-activity values, not just the first one found in
-        // readdir order (F2-review-round2 MINOR-C).
+        // No runId (the trimmed fixtures never carry one): every agent file, in any run
+        // directory, whose first timestamp falls in [this Workflow, the next Workflow of ANY
+        // kind) belongs to this launch — take the MAX of their last-activity values, not just
+        // the first one found in readdir order (F2-review-round2 MINOR-C). Each agent file
+        // belongs to the latest Workflow launched at or before its own first timestamp,
+        // whichever run dir it sits in, so a parallel launch never orphans a run's staged
+        // agents and a relaunch never stretches the first launch (F2-review-round3 MINOR-1).
         const nextWorkflowMs = workflowUseMs.find((ms) => ms > t.ms);
         const upperBound = nextWorkflowMs !== undefined ? nextWorkflowMs : Infinity;
         for (const name of runDirNames) {
           const dir = path.join(workflowsDir, name);
-          const earliest = earliestAgentMsInDir(dir);
-          if (earliest === null || earliest < t.ms || earliest >= upperBound) continue;
           const last = lastAgentMsInDir(dir, t.ms, upperBound);
           if (last !== null && (agentsLastMs === null || last > agentsLastMs)) agentsLastMs = last;
         }

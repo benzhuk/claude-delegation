@@ -624,13 +624,40 @@ test('buildAgentSpans: the no-runId heuristic run match takes the max of every c
   const toolUses = [{ ms: t0, name: 'Workflow', id: 'w' }]; // no runId on the ack -> heuristic path
   const toolResults = [{ ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: null }];
   const windowEndMs = t0 + 160 * min;
+  // Pin BOTH readdir orders: tmpfs lists newest-first and ext4 by hash, so a single order
+  // can let a first-match `break` pass by luck (F2-review-round3 MINOR-2).
+  for (const order of ['forward', 'reversed']) {
+    const fsOrdered = order === 'forward' ? fs : { ...fs, readdirSync: (p, o) => fs.readdirSync(p, o).slice().reverse() };
+    assert.deepEqual(mergeSpans(buildAgentSpans(fsOrdered, leadPath, sessionId, toolUses, toolResults, windowEndMs)), [[t0, t0 + 150 * min]], order);
+  }
   const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, windowEndMs));
-  assert.deepEqual(spans, [[t0, t0 + 150 * min]]);
 
   const leadTimestamps = [t0, windowEndMs]; // silent from launch through +160min
   const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: windowEndMs }, null, spans, null);
   // The +150min..+160min piece outside the union is only 10min, never stalled alone.
   assert.match(r.value, /^0 gap\(s\) over 30min stalled; 1 waiting-on-agents \(150\.0 min\)/);
+});
+
+test('buildAgentSpans: no-runId heuristic — a staged agent that starts after a parallel Workflow launch still sits inside the union (F2-review-round3 MINOR-1)', () => {
+  const dir = mkTmp('four-read-r3-parallel-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const wf = path.join(dir, sessionId, 'subagents', 'workflows');
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  fs.mkdirSync(path.join(wf, 'wf_a'), { recursive: true });
+  fs.mkdirSync(path.join(wf, 'wf_b'), { recursive: true });
+  writeJsonl(path.join(wf, 'wf_a'), 'agent-a1.jsonl', [{ timestamp: new Date(t0 + 100).toISOString(), type: 'user' }, { timestamp: new Date(t0 + 5 * min).toISOString(), type: 'user' }]);
+  writeJsonl(path.join(wf, 'wf_a'), 'agent-a2.jsonl', [{ timestamp: new Date(t0 + 1 * min).toISOString(), type: 'user' }, { timestamp: new Date(t0 + 120 * min).toISOString(), type: 'user' }]);
+  writeJsonl(path.join(wf, 'wf_b'), 'agent-b1.jsonl', [{ timestamp: new Date(t0 + 2500).toISOString(), type: 'user' }, { timestamp: new Date(t0 + 10 * min).toISOString(), type: 'user' }]);
+  const toolUses = [{ ms: t0, name: 'Workflow', id: 'wa' }, { ms: t0 + 2400, name: 'Workflow', id: 'wb' }];
+  const toolResults = [
+    { ms: t0 + 500, item: { type: 'tool_result', tool_use_id: 'wa' }, agentId: null, runId: null },
+    { ms: t0 + 2900, item: { type: 'tool_result', tool_use_id: 'wb' }, agentId: null, runId: null },
+  ];
+  const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, t0 + 130 * min));
+  assert.deepEqual(spans, [[t0, t0 + 120 * min]]);
 });
 
 // ── R7: subagent stall scanning ─────────────────────────────────────────────
@@ -832,7 +859,7 @@ test('buildAgentSpans: a Workflow ack\'s toolUseResult.runId picks its own run d
   ]);
   writeJsonl(runY, 'agent-y.jsonl', [
     { timestamp: new Date(t0 + 2 * min).toISOString(), type: 'user' },
-    { timestamp: new Date(t0 + 5 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 120 * min).toISOString(), type: 'user' }, // ends LATER than wf_x, so only the runId path can pick wf_x
   ]);
   const toolUses = [{ ms: t0, name: 'Workflow', id: 'w' }];
   const toolResults = [{ ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: 'wf_x' }];
