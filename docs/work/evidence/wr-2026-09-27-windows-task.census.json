@@ -1,0 +1,544 @@
+{
+  "combined": {
+    "claude-opus-5-5": {
+      "cache_creation_input_tokens": 71041,
+      "cache_read_input_tokens": 2670748,
+      "input_tokens": 62,
+      "output_tokens": 21018
+    },
+    "claude-sonnet-5": {
+      "cache_creation_input_tokens": 150391,
+      "cache_read_input_tokens": 6577027,
+      "input_tokens": 128,
+      "output_tokens": 49847
+    }
+  },
+  "defaultSubagentsDir": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents",
+  "lead": {
+    "coverageReason": null,
+    "coverageSupported": true,
+    "host": "claude",
+    "leadLastMessageAt": "2026-09-27T20:47:04.798Z",
+    "leadTurns": 3,
+    "leadTurnsTotal": 50,
+    "markerFound": true,
+    "nativeTurnCount": null,
+    "nativeTurnCountWindow": null,
+    "observedLeadRequests": null,
+    "observedLeadTokens": null,
+    "observedNativeTurnCount": null,
+    "observedNativeTurnCountWindow": null,
+    "observedTotalByModel": null,
+    "observedWindowByModel": null,
+    "totalByModel": {
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 1874830,
+        "cache_read_input_tokens": 29620856,
+        "input_tokens": 412,
+        "output_tokens": 118382
+      }
+    },
+    "totalTurns": 206,
+    "turnsPerHour": 41.14029255319149,
+    "wallClockHours": 0.26737777777777777,
+    "windowByModel": {
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 15963,
+        "cache_read_input_tokens": 1933307,
+        "input_tokens": 22,
+        "output_tokens": 7465
+      }
+    },
+    "windowEndAt": "2026-09-27T20:47:04.798Z",
+    "windowStartAt": "2026-09-27T20:31:02.238Z",
+    "windowTurns": 11
+  },
+  "leadPath": "C:/Users/benzh/.claude/projects/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/588290d9-ee43-400b-a808-cf44c407171c.jsonl",
+  "marker": null,
+  "subagents": {
+    "excludedByWindow": 3054,
+    "fileCount": 62,
+    "incomplete": false,
+    "perFile": [
+      {
+        "byModel": {},
+        "excludedByWindow": 48,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a07cadae581eed4cd.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 38,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a08749a7b72b936b9.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 36,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a236383f97b9afff3.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 86,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a386b12c91066fab7.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 90,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a4a38060d5c9062a5.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 55078,
+            "cache_read_input_tokens": 737441,
+            "input_tokens": 40,
+            "output_tokens": 13553
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a5e5ac2a0ebc651ae.jsonl",
+        "role": "unassigned",
+        "turns": 20
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 74,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a970d49312efb2623.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 156,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a9e1628fd8900c5b7.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 24,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-a9f3351c153350c27.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 9,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-aa60b2dd8dca23376.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 150391,
+            "cache_read_input_tokens": 6577027,
+            "input_tokens": 128,
+            "output_tokens": 49847
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-aaf4332040d91e611.jsonl",
+        "role": "unassigned",
+        "turns": 64
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 200,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-acac1109455ca2e38.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 61,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-ad6c8164472be15c9.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 6,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-aeaf21d46af7443c0.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 48,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\agent-aeb9bcb276e160a7a.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 29,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a23866d7cf329f249.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 26,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a28d519e04f0ee98c.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 130,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a353e5d7d74a49e73.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 69,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a3b43374a2cb9b982.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 95,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a4432a3897f8517b1.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 17,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a487021e9ced3e8c6.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 200,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a50c494cc27b82de9.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a5fa9fe8d6d35a438.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 32,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-a673d125575ab2906.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 87,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-aa15d2338d21b698f.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 29,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-ad63bc3b34eeedbea.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 22,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-ae7b1fa05b17aa706.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 31,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_5d32ff3d-222\\agent-aedb89e3759e3b671.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 9,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a0211dbabbca550b4.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 52,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a3007ca7680701765.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 45,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a3b9e0904849fa46d.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 16,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a48939c7508d72c3d.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 61,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a662fa43dc2d4db2b.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 19,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a6d9b3024e9d5f8b4.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 50,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a73dcd7373006653d.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 29,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a7484f4cada5f0674.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 19,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a7bd9abe437d855bd.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 46,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a8200cd9397889bf5.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 94,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-a91a4ddea3aedb2ee.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 25,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-aba99c6edea6e4773.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 16,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-aec32d01f04667e23.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 79,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_9f35c84f-872\\agent-af33055aeb4e449c4.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 19,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a19c3a7872b0bfd0f.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 25,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a52bf5214f686d30b.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 42,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a556480aa2f85bc63.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 16,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a588d87d3bd2f4d4f.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 62,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a77bdfcc504b159b0.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 42,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a884cd743709d3029.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 24,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-a9e20dbac25e720e9.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 111,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-aa53a8cc851b9b3ed.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 33,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-ab1b7e6f0fa0eebb8.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 32,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-ac04ecdb48dc297f3.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 53,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-ade012a859335e737.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 28,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-af23bd34ca22a39c2.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 16,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_b85f6c1f-582\\agent-afa0f23ccf1f32571.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 62,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-a2c0c00af2d6eda77.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 129,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-a557446e6ea41fd27.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-a5e77eace627643fa.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 32,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-ab9c43fc83a79c99f.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 24,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-aca4e115ebfeb823f.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 33,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-acb1525cf37d49ac1.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 41,
+        "file": "C:\\Users\\benzh\\.claude\\projects\\C--Users-benzh-orca-workspaces-claude-delegation-gudgeon\\588290d9-ee43-400b-a808-cf44c407171c\\subagents\\workflows\\wf_f2ffcd08-1cf\\agent-adbd5c24aa545b3bd.jsonl",
+        "role": "integrate",
+        "turns": 0
+      }
+    ],
+    "roleFileCounts": {
+      "unassigned": 2
+    },
+    "totalByModel": {
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 55078,
+        "cache_read_input_tokens": 737441,
+        "input_tokens": 40,
+        "output_tokens": 13553
+      },
+      "claude-sonnet-5": {
+        "cache_creation_input_tokens": 150391,
+        "cache_read_input_tokens": 6577027,
+        "input_tokens": 128,
+        "output_tokens": 49847
+      }
+    },
+    "totalByRole": {
+      "unassigned": {
+        "cache_creation_input_tokens": 205469,
+        "cache_read_input_tokens": 7314468,
+        "input_tokens": 168,
+        "output_tokens": 63400
+      }
+    },
+    "totalTurns": 84,
+    "unreadable": 0,
+    "unreadableDirs": []
+  },
+  "tasksPaths": [
+    "C:/Users/benzh/.claude/projects/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/588290d9-ee43-400b-a808-cf44c407171c/subagents"
+  ]
+}
