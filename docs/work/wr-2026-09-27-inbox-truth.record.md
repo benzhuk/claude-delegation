@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-inbox-truth
 Scope: docs/specs/inbox-truth-1/spec.md@f334055189418aa1480d6fbcd7d082db5094d416, Lane 29
 Owner: root
-Status: accepted
+Status: closed
 Authority: skills-fable-lane-29-1 assigns the exclusive Lane 29 territory under the standing merge grant. No release, install, or other lane edits. Root owns this record.
 Artifact: build/inbox-truth-1@c8c16be67ef4e832e90ec2f78ebdf570001fd60f
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/inbox-truth-1
 Evidence: docs/work/evidence/wr-2026-09-27-inbox-truth-review.md, docs/work/evidence/wr-2026-09-27-inbox-truth-sealed.md, docs/work/evidence/wr-2026-09-27-inbox-truth-live-proof.md
-Next: accept the measured artifact, merge and close through the checked command, then publish the decisions summary.
+Next: no implementation work remains; retain the reviewed artifact, receipts and cleanup ownership. Merge 83b0966360681c16c3961f07d448438abef9453e includes the history entry. Publish the decisions summary through its existing renderer and retain its receipt. Installed-hook rollout remains a separate release and install action.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T22:57:00Z
@@ -43,6 +43,7 @@ Four numbers: Hours ask to accepted: 0.3h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-29-1
 Log: 2026-09-27T23:24:38.700Z accepted root artifact c8c16be67ef4e832e90ec2f78ebdf570001fd60f
+Log: 2026-09-27T23:33:13.860Z closed root merge 83b0966360681c16c3961f07d448438abef9453e
 
 Measure: work lost or stalled, by removing false missing-packet reports and unnecessary repeat asks to busy Codex peers. No savings claim before measurement.
 
