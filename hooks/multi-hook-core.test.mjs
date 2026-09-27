@@ -86,6 +86,27 @@ test('summarise still carries the id, the packet state and the problems', () => 
   assert.match(text, /! cursor not writable/);
 });
 
+test('L29: summarise renders packet states strictly', () => {
+  const result = resultOf([
+    line('astra', 'taxonomy', 'astra-present-1', 'ASK', 'Present'),
+    line('astra', 'taxonomy', 'astra-missing-1', 'ASK', 'Missing'),
+    line('astra', 'taxonomy', 'astra-unchecked-1', 'ASK', 'Unchecked'),
+  ]);
+  for (const [note, exists, packetPath] of [
+    [result.notes[0], true, '/repo/docs/notes/present.md'],
+    [result.notes[1], false, null],
+    [result.notes[2], null, null],
+  ]) {
+    note.details = `docs/notes/${note.id}.md`;
+    note.packetExists = exists;
+    note.packetPath = packetPath;
+  }
+  const text = summarise(result);
+  assert.match(text, /packet: \/repo\/docs\/notes\/present\.md/);
+  assert.match(text, /packet MISSING: docs\/notes\/astra-missing-1\.md/);
+  assert.match(text, /packet: docs\/notes\/astra-unchecked-1\.md, not checked here/);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // No parking (the 2026-09-16 ruling)
 // ─────────────────────────────────────────────────────────────────────────────

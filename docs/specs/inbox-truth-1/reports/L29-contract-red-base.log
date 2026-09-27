@@ -1,0 +1,143 @@
+✔ D1: the human line is one note, one line, with the gist (0.9491ms)
+✔ D1: a long body is cut at 80 characters so it cannot bury the reply above it (0.2679ms)
+✔ D1: three notes at most, then a count (0.2034ms)
+✔ D1: every output carrying notes carries the human line too (0.2298ms)
+✔ summarise still carries the id, the packet state and the problems (0.1228ms)
+✖ L29: summarise renders packet states strictly (0.6158ms)
+✔ Stop never waits, however much this session is owed (1.8846ms)
+✔ the Stop timeout is a minute, and hooks.json says the same (0.2775ms)
+✔ UserPromptSubmit with notes returns additionalContext, with nothing returns silence (0.9613ms)
+✔ PostToolUse says the note arrived mid-turn (0.5112ms)
+✔ SessionStart delivers whatever is pending, as context (0.3954ms)
+✔ Stop with notes blocks; a re-fire never reads and never blocks (0.9032ms)
+✔ Stop with nothing waiting is silent (0.9851ms)
+✔ MINOR 11: a Stop where every waiting note is ledger-only (ACK/FYI) does not block (0.4237ms)
+✔ MINOR 11: MIXED still blocks once, and still surfaces every note (ACK/FYI included) (0.4709ms)
+✔ MINOR 11: loud-only still blocks, unchanged (0.4195ms)
+✔ MINOR 11: the wake-all-kinds switch restores blocking on quiet-only notes (0.978ms)
+✔ MINOR 11: an unreadable kill-switch check fails toward blocking (0.3556ms)
+✔ MINOR 11: a kind that failed to parse counts as loud (0.3755ms)
+✔ MINOR 11: quiet-only does not advance the cursor — the same note surfaces at the next event (0.6527ms)
+✔ MINOR 11: a loud note BEYOND the render limit still blocks (0.4269ms)
+✔ MINOR 4: Stop renders six of seven, acks those six, and the seventh arrives next time (0.7159ms)
+✔ MINOR 4: PostToolUse and UserPromptSubmit ack only what they print either (1.1293ms)
+✔ MINOR 4: a backlog inside the limit is still acked in full (0.4462ms)
+✔ MINOR 6: a control character in a body never reaches the line Ben sees (0.0696ms)
+✔ MAJOR 4: writeJson resolves only once the stream has taken it (20.9772ms)
+✔ continuation composes with a peer Stop block and preserves its exact ACK ids (0.3117ms)
+✔ continuation alone creates one native output for prompt context or Stop correction (0.0952ms)
+✔ D3: the Codex slug is $NOTE_SLUG, then the binding — never a title (5.0356ms)
+✔ D3: a session with no identity is silent, and never reads anybody's inbox (0.8623ms)
+✔ continuation lifecycle is independent of peer slug while unknown native role stays disabled (8.1418ms)
+✔ Codex Stop collects peer result before continuation and composes one block (5.2073ms)
+✔ D3: the adapter passes --me so every turn re-states who this pane is (0.5114ms)
+✔ D3: Stop maps to the same block contract Claude gets (0.4332ms)
+✔ MINOR 5: an unparseable payload is silence — never a read, an ack, or a mislabelled output (0.2998ms)
+✔ MINOR 8: PostToolUse skips the repo scan, so the hot path never runs git (0.3652ms)
+✔ D3: an unknown event is silence, not a crash (0.3084ms)
+✔ D2: the payload session_id becomes the thread id the queue is addressed by (6.2603ms)
+✔ D2: no CODEX_HOME in the environment falls back to ~/.codex, as codex itself does (5.2946ms)
+✔ D2: a payload with no session_id registers nothing, and the hook still works (0.6361ms)
+✔ D2: a session with no identity registers nothing — a guess would divert other notes (0.3829ms)
+✔ V2: only lines addressed to me count — never my own sends (1.2317ms)
+✔ a line that does not parse is kept, not dropped — an unreadable ledger line is the news (0.1034ms)
+✔ the same id in the mirror and the repo ledger is reported once (0.1203ms)
+✔ unknown flags and missing values are exit 1 (0.2971ms)
+✔ V2: new notes for my slug, from both the mirror and the repo ledger (13.5956ms)
+✔ V2: --ack advances the cursor so the same note is never shown twice (12.4353ms)
+✔ V2: without --ack the note stays new — a read that is not acked changes nothing (2.5282ms)
+✔ V2: the packet a Details path names is reported present or MISSING (7.1548ms)
+✖ L29: packet state distinguishes unchecked, absent, present, and no Details (6.8631ms)
+✖ L29: the Codex queue explanation is verbatim directly after the idle bullet (0.4992ms)
+✔ V2: `--me ben` reads the reserved recipient (6.5926ms)
+✔ the cold start shows recent notes and marks older ones seen, saying so (10.2377ms)
+✔ --cold-start-hours 0 shows everything in the window (5.1855ms)
+✔ --days bounds the scan to recent ledger files (5.7359ms)
+✔ recentLedgerFiles dates by filename, oldest first (1.8128ms)
+✔ a corrupt cursor is a fresh cursor, never a crash (5.2785ms)
+✔ an empty inbox is exit 0 and says so (0.9358ms)
+✔ V2: $NOTE_SLUG answers when --me does not, and neither needs orca (1.9553ms)
+✔ V2: with no --me, no $NOTE_SLUG and no pane handle it FAILS LOUD, never guesses (0.4883ms)
+✔ V2: the pane slug comes from $ORCA_TERMINAL_HANDLE via `terminal show`, then from cache (7.9962ms)
+✔ V2: a pane whose title is not a slug is told to rename, not guessed at (0.8196ms)
+✔ V2: a shell pane never claims an inbox, even though its title reduces to a legal slug (0.644ms)
+✔ the CLI exits 0 and prints JSON against a fixture ledger, even when it cannot find a slug (106.4352ms)
+✔ V2: the focused-pane fallback is opt-in — without --active-terminal it is never consulted (1.1134ms)
+✔ V2: ORCA_WORKTREE_ID names the pane's own repo when cwd is somewhere else (2.2273ms)
+✔ H5: a repo-ledger note older than the mirror window is shown ONCE, not on every run (17.0779ms)
+✔ M1: an unwritable cursor reports itself and still dedupes through the temp-dir fallback (7.5968ms)
+✔ M1: the fallback cursor is scoped per home — two homes never share a seen-set (5.2508ms)
+✔ M1: a cursor that cannot be written ANYWHERE still surfaces the notes (1.8631ms)
+ℹ tests 70
+ℹ suites 0
+ℹ pass 67
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 339.6042
+
+✖ failing tests:
+
+test at hooks\multi-hook-core.test.mjs:89:1
+✖ L29: summarise renders packet states strictly (0.6158ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /packet: docs\/notes\/astra-unchecked-1\.md, not checked here/. Input:
+  
+  '3 new peer notes for taxonomy (the multi skill; the ledger is the channel):\n' +
+    '  astra → taxonomy, 9.14.26 16:00 NYC [astra-present-1] ASK: Present. (packet: /repo/docs/notes/present.md)\n' +
+    '  astra → taxonomy, 9.14.26 16:00 NYC [astra-missing-1] ASK: Missing. (packet MISSING: docs/notes/astra-missing-1.md)\n' +
+    '  astra → taxonomy, 9.14.26 16:00 NYC [astra-unchecked-1] ASK: Unchecked. (packet MISSING: docs/notes/astra-unchecked-1.md)\n' +
+    'Read the packet before acting. ACK an ASK you take, or send BLOCKED with the reason. Never re-send an id someone else sent, and never wait on a peer inside this turn.'
+  
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/inbox-truth-1/hooks/multi-hook-core.test.mjs:107:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '3 new peer notes for taxonomy (the multi skill; the ledger is the channel):\n  astra → taxonomy, 9.14.26 16:00 NYC [astra-present-1] ASK: Present. (packet: /repo/docs/notes/present.md)\n  astra → taxonomy, 9.14.26 16:00 NYC [astra-missing-1] ASK: Missing. (packet MISSING: docs/notes/astra-missing-1.md)\n  astra → taxonomy, 9.14.26 16:00 NYC [astra-unchecked-1] ASK: Unchecked. (packet MISSING: docs/notes/astra-unchecked-1.md)\nRead the packet before acting. ACK an ASK you take, or send BLOCKED with the reason. Never re-send an id someone else sent, and never wait on a peer inside this turn.',
+    expected: /packet: docs\/notes\/astra-unchecked-1\.md, not checked here/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at skills\multi\scripts\note-inbox.test.mjs:148:1
+✖ L29: packet state distinguishes unchecked, absent, present, and no Details (6.8631ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== null
+  
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/inbox-truth-1/skills/multi/scripts/note-inbox.test.mjs:161:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at skills\multi\scripts\note-inbox.test.mjs:181:1
+✖ L29: the Codex queue explanation is verbatim directly after the idle bullet (0.4992ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/inbox-truth-1/skills/multi/scripts/note-inbox.test.mjs:188:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
