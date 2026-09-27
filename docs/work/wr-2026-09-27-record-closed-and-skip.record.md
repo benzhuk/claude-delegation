@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-record-closed-and-skip
 Scope: docs/specs/record-closed-and-skip-1/spec.md@7e92f16, Lane 23
 Owner: root
-Status: accepted
+Status: closed
 Authority: skills-fable-lane-23-1 assigns Lane 23 under the standing merge grant. Only its exclusive territory may change. No install, release, or other lane edits. Root owns this record.
 Artifact: build/record-closed-and-skip-1@255bfd34d25a35c1932e5c048a7be9f1a2dcace3
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1
-Evidence: docs/work/evidence/wr-2026-09-27-record-closed-and-skip-review-final-r4.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-sealed.md
-Next: accept measured reviewed artifact 255bfd, merge to main, then prove close with the new command. Spec cost remains unavailable because the pinned timestamp is inverted; Closed page destination was requested from the spec owner.
+Evidence: docs/work/evidence/wr-2026-09-27-record-closed-and-skip-review-final-r4.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-sealed.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-main-closeout.md
+Next: no implementation work remains; retain the reviewed artifact, receipts, and cleanup ownership. The Notion Closed bullet awaits the spec owner's destination on the redesigned page; spec cost remains explicitly unavailable under the pinned inverted timestamp.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T20:40:00Z
@@ -50,6 +50,7 @@ Four numbers: Hours ask to accepted: 0.9h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-23-1
 Log: 2026-09-27T21:21:49.748Z accepted root artifact 255bfd34d25a35c1932e5c048a7be9f1a2dcace3
+Log: 2026-09-27T21:31:46.078Z closed root merge 8ab7afecf8cf6f82998b58ba42609a51f6f15b7d
 
 Codex-led manual sequence (no Workflow tool). Pinned Spec-from is later than pickup; retain the source metadata and flag the inconsistency in measurement rather than changing it silently.
 
