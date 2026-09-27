@@ -106,7 +106,7 @@
 // (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
 // no destructive action has been taken yet).
 
-import { existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -181,13 +181,37 @@ export function gitToplevel(cwd) {
  * remote at all, a network error partway through) is exactly the condition that downgrades every
  * origin-ancestry judgment to UNVERIFIABLE this run, so the caller needs the error message, not an
  * exception to catch again.
+ *
+ * J1 round 2 (MINOR 4): this is the janitor's only network call, made unconditionally on every run.
+ * `timeout` bounds an unreachable host (the OS connect timeout otherwise); `GIT_TERMINAL_PROMPT: "0"`
+ * and `GCM_INTERACTIVE: "never"` stop an https origin needing credentials from opening a blocking
+ * terminal or Git Credential Manager prompt (measured on Windows) - a network call this file never
+ * made before now must fail closed (into UNVERIFIABLE) rather than hang. `execFileSync` directly, not
+ * the shared `git()` wrapper, because this is the one call site that needs its own timeout/env - the
+ * wrapper's job is a bare, minimal, always-inherited environment for every OTHER call.
  */
 export function fetchOrigin(root) {
   try {
-    git(["fetch", "origin", "--prune"], root);
+    execFileSync("git", ["fetch", "origin", "--prune"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
+    });
     return { ok: true, error: null };
   } catch (err) {
-    return { ok: false, error: String(err && err.message ? err.message : err) };
+    // J1 round 2 (MINOR 3): git's raw stderr is a multi-line blob (advice lines, credential-helper
+    // chatter, the remote URL) - it used to land verbatim as the report's first line and inside every
+    // UNVERIFIABLE row's reason, breaking the table. One line: prefer the first `fatal:`/`error:` line
+    // git itself prints (its actual verdict), else the first non-blank line, else "unknown error".
+    const text = String((err && (err.stderr || err.message)) || err);
+    const lines = text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const first = lines.find((l) => /^(fatal|error):/.test(l)) || lines[0] || "unknown error";
+    return { ok: false, error: first };
   }
 }
 
@@ -196,10 +220,13 @@ export function fetchOrigin(root) {
  * was last actually fetched, without fetching now. Two sources, the newest of the two wins:
  * `refs/remotes/origin/<mainBranch>`'s own reflog (the time that ref itself last MOVED - the more
  * precise signal, but absent when the ref has never moved, or `core.logAllRefUpdates` is off) and
- * `FETCH_HEAD`'s mtime (rewritten by every fetch, `--prune`-only ones included, even one that moved
- * no refs at all - the only signal left when the ref has no reflog). `--git-path` resolves through a
- * worktree's own `.git` file (which points elsewhere) rather than assuming `<root>/.git` directly.
- * Returns null (never throws) when neither source is available - a repo that has never fetched.
+ * `FETCH_HEAD`'s mtime, ACCEPTED ONLY when its own content proves the fetch it was written by is the
+ * one that produced the CURRENT `origin/<mainBranch>` tip (J1 round 2, MINOR 2: `FETCH_HEAD` is
+ * rewritten by a fetch/pull of ANY remote, or a fetch of one narrow branch on this one - measured
+ * reporting "1m ago" for an origin/main untouched in 5 days, right after `git fetch upstream`).
+ * `--git-path` resolves through a worktree's own `.git` file (which points elsewhere) rather than
+ * assuming `<root>/.git` directly. Returns null (never throws) when neither source is available - a
+ * repo that has never fetched, or whose `FETCH_HEAD` cannot be tied to this ref.
  */
 export function lastFetchAgeHours(root, mainBranch, now = new Date()) {
   let refTime = null;
@@ -214,9 +241,16 @@ export function lastFetchAgeHours(root, mainBranch, now = new Date()) {
   try {
     const gitPath = git(["rev-parse", "--git-path", "FETCH_HEAD"], root).trim();
     const full = path.isAbsolute(gitPath) ? gitPath : path.join(root, gitPath);
-    fetchHeadTime = statSync(full).mtimeMs / 1000;
+    const currentTip = refSha(root, `refs/remotes/origin/${mainBranch}`);
+    const marker = `branch '${mainBranch}' of `;
+    const matchesThisRef = currentTip
+      ? readFileSync(full, "utf8")
+          .split("\n")
+          .some((line) => line.startsWith(currentTip) && line.includes(marker))
+      : false;
+    if (matchesThisRef) fetchHeadTime = statSync(full).mtimeMs / 1000;
   } catch {
-    // never fetched at all - no FETCH_HEAD to read
+    // never fetched at all, or FETCH_HEAD's content doesn't name this ref at its current tip
   }
   const candidates = [refTime, fetchHeadTime].filter((t) => typeof t === "number" && Number.isFinite(t));
   if (candidates.length === 0) return null;
@@ -767,7 +801,9 @@ export function classify({
     if (belowAgeFloor(bAgeHours, minAgeHours)) {
       judgment.branches.push({ ref: b.name, reason: ageFloorReason(bAgeHours, minAgeHours) });
     } else {
-      safe.branches.push({ ref: b.name, reason: `merged into origin/${mainBranch}${fetchAgeSuffix}` });
+      // J1 round 2 (MAJOR 2): carry the sha this run proved merged on origin - applySafe rechecks it
+      // immediately before `-D` rather than trusting the name alone.
+      safe.branches.push({ ref: b.name, sha: b.tip || null, reason: `merged into origin/${mainBranch}${fetchAgeSuffix}` });
     }
   }
 
@@ -796,6 +832,18 @@ export function classify({
       continue;
     }
     if (rb.merged) {
+      // J1 round 2 (MINOR 1): the same fetch failure that downgrades local worktree/branch verdicts
+      // to UNVERIFIABLE applies here too - `rb.merged` is read off this same (possibly stale)
+      // `refs/remotes/origin/*`, and the spec says "every merge judgment", not only the destructive
+      // ones. Report-only either way; this only changes the wording and drops the copy/paste command.
+      if (originUnverifiable) {
+        judgmentRemoteBranches.push({
+          ref: `origin/${rb.name}`,
+          reason: `merge judgment UNVERIFIABLE this run: git fetch origin failed${fetchFailNote}`,
+          command: "",
+        });
+        continue;
+      }
       // J1 review round 2 (F6): the verdict was read off `refs/remotes/origin/*` as of this host's
       // last fetch - another host may have pushed new commits to the same name since. Naming the tip
       // sha this verdict actually used lets a human compare before running the command against
@@ -970,6 +1018,10 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
       daysSinceCommit: daysSinceLastCommit(root, name, now),
       unstarted: isUnstarted(root, name, mainBranch),
       ageHours: branchAgeHours(root, name, now),
+      // J1 round 2 (MAJOR 2): the sha classify() proved merged on origin THIS run - carried into the
+      // SAFE row so applySafe can recheck it immediately before deleting, instead of trusting a name
+      // that may have moved (a new local commit) in the window between gather and apply.
+      tip: refSha(root, headRef(name)),
     };
   });
 
@@ -1068,6 +1120,11 @@ export function applySafe(state, log = []) {
   } catch {
     stillCheckedOut = new Set();
   }
+  // J1 round 2 (MAJOR 1, defence in depth): main() already refuses `--apply` with `--no-fetch`, but
+  // `applySafe` is exported and callable on its own (every test in this file calls it directly) - a
+  // SAFE row is only ever trustworthy for `-D` if THIS state came from a fetch that was attempted and
+  // succeeded. `noFetch`'s own report-only run sets `attempted: false`, which fails this the same way.
+  const fetchLiveThisRun = Boolean(state.fetch && state.fetch.attempted && state.fetch.ok);
   for (const b of state.safe.branches) {
     if (failedWorktreeBranches.has(b.ref)) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "skipped: its worktree removal did not report success" });
@@ -1075,6 +1132,26 @@ export function applySafe(state, log = []) {
     }
     if (stillCheckedOut.has(b.ref)) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "still checked out in a worktree" });
+      continue;
+    }
+    if (!fetchLiveThisRun) {
+      log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "skipped: no successful fetch this run" });
+      continue;
+    }
+    // J1 round 2 (MAJOR 2): classify() proved `b.sha` an ancestor of origin/<main> when state was
+    // gathered. Anything can have happened since (a new local commit, an amend, a reset) in the
+    // window between gather and this exact call - re-read the ref's CURRENT tip and re-run the same
+    // origin-ancestry proof right before deleting, rather than trusting the name. A mismatch or a
+    // fresh "not an ancestor" answer means some of what this branch now holds was never proven, so
+    // `-D` (which does not re-check on its own) must not run.
+    const tipNow = refSha(root, headRef(b.ref));
+    if (!b.sha || tipNow !== b.sha || !isBranchOnOrigin(root, b.ref, state._raw.mainBranch)) {
+      log.push({
+        action: "branch-delete",
+        ref: b.ref,
+        ok: false,
+        error: `skipped: tip moved since it was proven merged on origin this run (${b.sha ? b.sha.slice(0, 7) : "none"} -> ${tipNow ? tipNow.slice(0, 7) : "gone"})`,
+      });
       continue;
     }
     try {
@@ -1363,6 +1440,13 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
     }
 
     const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag } = parseFlags(argv);
+    if (applyFlag && noFetchFlag) {
+      // J1 round 2 (MAJOR 1): `-D` is reached only from the SAFE class after THIS run's own fetch
+      // proved the origin ancestry - `--no-fetch` has no such fetch to point to, so it reports as of
+      // whatever origin/<main> last held (labelled "as of last fetch, <age>") but never applies.
+      process.stderr.write("janitor: --apply needs this run's own fetch; --no-fetch is report-only\n");
+      return 3;
+    }
 
     const state = gatherState({ root: toplevel, config, minAgeHours, noFetch: noFetchFlag });
     if (state.__blind) {

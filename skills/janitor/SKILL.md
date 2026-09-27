@@ -31,21 +31,30 @@ individual file:
   because the branch may be the last copy of that work. The force form, on purpose: a
   branch reaches this point only after this run's own origin-ancestry proof (below) has
   already confirmed it merged on origin, so `-d`'s own merge-state check - which reads
-  the CHECKOUT's local HEAD, not origin - would wrongly refuse exactly the branch this
-  fix exists to delete (merged and pushed, on a checkout whose local main is stale)
+  the CHECKOUT's local HEAD, not origin - would wrongly refuse exactly the branch
+  janitor has just proven merged on origin (pushed, on a checkout whose local main is
+  stale). That proof is re-read immediately before the delete too, not just when the
+  report was first built: a tip that has moved since (a new local commit, in the window
+  between the report and `--apply`) skips the delete instead of removing whatever the
+  name now points at.
 
 A tool with no unlink code path cannot delete the wrong file.
 
-## Origin is the record of truth
-
-Every run that will judge a merge fetches first (`git fetch origin --prune`; skip with
-`--no-fetch`). Merged means an ancestor of `refs/remotes/origin/<main>` - local main
-plays no part in SAFE, whatever it contains. A fetch that fails this run (offline, no
-origin remote, a partial fetch that errored) downgrades every merge judgment to
-UNVERIFIABLE, never to SAFE, and the report says so on its own first lines - a stale or
-absent origin ref proves nothing once this run couldn't refresh it. Under `--no-fetch`,
-every verdict that rests on origin ancestry is labelled "as of last fetch, `<age>`" (read
-from `origin/<main>`'s own reflog, or `FETCH_HEAD`'s mtime when that ref has none).
+Origin is the record of truth for every merge judgment, not the checkout's local main.
+Every run that will judge a merge fetches first (`git fetch origin --prune`); merged
+means an ancestor of `refs/remotes/origin/<main>` - local main plays no part in SAFE,
+whatever it contains. A fetch that fails this run (offline, no origin remote, a partial
+fetch that errored, or a network timeout) downgrades every merge judgment - worktree,
+branch, and the report-only remote-branch table alike - to UNVERIFIABLE, never to SAFE,
+and the report says so on its own first lines: a stale or absent origin ref proves
+nothing once this run couldn't refresh it. `--no-fetch` skips that call and is
+report-only: every verdict resting on origin ancestry is labelled "as of last fetch,
+`<age>`" (read from `origin/<main>`'s own reflog, or `FETCH_HEAD`'s mtime, but only when
+`FETCH_HEAD`'s own content proves it was `<main>` that got fetched to its current tip -
+`FETCH_HEAD` is rewritten by a fetch of any remote or branch, so an unqualified mtime
+read could label a 5-day-stale origin "1m ago"); `--apply` refuses to run at all under
+`--no-fetch`, since `-D` must never act on a merge judgment this run did not itself just
+verify.
 
 ## The two classes
 
@@ -53,11 +62,12 @@ from `origin/<main>`'s own reflog, or `FETCH_HEAD`'s mtime when that ref has non
 - a git worktree that is not locked, not the main working tree, not the one janitor is
   running from, not checked out on a protected name (`main`, `master`, `develop`,
   `release`, `release/*`, `hotfix/*`, ...), whose branch's tip is confirmed on origin
-  (an `origin/<main>` ref must exist, this run's fetch of it must have succeeded (or be
-  skipped by `--no-fetch`), AND it must contain the branch's tip - with no origin remote
-  at all, or a fetch that failed, NOTHING is ever confirmed and NO worktree is ever SAFE;
-  see "no remote" below), has no submodules, and is fully clean including ignored files
-  (`git status --porcelain --ignored`, not just tracked changes)
+  (an `origin/<main>` ref must exist, this run's own fetch of it must have succeeded,
+  AND it must contain the branch's tip - with no origin remote at all, a fetch that
+  failed, or `--no-fetch` in play, NOTHING is ever confirmed and NO worktree is ever
+  SAFE for `--apply` to act on; see "no remote" below), has no submodules, and is fully
+  clean including ignored files (`git status --porcelain --ignored`, not just tracked
+  changes)
 - a local branch confirmed on origin the same way, not a protected name, never the
   current branch, never main
 
