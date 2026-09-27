@@ -2298,3 +2298,15 @@ test('R8: a corrupt state file does not reseed', async () => {
   // The corrupt file is left exactly as it was - never replaced by a fresh (seeded or empty) one.
   assert.equal(fs.readFileSync(overdueStatePath(home), 'utf8'), 'not json{{{');
 });
+
+test('R8: a recipient-to-sender line older than the ASK does not make its answer side observable', async () => {
+  const home = tmp();
+  seedOverdueState(home);
+  writeOverdueLedgerLine(home, '2026-09-25', 'taxonomy → astra, 9.25.26 18:38 NYC [taxonomy-older-1] ACK: Taking the earlier lane.');
+  writeOverdueLedgerLine(home, '2026-09-26', askLine()); // astra -> taxonomy, 9.26.26 20:00, no reply since
+  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-older', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 0, 'a reply channel seen only before the ASK says nothing about where its answer went');
+  assert.equal(result.crossHost, 1);
+});
