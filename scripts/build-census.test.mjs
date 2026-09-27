@@ -108,50 +108,63 @@ test('parseArgs: a trailing flag with no value throws instead of silently swallo
   assert.throws(() => parseArgs(['--lead', 'a', '--tasks']), /--tasks needs a value/);
 });
 
-// ── Codex lead — per-response usage only, with explicit conversational-turn limit ──
+// ── Codex lead — verified native ancestry and response-local usage ───────────
 
-test('runCensus detects a verified Codex session and sums response-local usage without adding cumulative turn/thread snapshots', async () => {
-  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, out: null });
+function codexRows({ id, root, parentId, depth, model = 'gpt-5.6-terra', timestamp, responseId, turnId }) {
+  const source = parentId ? { subagent: { thread_spawn: { parent_thread_id: parentId, depth, agent_path: '/root/builder', agent_nickname: `agent-${id}` } } } : 'cli';
+  return [
+    { timestamp, type: 'session_meta', payload: { id, session_id: root, source } },
+    { timestamp, type: 'turn_context', payload: { model } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: `${turnId}-started` } },
+    { timestamp, type: 'token_usage_record', payload: { session_id: root, response_id: responseId, turn_id: turnId, usage: { input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 10, output_tokens: 5 }, turn_token_usage: { input_tokens: 9999 }, thread_token_usage: { input_tokens: 99999 } } },
+  ];
+}
+
+function codexFixtureTree() {
+  const home = mkTmp('build-census-codex-home-');
+  const root = 'root-session';
+  const dayOne = path.join(home, 'sessions', '2026', '09', '26');
+  const dayTwo = path.join(home, 'sessions', '2026', '09', '27');
+  const lead = path.join(dayOne, 'rollout-root.jsonl');
+  writeJsonl(lead, codexRows({ id: root, root, timestamp: '2026-09-26T23:59:00.000Z', responseId: 'lead-response', turnId: 'lead-turn' }));
+  const child = path.join(dayTwo, 'rollout-child.jsonl');
+  writeJsonl(child, codexRows({ id: 'child-one', root, parentId: root, depth: 1, timestamp: '2026-09-27T00:01:00.000Z', responseId: 'same-response', turnId: 'child-turn' }));
+  const grandchild = path.join(dayTwo, 'rollout-grandchild.jsonl');
+  writeJsonl(grandchild, codexRows({ id: 'child-two', root, parentId: 'child-one', depth: 2, timestamp: '2026-09-27T00:02:00.000Z', responseId: 'same-response', turnId: 'grandchild-turn' }));
+  return { home, root, lead, child, grandchild, dayTwo };
+}
+
+test('Codex census discovers verified depth-one and depth-two children across the UTC horizon and deduplicates each logical child response separately', async () => {
+  const fixture = codexFixtureTree();
+  const report = await runCensus({ lead: fixture.lead, tasksDirs: [], marker: null, codexHome: fixture.home });
   assert.equal(report.lead.host, 'codex');
-  assert.equal(report.lead.totalTurns, null, 'observed response ids are not a complete census request count');
-  assert.equal(report.lead.leadTurns, null, 'native turn ids must not be relabeled as conversational leadTurns');
-  assert.equal(report.lead.observedNativeTurnCount, 2);
+  assert.equal(report.lead.sessionId, fixture.root);
+  assert.equal(report.lead.coverageSupported, true);
+  assert.deepEqual(report.lead.codex.discovery.horizonUtcDays, ['2026-09-26', '2026-09-27']);
+  assert.equal(report.subagents.fileCount, 2);
+  assert.deepEqual(report.subagents.perFile.map((file) => [file.parentId, file.depth]), [[fixture.root, 1], ['child-one', 2]]);
+  assert.equal(report.combined['gpt-5.6-terra'].output_tokens, 15, 'equal response ids in distinct logical children remain distinct');
+  assert.equal(report.lead.leadTurns, 1, 'only unique task_started ids define a Codex lead turn');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED/);
+});
+
+test('Codex attribution keeps only per-response usage and reports unknown models and malformed candidates as partial', async () => {
+  const fixture = codexFixtureTree();
+  fs.writeFileSync(path.join(fixture.dayTwo, 'malformed.jsonl'), 'not-json\n', 'utf8');
+  const report = await runCensus({ lead: fixture.lead, tasksDirs: [], marker: null, codexHome: fixture.home });
   assert.equal(report.lead.coverageSupported, false);
-  assert.equal(report.subagents.totalTurns, null);
-  assert.equal(report.subagents.totalByModel, null);
-  assert.equal(report.subagents.totalByRole, null);
-  assert.equal(report.subagents.roleFileCounts, null);
-  assert.equal(report.lead.totalByModel, null);
-  assert.equal(report.combined, null);
-  assert.deepEqual(report.lead.observedTotalByModel, {
-    unknown: { input_tokens: 135, cache_creation_input_tokens: 10, cache_read_input_tokens: 25, output_tokens: 12 },
-  }, 'only payload.usage is response-local; cumulative turn/thread fields are ignored');
-  const text = formatText(report);
-  assert.ok(text.includes('- leadHost: codex'));
-  assert.ok(text.includes('- leadTurnsLimit: unsupported'));
-  assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex complete census'));
-  assert.ok(text.includes('- observedLeadTokens: 182 (verified deduplicated per-response usage; incomplete coverage)'));
-  assert.ok(text.includes('- observedNativeTurnCountWindow: 2 (native turn ids; not leadTurns)'));
-  assert.ok(text.includes('- codexSubagents: unsupported'));
+  assert.ok(report.lead.codex.discovery.malformedFiles.some((file) => file.endsWith('malformed.jsonl')));
+  assert.equal(report.lead.observedTotalByModel['gpt-5.6-terra'].input_tokens, 210, 'cumulative snapshots never contribute');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: PARTIAL/);
 });
 
-test('Codex marker scopes per-response usage and native turn ids without inventing a build id', async () => {
-  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: 'CODEX-WINDOW', out: null });
-  assert.equal(report.lead.windowTurns, null);
-  assert.equal(report.lead.observedNativeTurnCountWindow, 1);
-  assert.equal(report.lead.windowByModel, null);
-  assert.deepEqual(report.lead.observedWindowByModel, {
-    unknown: { input_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 3 },
-  });
-});
-
-test('Codex seam: unsupported header carries its dedicated timestamp and disabled Claude discovery creates no child-directory incompleteness', async () => {
-  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, out: null });
-  assert.equal(report.defaultSubagentsDir, null, 'Codex must not probe the Claude default child directory');
-  assert.deepEqual(report.subagents.unreadableDirs, []);
-  const text = formatText(report);
-  assert.match(text.split('\n')[0], /^VERDICT: UNSUPPORTED .*leadLastMessageAt: 2026-09-25T09:00:04\.000Z$/);
-  assert.ok(!text.includes('census INCOMPLETE'));
+test('Codex --from/--to accepts offset timestamps, keeps preceding model context, and applies inclusive bounds', async () => {
+  const fixture = codexFixtureTree();
+  const report = await runCensus({ lead: fixture.lead, tasksDirs: [], from: '2026-09-26T19:59:00-04:00', to: '2026-09-26T20:01:00-04:00', codexHome: fixture.home });
+  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.windowTurns, 1);
+  assert.equal(report.subagents.fileCount, 1);
+  assert.ok(report.lead.observedWindowByModel['gpt-5.6-terra']);
 });
 
 test('Codex attribution failures throw instead of becoming a zero-token census', async () => {
@@ -164,7 +177,7 @@ test('Codex attribution failures throw instead of becoming a zero-token census',
   await assert.rejects(() => runCensus({ lead: bad, tasksDirs: [], marker: null, out: null }), /lacks verified session/);
 });
 
-test('a verified Codex session without per-response usage is explicitly unsupported, never COUNTED 0', async () => {
+test('a verified Codex session without per-response usage is explicitly partial, never COUNTED 0', async () => {
   const dir = mkTmp('build-census-codex-no-usage-');
   const lead = path.join(dir, 'codex.jsonl');
   writeJsonl(lead, [
@@ -174,15 +187,14 @@ test('a verified Codex session without per-response usage is explicitly unsuppor
   const report = await runCensus({ lead, tasksDirs: [], marker: null, out: null });
   assert.equal(report.lead.host, 'codex');
   assert.equal(report.lead.coverageSupported, false);
-  assert.equal(report.lead.windowTurns, null);
+  assert.equal(report.lead.windowTurns, 0);
   const text = formatText(report);
-  assert.ok(text.startsWith('VERDICT: UNSUPPORTED Codex complete census'));
-  assert.ok(text.includes('- leadTokens: unsupported (no token_usage_record rows with per-response usage; complete coverage is not established)'));
-  assert.ok(!text.includes('### Lead tokens by model'), 'unsupported usage must not be followed by a zero-looking token table');
-  assert.ok(!text.includes('### Subagent tokens') && !text.includes('## Combined split'), 'unsupported native child usage must not render role or combined-spend tables');
+  assert.ok(text.startsWith('VERDICT: PARTIAL Codex census'));
+  assert.ok(text.includes('no token_usage_record rows with per-response usage'));
+  assert.ok(!text.includes('## Combined split'), 'partial coverage must not render a confident combined spend table');
 });
 
-test('a Codex marker window without response records stays unknown rather than becoming a counted zero', async () => {
+test('a Codex marker window without response records stays partial rather than becoming a counted zero', async () => {
   const dir = mkTmp('build-census-codex-empty-window-');
   const lead = path.join(dir, 'window.jsonl');
   writeJsonl(lead, [
@@ -191,13 +203,12 @@ test('a Codex marker window without response records stays unknown rather than b
     { type: 'event_msg', payload: { type: 'marker', note: 'WINDOW-END' } },
   ]);
   const report = await runCensus({ lead, tasksDirs: [], marker: 'WINDOW-END', out: null });
-  assert.equal(report.lead.windowTurns, null);
-  assert.equal(report.lead.observedLeadTokens, null);
-  assert.equal(report.lead.observedNativeTurnCountWindow, null);
-  assert.equal(JSON.parse(formatJson(report)).lead.windowTurns, null);
+  assert.equal(report.lead.windowTurns, 0);
+  assert.equal(report.lead.observedLeadTokens, 0);
+  assert.equal(report.lead.observedNativeTurnCountWindow, 0);
+  assert.equal(JSON.parse(formatJson(report)).lead.windowTurns, 0);
   const text = formatText(report);
-  assert.ok(text.startsWith('VERDICT: UNSUPPORTED'));
-  assert.ok(!/\*\*0\*\*|: 0 \(|0\.00/.test(text));
+  assert.ok(text.startsWith('VERDICT: PARTIAL'));
 });
 
 test('Codex conflicting repeated response ids fail visibly while identical repeats remain observations', async () => {
@@ -226,12 +237,13 @@ test('a Codex-shaped event-only truncated stream fails visibly instead of becomi
   await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /session_meta was not found/);
 });
 
-test('a recognized Codex stream rejects malformed JSON and native child task paths visibly', async () => {
+test('a recognized Codex stream rejects malformed JSON while explicit task candidates remain additive', async () => {
   const dir = mkTmp('build-census-codex-malformed-');
   const lead = path.join(dir, 'malformed.jsonl');
   fs.writeFileSync(lead, `${JSON.stringify({ type: 'session_meta', payload: { id: 'codex-malformed', session_id: 'codex-malformed' } })}\nnot-json\n`, 'utf8');
   await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /contains malformed JSON/);
-  await assert.rejects(() => runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [dir], marker: null, out: null }), /child transcript census is unsupported/);
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [dir], marker: null, out: null });
+  assert.equal(report.lead.host, 'codex');
 });
 
 test('Codex usage rejects missing objects and negative counters instead of coercing them to zero', async () => {
@@ -572,11 +584,10 @@ test('--from with no matching messages throws loudly through main(), same as an 
   );
 });
 
-test('--from/--to: Codex leads reject the flags rather than silently ignoring them', async () => {
-  await assert.rejects(
-    () => runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, from: '2026-01-01T00:00:00.000Z', out: null }),
-    /does not support --from\/--to/,
-  );
+test('--from/--to: Codex leads apply the same inclusive timestamp window', async () => {
+  const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [], marker: null, from: '2026-09-25T09:00:04.000Z', to: '2026-09-25T09:00:04.000Z', out: null });
+  assert.equal(report.lead.windowTurns, 1);
+  assert.equal(report.lead.observedLeadTokens, 33);
 });
 
 test('--from/--to windows subagents at both ends, exactly like --marker does (BLOCKER 1(a))', async () => {

@@ -23,22 +23,22 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
 ```
 
 - `--lead` — one Claude Code or Codex lead session transcript (`.jsonl`). Required.
-  Codex is detected from a verified `session_meta` record: the census counts only
-  deduplicated `token_usage_record.payload.usage` values whose session id matches that
-  metadata record, never its cumulative turn/thread counters. Codex model attribution is
-  reported as `unknown` when the transcript does not carry a model field. Its native turn
-  ids are reported separately; `leadTurns` remains explicitly unsupported unless the
-  transcript establishes the same assistant/user conversational ordering defined below.
-  Native Codex child-transcript discovery and usage attribution are unsupported: a Codex
-  lead rejects `--tasks` and emits no child, role, or combined-spend table. Codex malformed
-  JSON fails visibly once the stream is recognized as Codex; a wholly unrecognizable
-  malformed file retains the legacy Claude reader's malformed-line skip behavior.
-  Codex per-response values are diagnostic observations, not a complete census: every Codex
-  report is `VERDICT: UNSUPPORTED`, with `leadTokens` unsupported for coverage and any
-  `observedLeadTokens` separately labeled. `accept --census` refuses that report; use
-  `--no-census` with the stated coverage, turn, and child-attribution limits.
-  The marker is a bounded substring match and does not itself prove a build boundary; the
-  live diagnostic's requested marker boundary was independently verified before use.
+  Codex is detected from a verified `session_meta` record. It sums only response-local
+  `token_usage_record.payload.usage`, deduplicated by logical session id plus response id;
+  cumulative turn/thread snapshots are never added. The preceding `turn_context` supplies
+  each response model. A missing context is `unknown` and makes coverage partial rather
+  than a numeric zero. A unique native `task_started.turn_id` is a Codex `leadTurns` turn.
+  Default discovery reads only the configured canonical Codex home in the lead's UTC date
+  folder and the following date folder. It verifies each child edge through
+  `source.subagent.thread_spawn.parent_thread_id`, follows depth at most three, and checks
+  that all usage rows use the lead root session namespace. `--tasks` adds explicit rollout
+  files after the same checks; it never replaces default discovery. The report exposes
+  `lead.sessionId`, discovery candidates/exclusions, coverage status, and every child’s
+  role, nickname, parent id and depth. Complete coverage emits `VERDICT: COUNTED` and a
+  combined aggregate; malformed, unreadable, out-of-horizon, unverified, over-depth, or
+  unknown-model evidence emits `VERDICT: PARTIAL` with observed subtotals and unavailable
+  reasons. `--from`/`--to` accept offset-bearing inclusive timestamps for Codex and retain
+  model context before the window.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each
@@ -101,9 +101,8 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   `[--from, --to]` are not counted; a window covering the whole file equals the
   unwindowed run. This is the mechanism `scripts/four-read.mjs` uses for the spec
   writer's token slice: `build-census.mjs --lead <spec session> --from <Spec-from> --to
-  <Opened>`, its output file stored next to the record. Codex leads reject these flags
-  (native per-response usage has no assistant/user role ordering to window this way).
-  This is the ONLY change this build made to this file; everything else in it is frozen.
+   <Opened>`, its output file stored next to the record. Codex applies the same inclusive
+   timestamp bounds to native response records while retaining preceding model context.
 - `--out` (optional) — write the full markdown report there; without it (and without
   `--json`), the report goes to stdout. Nothing else reaches stdout (with `--out` and/or
   `--json`, only one `wrote: <path>` line per file written does).
