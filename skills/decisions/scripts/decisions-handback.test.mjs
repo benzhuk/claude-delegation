@@ -44,7 +44,7 @@ const DEFAULT_TITLE_META_KEY = '__default-title-meta__';
 
 /** A `meta`-shaped JSON string whose title is fresh as of `now` (title ok, never blocks). */
 function freshTitleMetaJson(overrides = {}) {
-  const now = overrides.now || new Date();
+  const now = overrides.now || new Date('2026-09-22T16:00:00.000Z');
   const topic = overrides.topic ?? 'Test';
   const title = overrides.title ?? formatTitle(topic, now);
   const page = overrides.page ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

@@ -12,10 +12,11 @@ import { openPrivateCapture, pickupOnce, receiptPaths } from './decisions-pickup
 import { run as runHandback } from './decisions-handback.mjs';
 import { formatTitle } from './decisions-title.mjs';
 
-// The hand-back requires --title-meta since pickup-complete-1 (spec P3.3). A title fresh as of now
-// keeps this contract about archive shape only.
+// The hand-back requires --title-meta since pickup-complete-1 (spec P3.3). A title fresh as of the
+// pinned NOW (never the wall clock, which reads stale in the fall-back hour) keeps this contract
+// about archive shape only.
 function freshTitleMeta() {
-  const now = new Date();
+  const now = new Date(NOW);
   return JSON.stringify({ page: PAGE, title: formatTitle('Test', now), last_edited_time: now.toISOString() });
 }
 

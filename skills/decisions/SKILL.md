@@ -317,7 +317,9 @@ node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.
 Run from the project root; `<skill-dir>` is this skill's folder (`skills/decisions` in
 this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the id on
 the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
-<goals_parent_page>` (not checked). `--title-meta` is required, like `--goals`; a missing
+<goals_parent_page>` (not checked). `<decisions-page-id>` is the bare 32-hex id (the last 32 hex
+characters of `decisions_url` when that is a URL): `decisions-title.mjs` refuses a URL with exit
+2 (checked by `scripts/decisions-title.mjs`). `--title-meta` is required, like `--goals`; a missing
 flag prints `TITLE unchecked: run decisions-title.mjs meta --page <id> and pass
 --title-meta` and blocks the hand-back the same as a stale or off-pattern title (checked
 by `scripts/decisions-handback.mjs`).
@@ -353,7 +355,7 @@ files it is given, so rerun both reads every time). The check prints, just befor
 <sha>` line — paste it verbatim as the last line of the hand-back message, so the line
 cannot exist unless the check ran (not checked by any script: the owner sees whether
 the line is there). Exit 3 means a page could not be read: do not hand back, fix the
-read first — rerun both `notion.js read` calls and the check (checked by
+read first — rerun both `notion.js read` calls, the `decisions-title.mjs meta` read, and the check (checked by
 `scripts/decisions-handback.mjs`'s exit code).
 
 The check also prints exactly one title line: `title ok: <title>` (fresh — the last edit
