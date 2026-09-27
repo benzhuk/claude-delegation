@@ -168,6 +168,23 @@ has no safety gate of its own, so the SENDER is the gate:
    so neither can reach the exit-2 banner; both still run the same check and, when the recipient is
    unknown, add a warning and `unknown_recipient:true` to their (otherwise unchanged, exit-0) result.
    `~/.agents/notes/no-unknown-check` restores the plain "not found" message and the ordinary timing.
+
+   **N3 (2026-09-27): a slug recipient with no local delivery path at all is refused, not silently
+   ledger-only.** When `--to` is not `ben`, `--recipient-repo` was not given, there is no cross-host
+   mirror target for this host, no inbox is registered here for that slug, and pane resolution either
+   never runs (the quiet ACK/FYI path, or `--no-type`) or runs and finds no pane at all (the ordinary
+   exit-2 "not found" case above — NOT the ambiguous case, which still resolves once a pane binding
+   exists), `note-send` refuses with **exit 6** and writes NO ledger line at all: `{"refused":
+   "no-local-recipient", "to":"<slug>", "hint":"run note-send on the recipient's machine over ssh, or
+   pass --sender-host <this host>"}`. That hint means: run note-send on the recipient's own machine
+   over ssh — inside that ssh'd command, add `--sender-host <the host you came from>` only if
+   `SSH_CONNECTION` doesn't already map it, so the line mirrors back here too; `--sender-host` naming
+   the machine you are ALREADY on has no effect from a local shell. `--local-ok` bypasses the refusal
+   for a caller that means this machine's ledger to be what the recipient actually reads.
+   `--recipient-repo` (the cross-repo collector path) is exempt and unaffected. An inbox record
+   stamped with a DIFFERENT machine's hostname does not exempt the refusal either (C7) — this machine
+   still has no inbox for that slug. `--dry-run` reports the same exit-6 refusal on every path that
+   needs no pane lookup (quiet kind, `--no-type`, foreign inbox); a typed dry-run exits 1 there.
 6. `to: ben`: no pane. Write the ledger and packet, print the line, exit 0 with `delivered:false,
    notified:true`. A BLOCKED to ben, or a `Needs: decision` to ben, is also appended to
    `~/.agents/notes/ben-inbox.md` — one file Ben reads. Ben sends with
