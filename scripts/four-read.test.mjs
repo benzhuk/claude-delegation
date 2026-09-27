@@ -195,6 +195,35 @@ test('computeTopTierTokens: each mixed-host build and spec slice uses its own de
   assert.match(computeTopTierTokens(codexBuild, claudeSpec, SPEC_FIELDS, Date.parse('2026-01-01T00:00:00.000Z')).value, /^23 tokens: build 23 \(gpt-6-astra\) \+ spec slice 0$/);
 });
 
+test('computeTopTierTokens: a Codex spec slice requires a usable matching Spec-session identity for either build host', (t) => {
+  const prior = process.env.DELEGATION_TOP_TIER;
+  t.after(() => { if (prior === undefined) delete process.env.DELEGATION_TOP_TIER; else process.env.DELEGATION_TOP_TIER = prior; });
+  delete process.env.DELEGATION_TOP_TIER;
+  const opened = Date.parse('2026-01-01T00:00:00.000Z');
+  const codexBuild = {
+    lead: { host: 'codex', sessionId: 'build-codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  const claudeBuild = { combined: { 'claude-opus-5-5': { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 20 } }, lead: A_WINDOW };
+  const validSpec = {
+    lead: { host: 'codex', sessionId: 'spec-valid', coverageSupported: true, codex: { unavailable: [] }, windowStartAt: '2025-12-31T23:00:00.000Z', windowEndAt: '2025-12-31T23:59:00.000Z' },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  for (const [nativeId, requestedId, reason] of [
+    ['unknown', 'unknown', 'no valid Spec-session:'], ['unavailable', 'unavailable', 'no valid Spec-session:'], ['', '', 'no valid Spec-session:'], ['   ', '   ', 'no valid Spec-session:'],
+    [undefined, 'spec-valid', 'Codex census has no valid lead.sessionId'], ['spec-valid', undefined, 'no valid Spec-session:'],
+    ['spec-native', 'spec-requested', 'Codex census session spec-native is not Spec-session spec-requested'],
+  ]) {
+    const spec = { ...validSpec, lead: { ...validSpec.lead } };
+    if (nativeId === undefined) delete spec.lead.sessionId;
+    else spec.lead.sessionId = nativeId;
+    const fields = { 'spec-from': SPEC_FIELDS['spec-from'] };
+    if (requestedId !== undefined) fields['spec-session'] = requestedId;
+    assert.match(computeTopTierTokens(codexBuild, spec, fields, opened).value, new RegExp(`^23 tokens: build 23 \\(gpt-6-astra\\); partial \\(no spec slice\\): ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+    assert.match(computeTopTierTokens(claudeBuild, spec, fields, opened).value, new RegExp(`^120 tokens: build 120 \\(claude-opus-5-5\\); partial \\(no spec slice\\): ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  }
+});
+
 test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the configured default tier list', (t) => {
   t.after(() => delete process.env.DELEGATION_TOP_TIER);
   process.env.DELEGATION_TOP_TIER = 'sonnet';

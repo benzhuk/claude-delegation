@@ -81,11 +81,11 @@ function censusLeadSessionId(census) {
   return census && census.leadPath ? path.basename(census.leadPath).replace(/\.jsonl$/i, '') : null;
 }
 
-function codexIdentityReason(census, requestedSessionId) {
+function codexIdentityReason(census, requestedSessionId, requestedLabel = 'Lead-session') {
   const censusSessionId = census && census.lead && census.lead.sessionId;
-  if (!isUsableCodexValue(requestedSessionId)) return 'no valid Lead-session:';
+  if (!isUsableCodexValue(requestedSessionId)) return `no valid ${requestedLabel}:`;
   if (!isUsableCodexValue(censusSessionId)) return 'Codex census has no valid lead.sessionId';
-  if (censusSessionId !== requestedSessionId) return `Codex census session ${censusSessionId} is not Lead-session ${requestedSessionId}`;
+  if (censusSessionId !== requestedSessionId) return `Codex census session ${censusSessionId} is not ${requestedLabel} ${requestedSessionId}`;
   return null;
 }
 
@@ -167,7 +167,8 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
     const sl = specCensus.lead || {}, sFrom = parseDateMs(fields['spec-from']), sStart = parseDateMs(sl.windowStartAt), sEnd = parseDateMs(sl.windowEndAt);
     const specCoverageReason = codexCoverageReason(specCensus);
     const specTotalsReason = isCodexCensus(specCensus) && specCensus.combined ? codexModelTotalsReason(specCensus.combined) : null;
-    if (specCoverageReason || specTotalsReason) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): ${specCoverageReason || specTotalsReason}` };
+    const specIdentityReason = isCodexCensus(specCensus) ? codexIdentityReason(specCensus, fields['spec-session'], 'Spec-session') : null;
+    if (specCoverageReason || specTotalsReason || specIdentityReason) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): ${specCoverageReason || specTotalsReason || specIdentityReason}` };
     const sFile = censusLeadSessionId(specCensus);
     if (!specCensus.combined || sFile !== fields['spec-session'] || [sFrom, sStart, sEnd, openedMs].includes(null) || sStart < sFrom - tolerance || sEnd > openedMs + tolerance) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): spec-census is not Spec-session:'s Spec-from:..Opened: window` };
     const spec = sumTopTier(specCensus.combined, topTierModels(specCensus), isCodexCensus(specCensus));
