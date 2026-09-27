@@ -116,7 +116,7 @@ A lesson learned on one machine is available on all of them without hand-carryin
 In Ben's words: none yet; this is the lead's statement of his intent from the 09-20 plan. Edit it.
 
 Measure: sessions that open a topic file; inbox notes pending; superseded lessons linked to their replacement.
-Status: NONE. Memory never syncs; 44 knowledge notes pending in the inbox on 2026-09-24; topic files opened 0 times by either lead session.
+Status: NONE. Memory still never syncs on its own; a per-host counter (scripts/knowledge-count.mjs) now exists to measure topic reads and inbox notes pending, but it has not yet been run on any host to record a moved count; triage remains unscheduled.
 
 ## Cleanup has an owner
 
