@@ -131,5 +131,15 @@
     "requiresFile": "~/.agents/janitor/installed.json",
     "why": "the daily janitor timer's own log proves it actually ran in the last 26 hours; a log still absent more than 26 hours after install means the schedule stopped firing. An absent log right after install is expected — the timer has no earlier trigger to catch up on, so it stays missing until the first scheduled run (up to ~24h later)",
     "fix": "check the host's own scheduler first (systemctl --user list-timers janitor-record.timer, the Windows task janitor-record, or the launchd agent) to confirm it is registered and enabled; only rerun scripts/install-janitor-timer.mjs with --enable if the timer is not registered there"
+  },
+  {
+    "id": "collect-status-fresh",
+    "type": "file_fresh",
+    "file": "~/.agents/collect/claude-delegation/status.json",
+    "maxAgeSeconds": 2700,
+    "whenMissing": "missing",
+    "requiresFile": "~/.agents/collect/installed.json",
+    "why": "the collect-status timer's own status.json proves it actually ran in the last three intervals (45 minutes at the default 15-minute schedule); a status still absent that long after install means the schedule stopped firing. A host that never installed the collect-status job is info, not red, via requiresFile",
+    "fix": "check the host's own scheduler first (systemctl --user list-timers collect-status.timer, the Windows task collect-status, or the launchd agent) to confirm it is registered and enabled; only rerun scripts/install-janitor-timer.mjs --job collect-status --to <slug> if the timer is not registered there"
   }
 ]

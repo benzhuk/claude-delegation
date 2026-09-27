@@ -40,6 +40,10 @@ On explicit pause/stop, use `stop --host ... --session-id ... --expected-epoch .
 
 The completion hook checks selected work at Stop and combines any correction with peer delivery into one response. It does not poll in the background or start turns for routine ACK/FYI. At most one correction is available per current user episode, with the native recursion guard retained; repeated unchanged or uncertain emission must not become a loop. After a correction, actually perform the selected work instead of ending with a promise to continue.
 
+## Lane state comes from the collector, once per wave
+
+Read lane state from the collector's own status file, once per wave, never lane-by-lane from peer notes: for this repo that is `~/.agents/collect/claude-delegation/status.md`, the file the collector writes and the lead reads. A lead session on another host reads it with one `ssh <collector host> cat ~/.agents/collect/claude-delegation/status.md`. Peer notes still carry asks, results and anything the collector cannot see; they are never the source for lane state itself once the collector is installed. An absent or stale status.md means the collector was never installed or has stopped running on that host (see the `collect-status-fresh` wiring check in `scripts/required-wiring.default.json`), not that lane state doesn't exist — fall back to peer notes only for that host until it is fixed.
+
 ## Bearings seam
 
 When continuation reveals changed assumptions, recurring failure, or no credible ready work, use `bearings` to reassess from bounded evidence. A `CONTINUE` result selects one next action but does not serialize independently authorized work.
