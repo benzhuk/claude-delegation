@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import readline from "node:readline";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { makeTempHome, checkSeal } from "./test-home.mjs";
@@ -49,6 +50,34 @@ function checkSealInChild(env) {
     `console.log(JSON.stringify(checkSeal()));\n`;
   const result = execFileSync(NODE, ["--input-type=module", "-e", src], { env });
   return JSON.parse(result.toString());
+}
+
+/**
+ * Lane 24 (sealed-home-leak) support: spawns a `node --input-type=module -e <script>` child that is
+ * expected to print its sealed home's path as its FIRST line of stdout and then stay alive (its own
+ * script must keep the event loop open, e.g. via `setInterval`) - reads that one line, sends
+ * `signal`, and resolves with the printed home path and how the child actually exited. Real signals
+ * on a real child process, not an in-process simulation: this is the only way to prove the exit
+ * code the OS itself reports (128+n once this module's handler re-raises) and that the directory is
+ * actually gone from disk once the child is dead.
+ */
+function spawnAndSignal(script, signal) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(NODE, ["--input-type=module", "-e", script], { stdio: ["ignore", "pipe", "pipe"] });
+    const rl = readline.createInterface({ input: child.stdout });
+    let settled = false;
+    child.once("error", (e) => {
+      if (!settled) { settled = true; reject(e); }
+    });
+    rl.once("line", (line) => {
+      const home = line.trim();
+      child.once("exit", (code, gotSignal) => {
+        rl.close();
+        if (!settled) { settled = true; resolve({ home, code, signal: gotSignal }); }
+      });
+      child.kill(signal);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -357,4 +386,86 @@ test("class test: exactly one construction of the fixture includeIf gitdir-scope
     `expected exactly one includeIf gitdir-scope construction, found: ${constructions.join(", ") || "(none)"}`,
   );
   assert.match(constructions[0], /test-home\.mjs:/, "the one construction must be makeTempHome's own");
+});
+
+// ---------------------------------------------------------------------------
+// Sealed-home leak fix (lane 24, sealed-home-leak): per-process registry + exit/signal handlers,
+// `keep()`/`unregister()`, idempotent registration. Every child here is a REAL spawned node process
+// (never simulated in-process) so the exit code and the on-disk state are what the OS actually did.
+// ---------------------------------------------------------------------------
+
+test("keep() and unregister() are the same function (alias)", () => {
+  const built = tempHome();
+  assert.equal(built.keep, built.unregister);
+  assert.equal(typeof built.keep, "function");
+});
+
+test("keep() removes a home from the leak-fix registry without deleting it from disk", () => {
+  const built = tempHome();
+  assert.ok(fs.existsSync(built.home));
+  built.keep();
+  assert.ok(fs.existsSync(built.home), "keep() must not delete the directory itself");
+  // cleanup() still works after keep(): it unregisters (already a no-op) and deletes on request.
+  built.cleanup();
+  assert.equal(fs.existsSync(built.home), false);
+});
+
+const WIN32_SIGNAL_SKIP_REASON =
+  "on win32, child.kill(signal) terminates the child directly without running any Node signal " +
+  "handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler";
+
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  test(
+    `a child killed with ${signal} removes its registered home, then re-raises so the OS reports the real signal (POSIX only)`,
+    { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+    async () => {
+      const script = [
+        `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+        "const { home } = makeTempHome();",
+        "process.stdout.write(home + '\\n');",
+        "setInterval(() => {}, 100000);",
+      ].join("\n");
+      const { home, signal: gotSignal } = await spawnAndSignal(script, signal);
+      assert.equal(gotSignal, signal, `the child must actually die from ${signal}, not be swallowed`);
+      assert.equal(fs.existsSync(home), false, `${signal} must remove the registered home`);
+    },
+  );
+}
+
+test(
+  "a kept (unregistered) home survives SIGTERM - keep() truly removes it from the leak-fix registry (POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const script = [
+      `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+      "const { home, keep } = makeTempHome();",
+      "keep();",
+      "process.stdout.write(home + '\\n');",
+      "setInterval(() => {}, 100000);",
+    ].join("\n");
+    const { home, signal: gotSignal } = await spawnAndSignal(script, "SIGTERM");
+    assert.equal(gotSignal, "SIGTERM");
+    assert.ok(fs.existsSync(home), "a kept home must survive the signal handler's sweep");
+    fs.rmSync(home, { recursive: true, force: true }); // manual: no longer registered, no longer auto-cleaned
+  },
+);
+
+test("handler registration is idempotent: exactly one listener per event, even after two homes", () => {
+  const events = process.platform === "win32" ? ["exit", "SIGINT", "SIGTERM"] : ["exit", "SIGINT", "SIGTERM", "SIGHUP"];
+  const script = [
+    `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+    `const events = ${JSON.stringify(events)};`,
+    "const a = makeTempHome();",
+    "const afterFirst = Object.fromEntries(events.map((e) => [e, process.listenerCount(e)]));",
+    "const b = makeTempHome();",
+    "const afterSecond = Object.fromEntries(events.map((e) => [e, process.listenerCount(e)]));",
+    "a.cleanup(); b.cleanup();",
+    "console.log(JSON.stringify({ afterFirst, afterSecond }));",
+  ].join("\n");
+  const out = execFileSync(NODE, ["--input-type=module", "-e", script]).toString().trim();
+  const { afterFirst, afterSecond } = JSON.parse(out.split("\n").pop());
+  for (const event of events) {
+    assert.equal(afterFirst[event], 1, `expected exactly one ${event} listener after the first home`);
+    assert.equal(afterSecond[event], 1, `expected still exactly one ${event} listener after a second home (idempotent)`);
+  }
 });
