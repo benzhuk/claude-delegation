@@ -178,18 +178,31 @@ export function buildAgentSpans(fsImpl, leadPath, sessionId, toolUses, toolResul
   const runDirNames = tryOr(() => fsImpl.readdirSync(workflowsDir, { withFileTypes: true }), [])
     .filter((e) => (typeof e.isDirectory === 'function' ? e.isDirectory() : true)).map((e) => e.name);
   const lastMsCache = new Map();
-  function lastAgentMsInDir(dir) {
-    if (lastMsCache.has(dir)) return lastMsCache.get(dir);
+  // An agent left waiting on a tool (R7 tail pending) is still alive until its R7 end bound,
+  // so the lead waiting on it is waiting-on-agents, and the hang counts once (as the agent's
+  // own tail stall via R7), never a second time as a lead stall (F2-review-round2 MAJOR-A).
+  function activityEndMs(scanned, isWorkflow, agentId) {
+    const lastTs = scanned.timestamps[scanned.timestamps.length - 1];
+    return scanned.tailPendingToolUseId ? Math.max(lastTs, subagentEndBound(isWorkflow, agentId, lastTs, toolUses, toolResults, windowEndMs)) : lastTs;
+  }
+  // Only agent files whose FIRST timestamp falls in [fromMs, toMs) belong to this launch — a
+  // relaunch that reuses a Workflow runId must not stretch the first launch's span over a
+  // lead stall before the relaunch (F2-review-round2 MAJOR-B). Cache key includes the bound.
+  function lastAgentMsInDir(dir, fromMs = -Infinity, toMs = Infinity) {
+    const cacheKey = `${dir}|${fromMs}|${toMs}`;
+    if (lastMsCache.has(cacheKey)) return lastMsCache.get(cacheKey);
     const names = tryOr(() => fsImpl.readdirSync(dir), []);
     let last = null;
     for (const name of names) {
       if (!AGENT_FILE_RE.test(name)) continue;
       const scanned = scanSubagentFile(fsImpl, path.join(dir, name));
       if (scanned.unreadable || !scanned.timestamps.length) continue;
-      const t = scanned.timestamps[scanned.timestamps.length - 1];
+      const first = scanned.timestamps[0];
+      if (first < fromMs || first >= toMs) continue;
+      const t = activityEndMs(scanned, true, AGENT_FILE_RE.exec(name)[1]);
       if (last === null || t > last) last = t;
     }
-    lastMsCache.set(dir, last);
+    lastMsCache.set(cacheKey, last);
     return last;
   }
   function earliestAgentMsInDir(dir) {
@@ -204,9 +217,19 @@ export function buildAgentSpans(fsImpl, leadPath, sessionId, toolUses, toolResul
     }
     return earliest;
   }
-  function fileLastMs(filePath) {
+  function fileLastMs(filePath, agentId) {
     const scanned = scanSubagentFile(fsImpl, filePath);
-    return (!scanned.unreadable && scanned.timestamps.length) ? scanned.timestamps[scanned.timestamps.length - 1] : null;
+    return (!scanned.unreadable && scanned.timestamps.length) ? activityEndMs(scanned, false, agentId) : null;
+  }
+  // The next Workflow tool_use, after afterMs, whose OWN tool_result names the SAME runId —
+  // a relaunch of this run, not just the next Workflow of any kind (F2-review-round2 MAJOR-B).
+  function nextSameRunLaunchMs(afterMs, runId) {
+    const later = toolUses.filter((tu) => tu.name === 'Workflow' && tu.ms > afterMs).sort((a, b) => a.ms - b.ms);
+    for (const tu of later) {
+      const r = firstToolResult(toolResults, tu.id);
+      if (r && r.runId === runId) return tu.ms;
+    }
+    return Infinity;
   }
   const spans = [];
   for (const t of toolUses) {
@@ -215,18 +238,25 @@ export function buildAgentSpans(fsImpl, leadPath, sessionId, toolUses, toolResul
     const ownResultMs = ownResult ? ownResult.ms : null;
     let end;
     if (t.name === 'Workflow') {
-      let runDir = null;
-      if (ownResult && ownResult.runId && runDirNames.includes(ownResult.runId)) runDir = path.join(workflowsDir, ownResult.runId);
-      if (!runDir) {
+      let agentsLastMs = null;
+      if (ownResult && ownResult.runId && runDirNames.includes(ownResult.runId)) {
+        const toMs = nextSameRunLaunchMs(t.ms, ownResult.runId);
+        agentsLastMs = lastAgentMsInDir(path.join(workflowsDir, ownResult.runId), t.ms, toMs);
+      } else {
+        // No runId (the trimmed fixtures never carry one): every candidate run directory
+        // whose earliest agent falls in [this Workflow, the next Workflow of ANY kind) is a
+        // match — take the MAX of their last-activity values, not just the first one found in
+        // readdir order (F2-review-round2 MINOR-C).
         const nextWorkflowMs = workflowUseMs.find((ms) => ms > t.ms);
         const upperBound = nextWorkflowMs !== undefined ? nextWorkflowMs : Infinity;
         for (const name of runDirNames) {
           const dir = path.join(workflowsDir, name);
           const earliest = earliestAgentMsInDir(dir);
-          if (earliest !== null && earliest >= t.ms && earliest < upperBound) { runDir = dir; break; }
+          if (earliest === null || earliest < t.ms || earliest >= upperBound) continue;
+          const last = lastAgentMsInDir(dir, t.ms, upperBound);
+          if (last !== null && (agentsLastMs === null || last > agentsLastMs)) agentsLastMs = last;
         }
       }
-      const agentsLastMs = runDir ? lastAgentMsInDir(runDir) : null;
       if (agentsLastMs !== null) {
         end = Math.max(ownResultMs !== null ? ownResultMs : t.ms, agentsLastMs);
       } else {
@@ -235,7 +265,7 @@ export function buildAgentSpans(fsImpl, leadPath, sessionId, toolUses, toolResul
       }
     } else {
       const agentId = ownResult ? ownResult.agentId : null;
-      const agentFileLastMs = agentId ? fileLastMs(path.join(subagentsDir, `agent-${agentId}.jsonl`)) : null;
+      const agentFileLastMs = agentId ? fileLastMs(path.join(subagentsDir, `agent-${agentId}.jsonl`), agentId) : null;
       if (agentFileLastMs !== null) {
         end = Math.max(ownResultMs !== null ? ownResultMs : t.ms, agentFileLastMs);
       } else {
