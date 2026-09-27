@@ -14,19 +14,18 @@ the exact candidate SHA and source-byte identity before its one independent
 contract gate. The builder owns its scoped source gate and integration does
 not repeat an unchanged focused gate.
 
-The exact integration contract command, when authorized, is:
-
-```text
-node --test scripts/inbox-truth.contract.test.mjs
-```
-
-If the independent contract test is not present in the merged candidate,
-integration stops and reports that missing prerequisite rather than replacing
-it with a source-test rerun. The builder's planned focused command is:
+The exact integration contract command, when authorized after the independent
+tests and builder source are merged, is:
 
 ```text
 node --test skills/multi/scripts/note-inbox.test.mjs hooks/multi-hook-core.test.mjs
 ```
+
+These are the two existing independent contract-test files; there is no
+`scripts/inbox-truth.contract.test.mjs`. Integration does not repeat the
+builder's unchanged source gate. If either independent test file is absent
+from the merged candidate, integration stops and reports that missing
+prerequisite.
 
 On Windows, every authorized expensive gate admits through the established
 process-owned, non-deleting named mutex `Global\claude-verify`: wait at most
@@ -73,9 +72,9 @@ C:\Users\benzh\.claude\projects\C--Users-benzh-orca-workspaces-claude-delegation
 
 It corresponds to the pinned spec session
 `9c61c35a-82dd-4aef-8eca-c99bb0e72e31` and `Spec-from:
-2026-09-27T23:05:00Z`. No census was run and no transcript content was read.
-If separately authorized, the existing CLI route is
-`node scripts/build-census.mjs --lead <that-session-file> --from
-2026-09-27T23:05:00Z --to <shared-acceptAt> --out <report.md> --json
-<report.json>`; it requires a shared actual acceptance instant and preserves
-the command's native output and exit.
+2026-09-27T23:05:00Z`. The record's `Opened:` is
+`2026-09-27T23:04:00Z`, so the required spec window would end at Opened before
+it begins. No census was run and no transcript content was read. A later
+authorized census must preserve that source-defined end-at-Opened rule and
+report the inverted interval as unavailable or refused; it must not invent an
+acceptance-time end or spec-slice token values.
