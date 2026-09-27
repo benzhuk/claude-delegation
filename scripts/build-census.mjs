@@ -823,8 +823,8 @@ async function runCodexCensus(opts, fsImpl) {
       for (const aggregate of Object.values(byModel)) addAggInto(subTotalsByRole[candidate.role], aggregate);
       roleFileCounts[candidate.role] = (roleFileCounts[candidate.role] || 0) + 1;
       subTotalTurns += child.windowById.size;
+      if (child.tokenRecordCount === 0) unavailable.push(`unusable child coverage in ${candidate.file}: no token_usage_record rows with per-response usage`);
       if (child.unknownModels.length) unavailable.push(`unknown model attribution in ${candidate.file}`);
-      if (child.coverageReason) unavailable.push(`unusable child coverage in ${candidate.file}: ${child.coverageReason}`);
       perFile.push({ file: candidate.file, role: candidate.role, parentId: candidate.parentId, agentNickname: candidate.agentNickname, depth: candidate.depth, turns: child.windowById.size, byModel, excludedByWindow: child.totalById.size - child.windowById.size });
     } catch (error) {
       discovery.unreadableFiles.push(candidate.file);
