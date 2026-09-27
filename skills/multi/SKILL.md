@@ -37,7 +37,10 @@ Five rules carry the whole protocol:
   note is ACK/FYI does not block — it surfaces at your next prompt or tool call instead. A Stop where
   even one waiting note is louder (ASK/RESULT/BLOCKED) still blocks once, and still shows everything
   waiting, ACK/FYI included. `~/.agents/notes/wake-all-kinds` restores the old wake-and-block-on-ACK/FYI
-  behaviour.
+  behaviour. Never poll for a peer's merge or result with a shell loop; send the ASK with a by-time
+  and end your turn. When it is 15 minutes overdue the flusher posts a BLOCKED to you (lane thirteen),
+  which is the wake-up. A polling shell is what Windows killed for memory on 2026-09-26, and a lead
+  lost 3.5 hours.
 - **Never a hidden drop.** Ledger first, always. A refusal is reported with an exit code and a JSON
   object on stdout, never silence.
 

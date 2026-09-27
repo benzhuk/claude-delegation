@@ -6,6 +6,11 @@
 //                            over the 30-minute threshold), split across a top-tier model
 //                            (claude-opus-5-5) and a non-top-tier one (claude-sonnet-5).
 //   - ledger/2026-09-01.md — one answered ASK, one unanswered ASK, one ASK to someone else.
+//   - record-lane10.md, record-lane16.md — point at the two already-committed real session
+//     fixtures under sessions/lane10/ and sessions/lane16/ (contracts.md's Facts section,
+//     R6/R7): lane10 has exactly one subagent stall (216.8min); lane16 has 0 stalled and one
+//     41.8min waiting-on-agents lead gap. Their census.json is built fresh per test via
+//     runCensus, never committed (it's a pure function of the committed .jsonl files).
 // A tiny git repo (rework-after-acceptance) is built fresh per test under mkdtempSync,
 // never committed, per the spec's own fixture note.
 import test from 'node:test';
@@ -22,6 +27,7 @@ import {
   parseRecordText, computeTopTierTokens, scanTimestamps, computeHoursAskToAccepted,
   computeReworkAfterAcceptance, collectLedgerEntries, computeWorkLostOrStalled,
   buildFourRead, formatJson, formatMarkdown, parseArgs, main,
+  mergeSpans, splitGapByUnion, buildAgentSpans, scanSubagentFile, collectSubagentStalls,
 } from './four-read.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -389,7 +395,7 @@ test('computeWorkLostOrStalled: no Opened:/accepted window -> unavailable', () =
 
 test('computeWorkLostOrStalled: no --lead-slug -> ASKs part is explicitly unavailable, gaps part still computes', () => {
   const r = computeWorkLostOrStalled([1000, 2000], null, null, { openedMs: 0, acceptedMs: 3000 });
-  assert.match(r.value, /^0 gaps over 30min; ASKs unavailable \(no --lead-slug\)$/);
+  assert.match(r.value, /^0 gap\(s\) over 30min stalled; 0 waiting-on-agents \(0\.0 min\); ASKs unavailable \(no --lead-slug\)$/);
 });
 
 test('computeWorkLostOrStalled: a slug that never appears in the ledger reads unavailable, not a confident 0 (MAJOR 3)', () => {
@@ -409,7 +415,596 @@ test('computeWorkLostOrStalled: on the fixture record + lead session + ledger, o
   const window = computeHoursAskToAccepted(fields, logs, ts);
   const ledgerEntries = collectLedgerEntries(LEDGER, fs);
   const r = computeWorkLostOrStalled(ts, ledgerEntries, 'test-lead', { openedMs: window.openedMs, acceptedMs: window.acceptedMs });
-  assert.match(r.value, /^1 gap\(s\) over 30min: 2026-09-01T00:15:00\.000Z \(45\.0min\); 1 unanswered ASK\(s\) to test-lead: fixture-ask-2$/);
+  assert.match(r.value, /^1 gap\(s\) over 30min stalled: 2026-09-01T00:15:00\.000Z \(45\.0min\); 0 waiting-on-agents \(0\.0 min\); 1 unanswered ASK\(s\) to test-lead: fixture-ask-2$/);
+});
+
+// ── R6: Agent/Task/Workflow spans, union/merge, and gap splitting ──────────
+
+test('mergeSpans: merges overlapping/adjacent intervals, leaves disjoint ones apart', () => {
+  assert.deepEqual(mergeSpans([[0, 10], [5, 15], [20, 30]]), [[0, 15], [20, 30]]);
+  assert.deepEqual(mergeSpans([]), []);
+  assert.deepEqual(mergeSpans([[10, 20], [0, 5]]), [[0, 5], [10, 20]]);
+});
+
+test('splitGapByUnion: a gap entirely outside the union is one stalled piece', () => {
+  const { insidePieces, outsidePieces } = splitGapByUnion(0, 60 * 60000, []);
+  assert.deepEqual(insidePieces, []);
+  assert.equal(outsidePieces.length, 1);
+  assert.equal(outsidePieces[0].minutes, 60);
+});
+
+test('splitGapByUnion: a gap entirely inside one span is all waiting-on-agents, no stalled piece', () => {
+  const gStart = 10 * 60000, gEnd = 50 * 60000;
+  const { insidePieces, outsidePieces } = splitGapByUnion(gStart, gEnd, [[0, 60 * 60000]]);
+  assert.equal(outsidePieces.length, 0);
+  assert.equal(insidePieces.length, 1);
+  assert.equal(insidePieces[0].minutes, 40);
+});
+
+// Acceptance attack: "nested spans (a Workflow whose agents are the lead's own subagents
+// too, counted twice)" — the union must merge them into one interval, not double the gap.
+test('splitGapByUnion: nested/overlapping spans in the union never double-count a gap piece', () => {
+  const union = mergeSpans([[0, 100 * 60000], [10 * 60000, 20 * 60000]]); // Agent nested inside Workflow
+  const { insidePieces, outsidePieces } = splitGapByUnion(5 * 60000, 95 * 60000, union);
+  assert.equal(outsidePieces.length, 0);
+  assert.equal(insidePieces.length, 1);
+  assert.equal(insidePieces[0].minutes, 90);
+});
+
+// Acceptance attack: "a gap that spans two adjacent Agent calls with a 2-minute lead turn
+// between them" — a real lead message between the two spans ends the raw gap early (this is
+// `gaps()`'s own consecutive-pairs behavior, not span logic), so each half is judged alone.
+test('computeWorkLostOrStalled: a 2-minute lead turn between two adjacent Agent calls splits one big window into two separately-judged gaps', () => {
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  // t0 .. t0+40min (gap1, 40min) .. turn .. t0+42min .. t0+82min (gap2, 40min)
+  const leadTimestamps = [t0, t0 + 40 * min, t0 + 42 * min, t0 + 82 * min];
+  const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: t0 + 82 * min }, null, []);
+  assert.match(r.value, /^2 gap\(s\) over 30min stalled: .*40\.0min.*40\.0min.*; 0 waiting-on-agents \(0\.0 min\)/);
+});
+
+// buildAgentSpans reads `<dirname of leadPath>/<sessionId>/subagents/` for agent files; these
+// tests point it at a session directory that does not exist, so it always falls to the
+// literal/fallback rule (no agent file can ever be found there) — exercising exactly the
+// fallback paths these tests are about, independent of MAJOR-1's file-based bound.
+const NO_SUBAGENTS_LEAD = path.join(HERE, 'fixtures', 'four-read', 'no-such-session.jsonl');
+
+test('buildAgentSpans: Agent/Task use their own tool_result; a missing result falls back to the window end', () => {
+  const toolUses = [{ ms: 0, name: 'Agent', id: 'a' }, { ms: 100, name: 'Task', id: 'b' }, { ms: 200, name: 'Bash', id: 'c' }];
+  const toolResults = [{ ms: 50, item: { type: 'tool_result', tool_use_id: 'a' } }];
+  const spans = buildAgentSpans(fs, NO_SUBAGENTS_LEAD, 'no-such-session', toolUses, toolResults, 1000);
+  assert.deepEqual(spans, [[0, 50], [100, 1000]]); // Bash is not a span source
+});
+
+test('buildAgentSpans: a Workflow tool_use ignores its own quick tool_result — its span runs to the first later TaskStop, else the window end (R6 deviation, see code comment)', () => {
+  const toolUses = [
+    { ms: 0, name: 'Workflow', id: 'w' },
+    { ms: 5000, name: 'TaskStop', id: 'ts' }, // AFTER the Workflow call
+  ];
+  const toolResults = [{ ms: 2, item: { type: 'tool_result', tool_use_id: 'w' } }]; // near-instant ack
+  assert.deepEqual(buildAgentSpans(fs, NO_SUBAGENTS_LEAD, 'no-such-session', toolUses, toolResults, 9999), [[0, 5000]]);
+  // no later TaskStop -> falls all the way to the window end, not the quick ack
+  assert.deepEqual(buildAgentSpans(fs, NO_SUBAGENTS_LEAD, 'no-such-session', [{ ms: 0, name: 'Workflow', id: 'w' }], toolResults, 9999), [[0, 9999]]);
+});
+
+// F2-review-round1 MAJOR-1: a Workflow span must be bounded by the agents it actually
+// spawned, not by the window end — otherwise any lead stall after a Workflow silently reads
+// as waiting-on-agents no matter how long it runs.
+test('buildAgentSpans/computeWorkLostOrStalled: a Workflow span is bounded by its spawned agents\' last activity, so a long lead silence AFTER they finish still reads as stalled (MAJOR-1)', () => {
+  const dir = mkTmp('four-read-major1-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const runDir = path.join(dir, sessionId, 'subagents', 'workflows', 'wf1');
+  fs.mkdirSync(runDir, { recursive: true });
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  writeJsonl(runDir, 'agent-w1.jsonl', [
+    { timestamp: new Date(t0 + 1000).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 10 * min).toISOString(), type: 'user' }, // agents finish by +10min
+  ]);
+  const toolUses = [{ ms: t0, name: 'Workflow', id: 'w' }]; // Workflow at +0s, no TaskStop ever
+  const toolResults = [{ ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: null }]; // ack at +1s
+  const windowEndMs = t0 + 200 * min;
+  const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, windowEndMs));
+  assert.deepEqual(spans, [[t0, t0 + 10 * min]]); // bounded by the agents' last activity, not windowEndMs
+
+  // The lead is then silent from +11min to +191min (180min), well after the agents finished.
+  const leadTimestamps = [t0 + 11 * min, t0 + 191 * min];
+  const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: windowEndMs }, null, spans, null);
+  assert.match(r.value, /^1 gap\(s\) over 30min stalled: .*\(180\.0min\); 0 waiting-on-agents \(0\.0 min\)/);
+});
+
+// F2-review-round2 MAJOR-A (regression from round1's fix): an agent left waiting on a
+// pending tool_use is still ALIVE until its own R7 end bound — a permission-prompt hang must
+// count once (as the agent's own R7 tail stall), never a second time as a lead R6 stall
+// because its span stopped at the file's last (pre-hang) timestamp.
+for (const variant of ['Workflow', 'direct Agent']) {
+  test(`buildAgentSpans/computeWorkLostOrStalled: an agent hung on a pending tool_use is still active until its R7 end bound, so the hang counts once, not twice (MAJOR-A, ${variant})`, () => {
+    const dir = mkTmp('four-read-majora-');
+    const sessionId = 'sess';
+    const leadPath = path.join(dir, `${sessionId}.jsonl`);
+    fs.writeFileSync(leadPath, '');
+    const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+    const min = 60000;
+    const windowEndMs = t0 + 200 * min;
+    let toolUses, toolResults, agentFileDir, agentFileName;
+    if (variant === 'Workflow') {
+      agentFileDir = path.join(dir, sessionId, 'subagents', 'workflows', 'wf1');
+      agentFileName = 'agent-hung.jsonl';
+      toolUses = [{ ms: t0 + 1000, name: 'Workflow', id: 'w' }]; // launch at +1s, no TaskStop ever
+      toolResults = [{ ms: t0 + 1500, item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: null }]; // ack at +1.5s
+    } else {
+      agentFileDir = path.join(dir, sessionId, 'subagents');
+      agentFileName = 'agent-hung.jsonl';
+      toolUses = [{ ms: t0 + 1000, name: 'Agent', id: 'a' }];
+      toolResults = [{ ms: t0 + 1500, item: { type: 'tool_result', tool_use_id: 'a' }, agentId: 'hung', runId: null }];
+    }
+    fs.mkdirSync(agentFileDir, { recursive: true });
+    // Hung at +5min on a tool with no later result: still "alive" past this point (R7 tail).
+    writeJsonl(agentFileDir, agentFileName, [
+      { timestamp: new Date(t0 + 5 * min).toISOString(), type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+    ]);
+    const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, windowEndMs));
+    // The span is bounded by the agent's own R7 end bound (the window end here, since no
+    // TaskStop/later Workflow result and no later direct result exists), not by the file's
+    // last (pre-hang) timestamp — the motivating permission-prompt case.
+    assert.deepEqual(spans, [[t0 + 1000, windowEndMs]]);
+
+    const leadTimestamps = [t0, windowEndMs]; // the lead is silent from the launch to the window end
+    const agentStallResults = { stalls: [{ id: 'hung', atMs: t0 + 5 * min, minutes: 195 }], unreadableIds: [] };
+    const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: windowEndMs }, null, spans, agentStallResults);
+    // N is 1 (from the agent's own R7 stall), never 2 — the lead's silence is entirely inside
+    // the union (waiting-on-agents), so it contributes 0 to N despite being 200min long.
+    assert.match(r.value, /^1 gap\(s\) over 30min stalled; 1 waiting-on-agents \(200\.0 min\); agent hung silent 195\.0 min from 2026-01-01T00:05:00\.000Z; ASKs unavailable \(no --lead-slug\)$/);
+  });
+}
+
+// F2-review-round2 MAJOR-B: a Workflow relaunch that reuses a runId must bound each launch by
+// only the agent files it itself started, not by every agent file ever written to that run's
+// directory — otherwise a lead stall before the relaunch reads as waiting-on-agents.
+test('buildAgentSpans: a Workflow relaunch reusing the same runId bounds each launch by the agent files it started, not the whole run directory (MAJOR-B)', () => {
+  const dir = mkTmp('four-read-majorb-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const runDir = path.join(dir, sessionId, 'subagents', 'workflows', 'wf_r');
+  fs.mkdirSync(runDir, { recursive: true });
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  writeJsonl(runDir, 'agent-first.jsonl', [
+    { timestamp: new Date(t0 + 0.5 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 10 * min).toISOString(), type: 'user' }, // first launch's agents end at +10min
+  ]);
+  writeJsonl(runDir, 'agent-second.jsonl', [
+    { timestamp: new Date(t0 + 100.5 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 150 * min).toISOString(), type: 'user' }, // relaunch's agents end at +150min
+  ]);
+  const toolUses = [
+    { ms: t0, name: 'Workflow', id: 'w1' }, // first launch at +0
+    { ms: t0 + 100 * min, name: 'Workflow', id: 'w2' }, // relaunch at +100min, SAME runId
+  ];
+  const toolResults = [
+    { ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'w1' }, agentId: null, runId: 'wf_r' },
+    { ms: t0 + 100 * min + 1000, item: { type: 'tool_result', tool_use_id: 'w2' }, agentId: null, runId: 'wf_r' },
+  ];
+  const windowEndMs = t0 + 160 * min;
+  const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, windowEndMs));
+  assert.deepEqual(spans, [[t0, t0 + 10 * min], [t0 + 100 * min, t0 + 150 * min]]);
+
+  // The lead is silent from +11min to +100min (89min), entirely between the two launches'
+  // spans — a stall the relaunch must not paper over as waiting-on-agents.
+  const leadTimestamps = [t0 + 11 * min, t0 + 100 * min];
+  const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: windowEndMs }, null, spans, null);
+  assert.match(r.value, /^1 gap\(s\) over 30min stalled: .*\(89\.0min\); 0 waiting-on-agents \(0\.0 min\)/);
+});
+
+// F2-review-round2 MINOR-C: the no-runId heuristic match must not depend on readdir order and
+// take only the first candidate run — it must take the MAX of every candidate's last activity.
+test('buildAgentSpans: the no-runId heuristic run match takes the max of every candidate run\'s last activity, not just the first found (MINOR-C)', () => {
+  const dir = mkTmp('four-read-minorc-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const workflowsDir = path.join(dir, sessionId, 'subagents', 'workflows');
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  const runA = path.join(workflowsDir, 'wf_a');
+  const runZ = path.join(workflowsDir, 'wf_z');
+  fs.mkdirSync(runA, { recursive: true });
+  fs.mkdirSync(runZ, { recursive: true });
+  writeJsonl(runA, 'agent-a.jsonl', [
+    { timestamp: new Date(t0 + 1 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 5 * min).toISOString(), type: 'user' },
+  ]);
+  writeJsonl(runZ, 'agent-z.jsonl', [
+    { timestamp: new Date(t0 + 2 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 150 * min).toISOString(), type: 'user' },
+  ]);
+  const toolUses = [{ ms: t0, name: 'Workflow', id: 'w' }]; // no runId on the ack -> heuristic path
+  const toolResults = [{ ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: null }];
+  const windowEndMs = t0 + 160 * min;
+  // Pin BOTH readdir orders: tmpfs lists newest-first and ext4 by hash, so a single order
+  // can let a first-match `break` pass by luck (F2-review-round3 MINOR-2).
+  for (const order of ['forward', 'reversed']) {
+    const fsOrdered = order === 'forward' ? fs : { ...fs, readdirSync: (p, o) => fs.readdirSync(p, o).slice().reverse() };
+    assert.deepEqual(mergeSpans(buildAgentSpans(fsOrdered, leadPath, sessionId, toolUses, toolResults, windowEndMs)), [[t0, t0 + 150 * min]], order);
+  }
+  const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, windowEndMs));
+
+  const leadTimestamps = [t0, windowEndMs]; // silent from launch through +160min
+  const r = computeWorkLostOrStalled(leadTimestamps, null, null, { openedMs: t0, acceptedMs: windowEndMs }, null, spans, null);
+  // The +150min..+160min piece outside the union is only 10min, never stalled alone.
+  assert.match(r.value, /^0 gap\(s\) over 30min stalled; 1 waiting-on-agents \(150\.0 min\)/);
+});
+
+test('buildAgentSpans: no-runId heuristic — a staged agent that starts after a parallel Workflow launch still sits inside the union (F2-review-round3 MINOR-1)', () => {
+  const dir = mkTmp('four-read-r3-parallel-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const wf = path.join(dir, sessionId, 'subagents', 'workflows');
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  fs.mkdirSync(path.join(wf, 'wf_a'), { recursive: true });
+  fs.mkdirSync(path.join(wf, 'wf_b'), { recursive: true });
+  writeJsonl(path.join(wf, 'wf_a'), 'agent-a1.jsonl', [{ timestamp: new Date(t0 + 100).toISOString(), type: 'user' }, { timestamp: new Date(t0 + 5 * min).toISOString(), type: 'user' }]);
+  writeJsonl(path.join(wf, 'wf_a'), 'agent-a2.jsonl', [{ timestamp: new Date(t0 + 1 * min).toISOString(), type: 'user' }, { timestamp: new Date(t0 + 120 * min).toISOString(), type: 'user' }]);
+  writeJsonl(path.join(wf, 'wf_b'), 'agent-b1.jsonl', [{ timestamp: new Date(t0 + 2500).toISOString(), type: 'user' }, { timestamp: new Date(t0 + 10 * min).toISOString(), type: 'user' }]);
+  const toolUses = [{ ms: t0, name: 'Workflow', id: 'wa' }, { ms: t0 + 2400, name: 'Workflow', id: 'wb' }];
+  const toolResults = [
+    { ms: t0 + 500, item: { type: 'tool_result', tool_use_id: 'wa' }, agentId: null, runId: null },
+    { ms: t0 + 2900, item: { type: 'tool_result', tool_use_id: 'wb' }, agentId: null, runId: null },
+  ];
+  const spans = mergeSpans(buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, t0 + 130 * min));
+  assert.deepEqual(spans, [[t0, t0 + 120 * min]]);
+});
+
+// ── R7: subagent stall scanning ─────────────────────────────────────────────
+
+function writeJsonl(dir, name, lines) {
+  const p = path.join(dir, name);
+  fs.writeFileSync(p, lines.map((l) => JSON.stringify(l)).join('\n'));
+  return p;
+}
+
+test('scanSubagentFile: an internal gap over 30min between consecutive timestamps is reported; a tool_use tail with a later tool_result is not tail-pending', () => {
+  const dir = mkTmp('four-read-subagent-');
+  const p = writeJsonl(dir, 'agent-x.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+    { timestamp: '2026-01-01T00:00:31.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+    { timestamp: '2026-01-01T01:20:00.000Z', type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] } },
+  ]);
+  const r = scanSubagentFile(fs, p);
+  assert.equal(r.unreadable, false);
+  assert.equal(r.tailPendingToolUseId, null); // the tool_use's own result did arrive later
+  assert.equal(r.timestamps.length, 3);
+});
+
+test('scanSubagentFile: a killed agent (last record is a tool_use with no later tool_result) is tail-pending', () => {
+  const dir = mkTmp('four-read-subagent-killed-');
+  const p = writeJsonl(dir, 'agent-y.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+    { timestamp: '2026-01-01T00:00:05.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]);
+  const r = scanSubagentFile(fs, p);
+  assert.equal(r.tailPendingToolUseId, 't1');
+});
+
+test('scanSubagentFile: a timestamp with no Z or offset (local time) rejects the whole file, never guessed', () => {
+  const dir = mkTmp('four-read-subagent-local-');
+  const p = writeJsonl(dir, 'agent-z.jsonl', [{ timestamp: '2026-01-01T00:00:00.000', type: 'user' }]);
+  assert.deepEqual(scanSubagentFile(fs, p), { unreadable: true });
+});
+
+test('scanSubagentFile: an unparseable timestamp also rejects the whole file', () => {
+  const dir = mkTmp('four-read-subagent-bad-');
+  const p = writeJsonl(dir, 'agent-z.jsonl', [{ timestamp: 'not-a-date', type: 'user' }]);
+  assert.deepEqual(scanSubagentFile(fs, p), { unreadable: true });
+});
+
+test('scanSubagentFile: a file with one timestamp has no internal gap and (with no trailing tool_use) no tail stall', () => {
+  const dir = mkTmp('four-read-subagent-one-');
+  const p = writeJsonl(dir, 'agent-one.jsonl', [{ timestamp: '2026-01-01T00:00:00.000Z', type: 'user' }]);
+  const r = scanSubagentFile(fs, p);
+  assert.equal(r.timestamps.length, 1);
+  assert.equal(r.tailPendingToolUseId, null);
+});
+
+test('collectSubagentStalls: an out-of-window file is skipped (R7 Scope); an in-window internal gap over 30min counts once', () => {
+  const dir = mkTmp('four-read-collect-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  fs.mkdirSync(path.join(sessionDir, 'subagents', 'workflows', 'wf1'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-far-away.jsonl', [ // outside the window entirely
+    { timestamp: '2020-01-01T00:00:00.000Z', type: 'user' },
+  ]);
+  writeJsonl(path.join(sessionDir, 'subagents'), 'journal.jsonl', [{ timestamp: '2026-01-01T00:00:00.000Z' }]); // must be skipped
+  writeJsonl(path.join(sessionDir, 'subagents', 'workflows', 'wf1'), 'agent-builder.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+    { timestamp: '2026-01-01T01:00:00.000Z', type: 'user' }, // 60min internal gap
+  ]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const windowStartMs = Date.parse('2026-01-01T00:00:00.000Z');
+  const windowEndMs = Date.parse('2026-01-01T02:00:00.000Z');
+  const { stalls, unreadableIds } = collectSubagentStalls(fs, leadPath, 'lead-session', windowStartMs, windowEndMs, [], []);
+  assert.equal(unreadableIds.length, 0);
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].id, 'builder');
+  assert.equal(Math.round(stalls[0].minutes), 60);
+});
+
+test('collectSubagentStalls: an unreadable subagent file is named, never silently skipped or guessed', () => {
+  const dir = mkTmp('four-read-collect-unreadable-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-bad.jsonl', [{ timestamp: 'not-a-date', type: 'user' }]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const { stalls, unreadableIds } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, Date.now(), [], []);
+  assert.equal(stalls.length, 0);
+  assert.deepEqual(unreadableIds, ['bad']);
+});
+
+// Acceptance attack: "an agent whose tool_result never arrives (killed)" — a direct
+// subagent's tail silence is judged against the window end since our fixtures never carry
+// an agent-id field on the lead's own tool_result (see code comment on subagentEndBound).
+test('collectSubagentStalls: a killed direct subagent (tail tool_use, no later result) is judged against the window end', () => {
+  const dir = mkTmp('four-read-collect-killed-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-killed.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const windowEndMs = Date.parse('2026-01-01T01:00:00.000Z'); // 60min after the file's last (and only) timestamp
+  const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, [], []);
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].id, 'killed');
+  assert.equal(Math.round(stalls[0].minutes), 60);
+});
+
+// F2-review-round1 MAJOR-2: a Workflow agent's tail-silence bound must be a LATER Workflow
+// tool_result, never the launch ack (which is always before the file's last timestamp) —
+// otherwise the permission-prompt hang this rule exists for is invisible for every Workflow
+// agent. Covers both the one-timestamp and multi-timestamp cases the brief calls out.
+for (const label of ['one timestamp', 'several timestamps']) {
+  test(`collectSubagentStalls: a Workflow agent stuck on a tool with no TaskStop is a stall bounded by a LATER Workflow result, not the launch ack (MAJOR-2, ${label})`, () => {
+    const dir = mkTmp('four-read-major2-');
+    const sessionDir = path.join(dir, 'lead-session');
+    const runDir = path.join(sessionDir, 'subagents', 'workflows', 'wf1');
+    fs.mkdirSync(runDir, { recursive: true });
+    const lines = label === 'one timestamp'
+      ? [{ timestamp: '2026-01-01T00:05:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } }]
+      : [
+        { timestamp: '2026-01-01T00:00:00.000Z', type: 'user' },
+        { timestamp: '2026-01-01T00:05:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+      ];
+    writeJsonl(runDir, 'agent-w1.jsonl', lines);
+    const leadPath = path.join(dir, 'lead-session.jsonl');
+    fs.writeFileSync(leadPath, '');
+    const toolUses = [{ ms: Date.parse('2026-01-01T00:00:00.000Z'), name: 'Workflow', id: 'w' }]; // Workflow launch, no TaskStop
+    const toolResults = [{ ms: Date.parse('2026-01-01T00:00:02.000Z'), item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: null }]; // ack at +2s, BEFORE the file's last ts
+    const windowEndMs = Date.parse('2026-01-01T03:20:00.000Z'); // +200min
+    const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, toolUses, toolResults);
+    assert.equal(stalls.length, 1);
+    assert.equal(stalls[0].id, 'w1');
+    assert.equal(Math.round(stalls[0].minutes * 10) / 10, 195.0);
+  });
+}
+
+// F2-review-round1 MAJOR-3: the direct-subagent end-bound match must read the record-level
+// `toolUseResult.agentId` (what real transcripts carry), and only count a result strictly
+// AFTER the agent file's own last timestamp — an async Agent's matched result is often just
+// the launch ack, which must never recreate MAJOR-2's negative-bound bug.
+test('collectSubagentStalls: a direct subagent named by the lead\'s record-level toolUseResult.agentId is judged against that LATER result, not the window end (MAJOR-3)', () => {
+  const dir = mkTmp('four-read-major3-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-dir1.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  // The lead's own result names the agent at record level (toolUseResult.agentId), arriving
+  // one minute after the file's last (and only) timestamp — the true silence is 1 minute.
+  const toolResults = [{ ms: Date.parse('2026-01-01T00:06:00.000Z'), item: { type: 'tool_result', tool_use_id: 'a' }, agentId: 'dir1', runId: null }];
+  const windowEndMs = Date.parse('2026-01-01T05:00:00.000Z'); // far past the match — must not be used
+  const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, [], toolResults);
+  assert.equal(stalls.length, 0); // 1.0min of silence, not a false 195min-style inflation
+});
+
+// F2-review-round2 MINOR-E: the real-transcript paths (an agentId/runId the lead's own
+// tool_result actually carries) were exercised only by hand-probes, never by a committed
+// test — each of these four pins one such path against a specific mutation (per the review).
+
+// (a) the Agent/Task agent-file bound (four-read.mjs:239's `if (agentFileLastMs !== null)`).
+test('buildAgentSpans: an Agent tool_use\'s span is bounded by the agent file its own toolUseResult.agentId names (MINOR-E-a)', () => {
+  const dir = mkTmp('four-read-minore-a-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const subagentsDir = path.join(dir, sessionId, 'subagents');
+  fs.mkdirSync(subagentsDir, { recursive: true });
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  writeJsonl(subagentsDir, 'agent-d1.jsonl', [
+    { timestamp: new Date(t0 + 1000).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 50 * min).toISOString(), type: 'user' },
+  ]);
+  const toolUses = [{ ms: t0, name: 'Agent', id: 'a' }];
+  const toolResults = [{ ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'a' }, agentId: 'd1', runId: null }]; // ack at +1s
+  const spans = buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, t0 + 999 * min);
+  assert.deepEqual(spans, [[t0, t0 + 50 * min]]);
+});
+
+// (b) the runId path (four-read.mjs:219), also pinning MINOR-C's max-over-candidates rule.
+test('buildAgentSpans: a Workflow ack\'s toolUseResult.runId picks its own run directory over a decoy with an earlier-fitting candidate (MINOR-E-b)', () => {
+  const dir = mkTmp('four-read-minore-b-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  fs.writeFileSync(leadPath, '');
+  const workflowsDir = path.join(dir, sessionId, 'subagents', 'workflows');
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  const runX = path.join(workflowsDir, 'wf_x');
+  const runY = path.join(workflowsDir, 'wf_y'); // decoy: its earliest agent also falls in range
+  fs.mkdirSync(runX, { recursive: true });
+  fs.mkdirSync(runY, { recursive: true });
+  writeJsonl(runX, 'agent-x.jsonl', [
+    { timestamp: new Date(t0 + 1 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 60 * min).toISOString(), type: 'user' },
+  ]);
+  writeJsonl(runY, 'agent-y.jsonl', [
+    { timestamp: new Date(t0 + 2 * min).toISOString(), type: 'user' },
+    { timestamp: new Date(t0 + 120 * min).toISOString(), type: 'user' }, // ends LATER than wf_x, so only the runId path can pick wf_x
+  ]);
+  const toolUses = [{ ms: t0, name: 'Workflow', id: 'w' }];
+  const toolResults = [{ ms: t0 + 1000, item: { type: 'tool_result', tool_use_id: 'w' }, agentId: null, runId: 'wf_x' }];
+  const spans = buildAgentSpans(fs, leadPath, sessionId, toolUses, toolResults, t0 + 999 * min);
+  assert.deepEqual(spans, [[t0, t0 + 60 * min]]); // wf_x's own end, never wf_y's
+});
+
+// (c) the nearest-preceding Workflow sort in subagentEndBound (four-read.mjs's descending
+// sort by ms) — a farther-preceding Workflow with a later, also-valid result must lose to a
+// nearer one, and a Workflow launched AFTER the file ends must never be a candidate at all.
+test('collectSubagentStalls: a Workflow agent\'s tail bound picks the NEAREST preceding Workflow\'s later result, never a farther one or one launched after the file ends (MINOR-E-c)', () => {
+  const dir = mkTmp('four-read-minore-c-');
+  const sessionDir = path.join(dir, 'lead-session');
+  const runDir = path.join(sessionDir, 'subagents', 'workflows', 'wf1');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeJsonl(runDir, 'agent-w1.jsonl', [
+    { timestamp: '2026-01-01T00:10:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]); // file's last (and only) timestamp: 00:10
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  const toolUses = [
+    { ms: Date.parse('2026-01-01T00:00:00.000Z'), name: 'Workflow', id: 'far' }, // farther-preceding
+    { ms: Date.parse('2026-01-01T00:08:00.000Z'), name: 'Workflow', id: 'near' }, // nearer-preceding
+    { ms: Date.parse('2026-01-01T00:20:00.000Z'), name: 'Workflow', id: 'after' }, // launched AFTER the file ends
+  ];
+  const toolResults = [
+    { ms: Date.parse('2026-01-01T01:30:00.000Z'), item: { type: 'tool_result', tool_use_id: 'far' }, agentId: null, runId: null }, // wrong (farther) result: 80min
+    { ms: Date.parse('2026-01-01T00:50:00.000Z'), item: { type: 'tool_result', tool_use_id: 'near' }, agentId: null, runId: null }, // the correct bound: 00:50, 40min after 00:10
+    { ms: Date.parse('2026-01-01T02:00:00.000Z'), item: { type: 'tool_result', tool_use_id: 'after' }, agentId: null, runId: null }, // must never be used
+  ];
+  const windowEndMs = Date.parse('2026-01-01T10:00:00.000Z');
+  const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, toolUses, toolResults);
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].id, 'w1');
+  assert.equal(Math.round(stalls[0].minutes), 40); // 00:10 -> 00:50, the NEAR Workflow's result, not the FAR one's 80min
+});
+
+// (d) the `r.ms > fileLastMs` guard on the direct-agent match — dropping it would let an
+// async launch ack (which always precedes the file's own activity) produce a negative bound.
+test('collectSubagentStalls: a direct subagent\'s end-bound match requires a result strictly LATER than the file\'s own end, never the earlier launch ack (MINOR-E-d)', () => {
+  const dir = mkTmp('four-read-minore-d-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents'), 'agent-dir1.jsonl', [
+    { timestamp: '2026-01-01T00:05:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]); // pending at +5min
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  // The lead's own async launch ack, naming this agent, arrives at +1s — BEFORE the file's own
+  // last (and only) timestamp. Dropping the `r.ms > fileLastMs` guard would let this recreate
+  // MAJOR-2's negative-bound bug (a "silence" that's actually negative).
+  const toolResults = [{ ms: Date.parse('2026-01-01T00:00:01.000Z'), item: { type: 'tool_result', tool_use_id: 'a' }, agentId: 'dir1', runId: null }];
+  const windowEndMs = Date.parse('2026-01-01T01:45:00.000Z'); // +100min from the file's last ts
+  const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, [], toolResults);
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].id, 'dir1');
+  assert.equal(Math.round(stalls[0].minutes), 100); // bounded by the window end, not a negative number
+});
+
+// F2-review-round1 MINOR-1: agent stalls must not be silently dropped when the lead itself
+// has fewer than 2 in-window messages — that branch still names the agent stall.
+test('computeWorkLostOrStalled: fewer than 2 lead messages in window still surfaces agent stalls, never drops them (MINOR-1)', () => {
+  const agentResults = { stalls: [{ id: 'a1', atMs: Date.parse('2026-01-01T00:00:00.000Z'), minutes: 45.3 }], unreadableIds: [] };
+  const r = computeWorkLostOrStalled([1000], null, null, { openedMs: 0, acceptedMs: 3000 }, null, null, agentResults);
+  assert.equal(r.value, 'gaps unavailable (fewer than 2 lead messages in window); agent a1 silent 45.3 min from 2026-01-01T00:00:00.000Z; ASKs unavailable (no --lead-slug)');
+});
+
+// F2-review-round1 MINOR-2: a lead that dispatched Agent/Task/Workflow work but for which no
+// subagent files can be found at all must say so, not read as a confident "0 agent stalls".
+test('buildFourRead: a lead with Agent/Task/Workflow tool_uses but no subagents/ directory says so, not a silent zero (MINOR-2)', async () => {
+  const dir = mkTmp('four-read-minor2-');
+  const sessionId = 'sess';
+  const leadPath = path.join(dir, `${sessionId}.jsonl`);
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  const min = 60000;
+  fs.writeFileSync(leadPath, [
+    { timestamp: new Date(t0).toISOString(), type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Agent', id: 'a' }] } },
+    { timestamp: new Date(t0 + 5000).toISOString(), type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a' }] } },
+    { timestamp: new Date(t0 + 40 * min).toISOString(), type: 'user' },
+  ].map((l) => JSON.stringify(l)).join('\n'));
+  // no `<dir>/sess/subagents/` directory at all
+  const census = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, out: null });
+  const censusPath = path.join(dir, 'census.json');
+  fs.writeFileSync(censusPath, JSON.stringify(census));
+  const recordPath = path.join(dir, 'record.md');
+  fs.writeFileSync(recordPath, [
+    `Lead-session: ${sessionId}`,
+    `Opened: ${new Date(t0).toISOString()}`,
+    `Log: ${new Date(t0).toISOString()} owned test-owner picked up the build`,
+    `Log: ${new Date(t0 + 41 * min).toISOString()} accepted test-owner artifact 0000000000000000000000000000000000000000`,
+    '',
+  ].join('\n'));
+  const report = buildFourRead({ record: recordPath, census: censusPath, ledger: null }, fs);
+  const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
+  assert.match(value, new RegExp(`subagents unavailable \\(no files under ${sessionId}/subagents\\)`));
+});
+
+// F2-review-round1 MINOR-3: tail silence must clip to the window, exactly like internal gaps.
+test('collectSubagentStalls: tail silence is clipped to the window, never measured past it (MINOR-3)', () => {
+  const dir = mkTmp('four-read-minor3-');
+  const sessionDir = path.join(dir, 'lead-session');
+  fs.mkdirSync(path.join(sessionDir, 'subagents', 'workflows', 'wf1'), { recursive: true });
+  writeJsonl(path.join(sessionDir, 'subagents', 'workflows', 'wf1'), 'agent-clip.jsonl', [
+    { timestamp: '2026-01-01T00:00:00.000Z', type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1' }] } },
+  ]);
+  const leadPath = path.join(dir, 'lead-session.jsonl');
+  fs.writeFileSync(leadPath, '');
+  // TaskStop bound is 300min after the file's last ts, but the window itself ends at 40min —
+  // the clipped silence (40min) is over 30min; the unclipped one (300min) would also be over
+  // 30min, so assert the exact clipped minutes to prove the clip, not just the threshold.
+  const toolUses = [{ ms: Date.parse('2026-01-01T05:00:00.000Z'), name: 'TaskStop', id: 'ts' }];
+  const windowEndMs = Date.parse('2026-01-01T00:40:00.000Z');
+  const { stalls } = collectSubagentStalls(fs, leadPath, 'lead-session', 0, windowEndMs, toolUses, []);
+  assert.equal(stalls.length, 1);
+  assert.equal(Math.round(stalls[0].minutes), 40);
+});
+
+// ── R6/R7 against the two real committed session fixtures (contracts.md Facts) ─────────────
+// lane10: lead f6c8ae21…, window 2026-09-26T22:35:00Z..2026-09-27T02:49:52Z. Its builder
+// (workflows/wf_7223f595-b7d/agent-a314563636ff6b931.jsonl) is silent for 216.8 min from
+// 2026-09-26T22:44:29.665Z — exactly one stall (R7), 0 stalled/0 waiting-on-agents at the
+// lead level (R6: the lead's own transcript never runs long enough to raise a >30min gap).
+test('buildFourRead: lane10\'s real session gives exactly one agent stall (216.8min), 0 lead-stalled, 0 waiting-on-agents', async () => {
+  const dir = mkTmp('four-read-lane10-');
+  const leadPath = path.join(FIXTURES, 'sessions', 'lane10', 'f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e.jsonl');
+  const census = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, out: null });
+  const censusPath = path.join(dir, 'census.json');
+  fs.writeFileSync(censusPath, JSON.stringify(census));
+  const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane10.md'), census: censusPath, ledger: null }, fs);
+  const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
+  assert.equal(value, '1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a314563636ff6b931 silent 216.8 min from 2026-09-26T22:44:29.665Z; ASKs unavailable (no --lead-slug)');
+});
+
+// lane16: lead 588290d9…, window 2026-09-27T06:20:18Z..2026-09-27T07:50:17Z. The lead gap of
+// 41.8 min from 2026-09-27T06:20:46.606Z lies inside its one Workflow tool_use span — 0
+// stalled, 1 waiting-on-agents (41.8min).
+test('buildFourRead: lane16\'s real session gives 0 stalled, 1 waiting-on-agents (41.8min), no agent stalls', async () => {
+  const dir = mkTmp('four-read-lane16-');
+  const leadPath = path.join(FIXTURES, 'sessions', 'lane16', '588290d9-ee43-400b-a808-cf44c407171c.jsonl');
+  const census = await runCensus({ lead: leadPath, tasksDirs: [], marker: null, out: null });
+  const censusPath = path.join(dir, 'census.json');
+  fs.writeFileSync(censusPath, JSON.stringify(census));
+  const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane16.md'), census: censusPath, ledger: null }, fs);
+  const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
+  assert.equal(value, '0 gap(s) over 30min stalled; 1 waiting-on-agents (41.8 min); ASKs unavailable (no --lead-slug)');
 });
 
 // ── buildFourRead / formatJson / formatMarkdown (integration) ──────────────
@@ -629,7 +1224,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '    {',
     '      "key": "workLostOrStalled",',
     '      "label": "Work lost or stalled",',
-    '      "value": "1 gap(s) over 30min: 2026-09-01T00:15:00.000Z (45.0min); 1 unanswered ASK(s) to test-lead: fixture-ask-2"',
+    '      "value": "1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2"',
     '    }',
     '  ],',
     '  "record": "scripts/fixtures/four-read/record.md"',
@@ -646,7 +1241,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '| Top-tier tokens per build | 193 tokens: build 193 (claude-opus-5-5); partial (no spec slice): spec-census not run |',
     '| Hours ask to accepted | 24.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z |',
     '| Rework after acceptance | unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00.000Z artifact abcdef01234567890123456789012345abcdef0 reaccepted for fix round |',
-    '| Work lost or stalled | 1 gap(s) over 30min: 2026-09-01T00:15:00.000Z (45.0min); 1 unanswered ASK(s) to test-lead: fixture-ask-2 |',
+    '| Work lost or stalled | 1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2 |',
     '',
     '## Companions',
     '',

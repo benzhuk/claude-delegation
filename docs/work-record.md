@@ -72,6 +72,34 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 - `agent-exited` — the prior owner reported, was stopped, or died.
 - `ben: "<quoted word>"` — Ben's own word authorized this change.
 
+### Model tokens on `reviewed`/`APPROVE` lines (measure-truth-1)
+
+On a **strict** record (Opened at or after this lane's `STRICT_FROM`, see "Strict
+Git-backed acceptance check" below), a `Log:` line's *note* — never a new token in the
+fixed `<ISO-8601 UTC> <status> <owner> [<note>]` grammar above — must name a model when
+the line either has `Status: reviewed`, or names the whole word `APPROVE` regardless of
+status (the shape tonight's own fixes used: `D1 APPROVE b7a3fef (4 rounds, Opus
+reviewer)`). The model tokens are the tiers table's own names (`docs/model-tiers.md`),
+matched case-insensitively as a whole word (`claude-opus-5-5` counts as `Opus`); a `no`,
+`not`, or `without` in the two words before the token means no model is named (`no Opus
+reviewer was used` names none). A `reviewed` line whose note contains the whole word
+`SKIPPED` (the loop's `seam SKIPPED`) needs no model. Such a line still satisfies the
+at-least-one rule below when it also names a high- or top-tier token and `APPROVE`; the
+build loop writes `seam SKIPPED; territory reviews APPROVE (Opus reviewer)`. At least one
+`reviewed` line must name both a high- or top-tier token and `APPROVE`. Lines dated before
+`STRICT_FROM`, and every rule on a non-strict record, are never re-judged.
+
+### The `hung`/`stall`/`relaunch` check (measure-truth-1)
+
+Every record, strict or not: if any `Log:` line dated inside `[Opened:, the accept
+instant]` names `hung`, a form of `stall` (`stalled`/`stalls`/`stalling` — never
+`installed`/`install`), or a form of `relaunch`, the record is refused unless the leading
+integer of its `Four numbers: Work lost or stalled:` line is non-zero, or an unindented
+body paragraph starts `Stall:` or `Gap:` and gives the reason. With no `Four numbers:`
+line at all (no `--four-read` was run), the check is skipped and says so in a warning.
+This is a coarse, one-regex check meant only to stop a zero from being written next to a
+Log: line that visibly contradicts it.
+
 ### Evidence
 
 A path inside the repo is checked: it must exist and its first line must start
@@ -146,9 +174,33 @@ historical); live mode requires exact equality.
 At least one evidence file must begin exactly `VERDICT: APPROVE <sha>` or `VERDICT: APPROVE —
 <sha>` for the current artifact. A current `NEEDS_FIXES`, `FAIL`, or `REJECTED` refuses
 acceptance. Supporting verdicts and verdicts for other revisions remain history. Success prints
-`{"ok":true,"work":"...","artifact":"<full-sha>","delivery":"<full-sha>"}`; failure is
-nonzero with a diagnostic (`check-acceptance` never writes anything; `accept` writes the record
-only on success, appending an `accepted` `Log:` line and flipping `Status:` in one edit).
+`{"ok":true,"work":"...","artifact":"<full-sha>","delivery":"<full-sha>"}`, plus a
+`"warnings":[...]` array when there is one to report (see below); failure is nonzero with a
+diagnostic (`check-acceptance` never writes anything; `accept` writes the record only on
+success, appending an `accepted` `Log:` line and flipping `Status:` in one edit).
+
+#### Strict cutoff, and the `Base`/`Spec-session`/`Spec-from` refusals (measure-truth-1)
+
+`Base:` is refused on **every** record, strict or not, unless it is exactly one 40-hex sha —
+nothing is exempt. Beyond that, the check has two modes, decided by a record's *effective
+opened instant*: the later of its `Opened:` and the author time of the first git commit that
+added the record file (`Opened:` alone when the file has no commit yet — still strict for any
+new work). A record whose effective opened instant is at or after this lane's frozen
+`STRICT_FROM` (`2026-09-27T08:32:15Z`) is **strict**; backdating `Opened:` buys nothing once the
+file is committed, since the commit's own author time still counts. A **non-strict** record
+(effective opened instant before `STRICT_FROM`) prints one warning line naming the rule —
+`strict-exempt: Opened before <STRICT_FROM>; Spec-session/Spec-from/model rules are warnings for
+this record` — and keeps the older, warning-only behavior for `Spec-session:`/`Spec-from:`
+below.
+
+On a **strict** record, `accept` refuses — naming the first failing field, in the order Base,
+Spec-session, Spec-from, and its fix — a record with: no `Spec-session:`, or a placeholder; no
+`Spec-from:`, or a `Spec-from:`
+that is not an ISO-8601 UTC instant ending in `Z` (an offset such as `-04:00` is refused, with
+the fix line saying to convert it to UTC and write the `Z` form — the census reads `Spec-from:`
+as a window start and needs a fixed zone). See "Model tokens on `reviewed`/`APPROVE` lines" and
+"The `hung`/`stall`/`relaunch` check" above, in the `Log:` section, for the two other rules a
+strict (or, for the second, every) record must also pass.
 
 This command proves local record, review, and delivery identity only. The owner still verifies
 integration gates, authority, goal satisfaction, and installed behavior. A merge that preserves

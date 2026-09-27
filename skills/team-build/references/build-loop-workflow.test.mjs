@@ -1508,6 +1508,7 @@ test("R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam s
   // s10: seam SKIPPED must never be rendered as a false "seam r<n> APPROVE" Log line.
   assert.ok(acceptCall.prompt.includes("seam SKIPPED"), "Log line names seam SKIPPED, not a false APPROVE");
   assert.ok(!/seam r\d+ APPROVE/.test(acceptCall.prompt), "never claims an APPROVE that never happened");
+  assert.ok(acceptCall.prompt.includes("seam SKIPPED; territory reviews APPROVE (Opus reviewer)"), "R3: the SKIPPED reviewed line still names the territory reviews' model");
   // s11: the runner is given its own report path.
   assert.ok(acceptCall.prompt.includes(`Report path: ${acceptReportPathFor(args)}`));
   // M3 (round 2 fix): the runner must be told to change its working directory to the
@@ -1610,6 +1611,7 @@ test("M3: accept-prep is checked against the seam's (longer) APPROVE sha, not th
   // s10: a genuine seam APPROVE renders its own round and sha, not a hardcoded literal.
   const acceptCall = stub.calls.find((c) => c.opts.label === "accept-prep");
   assert.ok(acceptCall.prompt.includes(`seam r1 APPROVE ${fullSeamSha}`));
+  assert.ok(acceptCall.prompt.includes(`seam r1 APPROVE ${fullSeamSha} (Opus reviewer)`), "R3: the seam reviewed line names its model");
 });
 
 // s11 (accept-prep half): the script checks the returned reportPath against the one it
