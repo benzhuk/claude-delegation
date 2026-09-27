@@ -5,8 +5,8 @@ Status: closed
 Authority: skills-fable-lane-29-1 assigns the exclusive Lane 29 territory under the standing merge grant. No release, install, or other lane edits. Root owns this record.
 Artifact: build/inbox-truth-1@c8c16be67ef4e832e90ec2f78ebdf570001fd60f
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/inbox-truth-1
-Evidence: docs/work/evidence/wr-2026-09-27-inbox-truth-review.md, docs/work/evidence/wr-2026-09-27-inbox-truth-sealed.md, docs/work/evidence/wr-2026-09-27-inbox-truth-live-proof.md
-Next: no implementation work remains; retain the reviewed artifact, receipts and cleanup ownership. Merge 83b0966360681c16c3961f07d448438abef9453e includes the history entry. Publish the decisions summary through its existing renderer and retain its receipt. Installed-hook rollout remains a separate release and install action.
+Evidence: docs/work/evidence/wr-2026-09-27-inbox-truth-review.md, docs/work/evidence/wr-2026-09-27-inbox-truth-sealed.md, docs/work/evidence/wr-2026-09-27-inbox-truth-live-proof.md, docs/work/evidence/wr-2026-09-27-inbox-truth-main-closeout.md
+Next: no implementation or publication work remains; retain the reviewed artifact, receipts and cleanup ownership. Merge 83b0966360681c16c3961f07d448438abef9453e includes the history entry, and the decisions renderer published successfully with its receipt attached. Installed-hook rollout remains a separate release and install action.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T22:57:00Z
