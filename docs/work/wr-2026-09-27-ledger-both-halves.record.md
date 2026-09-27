@@ -12,5 +12,6 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T00:05:00-04:00
 Base: 7aad49b1cf134a8e1bbb8c0cb4f33a4e26a3c61b
 Log: 2026-09-27T04:26:26.000Z owned skills-n picked up skills-fable-ledger-both-halves-1 after lane thirteen merged, ACK sent over ssh on ben-desktop naming the live-check order change, base 7aad49b
+Log: 2026-09-27T05:41:42.000Z owned skills-n launch wf_dd31f2cc-bf4: L1 r1 at 097f654, Opus NEEDS_FIXES (reports/L1-review-1.md); the r2 builder hung 40 min on an rm -rf permission prompt after its edits (uncommitted, 01:02 NY); stopped, relaunched with startFrom NEEDS_FIXES at 097f654 against reports/lead-stall-note.md, which also carries skills-fable-ledger-both-halves-3's SKILL.md wording
 
 Observed: pending.
