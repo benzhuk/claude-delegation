@@ -442,6 +442,23 @@ test("a failed fetch that sees a change does not swallow it: the next good run a
   assert.equal(spawn.calls.length, 2, "the change seen during the failed fetch is announced on the next good run");
 });
 
+test("K2 allowlist: a state outside collect-from-origin's names reaches --text only as other (seam m1)", () => {
+  const out = outTmp();
+  const spawn = fakeSpawnCounter();
+  const rows = [{
+    branch: "b1", tipSha: "a".repeat(40), tipDate: "2026-09-27T00:00:00Z", recordPath: "docs/work/b1.record.md",
+    status: "owned", artifactSha: null, merged: null, hoursSinceLog: 1, state: "evil;$(id)",
+  }];
+  const collectMain = (argv, o) => { o.write(JSON.stringify(rows)); return 0; };
+  const root = initRepoWithOrigin();
+  main(["--repo", root, "--out", out, "--to", "lead"], { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, collectMain });
+  assert.equal(spawn.calls.length, 1);
+  const args = spawn.calls[0].args;
+  const text = args[args.indexOf("--text") + 1];
+  assert.match(text, /other=1/);
+  assert.doesNotMatch(text, /evil/);
+});
+
 test("a --main ref that doesn't resolve sends no note (no real state to report)", () => {
   const root = initRepoWithOrigin();
   const out = outTmp();

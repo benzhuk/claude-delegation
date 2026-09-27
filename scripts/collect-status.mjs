@@ -37,6 +37,10 @@ import { pathToFileURL } from "node:url";
 import { main as collectFromOriginMain, fullRef, refExists, formatTable } from "./collect-from-origin.mjs";
 import { assertFieldSafe } from "../skills/multi/scripts/envelope.mjs";
 
+// K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
+// names plus the no-record row); anything else is counted as "other", never named.
+const NOTE_STATE_TOKENS = new Set(["owned", "rejected", "withdrawn", "accepted-merged", "accepted-unmerged", "no-record"]);
+
 export function parseArgs(argv) {
   const out = {
     repo: null, main: "origin/main", noFetch: false, skip: [], out: null,
@@ -183,7 +187,12 @@ function sendNote({
   if (!execPath) return { attempted: true, sent: false, reason: "note: skipped, note-send missing" };
 
   const n = rows.length;
-  const kv = Object.entries(byState).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join(", ");
+  const safeByState = {};
+  for (const [k, v] of Object.entries(byState)) {
+    const token = NOTE_STATE_TOKENS.has(k) ? k : "other";
+    safeByState[token] = (safeByState[token] ?? 0) + (Number.isInteger(v) ? v : 0);
+  }
+  const kv = Object.entries(safeByState).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join(", ");
   const m = attention.length;
   const text = `${n} lanes on origin: ${kv || "none"}, attention ${m}`;
   const goal = safeGoalOrNull(`status at ${statusMdPath}`);
