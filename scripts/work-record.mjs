@@ -495,8 +495,13 @@ function acceptanceError(message, code = "acceptance-failed") {
 export const STRICT_FROM = "2026-09-27T08:32:15Z";
 
 const STALL_WORD_RE = /\b(hung|stall(ed|s|ing)?|relaunch(ed|es|ing)?)\b/i;
-const APPROVE_WORD_RE = /\bAPPROVE\b/i;
-const SKIPPED_WORD_RE = /\bSKIPPED\b/i;
+// R3 review round 1, M1: these two tokens are the loop's own literal words (the verdict
+// word APPROVE, the seam's literal SKIPPED) - not one of R3's model tokens, so they stay
+// case-sensitive on purpose. A lowercase "skipped" in ordinary prose (e.g. "the Windows
+// suite skipped") must never exempt a model-less reviewed/APPROVE line, and "approve" in
+// prose like "waiting for Ben to approve the merge" must never trip log-model-missing.
+const APPROVE_WORD_RE = /\bAPPROVE\b/;
+const SKIPPED_WORD_RE = /\bSKIPPED\b/;
 // R2: strict Spec-from must be a UTC instant ending in Z; an offset (`-04:00`) is
 // refused even though it is a valid ISO-8601 timestamp - the census reads Spec-from as a
 // window start and needs a fixed zone. SPEC_FROM_OFFSET_RE recognises the offset shape so
@@ -533,7 +538,11 @@ function tokenMatchIndexes(text, token) {
 // match - e.g. "no Opus reviewer was used" names no model. Punctuation around the
 // negating word is stripped before comparing.
 function isNegatedMatch(text, index) {
-  const before = text.slice(0, index).trim();
+  const raw = text.slice(0, index);
+  // Round 1 review, m1: when the match sits inside a compound (claude-opus-5-5), the
+  // fragment immediately before it ("claude-") is that token's own prefix, not a
+  // separate word - strip it before taking the two words that precede the token.
+  const before = (raw === "" || /\s$/.test(raw) ? raw : raw.replace(/\S+$/, "")).trim();
   const words = before.split(/\s+/).filter(Boolean).slice(-2);
   return words.some((w) => /^[("'[]*(no|not|without)[.,;:!?)"'\]]*$/i.test(w));
 }
@@ -586,7 +595,10 @@ export function isStrictRecord(record, opts = {}) {
   const strictFrom = opts.strictFrom ?? STRICT_FROM;
   const cutoffMs = Date.parse(strictFrom);
   const openedMs = effectiveOpenedMs(record, opts);
-  return !Number.isNaN(openedMs) && !Number.isNaN(cutoffMs) && openedMs >= cutoffMs;
+  // Round 1 review, M2: an unparseable Opened: (no add-commit to fall back on) is an
+  // unknown instant, never a known-early one - it must never read as strict-exempt.
+  if (Number.isNaN(openedMs)) return true;
+  return !Number.isNaN(cutoffMs) && openedMs >= cutoffMs;
 }
 
 // A body paragraph starting unindented `Stall:` or `Gap:` (R4's named exemption) -
@@ -649,7 +661,10 @@ export function checkMeasureTruthRules(text, record, opts = {}) {
     let hasHighTopApprove = false;
     for (const line of record.log ?? []) {
       const ms = Date.parse(line.at);
-      if (Number.isNaN(ms) || ms < strictFromMs) continue;
+      // Round 1 review, M3: an unparseable `at` (parseRecord accepts any \S{1,64}) is
+      // never treated as "before STRICT_FROM" - only a *parseable*, earlier timestamp
+      // skips the check. An undated line is judged, never exempted.
+      if (!Number.isNaN(ms) && ms < strictFromMs) continue;
       const status = (line.status ?? "").toLowerCase();
       const note = line.note ?? "";
       const approves = APPROVE_WORD_RE.test(note);
@@ -681,18 +696,29 @@ export function checkMeasureTruthRules(text, record, opts = {}) {
   const acceptMs = acceptInstant.getTime();
   const stallLines = (record.log ?? []).filter((line) => {
     const ms = Date.parse(line.at);
-    if (Number.isNaN(ms)) return false;
+    // Round 1 review, M3: dropped the earlier `if (Number.isNaN(ms)) return false` -
+    // that let an undated Log line (parseRecord accepts any \S{1,64} as `at`) dodge R4
+    // entirely. A NaN `ms` now simply never satisfies either comparison below (NaN
+    // comparisons are always false), so an undated line falls through and is judged.
     if (!Number.isNaN(openedMs) && ms < openedMs) return false;
     if (!Number.isNaN(acceptMs) && ms > acceptMs) return false;
     return STALL_WORD_RE.test(line.note ?? "");
   });
   if (stallLines.length > 0) {
-    if ((record.fourNumbers ?? []).length === 0) {
+    // Round 1 review, B1: this accept's own --four-read (opts.fourNumbers, threaded in by
+    // checkAcceptance) is the source of truth when present - the file's pre-existing
+    // `Four numbers:` lines (from a PRIOR accept/rework cycle) are stale and must never be
+    // read as this accept's numbers. `not run` (accept's own marker for "no --four-read
+    // given") is filtered out so it is never counted as a present line.
+    const fourNumbers = (opts.fourNumbers ?? record.fourNumbers ?? []).filter(
+      (l) => typeof l === "string" && !/^not run$/i.test(l.trim()),
+    );
+    if (fourNumbers.length === 0) {
       warnings.push(
         `stall-word-check-skipped: no Four numbers: line present (no --four-read run); the hung/stall/relaunch check on Log: ${stallLines[0].at} was skipped`,
       );
     } else {
-      const fourNumberLine = record.fourNumbers.find((l) => /^Work lost or stalled:/i.test(l));
+      const fourNumberLine = fourNumbers.find((l) => /^Work lost or stalled:/i.test(l));
       const leadingMatch = fourNumberLine ? /^Work lost or stalled:\s*(\d+)/i.exec(fourNumberLine) : null;
       const nonZero = leadingMatch ? Number(leadingMatch[1]) !== 0 : false;
       if (!nonZero && !hasStallOrGapParagraph(text)) {
@@ -1044,7 +1070,28 @@ export function checkAcceptance(opts = {}) {
   // directly (see checkMeasureTruthRules above) without any of the git-backed checks
   // below it. Throws before any of them run; on success, its warnings (strict-exempt,
   // or the stall-check-skipped notice) are merged into the result below.
-  const measureTruth = checkMeasureTruthRules(text, record, { ...opts, repoRoot, spawnImpl });
+  //
+  // Round 1 review, B1: R4 must judge THIS accept's --four-read, not whatever
+  // Four numbers: lines the record's own text happens to carry - acceptRecord only
+  // splices its Four numbers: lines into the file AFTER checkAcceptance passes, so at
+  // check time a Status: reviewed record normally has none yet (or, after a prior
+  // accept/rework cycle, stale ones from the LAST accept). Read and validate --four-read
+  // here, before the call, and thread its numbers in as opts.fourNumbers; fourReadText is
+  // carried on the result so acceptRecord's own, necessarily separate read of the same
+  // path can be checked for TOCTOU drift instead of trusted a second time.
+  let fourReadText;
+  let fourReadNumbers;
+  if (opts.fourReadPath !== undefined) {
+    let parsedFourRead;
+    try {
+      fourReadText = fsImpl.readFileSync(opts.fourReadPath, "utf8");
+      parsedFourRead = JSON.parse(fourReadText);
+    } catch (error) {
+      throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
+    }
+    fourReadNumbers = fourReadLines(parsedFourRead).map((l) => l.replace(/^Four numbers:\s*/, ""));
+  }
+  const measureTruth = checkMeasureTruthRules(text, record, { ...opts, repoRoot, spawnImpl, fourNumbers: fourReadNumbers });
 
   // census-stale (C2 spec item 2): opt-in here - only runs when a caller passes
   // --census, so every census-agnostic caller (check-acceptance's existing read-only
@@ -1216,6 +1263,7 @@ export function checkAcceptance(opts = {}) {
   // against `{ ok, work, artifact, delivery }` still holds).
   const result = { ok: true, work: record.fields.work, artifact, delivery };
   if (censusText !== undefined) result.censusText = censusText;
+  if (fourReadText !== undefined) result.fourReadText = fourReadText;
   if (warnings.length > 0) result.warnings = warnings;
   return result;
 }
@@ -1330,10 +1378,23 @@ export function acceptRecord(opts = {}) {
   // still passes without it, the record just shows the numbers were not run.
   let fourNumberLines, parsed;
   if (opts.fourReadPath !== undefined) {
+    let fourReadTextNow;
     try {
-      parsed = JSON.parse(fsImpl.readFileSync(opts.fourReadPath, "utf8"));
+      fourReadTextNow = fsImpl.readFileSync(opts.fourReadPath, "utf8");
+      parsed = JSON.parse(fourReadTextNow);
     } catch (error) {
       throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
+    }
+    // TOCTOU guard (round 1 review, B1's "also required"): checkAcceptance above already
+    // read and validated this same --four-read path once (R4's stall-word check ran
+    // against those exact bytes). This is a second, independent read; if the file
+    // changed in between, the numbers spliced into the record below could be ones R4
+    // never judged. Fail closed, mirroring the --census TOCTOU guard just above.
+    if (result.fourReadText !== undefined && fourReadTextNow !== result.fourReadText) {
+      throw acceptanceError(
+        "four-read file changed during acceptance: re-run accept against the current --four-read file",
+        "four-read-invalid",
+      );
     }
     fourNumberLines = fourReadLines(parsed);
   } else {
@@ -1362,9 +1423,10 @@ export function acceptRecord(opts = {}) {
   }
   const absPath = path.resolve(repoRoot, opts.recordPath);
   fsImpl.writeFileSync(absPath, updated);
-  // censusText was only ever an internal comparison value (MINOR 5 above) - never part
-  // of the public result shape (it could be an entire census report's worth of bytes).
-  const { censusText: _censusText, ...publicResult } = result;
+  // censusText/fourReadText were only ever internal comparison values (MINOR 5 above,
+  // and its B1 round-1-review mirror for --four-read) - never part of the public result
+  // shape (either could be an entire report's worth of bytes).
+  const { censusText: _censusText, fourReadText: _fourReadText, ...publicResult } = result;
   return { ...publicResult, path: absPath };
 }
 
@@ -1525,9 +1587,10 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
     }
     const { command, ...opts } = parseAcceptanceArgs(argv);
     const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);
-    // censusText (MINOR 5) is an internal comparison value only, never part of the CLI's
-    // printed result - it can be an entire census report's worth of bytes.
-    const { censusText: _censusText, ...printable } = result;
+    // censusText (MINOR 5) and fourReadText (its B1 round-1-review mirror) are internal
+    // comparison values only, never part of the CLI's printed result - check-acceptance
+    // itself can now carry fourReadText too (B1), so strip both here as well.
+    const { censusText: _censusText, fourReadText: _fourReadText, ...printable } = result;
     io.stdout.write(`${JSON.stringify(printable)}\n`);
     // m2 (seam review): a lead scanning stdout for a WARN would otherwise see only the
     // JSON blob. Exit code stays 0 - a WARN is visible, not a refusal.

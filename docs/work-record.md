@@ -191,8 +191,9 @@ file is committed, since the commit's own author time still counts. A **non-stri
 this record` — and keeps the older, warning-only behavior for `Spec-session:`/`Spec-from:`
 below.
 
-On a **strict** record, `accept` refuses — one error line per field, naming the field and the
-fix — a record with: no `Spec-session:`, or a placeholder; no `Spec-from:`, or a `Spec-from:`
+On a **strict** record, `accept` refuses — naming the first failing field, in the order Base,
+Spec-session, Spec-from, and its fix — a record with: no `Spec-session:`, or a placeholder; no
+`Spec-from:`, or a `Spec-from:`
 that is not an ISO-8601 UTC instant ending in `Z` (an offset such as `-04:00` is refused, with
 the fix line saying to convert it to UTC and write the `Z` form — the census reads `Spec-from:`
 as a window start and needs a fixed zone). See "Model tokens on `reviewed`/`APPROVE` lines" and

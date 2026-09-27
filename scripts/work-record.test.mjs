@@ -2170,6 +2170,113 @@ test("acceptRecord: a --four-read value containing embedded header-like lines ca
   assert.equal(parseRecord(updated).log.at(-1).status, "accepted", "the Log: accepted entry must still be inside the header parseRecord reads");
 });
 
+// --- Round 1 review, B1: R4 must judge THIS accept's --four-read, not the file's own -----
+// (stale or absent) Four numbers: lines - acceptRecord only splices its Four numbers: lines
+// into the record AFTER checkAcceptance passes, so at check time a Status: reviewed record
+// normally carries none yet.
+
+function withHungLog(f, at) {
+  const recordPath = path.join(f.repo, f.record);
+  const text = fs.readFileSync(recordPath, "utf8");
+  fs.writeFileSync(recordPath, text.replace(/^(Opened:.*)$/m, `$1\nLog: ${at} owned lead the builder hung on a permission prompt, relaunched`));
+}
+
+test("acceptRecord: a hung Log: line refuses when THIS accept's --four-read reports zero Work lost or stalled (round 1 review B1)", () => {
+  const f = makeAcceptanceFixture();
+  withHungLog(f, "2026-09-24T00:00:00Z");
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-b1-")), "four-read.json");
+  fs.writeFileSync(fourReadPath, JSON.stringify(fourReadFixture({
+    numbers: fourReadFixture().numbers.map((r) => r.key === "workLostOrStalled"
+      ? { ...r, value: "0 gap(s) over 30min stalled; nothing lost" }
+      : r),
+  })));
+  try {
+    acceptRecord({
+      repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-25T00:00:00Z"),
+      noCensusReason: "no census fixture in this test", fourReadPath,
+    });
+    assert.fail("expected acceptRecord to throw stall-word-unexplained: --four-read reported zero against a hung line");
+  } catch (error) {
+    assert.equal(error.code, "stall-word-unexplained");
+    assert.match(error.message, /2026-09-24T00:00:00Z/);
+  }
+  // Refused, so the record must be byte-unchanged - no Four numbers: line beside the hung
+  // Log: line, and no Status: accepted flip.
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+test("acceptRecord: the same hung Log: line accepts when THIS accept's --four-read reports a non-zero Work lost or stalled (round 1 review B1)", () => {
+  const f = makeAcceptanceFixture();
+  withHungLog(f, "2026-09-24T00:00:00Z");
+  const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-b1-")), "four-read.json");
+  fs.writeFileSync(fourReadPath, JSON.stringify(fourReadFixture({
+    numbers: fourReadFixture().numbers.map((r) => r.key === "workLostOrStalled"
+      ? { ...r, value: "1 gap(s) over 30min stalled; relaunched" }
+      : r),
+  })));
+  const result = acceptRecord({
+    repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-25T00:00:00Z"),
+    noCensusReason: "no census fixture in this test", fourReadPath,
+  });
+  assert.equal(result.ok, true);
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(updated, /^Status: accepted$/m);
+  assert.match(updated, /^Four numbers: Work lost or stalled: 1 gap\(s\) over 30min stalled; relaunched$/m);
+});
+
+test("acceptRecord: without --four-read, a hung Log: line skips R4 with a warning and never refuses (accept's own 'not run' marker is never counted as a present line)", () => {
+  const f = makeAcceptanceFixture();
+  withHungLog(f, "2026-09-24T00:00:00Z");
+  const result = acceptRecord({
+    repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-25T00:00:00Z"),
+    noCensusReason: "no census fixture in this test",
+  });
+  assert.equal(result.ok, true);
+  assert.ok((result.warnings ?? []).some((w) => /stall-word-check-skipped/.test(w)));
+  const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.match(updated, /^Status: accepted$/m);
+  assert.match(updated, /^Four numbers: not run$/m);
+});
+
+// TOCTOU on --four-read itself, mirroring MINOR 5's --census guard: checkAcceptance reads
+// and validates this same path once (R4's stall-word check ran against those exact bytes);
+// acceptRecord's own, necessarily separate read must be checked against it, not trusted a
+// second time.
+test("acceptRecord: refuses when the --four-read file's bytes change between checkAcceptance's read and acceptRecord's own read (TOCTOU on the four-read file)", () => {
+  const f = makeAcceptanceFixture();
+  const fourReadPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-four-read-toctou-")), "four-read.json");
+  fs.writeFileSync(fourReadPath, JSON.stringify(fourReadFixture()));
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const realFsImpl = fs;
+  let fourReadReadCount = 0;
+  const racingFsImpl = {
+    ...realFsImpl,
+    readFileSync: (p, enc) => {
+      const out = realFsImpl.readFileSync(p, enc);
+      if (typeof p === "string" && path.resolve(p) === path.resolve(fourReadPath)) {
+        fourReadReadCount += 1;
+        // After checkAcceptance's own read (the 1st), the four-read file changes on disk
+        // before acceptRecord's own, separate read of the same path.
+        if (fourReadReadCount === 1) {
+          fs.writeFileSync(fourReadPath, out.replace("123456", "999999"));
+        }
+      }
+      return out;
+    },
+  };
+  try {
+    acceptRecord({
+      repoRoot: f.repo, recordPath: f.record, fsImpl: racingFsImpl, pinnedArtifact: f.sha,
+      noCensusReason: "no census fixture in this test", fourReadPath,
+    });
+    assert.fail("expected acceptRecord to throw four-read-invalid: the four-read file changed mid-acceptance");
+  } catch (error) {
+    assert.equal(error.code, "four-read-invalid");
+  }
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
 // --- R2 item 4/5: GOALS.md corrections, pinned against a stale-phrase regression ---
 
 // Seam-review M2: a single doesNotMatch on the OLD literal sentence does not fail when a
@@ -2525,7 +2632,7 @@ test("isStrictRecord: opts.strictFrom overrides STRICT_FROM (tests only - no CLI
 });
 
 test("isStrictRecord: no commit yet - Opened: alone decides, and is still strict for new work", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-strict-nocommit-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-strict-nocommit-"));
   const env = makeGitFixtureEnv();
   execFileSync("git", ["init", "-q", repo], { env });
   const recordRelative = "docs/work/wr-2026-09-27-uncommitted.record.md";
@@ -2535,8 +2642,18 @@ test("isStrictRecord: no commit yet - Opened: alone decides, and is still strict
   assert.equal(isStrictRecord(record, { repoRoot: repo, recordPath: recordRelative }), true);
 });
 
+// Round 1 review, M2: an unparseable Opened: with no commit to fall back on is an UNKNOWN
+// instant, never a known-early one - effectiveOpenedMs returns NaN, and isStrictRecord must
+// treat that as strict (never as strict-exempt, and never claim "Opened before <cutoff>"
+// about an instant it never actually knew).
+test("isStrictRecord: an unparseable Opened: with no commit yet is strict, never exempt (round 1 review M2)", () => {
+  const record = parseRecord(mkRecordText({ Opened: "soon" }));
+  assert.equal(isStrictRecord(record), true);
+  assert.equal(isStrictRecord(record, {}), true);
+});
+
 test("isStrictRecord: a record Opened one minute before STRICT_FROM, whose file was first committed after it, is strict (defeats backdating; spec Acceptance attack)", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-strict-commit-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-strict-commit-"));
   const env = makeGitFixtureEnv();
   execFileSync("git", ["init", "-q", repo], { env });
   const recordRelative = "docs/work/wr-2026-09-27-strict.record.md";
@@ -2553,7 +2670,7 @@ test("isStrictRecord: a record Opened one minute before STRICT_FROM, whose file 
 });
 
 test("isStrictRecord: backdating Opened: buys nothing once the file is committed after STRICT_FROM (exemption abuse; spec Acceptance attack)", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-strict-backdate-"));
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-strict-backdate-"));
   const env = makeGitFixtureEnv();
   execFileSync("git", ["init", "-q", repo], { env });
   const recordRelative = "docs/work/wr-2020-01-01-backdated.record.md";
@@ -2569,6 +2686,69 @@ test("isStrictRecord: backdating Opened: buys nothing once the file is committed
     isStrictRecord(record, { repoRoot: repo, recordPath: recordRelative }),
     true,
     "a backdated Opened: does not exempt a record whose commit lands after STRICT_FROM",
+  );
+});
+
+// Round 1 review, m3: every prior git-backed test had the commit AFTER STRICT_FROM, so a
+// mutation that returns firstAddMs unconditionally (ignoring Opened: whenever a commit
+// exists) still passed all of them. Here the commit is BEFORE STRICT_FROM and Opened: is
+// after it - the later instant (Opened:) must win, which that mutation would get wrong.
+test("isStrictRecord: Opened: after STRICT_FROM with a commit author-dated before it is still strict - the LATER instant wins, not the commit alone (round 1 review m3)", () => {
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-strict-opened-later-"));
+  const env = makeGitFixtureEnv();
+  execFileSync("git", ["init", "-q", repo], { env });
+  const recordRelative = "docs/work/wr-2026-09-27-opened-later.record.md";
+  fs.mkdirSync(path.join(repo, "docs", "work"), { recursive: true });
+  const openedAfter = new Date(Date.parse(STRICT_FROM) + 3600000).toISOString();
+  fs.writeFileSync(path.join(repo, recordRelative), mkRecordText({ Opened: openedAfter }));
+  execFileSync("git", ["-C", repo, "add", recordRelative], { env });
+  const commitAuthorDate = new Date(Date.parse(STRICT_FROM) - 3600000).toISOString();
+  execFileSync("git", ["-C", repo, "commit", "-qm", "add record, committed before Opened:"], {
+    env: { ...env, GIT_AUTHOR_DATE: commitAuthorDate, GIT_COMMITTER_DATE: commitAuthorDate },
+  });
+  const record = parseRecord(fs.readFileSync(path.join(repo, recordRelative), "utf8"));
+  assert.equal(
+    isStrictRecord(record, { repoRoot: repo, recordPath: recordRelative }),
+    true,
+    "Opened: after STRICT_FROM must win over an earlier commit - `return firstAddMs` alone would wrongly report non-strict",
+  );
+});
+
+// Round 1 review, m3: "take the earliest add-commit if there are several" was untested -
+// a file added, deleted, and re-added at the same path has TWO add-commits; the earlier
+// one must be the one that counts, or a re-add after STRICT_FROM could un-exempt (or,
+// read the other way, a stale later re-add could wrongly exempt) a genuinely early record.
+test("isStrictRecord: with several add-commits for the same path, the EARLIEST one counts (round 1 review m3)", () => {
+  const repo = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-strict-readd-"));
+  const env = makeGitFixtureEnv();
+  execFileSync("git", ["init", "-q", repo], { env });
+  const recordRelative = "docs/work/wr-2020-01-01-readded.record.md";
+  fs.mkdirSync(path.join(repo, "docs", "work"), { recursive: true });
+  const openedBefore = "2020-01-01T00:00:00Z";
+  fs.writeFileSync(path.join(repo, recordRelative), mkRecordText({ Opened: openedBefore }));
+  execFileSync("git", ["-C", repo, "add", recordRelative], { env });
+  const firstAddDate = new Date(Date.parse(STRICT_FROM) - 3600000).toISOString();
+  execFileSync("git", ["-C", repo, "commit", "-qm", "first add, before STRICT_FROM"], {
+    env: { ...env, GIT_AUTHOR_DATE: firstAddDate, GIT_COMMITTER_DATE: firstAddDate },
+  });
+  execFileSync("git", ["-C", repo, "rm", "-q", recordRelative], { env });
+  const removeDate = new Date(Date.parse(STRICT_FROM) + 1800000).toISOString();
+  execFileSync("git", ["-C", repo, "commit", "-qm", "remove"], {
+    env: { ...env, GIT_AUTHOR_DATE: removeDate, GIT_COMMITTER_DATE: removeDate },
+  });
+  // `git rm` removes the now-empty docs/work directory from the working tree too.
+  fs.mkdirSync(path.join(repo, "docs", "work"), { recursive: true });
+  fs.writeFileSync(path.join(repo, recordRelative), mkRecordText({ Opened: openedBefore }));
+  execFileSync("git", ["-C", repo, "add", recordRelative], { env });
+  const secondAddDate = new Date(Date.parse(STRICT_FROM) + 3600000).toISOString();
+  execFileSync("git", ["-C", repo, "commit", "-qm", "re-add, after STRICT_FROM"], {
+    env: { ...env, GIT_AUTHOR_DATE: secondAddDate, GIT_COMMITTER_DATE: secondAddDate },
+  });
+  const record = parseRecord(fs.readFileSync(path.join(repo, recordRelative), "utf8"));
+  assert.equal(
+    isStrictRecord(record, { repoRoot: repo, recordPath: recordRelative }),
+    false,
+    "the EARLIEST add-commit (before STRICT_FROM) must be the one that counts, not the later re-add",
   );
 });
 
@@ -2605,6 +2785,19 @@ test("checkMeasureTruthRules: strict record refuses on Spec-session: absent or a
       return true;
     }, `Spec-session: ${bad} must refuse on a strict record`);
   }
+});
+
+// Round 1 review, M2: an unparseable Opened: is strict (never exempt), so it must fall
+// through to the strict-only Spec-session/Spec-from/model refusals below - not warn
+// strict-exempt with a false "Opened before <cutoff>" claim.
+test("checkMeasureTruthRules: an unparseable Opened: is refused on the strict fields, not warned strict-exempt (round 1 review M2)", () => {
+  const text = mkRecordText({ Opened: "soon", Base: "a".repeat(40), "Spec-session": undefined });
+  const record = parseRecord(text);
+  assert.throws(() => checkMeasureTruthRules(text, record, {}), (e) => {
+    assert.match(e.message, /Spec-session/);
+    assert.equal(e.code, "spec-session-missing");
+    return true;
+  });
 });
 
 test("checkMeasureTruthRules: strict record refuses on Spec-from: absent or not an ISO-8601 UTC Z instant", () => {
@@ -2680,6 +2873,21 @@ test("countedModelTiers: negation - no/not/without within the two words before t
   assert.ok(countedModelTiers("Opus reviewer, not the builder").has("high"), "negation only looks at the two words BEFORE the token");
 });
 
+// Round 1 review, m1: a token sitting inside a compound (claude-opus-5-5) has its own
+// prefix ("claude-") immediately before the match. Before the fix, that prefix was
+// miscounted as a whole word of its own, which pushed the real negating word ("without"/
+// "no") OUT of the two-word window - so "without the claude-opus-5-5 reviewer" wrongly
+// counted as high (not negated). After the fix, the prefix is stripped before the window
+// is taken, so the negating word is correctly seen and the match is negated (no tiers).
+test("countedModelTiers: a compound's own prefix is not counted as one of the two negation words (round 1 review m1)", () => {
+  assert.equal(countedModelTiers("without the claude-opus-5-5 reviewer").size, 0, "without correctly negates once claude- is excluded from the word window");
+  assert.equal(countedModelTiers("no model: claude-opus-5-5").size, 0, "no correctly negates once model: is treated as its own word, not claude-'s");
+  // Unchanged cases from the fix (still correct on both sides of the compound boundary):
+  assert.ok(countedModelTiers("reviewed by claude-opus-5-5").has("high"));
+  assert.equal(countedModelTiers("no Opus reviewer was used").size, 0);
+  assert.ok(countedModelTiers("Opus reviewer, not the builder").has("high"));
+});
+
 test("checkMeasureTruthRules: strict record refuses a reviewed Log line with no counted model token, naming that line's timestamp", () => {
   const text = mkRecordText(
     { Opened: STRICT_FROM, Base: "a".repeat(40), "Spec-session": "real-spec-session-1", "Spec-from": STRICT_FROM },
@@ -2711,6 +2919,43 @@ test("checkMeasureTruthRules: a reviewed line whose note contains SKIPPED needs 
     { Opened: STRICT_FROM, Base: "a".repeat(40), "Spec-session": "real-spec-session-1", "Spec-from": STRICT_FROM },
     [
       `Log: ${STRICT_FROM} reviewed lead seam SKIPPED`,
+      `Log: ${STRICT_FROM} reviewed lead Opus APPROVE ${"b".repeat(40)}`,
+    ],
+  );
+  const record = parseRecord(text);
+  const result = checkMeasureTruthRules(text, record, {});
+  assert.equal(result.strict, true);
+});
+
+// Round 1 review, M1: SKIPPED is the loop's own literal seam word, never one of R3's
+// model tokens - it must stay case-sensitive, or a lowercase "skipped" anywhere in a
+// reviewed line's note (incidental prose, not the loop's seam) would exempt a
+// model-less line from R3 entirely.
+test("checkMeasureTruthRules: a lowercase 'skipped' in ordinary prose does not exempt a model-less reviewed line (R3 bypass, round 1 review M1)", () => {
+  const text = mkRecordText(
+    { Opened: STRICT_FROM, Base: "a".repeat(40), "Spec-session": "real-spec-session-1", "Spec-from": STRICT_FROM },
+    [
+      `Log: ${STRICT_FROM} reviewed lead D1 APPROVE ${"b".repeat(40)}, Windows suite skipped`,
+      `Log: ${STRICT_FROM} reviewed lead Opus APPROVE ${"c".repeat(40)}`,
+    ],
+  );
+  const record = parseRecord(text);
+  assert.throws(() => checkMeasureTruthRules(text, record, {}), (e) => {
+    assert.match(e.message, /no counted model token/);
+    assert.equal(e.code, "log-model-missing");
+    return true;
+  });
+});
+
+// Round 1 review, M1: APPROVE is the loop's own literal verdict word, never one of R3's
+// model tokens - it must stay case-sensitive, or ordinary prose using "approve" as an
+// English verb would be misread as the loop's APPROVE verdict and wrongly require a model
+// token on an otherwise-unrelated owned line.
+test("checkMeasureTruthRules: lowercase 'approve' in ordinary prose is not read as the loop's APPROVE verdict (false refusal, round 1 review M1)", () => {
+  const text = mkRecordText(
+    { Opened: STRICT_FROM, Base: "a".repeat(40), "Spec-session": "real-spec-session-1", "Spec-from": STRICT_FROM },
+    [
+      `Log: ${STRICT_FROM} owned lead waiting for Ben to approve the merge`,
       `Log: ${STRICT_FROM} reviewed lead Opus APPROVE ${"b".repeat(40)}`,
     ],
   );
@@ -2769,6 +3014,26 @@ test("checkMeasureTruthRules: old reviewed lines dated before STRICT_FROM are no
   const record = parseRecord(text);
   const result = checkMeasureTruthRules(text, record, {});
   assert.equal(result.strict, true);
+});
+
+// Round 1 review, M3: parseRecord accepts any \S{1,64} as a Log line's `at` - an
+// unparseable one used to be treated as "before STRICT_FROM" and skipped by R3 entirely.
+// The other line here supplies a satisfying Opus APPROVE, so only R3's per-line model
+// check on the undated line itself is under test.
+test("checkMeasureTruthRules: an undated (unparseable at) reviewed/APPROVE Log line is judged by R3, never skipped (round 1 review M3)", () => {
+  const text = mkRecordText(
+    { Opened: STRICT_FROM, Base: "a".repeat(40), "Spec-session": "real-spec-session-1", "Spec-from": STRICT_FROM },
+    [
+      `Log: later reviewed lead APPROVE ${"b".repeat(40)}`,
+      `Log: ${STRICT_FROM} reviewed lead Opus APPROVE ${"c".repeat(40)}`,
+    ],
+  );
+  const record = parseRecord(text);
+  assert.throws(() => checkMeasureTruthRules(text, record, {}), (e) => {
+    assert.match(e.message, /no counted model token/);
+    assert.equal(e.code, "log-model-missing");
+    return true;
+  });
 });
 
 // --- R4: stall-word check (hung/stall/relaunch), every record, strict or not ----------
@@ -2859,6 +3124,24 @@ test("checkMeasureTruthRules: R4 applies regardless of strict - a strict record 
   );
 });
 
+// Round 1 review, M3: an undated (unparseable at) Log line used to fall outside the
+// [Opened, accept] window automatically and skip R4 entirely - it must instead fall
+// through and be judged, exactly like a dated line inside the window.
+test("checkMeasureTruthRules: an undated (unparseable at) hung/stall/relaunch Log line is judged by R4, never skipped (round 1 review M3)", () => {
+  const text = mkRecordText(
+    { Opened: "2020-01-01T00:00:00Z", Base: "a".repeat(40) },
+    [
+      "Log: tonight owned lead the builder hung for 3h",
+      "Four numbers: Work lost or stalled: 0 gaps over 30min",
+    ],
+  );
+  const record = parseRecord(text);
+  assert.throws(() => checkMeasureTruthRules(text, record, { now: new Date("2020-01-03T00:00:00Z") }), (e) => {
+    assert.equal(e.code, "stall-word-unexplained");
+    return true;
+  });
+});
+
 // --- R5: fixtures from tonight's real records (contracts.md's fixture pairs) ---------
 
 const MEASURE_TRUTH_FIXTURE_DIR = fileURLToPath(new URL("./fixtures/work-record/measure-truth/", import.meta.url));
@@ -2906,6 +3189,18 @@ test("R5 fixture: lane fifteen post-fix (d0da77c) is STILL refused on Spec-from 
     assert.equal(e.code, "spec-from-missing");
     return true;
   });
+});
+
+// Round 1 review, m2: proves d0da77c is refused on Spec-from "alone" - substituting a
+// valid Z Spec-from into the exact same bytes (nothing else touched) makes it pass, so
+// Spec-from really was the only failing field.
+test("R5 fixture: lane fifteen post-fix (d0da77c) passes once its Spec-from offset is converted to Z, proving Spec-from was the only failing field (round 1 review m2)", () => {
+  const text = readMeasureTruthFixture("lane15-d0da77c.record.md")
+    .replace("Spec-from: 2026-09-27T00:05:00-04:00", "Spec-from: 2026-09-27T04:05:00Z");
+  const record = parseRecord(text);
+  const result = checkMeasureTruthRules(text, record, { strictFrom: INJECTED_STRICT_FROM });
+  assert.equal(result.strict, true);
+  assert.deepEqual(result.warnings, []);
 });
 
 test("R5 fixture: lane fifteen's Log hung/relaunched line, with its '1 gap(s)' Four numbers line, passes R4", () => {
