@@ -1,4 +1,4 @@
-STATUS: DONE (pending commit sha - see below)
+STATUS: DONE ea16c1f
 
 Lane 24, sealed-home-leak - builder report.
 
@@ -122,6 +122,5 @@ anything under the real /tmp sealed-home-* dirs yourself").
 
 ## Commit / push
 
-Committed on `build/sealed-home-leak-1` and pushed to origin. See the git log for the final sha (this
-report is written before the commit step per the workflow; the state file and this report are
-committed together with the code).
+Committed as `ea16c1f` on `build/sealed-home-leak-1` and pushed to origin (this file's STATUS line
+above reflects that sha; the tiny follow-up commit that fills it in is a report-only edit).
