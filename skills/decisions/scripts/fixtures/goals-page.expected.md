@@ -62,7 +62,7 @@ Source lines labeled as quotations retain their source attribution and date. Oth
 	A lesson learned on one machine is available on all of them without hand-carrying, and a lesson that is superseded stops governing. Corrections over volume.
 	In Ben's words: none yet; this is the lead's statement of his intent from the 09-20 plan. Edit it.
 	Measure: sessions that open a topic file; inbox notes pending; superseded lessons linked to their replacement.
-	<span color="red">**NONE**</span> Memory never syncs; knowledge inboxes untriaged since 07-28; topic files opened 0 times by either lead session.
+	<span color="red">**NONE**</span> Memory never syncs. On Windows on 2026-09-27 (scripts/knowledge-count.mjs): 16 topics, 70 inbox notes pending (oldest 2026-07-28), 1 topic read in 7 days, which is the build's own live check. Triage is unscheduled on every host.
 	<empty-block/>
 # Cleanup has an owner {toggle="true"}
 	Stale worktrees, branches and leftovers are removed by a mechanical janitor that acts only on the provably safe class, daily, and shows Ben the table.

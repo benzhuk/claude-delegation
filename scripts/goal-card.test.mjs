@@ -18,10 +18,19 @@ import {
   renderInjection, asOfStamp, goalCardContext, goalCardResult, rejectionNotice, isMainModule,
   stateDir, stateKey, tallyFileFor, firedFileFor, staleStateFiles, runCli, switchPresent,
   switchErrorMeansPresent,
+  knowledgeSessionLine, formatKnowledgeLine, NO_KNOWLEDGE_LOG_SWITCH, KNOWLEDGE_LINE_MAX_BYTES,
+  KNOWLEDGE_INDEX_HINT,
 } from './goal-card.mjs';
+import { storeDir as knowledgeStoreDir, inboxDir as knowledgeInboxDir, readLogPath as knowledgeReadLogPath }
+  from './knowledge-counts.mjs';
+// Round 2 (MAJOR 3): the two end-to-end tests below drive the real hook adapters (never edited —
+// both are outside this territory's file list) to prove the knowledge line actually reaches the
+// SessionStart notice through each host, not only through `renderInjection` in isolation.
+import { runCodexHook } from '../hooks/multi-codex-hook.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const CLI = path.join(REPO, 'scripts', 'goal-card.mjs');
+const CLAUDE_HOOK = path.join(REPO, 'hooks', 'delegation-reminder.js');
 
 const GOOD = [
   'GOAL: every batch is cheap, fast, recoverable, tracked and metered, and we never lose one.',
@@ -33,6 +42,18 @@ const GOOD = [
 
 function tmpdir(prefix = 'goal-card-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+/**
+ * An `env` (or a piece of one) pointing `KNOWLEDGE_HOME` at a fresh, empty scratch directory —
+ * guaranteed to have no `.claude/knowledge`, so every pre-existing assertion in this file (about
+ * the CARD alone, none of them written with a knowledge line in mind) stays exactly as it was.
+ * Without this, every in-process render call below would default to the REAL `homedir()` and
+ * pick up whatever this machine's actual `~/.claude/knowledge` happens to contain (see the
+ * knowledge-line-specific tests further down for deliberate, fixture-built stores instead).
+ */
+function noKnowledgeEnv(extra = {}) {
+  return { KNOWLEDGE_HOME: tmpdir('goal-card-nostore-'), ...extra };
 }
 
 /** A project root with an `.agents/project.json`, optionally a card, optionally a config key. */
@@ -118,7 +139,7 @@ test('the fourth line may read STOP instead of KILL, but not any other word', ()
   assert.deepEqual(Object.keys(v.fields), [...LABELS], 'fields stay keyed by the canonical KILL label');
   assert.match(v.fields.KILL, /durable engine/);
   assert.equal(v.lines[3].startsWith('STOP: '), true, 'the rendered line keeps the word the file used');
-  const injected = renderInjection(withStop.join('\n'), Date.now());
+  const injected = renderInjection(withStop.join('\n'), Date.now(), { env: noKnowledgeEnv() });
   assert.match(injected, /^STOP: /m, 'SessionStart output reads STOP for a card that wrote STOP');
 
   const withHalt = GOOD.split('\n');
@@ -141,7 +162,7 @@ test('the SOURCE line is stamped from the file mtime, in Ben’s zone', () => {
   // 2026-09-20T18:30:00Z is 14:30 in New York (EDT).
   const mtime = Date.parse('2026-09-20T18:30:00Z');
   assert.equal(asOfStamp(mtime), '2026-09-20 14:30 NYC');
-  const out = renderInjection(GOOD, mtime);
+  const out = renderInjection(GOOD, mtime, { env: noKnowledgeEnv() });
   assert.match(out, /SOURCE: docs\/goals\/batches\.md \(parent: docs\/goals\/program\.md\) — as of 2026-09-20 14:30 NYC$/);
   assert.equal(out.split('\n').length, 6, 'header plus five lines');
   assert.ok(Buffer.byteLength(out, 'utf8') <= RENDER_MAX_BYTES);
@@ -149,14 +170,15 @@ test('the SOURCE line is stamped from the file mtime, in Ben’s zone', () => {
 
 test('a hand-written as-of on the SOURCE line is replaced, not doubled', () => {
   const stale = GOOD.replace(/\(parent: docs\/goals\/program\.md\)/, '(parent: docs/goals/program.md), as of 2019-01-01');
-  const out = renderInjection(stale, Date.parse('2026-09-20T18:30:00Z'));
+  const out = renderInjection(stale, Date.parse('2026-09-20T18:30:00Z'), { env: noKnowledgeEnv() });
   assert.equal((out.match(/as of/g) || []).length, 1);
   assert.equal(out.includes('2019-01-01'), false);
 });
 
 test('a subagent gets one extra line and the parent does not', () => {
-  const plain = renderInjection(GOOD, Date.now());
-  const withExtra = renderInjection(GOOD, Date.now(), { extra: 'Name the GOAL line your territory serves.' });
+  const env = noKnowledgeEnv();
+  const plain = renderInjection(GOOD, Date.now(), { env });
+  const withExtra = renderInjection(GOOD, Date.now(), { env, extra: 'Name the GOAL line your territory serves.' });
   assert.equal(plain.split('\n').length + 1, withExtra.split('\n').length);
   assert.equal(plain.includes('territory'), false);
 });
@@ -180,7 +202,7 @@ test('an absolute goal_card path is used as given', () => {
   fs.writeFileSync(elsewhere, GOOD, 'utf8');
   const root = project({ cardPath: elsewhere });
   assert.equal(cardLocation(root).path, path.resolve(elsewhere));
-  assert.equal(goalCardContext(root, { env: { AGENTS_HOME: tmpdir('goal-card-home-') } }).includes('GOAL:'), true);
+  assert.equal(goalCardContext(root, { env: noKnowledgeEnv({ AGENTS_HOME: tmpdir('goal-card-home-') }) }).includes('GOAL:'), true);
 });
 
 test('NIT 5 (round-1 review): a relative goal_card escape is refused, not followed', () => {
@@ -204,7 +226,7 @@ test('either switch file silences the card', () => {
   const root = project({ card: GOOD });
   for (const name of ['ws-off', `ws-off-${SWITCH_NAME}`]) {
     const home = tmpdir('goal-card-home-');
-    const env = { AGENTS_HOME: home };
+    const env = noKnowledgeEnv({ AGENTS_HOME: home });
     assert.equal(switchedOff(SWITCH_NAME, env), false);
     assert.ok(goalCardContext(root, { env }), 'a card renders before the switch exists');
     fs.writeFileSync(path.join(home, name), '', 'utf8');
@@ -280,11 +302,12 @@ test('a malformed project.json is blind, not a crash', () => {
 
 test('show prints exactly the injection text; check reports ok', () => {
   const root = project({ card: GOOD });
+  const env = noKnowledgeEnv();
   const out = sink(); const err = sink();
-  assert.equal(runCli(['show'], root, out, err), 0);
-  assert.equal(out.text().trim(), renderInjection(GOOD, readCard(root).mtimeMs));
+  assert.equal(runCli(['show'], root, out, err, env), 0);
+  assert.equal(out.text().trim(), renderInjection(GOOD, readCard(root).mtimeMs, { env }));
   const out2 = sink();
-  assert.equal(runCli(['check'], root, out2, sink()), 0);
+  assert.equal(runCli(['check'], root, out2, sink(), env), 0);
   assert.match(out2.text(), /^ok: /);
 });
 
@@ -364,7 +387,7 @@ test('MAJOR 4: goalCardResult keeps the REASON a card was refused, and the notic
   assert.match(notice, /No goals are being restated/);
   assert.ok(notice.includes(r.path));
 
-  const ok = goalCardResult(project({ card: GOOD }), { env: { AGENTS_HOME: tmpdir('goal-card-home-') } });
+  const ok = goalCardResult(project({ card: GOOD }), { env: noKnowledgeEnv({ AGENTS_HOME: tmpdir('goal-card-home-') }) });
   assert.equal(ok.status, 'ok');
   assert.equal(ok.reason, null);
   assert.equal(goalCardResult(project({ card: null }), { env: { AGENTS_HOME: tmpdir('goal-card-home-') } }).status, 'absent');
@@ -375,7 +398,7 @@ test('MAJOR 4: check names the switch instead of saying ok while nothing is inje
   for (const name of [MASTER_SWITCH, `ws-off-${SWITCH_NAME}`]) {
     const home = tmpdir('goal-card-home-');
     fs.writeFileSync(path.join(home, name), '', 'utf8');
-    const env = { AGENTS_HOME: home };
+    const env = noKnowledgeEnv({ AGENTS_HOME: home });
     assert.equal(activeSwitch(SWITCH_NAME, env), name);
     const out = sink();
     assert.equal(runCli(['check'], root, out, sink(), env), 0);
@@ -444,6 +467,7 @@ test('MAJOR 5: isMainModule is true for the real path and survives a path contai
   const copy = path.join(spaced, 'goal-card.mjs');
   fs.copyFileSync(CLI, copy);
   fs.copyFileSync(path.join(REPO, 'scripts', 'project-config.mjs'), path.join(spaced, 'project-config.mjs'));
+  fs.copyFileSync(path.join(REPO, 'scripts', 'knowledge-counts.mjs'), path.join(spaced, 'knowledge-counts.mjs'));
   const canonicalConfig = path.join(path.dirname(spaced), 'skills', 'decisions', 'scripts', 'project-config.mjs');
   fs.mkdirSync(path.dirname(canonicalConfig), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'skills', 'decisions', 'scripts', 'project-config.mjs'), canonicalConfig);
@@ -453,4 +477,199 @@ test('MAJOR 5: isMainModule is true for the real path and survives a path contai
     cwd: root, encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }),
   });
   assert.match(stdout, /^ok: /, 'the round-1 URL.pathname comparison printed nothing here');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The knowledge line (spec.md Territory K2, combined with K3 in the Lead addendum)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A `.claude/knowledge` + `.agents/knowledge/read.log` pair under one scratch home. */
+function mkKnowledgeHome({ topics = [], inbox = [], readLines = [] } = {}) {
+  const home = tmpdir('goal-card-knowhome-');
+  const store = knowledgeStoreDir(home);
+  fs.mkdirSync(store, { recursive: true });
+  for (const name of topics) fs.writeFileSync(path.join(store, name), '# topic\n');
+  const inboxD = knowledgeInboxDir(home);
+  fs.mkdirSync(inboxD, { recursive: true });
+  for (const name of inbox) fs.writeFileSync(path.join(inboxD, name), 'note\n');
+  if (readLines.length) {
+    const logPath = knowledgeReadLogPath(home);
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(logPath, readLines.join('\n') + '\n');
+  }
+  return home;
+}
+
+test('knowledge line: absent store means null, not an error', () => {
+  assert.equal(knowledgeSessionLine({ env: noKnowledgeEnv() }), null);
+});
+
+test('knowledge line: exact rendered text matches spec.md K2 item 1\'s template', () => {
+  const home = mkKnowledgeHome({
+    topics: ['ai-sdk.md', 'orca.md', 'INDEX.md', '_private.md'],
+    inbox: ['2026-09-20-a.md', '2026-09-24-b.md'],
+    readLines: [`${new Date('2026-09-26T12:00:00Z').toISOString()} Read /x/orca.md session-a`],
+  });
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const line = knowledgeSessionLine({ env: { KNOWLEDGE_HOME: home }, now });
+  assert.equal(
+    line,
+    'knowledge: 2 topics, 2 inbox notes pending (oldest 2026-09-20), 1 topic reads on this host in 7 days; INDEX ~/.claude/knowledge/INDEX.md',
+  );
+  assert.ok(Buffer.byteLength(line, 'utf8') <= KNOWLEDGE_LINE_MAX_BYTES);
+});
+
+test('knowledge line: zero pending notes reads "0 inbox notes pending", no oldest parenthetical', () => {
+  const home = mkKnowledgeHome({ topics: ['orca.md'] });
+  const line = knowledgeSessionLine({ env: { KNOWLEDGE_HOME: home }, now: Date.now() });
+  assert.match(line, /^knowledge: 1 topics, 0 inbox notes pending, 0 topic reads on this host in 7 days; INDEX/);
+});
+
+test('knowledge line: the no-knowledge-log switch silences it; the master ws-off switch already does (upstream)', () => {
+  const home = mkKnowledgeHome({ topics: ['orca.md'] });
+  const agentsDir = tmpdir('goal-card-agentshome-');
+  fs.writeFileSync(path.join(agentsDir, NO_KNOWLEDGE_LOG_SWITCH), '', 'utf8');
+  const env = { KNOWLEDGE_HOME: home, AGENTS_HOME: agentsDir };
+  assert.equal(knowledgeSessionLine({ env, now: Date.now() }), null);
+});
+
+test('knowledgeSessionLine itself ignores ws-off-goalcard (goalCardResult still gates it upstream)', () => {
+  const home = mkKnowledgeHome({ topics: ['orca.md'] });
+  const agentsDir = tmpdir('goal-card-agentshome-');
+  fs.writeFileSync(path.join(agentsDir, 'ws-off-goalcard'), '', 'utf8');
+  const env = { KNOWLEDGE_HOME: home, AGENTS_HOME: agentsDir };
+  assert.ok(knowledgeSessionLine({ env, now: Date.now() }));
+});
+
+test('formatKnowledgeLine: pure, no filesystem — the full template fits easily under cap', () => {
+  const line = formatKnowledgeLine({ topics: 16, pending: 44, oldest: '2026-09-20', reads: 0 });
+  assert.equal(
+    line,
+    'knowledge: 16 topics, 44 inbox notes pending (oldest 2026-09-20), 0 topic reads on this host in 7 days; INDEX ~/.claude/knowledge/INDEX.md',
+  );
+});
+
+test('formatKnowledgeLine: over the line cap with the INDEX hint drops the hint, keeps the counts', () => {
+  // A pathologically large R (30 digits) is the simplest way to force the full template past 160
+  // bytes without needing tens of thousands of real fixture files on disk.
+  const bigReads = '9'.repeat(30);
+  const counts = { topics: 1, pending: 1, oldest: '2026-09-20', reads: bigReads };
+  const full = `knowledge: ${counts.topics} topics, ${counts.pending} inbox notes pending (oldest ${counts.oldest}), ${counts.reads} topic reads on this host in 7 days; INDEX ${KNOWLEDGE_INDEX_HINT}`;
+  assert.ok(Buffer.byteLength(full, 'utf8') > KNOWLEDGE_LINE_MAX_BYTES, 'fixture must actually exceed the cap to test the fallback');
+  const line = formatKnowledgeLine(counts);
+  assert.equal(line.includes('INDEX'), false, 'the INDEX hint is dropped first');
+  assert.equal(line, `knowledge: 1 topics, 1 inbox notes pending (oldest 2026-09-20), ${bigReads} topic reads on this host in 7 days`);
+  assert.ok(Buffer.byteLength(line, 'utf8') <= KNOWLEDGE_LINE_MAX_BYTES);
+});
+
+test('formatKnowledgeLine: pathological (even the shortened line is over cap) returns null, never truncates', () => {
+  const counts = { topics: 1, pending: 1, oldest: '2026-09-20', reads: '9'.repeat(65) };
+  const line = formatKnowledgeLine(counts);
+  assert.equal(line, null);
+});
+
+test('renderInjection: the knowledge line rides after the card and before the subagent extra', () => {
+  // Round 2 (BLOCKER 1): renderInjection is pure again — it takes `opts.knowledgeLine` rather
+  // than computing it itself, so this test computes it the same way `goalCardResult` now does.
+  const home = mkKnowledgeHome({ topics: ['orca.md', 'react.md'], inbox: ['2026-09-24-a.md'] });
+  const env = { KNOWLEDGE_HOME: home };
+  const now = Date.now();
+  const knowledgeLine = knowledgeSessionLine({ env, now });
+  const out = renderInjection(GOOD, now, { extra: 'Name the GOAL line your territory serves.', knowledgeLine });
+  const linesOut = out.split('\n');
+  assert.equal(linesOut.length, 8, 'header + 5 card lines + knowledge + extra');
+  assert.match(linesOut[6], /^knowledge: 2 topics, 1 inbox notes pending \(oldest 2026-09-24\), 0 topic reads/);
+  assert.equal(linesOut[7], 'Name the GOAL line your territory serves.');
+});
+
+test('renderInjection: over the render cap with the knowledge line added, the line is dropped, card and extra survive', () => {
+  // Round 2 (BLOCKER 1): drive the knowledge line in through `opts.knowledgeLine`, the same shape
+  // `goalCardResult` now builds, rather than `renderInjection` computing it from `env` itself.
+  const home = mkKnowledgeHome({ topics: ['orca.md'] });
+  const env = { KNOWLEDGE_HOME: home };
+  const now = Date.now();
+  const knowledgeLine = knowledgeSessionLine({ env, now });
+  // A card near CARD_MAX_BYTES (well under LINE_MAX_BYTES per line) plus a long `extra` line eats
+  // most of the render headroom (RENDER_MAX_BYTES - CARD_MAX_BYTES), leaving no room for the
+  // knowledge line too — sized against the actual `formatKnowledgeLine` output below, not a
+  // guess, so this stays correct if either byte cap ever changes.
+  const overhead = LABELS.reduce((s, l) => s + l.length + 2, 0);
+  const per = Math.floor((CARD_MAX_BYTES - overhead - 5) / LABELS.length);
+  const packed = LABELS.map((l, i) => (i === 4 ? `${l}: docs/goals/x.md` : `${l}: ${'z'.repeat(per)}`)).join('\n');
+  assert.equal(validateCard(packed).ok, true, 'fixture card must itself be valid');
+
+  const knowledgeLineBytes = Buffer.byteLength(formatKnowledgeLine({ topics: 1, pending: 0, oldest: null, reads: 0 }), 'utf8');
+  const withoutKnowledgeBytes = Buffer.byteLength(renderInjection(packed, now, { extra: 'x' }), 'utf8');
+  // Room left before RENDER_MAX_BYTES once card + a 1-byte extra + its own newlines are in;
+  // an extra sized to use most of it, but leave less than the knowledge line + its newline needs.
+  const room = RENDER_MAX_BYTES - withoutKnowledgeBytes;
+  assert.ok(room > knowledgeLineBytes, 'fixture is unusable: no room to demonstrate the drop at all');
+  const extraLen = room - Math.floor(knowledgeLineBytes / 2);
+  const extra = 'x'.repeat(extraLen);
+
+  const withoutKnowledge = renderInjection(packed, now, { extra });
+  assert.notEqual(withoutKnowledge, null, 'fixture must actually render without the knowledge line');
+  const withKnowledge = renderInjection(packed, now, { extra, knowledgeLine });
+  assert.equal(withKnowledge, withoutKnowledge, 'the knowledge line was dropped; card and extra are untouched');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// End to end (round-2 review, MAJOR 3): the knowledge line proven through each host's real
+// adapter, not only through `renderInjection`/`goalCardResult` called directly. Neither
+// `hooks/multi-codex-hook.mjs` nor `hooks/delegation-reminder.js` is edited here (both are
+// outside this territory, per the brief's NOT list) — these tests only drive them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A minimal, valid Codex `session_meta` first line naming a confirmed lead (no spawn/child
+ * shape at all — `classifyCodexRole`'s "no spawn" branch, matching a real `cli`-launched lead). */
+function codexLeadMetadata(sessionId) {
+  return `${JSON.stringify({ type: 'session_meta', payload: { id: sessionId, session_id: sessionId, source: 'cli' } })}\n`;
+}
+
+function codexTranscript(dir, content) {
+  const file = path.join(dir, 'session.jsonl');
+  fs.writeFileSync(file, content, 'utf8');
+  return file;
+}
+
+test('end to end (Codex): a confirmed lead SessionStart carries the exact knowledge line through runCodexHook', async () => {
+  const sessionId = 'k23-codex-e2e-lead-session';
+  const transcriptHome = tmpdir('goal-card-codex-transcript-');
+  const file = codexTranscript(transcriptHome, codexLeadMetadata(sessionId));
+  const root = project({ card: GOOD });
+  const home = mkKnowledgeHome({ topics: ['orca.md'] }); // topics:1, pending:0, oldest:null, reads:0
+  const env = { AGENTS_HOME: path.join(home, '.agents') }; // no KNOWLEDGE_HOME: exercises the M1 fallback
+  const out = await runCodexHook(
+    { hook_event_name: 'SessionStart', session_id: sessionId, transcript_path: file, cwd: root },
+    { home, env },
+  );
+  const context = out?.output?.hookSpecificOutput?.additionalContext ?? '';
+  assert.match(context, /GOAL: every batch is cheap/, 'the card itself must still be present');
+  assert.ok(
+    context.includes(
+      'knowledge: 1 topics, 0 inbox notes pending, 0 topic reads on this host in 7 days; INDEX ~/.claude/knowledge/INDEX.md',
+    ),
+    `knowledge line missing from Codex additionalContext: ${context}`,
+  );
+});
+
+test('end to end (Claude): a spawned delegation-reminder.js SessionStart carries the exact knowledge line', () => {
+  const home = mkKnowledgeHome({ topics: ['orca.md'] }); // topics:1, pending:0, oldest:null, reads:0
+  const root = project({ card: GOOD });
+  const payload = JSON.stringify({ hook_event_name: 'SessionStart', cwd: root, session_id: 'k23-claude-e2e-session' });
+  const stdout = execFileSync(process.execPath, [CLAUDE_HOOK, 'SessionStart'], {
+    input: payload,
+    encoding: 'utf8',
+    // No KNOWLEDGE_HOME: exercises the M1 fallback (AGENTS_HOME's dirname). `HOME`/`USERPROFILE`
+    // are also this fixture home (childEnv), so even the un-overridden `homedir()` path would agree.
+    env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }),
+  });
+  const context = JSON.parse(stdout).hookSpecificOutput.additionalContext;
+  assert.match(context, /GOAL: every batch is cheap/, 'the card itself must still be present');
+  assert.ok(
+    context.includes(
+      'knowledge: 1 topics, 0 inbox notes pending, 0 topic reads on this host in 7 days; INDEX ~/.claude/knowledge/INDEX.md',
+    ),
+    `knowledge line missing from Claude additionalContext: ${context}`,
+  );
 });
