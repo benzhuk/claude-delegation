@@ -377,6 +377,7 @@ safety gate and its failures are silent.
 | 3 | **deferred — queued, nothing delivered yet** | nothing to do. The ledger has the note and `note-flush` retries. Do NOT re-send the id. Since 0.5.0 this is also what a recipient with no registered inbox looks like |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
+| 6 | **refused — no local recipient, NO ledger line written** (since 2026-09-27) | run note-send on the recipient's host over ssh, or pass `--sender-host <this host>`; pass `--local-ok` if this machine's ledger really is what the recipient reads |
 
 Exit 3 is the ordinary outcome now, not a problem. It covers **a recipient with no registered
 inbox on this machine** (the common one since 0.5.0 — the message says exactly that), an inbox post
@@ -416,6 +417,21 @@ delivery that was already coming.
 
 The one exit 3 that does need you: "the text may be sitting UNSENT in the composer". That one is
 NOT queued for retry, because retyping it is how the same note arrives twice. Clear the pane by hand.
+
+**Exit 6 refuses instead of recording a note nobody local can read (since 2026-09-27).** A plain
+`note-send --to <slug>` on a machine with no registered inbox for that slug and no cross-host mirror
+target used to append the ledger and post to nobody — the recipient on another host never saw it. Now
+`note-send` refuses (`{"refused":"no-local-recipient","to":"<slug>","hint":"…"}` on stdout, exit 6,
+**no ledger line written at all**) when every one of these holds: `--to` is not `ben`;
+`--recipient-repo` was not given (the live status collector always passes it, so it is unaffected);
+there is no resolved cross-host mirror target; no inbox is registered here for `--to`; and either the
+send never looks up a pane at all (a ledger-only ACK/FYI, or `--no-type`) or pane resolution on the
+typed path finds no pane whatsoever. An AMBIGUOUS pane is different — a session DOES exist here, just
+under an unclear title — and stays exit 2 as before. Fix: run `note-send` on the recipient's own
+machine over ssh, or pass `--sender-host <this host>` so the cross-host mirror carries it. Pass
+`--local-ok` when you know this machine's ledger genuinely is what the recipient reads (a same-host
+peer with a pane that just hasn't registered its inbox yet); that restores the exact pre-2026-09-27
+behaviour for this one send.
 
 **Two kill switches**, both a file whose mere presence restores the pre-2026-09-20 behaviour (`touch`
 to pause, `rm` to resume — no deploy, no restart):
