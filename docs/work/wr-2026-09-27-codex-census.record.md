@@ -6,7 +6,7 @@ Authority: Root leads this build; after the scout is consumed, isolated C1 and C
 Artifact: integration@f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1
 Evidence: docs/specs/codex-census-0927/reports/C3-main-reconciliation-review-round2.md, docs/specs/codex-census-0927/reports/C3-main-reconciliation-repair-gate.md, docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f59.md, docs/work/evidence/wr-2026-09-27-codex-census-final-acceptance.md, docs/work/evidence/wr-2026-09-27-codex-census-main-merge.md
-Next: no implementation work remains; retain receipts and the cleanup handoff. The Closed entry is deferred after two safe-edit conflicts, with exact text preserved in the main closeout packet.
+Next: no implementation work remains; retain receipts and the cleanup handoff. Skills-fable owns posting the Closed bullet from the main closeout packet under skills-fable-codex-census-6.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T11:05:00Z
@@ -62,12 +62,15 @@ Four numbers: Hours ask to accepted: 2.4h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 0 unanswered ASKs to skills-a
 Log: 2026-09-27T13:38:25.751Z accepted root artifact f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
+Log: 2026-09-27T14:25:34Z closed root merged to main at f474c7dc6b937c92d5a16370bdbea62e5671f2e9 with reviewed source f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9 and sealed suites passing 2123/2123 on Windows and 2120 passed with 3 platform skips on Linux
 
 Log: 2026-09-27T12:50:35Z rejected sealed unchanged `node scripts/run-tests.mjs` on exact f1908a0 failed on both hosts at the same stale `scripts/work-record.test.mjs:1622` UNSUPPORTED expectation. Windows: 2030/2031 pass, exit 1. Separately fetched-origin Netcup: 2027/2031 pass, exit 1. Raw logs/exits are preserved; no rerun, baseline exception, acceptance, or main merge occurred.
 
 
 
 Observed: final main merge f474c7dc6b937c92d5a16370bdbea62e5671f2e9 has parents origin/main@78bf171 and accepted lane@9d8cf7f; both ancestry checks exited 0 and merge native exit was 0. The reviewed source artifact remains f59.
+
+Closure note: the closed log records completed main integration under skills-fable-codex-census-6. Status remains accepted because scripts/work-record.mjs rejects closed with bad-status; lane eighteen's 26cc132 precedent does not match the current schema. Adding a new lifecycle status is outside this docs-only closeout.
 
 Historical formatting note: the original successful acceptance receipt used Owner `root (reviewed final artifact; acceptance preparation)`; this record normalizes that owner field and the same accepted log syntax without changing its timestamp, artifact, census, or four-read values.
 
