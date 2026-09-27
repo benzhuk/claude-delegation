@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-codex-census
 Scope: docs/specs/codex-census-0927/spec.md@e1b31f7159d3f1f7ba15181d9d312f63fa201151
-Owner: root (test-only stale-expectation repair authorized; integration remains rejected)
-Status: rejected
+Owner: root (reviewed final artifact; acceptance preparation)
+Status: reviewed
 Authority: Root leads this build; after the scout is consumed, isolated C1 and C2 builders may edit only their named territories. Builders and reviewers never write docs/work. No scripts/work-record.mjs change, release, install, README, or changelog work.
-Artifact: integration@f1908a0b1a52426fe440bdcffa590431f9bc1ce0 (normal merges preserve C1 a6bd550 and C3 7d50ab0 candidate history)
-Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1-c1
-Evidence: docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f1908a0.md; raw Windows/Netcup logs and exits; reports/work-record-contract-review.md; reports/lane12-comparison.md
-Next: scoped `scripts/work-record.test.mjs` repair is owned by scout under root authority; after changed source and review, root must authorize any focused/full re-gate. Do not edit `scripts/work-record.mjs`, rerun, accept, or merge main.
+Artifact: integration@f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
+Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1
+Evidence: docs/specs/codex-census-0927/reports/C3-main-reconciliation-review-round2.md, docs/specs/codex-census-0927/reports/C3-main-reconciliation-repair-gate.md, docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f59.md
+Next: produce the bounded live Codex census, Claude spec slice, and four-read at one fixed acceptance instant; then run check-acceptance and accept only if the measured census is COUNTED and all checks pass.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T11:05:00Z
@@ -35,6 +35,10 @@ Log: 2026-09-27T12:37:25.315Z rejected clean integration artifact bc309e4 preser
 
 Log: 2026-09-27T12:50:35Z rejected sealed unchanged `node scripts/run-tests.mjs` on exact f1908a0 failed on both hosts at the same stale `scripts/work-record.test.mjs:1622` UNSUPPORTED expectation. Windows: 2030/2031 pass, exit 1. Separately fetched-origin Netcup: 2027/2031 pass, exit 1. Raw logs/exits are preserved; no rerun, baseline exception, acceptance, or main merge occurred.
 
-Observed: exact f1908a0 is rejected after the sealed cross-host gate exposed one stale consumer expectation. Read-only adjudication confirms the native producer and PARTIAL acceptance refusal are correct; only a narrowly scoped test repair is authorized.
+Log: 2026-09-27T13:16:28Z reviewed reviewer GPT-6-Astra APPROVE artifact f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 
-Predicts: after the scoped test repair is independently reviewed and re-gated under renewed authority, this Codex-led record can obtain its four numbers from the census rather than a hand-written path.
+Observed: exact f59fb856 is independently approved by GPT-6-Astra at 2026-09-27T13:16:28Z and passed sealed full suites: Windows 2,123/2,123; Netcup 2,120 pass, 0 fail, 3 skipped, both native test exits 0. Netcup's distinct outer-wrapper CRLF exit-format error is retained in the linked raw receipt, not relabeled as a test failure. Historical NEEDS_FIXES/FAIL and prior f190 rejection evidence remain preserved as linked history but are not listed as deciding evidence for f59.
+
+Lane 12 comparison preserves the original hand-era unsupported/unavailable result beside fresh measured output: complete coverage, 14,751,869 lead Astra derived tokens, 33,814,093 child Terra derived tokens, 48,565,962 combined derived tokens, 1.1h ask-to-accepted, and a 2.6-minute largest native API response gap. Its top-tier result stays partial because that record's Spec-from is non-date. Its observed one post-accept build-file commit and zero re-accept logs use an immature seven-day horizon and are not proof of future rework zero. Native response gaps are a heuristic; they do not establish stall attribution.
+
+Predicts: the same fixed acceptance instant will bind the live Codex census window, Claude spec slice, four-read, and acceptance check. Unsupported/partial fields remain visible rather than invented as zero.
