@@ -1,0 +1,3 @@
+HEAD=28fa29c71fbafedd1794e7cefdb4f5f439693ea6
+ORIGIN=https://github.com/benzhuk/claude-delegation.git
+NODE_LOGIN=v24.18.1
