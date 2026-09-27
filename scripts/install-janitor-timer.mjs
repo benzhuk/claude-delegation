@@ -36,7 +36,12 @@
  * the intended repo without having to go find the WorkingDirectory line.
  *
  * CLI: --dry-run --json --remove --hour <n, default 6> --repo <path> --host <name> --enable
- *      --force-root (tests only) --name <name> (tests only, default janitor-record)
+ *      --force-root (tests only) --name <name> (tests only, default janitor-record) --help/-h
+ *
+ * J1 live findings L1: --help/-h always prints usage and exits 0 without writing anything, and any
+ * argv token that is neither a known flag nor the value of a value-taking flag is a usage error
+ * (exit 2, nothing written) rather than being silently ignored — an unrecognized `--help` used to
+ * fall straight through to a real install.
  */
 
 import fs from "node:fs";
@@ -316,6 +321,57 @@ function planRemove(file, marker, dryRun) {
 
 // ---------- main ----------
 
+/** J1 live findings L2: the two known installed-plugin roots on this project. Claude Code's plugin
+ * cache is `<home>/.claude/plugins/cache/<publisher>/<name>/<version>/` (README.md:117). Codex's own
+ * plugin cache, reached only via the native `codex plugin add` route (docs/native-use.md:65-67), is
+ * `<CODEX_HOME>/plugins/cache/delegation/delegation/<version>/`, CODEX_HOME defaulting to
+ * `<home>/.codex` (scripts/mirror-shared-skills.mjs:48); confirmed live (docs/work/evidence/
+ * native-package-review.md:10: "installedPath under disposable .codex/plugins/cache/delegation/
+ * delegation/0.17.1"). Install is allowed only when pluginRoot resolves inside one of these two —
+ * an allowlist, replacing the denylist (isDurablePath's temp/worktree regex) that missed a real
+ * worktree name (this host's `.../claude-delegation-wt/<branch>`).
+ */
+function isInstalledPluginRoot(target, { home = os.homedir() } = {}) {
+  const norm = (p) => path.resolve(String(p)).toLowerCase().split("\\").join("/");
+  const t = norm(target);
+  return [
+    norm(path.join(home, ".claude", "plugins", "cache")),
+    norm(path.join(home, ".codex", "plugins", "cache")),
+  ].some((root) => t === root || t.startsWith(`${root}/`));
+}
+
+const KNOWN_BOOLEAN_FLAGS = new Set(["--dry-run", "--json", "--remove", "--enable", "--force-root"]);
+const KNOWN_VALUE_FLAGS = new Set(["--hour", "--repo", "--host", "--name"]);
+
+function usageText() {
+  return [
+    "Usage: install-janitor-timer.mjs [options]",
+    "  --dry-run, --json, --remove, --enable, --force-root (tests only)",
+    "  --hour <n>    hour of day to run, 0-23 (default 6)",
+    "  --repo <path> repo to watch (default ~/.agents/janitor-repo, else ~/Code/claude-delegation)",
+    "  --host <name> host name baked into the scheduled command (default: this machine's hostname)",
+    "  --name <name> scheduled entry name (tests only; default janitor-record)",
+    "  --help, -h    show this help and exit",
+    "",
+  ].join("\n");
+}
+
+/** J1 live findings L1: an argv token that is not a known flag, and not the VALUE belonging to a
+ * value-taking flag right before it, is unrecognized. */
+function unknownArgs(argv) {
+  const unknown = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (KNOWN_BOOLEAN_FLAGS.has(tok)) continue;
+    if (KNOWN_VALUE_FLAGS.has(tok)) {
+      if (argv[i + 1] !== undefined && !argv[i + 1].startsWith("--")) i++;
+      continue;
+    }
+    unknown.push(tok);
+  }
+  return unknown;
+}
+
 function parseArgFlag(argv, flag) {
   const idx = argv.indexOf(flag);
   if (idx === -1) return null;
@@ -333,6 +389,19 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     exec = execFileSync,
     stdout = (s) => process.stdout.write(s),
   } = opts;
+
+  // J1 live findings L1: --help/-h wins over everything, writes nothing. Any other unrecognized
+  // token (typo'd flag or a stray positional) is a usage error — exit 2, nothing written — rather
+  // than being silently ignored and falling through to a real install.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    stdout(usageText());
+    return 0;
+  }
+  const unknown = unknownArgs(argv);
+  if (unknown.length > 0) {
+    stdout(`usage error: unrecognized argument(s): ${unknown.join(" ")}\n${usageText()}`);
+    return 2;
+  }
 
   const dryRun = argv.includes("--dry-run");
   const jsonFlag = argv.includes("--json");
@@ -368,25 +437,27 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // machine rename, which is the whole rationale --host was added for. `--host <name>` overrides it.
   const host = hostFlag || os.hostname();
 
-  // Checked against the SCRIPT PATH we would actually schedule (a file inside pluginRoot), not the
-  // bare pluginRoot directory: isDurablePath's regex only matches a temp/worktree SEGMENT followed
-  // by more path (mirror-shared-skills.mjs:700, `(tmp|...|wt-[^/]*)\/`) — a bare directory whose own
-  // last segment IS the worktree name (`.../wt-janitor-daily-1-J1`, nothing after it) would not
-  // match on its own. `.../scripts/janitor.mjs` always has something after that segment, exactly
-  // like mirror-shared-skills.mjs's own call site checks a FILE (`scriptPath`), never a directory.
   const janitorScriptPath = path.join(pluginRoot, "scripts", "janitor.mjs");
-  // Mirrors mirror-shared-skills.mjs's own refusal call site (scripts/mirror-shared-skills.mjs:
-  // 726-730): checked before anything else that would CREATE a live entry, including under
-  // --dry-run — a preview from a temporary checkout is refused exactly like a real install would
-  // be, never silently allowed through. --remove only deletes files this installer already made
-  // (marker-checked below) and never writes a new reference to `pluginRoot`, so it is not gated by
-  // this checkout-durability check — a stale worktree's own --remove is exactly how a builder or the
-  // janitor itself would clean up an install made from a checkout that is now gone.
-  if (!removeFlag && !forceRoot && !isDurablePath(janitorScriptPath, { home })) {
-    refusals.push(
-      `refusing to install a live janitor timer from a temporary checkout (${pluginRoot}) — ` +
-        "run the installer from the installed plugin, or pass --force-root (tests only)",
-    );
+  // J1 live findings L2: checked before anything else that would CREATE a live entry, including
+  // under --dry-run — a preview from a non-installed root is refused exactly like a real install
+  // would be. --remove only deletes files this installer already made and never writes a new
+  // reference to `pluginRoot`, so it is not gated by this check — a stale worktree's own --remove is
+  // exactly how a builder or the janitor itself would clean up an install made from a checkout that
+  // is now gone. isDurablePath is kept as an additional refusal (with its own, more specific
+  // message) for anything the allowlist rejects that also looks like a temp/worktree checkout.
+  if (!removeFlag && !forceRoot && !isInstalledPluginRoot(pluginRoot, { home })) {
+    if (!isDurablePath(janitorScriptPath, { home })) {
+      refusals.push(
+        `refusing to install a live janitor timer from a temporary checkout (${pluginRoot}) — ` +
+          "run the installer from the installed plugin, or pass --force-root (tests only)",
+      );
+    } else {
+      refusals.push(
+        `refusing to install a live janitor timer from a root that is not an installed plugin ` +
+          `location (${pluginRoot}) — install via the Claude plugin cache or the Codex plugin cache, ` +
+          "or pass --force-root (tests only)",
+      );
+    }
   }
 
   // J1 review round 1, B1: systemd ExecStart splits on whitespace, so a `--repo`/`--host`/

@@ -142,6 +142,43 @@ test("refuses to install from a temporary/worktree checkout unless --force-root,
   assert.ok(!fs.existsSync(path.join(home, ".agents", "janitor")), "a refused install must write nothing at all");
 });
 
+test("L2: a plugin root inside the installed Claude plugin cache installs without --force-root", () => {
+  const home = mkTmp("janitor-timer-home-l2-cache-");
+  fixtureDefaultRepoGit(home);
+  const cacheRoot = path.join(home, ".claude", "plugins", "cache", "benzhuk", "delegation", "0.0.0");
+  fs.mkdirSync(path.join(cacheRoot, "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(cacheRoot, "scripts", "janitor.mjs"), "// stub for install-janitor-timer tests\n");
+  const cap = capture();
+  const code = main(["--json"], {
+    home, env: { XDG_CONFIG_HOME: path.join(home, ".config") }, platform: "linux",
+    execPath: "/usr/bin/node", pluginRoot: cacheRoot, ...cap,
+  });
+  assert.equal(code, 0);
+  const result = JSON.parse(cap.text());
+  assert.equal(result.refusals.length, 0, JSON.stringify(result.refusals));
+});
+
+test("L2: a real worktree name, a durable non-cache path, and an os.tmpdir() path all refuse under --dry-run and a real install, nothing written", () => {
+  for (const dryRunArgv of [[], ["--dry-run"]]) {
+    for (const makeRoot of [
+      (home) => path.join(home, "Code", "claude-delegation-wt", "x"),
+      (home) => path.join(home, "Code", "claude-delegation"),
+      () => path.join(os.tmpdir(), "janitor-timer-l2-outside-cache"),
+    ]) {
+      const home = mkTmp("janitor-timer-home-l2-notcache-");
+      const cap = capture();
+      const code = main(["--json", ...dryRunArgv], {
+        home, env: { XDG_CONFIG_HOME: path.join(home, ".config") }, platform: "linux",
+        execPath: "/usr/bin/node", pluginRoot: makeRoot(home), ...cap,
+      });
+      assert.equal(code, 1);
+      const result = JSON.parse(cap.text());
+      assert.ok(result.refusals.length > 0);
+      assert.ok(!fs.existsSync(path.join(home, ".agents")), "a refused install must write nothing at all");
+    }
+  }
+});
+
 test("--force-root (tests only) bypasses the checkout-durability refusal", () => {
   const home = mkTmp("janitor-timer-home-force-");
   fixtureDefaultRepoGit(home);
@@ -593,6 +630,33 @@ test("J1 review round 1, M5: refuses when the janitor script is missing, or the 
   const cap3 = capture();
   const code3 = main(["--force-root", "--dry-run", "--json"], { home: home3, platform: "linux", execPath: "/usr/bin/node", pluginRoot: pluginRoot3, ...cap3 });
   assert.equal(code3, 1);
+});
+
+test("L1: --help prints usage, exits 0, and writes nothing — even against the installer's own default (worktree) pluginRoot", () => {
+  const home = mkTmp("janitor-timer-home-l1-help-");
+  const cap = capture();
+  const code = main(["--help"], { home, platform: "linux", execPath: "/usr/bin/node", ...cap });
+  assert.equal(code, 0);
+  assert.match(cap.text(), /Usage: install-janitor-timer/);
+  assert.ok(!fs.existsSync(path.join(home, ".agents")), "--help must write nothing at all");
+});
+
+test("L1: an unrecognized flag (--bogus) exits 2 and writes nothing", () => {
+  const home = mkTmp("janitor-timer-home-l1-bogus-");
+  const cap = capture();
+  const code = main(["--bogus"], { home, platform: "linux", execPath: "/usr/bin/node", ...cap });
+  assert.equal(code, 2);
+  assert.match(cap.text(), /usage error: unrecognized argument\(s\): --bogus/);
+  assert.ok(!fs.existsSync(path.join(home, ".agents")), "--bogus must write nothing at all");
+});
+
+test("L1: a stray positional argument exits 2 and writes nothing", () => {
+  const home = mkTmp("janitor-timer-home-l1-positional-");
+  const cap = capture();
+  const code = main(["--dry-run", "extra-positional"], { home, platform: "linux", execPath: "/usr/bin/node", ...cap });
+  assert.equal(code, 2);
+  assert.match(cap.text(), /usage error: unrecognized argument\(s\): extra-positional/);
+  assert.ok(!fs.existsSync(path.join(home, ".agents")), "a stray positional argument must write nothing at all");
 });
 
 after(() => {
