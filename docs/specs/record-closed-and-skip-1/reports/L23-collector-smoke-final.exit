@@ -1,0 +1,4 @@
+ARTIFACT=255bfd34d25a35c1932e5c048a7be9f1a2dcace3
+RUN1_NATIVE_EXIT=0
+RUN2_NATIVE_EXIT=0
+COMMAND=node scripts/collect-status.mjs --repo . --main origin/main --out docs/specs/record-closed-and-skip-1/reports/L23-collector-smoke-final --quiet
