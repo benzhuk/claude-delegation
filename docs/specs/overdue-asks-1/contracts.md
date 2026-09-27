@@ -47,3 +47,4 @@ The O1 final review's MAJOR (reports/O1-final-review.md) found that across hosts
 - Otherwise, log `overdue-cross-host [<id>] -> <to> — answer side not observable on this host` and record the id, without sending.
 - Seed silently on the first run. When `~/.agents/notes/.overdue-nudged.json` does not exist, record every currently overdue id without sending, write the file, and log one `overdue-seeded <n>` line. Nudging starts from the second pass on.
 - Part B, where a remote send also appends to the sending host's ledger, is lane fifteen. It is not in this lane.
+- Lead narrowing, 2026-09-27 00:14 NY, after reports/O1-r8-review.md MAJOR 1: condition (a) counts only recipient-to-sender lines stamped at or after the ASK. A line older than the ASK says nothing about where its answer went, and on this host two 2026-09-25 lines met (a) forever. This is how the lead reads "the test that the answer side lands here", and it is disclosed to the spec author in the RESULT.
