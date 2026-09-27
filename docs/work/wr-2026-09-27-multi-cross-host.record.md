@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-multi-cross-host
 Scope: docs/specs/multi-cross-host-1/spec.md (the Lane 25 section of docs/specs/2026-09-27-followup-bundle.md read at origin/docs/lane-specs-0925 7e92f16); one territory M1
 Owner: skills-h
-Status: reviewed
+Status: accepted
 Authority: build, review, push build/multi-cross-host-1, and merge into main on acceptance under the standing grant of 2026-09-26, without Ben; no release or install
 Artifact: build/multi-cross-host-1@8ab8e6cb5f5ac1eedb7b27c2b72ffe0766f94c36
 Evidence: docs/specs/multi-cross-host-1/spec.md, docs/work/evidence/wr-2026-09-27-multi-cross-host-M1.md, docs/work/evidence/wr-2026-09-27-multi-cross-host-live.md, docs/work/evidence/wr-2026-09-27-multi-cross-host-win-suite-8ab8e6c.log, docs/work/evidence/wr-2026-09-27-multi-cross-host-win-suite-3ba1cb4.log
@@ -22,5 +22,42 @@ Log: 2026-09-27T21:03:31Z delivered skills-h M1 round 2 (sonnet) DONE a7b2242, s
 Log: 2026-09-27T21:06:44Z rejected skills-h Opus delta review (opus) NEEDS_FIXES a7b2242 (R2-1 dry-run docs, R2-2 stamped-host test)
 Log: 2026-09-27T21:08:17Z delivered skills-h M1 round 3 (sonnet) DONE 8ab8e6c, suite 2365 of 2369 0 fail; Windows 2367 of 2369 0 fail, 2 skips
 Log: 2026-09-27T21:09:15Z reviewed skills-h Opus delta review r3 (opus) APPROVE 8ab8e6cb5f5ac1eedb7b27c2b72ffe0766f94c36
+Census: - leadTurns: 5
+Census: - wallClockHours: 0.69
+Census: - by-model: claude-opus-5-5=11224165, claude-sonnet-5=22798667
+Census: - by-role: unassigned=28103645
+Census: - subagentFiles: 33
+Census: - Total assistant turns, deduped (whole file): **182**
+Census: - Window assistant turns, deduped: **44**
+Census: - leadTurns (conversational runs — see docs/census.md): **5** (of 26 in the whole file, unwindowed)
+Census: - Window: 2026-09-27T20:30:52.801Z .. 2026-09-27T21:11:59.918Z
+Census: - Turns/hour in window: **64.20**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 364 | 743372 | 22604642 | 117962 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 88 | 136497 | 5753306 | 29296 |
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 118 | 283126 | 4965426 | 56308 |
+Census: | claude-sonnet-5 | 384 | 417088 | 22260456 | 120739 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 502 | 700214 | 27225882 | 177047 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 85604 | 11138561 |
+Census: | claude-sonnet-5 | 120739 | 22677928 |
+Four numbers: Top-tier tokens per build: 11224165 tokens: build 11224165 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 0.7h; largest gap 16.6min at 2026-09-27T20:31:51.641Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); ASKs unavailable (no ledger dir)
+Log: 2026-09-27T21:12:10.000Z accepted skills-h artifact 8ab8e6cb5f5ac1eedb7b27c2b72ffe0766f94c36
 
 Observed: One Sonnet builder over three rounds (round 1 DONE 3ba1cb4, then 7 review findings and 2 delta findings, all minor or nit), and one Opus reviewer with APPROVE at 8ab8e6c. Sealed suite green on Hetzner and Windows at every round. Live on real state: the branch's note-send refused a plain Hetzner send to skills-fable with exit 6 and wrote no ledger line. The ACK and an ack-only ASK reached the Windows ledger over ssh. skills-fable ACKed it the same minute. On a copy of Hetzner's real notes at 18:05 NYC, base note-flush fires the false overdue nudge (nudged 1) and the branch does not (nudged 0). Finding for the spec owner: the pinned hint's "or pass --sender-host <this host>" does nothing on a local run (live exit 6). The prose and docs now say to run note-send on the recipient's machine over ssh with --sender-host <origin host>. The JSON hint is unchanged. The installed flushers keep the old rule until a release is installed.
