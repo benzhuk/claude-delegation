@@ -95,10 +95,12 @@ function markerLine(commentStyle, job = DEFAULT_JOB) {
 
 /** Same temp-then-rename pattern as mirror-shared-skills.mjs's writeFileAtomic (scripts/mirror-
  * shared-skills.mjs:674-683) — a killed install must never leave a half-written unit/task/plist or
- * installed.json. */
-function writeFileAtomic(file, text) {
+ * installed.json. `encoding` defaults to "utf8" (systemd units, launchd plists, installed.json);
+ * the Windows task xml artifact passes "utf16le" so its leading BOM character encodes as the real
+ * 0xFF 0xFE bytes Task Scheduler's XML import requires. */
+function writeFileAtomic(file, text, encoding = "utf8") {
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, text, "utf8");
+  fs.writeFileSync(tmp, text, encoding);
   try {
     fs.renameSync(tmp, file);
   } catch (err) {
@@ -271,10 +273,15 @@ export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, jo
       "    </CalendarTrigger>\n" +
       "  </Triggers>\n";
   return (
-    // Declared as UTF-8 because writeFileAtomic (below) writes "utf8" bytes — a UTF-16 declaration
-    // over UTF-8 bytes with no BOM is rejected by an XML parser expecting the switch it declares
-    // (J1 review round 1, M3). Writing UTF-16LE instead would break readMarked's utf8 marker check.
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    // Windows-task-1 (2026-09-27 defect): Task Scheduler's XML import requires UTF-16 — a live
+    // `schtasks /Create /XML` refused the old UTF-8 file with "unable to switch the encoding". This
+    // string leads with the UTF-16LE BOM character (U+FEFF); writeFileAtomic below encodes this
+    // whole string as "utf16le" bytes for the Windows task xml artifact only, so the BOM lands as the
+    // real 0xFF 0xFE bytes Task Scheduler expects and the declaration matches the bytes on disk.
+    // readMarked (below) decodes a `.xml` file back as UTF-16 whenever its first two bytes are that
+    // BOM, before the marker `.includes()` check, so ownership/foreign-file detection and the file
+    // layout are unaffected by the encoding switch (J1 review round 1, M3 is superseded by this).
+    '﻿<?xml version="1.0" encoding="UTF-16"?>\n' +
     `${markerLine("xml", job)}\n` +
     '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n' +
     "  <RegistrationInfo>\n" +
@@ -362,14 +369,21 @@ export function launchdPlist({ node, pluginRoot, repo, host, hour, logPath, labe
 function readMarked(file, marker) {
   let content = null;
   try {
-    content = fs.readFileSync(file, "utf8");
+    // Windows-task-1: the Windows task xml is now written UTF-16LE with a BOM (Task Scheduler's
+    // XML import requires it). Read raw bytes first so a `.xml` file starting with that exact BOM
+    // (0xFF 0xFE) is decoded as UTF-16 before the marker check runs; every other file (systemd units,
+    // the launchd plist, installed.json, and any plain-UTF-8 `.xml` a user wrote by hand) decodes as
+    // utf8 exactly as before — ownership, the foreign-file check, and the file layout are unchanged.
+    const buf = fs.readFileSync(file);
+    const isUtf16Xml = file.endsWith(".xml") && buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe;
+    content = isUtf16Xml ? buf.toString("utf16le") : buf.toString("utf8");
   } catch {
     return { exists: false, marked: false, content: null };
   }
   return { exists: true, marked: marker === null || content.includes(marker), content };
 }
 
-function planWrite(file, desired, marker, dryRun) {
+function planWrite(file, desired, marker, dryRun, encoding = "utf8") {
   const cur = readMarked(file, marker);
   // `content` is always the generated text, dry-run included — this is what a `--dry-run --json`
   // preview quotes (spec acceptance: "quote the generated unit or task") without ever writing it.
@@ -381,7 +395,7 @@ function planWrite(file, desired, marker, dryRun) {
   }
   if (!dryRun) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeFileAtomic(file, desired);
+    writeFileAtomic(file, desired, encoding);
   }
   // J1 review round 1, m4: a dry-run must never claim past tense ("created"/"updated") for a file it
   // did not touch — "would-create"/"would-update" says plainly that this is a preview.
@@ -740,7 +754,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   } else if (scheduler === "schtasks") {
     const taskXmlFile = path.join(agentsDir, `${name}.task.xml`);
     artifacts = [
-      { file: taskXmlFile, marker: markerLine("xml", job), desired: windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job, to: toFlag, out: outFlag, every }) },
+      // Windows-task-1: written UTF-16LE (encoding: "utf16le" below) so the BOM character this
+      // string leads with lands as the real bytes Task Scheduler's XML import requires.
+      { file: taskXmlFile, marker: markerLine("xml", job), desired: windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job, to: toFlag, out: outFlag, every }), encoding: "utf16le" },
     ];
     enableCmds = [{ cmd: "schtasks", args: ["/Create", "/TN", name, "/XML", taskXmlFile, "/F"] }];
     disableCmds = [{ cmd: "schtasks", args: ["/Delete", "/TN", name, "/F"] }];
@@ -856,7 +872,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
 
     // --dry-run writes nothing (spec item 3) — not even the directory that would hold the artifacts.
     if (!dryRun) fs.mkdirSync(agentsDir, { recursive: true });
-    for (const a of artifacts) result.files.push(planWrite(a.file, a.desired, a.marker, dryRun));
+    for (const a of artifacts) result.files.push(planWrite(a.file, a.desired, a.marker, dryRun, a.encoding));
 
     // J1 review round 1, M1/m4: a same-named foreign artifact is left untouched by planWrite above
     // (correct — never overwritten), but the install as a WHOLE must not finish: the by-name enable
