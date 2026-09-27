@@ -273,6 +273,114 @@ test('publish --adopt-live --dry-run: reports the adoption but writes nothing an
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Fix 1 (render-guard, pack/spec.md): publish refuses a dirty docs/decisions tree, right after
+// step 1 and before step 2 — ahead of the owner-input check, the drift compare, and every write.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('publish: Fix 1 — a modified file under docs/decisions is exit 7, the message names git restore', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    gitOverrides: { status: () => ' M docs/decisions/now.md\n' },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 7
+      && /git restore/.test(e.message) && /docs\/decisions\/now\.md/.test(e.message),
+  );
+});
+
+test('publish: Fix 1 — a staged file under docs/decisions is exit 7', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    gitOverrides: { status: () => 'M  docs/decisions/session.md\n' },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 7 && /docs\/decisions\/session\.md/.test(e.message),
+  );
+});
+
+test('publish: Fix 1 — an untracked file under docs/decisions is exit 7', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    gitOverrides: { status: () => '?? docs/decisions/new-note.md\n' },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 7 && /docs\/decisions\/new-note\.md/.test(e.message),
+  );
+});
+
+test('publish: Fix 1 — last-render.md alone dirty is exempt (step 8 writes it), a clean run still succeeds', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { readPage, replaceMd } = wireNotion(PAGE_NO_INPUT);
+  const { deps } = baseDeps({
+    files,
+    readPage,
+    replaceMd,
+    gitOverrides: { status: () => ' M docs/decisions/last-render.md\n' },
+  });
+  const result = await publish({ repo: REPO, page: 'PAGE' }, deps);
+  assert.equal(result.code, 0);
+});
+
+test('publish: Fix 1 — a lane-branch caller with a clean docs/decisions tree still gets exit 2 (not exit 7)', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    gitOverrides: {
+      status: () => '',
+      'rev-parse': (args) => (args.includes('--abbrev-ref') ? 'build/decisions-render-1' : 'sha-fixed'),
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 2 && /not main/.test(e.message),
+  );
+});
+
+test('publish: Fix 1 — dirty docs/decisions AND off main is exit 7 with the list and then the exit-2 detail', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    gitOverrides: {
+      status: () => ' M docs/decisions/now.md\n',
+      'rev-parse': (args) => (args.includes('--abbrev-ref') ? 'build/decisions-render-1' : 'sha-fixed'),
+    },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 7
+      && /git restore/.test(e.message) && /docs\/decisions\/now\.md/.test(e.message)
+      && /not main/.test(e.message),
+  );
+});
+
+test('publish: Fix 1 — --dry-run warns on stderr for a dirty docs/decisions tree and still prints the render', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const warnings = [];
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    gitOverrides: { status: () => '?? docs/decisions/scratch.md\n' },
+    deps: { writeErr: (s) => warnings.push(s) },
+  });
+  const result = await publish({ repo: REPO, page: 'PAGE', dryRun: true }, deps);
+  assert.equal(result.code, 0);
+  assert.match(result.rendered, /^# Waiting on you now/);
+  assert.ok(warnings.some((w) => w.startsWith('warning:')));
+  assert.ok(warnings.some((w) => w.includes('docs/decisions/scratch.md')));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Step 8: the non-fast-forward rebase retry, and its second-failure exit 6
 // ─────────────────────────────────────────────────────────────────────────────
 

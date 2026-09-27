@@ -92,7 +92,11 @@ step 2 instead; the merge bullet goes verbatim into the RESULT and a later `publ
 picks it up. Its own last step commits and pushes `last-render.md`, so git is the lock:
 a publisher who loses that race gets a normal git push rejection, fetches main, and
 publishes again — nothing here reads or writes the Notion page by hand to resolve a
-race.
+race. Before any of that (right after the fresh read, ahead of every check and write),
+`publish` also refuses with exit 7 when `docs/decisions/` itself is dirty — a modified,
+staged or untracked file other than `last-render.md` — naming the files and pointing at
+`git restore`; commit and push them first, or restore them, then rerun (Lane 28,
+render-guard).
 
 The page callout's owner instruction is composed by `decisions-render.mjs render` itself
 (the callout icon and text are the renderer's, never hand-typed): "To comment, start a
