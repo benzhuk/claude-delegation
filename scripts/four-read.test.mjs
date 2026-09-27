@@ -1169,7 +1169,7 @@ test('buildFourRead: a complete Codex census uses lead.sessionId instead of its 
   } });
   const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, guardedFs);
   assert.deepEqual(forbiddenFsOps, []);
-  assert.match(report.numbers[0].value, /^23 tokens: build 23 \(gpt-6-astra\)/);
+  assert.match(report.numbers[0].value, /^23 tokens: build 23 \(gpt-6-astra\); partial \(no spec slice\): spec-census not run$/);
   assert.equal(report.numbers[1].value, '24.0h; largest native API response gap (heuristic) 45.0min at 2026-09-01T00:15:00.000Z');
   assert.match(report.numbers[3].value, /^stalled classification unavailable \(native Codex Agent\/Task\/Workflow span\/stall coverage is not established\); 1 native API response gap\(s\) over 30min \(heuristic, not stall attribution\): 2026-09-01T00:15:00\.000Z \(45\.0min\);/);
   assert.equal(report.companions[0].value, '2 verified top-tier native API response(s) (lead only); tokens: total 23; cache-read 3, cache-write 2, input 7, output 11');
@@ -1242,6 +1242,49 @@ test('buildFourRead: a complete Codex census uses lead.sessionId instead of its 
   missingIdentity.lead.sessionId = '   ';
   fs.writeFileSync(censusPath, JSON.stringify(missingIdentity));
   assert.equal(buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).numbers[0].value, 'unavailable (Codex census has no valid lead.sessionId)');
+});
+
+test('buildFourRead: native lead counts require a valid record/census build window even when token coverage is partial', () => {
+  const dir = mkTmp('four-read-codex-window-gate-');
+  const recordText = fs.readFileSync(RECORD, 'utf8');
+  const baseCensus = {
+    leadPath: path.join(dir, 'rollout-native.jsonl'),
+    lead: {
+      host: 'codex', sessionId: 'lead-session', coverageSupported: true,
+      codex: { unavailable: [], responseTimelineComplete: true, responseTimeline: [
+        { responseId: 'r1', turnId: 't1', timestamp: '2026-09-01T00:15:00.000Z', model: 'gpt-6-astra' },
+        { responseId: 'r2', turnId: 't2', timestamp: '2026-09-01T01:00:00.000Z', model: 'gpt-6-astra' },
+      ] },
+      windowStartAt: '2026-09-01T00:05:00.000Z', windowEndAt: '2026-09-01T01:05:00.000Z',
+    },
+    subagents: { incomplete: false, perFile: [] },
+    combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  const cases = [
+    { name: 'missing Opened', record: recordText.replace(/^Opened:.*\r?\n/m, '') },
+    { name: 'missing acceptance', record: recordText.replace(/^Log: .* accepted .*\r?\n/gm, '') },
+    { name: 'record opened at acceptance', record: recordText.replace(/^Log: .* owned .*\r?\n/m, '') },
+    { name: 'census outside record window', record: recordText, outside: true },
+  ];
+  for (const incomplete of [false, true]) {
+    for (const scenario of cases) {
+      const recordPath = path.join(dir, `${scenario.name.replaceAll(' ', '-')}-${incomplete}.md`);
+      const censusPath = path.join(dir, `${scenario.name.replaceAll(' ', '-')}-${incomplete}.json`);
+      const census = structuredClone(baseCensus);
+      census.subagents.incomplete = incomplete;
+      if (scenario.outside) {
+        census.lead.windowStartAt = '2026-09-03T00:05:00.000Z';
+        census.lead.windowEndAt = '2026-09-03T01:05:00.000Z';
+        census.lead.codex.responseTimeline[0].timestamp = '2026-09-03T00:15:00.000Z';
+        census.lead.codex.responseTimeline[1].timestamp = '2026-09-03T01:00:00.000Z';
+      }
+      fs.writeFileSync(recordPath, scenario.record);
+      fs.writeFileSync(censusPath, JSON.stringify(census));
+      const companion = buildFourRead({ record: recordPath, census: censusPath, ledger: null }, fs).companions[0].value;
+      assert.match(companion, /^unavailable \(/, `${scenario.name}, child incomplete=${incomplete}`);
+      assert.doesNotMatch(companion, /verified top-tier native API response/, `${scenario.name}, child incomplete=${incomplete}`);
+    }
+  }
 });
 
 test('buildFourRead: a Codex census requires a nonempty requested Lead-session identity', () => {

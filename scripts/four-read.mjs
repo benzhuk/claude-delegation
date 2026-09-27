@@ -726,6 +726,21 @@ function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedM
   }
   return { value: `${total} messages; tokens: ${splitPart}` };
 }
+
+// Native lead-response counts are independent of whole-build token completeness, but not
+// of build identity. Validate the record/census interval separately because Number 1 checks
+// token coverage first and can therefore stop before its own window checks.
+function censusBuildWindowReason(census, { openedMs, acceptedMs, reason }, lastAcceptedMs) {
+  if (openedMs === null || acceptedMs === null) return `${(reason || 'no Opened:/accepted window').replace(/:$/, '')}: census window cannot be checked`;
+  const tolerance = 5 * 60000;
+  const windowStartAt = census && census.lead && census.lead.windowStartAt ? Date.parse(census.lead.windowStartAt) : NaN;
+  if (Number.isNaN(windowStartAt)) return 'census has no window start';
+  if (windowStartAt > acceptedMs || windowStartAt < openedMs - tolerance) return `census window ${census.lead.windowStartAt} is not the build window`;
+  const windowEndAt = census && census.lead && census.lead.windowEndAt ? Date.parse(census.lead.windowEndAt) : NaN;
+  if (Number.isNaN(windowEndAt)) return 'census has no window end';
+  if (lastAcceptedMs !== null && windowEndAt > lastAcceptedMs + tolerance) return `census window ends ${census.lead.windowEndAt}, after the last acceptance`;
+  return null;
+}
 // ── Orchestration ────────────────────────────────────────────────────────────────────────
 export function buildFourRead(opts, fsImpl = fs) {
   const { fields, logs } = parseRecordText(fsImpl.readFileSync(opts.record, 'utf8'));
@@ -771,6 +786,7 @@ export function buildFourRead(opts, fsImpl = fs) {
     : null;
   const acceptedLogs = logs.filter((l) => l.status.toLowerCase() === 'accepted');
   const lastAcceptedMs = (acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null) ?? windowMs.acceptedMs; // unparseable last -> the tighter first bound
+  const nativeWindowReason = isCodexCensus(census) ? censusBuildWindowReason(census, windowMs, lastAcceptedMs) : null;
   // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b)/MAJOR 1/2 (r3): refuse with Number 2.
   const numberOne = isCodexCensus(census) && leadIdentityReason ? { value: `unavailable (${leadIdentityReason})` }
     : !isCodexCensus(census) && leadIdentityReason && leadSessionId ? { value: `unavailable (${leadIdentityReason})` } // the census read another session
@@ -782,7 +798,7 @@ export function buildFourRead(opts, fsImpl = fs) {
     agentSpans, agentStallResults, isCodexCensus(census) ? 'native API response gap' : null,
   );
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
-  const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
+  const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason || nativeWindowReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };
   return {
     record: opts.record, acceptAt: opts.acceptAt || null,
