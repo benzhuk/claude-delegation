@@ -95,6 +95,37 @@ test('duplicate normalized pages and project-page binding mismatches are rejecte
   assert.deepEqual(await registered(fx, { pickupOnce: async () => { calls += 1; } }), { code: 'PICKUP_CONFIG_INVALID', ordinal: null });
   assert.equal(calls, 0, 'registered project binding mismatch must not reach pickup');
 });
+
+test('contracts.md C3: a registration entry accepts one optional topic key and rejects an invalid one', async (t) => {
+  const fx = fixture(t);
+  const seen = [];
+  fx.writeRegistration([{ ...fx.entry, topic: 'Skills' }]);
+  const ok = await registered(fx, { pickupOnce: async (entry) => { seen.push(entry); return { status: 'UNCHANGED' }; } });
+  assert.deepEqual(ok, { code: 'PICKUP_NO_ACTION', ordinal: 0 });
+  assert.equal(seen[0].topic, 'Skills');
+
+  fx.writeRegistration();
+  const noTopic = await registered(fx, { pickupOnce: async (entry) => { seen.push(entry); return { status: 'UNCHANGED' }; } });
+  assert.deepEqual(noTopic, { code: 'PICKUP_NO_ACTION', ordinal: 0 });
+  assert.equal(seen[1].topic, null, 'a missing topic key is still a valid entry');
+
+  for (const topic of [
+    'a'.repeat(41), // one over the 40-character limit
+    'Skills: taxonomy', // a colon is the title-format separator, reserved
+    null, // present as a key but not a string value
+    '1Skills', // must start with a letter
+    '', // empty fails the leading-letter requirement
+  ]) {
+    let calls = 0;
+    fx.writeRegistration([{ ...fx.entry, topic }]);
+    const summary = await registered(fx, { pickupOnce: async () => { calls += 1; } });
+    assert.deepEqual(
+      summary, { code: 'PICKUP_CONFIG_INVALID', ordinal: null },
+      `topic ${JSON.stringify(topic)} must invalidate the whole registration`,
+    );
+    assert.equal(calls, 0, 'an invalid topic must reject before pickup runs');
+  }
+});
 test('one injected selection invokes exactly one bound entry and maps lifecycle states to safe summaries', async (t) => {
   const fx = fixture(t);
   const second = { ...fx.entry, page: 'fedcba9876543210fedcba9876543210' };
