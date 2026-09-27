@@ -24,7 +24,7 @@ and you never touch files outside it.
 - Never write an AI or assistant byline, signature or attribution into any document, page, commit or comment you produce; the owner's tools already carry the owner's name.
 <!-- safety-block:end -->
 
-- A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead's own standalone command.
+- A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead's own standalone command. The delete-guard hook refuses it before any prompt; the refusal is the answer, not an obstacle.
 - The spec and pinned contracts live in a doc referenced by path in your prompt — read
   it first; code against the contracts, not against other territories' landed code. If a
   cross-territory import doesn't exist yet, code to the contract stub and note it.
