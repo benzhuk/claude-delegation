@@ -105,7 +105,9 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
   fs.writeFileSync(path.join(repo2, '.agents', 'project.json'), JSON.stringify({ decisions_url: second.page }));
   second.repo = repo2;
   fx.writeRegistration([fx.entry, second]);
-  const canonical = [fx.entry, second].sort((a, b) => path.resolve(a.repo).localeCompare(path.resolve(b.repo)) || a.page.localeCompare(b.page));
+  // Mirror decisions-pickup.mjs's order: code-point compare of the normalized repo key, then page.
+  const key = (e) => `${process.platform === 'win32' ? path.normalize(e.repo).toLowerCase() : path.normalize(e.repo)}\0${e.page}`;
+  const canonical = [fx.entry, second].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   const seen = [];
   const recorded = await registered(fx, {
     selectIndex: (count) => { assert.equal(count, 2); return 1; },
