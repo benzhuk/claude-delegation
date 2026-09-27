@@ -6,17 +6,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { formatText, runCensus } from './build-census.mjs';
+import { fileURLToPath } from 'node:url';
+import { formatJson, formatText, runCensus } from './build-census.mjs';
 
 const ROOT = 'root-session';
 const MODEL = 'gpt-5.6-terra';
 const DAY = '2026/09/27';
 const NEXT_DAY = '2026/09/28';
+const NATIVE_DAY = '2026/09/26';
+const NATIVE_NEXT_DAY = '2026/09/27';
+const NATIVE_SANITIZED = path.join(path.dirname(fileURLToPath(import.meta.url)), 'build-census.fixtures', 'codex-native-sanitized');
 
-function fixtureHome() {
+function fixtureHome({ nextDay = true } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-census-contract-'));
   fs.mkdirSync(path.join(home, 'sessions', ...DAY.split('/')), { recursive: true });
-  fs.mkdirSync(path.join(home, 'sessions', ...NEXT_DAY.split('/')), { recursive: true });
+  if (nextDay) fs.mkdirSync(path.join(home, 'sessions', ...NEXT_DAY.split('/')), { recursive: true });
   return home;
 }
 
@@ -152,7 +156,9 @@ test('Codex contract: each missing cache breakdown stays unavailable while deriv
     assert.equal(aggregate.input_tokens, null, 'inclusive input is not emitted as a Claude-style split');
     for (const field of missing) {
       assert.equal(aggregate[field.replace('cached_', 'cache_read_').replace('cache_write_', 'cache_creation_')], null);
-      assert.ok(report.lead.codex.unavailable.some((item) => item.includes(field)), `${field} is named unavailable`);
+      assert.ok(aggregate.unavailable.includes(field), `${field} is aggregate-unavailable`);
+      assert.match(formatJson(report), new RegExp(field));
+      assert.match(formatText(report), new RegExp(field));
     }
   }
 });
@@ -168,7 +174,9 @@ test('Codex contract: mixed complete and missing-cache responses derive 30 witho
   assert.equal(report.combined[MODEL].derived_total_tokens, 30);
   assert.equal(report.combined[MODEL].input_tokens, null);
   assert.equal(report.combined[MODEL].cache_creation_input_tokens, null);
-  assert.ok(report.lead.codex.unavailable.some((item) => item.includes('cache_write_input_tokens')));
+  assert.ok(report.combined[MODEL].unavailable.includes('cache_write_input_tokens'));
+  assert.match(formatJson(report), /cache_write_input_tokens/);
+  assert.match(formatText(report), /cache_write_input_tokens/);
 });
 
 test('Codex contract: missing reasoning and raw total are named unavailable, not substituted with zero', async () => {
@@ -177,6 +185,187 @@ test('Codex contract: missing reasoning and raw total are named unavailable, not
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.combined[MODEL].derived_total_tokens, 15);
-  assert.ok(report.lead.codex.unavailable.some((item) => item.includes('reasoning_output_tokens')));
-  assert.ok(report.lead.codex.unavailable.some((item) => item.includes('total_tokens')));
+  assert.ok(report.combined[MODEL].unavailable.includes('reasoning_output_tokens'));
+  assert.ok(report.combined[MODEL].unavailable.includes('total_tokens'));
+  assert.match(formatJson(report), /reasoning_output_tokens/);
+  assert.match(formatText(report), /reasoning_output_tokens/);
+});
+
+test('Codex contract: whitelist-native fixture discovers next-day child and preserves model/root accounting', async () => {
+  const home = fixtureHome();
+  fs.mkdirSync(path.join(home, 'sessions', ...NATIVE_DAY.split('/')), { recursive: true });
+  const lead = path.join(home, 'sessions', ...NATIVE_DAY.split('/'), 'lead.jsonl');
+  fs.copyFileSync(path.join(NATIVE_SANITIZED, 'lead.jsonl'), lead);
+  fs.copyFileSync(path.join(NATIVE_SANITIZED, 'child-1.jsonl'), path.join(home, 'sessions', ...NATIVE_DAY.split('/'), 'child-1.jsonl'));
+  fs.copyFileSync(path.join(NATIVE_SANITIZED, 'child-2.jsonl'), path.join(home, 'sessions', ...NATIVE_NEXT_DAY.split('/'), 'child-2.jsonl'));
+
+  const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.sessionId, '01a0df4c-2809-7520-b1d7-876cc51a87ee');
+  assert.equal(report.subagents.fileCount, 2);
+  assert.ok(report.subagents.perFile.every((row) => row.parentId === report.lead.sessionId));
+  assert.equal(report.combined['gpt-5.6-terra'].derived_total_tokens, 49028);
+  assert.equal(report.combined['gpt-6-astra'].derived_total_tokens, 88325);
+  assert.deepEqual(report.lead.codex.discovery.horizonUtcDays, ['2026-09-26', '2026-09-27']);
+});
+
+test('Codex contract: a duplicate response with a conflicting model throws by name', async () => {
+  const home = fixtureHome();
+  const turn = 'lead-turn';
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    meta(ROOT), taskStarted(turn),
+    context(turn, 'gpt-6-astra'), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
+    context(turn, MODEL), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
+  ]);
+  await assert.rejects(
+    () => runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
+    /conflict/i,
+  );
+});
+
+test('Codex contract: a duplicate response with a conflicting timestamp throws by name', async () => {
+  const home = fixtureHome();
+  const turn = 'lead-turn';
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    meta(ROOT), taskStarted(turn), context(turn, 'gpt-6-astra'),
+    usage('timestamp-conflict', turn, { at: '2026-09-27T12:00:03.000Z' }),
+    usage('timestamp-conflict', turn, { at: '2026-09-27T12:00:04.000Z' }),
+  ]);
+  await assert.rejects(
+    () => runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
+    /conflict/i,
+  );
+});
+
+test('Codex contract: a duplicate response with conflicting raw optional evidence throws by name', async () => {
+  const home = fixtureHome();
+  const turn = 'lead-turn';
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    meta(ROOT), taskStarted(turn), context(turn, 'gpt-6-astra'),
+    usage('raw-conflict', turn, { at: '2026-09-27T12:00:05.000Z' }),
+    usage('raw-conflict', turn, { at: '2026-09-27T12:00:05.000Z', missing: ['total_tokens'] }),
+  ]);
+  await assert.rejects(
+    () => runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
+    /conflict/i,
+  );
+});
+
+test('Codex contract: an exact repeated response is deduplicated once', async () => {
+  const home = fixtureHome();
+  const turn = 'lead-turn';
+  const row = usage('identical-repeat', turn, { output: 5, at: '2026-09-27T12:00:05.000Z' });
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [meta(ROOT), taskStarted(turn), context(turn), row, row]);
+  const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.combined[MODEL].derived_total_tokens, 15);
+});
+
+test('Codex contract: a lead-only marker includes child responses at and after its shared boundary', async () => {
+  const home = fixtureHome();
+  const turn = 'lead-turn';
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    meta(ROOT), taskStarted(turn), context(turn),
+    line('event_msg', { type: 'marker', marker: 'start-build' }, '2026-09-27T12:00:10.000Z'),
+    usage('lead-after', turn, { output: 3, at: '2026-09-27T12:00:11.000Z' }),
+  ]);
+  writeRollout(home, DAY, 'rollout-child.jsonl', [
+    meta('marker-child', ROOT, 1, 1), context('child-turn'),
+    usage('child-before', 'child-turn', { output: 4, at: '2026-09-27T12:00:09.000Z' }),
+    usage('child-at', 'child-turn', { output: 5, at: '2026-09-27T12:00:10.000Z' }),
+    usage('child-after', 'child-turn', { output: 6, at: '2026-09-27T12:00:11.000Z' }),
+  ]);
+  const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: 'start-build', from: null, to: null, out: null });
+  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.subagents.perFile[0].turns, 2);
+  assert.equal(report.combined[MODEL].output_tokens, 14, 'lead marker need not appear in a child rollout');
+});
+
+test('Codex contract: implicit third-day coverage is partial, but an explicit in-horizon slice remains complete', async () => {
+  for (const opts of [
+    { marker: null, from: null, to: null },
+    { marker: 'build-start', from: null, to: null },
+    { marker: null, from: '2026-09-27T00:00:00.000Z', to: null },
+  ]) {
+    const home = fixtureHome();
+    const turn = 'lead-turn';
+    const rows = [meta(ROOT), taskStarted(turn), context(turn)];
+    if (opts.marker) rows.push(line('event_msg', { type: 'marker', marker: opts.marker }, '2026-09-27T12:00:01.500Z'));
+    rows.push(usage('third-day', turn, { at: '2026-09-29T12:00:00.000Z' }));
+    const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', rows);
+    const report = await runCensus({ lead, codexHome: home, tasksDirs: [], ...opts, out: null });
+    assert.equal(report.lead.coverageSupported, false, JSON.stringify(opts));
+    assert.equal(report.combined, null);
+  }
+
+  const home = fixtureHome();
+  const turn = 'lead-turn';
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    meta(ROOT), taskStarted(turn), context(turn),
+    usage('in-horizon', turn, { output: 3, at: '2026-09-27T12:00:02.000Z' }),
+    usage('outside-slice', turn, { output: 99, at: '2026-09-29T12:00:02.000Z' }),
+  ]);
+  const bounded = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: '2026-09-27T00:00:00.000Z', to: '2026-09-28T23:59:59.999Z', out: null });
+  assert.equal(bounded.lead.coverageSupported, true);
+  assert.equal(bounded.combined[MODEL].output_tokens, 3);
+});
+
+test('Codex contract: logical lead and child identity conflicts stay permanently unresolved', async () => {
+  const identicalHome = fixtureHome();
+  const rows = leadRows({ output: 5 });
+  const identicalLead = writeRollout(identicalHome, DAY, 'rollout-lead.jsonl', rows);
+  const explicitIdentical = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-census-identical-lead-'));
+  fs.writeFileSync(path.join(explicitIdentical, 'lead-copy.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  const identical = await runCensus({ lead: identicalLead, codexHome: identicalHome, tasksDirs: [explicitIdentical], marker: null, from: null, to: null, out: null });
+  assert.equal(identical.lead.coverageSupported, true, 'an exact lead copy is explicitly de-duplicated');
+  assert.equal(identical.subagents.fileCount, 0);
+
+  const divergentHome = fixtureHome();
+  const divergentLead = writeRollout(divergentHome, DAY, 'rollout-lead.jsonl', rows);
+  const explicitDivergent = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-census-divergent-lead-'));
+  fs.writeFileSync(path.join(explicitDivergent, 'lead-conflict.jsonl'), `${leadRows({ output: 99 }).map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  const divergent = await runCensus({ lead: divergentLead, codexHome: divergentHome, tasksDirs: [explicitDivergent], marker: null, from: null, to: null, out: null });
+  assert.equal(divergent.lead.coverageSupported, false);
+  assert.equal(divergent.combined, null);
+  assert.ok(divergent.lead.codex.discovery.excluded.some((row) => row.file.includes('lead-conflict')));
+
+  const childrenHome = fixtureHome();
+  const childrenLead = writeRollout(childrenHome, DAY, 'rollout-lead.jsonl', leadRows());
+  writeRollout(childrenHome, DAY, 'child-first.jsonl', childRows('same-child', ROOT, 1, 'child-r', 5));
+  writeRollout(childrenHome, DAY, 'child-second.jsonl', childRows('same-child', ROOT, 1, 'child-r', 6));
+  writeRollout(childrenHome, DAY, 'child-third.jsonl', childRows('same-child', ROOT, 1, 'child-r', 5));
+  const children = await runCensus({ lead: childrenLead, codexHome: childrenHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(children.lead.coverageSupported, false);
+  assert.equal(children.combined, null, 'a third copy cannot resurrect a conflicted child identity');
+  assert.ok(children.lead.codex.discovery.excluded.some((row) => row.file.includes('child-second')));
+  assert.ok(children.lead.codex.discovery.excluded.some((row) => row.file.includes('child-third')));
+});
+
+test('Codex contract: a missing explicit tasks directory is partial while a missing default next-day directory is normal', async () => {
+  const explicitHome = fixtureHome();
+  const lead = writeRollout(explicitHome, DAY, 'rollout-lead.jsonl', leadRows());
+  const missingExplicit = path.join(explicitHome, 'not-present');
+  const explicit = await runCensus({ lead, codexHome: explicitHome, tasksDirs: [missingExplicit], marker: null, from: null, to: null, out: null });
+  assert.equal(explicit.lead.coverageSupported, false);
+  assert.equal(explicit.combined, null);
+  assert.ok(explicit.lead.codex.discovery.unreadableFiles.some((file) => file.includes('not-present')) || explicit.subagents.unreadableDirs.some((file) => file.includes('not-present')));
+
+  const optionalHome = fixtureHome({ nextDay: false });
+  const optionalLead = writeRollout(optionalHome, DAY, 'rollout-lead.jsonl', leadRows());
+  const optional = await runCensus({ lead: optionalLead, codexHome: optionalHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(optional.lead.coverageSupported, true);
+  assert.equal(optional.subagents.fileCount, 0);
+});
+
+test('Codex contract: rejected root-namespace parent cannot authenticate its grandchild', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'bad-parent.jsonl', childRows('bad-parent', ROOT, 1, 'bad-parent-response', 5, { sessionId: 'foreign-root' }));
+  writeRollout(home, DAY, 'grandchild.jsonl', childRows('grandchild', 'bad-parent', 2, 'grandchild-response', 7));
+  const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.combined, null);
+  assert.equal(report.subagents.perFile.some((row) => row.parentId === 'bad-parent'), false, 'an excluded parent is never an ancestry authority');
+  assert.ok(report.lead.codex.discovery.excluded.some((row) => row.file.includes('bad-parent')));
+  assert.ok(report.lead.codex.discovery.excluded.some((row) => row.file.includes('grandchild')));
 });

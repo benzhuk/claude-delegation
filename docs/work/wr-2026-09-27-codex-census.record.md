@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-codex-census
 Scope: docs/specs/codex-census-0927/spec.md@e1b31f7159d3f1f7ba15181d9d312f63fa201151
-Owner: high C1 R2 repair /root/census_repair; C3 identity repair /root/four_read_builder
+Owner: root (final C1 and C3 reviews pending)
 Status: owned
 Authority: Root leads this build; after the scout is consumed, isolated C1 and C2 builders may edit only their named territories. Builders and reviewers never write docs/work. No scripts/work-record.mjs change, release, install, README, or changelog work.
-Artifact: build/codex-census-1-c1@b054493f4c27223baf201bdf2beffe8d84ba80da (source implementation 5dc4c36d39c490d4f45accb0a2459657349d85dc)
+Artifact: C1 build/codex-census-1-c1@a6bd55058ae047aa89c99a325e36577c8d4c5e83 (source d73ef36b4abf2de53a6bb72c371f867d2de29902); C3 build/codex-census-1-c3@7d50ab0ef79a1ab0e699e9ea2706585d73379207
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1-c1
 Evidence: docs/work/evidence/ (all committed C1/C3 gate and review receipts), docs/specs/codex-census-0927/reports/C1-C2-review-round2.md, docs/specs/codex-census-0927/reports/C3-review-round2.md, scripts/build-census.fixtures/codex-native-sanitized/provenance.md
-Next: active C1 R2 high repair resolves R2-F1 through R2-F3 and provides a new SHA. Active C3 repair applies the same valid-identity helper to the Codex spec slice. The independent contract writer is correcting the 15-test draft; sanitized fixtures are committed but no independent gate is authorized. No merge is authorized.
+Next: final C1 and C3 reviews adjudicate the green artifacts. The corrected 18 independent contracts are committed but remain ungated until root authorizes source integration and the next gate sequence. No merge is authorized.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T11:05:00Z
@@ -30,7 +30,8 @@ Log: 2026-09-27T12:16:13.597Z runnable high-repair C1 evidence head b054493 was 
 Log: 2026-09-27T12:16:13.597Z owned C3 review returned NEEDS_FIXES with three high findings (mixed-host policy, unknown-model validation, and required native logical identity); its original report is byte-preserved and C3 is handed to the existing owner for round three.
 Log: 2026-09-27T12:20:30.244Z runnable integrator ran the one authorized non-deleting mutex gate on C3 round-three artifact 2f8e8ac; it passed 68/68 with native exit 0. C3 is eligible for code-only delta review and remains unmerged.
 Log: 2026-09-27T12:30:44.833Z owned C3 code-only delta review of exact 2f8e8ac returned NEEDS_FIXES for one remaining Codex spec-slice identity validation bypass. The original report is byte-preserved; C3 returns to its owner for the same-helper repair.
+Log: 2026-09-27T12:33:48.272Z runnable C1 R2 evidence a6bd550, source-equivalent to d73ef36, passed its sole mutex gate 80/80 and exact Claude golden. C3 R4 artifact 7d50ab0 passed its sole mutex gate 69/69. Both await final review; no source integration occurred.
 
-Observed: C1 high repair is actively resolving R2-F1 through R2-F3 after the earlier source-byte-equivalent `b054493` evidence passed its focused gate and Claude golden comparison. The earlier wrapper incident is separately retained: its wrapper included lock creation and cleanup, while the policy tool gave only `blocked by policy` and no cause. C3 round three `2f8e8ac` passed its focused gate but is rejected for one remaining Codex spec-slice identity validation bypass; its repair is active and it remains unmerged.
+Observed: C1 R2 evidence `a6bd550` is source-equivalent to `d73ef36`, passed its focused gate (80/80) and exact Claude golden comparison. C3 R4 `7d50ab0` passed its focused gate (69/69). The earlier wrapper incident is separately retained: its wrapper included lock creation and cleanup, while the policy tool gave only `blocked by policy` and no cause. Both source artifacts remain unmerged pending final review and root authority.
 
 Predicts: after bounded C1 and C2 changes are independently reviewed, this Codex-led record can obtain its four numbers from the census rather than a hand-written path.
