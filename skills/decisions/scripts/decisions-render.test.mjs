@@ -113,7 +113,9 @@ test('normalize: runs of blank lines collapse to one', () => {
 
 test('normalize: exactly one trailing <empty-block/> is dropped', () => {
   assert.equal(normalize('a\nb\n<empty-block/>\n'), 'a\nb');
-  assert.equal(normalize('a\nb\n\t<empty-block/>\n'), 'a\nb'); // indented, still the trailing one
+  // Review round-2 NIT: compare against the exact string, not `.trim()` — an indented one is a
+  // different (nested, never page-final) thing and is left alone.
+  assert.equal(normalize('a\nb\n\t<empty-block/>\n'), 'a\nb\n\t<empty-block/>');
 });
 
 test('normalize: a non-trailing <empty-block/> is left alone', () => {
@@ -122,7 +124,7 @@ test('normalize: a non-trailing <empty-block/> is left alone', () => {
 
 test('normalize: two texts differing only by CRLF/whitespace/blank-run/trailing-empty-block compare equal', () => {
   const a = 'Line one\nLine two\n\n\nLine three\n<empty-block/>\n';
-  const b = 'Line one\r\nLine two \r\n\r\nLine three\r\n\t<empty-block/>\r\n';
+  const b = 'Line one\r\nLine two \r\n\r\nLine three\r\n<empty-block/>\r\n';
   assert.equal(normalize(a), normalize(b));
 });
 
@@ -179,6 +181,33 @@ test('checkProseLines hex rule: a bare https URL is exempt even unlinked', () =>
   assert.doesNotThrow(() => checkProseLines('see https://github.com/x/y/commit/619ad1c for detail', 'now.md'));
 });
 
+// Review round-2 M1: the exemptions were wider than the spec's "URL or a quoted owner note".
+test('checkProseLines hex rule: a sha in a markdown link\'s VISIBLE TEXT still trips it (only the link target is exempt)', () => {
+  assert.throws(() => checkProseLines('See [a806bb3](https://x.y/z).', 'x'), (e) => e instanceof RefusedError && /hex-looking token/.test(e.message));
+});
+
+test('checkProseLines hex rule: a bare quoted sha outside the "Your note/question" form still trips it', () => {
+  assert.throws(() => checkProseLines('The commit "a806bb3" broke it.', 'x'), (e) => e instanceof RefusedError && /hex-looking token/.test(e.message));
+});
+
+test('checkProseLines hex rule: a sha with an underscore neighbor still trips it (word-boundary widened)', () => {
+  assert.throws(() => checkProseLines('sha_a806bb3 broke it.', 'x'), (e) => e instanceof RefusedError && /hex-looking token/.test(e.message));
+});
+
+test('checkProseLines hex rule: a sha quoted in the spec\'s "Your note, <M-D>: ..." form is still exempt', () => {
+  assert.doesNotThrow(() => checkProseLines('- Your note, 9-27: "a806bb3 looks fine" — noted.', 'x'));
+});
+
+// Review round-2 M2: a bullet that starts with bold right after its marker still violates the
+// "plain bullet, never starting with bold" rule.
+test('checkProseLines bold rule: a bullet starting with bold right after "- " is refused', () => {
+  assert.throws(() => checkProseLines('- **Evidence** here', 'x'), (e) => e instanceof RefusedError && /starts with bold/.test(e.message));
+});
+
+test('checkProseLines bold rule: a leading escaped \\*\\* (the page\'s own comment marker) is refused outside a real comment', () => {
+  assert.throws(() => checkProseLines('\\*\\* a stray copied owner line', 'x'), (e) => e instanceof RefusedError && /starts with bold/.test(e.message));
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Time formatting — must match pack/live-page.md exactly
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +252,36 @@ test('checkWaitingItem: a shapeless <summary> (no checkbox options) is refused, 
 
 test('checkWaitingItem: a file with no decision item at all is refused, naming missing options', () => {
   assert.throws(() => checkWaitingItem('nothing here but a checkbox\n- [ ] loose', 'waiting/loose.md'), RefusedError);
+});
+
+// Review round-2 F3 (probe2): render() must never hand a caller a page decisions-read.mjs would
+// flag. checkWaitingItem is the pre-write refusal for each of the probe's four shapes.
+test('checkWaitingItem: no default and no "No default" line is refused', () => {
+  const item = GOOD_ITEM.replace(/\tDefault after 2030-06-15 18:00 -04:00: cap at 200 items per run\n/, '');
+  assert.throws(() => checkWaitingItem(item, 'waiting/no-default.md'), (e) => e instanceof RefusedError && /no default/.test(e.message));
+});
+
+test('checkWaitingItem: an overdue default is refused (DUE)', () => {
+  const item = GOOD_ITEM.replace('Default after 2030-06-15 18:00 -04:00', 'Default after 2020-01-01 00:00 -05:00');
+  assert.throws(
+    () => checkWaitingItem(item, 'waiting/overdue.md', new Date('2026-09-27T19:00:00Z')),
+    (e) => e instanceof RefusedError && /overdue default/.test(e.message),
+  );
+});
+
+test('checkWaitingItem: a pre-ticked option in the source file is refused', () => {
+  const item = GOOD_ITEM.replace('\t- [ ] Cap at 200 per run (recommended)', '\t- [x] Cap at 200 per run (recommended)');
+  assert.throws(() => checkWaitingItem(item, 'waiting/pre-ticked.md'), (e) => e instanceof RefusedError && /pre-ticked option/.test(e.message));
+});
+
+test('checkWaitingItem: a stray Done line inside the item is refused (more than one Done line)', () => {
+  const item = `${GOOD_ITEM}\n- [ ] Done\n- [ ] Done`;
+  assert.throws(() => checkWaitingItem(item, 'waiting/stray-done.md'), RefusedError);
+});
+
+test('checkWaitingItem: a stray owner comment (escaped \\*\\*) inside the item is refused', () => {
+  const item = GOOD_ITEM.replace('\t<empty-block/>', '\t\\*\\* a copied owner note\n\t<empty-block/>');
+  assert.throws(() => checkWaitingItem(item, 'waiting/stray-comment.md'), (e) => e instanceof RefusedError && /comment/.test(e.message));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

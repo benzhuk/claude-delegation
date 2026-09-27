@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { parseDocument } from './decisions-read.mjs';
+import { parseDocument, computeExitCode } from './decisions-read.mjs';
 
 /** exit 2 from the CLI: a source file breaks a rule this lane enforces before it ever writes. */
 export class RefusedError extends Error {}
@@ -44,7 +44,9 @@ export function normalize(text) {
     prevBlank = isBlank;
   }
   while (collapsed.length && collapsed[collapsed.length - 1] === '') collapsed.pop();
-  if (collapsed.length && collapsed[collapsed.length - 1].trim() === '<empty-block/>') collapsed.pop();
+  // Review round-2 NIT: compare against the exact `<empty-block/>` string (no `.trim()`) — a
+  // tab-indented trailing block is a different (indented) thing, never the page's own marker.
+  if (collapsed.length && collapsed[collapsed.length - 1] === '<empty-block/>') collapsed.pop();
   while (collapsed.length && collapsed[collapsed.length - 1] === '') collapsed.pop();
   return collapsed.join('\n');
 }
@@ -57,19 +59,21 @@ export function normalize(text) {
 // directly against synthetic strings, per the acceptance list.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const HEX_TOKEN_RE = /\b[0-9a-fA-F]{7,40}\b/g;
+const HEX_TOKEN_RE = /(?<![0-9A-Za-z])[0-9a-fA-F]{7,40}(?![0-9A-Za-z])/g;
 
 function hasLetterAndDigit(token) {
   return /[a-fA-F]/.test(token) && /[0-9]/.test(token);
 }
 
 /** Blanks out (same length, so line/col accounting stays honest) the spans exempt from the hex
- * rule: a markdown link's target, a bare URL, and a double-quoted owner note. */
+ * rule: a markdown link's `(target)` only (never its `[visible text]`, which a sha can still hide
+ * in), a bare URL, and a quoted owner note in exactly the spec's `Your note/question, <M-D>: "…"`
+ * form (review round-2 M1: a bare `"…"` span anywhere was too wide an exemption). */
 function stripExempt(line) {
   return line
-    .replace(/\[[^\]]*\]\([^)]*\)/g, (m) => ' '.repeat(m.length))
+    .replace(/\]\([^)]*\)/g, (m) => ' '.repeat(m.length))
     .replace(/https?:\/\/\S+/g, (m) => ' '.repeat(m.length))
-    .replace(/"[^"]*"/g, (m) => ' '.repeat(m.length));
+    .replace(/Your (?:note|question), [^:]*: "[^"]*"/g, (m) => ' '.repeat(m.length));
 }
 
 /** Throws RefusedError naming `sourceLabel:line` on the first violation found. */
@@ -80,7 +84,12 @@ export function checkProseLines(text, sourceLabel) {
     const lineNo = i + 1;
     const trimmed = raw.trim();
     const isSummaryLine = /^<summary>.*<\/summary>$/.test(trimmed);
-    if (!isSummaryLine && trimmed.startsWith('**')) {
+    // Review round-2 M2: strip a leading bullet/checkbox marker before testing "starts with
+    // bold" (a bullet whose bold starts right after `- ` is still a plain-bullet-with-bold
+    // violation), and also refuse a leading escaped `\*\*` (the page's own comment marker,
+    // never legitimate outside a real, captured owner comment — F3).
+    const withoutMarker = trimmed.replace(/^-\s*(?:\[[ xX]\]\s*)?/, '');
+    if (!isSummaryLine && (withoutMarker.startsWith('**') || withoutMarker.startsWith('\\*\\*'))) {
       throw new RefusedError(`${sourceLabel}:${lineNo} starts with bold outside a <summary>: ${trimmed}`);
     }
     const scanned = stripExempt(raw);
@@ -196,11 +205,49 @@ function checkLsTree(execGit, repo, relPath, label) {
 // Waiting items
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** exit 2: "a waiting item fails decisions-read.mjs (SHAPELESS or missing options)". */
-export function checkWaitingItem(text, label) {
+/** A waiting item's file is checked on its own, never inside the composed page, so the one
+ * page-level warning that only means something once every item is assembled under a real Done
+ * line ("no Done line found") is never a defect in a standalone item — excluded here, kept for
+ * the composed-page self-check below (which always carries a real Done line). */
+function itemWarnings(doc) {
+  return doc.warnings.filter((w) => w.text !== 'no Done line found');
+}
+
+function hasReadDefect(doc, warnings = doc.warnings) {
+  const actionableStatuses = new Set(['AMBIGUOUS', 'TICKED', 'COMMENTED', 'DUE']);
+  return doc.done === true
+    || doc.decisions.some((d) => actionableStatuses.has(d.status))
+    || doc.unattached.length > 0
+    || warnings.length > 0;
+}
+
+/** Names the first thing `decisions-read.mjs` would flag on `doc` — used to put a file:line-ish
+ * detail on a render-time refusal (F3) rather than a bare "computeExitCode !== 0". */
+function describeReadDefect(doc, warnings = doc.warnings) {
+  if (warnings.length) return `${warnings[0].text} (line ${warnings[0].line})`;
+  for (const d of doc.decisions) {
+    const ticked = d.options.find((o) => o.ticked);
+    if (ticked) return `a pre-ticked option "${ticked.text}" (line ${ticked.line})`;
+    if (d.comments.length) return `a comment "${d.comments[0].text}" (line ${d.comments[0].line})`;
+    if (d.status === 'DUE') return `an overdue default (line ${d.line})`;
+  }
+  if (doc.unattached.length) {
+    return `an unattached ${doc.unattached[0].kind} "${doc.unattached[0].text}" (line ${doc.unattached[0].line})`;
+  }
+  if (doc.done === true) return 'a ticked Done line';
+  return 'decisions-read.mjs would exit non-zero on this text';
+}
+
+/** exit 2: "a waiting item fails decisions-read.mjs (SHAPELESS, missing options, owner input
+ * already present, or any other page defect decisions-read.mjs would warn or act on)". Review
+ * round-2 F3: a waiting item is source, never a live page — any owner input in it, any warning
+ * (no default, an overdue default, more than one Done line, a non-decision item) is a defect to
+ * refuse before it is ever composed into the page, not something to publish and only catch at
+ * step 6. `now` is threaded through so an overdue default is refused too. */
+export function checkWaitingItem(text, label, now = new Date()) {
   let doc;
   try {
-    doc = parseDocument(text);
+    doc = parseDocument(text, { now });
   } catch (e) {
     throw new RefusedError(`${label}: unreadable by decisions-read.mjs (${e instanceof Error ? e.message : e})`);
   }
@@ -210,10 +257,14 @@ export function checkWaitingItem(text, label) {
   if (doc.decisions.length === 0) {
     throw new RefusedError(`${label}: missing options (no decision item found by decisions-read.mjs)`);
   }
+  const warnings = itemWarnings(doc);
+  if (hasReadDefect(doc, warnings)) {
+    throw new RefusedError(`${label}: carries owner input or a page defect decisions-read.mjs would flag (${describeReadDefect(doc, warnings)})`);
+  }
 }
 
 function buildWaitingSection({
-  repo, readFile, readdirSync,
+  repo, readFile, readdirSync, now,
 }) {
   const dir = path.join(repo, 'docs', 'decisions', 'waiting');
   const files = listDated(readdirSync, dir, /\.md$/);
@@ -221,7 +272,7 @@ function buildWaitingSection({
   const blocks = files.map((f) => {
     const full = path.join(dir, f);
     const text = readRequired(readFile, full, `waiting/${f}`);
-    checkWaitingItem(text, `waiting/${f}`);
+    checkWaitingItem(text, `waiting/${f}`, now);
     checkProseLines(text, `waiting/${f}`);
     return text.replace(/\s+$/, '');
   });
@@ -340,14 +391,16 @@ const COMMENT_CALLOUT = [
  * the repo-sourced render that replaces them.
  */
 export function render({
-  repo, doneLine = '- [ ] Done', dropOwnerLines = null,
+  repo, doneLine = '- [ ] Done', dropOwnerLines = null, now = new Date(),
 }, deps = {}) {
   if (!repo) throw new RefusedError('render requires --repo');
   const readFile = deps.readFile ?? defaultReadFile;
   const readdirSync = deps.readdirSync ?? defaultReaddir;
   const execGit = deps.execGit ?? defaultExecGit;
 
-  const waitingBlock = buildWaitingSection({ repo, readFile, readdirSync });
+  const waitingBlock = buildWaitingSection({
+    repo, readFile, readdirSync, now,
+  });
   const nowText = buildNowSection({ repo, readFile });
   const session = buildSessionSection({ repo, readFile });
   const historyBullets = buildHistorySection({
@@ -368,6 +421,20 @@ export function render({
   lines.push(doneLine);
   lines.push('<empty-block/>');
   const page = `${lines.join('\n')}\n`;
+
+  // Review round-2 F3: render()'s own acceptance rule, enforced — the composed page must itself
+  // be exit-0-clean by decisions-read.mjs's rules (no warnings, no actionable decision, no
+  // unattached comment/tick, Done not ticked) before it is ever handed to a caller to write.
+  // `publish()` never passes a ticked Done line, so this cannot block a legitimate publish.
+  let selfCheck;
+  try {
+    selfCheck = parseDocument(page, { now });
+  } catch (e) {
+    throw new RefusedError(`render produced a page unreadable by decisions-read.mjs: ${e instanceof Error ? e.message : e}`);
+  }
+  if (computeExitCode(selfCheck) !== 0 || selfCheck.done !== false) {
+    throw new RefusedError(`render produced a page decisions-read.mjs would flag (${describeReadDefect(selfCheck)}; done=${selfCheck.done}) — this is a renderer defect, never a source-file refusal`);
+  }
 
   if (dropOwnerLines) {
     const raw = readRequired(readFile, dropOwnerLines, '--drop-owner-lines');
