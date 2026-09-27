@@ -25,4 +25,6 @@ Final scout clarification: depth-two evidence confirms the same root session nam
 
 Active build: native builder `01a0e2a2-f888-7a23-b091-0356e340a2f4` owns C1+C2 in `C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1-c1` at `4ab6312`. The independent contract writer owns only the new `scripts/build-census.codex.contract.test.mjs` in the integration checkout; its in-progress file is not staged by the status scribe.
 
+Netcup is reachable read-only with Node 24.18.1. Its shared checkout is dirty and remains untouched; `reports/netcup-prep.md` records the later-gate requirement for a separately fetched origin worktree and complete receipts.
+
 The native lead transcript must use `C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home` as `CODEX_HOME`. The private rollout routing note is not copied into this repository.
