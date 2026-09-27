@@ -1,6 +1,6 @@
 # Lane 29, inbox-truth: the inbox never reports a packet missing it did not look for, and the skill says how a Codex peer receives
 
-Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31 (skills-fable). Spec-from: 2026-09-27T23:05:00Z. Base: 53a77f7 or later origin/main. Revision 2 after an Opus red-team (SCRATCH inbox-spec-redteam-report.md, 2026-09-27 ~7:10 PM New York); every finding is applied. Same lane flow, record metadata, rules and time rule as docs/specs/2026-09-27-followup-bundle.md. Two defects observed live today, each with its root cause in research (SCRATCH packet-missing-research-report.md, codex-notes-research-report.md); each names the measure it moves.
+Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31 (skills-fable). Spec-from: 2026-09-27T22:57:00Z (corrected from 23:05Z, which postdated the 23:04Z dispatch; the spec was written from 22:57Z, right after the root-cause report at 22:56Z). Base: 53a77f7 or later origin/main. Revision 2 after an Opus red-team (SCRATCH inbox-spec-redteam-report.md, 2026-09-27 ~7:10 PM New York); every finding is applied. Same lane flow, record metadata, rules and time rule as docs/specs/2026-09-27-followup-bundle.md. Two defects observed live today, each with its root cause in research (SCRATCH packet-missing-research-report.md, codex-notes-research-report.md); each names the measure it moves.
 
 ## Territory
 
