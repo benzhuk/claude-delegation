@@ -6,7 +6,7 @@ Authority: skills-fable ASK skills-fable-lane-22-1: build, review, live proof on
 Next: one Sonnet builder, one Opus reviewer, live schtasks proof, Netcup suite
 Lead-session: 588290d9-ee43-400b-a808-cf44c407171c
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
-Spec-from: 2026-09-27T20:40:00Z
+Spec-from: 2026-09-27T20:15:00Z
 Base: 0c926057a948c4365cf92d82d8fb584cbcc77dcd
 Opened: 2026-09-27T20:30:59Z
 Log: 2026-09-27T20:30:59Z owned skills-o pack at C:/Users/benzh/Code/windows-task/pack
