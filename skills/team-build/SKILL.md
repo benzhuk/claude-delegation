@@ -439,6 +439,8 @@ one-call loop, and never an emulation of it. Its build is measured by the same c
 definitions as a Workflow-run build, and its record says so explicitly:
 `Evidence: Codex-led, manual sequence (no Workflow tool)`.
 
+When accept-prep handles a Codex-led record, it runs the same census path and retires hand-written four-number inputs only when that report has a measured complete coverage result; a partial report remains explicitly unavailable, and lane fourteen may make refusal of hand-written Codex numbers effective after its own accept contract lands.
+
 **What breaks honestly**:
 - No warm reviewer across rounds — each fix round spawns a fresh reviewer, briefed with
   the prior findings path and commit range (a cold delta re-review, not a resumed agent).
