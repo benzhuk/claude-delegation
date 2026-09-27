@@ -15,11 +15,14 @@
 //                    new status.json is written
 //
 // Change detection: a change key is the sorted set of (branch, recordPath, state, tipSha). Equal
-// to the previous run's own recorded key -> no note, silent exit 0. Different (or no previous
-// status.json at all) -> exactly one note-send call, unless the fetch itself failed (a failed
-// fetch never wakes anyone) or --quiet / a missing note-send binary / a missing --to suppress the
-// actual send (the run still counts the key as "announced" in those last three cases: they are
-// operator/config conveniences, not a reason to re-send once they are fixed).
+// to the last ANNOUNCED key (status.json `announced`, not merely the previous run's `changeKey`:
+// a failed fetch still records a `changeKey` for its own run but must not move `announced`, or the
+// change it saw would never be announced by a later good run) -> no note, silent exit 0. Different
+// (or no previous status.json at all) -> exactly one note-send call, unless the fetch itself failed
+// (a failed fetch never wakes anyone), the --main ref does not resolve (no real state to report),
+// or --quiet / a missing note-send binary / a missing --to suppress the actual send (the run still
+// counts the key as "announced" in those last three cases: they are operator/config conveniences,
+// not a reason to re-send once they are fixed).
 //
 // node scripts/collect-status.mjs [--repo <dir>] [--main <ref>] [--no-fetch] [--skip <name>]...
 //   [--out <dir>] [--to <slug>] [--host <name>] [--merge-hours <n>=4] [--stale-hours <n>=6] [--quiet]
@@ -193,11 +196,15 @@ function sendNote({
   return { attempted: true, sent: true, reason, execPath, argv, result };
 }
 
-function atomicWrite(filePath, content) {
-  const tmp = path.join(
+function tempPathFor(filePath) {
+  return path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`,
   );
+}
+
+function atomicWrite(filePath, content) {
+  const tmp = tempPathFor(filePath);
   fs.writeFileSync(tmp, content);
   fs.renameSync(tmp, filePath);
 }
@@ -212,17 +219,49 @@ function formatNY(ms) {
   return `${get("year")}-${get("month")}-${get("day")} ${hour}:${get("minute")}:${get("second")}`;
 }
 
-export function buildStatusMd({ status, fetchStatus, sendOutcome }) {
+// Line budget for status.md (spec: "at most 60 lines"). Fixed lines (header, an optional
+// send/skip reason, the "attention (n)" count line) are never cut. What can be cut, in this
+// order, is the attention ENTRY list, then the table's rows (the table header itself is always
+// kept, one row short of empty is still useful). When either list is cut, one line is spent on
+// "(+K more, see status.json)" so the reader knows more rows exist and where to find them; that
+// line counts toward the 60 too. The table's own per-row bytes are never reformatted here: they
+// come straight out of the shared `formatTable`, just over a shorter slice.
+const STATUS_MD_LINE_BUDGET = 60;
+
+export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATUS_MD_LINE_BUDGET }) {
   const lines = [];
   let header = `generatedAt: ${status.generatedAt} (${formatNY(Date.parse(status.generatedAt))} America/New_York) `
     + `| main: ${status.main.sha ?? "unknown"} | rows: ${status.rows.length}`;
   if (fetchStatus === "failed") header += " | fetch: failed";
   lines.push(header);
-  if (sendOutcome.attempted && !sendOutcome.sent && sendOutcome.reason) lines.push(sendOutcome.reason);
+  if (sendOutcome.reason) lines.push(sendOutcome.reason);
   const attention = status.summary.attention;
   lines.push(`attention (${attention.length})`);
-  for (const a of attention) lines.push(`- ${a.branch}\t${a.recordPath ?? "-"}\t${a.state}\t${a.reason}`);
-  lines.push(formatTable(status.rows));
+
+  const fixedCount = lines.length; // header [+ reason] + the "attention (n)" line
+  const rows = status.rows;
+  // Reserve the table's own header row so the table is never starved to nothing.
+  let remaining = Math.max(0, budget - fixedCount - 1);
+  let attnShown = Math.min(attention.length, remaining);
+  let rowsShown = Math.min(rows.length, remaining - attnShown);
+  let cutAttn = attention.length - attnShown;
+  let cutRows = rows.length - rowsShown;
+  let anyCut = cutAttn > 0 || cutRows > 0;
+  if (anyCut) {
+    // Make room for the "(+K more...)" notice itself: take one line back from the table first
+    // (the attention list is the actual wake signal; keep it as complete as the budget allows).
+    if (rowsShown > 0) rowsShown -= 1;
+    else if (attnShown > 0) attnShown -= 1;
+    cutAttn = attention.length - attnShown;
+    cutRows = rows.length - rowsShown;
+  }
+
+  for (let i = 0; i < attnShown; i++) {
+    const a = attention[i];
+    lines.push(`- ${a.branch}\t${a.recordPath ?? "-"}\t${a.state}\t${a.reason}`);
+  }
+  lines.push(formatTable(rows.slice(0, rowsShown)));
+  if (anyCut) lines.push(`(+${cutAttn + cutRows} more, see status.json)`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -282,10 +321,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
         previousStatus = null;
       }
     }
-    const sameAsPrevious = Boolean(previousStatus) && previousStatus.changeKey === currentKey;
+    const sameAsPrevious = Boolean(previousStatus) && (previousStatus.announced ?? null) === currentKey;
 
     let sendOutcome = { attempted: false, sent: false, reason: null };
-    if (!fetchFailed && !sameAsPrevious) {
+    if (!fetchFailed && mainSha && !sameAsPrevious) {
       sendOutcome = sendNote({
         args, home, env, hostname, repoAbs: repo, statusMdPath: mdPath, rows, byState, attention,
         spawnNoteSend: spawnNoteSendFn, resolveNoteSendFn,
@@ -309,8 +348,13 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       announced,
     };
 
+    // Write the new status.json to a temp file BEFORE rotating the old one aside, so the window
+    // with no status.json at all shrinks to the two renames themselves (a full-disk write failure
+    // on the temp file now leaves the old status.json untouched, instead of leaving none).
+    const statusTmp = tempPathFor(statusPath);
+    fs.writeFileSync(statusTmp, `${JSON.stringify(status, null, 2)}\n`);
     if (fs.existsSync(statusPath)) fs.renameSync(statusPath, previousPath);
-    atomicWrite(statusPath, `${JSON.stringify(status, null, 2)}\n`);
+    fs.renameSync(statusTmp, statusPath);
     atomicWrite(mdPath, buildStatusMd({ status, fetchStatus, sendOutcome }));
 
     write(mdPath);

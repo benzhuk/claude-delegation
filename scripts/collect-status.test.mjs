@@ -1,8 +1,12 @@
 // node --test scripts/collect-status.test.mjs
 //
-// Reuses collect-from-origin.test.mjs's bare-remote fixture builders (spec's explicit "reuse, do
-// not fork" instruction) and its snapshotGitDir never-writes model. Every mkdtemp'd directory is
-// tracked and removed in one after() hook, same convention as collect-from-origin.test.mjs.
+// The fixture builders below (mkTmp, writeRecord, commitAll, initRepoWithOrigin, newBranch,
+// pushBranch, backToMain, snapshotGitDir) are COPIED from collect-from-origin.test.mjs, not
+// imported: collect-from-origin.test.mjs does not export them, and moving them into a shared
+// fixture module would touch a file outside this territory. They are the same code and the same
+// never-writes model, just duplicated rather than reused; flagged as a deviation in reports/C1.md.
+// Every mkdtemp'd directory is tracked and removed in one after() hook, same convention as
+// collect-from-origin.test.mjs.
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -70,8 +74,9 @@ function backToMain(root) {
   git(["checkout", "-q", "main"], root);
 }
 
+// Walks the WHOLE repo (working tree and .git both), not just .git: the spec forbids any write
+// under the repo, not only a git write, so the never-writes assertion has to cover both.
 function snapshotGitDir(root) {
-  const gitDir = path.join(root, ".git");
   const files = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -80,7 +85,7 @@ function snapshotGitDir(root) {
       else files.push(full);
     }
   };
-  walk(gitDir);
+  walk(root);
   return files
     .sort()
     .map((f) => `${path.relative(root, f)}:${crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex")}`);
@@ -159,8 +164,8 @@ test("computeChangeKey: order-independent (sorted), sensitive to any field chang
 
 test("computeAttention: accepted-unmerged boundary (over merge-hours only)", () => {
   const now = Date.parse("2026-09-27T12:00:00Z");
-  const justUnder = new Date(now - 3 * 3_600_000).toISOString(); // 3h old, threshold 4h
-  const over = new Date(now - 5 * 3_600_000).toISOString(); // 5h old
+  const justUnder = new Date(now - 4 * 3_600_000).toISOString(); // exactly 4h old: not over
+  const over = new Date(now - 4 * 3_600_000 - 1000).toISOString(); // 4h + 1s: over
   const rows = [
     { branch: "b-under", recordPath: "p1", state: "accepted-unmerged", tipDate: justUnder, hoursSinceLog: null },
     { branch: "b-over", recordPath: "p2", state: "accepted-unmerged", tipDate: over, hoursSinceLog: null },
@@ -224,6 +229,26 @@ test("buildStatusMd: header carries fetch: failed only on failure; attention fir
 
   const failedMd = buildStatusMd({ status, fetchStatus: "failed", sendOutcome: { attempted: false, sent: false, reason: null } });
   assert.ok(failedMd.split("\n")[0].includes("fetch: failed"));
+});
+
+test("buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut is marked", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({
+    branch: `feature/many-${i}`, tipSha: "a".repeat(40), tipDate: null, recordPath: null,
+    status: "no-record", artifactSha: null, merged: null, hoursSinceLog: null, state: "no-record",
+  }));
+  const attention = rows.map((r) => ({ branch: r.branch, recordPath: r.recordPath, state: r.state, reason: "no-record" }));
+  const status = {
+    generatedAt: "2026-09-27T18:20:00.000Z",
+    main: { ref: "origin/main", sha: "a".repeat(40) },
+    rows,
+    summary: { byState: { "no-record": 40 }, attention },
+  };
+  const md = buildStatusMd({ status, fetchStatus: "ok", sendOutcome: { attempted: false, sent: false, reason: null } });
+  const lineCount = md.split("\n").length - 1; // every line, not just non-empty ones
+  assert.ok(lineCount <= 60, `status.md is ${lineCount} lines`);
+  assert.match(md, /\(\+\d+ more, see status\.json\)/);
+  // attention (n) still reports the TRUE total, even though the entry list itself is capped.
+  assert.ok(md.includes("attention (40)"));
 });
 
 // ---------------------------------------------------------------------------
@@ -394,6 +419,43 @@ test("fetch failure: still writes a status (fetch: failed), sends no note, never
   assert.ok(md.includes("fetch: failed"));
 });
 
+test("a failed fetch that sees a change does not swallow it: the next good run announces it", () => {
+  const out = outTmp();
+  const spawn = fakeSpawnCounter();
+  const row = (b) => ({
+    branch: b, tipSha: "a".repeat(40), tipDate: "2026-09-27T00:00:00Z", recordPath: `docs/work/${b}.record.md`,
+    status: "owned", artifactSha: null, merged: null, hoursSinceLog: 1, state: "owned",
+  });
+  const collect = (rows, fail) => (argv, o) => {
+    if (fail) o.warn("collect-from-origin: git fetch failed, proceeding with local refs: x");
+    o.write(JSON.stringify(rows));
+    return 0;
+  };
+  const root = initRepoWithOrigin();
+  const base = { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend };
+
+  main(["--repo", root, "--out", out, "--to", "lead"], { ...base, collectMain: collect([row("b1")], false) });
+  main(["--repo", root, "--out", out, "--to", "lead"], { ...base, collectMain: collect([row("b1"), row("b2")], true) });
+  assert.equal(spawn.calls.length, 1, "failed fetch: no note");
+
+  main(["--repo", root, "--out", out, "--to", "lead"], { ...base, collectMain: collect([row("b1"), row("b2")], false) });
+  assert.equal(spawn.calls.length, 2, "the change seen during the failed fetch is announced on the next good run");
+});
+
+test("a --main ref that doesn't resolve sends no note (no real state to report)", () => {
+  const root = initRepoWithOrigin();
+  const out = outTmp();
+  const spawn = fakeSpawnCounter();
+  const code = main(
+    ["--repo", root, "--no-fetch", "--main", "origin/nope", "--out", out, "--to", "lead"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend },
+  );
+  assert.equal(code, 0);
+  assert.equal(spawn.calls.length, 0, "an unresolved --main never wakes the lead");
+  const md = fs.readFileSync(path.join(out, "status.md"), "utf8");
+  assert.ok(md.includes("main: unknown"));
+});
+
 test("never writes: every file under .git is byte-identical before and after a --no-fetch run", () => {
   const root = initRepoWithOrigin();
   newBranch(root, "feature/readonly-check");
@@ -426,6 +488,13 @@ test("status.md stays within the 60-line budget for a modest fixture", () => {
 });
 
 after(() => {
+  // Under scripts/run-tests.mjs every mkTmp'd dir here lives under FIXTURE_ROOT, and
+  // makeTempHome's own cleanup() already removes the whole sealed home (fixtureRoot included)
+  // once the child process exits (scripts/test-home.mjs). Deleting the same directories again
+  // here would be a delete outside the makeTempHome helpers (contracts.md Process); skip it in
+  // that case. Run directly (no FIXTURE_ROOT, mkTmp fell back to os.tmpdir()), nothing else
+  // cleans these up, so the explicit rmSync stays - same convention as collect-from-origin.test.mjs.
+  if (process.env.FIXTURE_ROOT) return;
   for (const dir of tracked) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });

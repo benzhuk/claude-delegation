@@ -1,64 +1,71 @@
-✔ extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything else (1.384525ms)
-✔ computeState: accepted maps by merged, rejected and withdrawn pass through as their own states, everything else is owned (0.315257ms)
-✔ hoursSinceLog: hours since the LAST Log: line in file order, null with no log or a bad date (0.242969ms)
-✔ parseArgs: flags, --main default, repeatable --skip (1.053374ms)
-✔ fullRef: origin/main -> refs/remotes/origin/main; a bare name -> refs/heads/<name>; refs/* passes through (0.266543ms)
-✔ formatTable: header row plus one tab-separated row per record, with '-' for null/undefined (0.336479ms)
-✔ bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, withdrawn, no-record all classify correctly (937.956614ms)
-✔ main branch and HEAD are never listed as rows; --skip removes a named branch (157.764273ms)
-✔ a branch with several changed records yields one row per record (R1) (169.33467ms)
-✔ a branch identical to main (no changed record) contributes zero rows (104.451189ms)
-✔ --no-fetch skips the network call entirely: origin unreachable still exits 0 on local refs (154.609351ms)
-✔ a real fetch failure still exits 0, with a stderr warning, using whatever local refs exist (80.518908ms)
-✔ attack: tip equals main and Artifact: is missing never reads as merged, even with a later-Status record on main for the same path (299.55686ms)
-✔ F1 regression: piped/subprocess --json output past 64 KiB is never truncated (2457.086549ms)
-✔ attack: a branch that has already been fully merged into main disappears entirely, even though main later rewrites the same record with a later Status (291.843619ms)
-✔ three-dot: a record main rewrote after an unmerged branch forked is not a row for that branch (280.306134ms)
-✔ no merge base (orphan branch): its record is still a row, never a confident no-record (174.611935ms)
-✔ never writes: every file under .git is byte-identical (by content hash) before and after a run (171.428406ms)
-✔ refExists: true for a real ref, false for an absent one (75.617892ms)
-✔ listOriginBranches: skips names in the skip set, strips the origin/ prefix (102.791996ms)
-✔ changedRecordPaths: diff --name-only against docs/work/*.record.md, added and identical cases (137.136382ms)
-✔ changedRecordPaths / row.recordPath: always forward-slash, never path.sep, regardless of OS (256.391821ms)
-/tmp/cstatus-out-mfxhkN/status.md
-/tmp/cstatus-out-mfxhkN/status.md
-/tmp/cstatus-out-YnBcpI/status.md
-/tmp/cstatus-out-YnBcpI/status.md
-/tmp/cstatus-out-vA2jn4/status.md
-/tmp/cstatus-out-1abJiY/status.md
-/tmp/cstatus-out-hFNmPz/status.md
-/tmp/cstatus-out-KjKyGK/status.md
-/tmp/cstatus-out-yPLLfr/status.md
-/tmp/cstatus-out-yPLLfr/status.md
-/tmp/cstatus-out-M0wd7s/status.md
-/tmp/cstatus-out-ULGmry/status.md
-/tmp/cstatus-out-YoiWrl/status.md
-✔ parseArgs: defaults and every flag (1.566549ms)
-✔ defaultOutDir: ~/.agents/collect/<basename of repo> (0.268926ms)
-✔ sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host (0.337331ms)
-✔ computeByState: counts rows per state (0.225011ms)
-✔ computeChangeKey: order-independent (sorted), sensitive to any field change (0.276677ms)
-✔ computeAttention: accepted-unmerged boundary (over merge-hours only) (0.685998ms)
-✔ computeAttention: owned + hoursSinceLog boundary (silent-over-N-h) (0.221926ms)
-✔ computeAttention: no-record always flagged; unparseable tipDate never confidently flagged (0.207655ms)
-✔ resolveNoteSend: prefers ~/.local/bin/note-send when executable, else PATH, else null (0.857217ms)
-✔ buildStatusMd: header carries fetch: failed only on failure; attention first, then formatTable's table (15.61766ms)
-✔ status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced (157.035129ms)
-✔ change key equal across two runs with no repo change: zero note-send calls (184.677854ms)
-✔ change key different: exactly one call, kind RESULT, --no-type present (176.984304ms)
-✔ --quiet: key differs but note-send is never invoked; status still written (79.719079ms)
-✔ missing note-send on PATH: writes status anyway, exits 0, says so in status.md (80.674996ms)
-✔ missing --to: skips the send, still writes status, still exits 0 (88.222164ms)
-✔ atomic write: no temp file left behind under --out after a run (86.763287ms)
-✔ previous.json rotation: prior status.json is renamed aside, not copied, before the new write (175.603104ms)
-✔ fetch failure: still writes a status (fetch: failed), sends no note, never updates announced (108.250176ms)
-✔ never writes: every file under .git is byte-identical before and after a --no-fetch run (182.98359ms)
-✔ status.md stays within the 60-line budget for a modest fixture (476.463877ms)
-ℹ tests 43
+✔ extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything else (1.162552ms)
+✔ computeState: accepted maps by merged, rejected and withdrawn pass through as their own states, everything else is owned (0.139219ms)
+✔ hoursSinceLog: hours since the LAST Log: line in file order, null with no log or a bad date (0.151718ms)
+✔ parseArgs: flags, --main default, repeatable --skip (0.692455ms)
+✔ fullRef: origin/main -> refs/remotes/origin/main; a bare name -> refs/heads/<name>; refs/* passes through (0.208074ms)
+✔ formatTable: header row plus one tab-separated row per record, with '-' for null/undefined (0.303799ms)
+✔ bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, withdrawn, no-record all classify correctly (972.086266ms)
+✔ main branch and HEAD are never listed as rows; --skip removes a named branch (169.699753ms)
+✔ a branch with several changed records yields one row per record (R1) (162.331524ms)
+✔ a branch identical to main (no changed record) contributes zero rows (103.074403ms)
+✔ --no-fetch skips the network call entirely: origin unreachable still exits 0 on local refs (160.706563ms)
+✔ a real fetch failure still exits 0, with a stderr warning, using whatever local refs exist (90.586462ms)
+✔ attack: tip equals main and Artifact: is missing never reads as merged, even with a later-Status record on main for the same path (325.444676ms)
+✔ F1 regression: piped/subprocess --json output past 64 KiB is never truncated (2425.001668ms)
+✔ attack: a branch that has already been fully merged into main disappears entirely, even though main later rewrites the same record with a later Status (255.283648ms)
+✔ three-dot: a record main rewrote after an unmerged branch forked is not a row for that branch (249.513197ms)
+✔ no merge base (orphan branch): its record is still a row, never a confident no-record (171.493833ms)
+✔ never writes: every file under .git is byte-identical (by content hash) before and after a run (165.565424ms)
+✔ refExists: true for a real ref, false for an absent one (76.08676ms)
+✔ listOriginBranches: skips names in the skip set, strips the origin/ prefix (107.479568ms)
+✔ changedRecordPaths: diff --name-only against docs/work/*.record.md, added and identical cases (130.025684ms)
+✔ changedRecordPaths / row.recordPath: always forward-slash, never path.sep, regardless of OS (166.876782ms)
+/tmp/cstatus-out-AZACLN/status.md
+/tmp/cstatus-out-AZACLN/status.md
+/tmp/cstatus-out-8ZHvyc/status.md
+/tmp/cstatus-out-8ZHvyc/status.md
+/tmp/cstatus-out-EGZ17l/status.md
+/tmp/cstatus-out-MD87HE/status.md
+/tmp/cstatus-out-C6dgvj/status.md
+/tmp/cstatus-out-VgA4iC/status.md
+/tmp/cstatus-out-roJ8Ad/status.md
+/tmp/cstatus-out-roJ8Ad/status.md
+/tmp/cstatus-out-Z6Lnjv/status.md
+/tmp/cstatus-out-EXWvfA/status.md
+/tmp/cstatus-out-EXWvfA/status.md
+/tmp/cstatus-out-EXWvfA/status.md
+/tmp/cstatus-out-5Tj5Ry/status.md
+/tmp/cstatus-out-jBE30e/status.md
+/tmp/cstatus-out-KZKK37/status.md
+✔ parseArgs: defaults and every flag (1.670459ms)
+✔ defaultOutDir: ~/.agents/collect/<basename of repo> (0.136285ms)
+✔ sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host (0.24458ms)
+✔ computeByState: counts rows per state (0.171169ms)
+✔ computeChangeKey: order-independent (sorted), sensitive to any field change (0.223337ms)
+✔ computeAttention: accepted-unmerged boundary (over merge-hours only) (0.633786ms)
+✔ computeAttention: owned + hoursSinceLog boundary (silent-over-N-h) (0.15288ms)
+✔ computeAttention: no-record always flagged; unparseable tipDate never confidently flagged (0.136596ms)
+✔ resolveNoteSend: prefers ~/.local/bin/note-send when executable, else PATH, else null (0.681236ms)
+✔ buildStatusMd: header carries fetch: failed only on failure; attention first, then formatTable's table (14.353403ms)
+✔ buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut is marked (0.661508ms)
+✔ status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced (174.643537ms)
+✔ change key equal across two runs with no repo change: zero note-send calls (209.344541ms)
+✔ change key different: exactly one call, kind RESULT, --no-type present (193.011303ms)
+✔ --quiet: key differs but note-send is never invoked; status still written (82.70702ms)
+✔ missing note-send on PATH: writes status anyway, exits 0, says so in status.md (78.233193ms)
+✔ missing --to: skips the send, still writes status, still exits 0 (81.921124ms)
+✔ atomic write: no temp file left behind under --out after a run (90.454001ms)
+✔ previous.json rotation: prior status.json is renamed aside, not copied, before the new write (184.008679ms)
+✔ fetch failure: still writes a status (fetch: failed), sends no note, never updates announced (99.136054ms)
+✔ a failed fetch that sees a change does not swallow it: the next good run announces it (99.784682ms)
+✔ a --main ref that doesn't resolve sends no note (no real state to report) (74.714608ms)
+✔ never writes: every file under .git is byte-identical before and after a --no-fetch run (177.047714ms)
+✔ status.md stays within the 60-line budget for a modest fixture (517.166857ms)
+ℹ tests 46
 ℹ suites 0
-ℹ pass 43
+ℹ pass 46
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 5979.914926
+ℹ duration_ms 5838.943206
