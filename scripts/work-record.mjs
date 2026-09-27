@@ -486,6 +486,227 @@ function acceptanceError(message, code = "acceptance-failed") {
   return error;
 }
 
+// ── measure-truth-1 (contracts.md R1-R4) ────────────────────────────────────────────
+//
+// R1: strict cutoff. This lane's own Opened: - a record whose effective opened instant
+// is at or after this is "strict" and gets the R2/R3 refusals below instead of warnings.
+// No CLI flag exists to move this: `strictFrom` in opts is for tests only (contracts.md
+// R1).
+export const STRICT_FROM = "2026-09-27T08:32:15Z";
+
+const STALL_WORD_RE = /\b(hung|stall(ed|s|ing)?|relaunch(ed|es|ing)?)\b/i;
+const APPROVE_WORD_RE = /\bAPPROVE\b/i;
+const SKIPPED_WORD_RE = /\bSKIPPED\b/i;
+// R2: strict Spec-from must be a UTC instant ending in Z; an offset (`-04:00`) is
+// refused even though it is a valid ISO-8601 timestamp - the census reads Spec-from as a
+// window start and needs a fixed zone. SPEC_FROM_OFFSET_RE recognises the offset shape so
+// the refusal's fix line can name it specifically.
+const SPEC_FROM_STRICT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/;
+const SPEC_FROM_OFFSET_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?[+-]\d{2}:?\d{2}$/;
+const BASE_SHA_RE = /^[0-9a-fA-F]{40}$/;
+
+// R3: the tiers table's own tokens (docs/model-tiers.md), hardcoded here and kept in
+// sync by a test that parses that table's rows and fails if they differ.
+export const MODEL_TIER_TOKENS = [
+  ["top", "Fable"], ["top", "GPT-6-Astra"],
+  ["high", "Opus"], ["high", "GPT-5.6-Sol"],
+  ["mid", "Sonnet"], ["mid", "GPT-5.6-Terra"],
+  ["fast", "Haiku"], ["fast", "GPT-5.6-Luna"], ["fast", "GPT-5.3-Codex-Spark"],
+];
+
+function escapeToken(t) {
+  return t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Whole-word, case-insensitive, bounded by a non-[A-Za-z0-9.] character or a string edge
+// (R3) - "claude-opus-5-5" counts as Opus because "-" sits outside that class on both
+// sides of the match.
+function tokenMatchIndexes(text, token) {
+  const re = new RegExp(`(?<![A-Za-z0-9.])${escapeToken(token)}(?![A-Za-z0-9.])`, "gi");
+  const indexes = [];
+  let m;
+  while ((m = re.exec(text)) !== null) indexes.push(m.index);
+  return indexes;
+}
+
+// R3 negation: "no", "not" or "without" within the two words immediately before the
+// match - e.g. "no Opus reviewer was used" names no model. Punctuation around the
+// negating word is stripped before comparing.
+function isNegatedMatch(text, index) {
+  const before = text.slice(0, index).trim();
+  const words = before.split(/\s+/).filter(Boolean).slice(-2);
+  return words.some((w) => /^[("'[]*(no|not|without)[.,;:!?)"'\]]*$/i.test(w));
+}
+
+// -> Set of tiers ("top"/"high"/"mid"/"fast") whose token is present in `note`, whole-word
+// and not negated. Exported so a test can assert the negation/boundary rules directly.
+export function countedModelTiers(note) {
+  const text = note ?? "";
+  const tiers = new Set();
+  for (const [tier, token] of MODEL_TIER_TOKENS) {
+    for (const index of tokenMatchIndexes(text, token)) {
+      if (!isNegatedMatch(text, index)) tiers.add(tier);
+    }
+  }
+  return tiers;
+}
+
+// R1: the effective opened instant is the later of Opened: and the author time of the
+// first git commit that added the record file - or Opened: alone when there is no
+// repoRoot/recordPath to check (a fresh, uncommitted record), or git has no add-commit
+// for that path at all. Never throws: a git failure here just falls back to Opened:.
+function effectiveOpenedMs(record, opts) {
+  const openedMs = Date.parse(record.fields.opened ?? "");
+  if (!opts.repoRoot || !opts.recordPath) return openedMs;
+  const spawnImpl = opts.spawnImpl ?? spawnSync;
+  try {
+    const result = spawnImpl(
+      "git",
+      ["-C", opts.repoRoot, "log", "--diff-filter=A", "--format=%aI", "--", opts.recordPath],
+      { encoding: "utf8", stdio: "pipe" },
+    );
+    if (result.error || result.status !== 0) return openedMs;
+    const stamps = String(result.stdout ?? "")
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((l) => Date.parse(l))
+      .filter((t) => !Number.isNaN(t));
+    if (stamps.length === 0) return openedMs;
+    const firstAddMs = Math.min(...stamps);
+    return Number.isNaN(openedMs) ? firstAddMs : Math.max(openedMs, firstAddMs);
+  } catch {
+    return openedMs;
+  }
+}
+
+// R1: opts: { strictFrom?, repoRoot?, recordPath?, spawnImpl? }. `strictFrom` defaults to
+// the frozen STRICT_FROM constant; only tests override it.
+export function isStrictRecord(record, opts = {}) {
+  const strictFrom = opts.strictFrom ?? STRICT_FROM;
+  const cutoffMs = Date.parse(strictFrom);
+  const openedMs = effectiveOpenedMs(record, opts);
+  return !Number.isNaN(openedMs) && !Number.isNaN(cutoffMs) && openedMs >= cutoffMs;
+}
+
+// A body paragraph starting unindented `Stall:` or `Gap:` (R4's named exemption) -
+// deliberately simple (this check is "coarse" by the doc's own word): any body line, at
+// column zero, starting with one of those two labels and nonempty content.
+function hasStallOrGapParagraph(text) {
+  const lines = text.split(/\r?\n/);
+  const blank = lines.findIndex((l) => l.trim() === "");
+  const body = blank === -1 ? [] : lines.slice(blank + 1);
+  return body.some((line) => /^(Stall|Gap):[ \t]*\S/.test(line));
+}
+
+/**
+ * The measure-truth-1 rules (contracts.md R1-R4), factored out of checkAcceptance so a
+ * caller (a test, in particular R5's real-record fixtures) can run exactly these
+ * field/format/model/stall checks against a record's own text without a git-backed
+ * worktree, artifact, or evidence - none of which these rules touch. Throws
+ * acceptanceError (named field + fix, or an offending Log: line's timestamp) exactly as
+ * contracts.md R1-R4 specify; returns `{ strict, warnings }` on success. Every other
+ * acceptance concern (Status/shape/git identity/evidence) is checkAcceptance's own job,
+ * before and after this call.
+ * opts: { repoRoot?, recordPath?, spawnImpl?, strictFrom?, now?, acceptAt? }
+ */
+export function checkMeasureTruthRules(text, record, opts = {}) {
+  const strictFrom = opts.strictFrom ?? STRICT_FROM;
+  const strictFromMs = Date.parse(strictFrom);
+  const strict = isStrictRecord(record, opts);
+  const warnings = [];
+
+  // R2: Base - unconditional, strict or not. "Every record is refused on Base: unless it
+  // is exactly one 40-hex sha."
+  const base = typeof record.fields.base === "string" ? record.fields.base.trim() : "";
+  if (!BASE_SHA_RE.test(base)) {
+    throw acceptanceError(
+      `Base: is "${record.fields.base ?? "<missing>"}", not exactly one 40-hex sha; set Base: to the single 40-character git sha this build's Base pinned`,
+      "base-invalid",
+    );
+  }
+
+  if (strict) {
+    // R2: Spec-session/Spec-from are refusals, not warnings, on a strict record.
+    if (!isSessionId(record.fields.specSession)) {
+      throw acceptanceError(
+        "Spec-session: is absent or a placeholder; set Spec-session: to the real session id that authored the spec this build reads",
+        "spec-session-missing",
+      );
+    }
+    const specFrom = typeof record.fields.specFrom === "string" ? record.fields.specFrom.trim() : "";
+    if (!SPEC_FROM_STRICT_RE.test(specFrom)) {
+      const isOffset = SPEC_FROM_OFFSET_RE.test(specFrom);
+      throw acceptanceError(
+        isOffset
+          ? `Spec-from: "${specFrom}" is an offset, not a UTC Z instant; convert it to UTC and write the Z form`
+          : "Spec-from: is absent, or not an ISO-8601 UTC instant ending in Z; set Spec-from: to a UTC timestamp such as 2026-09-27T08:32:15Z",
+        "spec-from-missing",
+      );
+    }
+
+    // R3: model tokens on reviewed/APPROVE Log lines dated on/after STRICT_FROM.
+    let hasHighTopApprove = false;
+    for (const line of record.log ?? []) {
+      const ms = Date.parse(line.at);
+      if (Number.isNaN(ms) || ms < strictFromMs) continue;
+      const status = (line.status ?? "").toLowerCase();
+      const note = line.note ?? "";
+      const approves = APPROVE_WORD_RE.test(note);
+      const isReviewed = status === "reviewed";
+      if (!isReviewed && !approves) continue; // not covered by R3 at all
+      if (isReviewed && SKIPPED_WORD_RE.test(note)) continue; // the loop's "seam SKIPPED"
+      const tiers = countedModelTiers(note);
+      if (tiers.size === 0) {
+        throw acceptanceError(
+          `Log: ${line.at} ${status} line's note names no counted model token (docs/model-tiers.md); add one, e.g. "Opus reviewer"`,
+          "log-model-missing",
+        );
+      }
+      if (isReviewed && approves && (tiers.has("high") || tiers.has("top"))) hasHighTopApprove = true;
+    }
+    if (!hasHighTopApprove) {
+      throw acceptanceError(
+        "no Log: reviewed line dated on/after STRICT_FROM names both a high- or top-tier model token and the word APPROVE",
+        "log-model-missing",
+      );
+    }
+  } else {
+    warnings.push(`strict-exempt: Opened before ${strictFrom}; Spec-session/Spec-from/model rules are warnings for this record`);
+  }
+
+  // R4: stall-word check - every record, strict or not, scoped to [Opened, accept instant].
+  const openedMs = Date.parse(record.fields.opened ?? "");
+  const acceptInstant = opts.acceptAt !== undefined ? new Date(opts.acceptAt) : (opts.now ?? new Date());
+  const acceptMs = acceptInstant.getTime();
+  const stallLines = (record.log ?? []).filter((line) => {
+    const ms = Date.parse(line.at);
+    if (Number.isNaN(ms)) return false;
+    if (!Number.isNaN(openedMs) && ms < openedMs) return false;
+    if (!Number.isNaN(acceptMs) && ms > acceptMs) return false;
+    return STALL_WORD_RE.test(line.note ?? "");
+  });
+  if (stallLines.length > 0) {
+    if ((record.fourNumbers ?? []).length === 0) {
+      warnings.push(
+        `stall-word-check-skipped: no Four numbers: line present (no --four-read run); the hung/stall/relaunch check on Log: ${stallLines[0].at} was skipped`,
+      );
+    } else {
+      const fourNumberLine = record.fourNumbers.find((l) => /^Work lost or stalled:/i.test(l));
+      const leadingMatch = fourNumberLine ? /^Work lost or stalled:\s*(\d+)/i.exec(fourNumberLine) : null;
+      const nonZero = leadingMatch ? Number(leadingMatch[1]) !== 0 : false;
+      if (!nonZero && !hasStallOrGapParagraph(text)) {
+        throw acceptanceError(
+          `Log: ${stallLines[0].at} ${stallLines[0].status} names a hung/stall/relaunch word, but Four numbers: Work lost or stalled: is zero or missing and no Stall:/Gap: body paragraph explains it`,
+          "stall-word-unexplained",
+        );
+      }
+    }
+  }
+
+  return { strict, warnings };
+}
+
 function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
   if (!relativePath || path.isAbsolute(relativePath)) {
     throw acceptanceError(`path must be repository-relative: ${relativePath || "<empty>"}`);
@@ -817,6 +1038,14 @@ export function checkAcceptance(opts = {}) {
     );
   }
 
+  // measure-truth-1 (contracts.md R1-R4): strict cutoff, Base/Spec-session/Spec-from
+  // field refusals, model tokens on reviewed/APPROVE Log lines, and the hung/stall/
+  // relaunch check - factored into one call so R5's real-record fixtures can exercise it
+  // directly (see checkMeasureTruthRules above) without any of the git-backed checks
+  // below it. Throws before any of them run; on success, its warnings (strict-exempt,
+  // or the stall-check-skipped notice) are merged into the result below.
+  const measureTruth = checkMeasureTruthRules(text, record, { ...opts, repoRoot, spawnImpl });
+
   // census-stale (C2 spec item 2): opt-in here - only runs when a caller passes
   // --census, so every census-agnostic caller (check-acceptance's existing read-only
   // uses, and every pre-census test of this function) is unaffected. The MANDATORY
@@ -969,8 +1198,11 @@ export function checkAcceptance(opts = {}) {
 
   // spec-session/spec-from (R2, four-number read spec.md item 2): missing is a WARN, not
   // a refusal - the read itself prints the token number as "partial (no spec slice)"
-  // when these are absent; this only surfaces the fact for a caller to see.
-  const warnings = [];
+  // when these are absent; this only surfaces the fact for a caller to see. Unchanged by
+  // measure-truth-1 (contracts.md R1: "Keep the existing WARN text for non-strict
+  // records") - on a strict record these same fields are refused above, in
+  // checkMeasureTruthRules, before this point is ever reached.
+  const warnings = [...measureTruth.warnings];
   if (!isSessionId(record.fields.specSession)) {
     warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
   }
