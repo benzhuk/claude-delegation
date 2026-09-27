@@ -1,0 +1,6 @@
+OUTER_SSH_EXIT=1
+START_UTC=2026-09-27T23:20:20.7816968Z
+END_UTC=2026-09-27T23:20:24.3292532Z
+TESTED_SHA=d1345220822651c762fa5a5a461e5bbe94620c7c
+NODE_PRE_RESOLVED=/home/ben/.local/state/fnm_multishells/393699_1790551126615/bin/node
+TRANSPORT=LF-safe base64 payload; prior PowerShell parse failure occurred before SSH launch

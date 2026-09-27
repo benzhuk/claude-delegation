@@ -1,0 +1,854 @@
+{
+  "combined": {
+    "gpt-5.6-terra": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 7899648,
+      "derived_total_tokens": 8399452,
+      "input_tokens": 454467,
+      "native_input_tokens": 8354115,
+      "output_tokens": 45337,
+      "reasoning_output_tokens": 12453,
+      "total_tokens": 8399452,
+      "unavailable": []
+    },
+    "gpt-6-astra": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 6604160,
+      "derived_total_tokens": 6727644,
+      "input_tokens": 106223,
+      "native_input_tokens": 6710383,
+      "output_tokens": 17261,
+      "reasoning_output_tokens": 4924,
+      "total_tokens": 6727644,
+      "unavailable": []
+    }
+  },
+  "defaultSubagentsDir": null,
+  "lead": {
+    "codex": {
+      "discovery": {
+        "candidates": 28,
+        "excluded": [
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
+            "reason": "duplicate lead/path"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-06-50-01a0df1c-ef5c-7870-b029-e1f02e2e5109.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-36-12-01a0df37-d1c4-7d33-a1ec-8ac16ce15d23.jsonl",
+            "reason": "unrelated"
+          }
+        ],
+        "home": "canonical",
+        "horizonUtcDays": [
+          "2026-09-26",
+          "2026-09-27"
+        ],
+        "malformedFiles": [],
+        "selectedLeadIdentityVerified": true,
+        "unreadableDirs": [],
+        "unreadableFiles": []
+      },
+      "effectiveWindow": {
+        "from": "2026-09-27T23:04:00.000Z",
+        "to": "2026-09-27T23:24:38.700Z"
+      },
+      "responseTimeline": [
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a10d21a087d18f65d2094c4b467c",
+          "timestamp": "2026-09-27T23:05:02.995Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a120363087d1903b9b05aefd49f7",
+          "timestamp": "2026-09-27T23:05:30.180Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a13d025087d197f1113d8a172e6c",
+          "timestamp": "2026-09-27T23:05:47.710Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a151299887d1a0460c2b6ba69035",
+          "timestamp": "2026-09-27T23:06:12.511Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1662fd887d1b0497c2ace6957bb",
+          "timestamp": "2026-09-27T23:06:40.078Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a180fef087d1b730456b3f9625d7",
+          "timestamp": "2026-09-27T23:06:54.378Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a18f68fc87d184fab3eacd4f3bfd",
+          "timestamp": "2026-09-27T23:07:14.333Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1a469fc87d190bb234d60ccc0eb",
+          "timestamp": "2026-09-27T23:07:39.591Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1c5d2b487d1b046ce2995b6a849",
+          "timestamp": "2026-09-27T23:08:11.309Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1dc6b4487d1a27f834858801d26",
+          "timestamp": "2026-09-27T23:08:19.699Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1e468b887d18ecc8278446421f3",
+          "timestamp": "2026-09-27T23:08:36.273Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1f5224087d1b43a6f56f053bb9c",
+          "timestamp": "2026-09-27T23:08:41.768Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a1fb0d8487d19dbd5853c5048742",
+          "timestamp": "2026-09-27T23:08:48.798Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a2019f0c87d19bbab6d20958436c",
+          "timestamp": "2026-09-27T23:08:58.502Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a20b981487d19ca6de43dcce06e1",
+          "timestamp": "2026-09-27T23:09:08.115Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a236f18487d185baea44c36be126",
+          "timestamp": "2026-09-27T23:10:14.493Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a25ac3b087d1ab8fa7eb43cbc9c8",
+          "timestamp": "2026-09-27T23:10:42.857Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a273ec4087d19ccb4169e564511a",
+          "timestamp": "2026-09-27T23:11:05.690Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a28a943487d1bab7b9bb2687185b",
+          "timestamp": "2026-09-27T23:11:29.174Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a2a9efd087d1aa45f58e83ed5053",
+          "timestamp": "2026-09-27T23:11:47.228Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a2b3ed0487d196e8179c01a7f354",
+          "timestamp": "2026-09-27T23:11:56.113Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a2dbf99087d1a51b3603fb60a4ac",
+          "timestamp": "2026-09-27T23:12:35.867Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a2e9d95087d1a259f484624a8d43",
+          "timestamp": "2026-09-27T23:12:51.806Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a2f4ccc487d1a91b296238fe7711",
+          "timestamp": "2026-09-27T23:13:00.726Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a30ad98c87d1a1dfa5cb72f7f282",
+          "timestamp": "2026-09-27T23:13:17.027Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a317c60087d18b01b7d193e024cb",
+          "timestamp": "2026-09-27T23:13:44.282Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a329a45087d189d136ccb9554e0d",
+          "timestamp": "2026-09-27T23:13:49.129Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a33dcbd887d1b7077fa8999c24e4",
+          "timestamp": "2026-09-27T23:14:12.432Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a34587e887d1beb5bf6cb75d6513",
+          "timestamp": "2026-09-27T23:14:31.926Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a359158887d1b01d83153b0fabe9",
+          "timestamp": "2026-09-27T23:14:49.728Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a36add8487d198cd87cd2ba36f06",
+          "timestamp": "2026-09-27T23:15:04.307Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a384b80887d1888a43bc4397db35",
+          "timestamp": "2026-09-27T23:15:25.796Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a38e859087d19f7100f9ea5302a0",
+          "timestamp": "2026-09-27T23:15:34.446Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a39836f087d18edd5692a7ce2e2e",
+          "timestamp": "2026-09-27T23:15:53.425Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a3aa314487d189a817f7a3c7dd16",
+          "timestamp": "2026-09-27T23:16:20.082Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a3c4e8f087d19f1a4846528a4684",
+          "timestamp": "2026-09-27T23:16:28.926Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a3cde18087d19bd1e2a90d8a19cf",
+          "timestamp": "2026-09-27T23:16:35.983Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a3d4c71087d1991c85616d0e74ab",
+          "timestamp": "2026-09-27T23:16:41.636Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a3daaffc87d18b3de912471c0d49",
+          "timestamp": "2026-09-27T23:17:23.013Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a404a8d087d1aa20df010357b46b",
+          "timestamp": "2026-09-27T23:17:51.151Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a41fe41087d1babf765d17c5d044",
+          "timestamp": "2026-09-27T23:18:16.860Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a439e64087d1ad899ee67e4d8ace",
+          "timestamp": "2026-09-27T23:18:48.668Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a45a0d2887d1ac991b19810d026e",
+          "timestamp": "2026-09-27T23:19:09.673Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a47873e887d1b20bb54fd3733a94",
+          "timestamp": "2026-09-27T23:19:37.283Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a4a4f77487d1af84b43d2e240f13",
+          "timestamp": "2026-09-27T23:20:17.267Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a4b2073887d1b66bce291a4e5336",
+          "timestamp": "2026-09-27T23:20:41.892Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a4cb031487d188e5ad0e83c2c94e",
+          "timestamp": "2026-09-27T23:21:00.438Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a4dd239c87d1a982dedc9b3481fc",
+          "timestamp": "2026-09-27T23:21:14.254Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a50adce087d18ec21580ab18f988",
+          "timestamp": "2026-09-27T23:21:54.705Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a520347087d188266bf44b592bd1",
+          "timestamp": "2026-09-27T23:22:20.241Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a52cfffc87d19e45321e39c1f793",
+          "timestamp": "2026-09-27T23:22:41.896Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a542a2f087d1b18382db46c4e189",
+          "timestamp": "2026-09-27T23:23:05.316Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a55a661487d1846fdd8f8d57d40f",
+          "timestamp": "2026-09-27T23:23:22.699Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a5912c0887d188d1aae622b659aa",
+          "timestamp": "2026-09-27T23:24:07.688Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016ab9a598614087d1af523f65227d0a2e",
+          "timestamp": "2026-09-27T23:24:29.400Z",
+          "turnId": "01a0e51d-180b-7b51-ab2d-ca994e83ced8"
+        }
+      ],
+      "responseTimelineComplete": true,
+      "unavailable": []
+    },
+    "coverageReason": null,
+    "coverageSupported": true,
+    "host": "codex",
+    "leadLastMessageAt": "2026-09-27T23:24:40.060Z",
+    "leadTurns": 1,
+    "leadTurnsTotal": 14,
+    "markerFound": true,
+    "nativeTurnCount": 14,
+    "nativeTurnCountWindow": 1,
+    "observedLeadRequests": 55,
+    "observedLeadTokens": 6499184,
+    "observedNativeTurnCount": 14,
+    "observedNativeTurnCountWindow": 1,
+    "observedTotalByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 84920704,
+        "derived_total_tokens": 86519852,
+        "input_tokens": 1352292,
+        "native_input_tokens": 86272996,
+        "output_tokens": 246856,
+        "reasoning_output_tokens": 106503,
+        "total_tokens": 86519852,
+        "unavailable": []
+      }
+    },
+    "observedWindowByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6399872,
+        "derived_total_tokens": 6499184,
+        "input_tokens": 84431,
+        "native_input_tokens": 6484303,
+        "output_tokens": 14881,
+        "reasoning_output_tokens": 4806,
+        "total_tokens": 6499184,
+        "unavailable": []
+      }
+    },
+    "sessionId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+    "totalByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 84920704,
+        "derived_total_tokens": 86519852,
+        "input_tokens": 1352292,
+        "native_input_tokens": 86272996,
+        "output_tokens": 246856,
+        "reasoning_output_tokens": 106503,
+        "total_tokens": 86519852,
+        "unavailable": []
+      }
+    },
+    "totalTurns": 753,
+    "turnsPerHour": 165.83595139164,
+    "wallClockHours": 0.3316530555555556,
+    "windowByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6399872,
+        "derived_total_tokens": 6499184,
+        "input_tokens": 84431,
+        "native_input_tokens": 6484303,
+        "output_tokens": 14881,
+        "reasoning_output_tokens": 4806,
+        "total_tokens": 6499184,
+        "unavailable": []
+      }
+    },
+    "windowEndAt": "2026-09-27T23:24:38.259Z",
+    "windowStartAt": "2026-09-27T23:04:44.308Z",
+    "windowTurns": 55
+  },
+  "leadPath": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
+  "marker": null,
+  "subagents": {
+    "excludedByWindow": 1692,
+    "fileCount": 25,
+    "incomplete": false,
+    "perFile": [
+      {
+        "agentNickname": "Lovelace",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 97,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T16-01-40-01a0df4f-22fb-7470-8fa3-4c65985f778b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Avicenna",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 14,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T16-01-59-01a0df4f-6df1-79e2-bb8b-fb9b45a91596.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Goodall",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 39,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T16-03-11-01a0df50-8480-71d0-8fa4-a29c1a4ed66c.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Pasteur",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T18-43-40-01a0dfe3-715f-7a71-88bd-2867e2403bed.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Euler",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 291,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T18-44-04-01a0dfe3-cc6e-7f92-986e-0cd18accb121.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Pascal",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 49,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T18-51-04-01a0dfea-3494-7f81-88b0-d854a37cbbca.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Raman",
+        "byModel": {
+          "gpt-5.6-terra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 5277952,
+            "derived_total_tokens": 5626075,
+            "input_tokens": 319985,
+            "native_input_tokens": 5597937,
+            "output_tokens": 28138,
+            "reasoning_output_tokens": 7936,
+            "total_tokens": 5626075,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 577,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-19-28-01a0e297-6632-7fc0-8d9d-7e3de75325c8.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "integrator",
+        "turns": 63
+      },
+      {
+        "agentNickname": "Confucius",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 111,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-19-54-01a0e297-cf24-7fb3-828b-e3dc14ef1df3.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Sartre",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 8,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-20-41-01a0e298-8265-7d61-9f78-17535db6e244.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Heisenberg",
+        "byModel": {},
+        "depth": 2,
+        "excludedByWindow": 2,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-27-30-01a0e29e-c19d-7aa2-8cb4-a092c9967d6f.jsonl",
+        "parentId": "01a0e297-cf24-7fb3-828b-e3dc14ef1df3",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Faraday",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 40,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-32-06-01a0e2a2-f888-7a23-b091-0356e340a2f4.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "builder",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Anscombe",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 67,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-54-47-01a0e2b7-bd02-7bd1-b289-1147b973f7d6.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Averroes",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 92,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-55-46-01a0e2b8-a508-7581-a556-b1cf5ea95e4d.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "reviewer",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Carson",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 107,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T08-02-31-01a0e2be-cfa6-7cb3-96ee-8bdf0e1873c7.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Popper",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T10-07-08-01a0e330-e8b0-7b53-9d46-45f5ba4bee27.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Planck",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 39,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T10-09-52-01a0e333-687a-7b43-ae05-d851e0982ecb.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Maxwell",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 33,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-32-29-01a0e491-b64d-7ff3-9b41-e4114bc48457.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Kierkegaard",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 8,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-33-34-01a0e492-b42f-7723-abe7-8a0b3165ef4e.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Boyle",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 56,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-35-32-01a0e494-80c7-77f3-b49b-4eb917e00765.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Lorentz",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 12,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-47-20-01a0e49f-4c9c-7b83-ad60-3fa163402e8e.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Turing",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-56-17-01a0e4a7-7e81-78f1-bc5c-d684d8f283ba.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Sagan",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 11,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T17-13-00-01a0e4b6-cba2-7412-b770-2de18d8665b9.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Schrodinger",
+        "byModel": {
+          "gpt-5.6-terra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 1001216,
+            "derived_total_tokens": 1074758,
+            "input_tokens": 66451,
+            "native_input_tokens": 1067667,
+            "output_tokens": 7091,
+            "reasoning_output_tokens": 1696,
+            "total_tokens": 1074758,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T19-06-40-01a0e51e-dcdf-7f03-b298-e7f014bd048b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 17
+      },
+      {
+        "agentNickname": "Meitner",
+        "byModel": {
+          "gpt-5.6-terra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 1620480,
+            "derived_total_tokens": 1698619,
+            "input_tokens": 68031,
+            "native_input_tokens": 1688511,
+            "output_tokens": 10108,
+            "reasoning_output_tokens": 2821,
+            "total_tokens": 1698619,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T19-10-43-01a0e522-9122-7593-9dce-2a1739d9897e.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 34
+      },
+      {
+        "agentNickname": "Godel",
+        "byModel": {
+          "gpt-6-astra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 204288,
+            "derived_total_tokens": 228460,
+            "input_tokens": 21792,
+            "native_input_tokens": 226080,
+            "output_tokens": 2380,
+            "reasoning_output_tokens": 118,
+            "total_tokens": 228460,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 0,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T19-14-32-01a0e526-0fdb-7ed2-a3c0-6d265519c972.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 7
+      }
+    ],
+    "roleFileCounts": {
+      "builder": 1,
+      "integrator": 1,
+      "reviewer": 1,
+      "unmapped": 22
+    },
+    "totalByModel": {
+      "gpt-5.6-terra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7899648,
+        "derived_total_tokens": 8399452,
+        "input_tokens": 454467,
+        "native_input_tokens": 8354115,
+        "output_tokens": 45337,
+        "reasoning_output_tokens": 12453,
+        "total_tokens": 8399452,
+        "unavailable": []
+      },
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 204288,
+        "derived_total_tokens": 228460,
+        "input_tokens": 21792,
+        "native_input_tokens": 226080,
+        "output_tokens": 2380,
+        "reasoning_output_tokens": 118,
+        "total_tokens": 228460,
+        "unavailable": []
+      }
+    },
+    "totalByRole": {
+      "builder": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "derived_total_tokens": 0,
+        "input_tokens": 0,
+        "native_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 0,
+        "unavailable": []
+      },
+      "integrator": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5277952,
+        "derived_total_tokens": 5626075,
+        "input_tokens": 319985,
+        "native_input_tokens": 5597937,
+        "output_tokens": 28138,
+        "reasoning_output_tokens": 7936,
+        "total_tokens": 5626075,
+        "unavailable": []
+      },
+      "reviewer": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "derived_total_tokens": 0,
+        "input_tokens": 0,
+        "native_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 0,
+        "unavailable": []
+      },
+      "unmapped": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 2825984,
+        "derived_total_tokens": 3001837,
+        "input_tokens": 156274,
+        "native_input_tokens": 2982258,
+        "output_tokens": 19579,
+        "reasoning_output_tokens": 4635,
+        "total_tokens": 3001837,
+        "unavailable": []
+      }
+    },
+    "totalTurns": 121,
+    "unreadable": 0,
+    "unreadableDirs": []
+  },
+  "tasksPaths": []
+}
