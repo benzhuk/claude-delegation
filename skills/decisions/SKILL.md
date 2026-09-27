@@ -68,11 +68,10 @@ Linux host when built on Windows — the lane lead runs it through ssh as a prio
 or asks the spec lead, with that second-host gate log already written into the record's
 evidence before `accept` ran (committed with the accepted record), since any record
 change after `accept` needs a fresh check; not checked by any script), the lane lead
-merges its branch into main with a merge commit and pushes, then appends ONE plain
-bullet — never starting with bold — to `docs/decisions/history/<today>.md` in that same
-merge commit:
+merges its branch into main with a merge commit that also appends ONE plain bullet —
+never starting with bold — to `docs/decisions/history/<today>.md`:
 `Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.` —
-then runs `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
+pushes; then runs `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
 <decisions-page-id> --reader ~/.claude/scripts/notion.js` (Lane 26), and only then
 sends its RESULT. No Waiting item is
 posted for an ordinary accepted merge. Any conflict when merging into main, of any kind,
@@ -95,9 +94,13 @@ a publisher who loses that race gets a normal git push rejection, fetches main, 
 publishes again — nothing here reads or writes the Notion page by hand to resolve a
 race.
 
-The page callout's owner instruction reads, written on the page as one line: "Tick a
-box, or add a line starting with ** anywhere; every such line is acted on and removed
-before this page comes back to you." (not checked)
+The page callout's owner instruction is composed by `decisions-render.mjs render` itself
+(the callout icon and text are the renderer's, never hand-typed): "To comment, start a
+line with `**` anywhere on this page, then tick Done to submit; the answer appears here
+and the exchange is kept in that day's history file." (the callout's position, right
+after History and before Done, is checked by `decisions-render.test.mjs`; its exact
+wording is not — a future change to `COMMENT_CALLOUT` in `decisions-render-core.mjs`
+would leave this quote stale again)
 
 New items are files, not page edits: write one under `docs/decisions/waiting/` (template
 shape, `templates/decision-item.md`) and `decisions-render.mjs render`/`publish` composes
@@ -112,9 +115,12 @@ first (`publish --clear-done`), then account — because any page edit while tha
 Done is still checked moves its receipt to NEEDS_RECONCILIATION (the Done-window rules
 under "Reading answers") (not checked).
 
-Keep the page in two sections the owner reads, `# Waiting on you now` and `# Closed`;
-status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this
-page (not checked).
+The page is composed only of the sections `decisions-render.mjs render` builds —
+`# Waiting on you now`, `# What is going on`, `# This session (since your tick at …)`,
+and `# History` — never a hand-added section; there is no `# Closed` section any more (a
+closed item's record lives in `docs/decisions/history/<today>.md`, per "Closing" below).
+Status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this page
+(not checked).
 
 Everything under Waiting is a decision item with options, including a request for
 the owner to do something by hand: post it with a `Done by hand` option (never a bare

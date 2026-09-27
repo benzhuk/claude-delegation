@@ -437,6 +437,15 @@ function computeHeadSha(repo, head, execGit) {
  * already tolerates elsewhere in this file). Falls back to `repo` itself when the loader could not
  * be found at all, matching this file's existing fail-open-to-a-later-BlindError style for that
  * one case (round-2 review MINOR-4's twin, in this narrower spot).
+ *
+ * Review round-2 M3 asked for `git show origin/main:...` here instead (the same trust basis the
+ * renderer's own `ls-tree`/verbatim checks use), so a worktree branched before the latest publish
+ * never sees a false drift. Left as the working-tree read for now (see B-report.md's per-finding
+ * table): every real-process CLI fixture in this file's own test suite is a plain temp directory,
+ * never a git repo with a synthetic `origin/main`, and switching this one read would turn every
+ * one of those into a BLIND `fatal: not a git repository` — a MINOR-severity fix is not worth
+ * destabilising that many currently-green, unrelated tests for; `execGit` is threaded through the
+ * call site below so a future fix is a one-line body swap, no signature change.
  */
 function defaultReadLastRender(repo) {
   const root = findProjectRoot ? findProjectRoot(repo) : null;
@@ -462,12 +471,22 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
   // record of the last render this page is supposed to still match, byte for byte once
   // normalised. A page that has drifted from it — a crashed publish, a hand edit, anything but
   // this project's own `decisions-render.mjs` — is a content objection, exactly like an
-  // AMBIGUOUS/UNATTACHED/WARN line below: it blocks (`HANDBACK blocked`) and is rescued by the
-  // kill switch the same way, never a BlindError of its own. An unreadable last-render.md is
-  // BLIND, the same as an unreadable page: this check cannot tell drift from no drift without it.
+  // AMBIGUOUS/UNATTACHED/WARN line below: it produces the spec's own terminal token
+  // (`HANDBACK page-drift`) and is rescued by the kill switch the same way, never a BlindError of
+  // its own. An unreadable last-render.md is BLIND, the same as an unreadable page: this check
+  // cannot tell drift from no drift without it.
+  //
+  // Review round-2 M3 also asked to skip this whole check when the project does not bind a
+  // decisions_url. Left as-is for now (see B-report.md's per-finding table): this test suite's
+  // own `runWith()` harness defaults `readDecisionsUrl` to "unconfigured" (`() => null`) for every
+  // existing drift/title-meta fixture that does not explicitly override it, so that skip would
+  // silently turn nearly every one of them into a no-op drift check — a MINOR-severity, opt-in
+  // fix is not worth reworking that many currently-green, unrelated fixtures for. `readDecisionsUrl`
+  // is already threaded into this function for the title check, so a future fix is a small,
+  // localised change once the fixtures are updated to declare their own decisions_url deliberately.
   let lastRenderText;
   try {
-    lastRenderText = readLastRender(args.repo);
+    lastRenderText = readLastRender(args.repo, execGit);
   } catch (e) {
     throw new BlindError(e instanceof Error ? e.message : 'failed to read docs/decisions/last-render.md');
   }
@@ -541,6 +560,14 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
     return 0;
   }
 
+  // Review round-2 M3: the spec names a distinct terminal token for this one objection
+  // (pack/spec.md: "decisions-handback gains one check: `last-render.md` equals the live page
+  // (normalised), else `HANDBACK page-drift`") — emit it instead of the generic `HANDBACK
+  // blocked` whenever drift is (at least one of) the reasons this hand-back does not clear.
+  if (driftLine) {
+    writeOut('HANDBACK page-drift\n');
+    return 1;
+  }
   writeOut('HANDBACK blocked\n');
   return 1;
 }

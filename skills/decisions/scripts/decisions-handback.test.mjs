@@ -684,7 +684,8 @@ test('page-drift: a decisions read that no longer matches last-render.md (normal
   });
   assert.equal(drifted.exitCode, 1);
   assert.match(drifted.stdout, /^DRIFT\tdecisions page differs from docs\/decisions\/last-render\.md \(normalised\)$/m);
-  assert.match(drifted.stdout, /HANDBACK blocked\n$/);
+  // Review round-2 M3: the spec names a distinct terminal token for this objection.
+  assert.match(drifted.stdout, /HANDBACK page-drift\n$/);
 
   // A CRLF-only difference, or a single trailing blank line, is not drift: `normalize()` is the
   // same one `decisions-render.mjs` uses for every other comparison in this lane.
@@ -904,7 +905,7 @@ test('CLI: real process, without --head, calls real git for the head sha (does n
   // this test is that the real (non-`--head`) code path runs end to end without crashing, not
   // to assert which of the three outcomes it lands on. The in-process tests above (round-2 M1)
   // pin the actual branching (match/stale/empty/failure) with an injected `execGit`.
-  assert.match(result.stdout, /HANDBACK (ok|blocked|blind)\n$/);
+  assert.match(result.stdout, /HANDBACK (ok|blocked|blind|page-drift)\n$/);
   assert.doesNotMatch(result.stderr, /cannot determine/, 'a real repo must resolve origin/main, not fall through to BLIND for lack of a head sha');
 });
 
