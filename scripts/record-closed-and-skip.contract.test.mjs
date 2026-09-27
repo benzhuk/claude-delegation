@@ -9,17 +9,13 @@ import { STATUSES, acceptanceMain, closeRecord, parseRecord, validateRecord, wit
 import { selectContinuationSnapshot } from "./continuation.mjs";
 import { main as collectFromOrigin } from "./collect-from-origin.mjs";
 import { buildStatusMd, computeChangeKey, main as collectStatus } from "./collect-status.mjs";
-import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
+import { makeTempHome } from "./test-home.mjs";
 
 function git(args, cwd, env) { return execFileSync("git", args, { cwd, env, encoding: "utf8" }).trim(); }
-function fixtureEnv() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-contract-home-"));
-  fs.writeFileSync(path.join(home, ".gitconfig"), "[user]\n\tname = Contract\n\temail = contract@example.invalid\n");
-  return childEnv(home);
-}
 function recordText({ status = "accepted", artifact, extra = [] } = {}) {
+  const owner = status === "runnable" ? "none" : "contract-lead";
   return [
-    "Work: wr-2026-09-27-contract", "Scope: scripts/work-record.mjs@deadbeef", "Owner: contract-lead",
+    "Work: wr-2026-09-27-contract", "Scope: scripts/work-record.mjs@deadbeef", `Owner: ${owner}`,
     `Status: ${status}`, "Authority: contract fixture", `Artifact: ${artifact ?? "none"}`,
     "Evidence: docs/work/evidence/review.md", "Next: close the merged lane", "Opened: 2026-09-21T00:00:00Z",
     "Lead-session: contract-lead", "Spec-session: contract-spec", "Spec-from: 2026-09-21T00:00:00Z",
@@ -27,8 +23,9 @@ function recordText({ status = "accepted", artifact, extra = [] } = {}) {
   ].join("\n");
 }
 function closeFixture({ status = "accepted" } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-contract-"));
-  const env = fixtureEnv();
+  const home = makeTempHome({ gitIdentity: true });
+  const root = fs.mkdtempSync(path.join(home.fixtureRoot, "record-closed-contract-"));
+  const { env } = home;
   git(["init", "-q"], root, env);
   fs.writeFileSync(path.join(root, "seed.txt"), "seed\n");
   git(["add", "seed.txt"], root, env); git(["commit", "-qm", "seed"], root, env);
@@ -40,12 +37,12 @@ function closeFixture({ status = "accepted" } = {}) {
   git(["add", "docs"], root, env); git(["commit", "-qm", "accepted record"], root, env);
   const merge = git(["rev-parse", "HEAD"], root, env);
   git(["update-ref", "refs/remotes/origin/main", merge], root, env);
-  return { root, env, record, merge, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, env, record, merge, cleanup: home.cleanup };
 }
 function runClose(f, args = []) {
   const out = []; const err = [];
   const code = acceptanceMain(["close", "--record", f.record, "--repo", f.root, "--merge", f.merge, "--at", new Date().toISOString(), ...args], {
-    write: (s) => out.push(s), warn: (s) => err.push(s),
+    stdout: { write: (s) => out.push(s) }, stderr: { write: (s) => err.push(s) },
   });
   return { code, out, err };
 }
@@ -92,10 +89,14 @@ test("continuation snapshots every declared status, including closed and withdra
   fs.writeFileSync(path.join(root, "authority.md"), "contract authority\n");
   fs.writeFileSync(path.join(root, "docs", "work", "evidence", "review.md"), "VERDICT: APPROVE\nproof\n");
   for (const [i, status] of STATUSES.entries()) {
-    const extra = status === "closed" ? ["Log: 2026-09-21T02:00:00Z closed worker merge aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
-      : status === "accepted" ? ["Log: 2026-09-21T01:00:00Z accepted worker artifact aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
-        : [`Log: 2026-09-21T01:00:00Z ${status} worker`];
-    fs.writeFileSync(path.join(root, "docs", "work", `s${i}.record.md`), recordText({ status, artifact: "docs/x@aaaaaaaa", extra }).replace("wr-2026-09-27-contract", `wr-2026-09-27-contract-${i}`));
+    const extra = status === "closed" ? [
+      "Log: 2026-09-21T01:00:00Z accepted contract-lead artifact aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "Log: 2026-09-21T02:00:00Z closed contract-lead merge aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ] : status === "accepted" ? ["Log: 2026-09-21T01:00:00Z accepted contract-lead artifact aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+      : [`Log: 2026-09-21T01:00:00Z ${status} worker`];
+    const text = recordText({ status, artifact: "docs/x@aaaaaaaa", extra }).replace("wr-2026-09-27-contract", `wr-2026-09-27-contract-${i}`);
+    fs.writeFileSync(path.join(root, "docs", "work", `s${i}.record.md`), text);
+    assert.deepEqual(validateRecord(parseRecord(text), { repoRoot: root }), [], `fixture ${status} is valid before continuation reads it`);
   }
   const snapshot = selectContinuationSnapshot({ repo: root, roots: STATUSES.map((_, i) => `wr-2026-09-27-contract-${i}`), authorityRef: "authority.md" });
   assert.equal(snapshot.status, "OK", snapshot.problems?.join(", "));
@@ -103,7 +104,8 @@ test("continuation snapshots every declared status, including closed and withdra
 });
 
 function prefixFixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-prefix-")); const env = fixtureEnv();
+  const home = makeTempHome({ gitIdentity: true });
+  const root = fs.mkdtempSync(path.join(home.fixtureRoot, "record-closed-prefix-")); const { env } = home;
   git(["init", "-q"], root, env); fs.writeFileSync(path.join(root, "base.txt"), "base\n");
   git(["add", "."], root, env); git(["commit", "-qm", "base"], root, env);
   const main = git(["rev-parse", "HEAD"], root, env); git(["branch", "-M", "main"], root, env); git(["update-ref", "refs/remotes/origin/main", main], root, env);
@@ -114,7 +116,7 @@ function prefixFixture() {
     git(["update-ref", `refs/remotes/origin/${name}`, "HEAD"], root, env);
   }
   git(["checkout", "-q", "main"], root, env);
-  return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, cleanup: home.cleanup };
 }
 function rowsFor(root, args) { const out = []; assert.equal(collectFromOrigin(["--repo", root, "--no-fetch", "--json", ...args], { write: (s) => out.push(s) }), 0); return JSON.parse(out[0]); }
 

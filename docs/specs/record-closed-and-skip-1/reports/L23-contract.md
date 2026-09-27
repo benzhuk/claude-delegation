@@ -1,5 +1,7 @@
 READY
 
+Fixture repair after the failed independent gate: CLI IO now uses its established stdout/stderr writers; Git fixtures use `makeTempHome({ gitIdentity: true })` and clean their sealed homes; continuation fixtures prove `validateRecord(...) === []` before snapshotting, use `Owner: none` for runnable, and use the header owner in the closed receipt.
+
 Contract matrix (not run pending implementation gate):
 
 - Actual temporary Git repository: `close` accepts an accepted record, requires a merge ancestor of `origin/main`, writes the fixed closed receipt, and validator accepts the result.
