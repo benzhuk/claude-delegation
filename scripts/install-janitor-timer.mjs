@@ -324,20 +324,28 @@ function planRemove(file, marker, dryRun) {
 /** J1 live findings L2: the two known installed-plugin roots on this project. Claude Code's plugin
  * cache is `<home>/.claude/plugins/cache/<publisher>/<name>/<version>/` (README.md:117). Codex's own
  * plugin cache, reached only via the native `codex plugin add` route (docs/native-use.md:65-67), is
- * `<CODEX_HOME>/plugins/cache/delegation/delegation/<version>/`, CODEX_HOME defaulting to
- * `<home>/.codex` (scripts/mirror-shared-skills.mjs:48); confirmed live (docs/work/evidence/
+ * `<CODEX_HOME>/plugins/cache/delegation/delegation/<version>/`; only the default `<home>/.codex`
+ * is allowlisted here (Codex's homes: scripts/codex-hook-trust.mjs:585-591 — a non-default
+ * CODEX_HOME / CLAUDE_CONFIG_DIR install is refused, fail-safe); confirmed live (docs/work/evidence/
  * native-package-review.md:10: "installedPath under disposable .codex/plugins/cache/delegation/
  * delegation/0.17.1"). Install is allowed only when pluginRoot resolves inside one of these two —
  * an allowlist, replacing the denylist (isDurablePath's temp/worktree regex) that missed a real
  * worktree name (this host's `.../claude-delegation-wt/<branch>`).
  */
-function isInstalledPluginRoot(target, { home = os.homedir() } = {}) {
-  const norm = (p) => path.resolve(String(p)).toLowerCase().split("\\").join("/");
+export function isInstalledPluginRoot(target, { home = os.homedir() } = {}) {
+  // Realpath both sides: a symlink planted inside the cache must not carry a worktree through, and
+  // a symlinked ~/.claude must not refuse a genuine install. Case-fold only on case-insensitive hosts.
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } };
+  const foldCase = process.platform === "win32" || process.platform === "darwin";
+  const norm = (p) => {
+    const s = real(path.resolve(String(p))).split("\\").join("/");
+    return foldCase ? s.toLowerCase() : s;
+  };
   const t = norm(target);
   return [
     norm(path.join(home, ".claude", "plugins", "cache")),
     norm(path.join(home, ".codex", "plugins", "cache")),
-  ].some((root) => t === root || t.startsWith(`${root}/`));
+  ].some((root) => t.startsWith(`${root}/`));
 }
 
 const KNOWN_BOOLEAN_FLAGS = new Set(["--dry-run", "--json", "--remove", "--enable", "--force-root"]);
@@ -424,6 +432,16 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const n = hourArg !== null && /^\d{1,2}$/.test(hourArg) ? Number(hourArg) : NaN;
     if (Number.isInteger(n) && n >= 0 && n <= 23) hour = n;
     else refusals.push(`--hour must be an integer 0-23, got ${hourArg === null ? "(no value)" : hourArg}`);
+  }
+
+  // J1 live-fix review F1: a value flag given with no value (or an empty one) must never fall back to
+  // its default — `--remove --name` with the value forgotten used to remove the REAL janitor-record.
+  // A repeated value flag is ambiguous (parseArgFlag silently takes the first), so it is refused too.
+  for (const flag of ["--repo", "--host", "--name"]) {
+    if (argv.includes(flag) && parseArgFlag(argv, flag) === null) refusals.push(`${flag} needs a value`);
+  }
+  for (const flag of KNOWN_VALUE_FLAGS) {
+    if (argv.filter((a) => a === flag).length > 1) refusals.push(`${flag} given more than once`);
   }
 
   const repoFlag = parseArgFlag(argv, "--repo");
