@@ -657,6 +657,54 @@ test('a stray details close removes every archive exemption without becoming a n
   ]);
 });
 
+// C4 (pickup-complete-1): the three live-page Bearings headings, exactly as they
+// appear (toggle attribute included), each open the same historical scope as `# Closed`.
+test('C4: each live Bearings/First bearings heading opens historical scope like Closed', () => {
+  const headings = [
+    '# Bearings — September 26, 2026 (independent, Opus) {toggle="true"}',
+    '# Bearings — September 27, 2026',
+    '# First bearings assessment — September 23, 2026 {toggle="true"}',
+  ];
+  for (const heading of headings) {
+    const doc = parseDocument(L(
+      heading,
+      '<summary>Historical summary</summary>',
+      '\t- historical prose',
+    ));
+    assert.deepEqual(doc.shapeless, [], `${heading} must open historical scope`);
+  }
+});
+
+test('C4: an owner comment inside a Bearings section is still reported, same as under Closed', () => {
+  const doc = parseDocument(L(
+    '# Bearings — September 27, 2026',
+    '<summary>Historical actionable item</summary>',
+    '\t- [x] preserve this selection',
+    '\t\\*\\* an owner comment left under Bearings',
+  ));
+  assert.deepEqual(doc.shapeless, []);
+  assert.deepEqual(doc.decisions[0].comments.map((c) => c.text), ['an owner comment left under Bearings']);
+  assert.equal(doc.decisions[0].status, 'TICKED');
+});
+
+test('C4: an optionless summary under a plain heading stays shapeless, unaffected by Bearings scope', () => {
+  const doc = parseDocument(L(
+    '# What is being built',
+    '<summary>Active malformed summary</summary>',
+    '\t- prose only, no checkbox options',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Active malformed summary', line: 2 }]);
+});
+
+test('C4: a heading that is not Bearings (e.g. "Not Bearings") does not open historical scope', () => {
+  const doc = parseDocument(L(
+    '# Not Bearings',
+    '<summary>Active malformed summary</summary>',
+    '\t- prose only, no checkbox options',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Active malformed summary', line: 2 }]);
+});
+
 test('MINOR 8: formatText and JSON report an explicit decision count', () => {
   const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
   assert.equal(zero.decisions.length, 0);
