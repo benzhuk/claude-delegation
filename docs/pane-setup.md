@@ -122,6 +122,30 @@ Run both census scripts from `<project>-o`'s pane once a build's Ship step compl
 the Closed entry a lane lead posts on its own gate, not into a pane's own transcript
 alone.
 
+## Closing a lane
+
+A lane's merge no longer edits the decisions page in place (Lane 26, see
+`skills/decisions/SKILL.md`'s Page rules): the lane lead appends ONE plain bullet — never
+starting with bold — to `docs/decisions/history/<today>.md`, in the same merge
+commit that lands the lane's branch on main:
+
+```
+Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.
+```
+
+Then, once main is pushed, the lead runs the renderer:
+
+```
+node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page <decisions-page-id>
+```
+
+`publish` reads the page fresh, refuses (exit 4) if it has drifted from
+`docs/decisions/last-render.md` since the last successful render, retitles the
+page as its own last step, and commits+pushes `last-render.md` itself — only
+then does the lead send its RESULT. No Waiting item is posted for an ordinary
+accepted merge; a merge conflict of any kind means no merge at all (post a
+decision item under Waiting instead, per `SKILL.md`'s Page rules).
+
 ## Releasing
 
 A release that changes `docs/GOALS.md` or `docs/goals/card.md` (status lines change
