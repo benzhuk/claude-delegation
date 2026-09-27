@@ -344,12 +344,17 @@ export function main(argv = process.argv.slice(2), opts = {}) {
 
   let hour = DEFAULT_HOUR;
   const hourArg = parseArgFlag(argv, "--hour");
-  if (hourArg !== null) {
-    const n = Number(hourArg);
-    // J1 review round 1, m2: a typo'd --hour used to install a silent 06:00 fallback and report
-    // success. Refuse instead, before any write, so a bad value is never quietly swallowed.
+  // J1 review round 1, m2: a typo'd --hour used to install a silent 06:00 fallback and report
+  // success. Refuse instead, before any write, so a bad value is never quietly swallowed.
+  // J1 review round 2, m2: parseArgFlag also returns null for a VALUELESS --hour (flag present, no
+  // following value, or followed by another --flag), which used to be indistinguishable from "flag
+  // absent" and silently fell back to DEFAULT_HOUR. Check argv.includes separately so a bare
+  // `--hour` is refused, and restrict the value to a plain 1-2 digit decimal string so `Number()`
+  // quirks like `"0x10"` (16) or `" "` (0) can never smuggle in a real hour.
+  if (argv.includes("--hour")) {
+    const n = hourArg !== null && /^\d{1,2}$/.test(hourArg) ? Number(hourArg) : NaN;
     if (Number.isInteger(n) && n >= 0 && n <= 23) hour = n;
-    else refusals.push(`--hour must be an integer 0-23, got ${hourArg}`);
+    else refusals.push(`--hour must be an integer 0-23, got ${hourArg === null ? "(no value)" : hourArg}`);
   }
 
   const repoFlag = parseArgFlag(argv, "--repo");
@@ -519,8 +524,11 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       try {
         exec("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
         result.commands.push(cmdText);
-      } catch {
-        // Best effort, same reasoning as above.
+      } catch (err) {
+        // Best effort, same reasoning as above — but reported, like the disable commands
+        // (J1 review round 2, m3: this was swallowed with no record at all, so `ran:` silently
+        // omitted the one exec that could fail on the remove path).
+        result.commands.push(`${cmdText} (failed: ${String(err && err.message ? err.message : err)})`);
       }
     }
 
@@ -528,9 +536,11 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       // J1 review round 1, m3: a plain --remove deletes files but leaves a registered Windows task,
       // or a loaded systemd timer, still running — say so, rather than letting the output imply the
       // live entry is gone too.
+      // J1 review round 2, m1: the twin of r1 m4 — a --remove --dry-run must not claim past tense
+      // "files removed" for files it left on disk untouched.
       result.note =
-        `files removed, but the ${scheduler} entry may still be registered/running — pass --enable ` +
-        `to also run: ${disableCmds.map((c) => `${c.cmd} ${c.args.join(" ")}`).join(" && ")}`;
+        `${dryRun ? "files would be removed" : "files removed"}, but the ${scheduler} entry may still be ` +
+        `registered/running — pass --enable to also run: ${disableCmds.map((c) => `${c.cmd} ${c.args.join(" ")}`).join(" && ")}`;
     }
   } else {
     // --dry-run writes nothing (spec item 3) — not even the directory that would hold the artifacts.

@@ -260,6 +260,9 @@ test("--remove --dry-run reports would-remove, never claiming a file was removed
   const serviceResult = result.files.find((f) => f.path === serviceFile);
   assert.equal(serviceResult.status, "would-remove");
   assert.ok(fs.existsSync(serviceFile), "--remove --dry-run must not actually remove anything");
+  // J1 review round 2, m1: the twin of r1 m4 — the note text must not claim past tense "files
+  // removed" when --dry-run left every file in place.
+  assert.match(result.note, /^files would be removed/);
 });
 
 test("--remove deletes only the files it made (marker-checked) and leaves a same-named foreign file alone", () => {
@@ -323,7 +326,9 @@ test("--hour sets the systemd OnCalendar hour and installed.json's hour field", 
 
 test("--hour out of range (or non-integer) refuses outright and writes nothing, rather than silently falling back", () => {
   // J1 review round 1, m2: a typo'd --hour used to install a silent 06:00 timer and report success.
-  for (const bad of ["99", "7.5", "-1", "nope"]) {
+  // J1 review round 2, m2: "0x10" and " " both used to sneak past Number()+Number.isInteger (16 and
+  // 0 respectively) and install at an unintended hour.
+  for (const bad of ["99", "7.5", "-1", "nope", "0x10", " "]) {
     const home = mkTmp("janitor-timer-home-hour-bad-");
     fixtureDefaultRepoGit(home);
     const pluginRoot = fixturePluginRoot();
@@ -334,6 +339,24 @@ test("--hour out of range (or non-integer) refuses outright and writes nothing, 
     const result = JSON.parse(cap.text());
     assert.ok(result.refusals.some((r) => r.includes("--hour must be an integer 0-23")), `expected an --hour refusal for ${bad}, got ${JSON.stringify(result.refusals)}`);
     assert.ok(!fs.existsSync(path.join(home, ".agents")), `--hour ${bad} must write nothing at all`);
+  }
+});
+
+test("J1 review round 2, m2: a valueless --hour (nothing follows, or another --flag follows) refuses rather than silently falling back to the default hour", () => {
+  for (const argvTail of [["--hour"], ["--hour", "--json"]]) {
+    const home = mkTmp("janitor-timer-home-hour-noval-");
+    fixtureDefaultRepoGit(home);
+    const pluginRoot = fixturePluginRoot();
+    const env = { XDG_CONFIG_HOME: path.join(home, ".config") };
+    const cap = capture();
+    const code = main(["--force-root", "--json", ...argvTail], { home, env, platform: "linux", execPath: "/usr/bin/node", pluginRoot, ...cap });
+    assert.equal(code, 1, `--hour with no value (argv=${JSON.stringify(argvTail)}) must be refused`);
+    const result = JSON.parse(cap.text());
+    assert.ok(
+      result.refusals.some((r) => r.includes("--hour must be an integer 0-23")),
+      `expected an --hour refusal for argv=${JSON.stringify(argvTail)}, got ${JSON.stringify(result.refusals)}`,
+    );
+    assert.ok(!fs.existsSync(path.join(home, ".agents")), `valueless --hour must write nothing at all`);
   }
 });
 
@@ -362,6 +385,30 @@ test("--enable runs the platform's own enable command through the injected exec,
   const pluginRoot2 = fixturePluginRoot();
   main(["--force-root", "--json", "--enable", "--dry-run"], { home: home2, platform: "linux", execPath: "/usr/bin/node", pluginRoot: pluginRoot2, exec: fakeExec, ...capture() });
   assert.equal(calls.length, 0, "--enable must never shell out under --dry-run");
+});
+
+test("J1 review round 2, m3: a failing post-remove daemon-reload is reported in result.commands, not swallowed silently", () => {
+  const home = mkTmp("janitor-timer-home-m3-reload-fail-");
+  fixtureDefaultRepoGit(home);
+  const pluginRoot = fixturePluginRoot();
+  const env = { XDG_CONFIG_HOME: path.join(home, ".config") };
+
+  // Install first (real exec, always succeeds) so there is something to remove.
+  main(["--force-root", "--json", "--enable"], { home, env, platform: "linux", execPath: "/usr/bin/node", pluginRoot, exec: (() => "") , ...capture() });
+
+  // Now remove with an exec that fails ONLY on the daemon-reload call (the disable call above it
+  // still succeeds), and assert the failure is reported, not dropped.
+  const fakeExecReloadFails = (cmd, args) => {
+    if (cmd === "systemctl" && args.includes("daemon-reload")) throw new Error("boom: unit not found");
+    return "";
+  };
+  const cap = capture();
+  const code = main(["--remove", "--json", "--enable"], { home, env, platform: "linux", pluginRoot, exec: fakeExecReloadFails, ...cap });
+  assert.equal(code, 0, "a failing best-effort daemon-reload must not turn a successful remove into a failure");
+  const result = JSON.parse(cap.text());
+  const reloadEntry = result.commands.find((c) => c.startsWith("systemctl --user daemon-reload"));
+  assert.ok(reloadEntry, `expected a daemon-reload entry in result.commands, got ${JSON.stringify(result.commands)}`);
+  assert.match(reloadEntry, /\(failed: boom: unit not found\)/);
 });
 
 test("J1 review round 1, M1: a foreign (unmarked) same-named unit blocks --enable entirely, on both install and --remove — zero exec calls, the user's unit left alone", () => {
@@ -473,7 +520,13 @@ test("J1 review round 1, B1: an ordinary space-bearing repo (no --apply) still g
   assert.equal(code, 0);
   const serviceFile = path.join(home, ".config", "systemd", "user", "janitor-record.service");
   const serviceText = fs.readFileSync(serviceFile, "utf8");
-  assert.match(serviceText, new RegExp(`ExecStart=\\S+ \\S+ --record --repo "${spaceRepo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  // J1 review round 2, M1: a whole-text regex built from the raw spaceRepo (escaped only as a regex
+  // literal) fails on Windows, where systemdQuote doubles backslashes inside the quotes — the unit
+  // reads `--repo "C:\\...\\my repo"` while a naively-escaped regex expects single backslashes.
+  // Compare the ExecStart line directly against the doubled form instead of building a regex from
+  // the raw path.
+  const execLine = serviceText.split("\n").find((l) => l.startsWith("ExecStart="));
+  assert.ok(execLine.includes(` --record --repo "${spaceRepo.replace(/\\/g, "\\\\")}" `), execLine);
 });
 
 test("J1 review round 1, M5: refuses when the janitor script is missing, or the repo is not a git checkout — nothing written, exit 1", () => {
