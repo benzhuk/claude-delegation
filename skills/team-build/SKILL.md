@@ -191,6 +191,9 @@ mention says where to find it once mirrored.
   killed mid-edit gets the standard recovery prompt (`docs/subagent-contract.md`, shipped next to this skill as
   `../_docs/subagent-contract.md` when mirrored, and in the plugin repo's `docs/`
   otherwise), not blind trust in its memory.
+- Never poll for a peer's merge or result with a shell loop; send the ASK with a by-time and end your
+  turn. When it is 15 minutes overdue the flusher posts a BLOCKED to you (lane thirteen), which is the
+  wake-up. A polling shell is what Windows killed for memory on 2026-09-26, and a lead lost 3.5 hours.
 - **Round-3 Research line** (`docs/mandate-template.md`'s `Research:` field, required
   from the third fix round on): its content is five diagnosis steps, in order — (1)
   reproduce the failure reliably and record the exact repro; (2) isolate it to the
