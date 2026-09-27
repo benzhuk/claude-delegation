@@ -180,7 +180,11 @@ function hasCleanFlag(window) {
  * pager toggle, all of which were falling through the alternation entirely and letting
  * `git --work-tree ../wt clean -fdx` / `git -P clean -fdx` / `git.exe clean -fdx` skip the
  * global-option scan and read as an un-prefixed (safe) `clean`. */
-const GIT_PREFIX = String.raw`\bgit(?:\.exe)?(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)\s+(?:"[^"]*"|'[^']*'|\S+)|--[a-zA-Z-]+(?:=\S+)?|-[pP])){0,6}\s+`;
+// review r3 n6: a quoted full path (`"C:\Program Files\Git\bin\git.exe" clean -fdx`) has a
+// closing quote right after `git.exe`, not whitespace, so `["']?` after the executable
+// name admits it; `-[Cc]\s*` (was `-[Cc]\s+`) admits the value glued to `-C` with no space
+// (`-Cx`), matching the same shape already allowed for `--long=value`.
+const GIT_PREFIX = String.raw`\bgit(?:\.exe)?["']?(?:\s+(?:-[Cc]\s*(?:"[^"]*"|'[^']*'|\S+)|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)\s+(?:"[^"]*"|'[^']*'|\S+)|--[a-zA-Z-]+(?:=\S+)?|-[pP])){0,6}\s+`;
 
 /** PowerShell allows an unambiguous prefix abbreviation of a parameter name — `-r`, `-re`,
  * `-recurse`, all the way to `-Recurse`, optionally `:$true`. `'recurse'.startsWith(base)`
@@ -212,8 +216,17 @@ const QUOTE_SPAN_RE = /(["'])((?:(?!\1).)*)\1/g;
 // n2), not just the stage immediately after the window, so an intermediate stage the
 // window doesn't lead straight into (`| tee f | sh`) still counts, and a stage led by an
 // interpreter reached through a path (`| /bin/sh`) or through `sudo` with its own options
-// (`| sudo -u me sh`) still counts.
-const PIPE_STAGE_SHELL_RE = /^\s*(?:sudo\s+(?:-\S+\s+(?:\S+\s+)?)*)?(?:\S*[\\/])?(?:sh|bash|zsh|dash|pwsh|powershell|cmd|iex|Invoke-Expression|xargs)\b/i;
+// (`| sudo -u me sh`), or `env`'s own launcher form (`| env bash`, `| /usr/bin/env sh`,
+// review r3 n5), still counts.
+// review r3 MAJOR R3-1: the prior sudo-options group, `(?:-\S+\s+(?:\S+\s+)?)*`, let a
+// dash-token be read either as a new option OR as the previous option's argument, so a
+// run of n dash-tokens had ~Fib(n) splits and the engine tried them all before failing —
+// exponential backtracking that can stall the whole hook past its 5s timeout and fail
+// open. Forbidding a leading `-` on an option's argument (`[^-\s]\S*`) gives every token
+// exactly one reading, which removes the ambiguity outright instead of merely capping it.
+// The `env` launcher group below has no such ambiguity (its dash options never carry a
+// separate optional argument to be confused with), so it stays linear too.
+const PIPE_STAGE_SHELL_RE = /^\s*(?:sudo(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+)?(?:(?:\S*[\\/])?env\s+(?:-\S+\s+)*)?(?:\S*[\\/])?(?:sh|bash|zsh|dash|pwsh|powershell|cmd|iex|Invoke-Expression|xargs)\b/i;
 function pipesToShell(afterWindow) {
   const stages = afterWindow.split('|');
   for (let i = 1; i < stages.length; i += 1) {

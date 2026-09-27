@@ -357,6 +357,15 @@ test('detectDelete: "git.exe clean -fdx" matches the Windows executable name', (
   assert.ok(detectDelete('git.exe clean -fdx'));
 });
 
+// review r3 n6: a quoted full path to git.exe, and a value glued to -C with no space
+test('detectDelete: a quoted full path to git.exe still matches', () => {
+  assert.ok(detectDelete('"C:\\Program Files\\Git\\bin\\git.exe" clean -fdx'));
+});
+
+test('detectDelete: "git -Cx clean -fdx" matches when the path is glued to -C', () => {
+  assert.ok(detectDelete('git -Cx clean -fdx'));
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipe-to-shell: intermediate stage, path-prefixed interpreter, sudo with options
 // (review r2 n2)
@@ -372,6 +381,39 @@ test('quoted: echo \'rm -rf x\' | tee f | sh is NOT exempted (shell is not the f
 
 test('quoted: echo \'rm -rf x\' | sudo -u me sh is NOT exempted (sudo carries its own options before the shell)', () => {
   assert.ok(detectDelete("echo 'rm -rf x' | sudo -u me sh"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PIPE_STAGE_SHELL_RE is linear, not exponential, in the sudo option run
+// (review r3 MAJOR R3-1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('detectDelete stays linear (not exponential) on a long run of sudo dash-tokens, and still denies', () => {
+  const command = `echo x | sudo ${'-a '.repeat(90)}y; rm -rf z`;
+  const t0 = performance.now();
+  const found = detectDelete(command);
+  assert.ok(performance.now() - t0 < 200, 'must not catastrophically backtrack');
+  assert.ok(found);
+});
+
+test('quoted: echo \'rm -rf x\' | sudo -E -u me bash is NOT exempted (multiple sudo options before the shell)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | sudo -E -u me bash"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// env as the interpreter launcher (review r3 n5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('quoted: echo \'rm -rf x\' | /usr/bin/env bash is NOT exempted (env launcher reached through a path)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | /usr/bin/env bash"));
+});
+
+test('quoted: echo \'rm -rf x\' | env sh is NOT exempted (bare env launcher)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | env sh"));
+});
+
+test('quoted: echo \'rm -rf x\' | env -i bash is NOT exempted (env launcher with its own options)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | env -i bash"));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
