@@ -19,4 +19,6 @@ Claude golden baseline: `claude-golden-base.md` is the complete stdout from the 
 
 T0 contract: `contracts.md` freezes the existing report shape and the minimum Codex-host metadata C3 may consume if it is later authorized. `briefs/C1-C2.md` assigns the cohesive four-file C1/C2 feature to one mid-tier builder. The C1 checkout is created only after this t0 packet is committed and pushed.
 
+Scout correction: direct child `usage.session_id` and `meta.session_id` both equal the lead session id, while `meta.id` is the child census key. C1 validates usage against `meta.session_id` only after it verifies the ancestry edge; a depth-two probe remains pending before any grandchild assumption is made.
+
 The native lead transcript must use `C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home` as `CODEX_HOME`. The private rollout routing note is not copied into this repository.
