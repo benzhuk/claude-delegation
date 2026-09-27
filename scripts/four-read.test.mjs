@@ -181,12 +181,99 @@ test('computeTopTierTokens: a spec-census that is not Spec-session:\'s Spec-from
   assert.match(computeTopTierTokens(TEN, SPEC_CENSUS, { 'spec-session': 'spec-s' }, opened).value, /partial \(no spec slice\)/); // no Spec-from: in the record
 });
 
-test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the default fable,opus tier list', (t) => {
+test('computeTopTierTokens: each mixed-host build and spec slice uses its own default top-tier policy', (t) => {
+  const prior = process.env.DELEGATION_TOP_TIER;
+  t.after(() => { if (prior === undefined) delete process.env.DELEGATION_TOP_TIER; else process.env.DELEGATION_TOP_TIER = prior; });
+  delete process.env.DELEGATION_TOP_TIER;
+  const codexBuild = {
+    lead: { host: 'codex', sessionId: 'build-codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  const codexSpec = {
+    lead: { host: 'codex', sessionId: 'spec-s', coverageSupported: true, codex: { unavailable: [] }, windowStartAt: '2025-12-31T23:00:00.000Z', windowEndAt: '2025-12-31T23:59:00.000Z' },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  const claudeSpec = { ...SPEC_CENSUS, combined: { 'claude-opus-5-5': { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 20 } } };
+  const claudeBuild = { combined: { 'claude-opus-5-5': { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 20 } }, lead: A_WINDOW };
+  assert.match(computeTopTierTokens(codexBuild, claudeSpec, SPEC_FIELDS, Date.parse('2026-01-01T00:00:00.000Z')).value, /^143 tokens: build 23 \(gpt-6-astra\) \+ spec slice 120$/);
+  assert.match(computeTopTierTokens(claudeBuild, codexSpec, SPEC_FIELDS, Date.parse('2026-01-01T00:00:00.000Z')).value, /^143 tokens: build 120 \(claude-opus-5-5\) \+ spec slice 23$/);
+  process.env.DELEGATION_TOP_TIER = 'astra';
+  assert.match(computeTopTierTokens(codexBuild, claudeSpec, SPEC_FIELDS, Date.parse('2026-01-01T00:00:00.000Z')).value, /^23 tokens: build 23 \(gpt-6-astra\) \+ spec slice 0$/);
+});
+
+test('computeTopTierTokens: a Codex spec slice requires a usable matching Spec-session identity for either build host', (t) => {
+  const prior = process.env.DELEGATION_TOP_TIER;
+  t.after(() => { if (prior === undefined) delete process.env.DELEGATION_TOP_TIER; else process.env.DELEGATION_TOP_TIER = prior; });
+  delete process.env.DELEGATION_TOP_TIER;
+  const opened = Date.parse('2026-01-01T00:00:00.000Z');
+  const codexBuild = {
+    lead: { host: 'codex', sessionId: 'build-codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  const claudeBuild = { combined: { 'claude-opus-5-5': { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 20 } }, lead: A_WINDOW };
+  const validSpec = {
+    lead: { host: 'codex', sessionId: 'spec-valid', coverageSupported: true, codex: { unavailable: [] }, windowStartAt: '2025-12-31T23:00:00.000Z', windowEndAt: '2025-12-31T23:59:00.000Z' },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  for (const [nativeId, requestedId, reason] of [
+    ['unknown', 'unknown', 'no valid Spec-session:'], ['unavailable', 'unavailable', 'no valid Spec-session:'], ['', '', 'no valid Spec-session:'], ['   ', '   ', 'no valid Spec-session:'],
+    [undefined, 'spec-valid', 'Codex census has no valid lead.sessionId'], ['spec-valid', undefined, 'no valid Spec-session:'],
+    ['spec-native', 'spec-requested', 'Codex census session spec-native is not Spec-session spec-requested'],
+  ]) {
+    const spec = { ...validSpec, lead: { ...validSpec.lead } };
+    if (nativeId === undefined) delete spec.lead.sessionId;
+    else spec.lead.sessionId = nativeId;
+    const fields = { 'spec-from': SPEC_FIELDS['spec-from'] };
+    if (requestedId !== undefined) fields['spec-session'] = requestedId;
+    assert.match(computeTopTierTokens(codexBuild, spec, fields, opened).value, new RegExp(`^23 tokens: build 23 \\(gpt-6-astra\\); partial \\(no spec slice\\): ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+    assert.match(computeTopTierTokens(claudeBuild, spec, fields, opened).value, new RegExp(`^120 tokens: build 120 \\(claude-opus-5-5\\); partial \\(no spec slice\\): ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  }
+});
+
+test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the configured default tier list', (t) => {
   t.after(() => delete process.env.DELEGATION_TOP_TIER);
   process.env.DELEGATION_TOP_TIER = 'sonnet';
   const census = { combined: { 'claude-sonnet-5': { input_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, {});
   assert.match(r.value, /^7 tokens: build 7/);
+});
+
+test('computeTopTierTokens: a complete Codex census counts Astra under the configured default top tier', (t) => {
+  const prior = process.env.DELEGATION_TOP_TIER;
+  t.after(() => { if (prior === undefined) delete process.env.DELEGATION_TOP_TIER; else process.env.DELEGATION_TOP_TIER = prior; });
+  delete process.env.DELEGATION_TOP_TIER;
+  const census = {
+    lead: { host: 'codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false },
+    combined: { 'gpt-6-astra': { derived_total_tokens: 23, input_tokens: 7, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 11 } },
+  };
+  assert.match(computeTopTierTokens(census, null, {}).value, /^23 tokens: build 23 \(gpt-6-astra\)/);
+});
+
+test('computeTopTierTokens: an incomplete Codex census is unavailable with C1 evidence, never a confident zero', () => {
+  const census = {
+    lead: { host: 'codex', coverageSupported: false, codex: { unavailable: ['unknown model attribution in rollout.jsonl'] }, ...A_WINDOW },
+    subagents: { incomplete: true }, combined: { 'gpt-6-astra': { derived_total_tokens: 2, input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 } },
+  };
+  assert.equal(computeTopTierTokens(census, null, {}).value, 'unavailable (Codex census coverage is unavailable: unknown model attribution in rollout.jsonl)');
+});
+
+test('computeTopTierTokens: a Codex model total uses derived_total_tokens when an optional breakdown field is unavailable', () => {
+  const census = {
+    lead: { host: 'codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 2, input_tokens: 1, cache_creation_input_tokens: 0, output_tokens: 1 } },
+  };
+  assert.match(computeTopTierTokens(census, null, {}).value, /^2 tokens: build 2 \(gpt-6-astra\)/);
+});
+
+test('computeTopTierTokens: unknown or blank Codex aggregate model attribution is unavailable, never a verified zero', () => {
+  for (const model of ['unknown', '', '   ']) {
+    const census = {
+      lead: { host: 'codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+      subagents: { incomplete: false }, combined: { [model]: { derived_total_tokens: 23 } },
+    };
+    assert.equal(computeTopTierTokens(census, null, {}).value, 'unavailable (Codex combined model total has unavailable model attribution)');
+  }
 });
 
 test('computeTopTierTokens: a census window ending after the last acceptance (plus tolerance) is rejected — it would mix in the next build (MAJOR 1)', () => {
@@ -1037,6 +1124,185 @@ test('buildFourRead: a record with no Lead-session: falls back to --lead-session
   assert.equal(report.leadSession.id, 'cli-supplied-id');
   assert.equal(report.leadSession.source, 'cli');
   assert.match(report.leadSession.note, /--lead-session on the command line/);
+});
+
+test('buildFourRead: a complete Codex census uses lead.sessionId instead of its rollout basename and reports native response gaps/messages', () => {
+  const dir = mkTmp('four-read-codex-c1-');
+  const censusPath = path.join(dir, 'census.json');
+  const leadPath = path.join(dir, 'rollout-2026-09-27T12-00-00-lead-session.jsonl');
+  const codexCensus = {
+    leadPath,
+    lead: {
+      host: 'codex', sessionId: 'lead-session', coverageSupported: true,
+      codex: { unavailable: [], responseTimelineComplete: true, responseTimeline: [
+        { responseId: 'r1', turnId: 't1', timestamp: '2026-09-01T00:15:00.000Z', model: 'gpt-6-astra' },
+        { responseId: 'r2', turnId: 't2', timestamp: '2026-09-01T01:00:00.000Z', model: 'gpt-6-astra' },
+      ] },
+      windowStartAt: '2026-09-01T00:05:00.000Z', windowEndAt: '2026-09-01T01:05:00.000Z',
+    },
+    subagents: { incomplete: false, perFile: [] },
+    combined: { 'gpt-6-astra': { derived_total_tokens: 23, input_tokens: 7, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 11 } },
+  };
+  fs.writeFileSync(censusPath, JSON.stringify(codexCensus));
+  // A native Codex read is confined to the C1 census (plus record/ledger inputs). Even a
+  // Claude-shaped rollout path in that census must not enter the Claude R6/R7 raw scanners
+  // or derive a <session>/subagents directory.
+  const forbiddenFsOps = [];
+  const guardedFs = new Proxy(fs, { get(target, prop) {
+    if (prop === 'readFileSync') return (file, ...args) => {
+      const resolved = path.resolve(file);
+      if (resolved !== path.resolve(RECORD) && resolved !== path.resolve(censusPath) && !resolved.startsWith(`${path.resolve(LEDGER)}${path.sep}`)) {
+        forbiddenFsOps.push(`read ${resolved}`);
+        throw new Error(`unexpected native Codex read: ${resolved}`);
+      }
+      return target.readFileSync(file, ...args);
+    };
+    if (prop === 'readdirSync') return (directory, ...args) => {
+      const resolved = path.resolve(directory);
+      if (resolved !== path.resolve(LEDGER)) {
+        forbiddenFsOps.push(`readdir ${resolved}`);
+        throw new Error(`unexpected native Codex directory scan: ${resolved}`);
+      }
+      return target.readdirSync(directory, ...args);
+    };
+    return Reflect.get(target, prop);
+  } });
+  const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, guardedFs);
+  assert.deepEqual(forbiddenFsOps, []);
+  assert.match(report.numbers[0].value, /^23 tokens: build 23 \(gpt-6-astra\); partial \(no spec slice\): spec-census not run$/);
+  assert.equal(report.numbers[1].value, '24.0h; largest native API response gap (heuristic) 45.0min at 2026-09-01T00:15:00.000Z');
+  assert.match(report.numbers[3].value, /^stalled classification unavailable \(native Codex Agent\/Task\/Workflow span\/stall coverage is not established\); 1 native API response gap\(s\) over 30min \(heuristic, not stall attribution\): 2026-09-01T00:15:00\.000Z \(45\.0min\);/);
+  assert.equal(report.companions[0].value, '2 verified top-tier native API response(s) (lead only); tokens: total 23; cache-read 3, cache-write 2, input 7, output 11');
+
+  const shortTimeline = structuredClone(codexCensus);
+  shortTimeline.lead.codex.responseTimeline[1].timestamp = '2026-09-01T00:30:00.000Z';
+  fs.writeFileSync(censusPath, JSON.stringify(shortTimeline));
+  const noLongNativeGap = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(noLongNativeGap.numbers[3].value, /^stalled classification unavailable \(native Codex Agent\/Task\/Workflow span\/stall coverage is not established\); 0 native API response gap\(s\) over 30min \(heuristic, not stall attribution\);/);
+
+  const childPartial = structuredClone(codexCensus);
+  childPartial.subagents.incomplete = true;
+  fs.writeFileSync(censusPath, JSON.stringify(childPartial));
+  const partialChildren = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(partialChildren.numbers[0].value, 'unavailable (Codex census subagents are incomplete)');
+  assert.equal(partialChildren.numbers[1].value, report.numbers[1].value);
+  assert.match(partialChildren.numbers[3].value, /; 1 native API response gap\(s\) over 30min/);
+  assert.equal(partialChildren.companions[0].value, '2 verified top-tier native API response(s) (lead only); tokens: unavailable (Codex census subagents are incomplete)');
+
+  const incompleteTimeline = structuredClone(codexCensus);
+  incompleteTimeline.lead.codex.responseTimelineComplete = false;
+  fs.writeFileSync(censusPath, JSON.stringify(incompleteTimeline));
+  const partial = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(partial.numbers[1].value, /gap unavailable \(Codex census response timeline is unavailable or incomplete\)$/);
+  assert.match(partial.numbers[3].value, /^stalled classification unavailable \(native Codex Agent\/Task\/Workflow span\/stall coverage is not established\); native API response gaps unavailable \(Codex census response timeline is unavailable or incomplete\);/);
+  assert.equal(partial.companions[0].value, 'unavailable (Codex census response timeline is unavailable or incomplete)');
+
+  const invalidTimeline = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  invalidTimeline.lead.codex.responseTimelineComplete = true;
+  invalidTimeline.lead.codex.responseTimeline[0].model = 'unknown';
+  fs.writeFileSync(censusPath, JSON.stringify(invalidTimeline));
+  const unknownModel = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(unknownModel.companions[0].value, 'unavailable (Codex census response timeline is unavailable or incomplete)');
+
+  invalidTimeline.lead.codex.responseTimeline[0].model = 'gpt-5.6-terra';
+  invalidTimeline.lead.codex.responseTimeline[1].model = 'gpt-5.6-terra';
+  invalidTimeline.combined = { 'gpt-5.6-terra': { derived_total_tokens: 23 } };
+  fs.writeFileSync(censusPath, JSON.stringify(invalidTimeline));
+  const knownMidTier = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(knownMidTier.numbers[0].value, /^0 tokens: build 0 \(no top-tier model matched\)/);
+  assert.match(knownMidTier.companions[0].value, /^0 verified top-tier native API response\(s\) \(lead only\); tokens: total 0;/);
+
+  invalidTimeline.lead.codex.responseTimeline[0].model = 'gpt-6-astra';
+  invalidTimeline.lead.codex.responseTimeline[1].model = 'gpt-6-astra';
+  invalidTimeline.combined = { 'gpt-6-astra': { derived_total_tokens: 23 } };
+  invalidTimeline.lead.codex.responseTimeline[0].responseId = '';
+  fs.writeFileSync(censusPath, JSON.stringify(invalidTimeline));
+  const missingResponseId = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(missingResponseId.companions[0].value, 'unavailable (Codex census response timeline is unavailable or incomplete)');
+
+  invalidTimeline.lead.codex.responseTimeline[0].responseId = 'r1';
+  invalidTimeline.lead.codex.responseTimeline[0].turnId = '';
+  fs.writeFileSync(censusPath, JSON.stringify(invalidTimeline));
+  assert.equal(buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).companions[0].value, 'unavailable (Codex census response timeline is unavailable or incomplete)');
+
+  invalidTimeline.lead.codex.responseTimeline[0].turnId = 't1';
+  invalidTimeline.lead.sessionId = 'other-session';
+  fs.writeFileSync(censusPath, JSON.stringify(invalidTimeline));
+  assert.equal(buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).numbers[0].value, 'unavailable (Codex census session other-session is not Lead-session lead-session)');
+
+  const missingIdentity = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  missingIdentity.lead.codex.responseTimeline[0].responseId = 'r1';
+  delete missingIdentity.lead.sessionId;
+  fs.writeFileSync(censusPath, JSON.stringify(missingIdentity));
+  const noSession = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(noSession.numbers[0].value, 'unavailable (Codex census has no valid lead.sessionId)');
+  assert.equal(noSession.companions[0].value, noSession.numbers[0].value);
+  assert.match(noSession.numbers[1].value, /gap unavailable \(Codex census has no valid lead\.sessionId\)$/);
+
+  missingIdentity.lead.sessionId = '   ';
+  fs.writeFileSync(censusPath, JSON.stringify(missingIdentity));
+  assert.equal(buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).numbers[0].value, 'unavailable (Codex census has no valid lead.sessionId)');
+});
+
+test('buildFourRead: native lead counts require a valid record/census build window even when token coverage is partial', () => {
+  const dir = mkTmp('four-read-codex-window-gate-');
+  const recordText = fs.readFileSync(RECORD, 'utf8');
+  const baseCensus = {
+    leadPath: path.join(dir, 'rollout-native.jsonl'),
+    lead: {
+      host: 'codex', sessionId: 'lead-session', coverageSupported: true,
+      codex: { unavailable: [], responseTimelineComplete: true, responseTimeline: [
+        { responseId: 'r1', turnId: 't1', timestamp: '2026-09-01T00:15:00.000Z', model: 'gpt-6-astra' },
+        { responseId: 'r2', turnId: 't2', timestamp: '2026-09-01T01:00:00.000Z', model: 'gpt-6-astra' },
+      ] },
+      windowStartAt: '2026-09-01T00:05:00.000Z', windowEndAt: '2026-09-01T01:05:00.000Z',
+    },
+    subagents: { incomplete: false, perFile: [] },
+    combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  };
+  const cases = [
+    { name: 'missing Opened', record: recordText.replace(/^Opened:.*\r?\n/m, '') },
+    { name: 'missing acceptance', record: recordText.replace(/^Log: .* accepted .*\r?\n/gm, '') },
+    { name: 'record opened at acceptance', record: recordText.replace(/^Log: .* owned .*\r?\n/m, '') },
+    { name: 'census outside record window', record: recordText, outside: true },
+  ];
+  for (const incomplete of [false, true]) {
+    for (const scenario of cases) {
+      const recordPath = path.join(dir, `${scenario.name.replaceAll(' ', '-')}-${incomplete}.md`);
+      const censusPath = path.join(dir, `${scenario.name.replaceAll(' ', '-')}-${incomplete}.json`);
+      const census = structuredClone(baseCensus);
+      census.subagents.incomplete = incomplete;
+      if (scenario.outside) {
+        census.lead.windowStartAt = '2026-09-03T00:05:00.000Z';
+        census.lead.windowEndAt = '2026-09-03T01:05:00.000Z';
+        census.lead.codex.responseTimeline[0].timestamp = '2026-09-03T00:15:00.000Z';
+        census.lead.codex.responseTimeline[1].timestamp = '2026-09-03T01:00:00.000Z';
+      }
+      fs.writeFileSync(recordPath, scenario.record);
+      fs.writeFileSync(censusPath, JSON.stringify(census));
+      const companion = buildFourRead({ record: recordPath, census: censusPath, ledger: null }, fs).companions[0].value;
+      assert.match(companion, /^unavailable \(/, `${scenario.name}, child incomplete=${incomplete}`);
+      assert.doesNotMatch(companion, /verified top-tier native API response/, `${scenario.name}, child incomplete=${incomplete}`);
+    }
+  }
+});
+
+test('buildFourRead: a Codex census requires a nonempty requested Lead-session identity', () => {
+  const dir = mkTmp('four-read-codex-missing-requested-id-');
+  const censusPath = path.join(dir, 'census.json');
+  const recordPath = path.join(dir, 'record.md');
+  fs.writeFileSync(recordPath, fs.readFileSync(RECORD, 'utf8').replace(/^Lead-session:.*\n/m, ''));
+  fs.writeFileSync(censusPath, JSON.stringify({
+    leadPath: path.join(dir, 'rollout-arbitrary.jsonl'),
+    lead: { host: 'codex', sessionId: 'lead-session', coverageSupported: true, codex: { unavailable: [] }, windowStartAt: '2026-09-01T00:05:00.000Z', windowEndAt: '2026-09-01T01:05:00.000Z' },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { derived_total_tokens: 23 } },
+  }));
+  const report = buildFourRead({ record: recordPath, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.equal(report.numbers[0].value, 'unavailable (no valid Lead-session:)');
+  assert.equal(report.companions[0].value, report.numbers[0].value);
+
+  fs.writeFileSync(recordPath, fs.readFileSync(RECORD, 'utf8').replace(/^Lead-session:.*$/m, 'Lead-session: unknown'));
+  assert.equal(buildFourRead({ record: recordPath, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).numbers[0].value, 'unavailable (no valid Lead-session:)');
 });
 
 test('buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a whole-session census by its real accepted time, not a silently-trusted one (BLOCKER 1(b))', async () => {
