@@ -114,6 +114,8 @@ every state a session can be in:
   turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in
   the ledger. ACK and FYI excepted, they are ledger-only — see below.
 
+A Codex peer sees nothing mid-turn. `codex queue` stores the row at once (`delivered: true`) and the Codex TUI starts it only when the current turn ends, however long that turn runs. Silence from a Codex peer after a delivered note means it is still in a turn. Re-asking queues a second turn behind the first; check the ledger for its ACK instead. `delivered to null` on a sender's receipt is the inbox path: no pane was resolved, so there is no handle to print.
+
 ### What you have to do to be reachable: nothing
 
 Your own hook registers you. Every event it handles writes `{your slug → your inbox}` into

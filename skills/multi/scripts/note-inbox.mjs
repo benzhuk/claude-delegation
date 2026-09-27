@@ -257,7 +257,8 @@ export async function runNoteInbox(argv, deps = {}) {
     notes.push({
       id: e.id, from: e.from, to: e.to, kind: e.kind, needs: e.needs ?? null, by: e.by ?? null,
       re: e.re ?? null, supersedes: e.sup ?? null, details: e.details ?? null,
-      packetExists: packet ? packet.exists : null, packetPath: packet ? packet.path : null,
+      packetExists: packet ? packet.exists : null, packetChecked: packet ? packet.exists !== null : false,
+      packetPath: packet ? packet.path : null,
       ymd: e.ymd, line: e.line,
     });
   }
@@ -328,12 +329,14 @@ export async function runNoteInbox(argv, deps = {}) {
 
 /** Is the packet the `Details:` path names actually on disk? Checked in every repo we scanned. */
 function packetLocation(entry, sources, fsImpl) {
+  let checked = false;
   for (const s of sources) {
     if (s.kind !== 'repo' || !s.repo) continue;
+    checked = true;
     const p = toPosix(path.posix.join(toPosix(s.repo), entry.details));
     if (fsImpl.existsSync(p)) return { path: p, exists: true };
   }
-  return { path: entry.details, exists: false };
+  return { path: entry.details, exists: checked ? false : null };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,7 +366,11 @@ export function formatInbox(result) {
   }
   const lines = [`${result.count} new peer note${result.count === 1 ? '' : 's'} for ${result.slug}:`];
   for (const n of result.notes) {
-    const packet = n.details ? (n.packetExists ? ` [packet: ${n.packetPath}]` : ` [packet MISSING: ${n.details}]`) : '';
+    const packet = n.details
+      ? n.packetExists === true ? ` [packet: ${n.packetPath}]`
+        : n.packetExists === false ? ` [packet MISSING: ${n.details}]`
+          : ` [packet: ${n.details}, not checked here]`
+      : '';
     lines.push(`  ${n.line}${packet}`);
   }
   if (result.suppressed > 0) {

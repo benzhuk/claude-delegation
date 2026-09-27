@@ -46,7 +46,7 @@ export const STOP_TIMEOUT_S = 60;
 export function summarise(result, limit = 12, maxChars = 0) {
   const shown = result.notes.slice(0, limit);
   const lines = shown.map((n) => {
-    const packet = n.details ? (n.packetExists ? ` (packet: ${n.packetPath})` : ` (packet MISSING: ${n.details})`) : '';
+    const packet = n.details ? (n.packetExists === true ? ` (packet: ${n.packetPath})` : n.packetExists === false ? ` (packet MISSING: ${n.details})` : ` (packet: ${n.details}, not checked here)`) : '';
     const text = `${n.line}${packet}`;
     return `  ${maxChars > 0 && text.length > maxChars ? `${text.slice(0, maxChars)}…` : text}`;
   });
