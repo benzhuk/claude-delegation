@@ -98,14 +98,13 @@ Prediction adopted as written: for 2026-09-27T12:00Z to 2026-09-28T12:00Z, all l
 
 ## Publication
 
-- Notion target: [Ben's decisions page, set by the lead]
-- Publication status: `PENDING`
-- Published at: pending
-- If pending: the reviewer does not publish. The lead does.
+- Notion target: [Ben's decisions page](https://www.notion.so/3e1da11277a18174bccfea187d5c3972), section "Bearings — September 27, 2026" and Waiting item "Lead coordination cost: STOP after two RE-PLAN verdicts"
+- Publication status: `PUBLISHED`
+- Published at: 2026-09-27 08:36 America/New_York
 
 ## Completion receipt inputs
 
 - Assessment report path: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/9c61c35a-82dd-4aef-8eca-c99bb0e72e31/scratchpad/bearings-0927-assessment.md
-- Lead response path: [pending]
-- Verified publication URL: [pending]
+- Lead response path: docs/work/evidence/2026-09-27-bearings-lead-response.md
+- Verified publication URL: https://www.notion.so/3e1da11277a18174bccfea187d5c3972
 - Release/KILL condition considered: STOP fires for lead coordination after two RE-PLANs in a row. No KILL line is in force.
