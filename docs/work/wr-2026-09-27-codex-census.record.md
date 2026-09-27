@@ -5,8 +5,8 @@ Status: accepted
 Authority: Root leads this build; after the scout is consumed, isolated C1 and C2 builders may edit only their named territories. Builders and reviewers never write docs/work. No scripts/work-record.mjs change, release, install, README, or changelog work.
 Artifact: integration@f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1
-Evidence: docs/specs/codex-census-0927/reports/C3-main-reconciliation-review-round2.md, docs/specs/codex-census-0927/reports/C3-main-reconciliation-repair-gate.md, docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f59.md, docs/work/evidence/wr-2026-09-27-codex-census-final-acceptance.md
-Next: accepted on reviewed artifact f59; retain the fixed-instant evidence and await root direction for any final main-merge work.
+Evidence: docs/specs/codex-census-0927/reports/C3-main-reconciliation-review-round2.md, docs/specs/codex-census-0927/reports/C3-main-reconciliation-repair-gate.md, docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f59.md, docs/work/evidence/wr-2026-09-27-codex-census-final-acceptance.md, docs/work/evidence/wr-2026-09-27-codex-census-main-merge.md
+Next: accepted lane merged cleanly to main; retain all receipts and await root closure.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T11:05:00Z
@@ -66,6 +66,8 @@ Log: 2026-09-27T13:38:25.751Z accepted root artifact f59fb856a0f508d0e7fb6b74b6b
 Log: 2026-09-27T12:50:35Z rejected sealed unchanged `node scripts/run-tests.mjs` on exact f1908a0 failed on both hosts at the same stale `scripts/work-record.test.mjs:1622` UNSUPPORTED expectation. Windows: 2030/2031 pass, exit 1. Separately fetched-origin Netcup: 2027/2031 pass, exit 1. Raw logs/exits are preserved; no rerun, baseline exception, acceptance, or main merge occurred.
 
 
+
+Observed: final main merge f474c7dc6b937c92d5a16370bdbea62e5671f2e9 has parents origin/main@78bf171 and accepted lane@9d8cf7f; both ancestry checks exited 0 and merge native exit was 0. The reviewed source artifact remains f59.
 
 Historical formatting note: the original successful acceptance receipt used Owner `root (reviewed final artifact; acceptance preparation)`; this record normalizes that owner field and the same accepted log syntax without changing its timestamp, artifact, census, or four-read values.
 
