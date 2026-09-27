@@ -125,12 +125,14 @@ export function inboxDateRange(home) {
 }
 
 /**
- * R: read.log lines whose leading ISO timestamp falls in the 7 days up to `now` (spec.md K2 item
- * 1's `<R>`). A malformed line (attack brief) — no leading timestamp, or one that does not parse
- * — is skipped, never counted and never thrown on. `<=` on both ends so a line stamped exactly
- * `now` counts, and a clock-skewed future timestamp does not.
+ * R over an arbitrary window: read.log lines whose leading ISO timestamp falls within `windowMs`
+ * of `now`. A malformed line (attack brief) — no leading timestamp, or one that does not parse —
+ * is skipped, never counted and never thrown on. `<=` on both ends so a line stamped exactly
+ * `now` counts, and a clock-skewed future timestamp does not. `countReads` (below) is this with
+ * the fixed 7-day window spec.md K2 item 1 names; `scripts/knowledge-count.mjs`'s `--since` flag
+ * reuses THIS directly for its own caller-given window, so the two never parse the log two ways.
  */
-export function countReads(home, now) {
+export function countReadsInWindow(home, now, windowMs) {
   let text;
   try {
     text = readFileSync(readLogPath(home), "utf8");
@@ -144,9 +146,14 @@ export function countReads(home, now) {
     const ts = trimmed.split(" ")[0];
     const parsed = Date.parse(ts);
     if (Number.isNaN(parsed)) continue;
-    if (parsed <= now && now - parsed <= READ_WINDOW_MS) n++;
+    if (parsed <= now && now - parsed <= windowMs) n++;
   }
   return n;
+}
+
+/** R: read.log lines with a timestamp in the last 7 days (spec.md K2 item 1's `<R>`). */
+export function countReads(home, now) {
+  return countReadsInWindow(home, now, READ_WINDOW_MS);
 }
 
 /**
