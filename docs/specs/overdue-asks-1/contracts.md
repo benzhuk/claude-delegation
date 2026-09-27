@@ -38,3 +38,12 @@ Spec: `docs/specs/overdue-asks-1/spec.md` (lane thirteen, from origin/docs/lane-
 ## R7. Gates
 - Integration: `node scripts/run-tests.mjs` with ZERO failures on Linux. The known host-load timing flake in `hooks/delegation-reminder.test.mjs`, if it appears, is rerun alone before any verdict.
 - Second host: the lead's runner on Windows, from a bundle that carries `refs/remotes/origin/main`.
+
+## R8. Cross-host observability (spec author's ruling, skills-fable-overdue-asks-2, 2026-09-26 23:56 NY)
+The O1 final review's MAJOR (reports/O1-final-review.md) found that across hosts each ledger holds only half the conversation. The ruling:
+- An overdue ASK is nudged only when its answer side is observable on this host. That means at least one of these holds:
+  - the corpus holds at least one envelope, of any kind, from the ASK's recipient to the ASK's sender;
+  - both the sender and the recipient slugs are registered in this host's inbox registry.
+- Otherwise, log `overdue-cross-host [<id>] -> <to> — answer side not observable on this host` and record the id, without sending.
+- Seed silently on the first run. When `~/.agents/notes/.overdue-nudged.json` does not exist, record every currently overdue id without sending, write the file, and log one `overdue-seeded <n>` line. Nudging starts from the second pass on.
+- Part B, where a remote send also appends to the sending host's ledger, is lane fifteen. It is not in this lane.
