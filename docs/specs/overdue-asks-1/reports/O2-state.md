@@ -18,9 +18,12 @@ in each file. No other change.
   exact wording beyond the R9 "Never send peer notes." check.
 
 ## Done
-- Inserted the sentence as a new bullet in `agents/builder.md`, immediately after the
-  existing `rm -rf` / `Remove-Item -Recurse -Force` bullet (still inside the
-  safety-block fence).
+- Round 2 fix for review finding F1 (BLOCKER): moved the new bullet in
+  `agents/builder.md` out of the shared `<!-- safety-block:.. -->` fence (which
+  `agents/agents.test.mjs` pins byte-identical across all four agent files, at exactly
+  11 bullets, under 2100 chars) to the first bullet of the builder-only list, right
+  after `<!-- safety-block:end -->`. Verified `node --test agents/agents.test.mjs` now
+  gives 24 pass / 0 fail (was 21/3 before the fix).
 - Inserted the sentence inline into `BUILD_MANDATE` (still one JS string, one line),
   placed after the "no destructive git (...)" clause and before "Never send peer
   notes.", with the sentence's own apostrophe escaped (`lead\'s`) per the file's
@@ -33,8 +36,9 @@ in each file. No other change.
   83 pass, 0 fail, including both R9 tests ("every mandate constant carries the
   note-send prohibition" and the cross-prompt R9 check). Log at
   `docs/specs/overdue-asks-1/reports/O2-gate.log`.
-- Committed at 90a5fb8f232cabbd5d13c75b9ea4fe8e86aea992 (branch
-  build/overdue-asks-1-O2).
+- Round 1 committed at 90a5fb8f232cabbd5d13c75b9ea4fe8e86aea992 (branch
+  build/overdue-asks-1-O2); round 2 fix committed separately, see O2-report.md's
+  Commit section for the final sha.
 - Did not touch `skills/team-build/references/build-loop-workflow.test.mjs` (no test
   pins BUILD_MANDATE's exact prose beyond the R9 phrase check, which still passes).
 - Did not touch `docs/work/`.

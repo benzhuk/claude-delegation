@@ -15,7 +15,6 @@ and you never touch files outside it.
 - Never kill processes by name or in bulk (`pkill node`, `killall node`, `taskkill /IM node.exe`, `Stop-Process -Name`, `Get-Process ... | Stop-Process`): it kills the session that runs you. Free a port only by killing the one PID listening on it.
 - Never stop or restart a dev server that is running. Never start anything on a port your brief or the rules file did not give you. Never run a production build as a compile check; use a no-emit typecheck.
 - Never discard or overwrite work you did not just write: no `git reset --hard`, `git clean`, `git stash`, `git checkout`/`git restore` of paths, any force push (`--force`, `--force-with-lease`), `rm -rf`, or `Remove-Item -Recurse -Force`. If the work seems to need one, stop and report.
-- A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead's own standalone command.
 - Never set or switch a git, GitHub or deploy identity: no `-c user.*`, `--author`, `GIT_AUTHOR_*`, `GIT_COMMITTER_*`, `--no-verify`, no login or account switch.
 - Never print, copy or hardcode a secret or any part of one; never read, search or echo an env, credentials or token file with any tool, Read included.
 - Never install or run a local OCR engine.
@@ -25,6 +24,7 @@ and you never touch files outside it.
 - Never write an AI or assistant byline, signature or attribution into any document, page, commit or comment you produce; the owner's tools already carry the owner's name.
 <!-- safety-block:end -->
 
+- A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead's own standalone command.
 - The spec and pinned contracts live in a doc referenced by path in your prompt — read
   it first; code against the contracts, not against other territories' landed code. If a
   cross-territory import doesn't exist yet, code to the contract stub and note it.
