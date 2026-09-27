@@ -142,7 +142,7 @@ test('decide: a knowledge-dir stat error is treated as absent (writes nothing)',
   assert.equal(result.target, null);
 });
 
-test('decide: a Windows path with backslashes and a drive letter, mixed case, matches the store', () => {
+test('decide: a Windows path with backslashes and a drive letter, mixed case, matches the store', { skip: process.platform !== 'win32' && 'Windows path semantics only' }, () => {
   const home = scratchHome();
   // Build the same absolute path decide() would see from a real Windows Read call: the
   // scratch home's drive letter, backslashes, and upper-cased path segments.
