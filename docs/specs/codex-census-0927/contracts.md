@@ -45,3 +45,21 @@ Default discovery reads only the selected lead's UTC folder and its following UT
 ## C3 consumer rule, pending scope authorization
 
 If the C3 ruling authorizes `four-read`, it consumes `lead.sessionId`, `lead.coverageSupported`, `lead.codex.unavailable`, and `subagents.incomplete` without changing the Claude path. Astra is classified by the explicit configured top-tier policy; no default may render its spend as zero. Native top-tier message counting is either deduplicated from verified native response records or marked unavailable.
+
+## C1 repair addendum — root-pinned seam
+
+For a Codex census, each availability-aware model aggregate exposes
+`derived_total_tokens` when the native inclusive `input_tokens` and `output_tokens`
+are both known. It is their sum and remains independently useful when the raw
+`total_tokens`, reasoning field, or cache breakdown is absent. A missing cache component
+never becomes numeric zero and never permits the shared Claude-style additive split to
+double count native inclusive input. The full four-column split is available only when
+its raw components are all known; unavailable raw fields remain named unavailable.
+
+`lead.codex.responseTimeline` is a lead-only, window-deduplicated sequence of
+`{ responseId, turnId, timestamp, model }` from verified native response records.
+`lead.codex.responseTimelineComplete` states whether that sequence establishes complete
+native response timing/model evidence for the selected lead window. It must be false
+when a required response identity, timestamp, model, or conflict resolution is
+unavailable. C3 consumes this metadata if complete and otherwise reports native
+message/gap evidence unavailable; it never rereads raw rollout files or invents a zero.
