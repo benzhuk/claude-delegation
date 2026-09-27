@@ -2,7 +2,7 @@
 //
 // delete-guard — a PreToolUse guard on `Bash` and `PowerShell` tool calls that denies a
 // recursive delete issued FROM A SUBAGENT, before the permission prompt nobody watches
-// ever appears (spec: docs/specs/2026-09-27-delete-deny.md, Territory D1).
+// ever appears (spec: pack/spec.md, Territory D1).
 //
 // Why: twice in one night a mid-tier builder chained `rm -rf` into a command despite its
 // mandate carrying the sentence forbidding it, and sat on the unattended prompt: 3.5 hours
@@ -47,24 +47,46 @@
 //     `sh -c "rm -rf x"` (the quoted content there is a REAL delete once `sh -c` runs it —
 //     `sh`/`bash -c` are not on the safe-quote list below, on purpose).
 //   - `rmdir /s` and `rd /s` (Windows cmd).
-//   - `Remove-Item`, `ri`, `del`, `erase` with `-Recurse` (or an unambiguous `-r` prefix
-//     abbreviation, PowerShell's own convention) — including `-Recurse:$true`.
+//   - `Remove-Item`, `ri`, `rmdir`, `rd`, `del`, `erase` with `-Recurse` (or an unambiguous
+//     `-r` prefix abbreviation, PowerShell's own convention) — including `-Recurse:$true`.
+//     `rmdir`/`rd` are also Windows-cmd verbs (`/s`, handled separately below, checked
+//     first so its own verb label wins); the same words are PowerShell `Remove-Item`
+//     aliases too (`rmdir C:\x -Recurse -Force`), which is why they are on both lists.
 //     `Remove-Item … -Force` on a directory path is NOT distinguishable by regex from a
 //     single-file force-delete (spec item 3 says so explicitly) — out of scope, not guessed.
-//   - `git clean` with `-f`, `-d`, or `-x`/`-X` in any short flag group, or `--force`.
-//   - `git worktree remove --force` and `git worktree prune` (bare `git worktree remove
-//     <path>`, no `--force`, is the sanctioned allowance below — git itself refuses a
-//     non-empty/dirty worktree without `--force`).
+//   - `git clean` with `-f`, `-d`, or `-x`/`-X` in any short flag group, or `--force` — and
+//     `git worktree remove` with `--force` or its short form `-f`, and `git worktree
+//     prune` — all three seen through up to 6 leading git global options (`-C <path>`,
+//     `-c k=v`, `--git-dir=…`, `--no-pager`, …), since `git -C <worktree> clean -fdx` is
+//     the normal way to address a path outside the caller's own cwd (bare `git worktree
+//     remove <path>`, no `--force`/`-f`, is the sanctioned allowance below — git itself
+//     refuses a non-empty/dirty worktree without it).
 //   - `find … -delete`.
 //   Allowances, pinned by tests: `git worktree remove <path>` without `--force`, and
 //   `git branch -d`/`-D` (scripts/janitor.mjs's sanctioned verb — a ref delete, not a
 //   directory delete; nothing in this file even has a pattern shaped to catch it).
-//   Quoted-argument exception: a matched verb that appears ONLY inside a single- or
-//   double-quoted string immediately following `grep`, `echo`, `printf`, `git commit -m`,
-//   or `note-send --text` is not treated as a delete (the simple case the spec asks for;
-//   the reviewer may find more). A here-doc that writes a script containing a delete and
-//   then runs that script file is a known, undocumented-by-regex residual limit — the
-//   delete never appears as a literal substring of THIS command string.
+//   Quoted-argument exception: a matched verb that appears inside ANY single- or
+//   double-quoted span within the sub-command window of `grep`, `echo`, `printf`,
+//   `git commit -m`, or `note-send --text` is not treated as a delete (the simple case the
+//   spec asks for), UNLESS that same sub-command's window also pipes into a shell/xargs
+//   (`echo "rm -rf x" | sh`), or the double-quoted span itself contains a command
+//   substitution (`"...$(rm -rf x)..."` or a backtick form) — both of those really execute,
+//   so they are excluded from the exemption rather than trusted. A here-doc that writes a
+//   script to a FILE and runs that file as a later, separate command is a known,
+//   undocumented-by-regex residual limit: the delete is a literal substring of the
+//   here-doc body (and is caught, see the here-doc test below) but nothing here follows a
+//   script file written by one call into a DIFFERENT call that later executes it.
+//   Also out of scope, by the same "regex over a string" limit, not guessed at: a delete
+//   issued through a language runtime rather than a shell verb (`node -e
+//   "fs.rmSync(x,{recursive:true})"`, `python -c "shutil.rmtree(x)"`,
+//   `[System.IO.Directory]::Delete(x,$true)`) and `Remove-Item` fed a path over a pipe
+//   (`gci -Recurse | Remove-Item`, no delete-shaped flag on the `Remove-Item` word itself).
+//   A handful of quoted/safe-command shapes still false-refuse rather than being made
+//   quote-aware inside `commandWindow` (accepted per "false refusals are cheap"): a
+//   here-doc body quoted into `git commit -m "$(cat <<'EOF' … EOF)"`, a `;` inside a quoted
+//   commit message (`git commit -m "fix: rm -rf; guard"`), and a `|` inside a quoted grep
+//   pattern (`grep -E "rm -rf|rd /s"`) — each stops the sub-command window early because
+//   the window scan is not quote-aware.
 //   False refusals are cheap (the agent rephrases or asks); false passes cost hours — when
 //   in doubt, this file refuses.
 
@@ -116,16 +138,18 @@ function isExcluded(safeSpans, index) {
 }
 
 /** A single-dash short flag group containing any of `letters` (checked per-character, so
- * `-rf`/`-fr`/`-vrf` all count for `r`). A double-dash long option only counts via its own
- * exact-word check elsewhere (`--recursive`, `--force`) — never by substring, or `--force`
- * would false-positive on containing an `r`. */
+ * `-rf`/`-fr`/`-vrf` all count for `r`). The flag must START a token — preceded by
+ * whitespace or the start of the window — and end at whitespace, a shell separator, a
+ * quote, or `:` (PowerShell's `-Recurse:$true`). That keeps a `-` in the MIDDLE of a word
+ * (a path like `-orca`/`-results`, or `wt-fix`) from ever counting as a flag, and keeps a
+ * double-dash long option out (the character right after the leading `-` in `--force` is
+ * another `-`, not a letter, so it can never start this match; a long option only counts
+ * via its own exact-word check elsewhere, e.g. `--recursive`, `--force`). */
 function hasShortFlagWithAnyOf(window, letters) {
-  const re = /-[a-zA-Z]{1,10}\b/g;
+  const re = /(?:^|\s)-([a-zA-Z]{1,20})(?=$|[\s;&|)"':])/g;
   let m;
   while ((m = re.exec(window))) {
-    const token = m[0];
-    if (token.startsWith('--')) continue;
-    if (letters.test(token.slice(1))) return true;
+    if (letters.test(m[1])) return true;
   }
   return false;
 }
@@ -137,6 +161,13 @@ function hasRecursiveFlag(window) {
 function hasCleanFlag(window) {
   return /--force\b/i.test(window) || hasShortFlagWithAnyOf(window, /[fdxX]/);
 }
+
+/** Up to 6 leading git global options (`-C <path>`, `-c k=v`, `--git-dir=…`,
+ * `--no-pager`, …) between `git` and the subcommand word — `git -C <worktree> clean -fdx`
+ * is the normal way this project addresses a path outside the caller's own cwd (30+
+ * occurrences across agents/, skills/, docs). The repeat count is capped, so there is no
+ * unbounded-backtracking shape even on an adversarial run of repeated options. */
+const GIT_PREFIX = String.raw`\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--[a-zA-Z-]+(?:=\S+)?)){0,6}\s+`;
 
 /** PowerShell allows an unambiguous prefix abbreviation of a parameter name — `-r`, `-re`,
  * `-recurse`, all the way to `-Recurse`, optionally `:$true`. `'recurse'.startsWith(base)`
@@ -162,6 +193,11 @@ const SAFE_CMD_RE = /\b(?:grep|echo|printf|git\s+commit\s+-m|note-send\s+--text)
 // character is linear here because the window itself is capped, not because the pattern
 // is bounded on its own.
 const QUOTE_SPAN_RE = /(["'])((?:(?!\1).)*)\1/g;
+// If the sub-command's window terminates at a `|` that feeds a shell/interpreter, the
+// quoted text is not just displayed/committed — it really executes once that pipe runs,
+// so none of that window's quoted spans are safe (m1).
+const PIPES_TO_SHELL_RE = /^\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|pwsh|powershell|cmd|iex|Invoke-Expression|xargs)\b/i;
+
 function findSafeQuoteSpans(command) {
   const spans = [];
   SAFE_CMD_RE.lastIndex = 0;
@@ -169,9 +205,15 @@ function findSafeQuoteSpans(command) {
   while ((m = SAFE_CMD_RE.exec(command))) {
     const windowStart = SAFE_CMD_RE.lastIndex;
     const window = commandWindow(command, windowStart, 300);
+    const afterWindow = command.slice(windowStart + window.length, windowStart + 300);
+    if (PIPES_TO_SHELL_RE.test(afterWindow)) continue;
     QUOTE_SPAN_RE.lastIndex = 0;
     let qm;
     while ((qm = QUOTE_SPAN_RE.exec(window))) {
+      // A command substitution inside a DOUBLE-quoted span really executes even though
+      // the outer text is a safe command's argument (m2) — a single-quoted span never
+      // substitutes, so it stays exempt.
+      if (qm[1] === '"' && /\$\(|`/.test(qm[2])) continue;
       spans.push([windowStart + qm.index + 1, windowStart + qm.index + qm[0].length - 1]);
     }
   }
@@ -207,7 +249,7 @@ function detectRmdirWin(command, safeSpans) {
 }
 
 function detectPowerShellDelete(command, safeSpans) {
-  const re = /\b(Remove-Item|ri|del|erase)\b/gi;
+  const re = /\b(Remove-Item|ri|rmdir|rd|del|erase)\b/gi;
   let m;
   while ((m = re.exec(command))) {
     if (!isExcluded(safeSpans, m.index) && hasRecurseFlag(commandWindow(command, re.lastIndex))) {
@@ -218,7 +260,7 @@ function detectPowerShellDelete(command, safeSpans) {
 }
 
 function detectGitClean(command, safeSpans) {
-  const re = /\bgit\s+clean\b/gi;
+  const re = new RegExp(GIT_PREFIX + String.raw`clean\b`, 'gi');
   let m;
   while ((m = re.exec(command))) {
     if (!isExcluded(safeSpans, m.index) && hasCleanFlag(commandWindow(command, re.lastIndex))) {
@@ -229,10 +271,16 @@ function detectGitClean(command, safeSpans) {
 }
 
 function detectGitWorktreeForceRemove(command, safeSpans) {
-  const re = /\bgit\s+worktree\s+remove\b/gi;
+  const re = new RegExp(GIT_PREFIX + String.raw`worktree\s+remove\b`, 'gi');
   let m;
   while ((m = re.exec(command))) {
-    if (!isExcluded(safeSpans, m.index) && /--force\b/i.test(commandWindow(command, re.lastIndex))) {
+    const window = commandWindow(command, re.lastIndex);
+    // `--force` or git's own short form `-f` (`git worktree remove [-f] <worktree>`) —
+    // `hasShortFlagWithAnyOf` requires the flag to START a token, so a sanctioned
+    // `git worktree remove ../wt-fix` (no flag at all) is unaffected.
+    if (!isExcluded(safeSpans, m.index) && (
+      /--force\b/i.test(window) || hasShortFlagWithAnyOf(window, /f/)
+    )) {
       return { verb: 'git worktree remove --force', index: m.index };
     }
   }
@@ -240,7 +288,7 @@ function detectGitWorktreeForceRemove(command, safeSpans) {
 }
 
 function detectGitWorktreePrune(command, safeSpans) {
-  const re = /\bgit\s+worktree\s+prune\b/gi;
+  const re = new RegExp(GIT_PREFIX + String.raw`worktree\s+prune\b`, 'gi');
   let m;
   while ((m = re.exec(command))) {
     if (!isExcluded(safeSpans, m.index)) return { verb: 'git worktree prune', index: m.index };
@@ -276,9 +324,13 @@ const DETECTORS = [
  * agent-dispatch-guard.mjs had to fix twice. */
 export function detectDelete(command) {
   if (typeof command !== 'string') return null;
-  const safeSpans = findSafeQuoteSpans(command);
+  // A backslash- or backtick-newline line continuation (bash, or PowerShell's backtick)
+  // hides a flag on the next line from every window scan above, which stops at `\n`
+  // (m3) — collapse it to a single space so the whole logical command is one line.
+  const normalized = command.replace(/[\\`]\r?\n/g, ' ');
+  const safeSpans = findSafeQuoteSpans(normalized);
   for (const detector of DETECTORS) {
-    const found = detector(command, safeSpans);
+    const found = detector(normalized, safeSpans);
     if (found) return found;
   }
   return null;
@@ -373,7 +425,9 @@ function appendLog(home, fsImpl, logVerb, verb, command) {
     const dir = path.join(home, '.agents', 'notes');
     fsImpl.mkdirSync(dir, { recursive: true });
     const stamp = new Date().toISOString();
-    const snippet = command.slice(0, 80);
+    // A multi-line command must still produce ONE log line (spec item 5) — strip any
+    // newline/tab that survived the 80-char slice (m4).
+    const snippet = command.slice(0, 80).replace(/[\r\n\t]+/g, ' ');
     fsImpl.appendFileSync(path.join(dir, 'delete-guard.log'), `${stamp} ${logVerb} [${verb}] ${snippet}\n`, 'utf8');
   } catch {
     // A log write failure is swallowed — the guard's decision never depends on it.
