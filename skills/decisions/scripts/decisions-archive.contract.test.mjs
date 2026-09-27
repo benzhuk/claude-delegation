@@ -204,6 +204,9 @@ test('handback reports the same unknown-H1 shape defect and clears it after hier
       env: sealed.env,
       readGoalsParentPage: () => ({ configured: true }),
       readDecisionsUrl: () => null,
+      // Lane 26's page-drift check is out of scope for this contract (archive/shape parsing, not
+      // render provenance): pin last-render.md to whatever --decisions names so it never fires.
+      readLastRender: () => decisions,
     });
     return { exitCode, stdout: out.join('') };
   };

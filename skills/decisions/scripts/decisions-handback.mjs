@@ -16,12 +16,14 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, formatText } from './decisions-read.mjs';
 import { parseTitle, canonicalPageId } from './decisions-title.mjs';
+import { normalize } from './decisions-render-core.mjs';
 
 // This module is deliberately skill-local: mirroring copies the entire skill directory. A failed
 // load remains BLIND, but there is no repository-relative fallback or second config parser.
 let loadProjectConfig = null;
+let findProjectRoot = null;
 try {
-  ({ loadProjectConfig } = await import('./project-config.mjs'));
+  ({ loadProjectConfig, findProjectRoot } = await import('./project-config.mjs'));
 } catch { /* surfaced as BLIND by the callers below */ }
 
 /** Thrown for anything that leaves this check unable to trust its inputs (exit 3, never a crash). */
@@ -428,8 +430,21 @@ function computeHeadSha(repo, head, execGit) {
   return out;
 }
 
+/** The default `readLastRender`: `docs/decisions/last-render.md` under the project root, the same
+ * bytes `decisions-render.mjs publish` wrote on its last successful run (Lane 26). The project
+ * root is found the same way `loadProjectConfig` finds it (walking up from `--repo` for `.git` or
+ * `.agents/project.json`), since `--repo` itself may be a subdirectory (as `loadProjectConfig`
+ * already tolerates elsewhere in this file). Falls back to `repo` itself when the loader could not
+ * be found at all, matching this file's existing fail-open-to-a-later-BlindError style for that
+ * one case (round-2 review MINOR-4's twin, in this narrower spot).
+ */
+function defaultReadLastRender(repo) {
+  const root = findProjectRoot ? findProjectRoot(repo) : null;
+  return fs.readFileSync(path.join(root || repo, 'docs', 'decisions', 'last-render.md'), 'utf8');
+}
+
 /** The whole check. Never throws past this: caller's try/catch turns anything into BLIND, exit 3. */
-function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, readDecisionsUrl) {
+function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, readDecisionsUrl, readLastRender) {
   if (!args.decisions || !args.repo) {
     throw new BlindError('missing required --decisions/--repo');
   }
@@ -442,6 +457,23 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
   } catch (e) {
     throw new BlindError(e instanceof Error ? e.message : 'failed to read or parse the decisions page');
   }
+
+  // Lane 26: the decisions page is a render, never hand-edited; last-render.md is the repo's
+  // record of the last render this page is supposed to still match, byte for byte once
+  // normalised. A page that has drifted from it — a crashed publish, a hand edit, anything but
+  // this project's own `decisions-render.mjs` — is a content objection, exactly like an
+  // AMBIGUOUS/UNATTACHED/WARN line below: it blocks (`HANDBACK blocked`) and is rescued by the
+  // kill switch the same way, never a BlindError of its own. An unreadable last-render.md is
+  // BLIND, the same as an unreadable page: this check cannot tell drift from no drift without it.
+  let lastRenderText;
+  try {
+    lastRenderText = readLastRender(args.repo);
+  } catch (e) {
+    throw new BlindError(e instanceof Error ? e.message : 'failed to read docs/decisions/last-render.md');
+  }
+  const driftLine = normalize(decisionsText) !== normalize(lastRenderText)
+    ? 'DRIFT\tdecisions page differs from docs/decisions/last-render.md (normalised)'
+    : null;
 
   // C5: an unreadable/malformed/wrong-page --title-meta is BLIND, "like an unreadable page" --
   // computed early so it fails fast the same way the decisions/goals reads do, before any of the
@@ -488,6 +520,7 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
   }
 
   const printed = [...decisionsOffending, ...shapeOffending];
+  if (driftLine) printed.push(driftLine);
   if (doneLine) printed.push(doneLine);
   printed.push(...archive);
   printed.push(...goalsOffending);
@@ -496,7 +529,7 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
   for (const line of printed) writeOut(`${line}\n`);
 
   const clean = decisionsOffending.length === 0 && shapeOffending.length === 0 && !doneLine
-    && goalsOffending.length === 0 && !shaWarnLine && !titleCheck.blocks;
+    && !driftLine && goalsOffending.length === 0 && !shaWarnLine && !titleCheck.blocks;
   if (killSwitchActive(env)) {
     writeOut('HANDBACK disabled\n');
     return 0;
@@ -526,6 +559,7 @@ export function run({
   env = process.env,
   readGoalsParentPage = defaultReadGoalsParentPage,
   readDecisionsUrl = defaultReadDecisionsUrl,
+  readLastRender = defaultReadLastRender,
 } = {}) {
   let args;
   try {
@@ -545,7 +579,7 @@ export function run({
   }
 
   try {
-    return runCheck(args, env, readFile, execGit, write, readGoalsParentPage, readDecisionsUrl);
+    return runCheck(args, env, readFile, execGit, write, readGoalsParentPage, readDecisionsUrl, readLastRender);
   } catch (e) {
     writeErr(`decisions-handback: ${e instanceof Error ? e.message : 'failed'}\n`);
     write('HANDBACK blind\n');

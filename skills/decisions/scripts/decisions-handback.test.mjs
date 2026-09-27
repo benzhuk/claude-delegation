@@ -72,7 +72,7 @@ function writeFreshTitleMetaFile(dir, overrides = {}) {
  */
 function runWith({
   argv = [], files = {}, head = 'aaaaaaa', env, execGit, readGoalsParentPage, readDecisionsUrl,
-  omitTitleMeta = false,
+  readLastRender, omitTitleMeta = false,
 } = {}) {
   const out = [];
   const err = [];
@@ -82,6 +82,12 @@ function runWith({
   const finalFiles = hasTitleMeta || omitTitleMeta
     ? files
     : { ...files, [DEFAULT_TITLE_META_KEY]: freshTitleMetaJson() };
+  // Default: last-render.md always matches whatever --decisions names, so every pre-existing test
+  // in this file (written before Lane 26's page-drift check existed) keeps exercising exactly what
+  // it did before, without having to name a matching last-render.md file of its own. Tests below
+  // that care about drift pass their own `readLastRender`.
+  const decisionsIdx = finalArgv.indexOf('--decisions');
+  const decisionsKey = decisionsIdx === -1 ? null : finalArgv[decisionsIdx + 1];
   const exitCode = run({
     argv: finalArgv,
     readFile: readFileStub(finalFiles),
@@ -91,6 +97,7 @@ function runWith({
     env: env || { AGENTS_HOME: home },
     readGoalsParentPage: readGoalsParentPage || (() => ({ configured: true })),
     readDecisionsUrl: readDecisionsUrl || (() => null),
+    readLastRender: readLastRender || (() => (decisionsKey === null ? '' : finalFiles[decisionsKey])),
   });
   return { exitCode, stdout: out.join(''), stderr: err.join(''), home };
 }
@@ -631,6 +638,8 @@ test('F2 CLI: a real project.json with no goals_parent_page key — mirror check
   const root = repoWithProjectJson(JSON.stringify({ decisions_url: 'abc' }));
   const decisionsPath = path.join(root, 'decisions.md');
   fs.writeFileSync(decisionsPath, CLEAN_DECISIONS, 'utf8');
+  fs.mkdirSync(path.join(root, 'docs', 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'decisions', 'last-render.md'), CLEAN_DECISIONS, 'utf8');
   const home = tmpdir('decisions-handback-home-');
   const titleMetaPath = writeFreshTitleMetaFile(home, { page: 'abc' }); // matches this project's decisions_url
   const result = spawnSync(process.execPath, [
@@ -661,8 +670,56 @@ test('F2 CLI: a real project.json WITH goals_parent_page, but the goals read is 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reviewer attack brief points not covered above
+// Lane 26: the decisions page is a render; last-render.md is the repo's record of what it
+// should still match. A page that has drifted from it (a crashed publish, a hand edit — never
+// this project's own decisions-render.mjs) is caught here, before the hand-back check trusts
+// anything else it read.
 // ─────────────────────────────────────────────────────────────────────────────
+
+test('page-drift: a decisions read that no longer matches last-render.md (normalised) blocks with a DRIFT line, rescued by the kill switch like any other content objection', () => {
+  const drifted = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => `${CLEAN_DECISIONS}\nExtra line that was never rendered.`,
+  });
+  assert.equal(drifted.exitCode, 1);
+  assert.match(drifted.stdout, /^DRIFT\tdecisions page differs from docs\/decisions\/last-render\.md \(normalised\)$/m);
+  assert.match(drifted.stdout, /HANDBACK blocked\n$/);
+
+  // A CRLF-only difference, or a single trailing blank line, is not drift: `normalize()` is the
+  // same one `decisions-render.mjs` uses for every other comparison in this lane.
+  const crlfOnly = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => `${CLEAN_DECISIONS.replace(/\n/g, '\r\n')}\n\n`,
+  });
+  assert.equal(crlfOnly.exitCode, 0);
+  assert.doesNotMatch(crlfOnly.stdout, /^DRIFT\t/m);
+  assert.match(crlfOnly.stdout, /HANDBACK ok\n$/);
+
+  // An unreadable last-render.md is BLIND, the same as an unreadable page — never silently "no
+  // drift".
+  const unreadable = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => { throw new Error('ENOENT: no such file'); },
+  });
+  assert.equal(unreadable.exitCode, 3);
+  assert.match(unreadable.stdout, /HANDBACK blind\n$/);
+
+  // The kill switch disables the whole hand-back check, page-drift included — same as any other
+  // content objection (WARN, UNATTACHED, ...).
+  const home = tmpdir('decisions-handback-home-');
+  fs.writeFileSync(path.join(home, 'ws-off-decisions'), '', 'utf8');
+  const drifiedButDisabled = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => `${CLEAN_DECISIONS}\nExtra line that was never rendered.`,
+    env: { AGENTS_HOME: home },
+  });
+  assert.equal(drifiedButDisabled.exitCode, 0);
+  assert.match(drifiedButDisabled.stdout, /HANDBACK disabled\n$/);
+});
 
 test('a REPLIED pair never blocks the hand-back', () => {
   const decisions = L(
@@ -796,14 +853,19 @@ test('agentsHome / killSwitchActive: injected AGENTS_HOME, never the real ~/.age
 
 test('CLI: a real process, real files, --head override — exits 0 and prints HANDBACK ok', () => {
   const home = tmpdir('decisions-handback-home-');
-  // This checkout's own .agents/project.json (found by walking up from --repo HERE) configures a
-  // real decisions_url, so the title-meta page must match it.
+  // An isolated repo (its own .agents/project.json) rather than this checkout's own root: Lane
+  // 26's page-drift check needs a docs/decisions/last-render.md that actually matches the
+  // --decisions fixture below, which this real checkout's own (real page) last-render.md does
+  // not. Its decisions_url still matches the title-meta page, same as before.
+  const root = repoWithProjectJson(JSON.stringify({ decisions_url: '3e1da11277a18174bccfea187d5c3972' }));
+  fs.mkdirSync(path.join(root, 'docs', 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'decisions', 'last-render.md'), CLEAN_DECISIONS, 'utf8');
   const titleMetaPath = writeFreshTitleMetaFile(home, { page: '3e1da11277a18174bccfea187d5c3972' });
   const result = spawnSync(process.execPath, [
     SCRIPT_PATH,
     '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
     '--goals', path.join(FIXTURES, 'goals-clean.md'),
-    '--repo', HERE,
+    '--repo', root,
     '--head', '889887a',
     '--today', '9-22',
     '--title-meta', titleMetaPath,
@@ -858,6 +920,8 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
     decisions_url: 'decisions-page', goals_parent_page: 'goals-page',
   }));
   const unconfigured = repoWithProjectJson(undefined);
+  fs.mkdirSync(path.join(unconfigured, 'docs', 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(unconfigured, 'docs', 'decisions', 'last-render.md'), CLEAN_DECISIONS, 'utf8');
   const decisionsPath = path.join(unrelated, 'decisions.md');
   const cleanGoalsPath = path.join(unrelated, 'goals-clean.md');
   const defectiveGoalsPath = path.join(unrelated, 'goals-defective.md');
