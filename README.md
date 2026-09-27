@@ -246,6 +246,32 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.13 — work-record: a terminal withdrawn status and a withdraw command; the two
+  Sep 23 rejected records are withdrawn, so the prompt work line is quiet (lane nine,
+  68d2a15).
+- 0.20.13 — janitor: fed from origin records, first-parent UNSTARTED guard, report-only
+  class for remote branches (lane five, bbd9f5d); then fetches origin first, judges
+  merged only against origin/main, --no-fetch is report-only and --apply refuses it,
+  branch -D only for a re-proven SAFE tip (lane eleven, c8f7668).
+- 0.20.13 — tests: the two delegation-reminder timing tests assert the design's
+  promise instead of the host's speed; the 400 ms check is armed only by
+  DELEGATION_PERF_ASSERT=1 (lane twelve, led from Codex, dad0f79, evidence c3f9ad0).
+- 0.20.13 — tests, mirror: the sealed suite is green on Linux; mainCheckout composes
+  drive-lettered paths with path.posix; the V4 mirror test polices symlink publish on
+  Linux (lane ten, 3bd6ef6).
+- 0.20.13 — multi: an ASK 15 minutes past its by-time gets one BLOCKED from
+  note-flush when its answer side is observable on that host, kill switch
+  ~/.agents/ws-off-overdue; builders never delete directories (lane thirteen,
+  7aad49b).
+- 0.20.13 — multi: a note sent to a peer on another machine also lands in the sender
+  machine's ledger through the peer's note-send --append-ledger, so each host holds
+  both halves of a cross-host thread (lane fifteen, 806d773).
+- 0.20.13 — hooks: a recursive delete from a subagent is refused by a PreToolUse
+  delete-guard on Bash and PowerShell before any permission prompt, kill switch
+  ~/.agents/no-delete-guard; the lead's own calls pass through; Codex gets the same
+  hook through the opt-in codex-hooks install (lane sixteen, e47504b).
+- 0.20.13 — docs: record metadata follow-ups for lanes eleven, fifteen and sixteen
+  (65d2994, d0da77c, 9c4e1b0, 380a666).
 - 0.20.12 — feat(team-build): accept-prep runs the census after the reviewed Log
   line and rewrites only its own record lines; given mode gets a seam brief; setup
   paths compare normalised; Base is one sha (lane seven, 9f0dfee).
