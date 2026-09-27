@@ -4,32 +4,54 @@
 //
 // janitor NEVER deletes a file. Its only two destructive actions, both delegated straight to git,
 // are: `git worktree remove` (a whole worktree directory, via git's own bookkeeping) and
-// `git branch -d` (a ref). There is no unlink path in this tool, on purpose (round-2 review found a
-// working escape out of the project root through a symlinked parent directory, and a second way to
-// delete a git-tracked file on a self-asserted `created_by_tool` boolean; rather than harden a
-// containment check further, the capability was cut). A tool that cannot delete files cannot delete
-// the wrong file.
+// `git branch -D` (a ref, force form — see the J1 note below for why). There is no unlink path in
+// this tool, on purpose (round-2 review found a working escape out of the project root through a
+// symlinked parent directory, and a second way to delete a git-tracked file on a self-asserted
+// `created_by_tool` boolean; rather than harden a containment check further, the capability was
+// cut). A tool that cannot delete files cannot delete the wrong file.
 //
-// SAFE (a human would agree without looking) = a git worktree that is: not locked, not the main
-//   working tree, not the worktree we are standing in, not checked out on a protected branch name,
-//   not prunable (its directory must actually be there), its branch fully merged into main AND its
-//   tip confirmed present on origin/<main> (when an origin/<main> ref exists — with no origin remote
-//   at all, nothing is ever confirmed and nothing is ever SAFE), `git status --porcelain --ignored`
-//   fully empty (untracked AND ignored content both count), no submodules; OR a local branch merged
-//   into main AND confirmed on origin/<main> the same way, that is not a protected name, not the
-//   current branch, not main, and not checked out in ANY worktree unless that worktree is ALSO SAFE
-//   this same run (round-4 review: a branch checked out anywhere else is never mechanically safe by
-//   itself, even if the worktree holding it is the main working tree).
+// SAFE (a human would agree without looking) = a git worktree whose branch's tip is confirmed
+//   present on `refs/remotes/origin/<main>` (J1: fetched first, this run — see below; with no
+//   origin remote at all, or a fetch that failed this run, nothing is ever confirmed and nothing is
+//   ever SAFE; LOCAL main plays no part in this proof) AND is: not locked, not the main working
+//   tree, not the worktree we are standing in, not checked out on a protected branch name, not
+//   prunable (its directory must actually be there), `git status --porcelain --ignored` fully empty
+//   (untracked AND ignored content both count), no submodules; OR a local branch confirmed on
+//   origin/<main> the same way, that is not a protected name, not the current branch, not main, and
+//   not checked out in ANY worktree unless that worktree is ALSO SAFE this same run (round-4 review:
+//   a branch checked out anywhere else is never mechanically safe by itself, even if the worktree
+//   holding it is the main working tree).
 // JUDGMENT = everything that fails one of the above proofs but still looks stale: a dirty/ignored/
 //   locked/submoduled/prunable worktree, a protected-name worktree (even if otherwise SAFE), a
-//   merged worktree whose branch is not confirmed on origin, an unmerged branch with no commit in 14
-//   days, a merged branch not confirmed on origin, a protected-name branch that happens to be
-//   merged, a merged branch checked out in a worktree this run is not removing, an untracked file
-//   matching the project's scratch_patterns; also (T4) one row per `WORKAROUND:` line found across
-//   every `docs/work/*.record.md` (gathered via `listRecords`, scripts/work-record.mjs, never
-//   parsed here) - an OVERDUE one (`remove when` a past `by <yyyy-mm-dd>` date) is a finding, an
-//   open one (not yet due, or a worded condition this tool can't evaluate) is display-only; a
-//   missing `docs/work` directory is not a finding either way.
+//   worktree/branch merged into LOCAL main but not confirmed on origin (J1: this is now the ONLY
+//   thing "merged locally" means — a stale local main gets no say in SAFE either way), a merge
+//   judgment this run could not confirm because `git fetch origin --prune` itself failed
+//   (UNVERIFIABLE, never SAFE), an unmerged branch with no commit in 14 days, a protected-name
+//   branch that happens to be merged, a merged branch checked out in a worktree this run is not
+//   removing, an untracked file matching the project's scratch_patterns; also (T4) one row per
+//   `WORKAROUND:` line found across every `docs/work/*.record.md` (gathered via `listRecords`,
+//   scripts/work-record.mjs, never parsed here) - an OVERDUE one (`remove when` a past
+//   `by <yyyy-mm-dd>` date) is a finding, an open one (not yet due, or a worded condition this tool
+//   can't evaluate) is display-only; a missing `docs/work` directory is not a finding either way.
+//
+// J1 origin-truth fix (2026-09-26, this sweep): the janitor used to call a branch "merged" when it
+// was an ancestor of the CHECKOUT's local main, and only used the origin check as a second
+// confirmation — so a stale local main (six releases behind, on a lead's Netcup checkout) meant a
+// branch genuinely merged and pushed on origin was never even considered, never mind deleted.
+// Merged now means an ancestor of `refs/remotes/origin/<main>`, full stop; local main plays no part
+// in SAFE. Every run that will judge a merge begins with `git fetch origin --prune` in the root
+// first (`--no-fetch` skips it); a failed fetch (offline, no remote, half of a fetch's refs updated
+// before it errored) downgrades every merge judgment to UNVERIFIABLE, never to SAFE, and the report
+// says so on its own first lines — a stale or absent origin ref is not proof of anything once this
+// run couldn't refresh it. Under `--no-fetch`, every verdict that rests on origin ancestry is
+// labelled "as of last fetch, <age>", the age read from `origin/<main>`'s own reflog or (when that
+// ref has no reflog entry, e.g. it never moved) `FETCH_HEAD`'s mtime — the two together are the only
+// record git keeps of when a fetch last actually happened. Because merged-on-origin can now be true
+// while local main is stale, `git branch -d` (which git itself judges against the checkout's own
+// HEAD/merge state, not origin) would refuse to delete exactly the branch this file just proved
+// safe — so a branch reaching `-D` here has ALREADY passed the origin-ancestry check, in this same
+// run, after the fetch; `-D`'s force is redundant with that proof, never a substitute for it, and it
+// is reached from the SAFE class only.
 //
 // J1 (2026-09-26 sweep findings) additions:
 //   UNSTARTED: a worktree/branch whose tip sits on the FIRST-PARENT chain of origin/<main> (or local
@@ -66,11 +88,12 @@
 // is never touched by --apply; the report-only path already told the operator about it, --apply just
 // never acted on it.
 //
-// `--apply` acts on SAFE only: a plain, unforced worktree removal, and a lower-case branch delete
-// (the non-forcing form only - never its capital-letter sibling). JUDGMENT is reported and never
-// executed. This script never wipes uncommitted work, never resets a tree, never touches a
-// work-in-progress shelf, never forces anything, never recursively deletes a path it did not create,
-// and never unlinks a file.
+// `--apply` acts on SAFE only: a plain, unforced worktree removal, and a branch delete whose force
+// (`-D`) is reached only via the SAFE class's own origin-ancestry proof (see the J1 note above) —
+// everywhere else in this file, deletion is exactly as forceless and narrow as before. JUDGMENT is
+// reported and never executed. This script never wipes uncommitted work, never resets a tree, never
+// touches a work-in-progress shelf, never recursively deletes a path it did not create, and never
+// unlinks a file.
 //
 // Fail-open applies to READING state, never to a run that has already started deleting something.
 // Once --apply has taken even one destructive action, a later failure is never silent: whatever was
@@ -83,7 +106,7 @@
 // (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
 // no destructive action has been taken yet).
 
-import { existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -148,6 +171,98 @@ export function gitToplevel(cwd) {
   } catch {
     return null;
   }
+}
+
+/**
+ * J1 item 1: fetches origin before any merge judgment is made this run - the record of truth for
+ * this repo is origin, and this is the one call that refreshes this checkout's view of it. `--prune`
+ * keeps a deleted remote branch's tracking ref from lingering and answering a later merge question
+ * with a name that no longer exists on origin. Never throws: a failure here (offline, no `origin`
+ * remote at all, a network error partway through) is exactly the condition that downgrades every
+ * origin-ancestry judgment to UNVERIFIABLE this run, so the caller needs the error message, not an
+ * exception to catch again.
+ *
+ * J1 round 2 (MINOR 4): this is the janitor's only network call, made unconditionally on every run.
+ * `timeout` bounds an unreachable host (the OS connect timeout otherwise); `GIT_TERMINAL_PROMPT: "0"`
+ * and `GCM_INTERACTIVE: "never"` stop an https origin needing credentials from opening a blocking
+ * terminal or Git Credential Manager prompt (measured on Windows) - a network call this file never
+ * made before now must fail closed (into UNVERIFIABLE) rather than hang. `execFileSync` directly, not
+ * the shared `git()` wrapper, because this is the one call site that needs its own timeout/env - the
+ * wrapper's job is a bare, minimal, always-inherited environment for every OTHER call.
+ */
+export function fetchOrigin(root) {
+  try {
+    execFileSync("git", ["fetch", "origin", "--prune"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
+    });
+    return { ok: true, error: null };
+  } catch (err) {
+    // J1 round 2 (MINOR 3): git's raw stderr is a multi-line blob (advice lines, credential-helper
+    // chatter, the remote URL) - it used to land verbatim as the report's first line and inside every
+    // UNVERIFIABLE row's reason, breaking the table. One line: prefer the first `fatal:`/`error:` line
+    // git itself prints (its actual verdict), else the first non-blank line, else "unknown error".
+    const text = String((err && (err.stderr || err.message)) || err);
+    const lines = text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const first = lines.find((l) => /^(fatal|error):/.test(l)) || lines[0] || "unknown error";
+    return { ok: false, error: first };
+  }
+}
+
+/**
+ * J1 item 1 (`--no-fetch` labelling): "as of last fetch, <age>" needs a timestamp for when origin
+ * was last actually fetched, without fetching now. Two sources, the newest of the two wins:
+ * `refs/remotes/origin/<mainBranch>`'s own reflog (the time that ref itself last MOVED - the more
+ * precise signal, but absent when the ref has never moved, or `core.logAllRefUpdates` is off) and
+ * `FETCH_HEAD`'s mtime, ACCEPTED ONLY when its own content proves the fetch it was written by is the
+ * one that produced the CURRENT `origin/<mainBranch>` tip (J1 round 2, MINOR 2: `FETCH_HEAD` is
+ * rewritten by a fetch/pull of ANY remote, or a fetch of one narrow branch on this one - measured
+ * reporting "1m ago" for an origin/main untouched in 5 days, right after `git fetch upstream`).
+ * `--git-path` resolves through a worktree's own `.git` file (which points elsewhere) rather than
+ * assuming `<root>/.git` directly. Returns null (never throws) when neither source is available - a
+ * repo that has never fetched, or whose `FETCH_HEAD` cannot be tied to this ref.
+ */
+export function lastFetchAgeHours(root, mainBranch, now = new Date()) {
+  let refTime = null;
+  try {
+    const out = git(["log", "-g", "-1", "--date=unix", "--format=%gd", `refs/remotes/origin/${mainBranch}`], root);
+    const m = /@\{(\d+)\}/.exec(out);
+    if (m) refTime = Number(m[1]);
+  } catch {
+    // no reflog entry for the remote-tracking ref (core.logAllRefUpdates off, or it has never moved)
+  }
+  let fetchHeadTime = null;
+  try {
+    const gitPath = git(["rev-parse", "--git-path", "FETCH_HEAD"], root).trim();
+    const full = path.isAbsolute(gitPath) ? gitPath : path.join(root, gitPath);
+    const currentTip = refSha(root, `refs/remotes/origin/${mainBranch}`);
+    const marker = `branch '${mainBranch}' of `;
+    const matchesThisRef = currentTip
+      ? readFileSync(full, "utf8")
+          .split("\n")
+          .some((line) => line.startsWith(currentTip) && line.includes(marker))
+      : false;
+    if (matchesThisRef) fetchHeadTime = statSync(full).mtimeMs / 1000;
+  } catch {
+    // never fetched at all, or FETCH_HEAD's content doesn't name this ref at its current tip
+  }
+  const candidates = [refTime, fetchHeadTime].filter((t) => typeof t === "number" && Number.isFinite(t));
+  if (candidates.length === 0) return null;
+  return (now.getTime() / 1000 - Math.max(...candidates)) / 3600;
+}
+
+/** Renders `lastFetchAgeHours`'s output for a report line - never throws on null/NaN. */
+function formatFetchAge(hours) {
+  if (typeof hours !== "number" || !Number.isFinite(hours)) return "age unknown";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m ago`;
+  if (hours < 48) return `${hours.toFixed(1)}h ago`;
+  return `${(hours / 24).toFixed(1)}d ago`;
 }
 
 export function currentBranch(root) {
@@ -511,6 +626,17 @@ export function classify({
   scratchPatterns = [],
   minAgeHours = DEFAULT_MIN_AGE_HOURS,
   remoteBranches = [],
+  // J1 item 1: set by gatherState when this run's `git fetch origin --prune` itself failed (offline,
+  // no origin remote, a partial fetch that errored) - every origin-ancestry-based merge judgment
+  // (the `onOrigin` proof below) is downgraded to JUDGMENT, never SAFE, regardless of what a stale or
+  // absent origin ref would otherwise say. Defaults false so a caller (a test, most often) that
+  // builds its own `worktrees`/`branches` state directly, without going through gatherState's fetch
+  // step, gets the pre-J1 behavior unchanged.
+  originUnverifiable = false,
+  fetchFailNote = "",
+  // Appended to the SAFE reason text only under `--no-fetch` (gatherState sets this; empty otherwise
+  // since a live, successful fetch this run needs no "as of last fetch" caveat).
+  fetchAgeSuffix = "",
 }) {
   const safe = { worktrees: [], branches: [] };
   const judgment = { worktrees: [], branches: [], untrackedFiles: [] };
@@ -560,9 +686,19 @@ export function classify({
       judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `unstarted (tip is main)${ageSuffix(w.ageHours)}` });
       continue;
     }
-    if (!w.branch || !w.merged) continue; // unmerged/detached: normal in-progress state, not a finding
+    if (!w.branch) continue; // detached: normal in-progress state, not a finding
+    // J1 item 2: origin ancestry is now the WHOLE merged proof - `w.merged` (local main) never gates
+    // SAFE by itself, it only supplies wording for the one JUDGMENT case where origin disagrees.
     if (!w.onOrigin) {
-      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `merged locally, not confirmed on origin/${mainBranch}` });
+      if (w.merged) {
+        judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `merged locally, not confirmed on origin/${mainBranch}` });
+      }
+      continue; // not merged on origin, and not even merged locally: normal in-progress state
+    }
+    // J1 item 1: a fetch that failed this run means origin/<mainBranch> cannot be trusted - never
+    // SAFE, whatever it currently (possibly stale) says.
+    if (originUnverifiable) {
+      judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: `merge judgment UNVERIFIABLE this run: git fetch origin failed${fetchFailNote}` });
       continue;
     }
     const protectedWt = PROTECTED_BRANCH_NAMES.has(w.branch) || PROTECTED_BRANCH_PREFIXES.some((p) => w.branch.startsWith(p));
@@ -579,7 +715,7 @@ export function classify({
       judgment.worktrees.push({ ref: w.path, branch: w.branch, reason: ageFloorReason(w.ageHours, minAgeHours) });
       continue;
     }
-    safe.worktrees.push({ ref: w.path, branch: w.branch, reason: "branch merged into main (and on origin), tree fully clean" });
+    safe.worktrees.push({ ref: w.path, branch: w.branch, reason: `branch merged into origin/${mainBranch}${fetchAgeSuffix}, tree fully clean` });
   }
 
   // round-4 review F1: a branch checked out in ANY worktree - the main one included - is never SAFE
@@ -609,9 +745,23 @@ export function classify({
       }
       continue;
     }
+    // J1 item 1: a fetch that failed this run means ANY "merged on origin" reading (however this
+    // branch would otherwise be classified below - checked out elsewhere, protected, or plain SAFE)
+    // cannot be trusted, so this is checked ahead of every one of those, not just the plain SAFE
+    // path. A branch not (yet) merged on origin has nothing for a failed fetch to have gotten wrong
+    // about IT specifically, so this only fires when `onOrigin` is (possibly stale-ly) true.
+    if (b.onOrigin && originUnverifiable) {
+      judgment.branches.push({ ref: b.name, reason: `merge judgment UNVERIFIABLE this run: git fetch origin failed${fetchFailNote}` });
+      continue;
+    }
     if (checkedOutAnywhere.has(b.name) && !removedHere.has(b.name)) {
-      if (b.merged) {
+      // J1 item 2: `b.onOrigin` (not `b.merged`, local main) is the "would otherwise be SAFE" test
+      // from here on - a branch merged only locally still isn't SAFE-eligible regardless of checkout,
+      // so it keeps the more informative "not confirmed on origin" reason instead.
+      if (b.onOrigin) {
         judgment.branches.push({ ref: b.name, reason: "merged, but checked out in a worktree this run is not removing" });
+      } else if (b.merged) {
+        judgment.branches.push({ ref: b.name, reason: `merged locally, not confirmed on origin/${mainBranch}, and checked out in a worktree` });
       } else if (b.daysSinceCommit === null || b.daysSinceCommit >= UNMERGED_STALE_DAYS) {
         judgment.branches.push({
           ref: b.name,
@@ -622,31 +772,38 @@ export function classify({
     }
     const protectedName = PROTECTED_BRANCH_NAMES.has(b.name) || PROTECTED_BRANCH_PREFIXES.some((p) => b.name.startsWith(p));
     if (protectedName) {
-      if (b.merged) {
+      if (b.onOrigin || b.merged) {
         // A branch whose whole value is its name is never mechanically safe: being an ancestor of
-        // main is exactly what a bookmark/alias looks like.
+        // main (local OR origin) is exactly what a bookmark/alias looks like.
         judgment.branches.push({ ref: b.name, reason: "protected name, merged but a person decides" });
       }
       continue;
     }
-    if (b.merged && !b.onOrigin) {
-      // Same proof the worktree class demands: a merge that exists only in a local main is not
-      // confirmed anywhere else, and the branch name is the only handle on that work.
-      judgment.branches.push({ ref: b.name, reason: `merged locally, not confirmed on origin/${mainBranch}` });
-    } else if (b.merged) {
-      // J1 item 2: age floor applies here too - a merged, on-origin branch younger than the floor
-      // is JUDGMENT, not SAFE, whatever else is true about it. F4: an unknown age is never treated
-      // as old enough.
-      if (belowAgeFloor(bAgeHours, minAgeHours)) {
-        judgment.branches.push({ ref: b.name, reason: ageFloorReason(bAgeHours, minAgeHours) });
-      } else {
-        safe.branches.push({ ref: b.name, reason: "merged into main (and on origin)" });
+    // J1 item 2: `onOrigin` is now the WHOLE merged proof for SAFE - local main (`b.merged`) never
+    // gates it, it only supplies wording for the one JUDGMENT case where origin disagrees.
+    if (!b.onOrigin) {
+      if (b.merged) {
+        // Same proof the worktree class demands: a merge that exists only in a local main is not
+        // confirmed anywhere else, and the branch name is the only handle on that work.
+        judgment.branches.push({ ref: b.name, reason: `merged locally, not confirmed on origin/${mainBranch}` });
+      } else if (b.daysSinceCommit === null || b.daysSinceCommit >= UNMERGED_STALE_DAYS) {
+        judgment.branches.push({
+          ref: b.name,
+          reason: b.daysSinceCommit === null ? "unmerged, last-commit age unknown" : `unmerged, no commit in ${Math.floor(b.daysSinceCommit)} days`,
+        });
       }
-    } else if (b.daysSinceCommit === null || b.daysSinceCommit >= UNMERGED_STALE_DAYS) {
-      judgment.branches.push({
-        ref: b.name,
-        reason: b.daysSinceCommit === null ? "unmerged, last-commit age unknown" : `unmerged, no commit in ${Math.floor(b.daysSinceCommit)} days`,
-      });
+      continue;
+    }
+    // b.onOrigin is true and originUnverifiable is false from here (both already handled above).
+    // J1 item 2: age floor applies here too - a merged, on-origin branch younger than the floor
+    // is JUDGMENT, not SAFE, whatever else is true about it. F4: an unknown age is never treated
+    // as old enough.
+    if (belowAgeFloor(bAgeHours, minAgeHours)) {
+      judgment.branches.push({ ref: b.name, reason: ageFloorReason(bAgeHours, minAgeHours) });
+    } else {
+      // J1 round 2 (MAJOR 2): carry the sha this run proved merged on origin - applySafe rechecks it
+      // immediately before `-D` rather than trusting the name alone.
+      safe.branches.push({ ref: b.name, sha: b.tip || null, reason: `merged into origin/${mainBranch}${fetchAgeSuffix}` });
     }
   }
 
@@ -675,6 +832,18 @@ export function classify({
       continue;
     }
     if (rb.merged) {
+      // J1 round 2 (MINOR 1): the same fetch failure that downgrades local worktree/branch verdicts
+      // to UNVERIFIABLE applies here too - `rb.merged` is read off this same (possibly stale)
+      // `refs/remotes/origin/*`, and the spec says "every merge judgment", not only the destructive
+      // ones. Report-only either way; this only changes the wording and drops the copy/paste command.
+      if (originUnverifiable) {
+        judgmentRemoteBranches.push({
+          ref: `origin/${rb.name}`,
+          reason: `merge judgment UNVERIFIABLE this run: git fetch origin failed${fetchFailNote}`,
+          command: "",
+        });
+        continue;
+      }
       // J1 review round 2 (F6): the verdict was read off `refs/remotes/origin/*` as of this host's
       // last fetch - another host may have pushed new commits to the same name since. Naming the tip
       // sha this verdict actually used lets a human compare before running the command against
@@ -803,15 +972,34 @@ export function gatherWorkarounds(root, { now = new Date(), fsImpl } = {}) {
  * Returns either a normal state object, or `{ __blind: true, reason }` when git state could not be
  * read at all.
  */
-export function gatherState({ root, config, now = new Date(), minAgeHours = DEFAULT_MIN_AGE_HOURS }) {
+export function gatherState({ root, config, now = new Date(), minAgeHours = DEFAULT_MIN_AGE_HOURS, noFetch = false }) {
   const mainBranch = config.main_branch || "main";
+
+  // J1 item 1: fetch first, before any merge judgment - origin is this repo's record of truth, and
+  // this checkout's view of it is only as fresh as its last fetch. `--no-fetch` skips the call
+  // entirely and every origin-ancestry verdict is labelled with how old that view actually is
+  // instead; a fetch that IS attempted and fails downgrades every such verdict to UNVERIFIABLE,
+  // never SAFE - a stale (or, with no origin remote at all, permanently absent) ref is not proof of
+  // anything once this run couldn't refresh it.
+  const fetch = noFetch
+    ? { attempted: false, ok: true, error: null, ageHours: lastFetchAgeHours(root, mainBranch, now) }
+    : (() => {
+        const res = fetchOrigin(root);
+        return { attempted: true, ok: res.ok, error: res.error, ageHours: null };
+      })();
+  const originUnverifiable = fetch.attempted && !fetch.ok;
+  const fetchFailNote = fetch.error ? `: ${fetch.error}` : "";
+  const fetchAgeSuffix = !fetch.attempted ? ` (as of last fetch, ${formatFetchAge(fetch.ageHours)})` : "";
+
   const rawWorktrees = listWorktrees(root);
   if (rawWorktrees === null) return { __blind: true, reason: "could not read git worktree state" };
 
   const worktrees = rawWorktrees.map((w) => {
     const clean = w.bare ? true : isTreeClean(w.path);
     const merged = w.branch ? isBranchMerged(root, w.branch, mainBranch) : false;
-    const onOrigin = w.branch && merged ? isBranchOnOrigin(root, w.branch, mainBranch) : false;
+    // J1 item 2: onOrigin is now computed unconditionally - it no longer requires `merged` (local
+    // main) to be true first, so a branch merged on origin while local main is stale still surfaces.
+    const onOrigin = w.branch ? isBranchOnOrigin(root, w.branch, mainBranch) : false;
     const unstarted = w.branch ? isUnstarted(root, w.branch, mainBranch) : false;
     const ageHours = w.bare ? null : worktreeAgeHours(w.path, now);
     return { ...w, clean, merged, onOrigin, unstarted, ageHours, hasSubmodules: w.bare ? false : hasSubmodules(w.path) };
@@ -825,10 +1013,15 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
     return {
       name,
       merged,
-      onOrigin: merged ? isBranchOnOrigin(root, name, mainBranch) : false,
+      // J1 item 2: unconditional, same reasoning as the worktree map above.
+      onOrigin: isBranchOnOrigin(root, name, mainBranch),
       daysSinceCommit: daysSinceLastCommit(root, name, now),
       unstarted: isUnstarted(root, name, mainBranch),
       ageHours: branchAgeHours(root, name, now),
+      // J1 round 2 (MAJOR 2): the sha classify() proved merged on origin THIS run - carried into the
+      // SAFE row so applySafe can recheck it immediately before deleting, instead of trusting a name
+      // that may have moved (a new local commit) in the window between gather and apply.
+      tip: refSha(root, headRef(name)),
     };
   });
 
@@ -855,12 +1048,17 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
     scratchPatterns: config.scratch_patterns || [],
     minAgeHours,
     remoteBranches,
+    originUnverifiable,
+    fetchFailNote,
+    fetchAgeSuffix,
   });
   result.drift.diskUsedKB = diskUsedKB;
   // T4: workarounds are gathered independently of git state - a missing docs/work directory (no
   // work records yet, or a project not using this build at all) is not a finding, so this never
   // throws and never blocks the git-derived classification above.
   result.judgment.workarounds = gatherWorkarounds(root, { now });
+  // J1 item 1: surfaced for the report's first lines (a failed fetch) and for --json callers.
+  result.fetch = fetch;
   result._raw = { root, mainBranch };
   return result;
 }
@@ -922,6 +1120,11 @@ export function applySafe(state, log = []) {
   } catch {
     stillCheckedOut = new Set();
   }
+  // J1 round 2 (MAJOR 1, defence in depth): main() already refuses `--apply` with `--no-fetch`, but
+  // `applySafe` is exported and callable on its own (every test in this file calls it directly) - a
+  // SAFE row is only ever trustworthy for `-D` if THIS state came from a fetch that was attempted and
+  // succeeded. `noFetch`'s own report-only run sets `attempted: false`, which fails this the same way.
+  const fetchLiveThisRun = Boolean(state.fetch && state.fetch.attempted && state.fetch.ok);
   for (const b of state.safe.branches) {
     if (failedWorktreeBranches.has(b.ref)) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "skipped: its worktree removal did not report success" });
@@ -931,13 +1134,40 @@ export function applySafe(state, log = []) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "still checked out in a worktree" });
       continue;
     }
+    if (!fetchLiveThisRun) {
+      log.push({ action: "branch-delete", ref: b.ref, ok: false, error: "skipped: no successful fetch this run" });
+      continue;
+    }
+    // J1 round 2 (MAJOR 2): classify() proved `b.sha` an ancestor of origin/<main> when state was
+    // gathered. Anything can have happened since (a new local commit, an amend, a reset) in the
+    // window between gather and this exact call - re-read the ref's CURRENT tip and re-run the same
+    // origin-ancestry proof right before deleting, rather than trusting the name. A mismatch or a
+    // fresh "not an ancestor" answer means some of what this branch now holds was never proven, so
+    // `-D` (which does not re-check on its own) must not run.
+    const tipNow = refSha(root, headRef(b.ref));
+    if (!b.sha || tipNow !== b.sha || !isBranchOnOrigin(root, b.ref, state._raw.mainBranch)) {
+      log.push({
+        action: "branch-delete",
+        ref: b.ref,
+        ok: false,
+        error: `skipped: tip moved since it was proven merged on origin this run (${b.sha ? b.sha.slice(0, 7) : "none"} -> ${tipNow ? tipNow.slice(0, 7) : "gone"})`,
+      });
+      continue;
+    }
     try {
-      // b.ref is a short name here, the one shape this file otherwise avoids - `git branch -d`
+      // b.ref is a short name here, the one shape this file otherwise avoids - `git branch -D`
       // rejects a fully-qualified refname outright ("not found"), so a short name is the only input
-      // it accepts. Safe anyway: `branch -d` is scoped to refs/heads by the subcommand itself (a
+      // it accepts. Safe anyway: `branch -D` is scoped to refs/heads by the subcommand itself (a
       // same-named tag cannot shadow it - round-3 review measured this directly), and `--` plus
       // git's own branch-name validation rules out any option-shaped value reaching it as a flag.
-      git(["branch", "-d", "--", b.ref], root);
+      // J1 item 3: `-D` (force), not `-d` - `state.safe.branches` is reachable ONLY through
+      // classify()'s origin-ancestry proof (this same run, after the fetch; see the file's top
+      // banner), so by the time a ref gets here it is already proven merged on origin. `-d` judges
+      // merge state against the CHECKOUT's own HEAD, which is exactly the stale signal this whole
+      // fix replaces - it would refuse to delete a branch merged on origin while local main is
+      // stale, the original bug. The ancestry check above is the safety; `-D`'s force is redundant
+      // with it, never a substitute for it.
+      git(["branch", "-D", "--", b.ref], root);
       log.push({ action: "branch-delete", ref: b.ref, ok: true });
     } catch (err) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: String(err.message || err) });
@@ -974,6 +1204,16 @@ export function summarizeCounts(state) {
 }
 
 function printReport(state, wiring, outsideRows) {
+  // J1 item 1: a fetch that failed this run is said on the report's own first lines - every merge
+  // judgment below is UNVERIFIABLE, and a stale or absent origin ref proved nothing this run.
+  if (state.fetch && state.fetch.attempted && !state.fetch.ok) {
+    console.log(`FETCH FAILED: git fetch origin --prune did not succeed this run${state.fetch.error ? ` (${state.fetch.error})` : ""}.`);
+    console.log("Every merge judgment below is UNVERIFIABLE: nothing merged on origin can be SAFE until a fetch succeeds.");
+    console.log("");
+  } else if (state.fetch && !state.fetch.attempted) {
+    console.log(`--no-fetch: every origin-ancestry verdict below is as of last fetch, ${formatFetchAge(state.fetch.ageHours)}.`);
+    console.log("");
+  }
   const counts = summarizeCounts(state);
   console.log("SAFE:");
   console.log(`  summary: ${counts.safeWorktrees} worktree(s), ${counts.safeBranches} branch(es)`);
@@ -1156,6 +1396,9 @@ function parseFlags(argv) {
   const applyFlag = argv.includes("--apply");
   const jsonFlag = argv.includes("--json");
   const outsideFlag = argv.includes("--outside");
+  // J1 item 1: skips this run's `git fetch origin --prune`; every origin-ancestry verdict is then
+  // labelled with how old that view actually is instead (see gatherState/lastFetchAgeHours).
+  const noFetchFlag = argv.includes("--no-fetch");
 
   let minAgeHours = DEFAULT_MIN_AGE_HOURS;
   const ageIdx = argv.indexOf("--min-age-hours");
@@ -1171,7 +1414,7 @@ function parseFlags(argv) {
     record = next && !next.startsWith("--") ? next : DEFAULT_RECORD_DIR;
   }
 
-  return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record };
+  return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag };
 }
 
 export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
@@ -1196,9 +1439,16 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       return 3;
     }
 
-    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record } = parseFlags(argv);
+    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag } = parseFlags(argv);
+    if (applyFlag && noFetchFlag) {
+      // J1 round 2 (MAJOR 1): `-D` is reached only from the SAFE class after THIS run's own fetch
+      // proved the origin ancestry - `--no-fetch` has no such fetch to point to, so it reports as of
+      // whatever origin/<main> last held (labelled "as of last fetch, <age>") but never applies.
+      process.stderr.write("janitor: --apply needs this run's own fetch; --no-fetch is report-only\n");
+      return 3;
+    }
 
-    const state = gatherState({ root: toplevel, config, minAgeHours });
+    const state = gatherState({ root: toplevel, config, minAgeHours, noFetch: noFetchFlag });
     if (state.__blind) {
       process.stderr.write(`janitor: ${state.reason}\n`);
       return 3;
@@ -1245,7 +1495,16 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
     if (jsonFlag) {
       console.log(
         JSON.stringify(
-          { safe: state.safe, judgment: state.judgment, drift: state.drift, summary: summarizeCounts(state), wiring, outside: outsideRows, applied: applyFlag ? applyLog : null },
+          {
+            fetch: state.fetch,
+            safe: state.safe,
+            judgment: state.judgment,
+            drift: state.drift,
+            summary: summarizeCounts(state),
+            wiring,
+            outside: outsideRows,
+            applied: applyFlag ? applyLog : null,
+          },
           null,
           2,
         ),

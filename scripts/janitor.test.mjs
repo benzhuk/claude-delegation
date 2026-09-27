@@ -29,6 +29,8 @@ import {
   writeRecord,
   gatherOutside,
   classify,
+  fetchOrigin,
+  lastFetchAgeHours,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -374,15 +376,26 @@ test("the four drift numbers are all present and numeric (or null for disk, if `
   assert.ok(!("registryPastEndCount" in state.drift), "the registry drift number is gone with the registry (round-1 cut)");
 });
 
-test("source never contains a destructive git verb, a force flag, or exit(2), outside comments", () => {
+// J1 item 3 CHANGED this test (was: "source never contains a destructive git verb, a force flag, or
+// exit(2), outside comments", which flatly banned the substring "branch -D" anywhere in the source).
+// The origin-truth fix legitimately introduces exactly one `git branch -D` call - the SAFE-gated
+// branch delete in applySafe(), reached only after this run's own origin-ancestry proof, per the
+// spec's item 3 ("`-D` is only reached from the SAFE class... anywhere else in the script deletion
+// stays as it is"). A blanket ban would now fail on the very code this territory was asked to ship.
+// Renamed and narrowed instead of deleted: every other destructive verb/force-flag stays banned
+// outright, and `-D` is now asserted to appear EXACTLY ONCE, at that one call site - anywhere else it
+// reappears is either a second destructive path or a weakening of the guard this test exists for.
+test("source never contains a destructive git verb, a force flag, or exit(2), outside comments (branch -D excepted: exactly one sanctioned call site)", () => {
   const files = ["janitor.mjs"].map((f) => path.join(import.meta.dirname, f));
-  const banned = ["git clean", "reset --hard", "stash", "rm -rf", "--force", "branch -D", "process.exit(2)"];
+  const banned = ["git clean", "reset --hard", "stash", "rm -rf", "--force", "process.exit(2)"];
   for (const file of files) {
     const src = fs.readFileSync(file, "utf8");
     const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     for (const bad of banned) {
       assert.equal(stripped.includes(bad), false, `${file} contains forbidden "${bad}" outside comments`);
     }
+    const branchDeleteSites = (stripped.match(/"branch",\s*"-D"/g) || []).length;
+    assert.equal(branchDeleteSites, 1, `${file} must contain exactly one sanctioned "branch -D" call site (found ${branchDeleteSites})`);
   }
 });
 
@@ -1940,6 +1953,397 @@ test("J1 review round 2 F5: ws/* entries are always 'a person decides' - a live 
     assert.match(row.reason, /a person decides/, `ws entries must never get a removal recommendation: ${row.reason}`);
     assert.doesNotMatch(row.reason, /recommend: remove/);
   }
+});
+
+// ---------------------------------------------------------------------------
+// J1 origin-truth fix (2026-09-26): merged means an ancestor of origin/<main>, fetched first this
+// run; local main plays no part in SAFE; a branch proved merged on origin is deleted with `-D` only
+// from the SAFE class, after that same run's fetch. Three cases (merged on origin only / merged
+// locally only / merged on both - the "merged on both" case is already covered by the very first
+// test in this file, "a merged, origin-confirmed, clean worktree is SAFE..."), the fetch-failure
+// downgrade, and the --no-fetch labelling.
+// ---------------------------------------------------------------------------
+
+/** J1: pushes `branch` to origin, then merges `origin/<branch>` into origin's OWN `main` from a
+ * SEPARATE clone and pushes that - `root`'s own local main is never touched. Models "another lane
+ * merged and pushed while this checkout's local main stayed stale" (the packet's own Netcup repro:
+ * six releases behind). `bareOrigin` is the path `addOrigin()` returned. */
+function mergeOnOriginOnly(root, bareOrigin, branch) {
+  git(["push", "-q", "origin", branch], root);
+  const clone = path.join(mkTmp("janitor-mergeclone-"), "clone");
+  git(["clone", "-q", bareOrigin, clone]);
+  git(["checkout", "-q", "main"], clone);
+  git(["merge", "-q", "--no-ff", "-m", `merge ${branch}`, `origin/${branch}`], clone);
+  git(["push", "-q", "origin", "main"], clone);
+}
+
+/** A local branch cut from main's current tip, with one commit, checked out nowhere (root ends back
+ * on main) - the plain "some feature work happened, never merged anywhere yet" shape, without the
+ * worktree machinery `addWorktree()` also brings in. */
+function createLocalBranch(root, name) {
+  git(["checkout", "-q", "-b", name], root);
+  fs.writeFileSync(path.join(root, `${name}.txt`), "x\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", `work on ${name}`], root);
+  git(["checkout", "-q", "main"], root);
+}
+
+test("J1 item 2: a branch (and its worktree) merged on origin only, with a stale local main, is SAFE - onOrigin decides, not local `merged`", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+
+  const wt = addWorktree(root, "feat-origin-only");
+  mergeOnOriginOnly(root, bare, "feat-origin-only");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  assert.equal(isBranchMerged(toplevel, "feat-origin-only", "main"), false, "sanity: local main never received this merge - it is genuinely stale");
+  assert.equal(isBranchOnOrigin(toplevel, "feat-origin-only", "main"), true, "sanity: gatherState's own fetch picked up origin's merge");
+
+  assert.ok(state.safe.branches.some((b) => b.ref === "feat-origin-only"), "merged on origin must be SAFE even though local main never merged it (J1 item 2)");
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "its worktree must be SAFE too - same rule (J1 item 4)");
+});
+
+test("J1 item 2: a branch merged only into local main (never (re)pushed) stays JUDGMENT 'not confirmed on origin', even with origin present", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  addWorktree(root, "feat-local-only");
+  mergeIntoMain(root, "feat-local-only"); // local main advances; never pushed again
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  assert.equal(isBranchMerged(toplevel, "feat-local-only", "main"), true, "sanity: merged into local main");
+  assert.equal(isBranchOnOrigin(toplevel, "feat-local-only", "main"), false, "sanity: never (re)pushed, so not on origin");
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-local-only"), "local-only merge must never be SAFE (J1 item 2)");
+  const row = state.judgment.branches.find((b) => b.ref === "feat-local-only");
+  assert.ok(row, "must be JUDGMENT");
+  assert.match(row.reason, /merged locally, not confirmed on origin\/main/);
+});
+
+test("J1 item 3: a branch merged on origin but not in local main IS deleted under --apply - proves `git branch -D`, not `-d`, is what runs", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  createLocalBranch(root, "feat-origin-delete");
+  mergeOnOriginOnly(root, bare, "feat-origin-delete");
+
+  const toplevel = gitToplevel(root);
+  assert.equal(isBranchMerged(toplevel, "feat-origin-delete", "main"), false, "sanity: NOT merged into local main - a plain `git branch -d` would refuse this exact branch");
+
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.ok(
+    !listLocalBranches(gitToplevel(root)).includes("feat-origin-delete"),
+    "merged on origin must be deleted under --apply even though local main never merged it",
+  );
+  void code;
+});
+
+test("J1 item 3: a branch merged only into local main (never pushed) is never deleted by --apply", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  createLocalBranch(root, "feat-local-only-delete");
+  mergeIntoMain(root, "feat-local-only-delete");
+
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-local-only-delete"), "merged only locally must survive --apply");
+  assert.equal(code, 1);
+});
+
+test("J1 item 1: a fetch that fails this run downgrades an already-origin-confirmed branch and worktree to JUDGMENT UNVERIFIABLE, never SAFE", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  const wt = addWorktree(root, "feat-fetchfail");
+  mergeIntoMain(root, "feat-fetchfail");
+  pushMain(root); // origin/main now confirms feat-fetchfail merged, from this push
+
+  // Break the remote so THIS run's own `git fetch origin --prune` fails, while the already-confirmed
+  // origin/main ref (from the push above) stays exactly where it was - stale, and now unverifiable.
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  assert.equal(state.fetch.attempted, true);
+  assert.equal(state.fetch.ok, false, "sanity: the fetch itself failed");
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-fetchfail"), "must never be SAFE when this run's own fetch failed");
+  const branchRow = state.judgment.branches.find((b) => b.ref === "feat-fetchfail");
+  assert.ok(branchRow, "must be a JUDGMENT row instead");
+  assert.match(branchRow.reason, /UNVERIFIABLE/);
+
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal));
+  const wtRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
+  assert.ok(wtRow, "the worktree must be JUDGMENT too");
+  assert.match(wtRow.reason, /UNVERIFIABLE/);
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main(["--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.match(lines[0], /^FETCH FAILED/, "the fetch failure must be said on the report's own first line");
+  assert.equal(code, 1);
+});
+
+test("J1 item 1: --no-fetch skips the fetch entirely and labels the verdict 'as of last fetch, <age>'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  addWorktree(root, "feat-nofetch");
+  mergeIntoMain(root, "feat-nofetch");
+  pushMain(root);
+
+  // Simulate offline: a live fetch attempted now would fail - --no-fetch must never even try.
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, noFetch: true });
+
+  assert.equal(state.fetch.attempted, false, "no fetch may be attempted under --no-fetch");
+  assert.equal(state.fetch.ok, true, "skipping the fetch is not itself a failure");
+
+  assert.ok(
+    state.safe.branches.some((b) => b.ref === "feat-nofetch"),
+    "the already-confirmed (now stale) origin ref must still classify SAFE under --no-fetch",
+  );
+  const row = state.safe.branches.find((b) => b.ref === "feat-nofetch");
+  assert.match(row.reason, /as of last fetch/, "the verdict must say how old the origin view it relied on is");
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main(["--no-fetch", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.match(lines[0], /^--no-fetch: every origin-ancestry verdict below is as of last fetch/);
+  void code;
+});
+
+// ---------------------------------------------------------------------------
+// J1 round 2 (review round 1 findings): each fix below is pinned by a test that fails when its own
+// fix is reverted (see pack/reports/J1-review-r1.md for the reviewer's own probes and predictions).
+// ---------------------------------------------------------------------------
+
+test("J1 round 2 MAJOR 1: --apply refuses to run at all under --no-fetch, so a stale view never reaches -D", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  createLocalBranch(root, "feat-round2-major1");
+  mergeOnOriginOnly(root, bare, "feat-round2-major1");
+
+  // Sanity: with a LIVE fetch this run, it really would be SAFE (and deleted) - the point of this
+  // test is that --no-fetch must never reach that delete, not that the branch isn't a genuine
+  // candidate.
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const live = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.ok(live.safe.branches.some((b) => b.ref === "feat-round2-major1"), "sanity: SAFE with a live fetch this run");
+
+  const code = main(["--no-fetch", "--apply", "--min-age-hours", "0"], { cwd: root });
+  assert.equal(code, 3, "--apply under --no-fetch must refuse outright (exit 3), never act");
+  assert.ok(
+    listLocalBranches(gitToplevel(root)).includes("feat-round2-major1"),
+    "the branch must survive - --no-fetch has no fetch this run to point the ancestry proof at",
+  );
+});
+
+test("J1 round 2 MAJOR 1 (defence in depth): applySafe itself refuses every branch delete when its state did not come from a successful fetch this run", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  createLocalBranch(root, "feat-major1-defence");
+  mergeIntoMain(root, "feat-major1-defence");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, noFetch: true });
+  assert.equal(state.fetch.attempted, false, "sanity: no fetch attempted under --no-fetch");
+  assert.ok(
+    state.safe.branches.some((b) => b.ref === "feat-major1-defence"),
+    "sanity: still reads SAFE under --no-fetch (report-only, not silent)",
+  );
+
+  const log = [];
+  applySafe(state, log);
+  assert.ok(
+    listLocalBranches(gitToplevel(root)).includes("feat-major1-defence"),
+    "applySafe itself, called directly, must never delete without this run's own successful fetch",
+  );
+  const row = log.find((l) => l.action === "branch-delete" && l.ref === "feat-major1-defence");
+  assert.ok(row && row.ok === false && /no successful fetch this run/.test(row.error));
+});
+
+test("J1 round 2 MAJOR 2: a commit made after gatherState but before applySafe survives - `-D` never deletes a tip it didn't itself just prove merged", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  const wt = addWorktree(root, "feat-major2-latecommit");
+  mergeOnOriginOnly(root, bare, "feat-major2-latecommit");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  const safeRow = state.safe.branches.find((b) => b.ref === "feat-major2-latecommit");
+  assert.ok(safeRow, "sanity: SAFE this run");
+  assert.ok(safeRow.sha, "the SAFE row must carry the sha this run proved merged");
+  const provenSha = safeRow.sha;
+
+  // The exact window MAJOR 2 named: a new commit lands in the SAFE worktree after gatherState ran,
+  // before apply.
+  fs.writeFileSync(path.join(wt, "late.txt"), "late\n");
+  git(["add", "."], wt);
+  git(["commit", "-q", "-m", "late work, after classify"], wt);
+  const lateSha = git(["rev-parse", "feat-major2-latecommit"], root).trim();
+  assert.notEqual(lateSha, provenSha, "sanity: the branch really did move");
+
+  const log = [];
+  applySafe(state, log);
+
+  assert.ok(
+    listLocalBranches(gitToplevel(root)).includes("feat-major2-latecommit"),
+    "the branch, and the late commit it now holds, must survive",
+  );
+  assert.equal(
+    git(["rev-parse", "feat-major2-latecommit"], root).trim(),
+    lateSha,
+    "the late commit itself must still be there - nothing rewound it",
+  );
+  const row = log.find((l) => l.action === "branch-delete" && l.ref === "feat-major2-latecommit");
+  assert.ok(row, "must log a branch-delete attempt");
+  assert.equal(row.ok, false);
+  assert.match(row.error, /tip moved/);
+});
+
+test("J1 round 2 MINOR 1: a failed fetch also downgrades the remote-branch class to UNVERIFIABLE, never a bare 'merged' verdict with a delete command", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  const wt = addWorktree(root, "feat-minor1-remote");
+  mergeIntoMain(root, "feat-minor1-remote");
+  git(["push", "-q", "origin", "feat-minor1-remote"], root);
+  pushMain(root);
+  git(["worktree", "remove", "--force", wt], root);
+  git(["branch", "-D", "feat-minor1-remote"], root); // local branch gone; only origin/feat-minor1-remote remains
+
+  // Break the remote so THIS run's own fetch fails, while the cached origin/* refs (from the pushes
+  // above) stay exactly where they were.
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.equal(state.fetch.ok, false, "sanity: the fetch itself failed");
+
+  const row = state.judgment.remoteBranches.find((r) => r.ref === "origin/feat-minor1-remote");
+  assert.ok(row, "must still be a JUDGMENT row");
+  assert.match(row.reason, /UNVERIFIABLE/, "a stale remote-merged reading must never be printed as a plain verdict once this run's fetch has failed");
+  assert.equal(row.command, "", "no delete command may be offered off an unverifiable reading");
+});
+
+test("J1 round 2 MINOR 2: FETCH_HEAD's mtime is trusted only when its own content names <main> at its CURRENT tip - a narrow fetch of a different branch must not reset the age to 'just fetched'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // A real fetch that legitimately touches main - FETCH_HEAD now references it.
+  git(["fetch", "-q", "origin"], root);
+  // No reflog-based signal in this fixture: MINOR 2 is entirely about FETCH_HEAD, so remove origin/
+  // main's own reflog and rely on FETCH_HEAD alone.
+  fs.rmSync(path.join(root, ".git", "logs", "refs", "remotes", "origin", "main"), { force: true });
+
+  const fetchHeadPath = path.join(root, ".git", "FETCH_HEAD");
+  const fiveDaysAgo = Date.now() / 1000 - 5 * 86400;
+  fs.utimesSync(fetchHeadPath, fiveDaysAgo, fiveDaysAgo);
+
+  const before = lastFetchAgeHours(root, "main");
+  assert.ok(before !== null && before > 24, "sanity: a backdated FETCH_HEAD whose content names main at its current tip is trusted");
+
+  // A narrow fetch of a DIFFERENT branch legitimately never touches origin/main, but does rewrite
+  // FETCH_HEAD's mtime to right now.
+  createLocalBranch(root, "other-narrow-branch");
+  git(["push", "-q", "origin", "other-narrow-branch"], root);
+  git(["fetch", "-q", "origin", "other-narrow-branch"], root);
+
+  const after = lastFetchAgeHours(root, "main");
+  assert.ok(
+    after === null || after > 1,
+    "FETCH_HEAD's fresh mtime must not be credited to origin/main when its content never mentions main",
+  );
+});
+
+test("J1 round 2 MINOR 3: a fetch failure's error text is exactly one line, even though git's own stderr is several", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  git(["remote", "remove", "origin"], root);
+
+  const result = fetchOrigin(root);
+  assert.equal(result.ok, false);
+  assert.ok(result.error, "must carry an error message");
+  assert.equal(result.error.includes("\n"), false, "the error text itself must never contain a newline");
+  assert.match(result.error, /^fatal:/i, "prefers git's own fatal/error line over surrounding advice");
+});
+
+test("J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and disables an interactive terminal/credential prompt", () => {
+  const src = fs.readFileSync(path.join(import.meta.dirname, "janitor.mjs"), "utf8");
+  const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const fnMatch = /export function fetchOrigin\(root\) \{[\s\S]*?\n\}\n/.exec(stripped);
+  assert.ok(fnMatch, "fetchOrigin must be found in the source");
+  const body = fnMatch[0];
+  assert.match(body, /timeout:\s*\d+/, "the janitor's one network call must be bounded by a timeout");
+  assert.match(body, /GIT_TERMINAL_PROMPT:\s*"0"/, "must disable git's own terminal credential prompt");
+});
+
+test("J1 round 2 MINOR 5: SKILL.md adds no new top-level section - the origin-is-the-record-of-truth text is folded into an existing one", () => {
+  const src = fs.readFileSync(path.join(import.meta.dirname, "..", "skills", "janitor", "SKILL.md"), "utf8");
+  const headings = src.split("\n").filter((l) => /^#{1,2} /.test(l));
+  assert.deepEqual(headings, [
+    "# Janitor: mechanical cleanup, two classes, one owner call",
+    "## janitor never deletes a file",
+    "## The two classes",
+    "## What janitor will never do",
+    "## Definition of done, for any builder",
+    "## Cadence: fed, not run on a whim",
+    "## Cleanup is never chained onto productive work",
+    "## Adapters",
+  ]);
+  assert.match(src, /Origin is the record of truth/, "the origin-truth content must still be present, just not under its own heading");
 });
 
 after(() => {
