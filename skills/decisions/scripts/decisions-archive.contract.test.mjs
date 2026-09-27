@@ -10,6 +10,14 @@ import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { openPrivateCapture, pickupOnce, receiptPaths } from './decisions-pickup.mjs';
 import { run as runHandback } from './decisions-handback.mjs';
+import { formatTitle } from './decisions-title.mjs';
+
+// The hand-back requires --title-meta since pickup-complete-1 (spec P3.3). A title fresh as of now
+// keeps this contract about archive shape only.
+function freshTitleMeta() {
+  const now = new Date();
+  return JSON.stringify({ page: PAGE, title: formatTitle('Test', now), last_edited_time: now.toISOString() });
+}
 
 const PAGE = '0123456789abcdef0123456789abcdef';
 const NOW = '2026-09-24T12:00:00.000Z';
@@ -188,11 +196,13 @@ test('handback reports the same unknown-H1 shape defect and clears it after hier
   const run = (decisions) => {
     const out = [];
     const exitCode = runHandback({
-      argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
-      readFile: (file) => ({ d: decisions, g: HAND_BACK_GOALS })[file],
+      argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+        '--title-meta', 't'],
+      readFile: (file) => ({ d: decisions, g: HAND_BACK_GOALS, t: freshTitleMeta() })[file],
       execGit: () => { throw new Error('head supplied'); }, write: (text) => out.push(text), writeErr: () => {},
       env: sealed.env,
       readGoalsParentPage: () => ({ configured: true }),
+      readDecisionsUrl: () => null,
     });
     return { exitCode, stdout: out.join('') };
   };

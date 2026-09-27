@@ -7,6 +7,7 @@ import test from 'node:test';
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { buildEnvelope } from '../../multi/scripts/envelope.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
+import { childEnv } from '../../multi/scripts/test-child-env.mjs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
@@ -707,7 +708,7 @@ test('the CLI runs identically through a symlink to the script', (t) => {
     '--reader', reader,
   ], {
     encoding: 'utf8', timeout: 15_000, windowsHide: true,
-    env: { ...process.env, AGENTS_HOME: fx.agentsHome },
+    env: childEnv(fx.fixtureRoot, { AGENTS_HOME: fx.agentsHome }),
   });
   assert.equal(child.error, undefined, String(child.error?.message ?? ''));
   assert.equal(child.status, 0, `exit=${child.status}; stderr=${child.stderr}`);
