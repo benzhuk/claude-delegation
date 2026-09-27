@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-codex-census
 Scope: docs/specs/codex-census-0927/spec.md@e1b31f7159d3f1f7ba15181d9d312f63fa201151
-Owner: root (read-only adjudication of integration contract failure)
+Owner: root (test-only stale-expectation repair authorized; integration remains rejected)
 Status: rejected
 Authority: Root leads this build; after the scout is consumed, isolated C1 and C2 builders may edit only their named territories. Builders and reviewers never write docs/work. No scripts/work-record.mjs change, release, install, README, or changelog work.
-Artifact: integration@bc309e4a834eb0ad00d8a094c9593ca149ece72e (preserves C1 a6bd550 and C3 7d50ab0 candidate history)
+Artifact: integration@f1908a0b1a52426fe440bdcffa590431f9bc1ce0 (normal merges preserve C1 a6bd550 and C3 7d50ab0 candidate history)
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1-c1
-Evidence: docs/work/evidence/ (all committed C1/C3 gate and review receipts), docs/specs/codex-census-0927/reports/C1-C2-review-round2.md, docs/specs/codex-census-0927/reports/C3-review-round2.md, scripts/build-census.fixtures/codex-native-sanitized/provenance.md
-Next: root's reviewer adjudicates the sole failed shared-boundary contract on exact integration artifact bc309e4. Do not edit source/tests or rerun the gate until a changed-source decision. Windows full suite, Netcup gate, acceptance, and main merge remain unauthorized.
+Evidence: docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f1908a0.md; raw Windows/Netcup logs and exits; reports/work-record-contract-review.md; reports/lane12-comparison.md
+Next: scoped `scripts/work-record.test.mjs` repair is owned by scout under root authority; after changed source and review, root must authorize any focused/full re-gate. Do not edit `scripts/work-record.mjs`, rerun, accept, or merge main.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T11:05:00Z
@@ -33,6 +33,8 @@ Log: 2026-09-27T12:30:44.833Z owned C3 code-only delta review of exact 2f8e8ac r
 Log: 2026-09-27T12:33:48.272Z runnable C1 R2 evidence a6bd550, source-equivalent to d73ef36, passed its sole mutex gate 80/80 and exact Claude golden. C3 R4 artifact 7d50ab0 passed its sole mutex gate 69/69. Both await final review; no source integration occurred.
 Log: 2026-09-27T12:37:25.315Z rejected clean integration artifact bc309e4 preserved C1/C3 candidate commits but failed the corrected contract gate 17/18 on the lead-only marker shared-boundary assertion. Raw receipt is preserved and reviewer adjudication is read-only; no rerun or full gate followed.
 
-Observed: integration artifact `bc309e4` preserves the approved C1/C3 candidate histories but is rejected pending read-only adjudication of one corrected contract failure. The earlier wrapper incident is separately retained: its wrapper included lock creation and cleanup, while the policy tool gave only `blocked by policy` and no cause. No full suite, cross-host gate, acceptance, or main merge has run.
+Log: 2026-09-27T12:50:35Z rejected sealed unchanged `node scripts/run-tests.mjs` on exact f1908a0 failed on both hosts at the same stale `scripts/work-record.test.mjs:1622` UNSUPPORTED expectation. Windows: 2030/2031 pass, exit 1. Separately fetched-origin Netcup: 2027/2031 pass, exit 1. Raw logs/exits are preserved; no rerun, baseline exception, acceptance, or main merge occurred.
 
-Predicts: after bounded C1 and C2 changes are independently reviewed, this Codex-led record can obtain its four numbers from the census rather than a hand-written path.
+Observed: exact f1908a0 is rejected after the sealed cross-host gate exposed one stale consumer expectation. Read-only adjudication confirms the native producer and PARTIAL acceptance refusal are correct; only a narrowly scoped test repair is authorized.
+
+Predicts: after the scoped test repair is independently reviewed and re-gated under renewed authority, this Codex-led record can obtain its four numbers from the census rather than a hand-written path.
