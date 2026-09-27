@@ -1,0 +1,20 @@
+fatal: Needed a single revision
+C:\Users\benzh\AppData\Local\Temp\record-closed-status-TnwUNB\status.md
+C:\Users\benzh\AppData\Local\Temp\record-closed-status-TnwUNB\status.md
+C:\Users\benzh\AppData\Local\Temp\record-closed-key-default-zI9ZaX\status.md
+C:\Users\benzh\AppData\Local\Temp\record-closed-key-explicit-t3Er3u\status.md
+C:\Users\benzh\AppData\Local\Temp\record-closed-key-all-1ng4kc\status.md
+✔ close is exported and closes an accepted record through the CLI on a real git repository (362.0908ms)
+✔ close refusals preserve record bytes: source status, ancestry, already closed, and clock (1322.7608ms)
+✔ a hand-edited closed status is invalid without the accepted and closed receipts (364.3661ms)
+✔ continuation snapshots every declared status, including closed and withdrawn, without SELECTION_UNREADABLE (23.4972ms)
+✔ prefixes filter collector rows; collect-status defaults to build/, counts skipped branches, and labels rendered state lane (1876.05ms)
+✔ independent status runs keep the key for equal listed rows despite prefix presentation, and change it for a listed row (1319.7819ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5350.4687
