@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-collect-status
 Scope: docs/specs/collect-status-1/spec.md (skills-fable's spec, origin/docs/lane-specs-0925 at 02b6156) with lead rulings docs/specs/collect-status-1/contracts.md; territories C1, C2, C3
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/collect-status-1, merge into main on acceptance under the merge-on-acceptance rule without Ben, and install the collect job on Netcup on acceptance under Ben's tick of option (b) (decisions round 2)
 Artifact: ccac310874957b2f21525bc6c3f518dd1713e052
 Evidence: docs/work/evidence/wr-2026-09-27-collect-status-seam-review.md, docs/work/evidence/wr-2026-09-27-collect-status-C1.md, docs/work/evidence/wr-2026-09-27-collect-status-C2.md, docs/work/evidence/wr-2026-09-27-collect-status-C3.md, docs/work/evidence/wr-2026-09-27-collect-status-seam.md, docs/work/evidence/wr-2026-09-27-collect-status-suites.md
@@ -60,6 +60,7 @@ Four numbers: Hours ask to accepted: 1.0h; largest gap 51.7min at 2026-09-27T18:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 1 waiting-on-agents (51.7 min); 0 unanswered ASKs to skills-n
 Log: 2026-09-27T19:25:20.000Z accepted skills-n artifact ccac310874957b2f21525bc6c3f518dd1713e052
+Log: 2026-09-27T19:26:01.000Z closed skills-n merged to main at a77b7906757083022fbd1cbb1cb0bd77d66cd8a9 (suite on the merged head 2346 of 2350 with 0 fail); Netcup install follows as the live proof
 
 Predicts: the lead reads one status file per wave instead of answering each lane event, so top-tier tokens and turns per day fall toward 40M and 200 in the 2026-09-28 census window.
 
