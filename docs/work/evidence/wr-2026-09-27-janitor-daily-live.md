@@ -1,0 +1,365 @@
+VERDICT: PASS a8e0bb578e2f84cd034720cbf38c2ec74fc43800
+
+# Lane nineteen (janitor-daily-1) live acceptance checks
+
+Run 2026-09-27, ~09:51-10:10 America/New_York, on Hetzner (zhuk-vps32) and ben-desktop
+(Windows, over ssh). Branch `build/janitor-daily-1`, pushed at `cea1262`, code artifact
+pinned at `a8e0bb578e2f84cd034720cbf38c2ec74fc43800` (`cea1262` is a docs-only commit on
+top of it). Worktree under test: `/home/ben/Code/claude-delegation-wt/janitor-daily-base`.
+Runner is a live-check runner: it does not fix code; every red result below is recorded
+as a finding.
+
+Scratch dir: `/tmp/claude-1000/-home-ben-Code-claude-delegation/ad389ae1-f992-4dd3-8a19-2b51176675c1/scratchpad/jd-live`
+(`<scratch>` below).
+
+## CRITICAL FINDING (found while preparing step 2): the installer does not refuse to run from this worktree
+
+Before the scripted steps, `node scripts/install-janitor-timer.mjs --help` was run to read
+the flag list (the script has no `--help`; the file header was read for the CLI reference
+afterward — see `scripts/install-janitor-timer.mjs:1-31`). Because `--help` is not a
+recognized flag, the CLI fell through to its **default action, a real (non-dry-run)
+install**, and because the worktree
+`/home/ben/Code/claude-delegation-wt/janitor-daily-base` was not detected as a
+non-durable checkout, it proceeded to write real files into the **real** Hetzner home:
+
+```
+$ node scripts/install-janitor-timer.mjs --help
+install (systemd-user, name=janitor-record, hour=6, repo=/home/ben/Code/claude-delegation)
+  created: /home/ben/.config/systemd/user/janitor-record.service
+  created: /home/ben/.config/systemd/user/janitor-record.timer
+  created: /home/ben/.agents/janitor/installed.json
+```
+
+Per `docs/specs/janitor-daily-1/contracts.md` ("Temporary checkout") and the spec's
+Acceptance attack brief ("the installer run from a temporary checkout (must refuse, like
+the Codex hooks installer)"), this path — a git worktree, not the installed plugin cache —
+should have been refused. It was not. Root cause: `isDurablePath()` in
+`scripts/mirror-shared-skills.mjs:691-699` flags a path as non-durable only when a path
+segment exactly equals `tmp`, `temp`, `scratchpad`, `worktree(s)`, or matches `wt-*`. This
+worktree's directory name is `claude-delegation-wt` (a `-wt` **suffix**, not a `wt-`
+prefixed segment), so the regex `/(^|\/)(tmp|temp|scratchpad|worktrees?|wt-[^/]*)\//i`
+does not match it, and `install-janitor-timer.mjs:385`'s refusal check
+(`!removeFlag && !forceRoot && !isDurablePath(...)`) never fires. Confirmed directly with
+the intended dry-run command too (empty `refusals` array — see step 2 below).
+
+Consequence verified: the timer/service were **not** enabled or started
+(`systemctl --user is-enabled janitor-record.timer` → `disabled`,
+`is-active` → `inactive`, checked immediately after discovery), so nothing ran on a
+schedule. Cleanup was done with the installer's own `--remove` (marker-based, not a raw
+`rm`), against the real home, immediately on discovery:
+
+```
+$ node scripts/install-janitor-timer.mjs --remove --json
+{
+  "action": "remove",
+  "refusals": [],
+  "files": [
+    { "path": "/home/ben/.config/systemd/user/janitor-record.service", "status": "removed", "changed": true },
+    { "path": "/home/ben/.config/systemd/user/janitor-record.timer", "status": "removed", "changed": true },
+    { "path": "/home/ben/.agents/janitor/installed.json", "status": "removed", "changed": true }
+  ],
+  ...
+}
+exit=0
+```
+
+Confirmed afterward: `ls ~/.config/systemd/user/janitor-record.*` → no such file;
+`~/.agents/janitor/` empty. The real Hetzner home was restored to its pre-run state before
+any of the scripted steps below began. Flagging this as the headline finding: **the
+worktree-refusal guard (contracts.md "Temporary checkout") has a gap for repo names that
+end in `-wt` rather than start with `wt-`**, and the CLI's fallthrough-to-real-install on
+an unrecognized flag (no `--help`, no usage/error on unknown args) makes that gap easy to
+trigger by accident.
+
+## Step 1: Hetzner suite
+
+```
+$ node scripts/run-tests.mjs > <scratch>/hz-suite.log 2>&1
+exit=0
+```
+
+Summary line (tail of `<scratch>/hz-suite.log`):
+
+```
+ℹ tests 2040
+ℹ suites 0
+ℹ pass 2037
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 3
+ℹ todo 0
+ℹ duration_ms 18013.616487
+```
+
+Full log: `<scratch>/hz-suite.log` (2113 lines). Green.
+
+## Step 2: dry run against the real home
+
+Command run:
+
+```
+$ node scripts/install-janitor-timer.mjs --dry-run --json
+```
+
+The installer did **not** refuse (see the Critical Finding above — `refusals: []`), and
+`--dry-run` wrote nothing to the real home (confirmed: `ls ~/.config/systemd/user/janitor-record.*`
+→ no such file, both before and after this command). Full JSON in
+`<scratch>/dryrun-real-home.json`; the generated `.service` and `.timer` text, quoted in
+full from that JSON's `content` fields:
+
+`/home/ben/.config/systemd/user/janitor-record.service` (would-create):
+```
+# generated by delegation install-janitor-timer
+[Unit]
+Description=Delegation janitor --record (report-only, no destructive action ever)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ben/Code/claude-delegation
+Environment=PATH=/home/ben/.local/share/fnm/node-versions/v24.18.0/installation/bin:/usr/bin:/bin
+ExecStart=/home/ben/.local/share/fnm/node-versions/v24.18.0/installation/bin/node /home/ben/Code/claude-delegation-wt/janitor-daily-base/scripts/janitor.mjs --record --repo /home/ben/Code/claude-delegation --host zhuk-vps32
+StandardOutput=truncate:/home/ben/.agents/janitor/last-run.log
+StandardError=truncate:/home/ben/.agents/janitor/last-run.log
+```
+
+`/home/ben/.config/systemd/user/janitor-record.timer` (would-create):
+```
+# generated by delegation install-janitor-timer
+[Unit]
+Description=Daily timer for janitor-record (report-only)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`--apply` check: `grep -c -- "--apply" <scratch>/dryrun-real-home.json` → `0`. Confirmed
+`--apply` appears nowhere in the dry-run output (ExecStart above is
+`node .../janitor.mjs --record --repo ... --host zhuk-vps32`, no `--apply`).
+
+Note: the `--host zhuk-vps32` value in `ExecStart` came from `os.hostname()` baked in at
+install time (no `--host` flag was passed), per the file header's documented default.
+
+## Step 3: scratch install
+
+Setup:
+
+```
+$ mkdir -p <scratch>/home <scratch>/xdg
+$ git clone -q /home/ben/Code/claude-delegation <scratch>/repo
+exit=0
+```
+
+Real install into the scratch home (`HOME=<scratch>/home XDG_CONFIG_HOME=<scratch>/xdg`,
+`--repo <scratch>/repo`, no `--enable`, no `--force-root` needed since the worktree-refusal
+guard does not trigger on this path either — see the Critical Finding):
+
+```
+$ HOME=<scratch>/home XDG_CONFIG_HOME=<scratch>/xdg node scripts/install-janitor-timer.mjs --json --repo <scratch>/repo
+exit=0
+```
+
+Files written (`refusals: []`, `action: "install"`), quoted in full:
+
+`<scratch>/xdg/systemd/user/janitor-record.service`:
+```
+# generated by delegation install-janitor-timer
+[Unit]
+Description=Delegation janitor --record (report-only, no destructive action ever)
+
+[Service]
+Type=oneshot
+WorkingDirectory=<scratch>/repo
+Environment=PATH=/home/ben/.local/share/fnm/node-versions/v24.18.0/installation/bin:/usr/bin:/bin
+ExecStart=/home/ben/.local/share/fnm/node-versions/v24.18.0/installation/bin/node /home/ben/Code/claude-delegation-wt/janitor-daily-base/scripts/janitor.mjs --record --repo <scratch>/repo --host zhuk-vps32
+StandardOutput=truncate:<scratch>/home/.agents/janitor/last-run.log
+StandardError=truncate:<scratch>/home/.agents/janitor/last-run.log
+```
+
+`<scratch>/xdg/systemd/user/janitor-record.timer`:
+```
+# generated by delegation install-janitor-timer
+[Unit]
+Description=Daily timer for janitor-record (report-only)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`<scratch>/home/.agents/janitor/installed.json`:
+```
+{"schema":1,"repo":"<scratch>/repo","node":"/home/ben/.local/share/fnm/node-versions/v24.18.0/installation/bin/node","hour":6,"scheduler":"systemd-user","name":"janitor-record"}
+```
+
+Full JSON: `<scratch>/scratch-install.json`.
+
+Ran the generated `ExecStart` command once by hand, same `HOME`, from the repo's
+`WorkingDirectory` (matching the unit's `WorkingDirectory=`):
+
+```
+$ cd <scratch>/repo
+$ HOME=<scratch>/home /home/ben/.local/share/fnm/node-versions/v24.18.0/installation/bin/node \
+    /home/ben/Code/claude-delegation-wt/janitor-daily-base/scripts/janitor.mjs \
+    --record --repo <scratch>/repo --host zhuk-vps32
+exit=0
+```
+
+Full stdout in `<scratch>/execstart-run.log` (SAFE/JUDGMENT/DRIFT/WIRING table; not
+reproduced here in full — it is the janitor's normal `--record` console output).
+
+Record file written: `<scratch>/repo/docs/work/evidence/janitor/2026-09-27-zhuk-vps32.json`
+(host name matches the baked-in `--host`). It is 22 lines total; quoted in full (first 30
+lines = the whole file):
+
+```
+{
+  "date": "2026-09-27",
+  "host": "zhuk-vps32",
+  "baseSha": "c25cc70cb180f22fc2f5ddb40a47be501cde9245",
+  "drift": {
+    "worktreeCount": 1,
+    "openBranchCount": 1,
+    "untrackedFileCount": 0,
+    "diskUsedKB": 27216
+  },
+  "safeCounts": {
+    "worktrees": 0,
+    "branches": 0
+  },
+  "judgmentCounts": {
+    "worktrees": 0,
+    "branches": 0,
+    "untrackedFiles": 0,
+    "remoteBranches": 0,
+    "overdueWorkarounds": 0
+  }
+}
+```
+
+`drift.md` line appended (`<scratch>/repo/docs/work/evidence/janitor/drift.md`, last line
+after the run):
+
+```
+- 2026-09-27 zhuk-vps32: worktrees=1 branches=1 untracked=0 diskKB=27216
+```
+
+`--remove` against the scratch home:
+
+```
+$ HOME=<scratch>/home XDG_CONFIG_HOME=<scratch>/xdg node scripts/install-janitor-timer.mjs --remove --json
+exit=0
+```
+
+```
+{
+  "action": "remove",
+  "refusals": [],
+  "files": [
+    { "path": "<scratch>/xdg/systemd/user/janitor-record.service", "status": "removed", "changed": true },
+    { "path": "<scratch>/xdg/systemd/user/janitor-record.timer", "status": "removed", "changed": true },
+    { "path": "<scratch>/home/.agents/janitor/installed.json", "status": "removed", "changed": true }
+  ],
+  ...
+  "note": "files removed, but the systemd-user entry may still be registered/running — pass --enable to also run: systemctl --user disable --now janitor-record.timer"
+}
+```
+
+What remains under `<scratch>/home` and `<scratch>/xdg` after `--remove`:
+`find <scratch>/home <scratch>/xdg -type f` → **empty** (nothing remains; the record file
+and `drift.md` under `<scratch>/repo/docs/work/evidence/janitor/` are untouched by
+`--remove`, as expected — `--remove` only touches the scheduler entries and
+`installed.json`, not past records).
+
+## Step 4: wiring check on Hetzner (real home)
+
+```
+$ node scripts/wiring-check.mjs --line; echo exit=$?
+exit=0
+```
+
+The `--line` output is **empty** — by design, per the script's own comment
+(`scripts/wiring-check.mjs:49`, "`--line` prints ONE line when something is missing,
+stale..."): it prints nothing when every check is `ok`/`info`. Confirmed via `--json`
+(`ok: true`, 18 checks, every `state` is `ok` or `info`, none `missing`/`stale`/`unknown`).
+This is a genuine green result, not a suppressed one — this is reported per the brief
+("a red result here is a finding, not something the lane fixes"); there is no red result
+on Hetzner right now. (`janitor-last-run` is correctly `info`, since `installed.json` was
+removed by the cleanup above.)
+
+## Step 5: Windows, over ssh
+
+Box awake (`ssh ... "hostname & ver"` → `Ben-Desktop`, `Microsoft Windows [Version
+10.0.26100.9550]`). Windows main checkout's working tree/branch was not touched.
+
+```
+$ ssh ... "cd C:/Users/benzh/Code/claude-delegation & git fetch origin build/janitor-daily-1"
+From https://github.com/benzhuk/claude-delegation
+ * branch            build/janitor-daily-1 -> FETCH_HEAD
+   14178b3..cea1262  build/janitor-daily-1 -> origin/build/janitor-daily-1
+```
+
+```
+$ ssh ... "cd C:/Users/benzh/Code/claude-delegation & git worktree add C:/Users/benzh/Code/claude-delegation-wt/janitor-daily-win origin/build/janitor-daily-1 --detach"
+Preparing worktree (detached HEAD cea1262)
+HEAD is now at cea1262 docs(work): janitor-daily loop reports, evidence and Observed
+```
+
+Worktree left in place at **`C:/Users/benzh/Code/claude-delegation-wt/janitor-daily-win`**
+(detached at `cea1262`), not removed.
+
+Test suite:
+
+```
+$ ssh ... "cd C:/Users/benzh/Code/claude-delegation-wt/janitor-daily-win & node scripts/run-tests.mjs > win-run-tests.log 2>&1 & echo EXITCODE=%ERRORLEVEL%"
+EXITCODE=0
+```
+
+Tail of `win-run-tests.log` (read via `powershell -Command "Get-Content win-run-tests.log -Tail 40"` since the remote shell is `cmd`):
+
+```
+tests 2040
+suites 0
+pass 2040
+fail 0
+cancelled 0
+skipped 0
+todo 0
+duration_ms 127131.8964
+```
+
+Green (2040/2040 pass, 0 fail, 0 skipped — Windows ran 3 more tests to completion than
+Hetzner's 3 `skipped`, consistent with platform-conditional skips).
+
+Wiring check:
+
+```
+$ ssh ... "cd C:/Users/benzh/Code/claude-delegation-wt/janitor-daily-win & node scripts/wiring-check.mjs --line & echo ERRORLEVEL=%ERRORLEVEL%"
+ERRORLEVEL=0
+```
+
+`--line` output is empty here too (same "silent when all clear" design). Confirmed via
+`--json`: `"ok": true`, all 18 checks `ok` or `info`, none `missing`/`stale`. No red result
+on Windows either.
+
+## Summary
+
+| Step | Result |
+|---|---|
+| 1. Hetzner suite | green, exit 0, 2040 tests / 2037 pass / 0 fail / 3 skipped |
+| 2. Dry run (real home) | ran clean, no writes, no `--apply`; **finding: installer did not refuse from this worktree** (see Critical Finding) |
+| 3. Scratch install/record/remove | all green; record file and `drift.md` line written correctly; `--remove` left nothing behind |
+| 4. Wiring check, Hetzner | exit 0, `--line` empty (all-clear, not suppressed) |
+| 5. Windows suite + wiring | suite green, 2040/2040 pass, 0 fail; wiring exit 0, `--line` empty (all-clear); worktree left at `C:/Users/benzh/Code/claude-delegation-wt/janitor-daily-win` |
+
+Steps 1-3 and the Windows suite all passed their literal deliverables; per the brief the
+wiring-check color does not affect the verdict (and both hosts were green anyway). The one
+red result found — the worktree-refusal gap in `isDurablePath()`/
+`install-janitor-timer.mjs` — is recorded above as a finding, not fixed here, together
+with the accidental real-home state change it caused and its cleanup.

@@ -1875,6 +1875,28 @@ test("J1.4: a bare --record defaults to docs/work/evidence/janitor/ under the pr
   void code;
 });
 
+test("J1 review round 1, m1: a bare --record <dir> --host <name>, driven through main(), writes the record under the given host, not os.hostname()", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+
+  const recordDir = mkTmp("janitor-record-host-");
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--record", recordDir, "--host", "Custom Host!", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  const files = fs.readdirSync(recordDir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  assert.ok(jsonFile, `expected a dated json file, got ${JSON.stringify(files)}`);
+  assert.ok(jsonFile.endsWith("-custom-host.json"), `expected the given host (sanitized) in the filename, got ${jsonFile}`);
+  const record = JSON.parse(fs.readFileSync(path.join(recordDir, jsonFile), "utf8"));
+  assert.equal(record.host, "custom-host");
+});
+
 test("J1 review round 2 F7: --record is byte-identical given the same now/hostName - the same inputs must never write two different bytes", () => {
   const root = initRepo();
   writeProjectConfig(root);
@@ -2330,7 +2352,7 @@ test("J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and
   assert.match(body, /GIT_TERMINAL_PROMPT:\s*"0"/, "must disable git's own terminal credential prompt");
 });
 
-test("J1 round 2 MINOR 5: SKILL.md adds no new top-level section - the origin-is-the-record-of-truth text is folded into an existing one", () => {
+test("J1 round 2 MINOR 5 (updated, lane nineteen J1): SKILL.md's origin-is-the-record-of-truth text stays folded into an existing section; lane nineteen J1 adds exactly one new section, for the daily timer installer", () => {
   const src = fs.readFileSync(path.join(import.meta.dirname, "..", "skills", "janitor", "SKILL.md"), "utf8");
   const headings = src.split("\n").filter((l) => /^#{1,2} /.test(l));
   assert.deepEqual(headings, [
@@ -2340,6 +2362,7 @@ test("J1 round 2 MINOR 5: SKILL.md adds no new top-level section - the origin-is
     "## What janitor will never do",
     "## Definition of done, for any builder",
     "## Cadence: fed, not run on a whim",
+    "## Installing the daily timer",
     "## Cleanup is never chained onto productive work",
     "## Adapters",
   ]);

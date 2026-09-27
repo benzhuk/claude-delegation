@@ -1414,7 +1414,18 @@ function parseFlags(argv) {
     record = next && !next.startsWith("--") ? next : DEFAULT_RECORD_DIR;
   }
 
-  return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag };
+  // J1 (janitor-daily-1): a scheduled --record run's os.hostname() is not guaranteed to match the
+  // name a fleet knows the host by (containers, renamed machines) - --host overrides writeRecord's
+  // hostName so the record's host stays whatever the installer baked in, run to run. Absent, nothing
+  // changes: writeRecord still defaults to os.hostname() exactly as before this flag existed.
+  let host = null;
+  const hostIdx = argv.indexOf("--host");
+  if (hostIdx !== -1) {
+    const next = argv[hostIdx + 1];
+    if (next && !next.startsWith("--")) host = next;
+  }
+
+  return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag, host };
 }
 
 export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
@@ -1439,7 +1450,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       return 3;
     }
 
-    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag } = parseFlags(argv);
+    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag, host } = parseFlags(argv);
     if (applyFlag && noFetchFlag) {
       // J1 round 2 (MAJOR 1): `-D` is reached only from the SAFE class after THIS run's own fetch
       // proved the origin ancestry - `--no-fetch` has no such fetch to point to, so it reports as of
@@ -1458,7 +1469,9 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       // J1 item 4: fed and measured, not printed and lost. A write failure here is reported but
       // never blinds or fails the rest of the report - --record is additive, not load-bearing.
       try {
-        writeRecord({ root: toplevel, dir: record, state, mainBranch: config.main_branch || "main" });
+        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main" };
+        if (host) recordArgs.hostName = host;
+        writeRecord(recordArgs);
       } catch (err) {
         process.stderr.write(`janitor: --record failed: ${String(err && err.message ? err.message : err)}\n`);
       }

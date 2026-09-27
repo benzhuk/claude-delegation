@@ -14,13 +14,27 @@
 // checks (that file is never read by this repo's own tests or CI; only a real home may have one).
 //
 // Check types (each check is `{ id, type, why, fix, platforms? }` plus type-specific fields; `~` at
-// the start of any path field expands to `home`):
+// the start of any path field expands to `home`, and `${CLAUDE_PLUGIN_ROOT}` at the start of any
+// path field expands to the installed plugin's own root - the same token the plugin's hooks.json
+// commands already use, resolved the same way multi-inbox.js/backlog-notice.js do:
+// env.CLAUDE_PLUGIN_ROOT when a real host hook set it, else this very script's own install
+// location. That is for a check that names a file the plugin ships (e.g. its own hooks.json),
+// never a per-user home file):
 //   json_value    { file, path (dotted), expected }         - ok / stale (differs) / missing (file or path absent)
-//   hook_present  { file, event, substring }                - ok (found) / missing (not found or file absent)
-//   hook_absent   { file, event, substring }                - ok (not found or file absent) / stale (found - should have been removed)
+//   hook_present  { file, event, substring | command, matcher? } - ok (found) / missing (not found or
+//                 file absent). `command` (an exact match of the parsed command string, once
+//                 trimmed) and `matcher` (an exact match of the hook group's own matcher) are
+//                 stricter alternatives to `substring` - use them for a check that must not be
+//                 satisfied by a commented-out, disabled, renamed-file or wrong-matcher hook.
+//   hook_absent   { file, event, substring | command, matcher? } - ok (not found or file absent) / stale (found - should have been removed)
 //   file_exists   { file }                                  - ok / missing
 //   file_absent   { file }                                  - ok / stale (still there)
-//   file_fresh    { file, maxAgeSeconds, whenMissing? }      - ok / stale (too old, or missing - default 'stale') / whenMissing overrides the missing case
+//   file_fresh    { file, maxAgeSeconds, whenMissing?, requiresFile? } - ok / stale (too old, or
+//                 missing - default 'stale') / whenMissing: 'info' or 'missing' overrides the
+//                 missing case / requiresFile: another file whose own absence forces 'info'
+//                 (never 'missing' or 'stale', and never counted against `ok`) before `file` is
+//                 even looked at - for a record a separate installer produces, so a host that never
+//                 ran that installer is not red
 //   switch        { file }                                  - known 'info' (ON/off), unreadable 'unknown'
 //   env_presence  { var }                                   - always 'info', why says set or not set
 //   (anything else)                                         - 'unknown' - never a crash
@@ -33,8 +47,9 @@
 // or a number (those are never secrets and are useful to see directly).
 //
 // CLI: no flag prints a small table. `--line` prints ONE line when something is missing, stale or
-// unknown, and nothing at all when everything is ok/info. `--json` prints `{ ok, results }`. Exit 0
-// always, except an unknown flag (usage error) - a wiring check never fails its caller.
+// unknown, and nothing at all when everything is ok/info. `--json` prints `{ ok, results }`. Exit 1
+// when checkWiring().ok is false (any missing/stale/unknown) or on an unknown flag (usage error),
+// else 0. `--hook` (the SessionStart caller) always exits 0. checkWiring() itself never throws.
 
 import fs from "node:fs";
 import { homedir } from "node:os";
@@ -52,6 +67,27 @@ export function expandHome(p, home) {
   if (p === "~") return home;
   if (p.startsWith("~/") || p.startsWith("~\\")) return path.join(home, p.slice(2));
   return p;
+}
+
+const PLUGIN_ROOT_TOKEN = "${CLAUDE_PLUGIN_ROOT}";
+
+/** Same shape as expandHome, for a check that names a file the plugin itself ships (its own
+ * hooks.json) rather than something under the user's home. */
+export function expandPluginRoot(p, pluginRoot) {
+  if (typeof p !== "string") return p;
+  if (p === PLUGIN_ROOT_TOKEN) return pluginRoot;
+  if (p.startsWith(`${PLUGIN_ROOT_TOKEN}/`) || p.startsWith(`${PLUGIN_ROOT_TOKEN}\\`)) {
+    return path.join(pluginRoot, p.slice(PLUGIN_ROOT_TOKEN.length + 1));
+  }
+  return p;
+}
+
+/** Every eval function's one path-resolving entry point: try `~` (home), then
+ * `${CLAUDE_PLUGIN_ROOT}` (plugin install root), else the field is used exactly as written. */
+function resolveCheckPath(p, { home, pluginRoot }) {
+  const afterHome = expandHome(p, home);
+  if (afterHome !== p) return afterHome;
+  return expandPluginRoot(p, pluginRoot);
 }
 
 function isKnownAbsent(error) {
@@ -130,7 +166,12 @@ function hasValidDefinition(check) {
     case "hook_present":
     case "hook_absent":
       // An empty substring intentionally means "any command hook" through String.includes("").
-      return isNonemptyString(check.file) && isNonemptyString(check.event) && typeof check.substring === "string";
+      // A check may instead (or also) pin an exact `command` string and an exact `matcher`, so a
+      // commented-out, disabled, renamed-file or wrong-matcher hook cannot satisfy it (J2 ruling).
+      return isNonemptyString(check.file) && isNonemptyString(check.event)
+        && (typeof check.substring === "string" || isNonemptyString(check.command))
+        && (check.command === undefined || isNonemptyString(check.command))
+        && (check.matcher === undefined || typeof check.matcher === "string");
     case "json_value":
       return isNonemptyString(check.file) && isNonemptyString(check.path) && Object.hasOwn(check, "expected");
     case "file_exists":
@@ -138,7 +179,8 @@ function hasValidDefinition(check) {
     case "switch":
       return isNonemptyString(check.file);
     case "file_fresh":
-      return isNonemptyString(check.file) && Number.isFinite(check.maxAgeSeconds) && check.maxAgeSeconds >= 0;
+      return isNonemptyString(check.file) && Number.isFinite(check.maxAgeSeconds) && check.maxAgeSeconds >= 0
+        && (check.requiresFile === undefined || isNonemptyString(check.requiresFile));
     case "env_presence":
       return isNonemptyString(check.var);
     default:
@@ -158,8 +200,8 @@ function namesInboxesJson(check, home) {
 
 // ---------- per-type evaluation, each returns { state, why? } (why defaults to check.why) ----------
 
-function evalJsonValue(check, { home, fsImpl }) {
-  const file = expandHome(check.file, home);
+function evalJsonValue(check, { home, fsImpl, pluginRoot }) {
+  const file = resolveCheckPath(check.file, { home, pluginRoot });
   const evidence = readJsonEvidence(fsImpl, file);
   if (evidence.kind === "absent") return { state: "missing", why: `${check.why} (${file} does not exist)` };
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
@@ -176,7 +218,7 @@ function evalJsonValue(check, { home, fsImpl }) {
   return { state: "stale", why: `${check.why} (${detail})` };
 }
 
-function inspectHookGroup(data, event, substring) {
+function inspectHookGroup(data, event, substring, command, matcher) {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return { kind: "unknown" };
   if (!Object.hasOwn(data, "hooks")) return { kind: "known", present: false };
   const hooksSection = data.hooks;
@@ -186,19 +228,26 @@ function inspectHookGroup(data, event, substring) {
   if (!Array.isArray(group)) return { kind: "unknown" };
   for (const entry of group) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry) || !Array.isArray(entry.hooks)) return { kind: "unknown" };
+    // J2 ruling: when the check pins a matcher, a hook under any other matcher does not count - a
+    // delete-guard parked under "Read" never fires for Bash.
+    if (typeof matcher === "string" && entry.matcher !== matcher) continue;
     const list = entry.hooks;
     for (const h of list) {
       if (h === null || typeof h !== "object" || Array.isArray(h)) return { kind: "unknown" };
       const hasCommand = Object.hasOwn(h, "command");
       if ((h.type === "command" && !hasCommand) || (hasCommand && typeof h.command !== "string")) return { kind: "unknown" };
-      if (typeof h.command === "string" && h.command.includes(substring)) return { kind: "known", present: true };
+      if (typeof h.command !== "string") continue;
+      // J2 ruling: an exact `command` pin compares the whole parsed command string, so a
+      // shell-commented, echoed, `true ||`-disabled or renamed-file hook never satisfies it.
+      const hit = typeof command === "string" ? h.command.trim() === command : h.command.includes(substring);
+      if (hit) return { kind: "known", present: true };
     }
   }
   return { kind: "known", present: false };
 }
 
-function evalHookPresence(check, { home, fsImpl }, wantPresent) {
-  const file = expandHome(check.file, home);
+function evalHookPresence(check, { home, fsImpl, pluginRoot }, wantPresent) {
+  const file = resolveCheckPath(check.file, { home, pluginRoot });
   const evidence = readJsonEvidence(fsImpl, file);
   if (evidence.kind === "absent") {
     // No settings file at all: nothing is wired, either desired direction is answered by that fact.
@@ -207,17 +256,17 @@ function evalHookPresence(check, { home, fsImpl }, wantPresent) {
       : { state: "ok" };
   }
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
-  const inspected = inspectHookGroup(evidence.value, check.event, check.substring);
+  const inspected = inspectHookGroup(evidence.value, check.event, check.substring, check.command, check.matcher);
   if (inspected.kind === "unknown") return { state: "unknown", why: "could not inspect required hook evidence" };
   const present = inspected.present;
   const eventLabel = check.event ?? "(unspecified event)";
-  const substringLabel = check.substring ?? "(unspecified substring)";
+  const substringLabel = typeof check.command === "string" ? check.command : (check.substring ?? "(unspecified substring)");
   if (wantPresent) return present ? { state: "ok" } : { state: "missing", why: `${check.why} (no ${eventLabel} hook in ${file} contains "${substringLabel}")` };
   return present ? { state: "stale", why: `${check.why} (a ${eventLabel} hook in ${file} still contains "${substringLabel}")` } : { state: "ok" };
 }
 
-function evalFileExistence(check, { home, fsImpl }, wantPresent) {
-  const file = expandHome(check.file, home);
+function evalFileExistence(check, { home, fsImpl, pluginRoot }, wantPresent) {
+  const file = resolveCheckPath(check.file, { home, pluginRoot });
   const evidence = statEvidence(fsImpl, file);
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
   const present = evidence.kind === "present";
@@ -225,11 +274,23 @@ function evalFileExistence(check, { home, fsImpl }, wantPresent) {
   return present ? { state: "stale", why: `${check.why} (${file} still exists)` } : { state: "ok" };
 }
 
-function evalFileFresh(check, { home, fsImpl, now }) {
-  const file = expandHome(check.file, home);
+function evalFileFresh(check, { home, fsImpl, now, pluginRoot }) {
+  const file = resolveCheckPath(check.file, { home, pluginRoot });
+  // J1/J2 seam contract (round-2 amendment, spec.md J2.2: "a host without J1 is not red for that
+  // reason"): a check may name a `requiresFile` (e.g. the installer's own installed.json) that
+  // gates the whole check to 'info' when absent - a host that never ran the installer is not red
+  // for lacking a record it was never told to produce. 'info' (not 'unknown') is required so this
+  // never counts against checkWiring().ok; the wording still says "unknown" because it genuinely is
+  // - installed or not is simply not knowable from this file alone.
+  if (typeof check.requiresFile === "string") {
+    const gateFile = resolveCheckPath(check.requiresFile, { home, pluginRoot });
+    const gate = statEvidence(fsImpl, gateFile);
+    if (gate.kind === "absent") return { state: "info", why: `${check.why} (unknown: ${gateFile} does not exist - the timer was never installed on this host)` };
+    if (gate.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
+  }
   const evidence = statEvidence(fsImpl, file);
   if (evidence.kind === "absent") {
-    const state = check.whenMissing === "info" ? "info" : "stale";
+    const state = check.whenMissing === "info" ? "info" : check.whenMissing === "missing" ? "missing" : "stale";
     return { state, why: `${check.why} (${file} has never been created)` };
   }
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required file evidence" };
@@ -240,8 +301,8 @@ function evalFileFresh(check, { home, fsImpl, now }) {
   return { state: "stale", why: `${check.why} (last touched ${Math.round(ageSeconds)}s ago, max ${maxLabel})` };
 }
 
-function evalSwitch(check, { home, fsImpl }) {
-  const file = expandHome(check.file, home);
+function evalSwitch(check, { home, fsImpl, pluginRoot }) {
+  const file = resolveCheckPath(check.file, { home, pluginRoot });
   const evidence = statEvidence(fsImpl, file);
   if (evidence.kind === "unknown") return { state: "unknown", why: "could not inspect required switch evidence" };
   const on = evidence.kind === "present";
@@ -288,9 +349,21 @@ function evalCheck(check, ctx) {
  *   read the plugin's own required-wiring.default.json and, if present, ~/.agents/required-wiring.json
  * @param {object} [opts.env] - defaults to the process environment; the only environment input, and
  *   only through this argument
+ * @param {string} [opts.pluginRoot] - defaults to env.CLAUDE_PLUGIN_ROOT (set by a real host's own
+ *   hook invocation, same convention as hooks/multi-inbox.js and hooks/backlog-notice.js) or, when
+ *   that is unset, this very script's own install directory - a check may use it via the
+ *   `${CLAUDE_PLUGIN_ROOT}` path token for a file the plugin ships, never a per-user home file
  * @returns {{ ok: boolean, results: Array<{id: string, state: 'ok'|'missing'|'stale'|'info'|'unknown', why: string, fix: string}> }}
  */
-export function checkWiring({ home = homedir(), platform = process.platform, fsImpl = fs, now = new Date(), lists, env = process.env } = {}) {
+export function checkWiring({
+  home = homedir(),
+  platform = process.platform,
+  fsImpl = fs,
+  now = new Date(),
+  lists,
+  env = process.env,
+  pluginRoot = (env && env.CLAUDE_PLUGIN_ROOT) || path.dirname(HERE),
+} = {}) {
   const publicInput = lists?.public === undefined
     ? loadCheckList(fsImpl, DEFAULT_LIST_PATH)
     : { list: Array.isArray(lists.public) ? lists.public : [], unknown: !Array.isArray(lists.public) };
@@ -319,7 +392,7 @@ export function checkWiring({ home = homedir(), platform = process.platform, fsI
       } else if (namesInboxesJson(check, home)) {
         outcome = { state: "unknown", why: "this check names the protected peer-note ledger and was not inspected" };
       } else {
-        outcome = evalCheck(check, { home, fsImpl, now, env });
+        outcome = evalCheck(check, { home, fsImpl, now, env, pluginRoot });
       }
     } catch {
       outcome = { state: "unknown", why: "could not evaluate this check" };
@@ -395,11 +468,11 @@ function wsOffActive(opts = {}) {
 }
 
 export function main(argv = process.argv.slice(2), opts = {}) {
-  const known = new Set(["--line", "--json"]);
+  const known = new Set(["--line", "--json", "--hook"]);
   const unknown = argv.filter((a) => !known.has(a));
   if (unknown.length > 0) {
     process.stderr.write(`wiring-check: unknown argument(s): ${unknown.join(", ")}\n`);
-    return 1; // usage error - the only non-zero exit this tool ever returns
+    return 1; // usage error
   }
 
   let result;
@@ -414,7 +487,16 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   else if (argv.includes("--line")) { if (!wsOffActive(opts)) printLine(result.results); }
   else printTable(result.results);
 
-  return 0;
+  // J2: exit 1 when a required check is missing, stale, or could not be evaluated at all (any
+  // state other than ok/info) - a wiring check can finally go red. `--json`/`--line`/table output
+  // shapes are unchanged; only this return value differs from before. `checkWiring()` itself never
+  // changes shape or meaning for its other callers (the janitor's embedded WIRING section calls the
+  // library function directly and never runs this CLI, so its own exit code is untouched).
+  // --hook: a Claude Code command hook's non-zero exit drops its stdout (a non-blocking error), so
+  // the SessionStart caller keeps exit 0 and the line still reaches the session; the red exit is
+  // for a human or agent running the CLI directly (bare `--line`, `--json`, or the table).
+  if (argv.includes("--hook")) return 0;
+  return result.ok ? 0 : 1;
 }
 
 /**

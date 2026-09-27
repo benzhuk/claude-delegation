@@ -1,0 +1,2 @@
+155:- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line`): prints one line
+235:After installing a release on a host, run `node scripts/wiring-check.mjs --line` on that host and report its line and exit code, so the install is verified that same day rather than assumed clean.
