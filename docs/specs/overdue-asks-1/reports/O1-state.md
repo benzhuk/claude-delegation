@@ -6,47 +6,52 @@
 each behind an unread by-time). NOT: a new watcher process — the already-running flusher notices.
 
 ## Contracts I rely on
-contracts.md R1-R7 (state file shape/window/prune/mode, R2 answers/retirement, R3 deadline math, R4
-call site/guards/budget/kill switch, R5 reuse `runNoteSend`, R6 territory/gate, R7 integration gate).
-scout-O1.md (read from /home/ben/Code/wt-oa/... since not copied into this worktree) for exact line
-numbers and the "topic has no field on parseEnvelope" open question.
+contracts.md R1-R8 (state file shape/window/prune/mode, R2 answers/retirement, R3 deadline math, R4
+call site/guards/budget/kill switch, R5 reuse `runNoteSend`, R6 territory/gate, R7 integration gate,
+R8 cross-host observability + silent first-run seed — the lead's 2026-09-26 23:56 NY ruling on
+O1-final-review.md MAJOR 1).
 
 ## Done
-Round 3 fix against `O1-review-2.md`'s only carried finding (MAJOR 1, "partly fixed"): the review's
-ruling (b′) — fix the "twin" in target selection so a reachable recipient is never skipped in favor of
-a sender whose registered `cwd` is gone (`note-flush.mjs:1475-1482`), the exact three-line shape the
-review suggested, needing no lead ruling. Ruling (a) (a `note-send.mjs` change, out of O1's file list)
-remains unresolved and is restated for the lead in the report, not decided here. New test:
-`note-flush.test.mjs:1990`, mutation-checked (reverted the fix in a scratch edit, confirmed the new
-test alone fails, restored). Gate: 142/142 (was 141).
+R8 fix round (this round), against contracts.md R8 and O1-final-review.md's MAJOR 1 + NIT 1:
+- **Observability gate** (`observableAnswerSide`, `note-flush.mjs`): before any target is chosen, an
+  overdue ASK is nudged only if the corpus already holds a reply of any kind from `ask.to` to
+  `ask.from`, or both slugs are registered in this host's inbox registry. Otherwise: log
+  `overdue-cross-host [<id>] -> <to> — answer side not observable on this host`, record the id
+  (`recordOverdueId(..., { crossHost: true })`), send nothing.
+- **Silent seed**: when `.overdue-nudged.json` does not exist at pass start (checked via `existsSync`,
+  *before* `readOverdueState`, so it is never confused with a corrupt file), every currently-overdue id
+  is recorded without sending, the file is written (same atomic write, mode 600), and one
+  `overdue-seeded <n>` line is logged. A corrupt/unreadable file keeps R1's original fail-closed
+  behaviour untouched (logged, nothing sent, nothing reseeded) — verified by a dedicated test.
+- **Counters**: a cross-host id is "recorded, not nudged." The existing `nudged` field could not
+  express that (it already conflated "recorded" with "sent" for repeat passes), so the smallest
+  addition is a new `crossHost` count, returned alongside `open`/`nudged` from `runOverdueAsks` and
+  from `buildOverdueStatus`'s `json.overdue` (the `; overdue: <n> open, <m> nudged` status LINE text is
+  unchanged — only the JSON gained a field).
+- **NIT 1** applied verbatim: `recipientRepo` now reuses the already-computed `reachable(target)`
+  instead of re-deriving cwd-existence from the raw inbox record.
+- **SKILL.md**: one clause in the overdue paragraph — nudges only fire when the answer side is
+  observable on this host, and the first pass on a machine seeds silently instead of bursting BLOCKEDs.
+- **Tests**: every pre-existing overdue test that expects an actual send/no-inbox/send-failed behaviour
+  now calls a new `seedOverdueState(home)` helper first (writes an empty state file), and — where it
+  didn't already have one — a reply line or a second registered slug, so it stays observable rather than
+  falling into the new cross-host gate. 5 new tests added: cross-host (nothing observable, nothing
+  sent), observable via a recipient-to-sender FYI line, observable via both parties registered with no
+  reply, first-run seed (silent, then a second pass nudges a newly-overdue ask normally), and a corrupt
+  file that does not reseed. Gate: 148/148 (was 143/143 before this round).
 
-Round 1 (all as before) plus round 2 fixes against `O1-review-1.md` (all reviewer-verified findings):
-- **MAJOR 1**: `--recipient-repo` is now passed explicitly, pre-checked against `inboxes[target].cwd`
-  existing on disk (`note-flush.mjs:1489-1506`); when it doesn't resolve, nothing is sent at all
-  (`overdue-send-failed ... no repo resolvable`, id still recorded). Replaces round 1's reliance on
-  `runNoteSend`'s own cwd fallback, which the review showed can write a repo ledger under the flusher's
-  own cwd. Option (a) (a `note-send.mjs` change) was left to the lead, per the review's own framing.
-- **MAJOR 2**: SKILL.md's two kill-switch paths corrected from `~/.agents/notes/ws-off*` to
-  `~/.agents/ws-off*`, matching the code. This report's own line was fixed too.
-- **MINOR 3**: `--needs none` added to the nudge's send argv.
-- **MINOR 4**: 3 tests added verbatim from the review (ASK-re-ASK, mixed malformed `by`s, prune+mode
-  600), plus one more proving the shared `ws-off` switch alone also skips the pass.
-- **MINOR 5**: SKILL.md's `; overdue: <n> open, <m> nudged` explanation reworded — the review's exact
-  replacement text — to say what "nudged" actually counts (recorded, not necessarily delivered).
-- NIT 6/7 and "observations for the lead": left as-is, not builder defects.
-- All pre-existing tests that expect an actual send now register their inbox with `cwd: home` (an
-  existing tmp dir) so the MAJOR 1 gate still lets the stub through — mechanical test-only change.
+Round 3 (prior): the "twin" fix in target selection (a reachable recipient is never skipped for a
+sender whose registered `cwd` is gone). Round 1/2: `--recipient-repo` pre-check, SKILL.md kill-switch
+paths, `--needs none`, prune+mode-600 tests. All still in place, untouched this round except where R8's
+gate needed the observability/seed additions described above.
 
 ## Next
-Nothing outstanding for O1 that stays in-territory. Flagged for the lead in the report's "Deviations"
-section (round 3): whether to authorize ruling (a) — a small `note-send.mjs` change (out of O1's file
-list) so the genuinely-both-unreachable case also lands in the host ledger instead of dropping (logged,
-not silent). Round 3's fix (b′) already removes the twin: a reachable party is never skipped in favor
-of an unreachable one.
+Nothing outstanding for O1 that stays in-territory. Part B of R8 (a remote send also appending to the
+sending host's own ledger) is explicitly lane fifteen, not this one.
 
 ## Open questions
-None O1 can resolve alone — ruling (a) vs. amending R5 to accept (b′) as final is the lead's call.
+None O1 can resolve alone.
 
 ## How to run my gate
 `cd /home/ben/Code/wt-overdue-asks-1-O1 && node --test skills/multi/scripts/note-flush.test.mjs`
-Last run: 142/142 pass, 0 fail (round 2 was 141/141). Log: `docs/specs/overdue-asks-1/reports/O1-gate.log`.
+Last run: 148/148 pass, 0 fail. Log: `docs/specs/overdue-asks-1/reports/O1-r8-gate.log`.
