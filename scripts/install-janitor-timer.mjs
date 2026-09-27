@@ -15,8 +15,11 @@
  *     {"schema":1,"repo":"<abs repo path>","node":"<abs node path>","hour":<int>,
  *      "scheduler":"systemd-user"|"schtasks"|"launchd","name":"janitor-record"}
  *   - the scheduled command is exactly `<node> <pluginRoot>/scripts/janitor.mjs --record --repo
- *     <repo>`, plus `--host <name>` if given; output goes to `~/.agents/janitor/last-run.log`,
- *     truncated every run.
+ *     <repo>`, plus `--host <name>` — `<name>` is `--host` on the CLI if given, else the installing
+ *     machine's own `os.hostname()` baked in at install time (J1 review round 1, m1: this keeps a
+ *     scheduled record's host stable even across a later machine rename, which is the whole point
+ *     of the flag; --record's own default, run without --host, is unaffected). Output goes to
+ *     `~/.agents/janitor/last-run.log`, truncated every run.
  *   - never shells out to systemctl/schtasks/launchctl unless `--enable` is given (tests never pass
  *     it); `--remove` deletes only files carrying this file's own marker line, plus installed.json.
  *   - refuses to install from a non-durable (temp/worktree) checkout unless `--force-root`
@@ -117,8 +120,17 @@ export function installedJsonText({ repo, node, hour, scheduler, name }) {
 
 // ---------- Linux: systemd --user service + timer ----------
 
+/** systemd ExecStart quoting: `%` is a specifier and `$` is env expansion, so double both; quote only
+ * when the arg has whitespace/quotes/backslashes, so ordinary paths stay byte-identical (the existing
+ * ExecStart assertion in the test file). Without this, systemd splits ExecStart on whitespace and a
+ * space inside `repo`/`host` becomes a new argv element for janitor.mjs — see J1 review round 1 (B1). */
+function systemdQuote(arg) {
+  const s = String(arg).replace(/%/g, "%%").replace(/\$/g, "$$$$");
+  return /[\s"'\\]/.test(s) ? `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : s;
+}
+
 export function systemdServiceUnit({ node, pluginRoot, repo, host, logPath }) {
-  const cmd = scheduledCommandArgv({ node, pluginRoot, repo, host }).join(" ");
+  const cmd = scheduledCommandArgv({ node, pluginRoot, repo, host }).map(systemdQuote).join(" ");
   const nodeDir = path.dirname(node);
   // StandardOutput/StandardError=truncate:<path> is systemd's own truncate-on-open mode (confirmed
   // against `man systemd.exec` on this host, the "truncate:path ... truncates the file when opening
@@ -171,7 +183,10 @@ export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath }) 
   const wrapped = `${inner} > "${logPath}" 2>&1`;
   const hh = String(hour).padStart(2, "0");
   return (
-    '<?xml version="1.0" encoding="UTF-16"?>\n' +
+    // Declared as UTF-8 because writeFileAtomic (below) writes "utf8" bytes — a UTF-16 declaration
+    // over UTF-8 bytes with no BOM is rejected by an XML parser expecting the switch it declares
+    // (J1 review round 1, M3). Writing UTF-16LE instead would break readMarked's utf8 marker check.
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
     `${markerLine("xml")}\n` +
     '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n' +
     "  <RegistrationInfo>\n" +
@@ -189,7 +204,11 @@ export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath }) 
     '  <Actions Context="Author">\n' +
     "    <Exec>\n" +
     "      <Command>%ComSpec%</Command>\n" +
-    `      <Arguments>/c ${escapeXml(wrapped)}</Arguments>\n` +
+    // `/s` makes cmd.exe strip exactly the outer quote pair we add here — without it, cmd's
+    // documented `/c` rule strips only the FIRST and LAST quote char on the whole line whenever
+    // there are more than two, mangling a multi-quoted argv into a broken program token and an
+    // unterminated redirect (J1 review round 1, M2).
+    `      <Arguments>/s /c "${escapeXml(wrapped)}"</Arguments>\n` +
     `      <WorkingDirectory>${escapeXml(repo)}</WorkingDirectory>\n` +
     "    </Exec>\n" +
     "  </Actions>\n" +
@@ -278,7 +297,10 @@ function planWrite(file, desired, marker, dryRun) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     writeFileAtomic(file, desired);
   }
-  return { path: file, status: cur.exists ? "updated" : "created", changed: true, content: desired };
+  // J1 review round 1, m4: a dry-run must never claim past tense ("created"/"updated") for a file it
+  // did not touch — "would-create"/"would-update" says plainly that this is a preview.
+  const verb = cur.exists ? "update" : "create";
+  return { path: file, status: dryRun ? `would-${verb}` : `${verb}d`, changed: true, content: desired };
 }
 
 function planRemove(file, marker, dryRun) {
@@ -288,7 +310,8 @@ function planRemove(file, marker, dryRun) {
   // Single named file, never a directory, never recursive — the one delete this feature exists to
   // do, and the only one it is allowed to do.
   if (!dryRun) fs.rmSync(file, { force: true });
-  return { path: file, status: "removed", changed: !dryRun };
+  // J1 review round 1, m4: a dry-run must never claim "removed" for a file it left in place.
+  return { path: file, status: dryRun ? "would-remove" : "removed", changed: !dryRun };
 }
 
 // ---------- main ----------
@@ -317,18 +340,29 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   const enableFlag = argv.includes("--enable");
   const forceRoot = argv.includes("--force-root");
 
+  const refusals = [];
+
   let hour = DEFAULT_HOUR;
   const hourArg = parseArgFlag(argv, "--hour");
   if (hourArg !== null) {
     const n = Number(hourArg);
+    // J1 review round 1, m2: a typo'd --hour used to install a silent 06:00 fallback and report
+    // success. Refuse instead, before any write, so a bad value is never quietly swallowed.
     if (Number.isInteger(n) && n >= 0 && n <= 23) hour = n;
+    else refusals.push(`--hour must be an integer 0-23, got ${hourArg}`);
   }
 
   const repoFlag = parseArgFlag(argv, "--repo");
   const hostFlag = parseArgFlag(argv, "--host");
   const name = parseArgFlag(argv, "--name") || DEFAULT_NAME;
 
-  const refusals = [];
+  const repo = resolveRepo({ home, repoFlag });
+  const node = path.resolve(execPath);
+  // J1 review round 1, m1: bake in a host name at INSTALL time rather than leaving every scheduled
+  // run to call os.hostname() itself — that keeps the record's host stable even across a later
+  // machine rename, which is the whole rationale --host was added for. `--host <name>` overrides it.
+  const host = hostFlag || os.hostname();
+
   // Checked against the SCRIPT PATH we would actually schedule (a file inside pluginRoot), not the
   // bare pluginRoot directory: isDurablePath's regex only matches a temp/worktree SEGMENT followed
   // by more path (mirror-shared-skills.mjs:700, `(tmp|...|wt-[^/]*)\/`) — a bare directory whose own
@@ -350,6 +384,30 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     );
   }
 
+  // J1 review round 1, B1: systemd ExecStart splits on whitespace, so a `--repo`/`--host`/
+  // `~/.agents/janitor-repo` value that itself contains the literal string `--apply` could turn a
+  // scheduled report-only run into a destructive one once flattened into argv. Refuse outright
+  // rather than rely solely on quoting, so the contract ("the string `--apply` never appears
+  // anywhere") holds as text too, not just as argv structure.
+  if ([repo, host].some((v) => String(v).includes("--apply"))) {
+    refusals.push(
+      "refusing: --repo/--host/~/.agents/janitor-repo contains the string --apply, which a scheduled janitor command must never carry",
+    );
+  }
+
+  // J1 review round 1, M5: mirrors the Codex installer's own refusal on a missing hook script
+  // (mirror-shared-skills.mjs's installCodexHookScript) — a timer that can never actually run
+  // (missing script, or a repo that is not a git checkout) must never be reported `created`/exit 0.
+  // Checked under --dry-run too, per the brief; --remove never needs either to exist.
+  if (!removeFlag) {
+    if (!fs.existsSync(janitorScriptPath)) {
+      refusals.push(`missing janitor script ${janitorScriptPath}`);
+    }
+    if (!fs.existsSync(path.join(repo, ".git"))) {
+      refusals.push(`repo ${repo} is not a git checkout (set ~/.agents/janitor-repo or --repo)`);
+    }
+  }
+
   const result = { action: removeFlag ? "remove" : dryRun ? "dry-run" : "install", refusals, files: [] };
 
   if (refusals.length > 0) {
@@ -358,8 +416,6 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     return 1;
   }
 
-  const repo = resolveRepo({ home, repoFlag });
-  const node = path.resolve(execPath);
   const agentsJanitorDir = path.join(home, ".agents", "janitor");
   const logPath = path.join(agentsJanitorDir, "last-run.log");
   const installedJsonPath = path.join(agentsJanitorDir, "installed.json");
@@ -384,7 +440,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const serviceFile = path.join(unitDir, `${name}.service`);
     const timerFile = path.join(unitDir, `${name}.timer`);
     artifacts = [
-      { file: serviceFile, marker: markerLine("hash"), desired: systemdServiceUnit({ node, pluginRoot, repo, host: hostFlag, logPath }) },
+      { file: serviceFile, marker: markerLine("hash"), desired: systemdServiceUnit({ node, pluginRoot, repo, host, logPath }) },
       { file: timerFile, marker: markerLine("hash"), desired: systemdTimerUnit({ hour, name }) },
     ];
     enableCmds = [
@@ -395,7 +451,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   } else if (scheduler === "schtasks") {
     const taskXmlFile = path.join(agentsJanitorDir, `${name}.task.xml`);
     artifacts = [
-      { file: taskXmlFile, marker: markerLine("xml"), desired: windowsTaskXml({ node, pluginRoot, repo, host: hostFlag, hour, logPath }) },
+      { file: taskXmlFile, marker: markerLine("xml"), desired: windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath }) },
     ];
     enableCmds = [{ cmd: "schtasks", args: ["/Create", "/TN", name, "/XML", taskXmlFile, "/F"] }];
     disableCmds = [{ cmd: "schtasks", args: ["/Delete", "/TN", name, "/F"] }];
@@ -403,37 +459,119 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const label = `com.delegation.${name}`;
     const plistFile = path.join(home, "Library", "LaunchAgents", `${label}.plist`);
     artifacts = [
-      { file: plistFile, marker: markerLine("xml"), desired: launchdPlist({ node, pluginRoot, repo, host: hostFlag, hour, logPath, label }) },
+      { file: plistFile, marker: markerLine("xml"), desired: launchdPlist({ node, pluginRoot, repo, host, hour, logPath, label }) },
     ];
     enableCmds = [{ cmd: "launchctl", args: ["load", "-w", plistFile] }];
     disableCmds = [{ cmd: "launchctl", args: ["unload", plistFile] }];
   }
 
+  result.commands = [];
+
   if (removeFlag) {
+    // J1 review round 1, M1: a same-named file WITHOUT our marker is a user's own unrelated unit —
+    // it is left on disk untouched (planRemove below), but the by-name enable/disable commands know
+    // nothing about content, only the name, so running them here would stop/disable that foreign
+    // unit anyway. Checked (read-only) BEFORE anything is removed, so this can refuse outright
+    // rather than deleting our files and then silently skipping only the systemctl call.
+    if (enableFlag) {
+      const foreignFiles = artifacts
+        .map((a) => ({ a, cur: readMarked(a.file, a.marker) }))
+        .filter(({ cur }) => cur.exists && !cur.marked)
+        .map(({ a }) => a.file);
+      if (foreignFiles.length > 0) {
+        refusals.push(
+          `refusing --remove --enable: foreign (unmarked) file(s) present, will not run enable/disable ` +
+            `commands by name against them: ${foreignFiles.join(", ")}`,
+        );
+      }
+    }
+    if (refusals.length > 0) {
+      if (jsonFlag) stdout(`${JSON.stringify(result, null, 2)}\n`);
+      else for (const r of refusals) stdout(`refused: ${r}\n`);
+      return 1;
+    }
+
+    // Disable BEFORE the files are deleted — `systemctl --user disable` on a unit whose file is
+    // already gone can fail (unit file does not exist), leaving a dangling timers.target.wants
+    // symlink and the loaded timer active until a reload/reboot (J1 review round 1, M1).
+    if (enableFlag && !dryRun) {
+      for (const c of disableCmds) {
+        const cmdText = `${c.cmd} ${c.args.join(" ")}`;
+        try {
+          exec(c.cmd, c.args, { stdio: "ignore" });
+          result.commands.push(cmdText);
+        } catch (err) {
+          // Best effort: disabling a timer/task that was never enabled legitimately errors, and
+          // that must never block removing the files themselves. Reported, not swallowed silently.
+          result.commands.push(`${cmdText} (failed: ${String(err && err.message ? err.message : err)})`);
+        }
+      }
+    }
+
     for (const a of artifacts) result.files.push(planRemove(a.file, a.marker, dryRun));
     // installed.json is entirely ours by convention (no other tool ever writes this exact path), so
     // no marker check is needed to know it is safe to remove — pass marker=null to skip that check.
     result.files.push(planRemove(installedJsonPath, null, dryRun));
 
-    if (enableFlag && !dryRun) {
-      for (const c of disableCmds) {
-        try {
-          exec(c.cmd, c.args, { stdio: "ignore" });
-        } catch {
-          // Best effort: disabling a timer/task that was never enabled legitimately errors, and
-          // that must never block removing the files themselves.
-        }
+    if (enableFlag && !dryRun && scheduler === "systemd-user") {
+      // Reload after the unit files are gone and disable has run, so systemd's view matches disk.
+      const cmdText = "systemctl --user daemon-reload";
+      try {
+        exec("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+        result.commands.push(cmdText);
+      } catch {
+        // Best effort, same reasoning as above.
       }
+    }
+
+    if (!enableFlag) {
+      // J1 review round 1, m3: a plain --remove deletes files but leaves a registered Windows task,
+      // or a loaded systemd timer, still running — say so, rather than letting the output imply the
+      // live entry is gone too.
+      result.note =
+        `files removed, but the ${scheduler} entry may still be registered/running — pass --enable ` +
+        `to also run: ${disableCmds.map((c) => `${c.cmd} ${c.args.join(" ")}`).join(" && ")}`;
     }
   } else {
     // --dry-run writes nothing (spec item 3) — not even the directory that would hold the artifacts.
     if (!dryRun) fs.mkdirSync(agentsJanitorDir, { recursive: true });
     for (const a of artifacts) result.files.push(planWrite(a.file, a.desired, a.marker, dryRun));
+
+    // J1 review round 1, M1/m4: a same-named foreign artifact is left untouched by planWrite above
+    // (correct — never overwritten), but the install as a WHOLE must not finish: the by-name enable
+    // command would still touch the foreign unit, and installed.json must not claim `created`/exit 0
+    // for a host J2 would then treat as fully installed when it is not.
+    const foreignFiles = result.files.filter((f) => f.status === "left-untouched-foreign").map((f) => f.path);
+    if (foreignFiles.length > 0) {
+      refusals.push(
+        `refusing to finish install: foreign (unmarked) file(s) present, left untouched: ${foreignFiles.join(", ")}`,
+      );
+      if (jsonFlag) stdout(`${JSON.stringify(result, null, 2)}\n`);
+      else for (const r of refusals) stdout(`refused: ${r}\n`);
+      return 1;
+    }
+
     const installedDesired = installedJsonText({ repo, node, hour, scheduler, name });
     result.files.push(planWrite(installedJsonPath, installedDesired, null, dryRun));
 
     if (enableFlag && !dryRun) {
-      for (const c of enableCmds) exec(c.cmd, c.args, { stdio: "ignore" });
+      // J1 review round 1, m3: the contract says --enable "runs the host's enable/load command and
+      // prints it" — record each command so it reaches both JSON and text output, and never let a
+      // failure throw an uncaught stack trace instead of a reported, nonzero exit.
+      for (const c of enableCmds) {
+        const cmdText = `${c.cmd} ${c.args.join(" ")}`;
+        try {
+          exec(c.cmd, c.args, { stdio: "ignore" });
+          result.commands.push(cmdText);
+        } catch (err) {
+          refusals.push(`${cmdText} failed: ${String(err && err.message ? err.message : err)}`);
+        }
+      }
+      if (refusals.length > 0) {
+        if (jsonFlag) stdout(`${JSON.stringify(result, null, 2)}\n`);
+        else for (const r of refusals) stdout(`refused: ${r}\n`);
+        return 1;
+      }
     }
   }
 
@@ -442,6 +580,8 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   } else {
     stdout(`${result.action} (${scheduler}, name=${name}, hour=${hour}, repo=${repo})\n`);
     for (const f of result.files) stdout(`  ${f.status}: ${f.path}\n`);
+    for (const c of result.commands) stdout(`  ran: ${c}\n`);
+    if (result.note) stdout(`  note: ${result.note}\n`);
   }
 
   return 0;

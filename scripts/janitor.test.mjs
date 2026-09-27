@@ -1875,6 +1875,28 @@ test("J1.4: a bare --record defaults to docs/work/evidence/janitor/ under the pr
   void code;
 });
 
+test("J1 review round 1, m1: a bare --record <dir> --host <name>, driven through main(), writes the record under the given host, not os.hostname()", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+
+  const recordDir = mkTmp("janitor-record-host-");
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--record", recordDir, "--host", "Custom Host!", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  const files = fs.readdirSync(recordDir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  assert.ok(jsonFile, `expected a dated json file, got ${JSON.stringify(files)}`);
+  assert.ok(jsonFile.endsWith("-custom-host.json"), `expected the given host (sanitized) in the filename, got ${jsonFile}`);
+  const record = JSON.parse(fs.readFileSync(path.join(recordDir, jsonFile), "utf8"));
+  assert.equal(record.host, "custom-host");
+});
+
 test("J1 review round 2 F7: --record is byte-identical given the same now/hostName - the same inputs must never write two different bytes", () => {
   const root = initRepo();
   writeProjectConfig(root);

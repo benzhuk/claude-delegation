@@ -152,7 +152,13 @@ string `--apply` never appears in anything this installer generates, and `--appl
 stays a human's own command, run by hand, never scheduled.
 
 - **Which repo it watches**: `~/Code/claude-delegation`, or the path in
-  `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both.
+  `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both. The installer
+  refuses (no files written) when the janitor script or that repo does not exist, so a
+  misconfigured host is told at install time rather than getting a green `installed.json` that
+  will never actually run.
+- **Which host name it records under**: the installing machine's own hostname, baked into the
+  scheduled command at install time — stable even if the machine is later renamed — or `--host
+  <name>` to set it explicitly.
 - **Where the record lands**: the same place a manual `--record` already writes to —
   `docs/work/evidence/janitor/<date>-<host>.json` plus one appended `docs/work/evidence/
   janitor/drift.md` line, in the watched repo. Ben's page links `drift.md` directly, so
