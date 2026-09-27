@@ -383,6 +383,23 @@ function mergeCodexAggInto(target, source) {
   }
 }
 
+function isUsableCodexString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeCodexModel(value) {
+  if (!isUsableCodexString(value)) return null;
+  const model = value.trim();
+  return model.toLowerCase() === 'unknown' ? null : model;
+}
+
+function normalizeCodexTimestamp(value) {
+  if (!isUsableCodexString(value)) return null;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return null;
+  return { milliseconds, value: new Date(milliseconds).toISOString() };
+}
+
 async function detectLeadHost(filePath, fsImpl) {
   const rl = await openLines(fsImpl, filePath);
   for await (const line of rl) {
@@ -391,7 +408,7 @@ async function detectLeadHost(filePath, fsImpl) {
     try { obj = JSON.parse(line); } catch { continue; }
     if (obj.type === 'session_meta') {
       const payload = obj.payload;
-      if (!payload || typeof payload.session_id !== 'string' || payload.session_id !== payload.id) {
+      if (!payload || !isUsableCodexString(payload.id) || !isUsableCodexString(payload.session_id) || payload.session_id !== payload.id) {
         throw new Error('Codex session_meta is malformed or lacks a verified session id');
       }
       return 'codex';
@@ -404,17 +421,18 @@ async function detectLeadHost(filePath, fsImpl) {
   return 'claude';
 }
 
-function codexInWindow(ts, markerStarted, fromMs, toMs) {
+function codexInWindow(timestamp, markerStarted, fromMs, toMs) {
   if (!markerStarted) return false;
-  const value = ts ? Date.parse(ts) : NaN;
-  if (fromMs !== null && (Number.isNaN(value) || value < fromMs)) return false;
-  if (toMs !== null && (Number.isNaN(value) || value > toMs)) return false;
+  if ((fromMs !== null || toMs !== null) && timestamp === null) return false;
+  const value = timestamp && timestamp.milliseconds;
+  if (fromMs !== null && value < fromMs) return false;
+  if (toMs !== null && value > toMs) return false;
   return true;
 }
 
 function nativeTaskStarted(obj) {
   const event = obj.type === 'event_msg' ? obj.payload : obj;
-  return event && event.type === 'task_started' && typeof event.turn_id === 'string' ? event.turn_id : null;
+  return event && event.type === 'task_started' && isUsableCodexString(event.turn_id) ? event.turn_id : null;
 }
 
 export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from, to, rootSessionId, expectedId, child = false } = {}) {
@@ -441,29 +459,30 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   let windowLastAt = null;
   let currentModel = null;
   const unknownModels = new Set();
-  const unknownWindowTimestamps = new Set();
+  const invalidResponseTimestamps = new Set();
 
   for await (const line of rl) {
     if (!line.trim()) continue;
     let obj;
     try { obj = JSON.parse(line); } catch { throw new Error('Codex session transcript contains malformed JSON'); }
-    if (obj.timestamp) {
-      if (!firstAt) firstAt = obj.timestamp;
-      lastAt = obj.timestamp;
+    const timestamp = normalizeCodexTimestamp(obj.timestamp);
+    if (timestamp) {
+      if (!firstAt) firstAt = timestamp.value;
+      lastAt = timestamp.value;
     }
     if (marker && !windowStarted && obj.type !== 'session_meta' && obj.type !== 'turn_context' && containsMarkerDeep(obj, marker)) {
       windowStarted = true;
-      windowStartAt = obj.timestamp || lastAt;
+      windowStartAt = timestamp ? timestamp.value : lastAt;
     }
-    if (!marker && fromMs !== null && !windowStarted && obj.timestamp && Date.parse(obj.timestamp) >= fromMs) {
+    if (!marker && fromMs !== null && !windowStarted && timestamp && timestamp.milliseconds >= fromMs) {
       windowStarted = true;
-      windowStartAt = obj.timestamp;
+      windowStartAt = timestamp.value;
     }
-    const inWindow = codexInWindow(obj.timestamp, windowStarted, fromMs, toMs);
-    if (inWindow && obj.timestamp) windowLastAt = obj.timestamp;
+    const inWindow = codexInWindow(timestamp, windowStarted, fromMs, toMs);
+    if (inWindow && timestamp) windowLastAt = timestamp.value;
     if (obj.type === 'session_meta') {
       meta = obj.payload;
-      if (sawMeta || !meta || typeof meta.id !== 'string' || typeof meta.session_id !== 'string' || (!child && meta.session_id !== meta.id) || (expectedId && meta.id !== expectedId)) {
+      if (sawMeta || !meta || !isUsableCodexString(meta.id) || !isUsableCodexString(meta.session_id) || (!child && meta.session_id !== meta.id) || (expectedId && meta.id !== expectedId)) {
         throw new Error('Codex session_meta is malformed or does not identify exactly one session');
       }
       if (rootSessionId && meta.session_id !== rootSessionId) throw new Error('Codex session_meta is outside the lead root session namespace');
@@ -472,7 +491,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     }
     if (obj.type === 'turn_context') {
       const model = obj.payload && obj.payload.model;
-      currentModel = typeof model === 'string' && model ? model : null;
+      currentModel = normalizeCodexModel(model);
     }
     const started = nativeTaskStarted(obj);
     if (started && inWindow) windowNativeTurns.add(started);
@@ -480,18 +499,18 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     if (obj.type !== 'token_usage_record') continue;
     tokenRecordCount += 1;
     const record = obj.payload;
-    if (!sawMeta || !record || record.session_id !== meta.session_id || (rootSessionId && record.session_id !== rootSessionId) || typeof record.response_id !== 'string' || typeof record.turn_id !== 'string') {
+    if (!sawMeta || !record || !isUsableCodexString(record.session_id) || record.session_id !== meta.session_id || (rootSessionId && record.session_id !== rootSessionId) || !isUsableCodexString(record.response_id) || !isUsableCodexString(record.turn_id)) {
       throw new Error('Codex token_usage_record lacks verified session, response, or turn attribution');
     }
     const entry = {
       model: currentModel || 'unknown',
       usage: codexUsage(record.usage),
-      ts: obj.timestamp || null,
+      ts: timestamp ? timestamp.value : null,
       responseId: record.response_id,
       turnId: record.turn_id,
     };
     if (!currentModel) unknownModels.add(record.response_id);
-    if ((marker || fromMs !== null || toMs !== null) && !obj.timestamp) unknownWindowTimestamps.add(record.response_id);
+    if (!timestamp) invalidResponseTimestamps.add(record.response_id);
     const key = `${meta.id}:response:${record.response_id}`;
     const fingerprint = JSON.stringify([record.turn_id, entry.model, entry.ts, entry.usage]);
     const seen = responseFingerprints.get(key);
@@ -512,8 +531,8 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     model: entry.model,
   }));
   const unknownModelList = [...unknownModels].sort();
-  const unknownTimestampList = [...unknownWindowTimestamps].sort();
-  const responseTimelineComplete = unknownTimestampList.length === 0
+  const invalidTimestampList = [...invalidResponseTimestamps].sort();
+  const responseTimelineComplete = invalidTimestampList.length === 0
     && responseTimeline.every((entry) => entry.timestamp !== null && entry.model !== 'unknown');
   return {
     totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt,
@@ -526,11 +545,11 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     sessionId: meta.id,
     rootSessionId: meta.session_id,
     unknownModels: unknownModelList,
-    unknownWindowTimestamps: unknownTimestampList,
+    invalidResponseTimestamps: invalidTimestampList,
     responseTimeline,
     responseTimelineComplete,
-    coverageSupported: tokenRecordCount > 0 && windowTokenRecordCount > 0 && unknownModelList.length === 0 && unknownTimestampList.length === 0,
-    coverageReason: tokenRecordCount === 0 ? 'no token_usage_record rows with per-response usage' : windowTokenRecordCount === 0 ? 'no token_usage_record rows inside the requested window' : unknownModelList.length ? 'usage rows have unknown model attribution' : unknownTimestampList.length ? 'usage rows have unknown timestamps at a required window boundary' : null,
+    coverageSupported: tokenRecordCount > 0 && windowTokenRecordCount > 0 && unknownModelList.length === 0 && invalidTimestampList.length === 0,
+    coverageReason: tokenRecordCount === 0 ? 'no token_usage_record rows with per-response usage' : unknownModelList.length ? 'usage rows have unknown model attribution' : invalidTimestampList.length ? 'usage rows have invalid or missing response timestamps' : windowTokenRecordCount === 0 ? 'no token_usage_record rows inside the requested window' : null,
   };
 }
 
@@ -771,7 +790,7 @@ function codexFirstMeta(file, fsImpl) {
   try {
     const obj = JSON.parse(first);
     const meta = obj.type === 'session_meta' ? obj.payload : null;
-    if (!meta || typeof meta.id !== 'string' || typeof meta.session_id !== 'string') return { file, error: 'malformed metadata' };
+    if (!meta || !isUsableCodexString(meta.id) || !isUsableCodexString(meta.session_id)) return { file, error: 'malformed metadata' };
     return { file, meta, timestamp: obj.timestamp || meta.timestamp || null, text };
   } catch {
     return { file, error: 'malformed JSON' };
@@ -811,7 +830,7 @@ function codexRole(meta) {
 
 function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHome }) {
   const horizonUtcDays = utcDays(leadMeta.timestamp);
-  const discovery = { home: 'canonical', horizonUtcDays, candidates: 0, malformedFiles: [], unreadableFiles: [], unreadableDirs: [], excluded: [] };
+  const discovery = { home: 'canonical', horizonUtcDays, candidates: 0, malformedFiles: [], unreadableFiles: [], unreadableDirs: [], excluded: [], selectedLeadIdentityVerified: true };
   const files = new Map();
   for (const day of horizonUtcDays) for (const file of listCodexJsonl(codexDayDir(codexHome, day), fsImpl, discovery)) files.set(path.resolve(file), { file });
   for (const dir of tasksDirs || []) for (const file of listCodexJsonl(dir, fsImpl, discovery, true)) {
@@ -846,6 +865,7 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
     const exact = group.every((candidate) => candidate.text === reference.text);
     if (!exact) {
       conflictedIds.add(id);
+      if (id === leadMeta.id) discovery.selectedLeadIdentityVerified = false;
       const claimsSelectedRoot = id === leadMeta.id || group.some((candidate) => {
         const role = codexRole(candidate.meta);
         return candidate.meta.session_id === leadMeta.id || role.parentId === leadMeta.id;
@@ -943,7 +963,7 @@ async function runCodexCensus(opts, fsImpl) {
       subTotalTurns += child.windowById.size;
       if (child.tokenRecordCount === 0) unavailable.push(`unusable child coverage in ${candidate.file}: no token_usage_record rows with per-response usage`);
       if (child.unknownModels.length) unavailable.push(`unknown model attribution in ${candidate.file}`);
-      if (child.unknownWindowTimestamps.length) unavailable.push(`unknown response timestamp at a required window boundary in ${candidate.file}`);
+      if (child.invalidResponseTimestamps.length) unavailable.push(`invalid or missing response timestamp in ${candidate.file}`);
       perFile.push({ file: candidate.file, role: candidate.role, parentId: candidate.parentId, agentNickname: candidate.agentNickname, depth: candidate.depth, turns: child.windowById.size, byModel, excludedByWindow: child.totalById.size - child.windowById.size });
     } catch (error) {
       discovery.unreadableFiles.push(candidate.file);
@@ -995,7 +1015,7 @@ async function runCodexCensus(opts, fsImpl) {
         discovery,
         unavailable: [...new Set(unavailable)],
         responseTimeline: lead.responseTimeline,
-        responseTimelineComplete: lead.responseTimelineComplete,
+        responseTimelineComplete: lead.responseTimelineComplete && discovery.selectedLeadIdentityVerified,
         effectiveWindow: { from: effectiveStartAt, to: effectiveEndAt },
       },
     },

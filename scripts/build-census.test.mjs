@@ -257,6 +257,146 @@ test('Codex usage rejects missing objects and negative counters instead of coerc
   }
 });
 
+test('Codex response timestamps use one validity rule for window membership, timeline completeness, and child coverage', async () => {
+  const invalidTimestamps = [undefined, '', 'bogus', 42];
+  const usage = { input_tokens: 10, cached_input_tokens: 2, cache_write_input_tokens: 3, output_tokens: 5 };
+  const normal = '2026-09-27T12:00:00.000Z';
+  for (let i = 0; i < invalidTimestamps.length; i++) {
+    const invalidTimestamp = invalidTimestamps[i];
+    const home = mkTmp(`build-census-codex-timestamp-${i}-`);
+    const day = path.join(home, 'sessions', '2026', '09', '27');
+    const lead = path.join(day, 'lead.jsonl');
+    writeJsonl(lead, [
+      { timestamp: normal, type: 'session_meta', payload: { id: 'root', session_id: 'root', source: 'cli' } },
+      { timestamp: normal, type: 'turn_context', payload: { model: 'gpt-6-astra' } },
+      { timestamp: invalidTimestamp, type: 'token_usage_record', payload: { session_id: 'root', response_id: 'bad', turn_id: 'turn-bad', usage } },
+      { timestamp: normal, type: 'token_usage_record', payload: { session_id: 'root', response_id: 'good', turn_id: 'turn-good', usage } },
+    ]);
+
+    const bounded = await runCensus({ lead, tasksDirs: [], from: '2026-09-27T11:00:00Z', to: '2026-09-27T13:00:00Z', codexHome: home });
+    assert.equal(bounded.lead.coverageSupported, false, `bounded variant ${i} must be partial`);
+    assert.equal(bounded.combined, null);
+    assert.equal(bounded.lead.observedWindowByModel['gpt-6-astra'].derived_total_tokens, 15, 'only the provably in-window response is observed');
+    assert.deepEqual(bounded.lead.codex.responseTimeline, [{ responseId: 'good', turnId: 'turn-good', timestamp: normal, model: 'gpt-6-astra' }]);
+    assert.equal(bounded.lead.codex.responseTimelineComplete, false);
+    assert.match(bounded.lead.coverageReason, /invalid or missing response timestamps/);
+
+    const unbounded = await runCensus({ lead, tasksDirs: [], marker: null, codexHome: home });
+    assert.equal(unbounded.lead.coverageSupported, false, `unbounded variant ${i} keeps usage observed but timing incomplete`);
+    assert.equal(unbounded.lead.observedTotalByModel['gpt-6-astra'].derived_total_tokens, 30);
+    assert.equal(unbounded.lead.codex.responseTimeline[0].timestamp, null);
+    assert.equal(unbounded.lead.codex.responseTimelineComplete, false);
+
+    const childHome = mkTmp(`build-census-codex-child-timestamp-${i}-`);
+    const childDay = path.join(childHome, 'sessions', '2026', '09', '27');
+    const childLead = path.join(childDay, 'lead.jsonl');
+    writeJsonl(childLead, codexRows({ id: 'root', root: 'root', timestamp: normal, responseId: 'lead-response', turnId: 'lead-turn', model: 'gpt-6-astra' }));
+    writeJsonl(path.join(childDay, 'child.jsonl'), [
+      { timestamp: normal, type: 'session_meta', payload: { id: 'child', session_id: 'root', source: { subagent: { thread_spawn: { parent_thread_id: 'root', depth: 1, agent_path: '/root/builder', agent_nickname: 'child' } } } } },
+      { timestamp: normal, type: 'turn_context', payload: { model: 'gpt-5.6-terra' } },
+      { timestamp: invalidTimestamp, type: 'token_usage_record', payload: { session_id: 'root', response_id: 'child-response', turn_id: 'child-turn', usage } },
+    ]);
+    const childReport = await runCensus({ lead: childLead, tasksDirs: [], marker: null, codexHome: childHome });
+    assert.equal(childReport.lead.coverageSupported, false, `child variant ${i} must make aggregate coverage partial`);
+    assert.equal(childReport.combined, null);
+    assert.equal(childReport.subagents.perFile[0].byModel['gpt-5.6-terra'].derived_total_tokens, 15, 'unwindowed child usage remains observed');
+    assert.equal(childReport.lead.codex.responseTimelineComplete, true, 'child-only timing failure does not taint verified lead timing');
+    assert.match(childReport.lead.coverageReason, /invalid or missing response timestamp/);
+    const boundedChild = await runCensus({ lead: childLead, tasksDirs: [], from: '2026-09-27T11:00:00Z', to: '2026-09-27T13:00:00Z', codexHome: childHome });
+    assert.equal(boundedChild.lead.coverageSupported, false);
+    assert.equal(boundedChild.combined, null);
+    assert.equal(boundedChild.subagents.perFile[0].turns, 0, 'invalid child time cannot be guessed into a bounded window');
+    assert.equal(boundedChild.lead.codex.responseTimelineComplete, true, 'bounded child uncertainty remains independent of verified lead timing');
+  }
+});
+
+test('Codex requires semantic session, response, and turn ids and normalizes unusable model labels', async () => {
+  const normal = '2026-09-27T12:00:00.000Z';
+  const usage = { input_tokens: 10, cached_input_tokens: 2, cache_write_input_tokens: 3, output_tokens: 5 };
+  for (const invalidId of ['', '   ']) {
+    const dir = mkTmp('build-census-codex-semantic-session-');
+    const lead = path.join(dir, 'lead.jsonl');
+    writeJsonl(lead, [{ timestamp: normal, type: 'session_meta', payload: { id: invalidId, session_id: invalidId } }]);
+    await assert.rejects(() => runCensus({ lead, tasksDirs: [], codexHome: dir }), /malformed|verified session id/);
+  }
+  for (const [responseId, turnId] of [['', 'turn'], ['   ', 'turn'], ['response', ''], ['response', '   ']]) {
+    const home = mkTmp('build-census-codex-semantic-response-');
+    const lead = path.join(home, 'sessions', '2026', '09', '27', 'lead.jsonl');
+    writeJsonl(lead, [
+      { timestamp: normal, type: 'session_meta', payload: { id: 'root', session_id: 'root', source: 'cli' } },
+      { timestamp: normal, type: 'turn_context', payload: { model: 'gpt-6-astra' } },
+      { timestamp: normal, type: 'token_usage_record', payload: { session_id: 'root', response_id: responseId, turn_id: turnId, usage } },
+    ]);
+    await assert.rejects(() => runCensus({ lead, tasksDirs: [], codexHome: home }), /lacks verified session, response, or turn attribution/);
+  }
+  for (const [i, model] of ['unknown', ' UNKNOWN ', '', '   '].entries()) {
+    const home = mkTmp(`build-census-codex-semantic-model-${i}-`);
+    const lead = path.join(home, 'sessions', '2026', '09', '27', 'lead.jsonl');
+    writeJsonl(lead, [
+      { timestamp: normal, type: 'session_meta', payload: { id: 'root', session_id: 'root', source: 'cli' } },
+      { timestamp: normal, type: 'turn_context', payload: { model } },
+      { timestamp: normal, type: 'token_usage_record', payload: { session_id: 'root', response_id: 'response', turn_id: 'turn', usage } },
+    ]);
+    const report = await runCensus({ lead, tasksDirs: [], codexHome: home });
+    assert.equal(report.lead.coverageSupported, false);
+    assert.equal(report.combined, null);
+    assert.equal(report.lead.codex.responseTimeline[0].model, 'unknown');
+    assert.equal(report.lead.codex.responseTimelineComplete, false);
+    assert.match(report.lead.coverageReason, /unknown model attribution/);
+  }
+  const knownHome = mkTmp('build-census-codex-semantic-known-model-');
+  const knownLead = path.join(knownHome, 'sessions', '2026', '09', '27', 'lead.jsonl');
+  writeJsonl(knownLead, codexRows({ id: 'root', root: 'root', timestamp: normal, responseId: 'response', turnId: 'turn', model: 'gpt-5.6-terra' }));
+  const known = await runCensus({ lead: knownLead, tasksDirs: [], codexHome: knownHome });
+  assert.equal(known.lead.coverageSupported, true);
+  assert.equal(known.lead.codex.responseTimelineComplete, true);
+  assert.equal(known.lead.codex.responseTimeline[0].model, 'gpt-5.6-terra');
+});
+
+test('Codex lead timeline trust follows selected-lead identity only, preserving exact copies and child-only failures', async () => {
+  const normal = '2026-09-27T12:00:00.000Z';
+  const makeLeadRows = (responseId, output = 5) => {
+    const rows = codexRows({ id: 'root', root: 'root', timestamp: normal, responseId, turnId: 'turn', model: 'gpt-6-astra' });
+    rows[3].payload.usage.output_tokens = output;
+    return rows;
+  };
+
+  const conflictHome = mkTmp('build-census-codex-lead-conflict-');
+  const conflictDay = path.join(conflictHome, 'sessions', '2026', '09', '27');
+  const conflictLead = path.join(conflictDay, 'lead.jsonl');
+  writeJsonl(conflictLead, makeLeadRows('selected'));
+  writeJsonl(path.join(conflictDay, 'copy.jsonl'), makeLeadRows('other', 99));
+  const conflicted = await runCensus({ lead: conflictLead, tasksDirs: [], codexHome: conflictHome });
+  assert.equal(conflicted.lead.coverageSupported, false);
+  assert.equal(conflicted.combined, null);
+  assert.equal(conflicted.lead.codex.discovery.selectedLeadIdentityVerified, false);
+  assert.deepEqual(conflicted.lead.codex.responseTimeline.map((row) => row.responseId), ['selected'], 'observed selected-file rows remain inspectable');
+  assert.equal(conflicted.lead.codex.responseTimelineComplete, false, 'ambiguous logical lead cannot export a complete timeline');
+
+  const exactHome = mkTmp('build-census-codex-lead-exact-');
+  const exactDay = path.join(exactHome, 'sessions', '2026', '09', '27');
+  const exactLead = path.join(exactDay, 'lead.jsonl');
+  const exactRows = makeLeadRows('selected');
+  writeJsonl(exactLead, exactRows);
+  writeJsonl(path.join(exactDay, 'copy.jsonl'), exactRows);
+  const exact = await runCensus({ lead: exactLead, tasksDirs: [], codexHome: exactHome });
+  assert.equal(exact.lead.coverageSupported, true);
+  assert.equal(exact.lead.codex.discovery.selectedLeadIdentityVerified, true);
+  assert.equal(exact.lead.codex.responseTimelineComplete, true);
+  assert.equal(exact.lead.codex.responseTimeline.length, 1);
+  assert.ok(exact.lead.codex.discovery.excluded.some((item) => item.reason === 'exact duplicate logical identity'));
+
+  const childFailureHome = mkTmp('build-census-codex-child-only-failure-');
+  const childFailureDay = path.join(childFailureHome, 'sessions', '2026', '09', '27');
+  const childFailureLead = path.join(childFailureDay, 'lead.jsonl');
+  writeJsonl(childFailureLead, makeLeadRows('selected'));
+  fs.writeFileSync(path.join(childFailureDay, 'malformed.jsonl'), 'not-json\n', 'utf8');
+  const childFailure = await runCensus({ lead: childFailureLead, tasksDirs: [], codexHome: childFailureHome });
+  assert.equal(childFailure.lead.coverageSupported, false);
+  assert.equal(childFailure.lead.codex.discovery.selectedLeadIdentityVerified, true);
+  assert.equal(childFailure.lead.codex.responseTimelineComplete, true, 'unrelated child discovery failure must not erase valid lead-only timing evidence');
+});
+
 // ── de-duplication: the fixture that proves the fix ────────────────────────
 
 test('de-dup: a request split across 3 lines counts as 1 turn with the LAST output_tokens, not naive per-line summing', async () => {
