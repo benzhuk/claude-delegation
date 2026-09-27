@@ -44,3 +44,18 @@ test("skills/continue/SKILL.md: the lane-state paragraph says once per wave, nev
   );
   assert.match(section, /collect-status-fresh/, "must point at the wiring check that makes an absent/stale status.md visible");
 });
+
+const WIRING_PATH = path.join(HERE, "required-wiring.default.json");
+
+test("required-wiring.default.json's collect-status-fresh row carries contracts.md K1's exact literals, in the same directory as the SKILL.md path", () => {
+  const list = JSON.parse(fs.readFileSync(WIRING_PATH, "utf8"));
+  const rows = list.filter((c) => c.id === "collect-status-fresh");
+  assert.equal(rows.length, 1, "exactly one collect-status-fresh row");
+  const row = rows[0];
+  assert.equal(row.type, "file_fresh");
+  assert.equal(row.file, "~/.agents/collect/claude-delegation/status.json");
+  assert.equal(row.maxAgeSeconds, 2700);
+  assert.equal(row.whenMissing, "missing");
+  assert.equal(row.requiresFile, "~/.agents/collect/installed.json");
+  assert.equal(path.posix.dirname(row.file), path.posix.dirname(STATUS_MD_PATH), "the wiring check and the lead's rule must name the same collector directory");
+});

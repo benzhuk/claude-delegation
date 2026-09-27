@@ -24,13 +24,22 @@
 4. Added `scripts/continue-skill-lane-state.test.mjs` (2 tests) as the fixture backing item 3.
 5. Left `docs/GOALS.md` untouched — genuine ambiguity over which section is "the lead-cost
    measure," documented in the report rather than guessed.
-6. Gate green: `node scripts/run-tests.mjs scripts/wiring-check.test.mjs
-   scripts/continue-skill-lane-state.test.mjs` → 62/62 pass, exit 0.
+6. **Round 2 (review fix, F1 MAJOR):** appended a 3rd test to
+   `scripts/continue-skill-lane-state.test.mjs`, verbatim as reviewer round 1 specified, pinning
+   the `collect-status-fresh` row's exact `type`/`file`/`maxAgeSeconds`/`whenMissing`/`requiresFile`
+   literals against contracts.md K1 (previously only the list-length count was checked, so any
+   drift in those literals shipped green). Verified myself: unchanged row → 63/63 pass; a scratch
+   mutation of `maxAgeSeconds` (2700→27000) → 1 failure as reviewer predicted; row restored from
+   backup, confirmed via `git diff --stat` that only the test file changed.
+7. Gate green: `node scripts/run-tests.mjs scripts/wiring-check.test.mjs
+   scripts/continue-skill-lane-state.test.mjs` → 63/63 pass, exit 0 (was 62/62 before round 2's
+   added test).
 
 ## Next
-Nothing outstanding in this territory. If a future builder/reviewer decides which GOALS.md
-section is "the lead-cost measure," that edit is theirs to make (or the lead can rule it and hand
-it back).
+Nothing outstanding in this territory. Reviewer's N1 (2700s bound vs `--every` above 45) and N2
+(SKILL.md path generality) are both explicitly advisory/optional, no action required this round. If
+a future builder/reviewer decides which GOALS.md section is "the lead-cost measure," that edit is
+theirs to make (or the lead can rule it and hand it back).
 
 ## Open questions
 - Which GOALS.md section (if either) is "the lead-cost measure's status sentence": `## Cut token
@@ -42,5 +51,5 @@ it back).
 ```
 node scripts/run-tests.mjs scripts/wiring-check.test.mjs scripts/continue-skill-lane-state.test.mjs
 ```
-Exit 0, 62/62 pass expected. Log written to
+Exit 0, 63/63 pass expected. Log written to
 `docs/specs/collect-status-1/reports/C3-gate.log` by the pinned gate command.
