@@ -1387,8 +1387,10 @@ function observableAnswerSide(ask, lines, inboxes) {
 
 /**
  * Every ASK in the host ledger corpus that is open (spec item 2): parsed by `parseEnvelope`, not
- * superseded (R2, `supersededIds`), not answered by a RESULT/BLOCKED `re` (R2 — ACK does not answer),
- * past its deadline by at least `OVERDUE_GRACE_MS`, and inside the `OVERDUE_WINDOW_MS` window (R1).
+ * superseded (R2, `supersededIds`), not answered (R2 — a RESULT or BLOCKED `re` always answers; since
+ * the Defect 2 pinned rule below, 2026-09-27, an ACK also answers, but ONLY an ASK whose `Needs:` is
+ * `ack`, every other `Needs:` keeping the RESULT/BLOCKED-only rule), past its deadline by at least
+ * `OVERDUE_GRACE_MS`, and inside the `OVERDUE_WINDOW_MS` window (R1).
  *
  * Read-only and side-effect-free, so the pass (`runOverdueAsks`) and `--status` (`buildOverdueStatus`)
  * share this one computation and can never disagree about what "open" means.
@@ -1399,11 +1401,29 @@ function collectOverdueAsks(home, fsImpl, now) {
   const retired = supersededIds(ledgerTexts);
   const answered = new Set();
   const asks = new Map();
+  const parsed = [];
   for (const line of lines) {
     const g = parseEnvelope(line);
     if (!g) continue;
+    parsed.push(g);
     if ((g.kind === 'RESULT' || g.kind === 'BLOCKED') && g.re) answered.add(g.re);
     if (g.kind === 'ASK' && !asks.has(g.id)) asks.set(g.id, g);
+  }
+  // Defect 2 pinned rule (spec docs/specs/multi-cross-host-1/spec.md, 2026-09-27): an ASK whose
+  // `Needs:` is `ack` is separately answered by an ACK that names it with `re`, sent from the ASK's
+  // `to` at or after the ASK's own instant — the same shape `hasReplyLine` uses above (a sender
+  // self-ACK or a stale ACK does not count). A second pass: this depends on the referenced ASK's own
+  // `to`/`needs`/instant, only known once every ASK id has been collected above. Every other `Needs:`
+  // (or none) keeps the pre-existing rule untouched — RESULT/BLOCKED only.
+  for (const g of parsed) {
+    if (g.kind !== 'ACK' || !g.re) continue;
+    const ask = asks.get(g.re);
+    if (!ask || ask.needs !== 'ack') continue;
+    if (g.from !== ask.to) continue; // a sender self-ACK does not count
+    const askAt = envelopeInstant(ask);
+    const ackAt = envelopeInstant(g);
+    if (askAt === null || ackAt === null || ackAt < askAt) continue; // a stale ACK does not count
+    answered.add(g.re);
   }
   const overdue = [];
   for (const [id, ask] of asks) {

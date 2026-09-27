@@ -64,7 +64,8 @@
 //   executable). Node ≥ 20, zero npm dependencies; macOS, Linux, Windows (Git Bash or cmd).
 //
 // EXIT CODES: 0 delivered, queued, or notified · 1 bad arguments/envelope · 2 pane not found or ambiguous ·
-//             3 deferred (queued in the outbox, NOT typed) · 4 orca CLI error · 5 cross-host misuse
+//             3 deferred (queued in the outbox, NOT typed) · 4 orca CLI error · 5 cross-host misuse ·
+//             6 refused — no local recipient and no mirror target, NOTHING was recorded (--local-ok bypasses)
 //
 // NEVER: print or log token material; use orca orchestration commands; press Enter into a pane whose state you
 //        did not just verify; pick one of several matching panes; wait minutes for a peer.
@@ -121,7 +122,7 @@ const STRING_FLAGS = new Set([
   'needs', 'by', 'recipient-repo', 'sender-repo', 'packet-file', 'tz', 'orca', 'wait-max', 'id',
   'sender-host', 'append-ledger',
 ]);
-const BOOL_FLAGS = new Set(['dry-run', 'json', 'force', 'help', 'no-type', 'no-drain', 'no-mirror']);
+const BOOL_FLAGS = new Set(['dry-run', 'json', 'force', 'help', 'no-type', 'no-drain', 'no-mirror', 'local-ok']);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // L1: sender-host resolution and the cross-host ledger mirror (contracts R1-R3)
@@ -489,6 +490,62 @@ export async function runNoteSend(argv, deps = {}) {
     ? (readInboxes(home, fsImpl)[toRaw] ?? null)
     : null;
 
+  // Defect 1 pinned rule (spec docs/specs/multi-cross-host-1/spec.md, 2026-09-27): a plain local send
+  // to a slug with no registered inbox here and no mirror target appends the ledger locally and posts
+  // to nobody — the recipient on another host never sees it (note-send.mjs:151-165 was
+  // `resolveSenderHost` returning null). `note-send` now refuses with exit 6 and writes NO ledger line
+  // when EVERY one of these holds: `--to` is not `ben`; `--recipient-repo` was not given (the caller
+  // named the recipient's home themselves — that is how the live collector sends from Netcup,
+  // collect-status.mjs:162-168, exempt and unchanged); `mirrorTargetHost` is null; no inbox is
+  // registered here for `--to`; and either no pane lookup is ever attempted for this send (the
+  // quiet/--no-type path — N1 stands, no pane lookup is added there) or pane resolution on the typed
+  // path finds no pane AT ALL (not merely ambiguous — an ambiguous title means a session DOES exist
+  // here, so that stays H3's territory, superseded only for the true not-found case). `--local-ok`
+  // bypasses it for a sender who knows this machine's ledger is what the recipient actually reads.
+  //
+  // `localInboxRegistered` is read independent of `noType` (unlike `inboxRecord` above, which
+  // --no-type deliberately blanks so the later inbox-delivery branch is skipped) because this refusal
+  // must fire on the --no-type path too, and it needs the TRUE registration state to do that.
+  // review F1: a record stamped with another machine's hostname means THIS machine has no inbox for
+  // that slug (inbox-claude.mjs:179-188, inbox-codex.mjs:198-207, C7) — a restored backup or a synced
+  // profile must not exempt the refusal either, or the note still lands only in the local ledger.
+  const localInboxRec = slugWasGiven ? (readInboxes(home, fsImpl)[toRaw] ?? null) : null;
+  const localInboxRegistered = Boolean(localInboxRec)
+    && (!localInboxRec.host || localInboxRec.host === os.hostname());
+  const localOk = Boolean(args['local-ok']);
+  // review F5 (lead ruling): --dry-run is no longer excluded — a preview that describes success for a
+  // send that would in fact be refused describes the wrong world (N4's own principle). Case A below
+  // (quiet/--no-type/foreign-inbox) is fully knowable without touching orca, so dry-run reports the
+  // same exit-6 refusal there. The typed-path Case B genuinely cannot be known without a live pane
+  // lookup, which --dry-run deliberately never makes, so that preview is unchanged.
+  const canRefuseNoLocalRecipient = slugWasGiven && !args['recipient-repo']
+    && !mirrorTargetHost && !localInboxRegistered && !localOk;
+  const refuseNoLocalRecipient = () => new NoteError(
+    6,
+    // review F2: --sender-host naming THIS machine has no effect on a local send (mirrorTargetHost
+    // stays null for it) — the working fix is to run note-send on the recipient's own machine over
+    // ssh, adding --sender-host <the host you came from> INSIDE that ssh'd command only when
+    // SSH_CONNECTION doesn't already map it, so the line mirrors back here too.
+    `"${toRaw}" has no registered inbox on this machine and no mirror target — a plain local send here `
+    + 'would append the ledger and reach nobody. Run note-send on the recipient\'s machine over ssh — '
+    + 'inside that command, add --sender-host <the host you came from> if SSH_CONNECTION does not map, '
+    + 'so the line mirrors back here too (--sender-host naming the machine you are running on now has '
+    + 'no effect). Pass --local-ok if this machine\'s ledger is what the recipient actually reads. '
+    + 'NO ledger line was written.',
+    {
+      refused: 'no-local-recipient', to: toRaw,
+      hint: 'run note-send on the recipient\'s machine over ssh, or pass --sender-host <this host>',
+    },
+  );
+  // Case A: the quiet kind or --no-type path never resolves a pane at all, so nothing downstream would
+  // ever notice the note has no local reader — checked here, before any pane lookup is even attempted.
+  // review F1: a foreign-host `inboxRecord` (blanked here, unlike `localInboxRegistered` above, since
+  // --no-type deliberately drops it) would otherwise route the typed path into the inbox branch and
+  // exit 3 instead of refusing — so it joins the quiet/--no-type triggers for Case A too.
+  if (canRefuseNoLocalRecipient && (quietSkipsResolution || noType || inboxRecord)) {
+    throw refuseNoLocalRecipient();
+  }
+
   // ── 2/3. Drain the backlog, then resolve the pane. In --dry-run we never touch orca at all.
   let pane = null;
   let bindings = {};
@@ -552,6 +609,15 @@ export async function runNoteSend(argv, deps = {}) {
       }
       paneError = err;
     }
+  }
+
+  // Case B: the typed path attempted pane resolution and found no pane at all — not ambiguous (an
+  // ambiguous title means a session DOES exist here, still H3's territory) and not the raw-handle case
+  // (already thrown above, before `paneError` is ever set). `resolvePaneWithSource`'s only "zero
+  // candidates" message starts this way; every ambiguous message instead says "matches N panes" or "is
+  // bound to N live panes".
+  if (canRefuseNoLocalRecipient && paneError && /^no pane titled "/.test(paneError.message)) {
+    throw refuseNoLocalRecipient();
   }
 
   // ── 4. Where the files go. v3: the packet ALWAYS lives in the recipient's repo.
@@ -1011,7 +1077,7 @@ const USAGE = `note-send — one peer-note envelope, ledger-first, with a best-e
             [--n <int>] [--re <parent-id>] [--supersedes <id>] [--goal "<why>"] [--details <repo/relative/path.md>]
             [--needs decision|review|ack|none] [--by "<time>"] [--recipient-repo <dir>] [--sender-repo <dir>]
             [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>]
-            [--sender-host <name>] [--no-mirror] [--no-type] [--no-drain] [--dry-run] [--json]
+            [--sender-host <name>] [--no-mirror] [--local-ok] [--no-type] [--no-drain] [--dry-run] [--json]
 
   note-send --append-ledger <YYYY-MM-DD>   (peer-side mode: reads one envelope line from stdin and
             appends it to THIS machine's ~/.agents/notes/<day>.md; nothing else)
@@ -1029,7 +1095,8 @@ ONE argument, on one line (a \\ continuation is literal inside single quotes):
   ssh ben@<host> '~/.local/bin/note-send --from <you> --to <pane> --kind ASK --topic <t> --text "…" --packet-file -' < packet.md
 
 Exit: 0 delivered, queued (--no-type) or notified (ben) · 1 bad arguments/envelope · 2 pane not found/ambiguous ·
-      3 deferred — queued in the outbox, NOT typed · 4 orca CLI error · 5 cross-host misuse
+      3 deferred — queued in the outbox, NOT typed · 4 orca CLI error · 5 cross-host misuse ·
+      6 refused — no local recipient and no mirror target, NOTHING was recorded (--local-ok bypasses it)
 `;
 
 // review MAJOR-2: exported (was module-private) so the mirrorLedger-through-a-thrown-path test can
@@ -1051,6 +1118,11 @@ export function failureJson(err, exitCode) {
     ...(err.unknownRecipient
       ? { unknown_recipient: true, known: err.known ?? [], suggestion: err.suggestion ?? null }
       : {}),
+    // Defect 1 pinned rule: exit 6's refusal JSON — { refused: "no-local-recipient", to, hint } —
+    // present only for that refusal, alongside the standard fields above (`to` already carries the
+    // same value; `ok`, `exitCode`, `error`, `ledgers: []` etc. describe it exactly as they do any
+    // other exit).
+    ...(err.refused ? { refused: err.refused, hint: err.hint ?? null } : {}),
   };
 }
 
