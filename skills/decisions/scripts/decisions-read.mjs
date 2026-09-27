@@ -201,7 +201,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
     if (detailsDepth === 0) {
       const topLevelHeading = matchTopLevelHeading(raw);
       if (topLevelHeading !== null) {
-        inArchive = topLevelHeading === 'Closed';
+        inArchive = topLevelHeading === 'Closed' || /^(?:First )?[Bb]earings\b/.test(topLevelHeading);
         underWaiting = topLevelHeading === 'Waiting on you now';
       }
     }
