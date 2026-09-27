@@ -46,7 +46,33 @@ function tryOr(fn, fallback) { try { return fn(); } catch { return fallback; } }
 function loadJson(fsImpl, filePath) { return filePath ? tryOr(() => JSON.parse(fsImpl.readFileSync(filePath, 'utf8')), null) : null; }
 function parseDateMs(s) { if (!s) return null; const ms = Date.parse(s); return Number.isNaN(ms) ? null : ms; }
 function totalTokens(a) { return a ? (a.input_tokens || 0) + (a.cache_creation_input_tokens || 0) + (a.cache_read_input_tokens || 0) + (a.output_tokens || 0) : 0; }
-function topTierModels() { return (process.env.DELEGATION_TOP_TIER || 'fable,opus').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean); }
+// Keep the configured override, while making the default agree with docs/model-tiers.md.
+// In particular, a Codex Astra census must not silently look like zero top-tier spend.
+function topTierModels() { return (process.env.DELEGATION_TOP_TIER || 'fable,opus,gpt-6-astra,gpt-5.6-sol').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean); }
+
+function isCodexCensus(census) { return census && census.lead && census.lead.host === 'codex'; }
+
+function codexCoverageReason(census) {
+  if (!isCodexCensus(census)) return null;
+  const unavailable = census.lead.codex && Array.isArray(census.lead.codex.unavailable) ? census.lead.codex.unavailable.filter(Boolean) : [];
+  if (census.lead.coverageSupported !== true) return `Codex census coverage is unavailable${unavailable.length ? `: ${unavailable.join('; ')}` : ''}`;
+  if (census.subagents && census.subagents.incomplete) return 'Codex census subagents are incomplete';
+  return null;
+}
+
+function codexModelTotalsReason(combined) {
+  for (const [model, aggregate] of Object.entries(combined || {})) {
+    for (const field of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) {
+      if (!aggregate || !Number.isFinite(aggregate[field]) || aggregate[field] < 0) return `Codex combined model total for ${model} has unavailable ${field}`;
+    }
+  }
+  return null;
+}
+
+function censusLeadSessionId(census) {
+  if (isCodexCensus(census)) return census.lead.sessionId || null;
+  return census && census.leadPath ? path.basename(census.leadPath).replace(/\.jsonl$/i, '') : null;
+}
 // ── Number 1 — top-tier tokens per build ────────────────────────────────────
 // matched models + total, and (MAJOR 5) the same sums split into the four raw fields.
 function sumTopTier(combined, tiers) {
@@ -62,7 +88,11 @@ function sumTopTier(combined, tiers) {
 // BLOCKER 1(b): reject a census whose window doesn't match this build's own window.
 export function computeTopTierTokens(census, specCensus, fields, openedMs = null, acceptedMs = null, lastAcceptedMs = null) {
   if (!census) return { value: 'unavailable (no census)' };
+  const coverageReason = codexCoverageReason(census);
+  if (coverageReason) return { value: `unavailable (${coverageReason})` };
   if (!census.combined) return { value: 'unavailable (census has no combined by-model sums)' };
+  const modelTotalsReason = isCodexCensus(census) ? codexModelTotalsReason(census.combined) : null;
+  if (modelTotalsReason) return { value: `unavailable (${modelTotalsReason})` };
   const tolerance = 5 * 60000;
   const windowStartAt = census.lead && census.lead.windowStartAt ? Date.parse(census.lead.windowStartAt) : NaN;
   if (Number.isNaN(windowStartAt)) return { value: 'unavailable (census has no window start)' }; // MAJOR 1
@@ -80,7 +110,10 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
   const buildPart = `build ${build.total}${build.matched.length ? ` (${build.matched.sort().join(', ')})` : ' (no top-tier model matched)'}`;
   if (specCensus) { // r1 BLOCKER 1's twin: the spec slice is Spec-session's Spec-from:..Opened:, checked like the census
     const sl = specCensus.lead || {}, sFrom = parseDateMs(fields['spec-from']), sStart = parseDateMs(sl.windowStartAt), sEnd = parseDateMs(sl.windowEndAt);
-    const sFile = specCensus.leadPath ? path.basename(specCensus.leadPath).replace(/\.jsonl$/i, '') : null;
+    const specCoverageReason = codexCoverageReason(specCensus);
+    const specTotalsReason = isCodexCensus(specCensus) && specCensus.combined ? codexModelTotalsReason(specCensus.combined) : null;
+    if (specCoverageReason || specTotalsReason) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): ${specCoverageReason || specTotalsReason}` };
+    const sFile = censusLeadSessionId(specCensus);
     if (!specCensus.combined || sFile !== fields['spec-session'] || [sFrom, sStart, sEnd, openedMs].includes(null) || sStart < sFrom - tolerance || sEnd > openedMs + tolerance) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): spec-census is not Spec-session:'s Spec-from:..Opened: window` };
     const spec = sumTopTier(specCensus.combined, tiers);
     return { value: `${build.total + spec.total} tokens: ${buildPart} + spec slice ${spec.total}` };
@@ -283,6 +316,9 @@ function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedM
   const tiers = topTierModels();
   const { split } = sumTopTier(census.combined, tiers);
   const splitPart = `cache-read ${split.cacheRead}, cache-write ${split.cacheWrite}, input ${split.input}, output ${split.output}`;
+  // C1 verifies response usage and native turn ids, but does not expose a model-bound native
+  // response-message count. Do not reparse rollout records here or call an unsupported count zero.
+  if (isCodexCensus(census)) return { value: `unavailable (Codex census does not expose verified top-tier native response records); tokens: ${splitPart}` };
   if (leadGapReason) return { value: `unavailable (${leadGapReason}); tokens: ${splitPart}` };
   const sinceMs = census.lead && census.lead.windowStartAt ? Date.parse(census.lead.windowStartAt) : null;
   const untilMs = census.lead && census.lead.windowEndAt ? Date.parse(census.lead.windowEndAt) : null;
@@ -305,11 +341,16 @@ export function buildFourRead(opts, fsImpl = fs) {
   const census = loadJson(fsImpl, opts.census);
   const specCensus = loadJson(fsImpl, opts.specCensus);
   const leadPath = census && census.leadPath ? census.leadPath : null;
-  // MAJOR 1: only trust the transcript when Lead-session:/--lead-session actually names the
-  // file the census read — a wrong/missing session must not silently produce numbers.
-  const leadFileId = leadPath ? path.basename(leadPath).replace(/\.jsonl$/i, '') : null;
-  const leadGapReason = !leadSessionId ? 'no Lead-session:'
-    : leadFileId && leadFileId !== leadSessionId ? `census lead file ${leadFileId} is not Lead-session ${leadSessionId}` : null;
+  // Claude's filename is its session id. A Codex rollout basename is not: C1 supplies the
+  // verified logical session id, so do not reject a valid timestamp-prefixed rollout filename.
+  const leadFileId = censusLeadSessionId(census);
+  const leadIdentityReason = !leadSessionId ? 'no Lead-session:'
+    : leadFileId && leadFileId !== leadSessionId
+      ? isCodexCensus(census) ? `Codex census session ${leadFileId} is not Lead-session ${leadSessionId}` : `census lead file ${leadFileId} is not Lead-session ${leadSessionId}`
+      : null;
+  // C1 has no verified native message-timestamp series. Gaps and stall counts stay unavailable
+  // until that evidence is part of the census contract; do not locally reinterpret raw rollout data.
+  const leadGapReason = leadIdentityReason || (isCodexCensus(census) ? 'Codex census does not expose verified native message timestamps' : null);
   const leadTimestamps = leadPath && !leadGapReason ? scanTimestamps(fsImpl, leadPath) : null;
   const ledgerEntries = opts.ledger ? collectLedgerEntries(opts.ledger, fsImpl) : null;
   const numberTwo = computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason);
@@ -317,7 +358,7 @@ export function buildFourRead(opts, fsImpl = fs) {
   const acceptedLogs = logs.filter((l) => l.status.toLowerCase() === 'accepted');
   const lastAcceptedMs = (acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null) ?? windowMs.acceptedMs; // unparseable last -> the tighter first bound
   // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b)/MAJOR 1/2 (r3): refuse with Number 2.
-  const numberOne = leadGapReason && leadSessionId ? { value: `unavailable (${leadGapReason})` } // the census read another session
+  const numberOne = leadIdentityReason && leadSessionId ? { value: `unavailable (${leadIdentityReason})` } // the census read another session
     : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason.replace(/:$/, '')}: census window cannot be checked)` } // MINOR 3 (r4): no doubled colon
     : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, windowMs.acceptedMs, lastAcceptedMs);
   const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');

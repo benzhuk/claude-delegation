@@ -175,12 +175,40 @@ test('computeTopTierTokens: a spec-census that is not Spec-session:\'s Spec-from
   assert.match(computeTopTierTokens(TEN, SPEC_CENSUS, { 'spec-session': 'spec-s' }, opened).value, /partial \(no spec slice\)/); // no Spec-from: in the record
 });
 
-test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the default fable,opus tier list', (t) => {
+test('computeTopTierTokens: DELEGATION_TOP_TIER overrides the configured default tier list', (t) => {
   t.after(() => delete process.env.DELEGATION_TOP_TIER);
   process.env.DELEGATION_TOP_TIER = 'sonnet';
   const census = { combined: { 'claude-sonnet-5': { input_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 } }, lead: A_WINDOW };
   const r = computeTopTierTokens(census, null, {});
   assert.match(r.value, /^7 tokens: build 7/);
+});
+
+test('computeTopTierTokens: a complete Codex census counts Astra under the configured default top tier', (t) => {
+  const prior = process.env.DELEGATION_TOP_TIER;
+  t.after(() => { if (prior === undefined) delete process.env.DELEGATION_TOP_TIER; else process.env.DELEGATION_TOP_TIER = prior; });
+  delete process.env.DELEGATION_TOP_TIER;
+  const census = {
+    lead: { host: 'codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false },
+    combined: { 'gpt-6-astra': { input_tokens: 7, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 11 } },
+  };
+  assert.match(computeTopTierTokens(census, null, {}).value, /^23 tokens: build 23 \(gpt-6-astra\)/);
+});
+
+test('computeTopTierTokens: an incomplete Codex census is unavailable with C1 evidence, never a confident zero', () => {
+  const census = {
+    lead: { host: 'codex', coverageSupported: false, codex: { unavailable: ['unknown model attribution in rollout.jsonl'] }, ...A_WINDOW },
+    subagents: { incomplete: true }, combined: { 'gpt-6-astra': { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 } },
+  };
+  assert.equal(computeTopTierTokens(census, null, {}).value, 'unavailable (Codex census coverage is unavailable: unknown model attribution in rollout.jsonl)');
+});
+
+test('computeTopTierTokens: a Codex model total with an unavailable optional field is unavailable, never zero-filled', () => {
+  const census = {
+    lead: { host: 'codex', coverageSupported: true, codex: { unavailable: [] }, ...A_WINDOW },
+    subagents: { incomplete: false }, combined: { 'gpt-6-astra': { input_tokens: 1, cache_creation_input_tokens: 0, output_tokens: 1 } },
+  };
+  assert.equal(computeTopTierTokens(census, null, {}).value, 'unavailable (Codex combined model total for gpt-6-astra has unavailable cache_read_input_tokens)');
 });
 
 test('computeTopTierTokens: a census window ending after the last acceptance (plus tolerance) is rejected — it would mix in the next build (MAJOR 1)', () => {
@@ -442,6 +470,25 @@ test('buildFourRead: a record with no Lead-session: falls back to --lead-session
   assert.equal(report.leadSession.id, 'cli-supplied-id');
   assert.equal(report.leadSession.source, 'cli');
   assert.match(report.leadSession.note, /--lead-session on the command line/);
+});
+
+test('buildFourRead: a complete Codex census uses lead.sessionId instead of its rollout basename and leaves native gaps/messages unavailable', () => {
+  const dir = mkTmp('four-read-codex-c1-');
+  const censusPath = path.join(dir, 'census.json');
+  fs.writeFileSync(censusPath, JSON.stringify({
+    leadPath: path.join(dir, 'rollout-2026-09-27T12-00-00-lead-session.jsonl'),
+    lead: {
+      host: 'codex', sessionId: 'lead-session', coverageSupported: true, codex: { unavailable: [] },
+      windowStartAt: '2026-09-01T00:05:00.000Z', windowEndAt: '2026-09-01T01:05:00.000Z',
+    },
+    subagents: { incomplete: false, perFile: [] },
+    combined: { 'gpt-6-astra': { input_tokens: 7, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 11 } },
+  }));
+  const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
+  assert.match(report.numbers[0].value, /^23 tokens: build 23 \(gpt-6-astra\)/);
+  assert.match(report.numbers[1].value, /^24\.0h; gap unavailable \(Codex census does not expose verified native message timestamps\)$/);
+  assert.match(report.numbers[3].value, /^gaps unavailable \(Codex census does not expose verified native message timestamps\);/);
+  assert.equal(report.companions[0].value, 'unavailable (Codex census does not expose verified top-tier native response records); tokens: cache-read 3, cache-write 2, input 7, output 11');
 });
 
 test('buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a whole-session census by its real accepted time, not a silently-trusted one (BLOCKER 1(b))', async () => {
