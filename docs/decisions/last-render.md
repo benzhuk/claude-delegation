@@ -5,13 +5,13 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 # This session (since your tick at Sun 2:16 PM)
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and I read lane state from its one file instead of from notes.
 - Release 0.20.15 is installed on Windows, Netcup and Hetzner. The Mac was unreachable again today; its cleanup timer and Codex hooks wait for it.
-- Daily cleanup runs on Netcup and Hetzner from tomorrow 6:00 AM. Windows rejected the task file over an encoding detail; a lane is fixing it with live proof.
+- Daily cleanup runs on Netcup and Hetzner from tomorrow 6:00 AM. The Windows task file is fixed and proven live; it goes on once the next release is installed.
 - Four small lanes started at 4:30 PM: the Windows task, a closed status for finished lanes, the temp-directory leak that filled Netcup's disk, and notes that never left Hetzner.
 - Today's score: eleven lanes accepted, median two hours from ask to accepted, and one lane needed rework (two small commits). My own cost is the one measure still failing.
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured now and is the next lane.
 - This page was rewritten as a summary at your request. Every old line is kept in the history files linked below, and the full old page is saved, byte for byte, in the archive.
 # History {toggle="true"}
-	- [Sep 27](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-27.md) — five lanes merged, the delete guard shipped, and a second RE-PLAN reached your page.
+	- [Sep 27](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-27.md) — lanes merged all day, including the delete guard, the knowledge count, the Windows janitor task and this page's renderer, and a second RE-PLAN reached your page.
 	- [Sep 26](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-26.md) — eleven lanes merged, including the four-number read and the merge-on-acceptance rule.
 	- [Sep 25](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-25.md) — four build lanes launched across four hosts, and a review flagged an uncounted stall.
 	- [Sep 24](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-24.md) — harness ownership passed to this lead, and a launch defect was reported upstream.
