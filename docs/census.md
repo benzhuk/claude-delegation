@@ -26,15 +26,24 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   Codex is detected from a verified `session_meta` record. It sums only response-local
   `token_usage_record.payload.usage`, deduplicated by logical session id plus response id;
   cumulative turn/thread snapshots are never added. The preceding `turn_context` supplies
-  each response model. A missing context is `unknown` and makes coverage partial rather
-  than a numeric zero. A unique native `task_started.turn_id` is a Codex `leadTurns` turn.
+  each response model. Native `input_tokens` already includes cache input, so every Codex
+  model aggregate exposes `native_input_tokens` and an independently calculated
+  `derived_total_tokens = native_input_tokens + output_tokens`. The legacy additive input
+  split is emitted only when both cache fields are present. Missing cache, reasoning, or
+  raw `total_tokens` fields stay `null` and are named in that aggregate's `unavailable`
+  array; they are never converted to zero, never double-counted, and do not by themselves
+  invalidate the derived total. A missing model context is `unknown` and makes coverage
+  partial. A unique native `task_started.turn_id` is a Codex user-turn counter.
   Default discovery reads only the configured canonical Codex home in the lead's UTC date
   folder and the following date folder. It verifies each child edge through
   `source.subagent.thread_spawn.parent_thread_id`, follows depth at most three, and checks
   that all usage rows use the lead root session namespace. `--tasks` adds explicit rollout
   files after the same checks; it never replaces default discovery. The report exposes
   `lead.sessionId`, discovery candidates/exclusions, coverage status, and every child’s
-  role, nickname, parent id and depth. Complete coverage emits `VERDICT: COUNTED` and a
+  role, nickname, parent id and depth. It also exposes a window-filtered, response-id
+  deduplicated lead-only `lead.codex.responseTimeline` containing only response id, turn
+  id, timestamp and model, plus `responseTimelineComplete`; prompt/content and raw usage
+  are never copied into that metadata timeline. Complete coverage emits `VERDICT: COUNTED` and a
   combined aggregate; malformed, unreadable, out-of-horizon, unverified, over-depth, or
   unknown-model evidence emits `VERDICT: PARTIAL` with observed subtotals and unavailable
   reasons. `--from`/`--to` accept offset-bearing inclusive timestamps for Codex and retain
@@ -45,6 +54,9 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   exactly once — a directory given twice, or a file reachable through two directories (a
   symlink, in real life), is de-duped by its resolved real path, not by its nominal path.
   Optional: when omitted, the default subagents glob below may still supply files.
+  For Codex, a missing or unreadable explicitly named directory is required evidence and
+  makes coverage partial, including `ENOENT`, `ENOTDIR` and `EACCES`. A missing default
+  next-day session folder remains the normal no-files case.
 - **Default subagents glob** — when `--lead <session.jsonl>` is given, the script also
   globs two locations, needing no `--tasks` flag at all (`<lead session id>` is the
   lead's basename with `.jsonl` stripped):
@@ -95,6 +107,11 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   unknown, never dropped as a guess; when the window's own start timestamp can't be
   established (the marker-matching line carries none, and neither does any line before
   it), nothing is excluded at all.
+  Codex resolves the marker once in the lead and applies that timestamp boundary to every
+  verified child. Children do not need to repeat marker text. A response whose timestamp
+  is unavailable at a required boundary makes coverage partial rather than being guessed
+  into or out of the window. The effective interval (including an implicit end for an
+  unbounded or marker-only run) must fit the reported two-day discovery horizon.
 - `--from`/`--to` (optional, four-number-read spec.md Territory R1 item 3) — a SECOND,
   independent windowing mode: a plain ISO timestamp range instead of a marker match.
   Mutually exclusive with `--marker` (given together, both throw). Messages outside
@@ -174,6 +191,22 @@ runs) and its pinning tests in `scripts/build-census.test.mjs`.
 `leadTurns` is windowed by `--marker` exactly like `windowTurns` is (0 before the window
 starts); `leadTurnsTotal` is the same count over the whole file regardless of `--marker` —
 the two are equal whenever no `--marker` is given.
+
+For a Codex lead the report has two different native units. `windowTurns` and
+`observedLeadRequests` count deduplicated native responses, keyed by response id.
+`leadTurns` and `nativeTurnCountWindow` count distinct `task_started.turn_id` values, which
+are native user turns. One user turn may produce several responses, so these counters are
+not interchangeable. The redacted lead response timeline retains each response's turn id
+to make that relationship auditable; `responseTimelineComplete: false` means a required
+timestamp or model was unavailable for timeline-based gap analysis.
+
+Codex ancestry is authenticated only through already verified immediate parents. A
+rejected parent never authenticates a descendant. Candidates in clearly unrelated root
+namespaces are reported as unrelated exclusions without making an otherwise complete
+census partial. A candidate claiming the selected root namespace through a missing or
+rejected parent is unverified evidence and makes coverage partial. Exact duplicate files
+for one logical identity are named and counted once; divergent copies are a permanent
+identity conflict regardless of discovery order.
 
 ### Header line
 
