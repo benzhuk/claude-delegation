@@ -729,7 +729,7 @@ function shippedRow(id) {
 
 test("the shipped list gained exactly eight new checks: two hook_present (exact command+matcher), four file_exists, one json_value, one file_fresh with a requiresFile gate", () => {
   const list = shippedList();
-  assert.equal(list.length, 17, "9 original + 8 new");
+  assert.equal(list.length, 18, "9 original + 8 new + 1 collect-status-fresh (collect-status-1/C3)");
   const delGuard = shippedRow("hook-delete-guard");
   assert.equal(delGuard.type, "hook_present");
   assert.equal(delGuard.event, "PreToolUse");

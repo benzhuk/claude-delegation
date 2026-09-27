@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-27T19:25:20.000Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "218 messages; tokens: cache-read 15277642, cache-write 635471, input 440, output 193391"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "1 note(s) to skills-n: BLOCKED note-flush-collect-status-overdue-1"
+    }
+  ],
+  "leadSession": {
+    "id": "f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "16106944 tokens: build 16106944 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.0h; largest gap 51.7min at 2026-09-27T18:23:58.143Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "0 gap(s) over 30min stalled; 1 waiting-on-agents (51.7 min); 0 unanswered ASKs to skills-n"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-27-collect-status.record.md"
+}
