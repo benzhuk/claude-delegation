@@ -261,6 +261,11 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.15 — collect-status: scripts/collect-status.mjs writes one lane-status
+  file per repo (~/.agents/collect/<repo>/status.md, attention first) from
+  collect-from-origin and sends one RESULT to the lead only when lane state
+  changes; install-janitor-timer.mjs gains --job collect-status --every
+  <minutes> (lane twenty-one, a77b790).
 - 0.20.14 — four-read, accept: the four-number read counts stalls across every
   transcript of a build, lead and children, and top-tier tokens from both Claude and
   Codex shaped records; accept refuses a record missing Spec-session, a Spec-from not
