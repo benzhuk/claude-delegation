@@ -434,20 +434,17 @@ export function mainCheckout(dir, runner) {
 
   const isDriveLettered = (p) => /^[A-Za-z]:/.test(p);
   const isUNC = (p) => /^\/\/[^/]/.test(p);
-  const cIsAbsolute = path.posix.isAbsolute(c) || isDriveLettered(c);
+  // path.posix.normalize collapses a UNC `//host` to `/host` (the scout's landmine): put the slash back.
+  const normalise = (p) => (isUNC(p) ? '/' : '') + path.posix.normalize(p);
 
-  if (!cIsAbsolute) {
-    if (path.posix.isAbsolute(start) || isDriveLettered(start)) {
-      // Compose onto `start`'s own string, never the process cwd (H6's bug: on Linux,
-      // `path.resolve` does not recognise a POSIX-relative-looking drive-lettered or UNC
-      // `start` as absolute, so it silently prefixes cwd). UNC's leading `//` must never
-      // pass through `path.posix.normalize`/`join`/`resolve` — they collapse it to a
-      // single `/` — so a UNC `start` is joined by hand, string-only, no such call.
-      const base = start.replace(/\/+$/, '');
-      c = isUNC(start) ? `${base}/${c}` : toPosix(path.posix.normalize(`${base}/${c}`));
-    } else {
-      c = toPosix(path.resolve(start, c)); // a genuinely relative `start`: cwd-relative is correct
-    }
+  if (path.posix.isAbsolute(c) || isDriveLettered(c)) {
+    c = normalise(c); // already absolute (POSIX, drive-lettered or UNC): used as-is, normalised
+  } else if (path.posix.isAbsolute(start) || isDriveLettered(start)) {
+    // Compose onto `start`'s own string, never the process cwd (H6: on Linux `path.resolve`
+    // does not see a drive-lettered or UNC `start` as absolute and silently prefixes cwd).
+    c = normalise(`${start.replace(/\/+$/, '')}/${c}`);
+  } else {
+    c = toPosix(path.resolve(start, c)); // a genuinely relative `start`: cwd-relative is correct
   }
   return c.replace(/\/?\.git\/?$/, '') || start;
 }
