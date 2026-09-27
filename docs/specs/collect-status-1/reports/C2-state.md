@@ -20,16 +20,24 @@ Worktree /home/ben/Code/wt-collect-status-1-C2, branch build/collect-status-1-C2
 - `--job janitor-record|collect-status` (default janitor-record, byte-identical to before).
 - `--every <5-60>` (default 15), cross-refused against `--hour` and vice versa.
 - `--to <slug>` required for collect job, refused for janitor job, slug-pattern validated.
-- `--out <dir>` passthrough for collect job, refused for janitor job (my own call).
+- `--out <dir>` resolved to absolute + control-character-refused, passthrough for collect job,
+  refused for janitor job.
 - Job-scoped `~/.agents/collect/` vs `~/.agents/janitor/` dirs, installed.json, last-run.log.
 - systemd/Windows/launchd generators branch on job; default branch bytes unchanged.
-- `--remove --job collect-status` scoped to that job's own files.
-- `--apply` refusal extended to cover `--to`/`--out`.
-- 44/44 tests green (31 pre-existing untouched + 13 new). Gate log:
-  docs/specs/collect-status-1/reports/C2-gate.log
-- Full report: docs/specs/collect-status-1/reports/C2.md (VERDICT: PASS)
-- Own-defect fix: `--to` required check was wrongly blocking `--remove --job collect-status`;
-  guarded with `!removeFlag`, re-tested, documented in the report.
+- `--remove --job collect-status` scoped to that job's own files AND its own marker string
+  (COLLECT_MARKER, distinct from the janitor's MARKER — round 2, M1 fix).
+- `--apply` refusal extended to cover `--to`/`--out`, with job-specific wording restored for the
+  default job (round 2, m3 fix).
+- Round 2 (docs/specs/collect-status-1/reports/C2-review-r1.md) applied in full: M1 (separate
+  marker per job), m2 (`--out` resolve + control-char refusal), m3 (default job's stdout/JSON no
+  longer drifts), m4 (the `--to` arm of the `--apply` test now actually exercises that code path).
+  Advisory (Windows trigger child order) intentionally left untouched — reviewer marked it
+  not-counted.
+- 46/46 tests green (31 pre-existing untouched + 15 C2 tests, two added this round for M1/m2). Gate
+  log: docs/specs/collect-status-1/reports/C2-gate.log
+- Full round-2 report: docs/specs/collect-status-1/reports/C2.md (VERDICT: PASS)
+- Verified byte stability by re-running the pre-C2 base test file (git show 31a23e2) unedited
+  against this round's installer in a scratch copy: 31/31 pass.
 
 ## Next
 - Nothing outstanding in this territory unless C3/C1 land with a different actual CLI shape for
@@ -40,10 +48,10 @@ Worktree /home/ben/Code/wt-collect-status-1-C2, branch build/collect-status-1-C2
   un-agent-able note.
 
 ## Open questions
-- None blocking. If a reviewer wants `--out` accepted-and-ignored for `--job janitor-record` instead
-  of refused, that's a one-line change (remove the refusal, keep everything else) — flagged as an
-  autonomous call in the report, not a contract violation.
+- None blocking. The Windows trigger child-order advisory (StartBoundary/Enabled/Repetition vs
+  Repetition-first) is unresolved by design — reviewer said "not counted" and "if changed, adjust
+  nothing else"; I read that as advisory-only and left it, not a verified finding.
 
 ## How to run my gate
 `node scripts/run-tests.mjs scripts/install-janitor-timer.test.mjs`
-(sealed home per run, no wrapper). Expect `tests 44 / pass 44 / fail 0`.
+(sealed home per run, no wrapper). Expect `tests 46 / pass 46 / fail 0`.
