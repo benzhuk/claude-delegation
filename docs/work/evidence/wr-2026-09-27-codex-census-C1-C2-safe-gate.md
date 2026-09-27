@@ -12,10 +12,11 @@ Command: `node --test scripts/build-census.test.mjs`
 
 Result: native exit `1`; 73 passed, 4 failed; duration `1090.1971ms`.
 The native exit was written immediately after Node to the adjacent durable
-`wr-2026-09-27-codex-census-C1-C2-safe-gate.exit` receipt. The byte-identical raw
-stdout/stderr receipt is `wr-2026-09-27-codex-census-C1-C2-safe-gate.log`
-(`12746` bytes; SHA-256
-`D25C2EB609742CC8E30B7341C166F5114B48585624FD9141E627EA37152EC7FB`).
+`wr-2026-09-27-codex-census-C1-C2-safe-gate.exit` receipt. The full stdout/stderr
+transcript is versioned as `wr-2026-09-27-codex-census-C1-C2-safe-gate.log`.
+Before Git staging, its builder-worktree source was `12746` bytes with SHA-256
+`D25C2EB609742CC8E30B7341C166F5114B48585624FD9141E627EA37152EC7FB`; Git reported
+line-ending normalization while staging the versioned transcript.
 
 Focused failures to hand back before any retry:
 
