@@ -46,10 +46,91 @@ function tryOr(fn, fallback) { try { return fn(); } catch { return fallback; } }
 function loadJson(fsImpl, filePath) { return filePath ? tryOr(() => JSON.parse(fsImpl.readFileSync(filePath, 'utf8')), null) : null; }
 function parseDateMs(s) { if (!s) return null; const ms = Date.parse(s); return Number.isNaN(ms) ? null : ms; }
 function totalTokens(a) { return a ? (a.input_tokens || 0) + (a.cache_creation_input_tokens || 0) + (a.cache_read_input_tokens || 0) + (a.output_tokens || 0) : 0; }
-function topTierModels() { return (process.env.DELEGATION_TOP_TIER || 'fable,opus').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean); }
+// Preserve Claude's established default. Codex has its own mapped default from
+// docs/model-tiers.md, while an explicit policy remains authoritative for either host.
+function topTierModels(census) {
+  const configured = process.env.DELEGATION_TOP_TIER;
+  const defaults = isCodexCensus(census) ? 'gpt-6-astra,gpt-5.6-sol' : 'fable,opus';
+  return (configured || defaults).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function isCodexCensus(census) { return census && census.lead && census.lead.host === 'codex'; }
+
+function isUsableCodexValue(value) {
+  return typeof value === 'string' && value.trim() !== '' && !/^(?:unknown|unavailable|null|undefined|missing|unset|n\/?a)$/i.test(value.trim());
+}
+
+function codexCoverageReason(census) {
+  if (!isCodexCensus(census)) return null;
+  const unavailable = census.lead.codex && Array.isArray(census.lead.codex.unavailable) ? census.lead.codex.unavailable.filter(Boolean) : [];
+  if (census.lead.coverageSupported !== true) return `Codex census coverage is unavailable${unavailable.length ? `: ${unavailable.join('; ')}` : ''}`;
+  if (census.subagents && census.subagents.incomplete) return 'Codex census subagents are incomplete';
+  return null;
+}
+
+function codexModelTotalsReason(combined) {
+  for (const [model, aggregate] of Object.entries(combined || {})) {
+    if (!isUsableCodexValue(model)) return `Codex combined model total has unavailable model attribution`;
+    if (!aggregate || !Number.isFinite(aggregate.derived_total_tokens) || aggregate.derived_total_tokens < 0) return `Codex combined model total for ${model} has unavailable derived_total_tokens`;
+  }
+  return null;
+}
+
+function censusLeadSessionId(census) {
+  if (isCodexCensus(census)) return census.lead.sessionId || null;
+  return census && census.leadPath ? path.basename(census.leadPath).replace(/\.jsonl$/i, '') : null;
+}
+
+function codexIdentityReason(census, requestedSessionId, requestedLabel = 'Lead-session') {
+  const censusSessionId = census && census.lead && census.lead.sessionId;
+  if (!isUsableCodexValue(requestedSessionId)) return `no valid ${requestedLabel}:`;
+  if (!isUsableCodexValue(censusSessionId)) return 'Codex census has no valid lead.sessionId';
+  if (censusSessionId !== requestedSessionId) return `Codex census session ${censusSessionId} is not ${requestedLabel} ${requestedSessionId}`;
+  return null;
+}
+
+function codexResponseTimeline(census) {
+  const codex = census && census.lead && census.lead.codex;
+  if (!codex || codex.responseTimelineComplete !== true) return { timestamps: null, reason: 'Codex census response timeline is unavailable or incomplete' };
+  if (!Array.isArray(codex.responseTimeline)) return { timestamps: null, reason: 'Codex census response timeline is unavailable or incomplete' };
+  const ids = new Set();
+  const timestamps = [];
+  const rows = [];
+  for (const row of codex.responseTimeline) {
+    const ms = row && typeof row.timestamp === 'string' ? Date.parse(row.timestamp) : NaN;
+    if (!row || !isUsableCodexValue(row.responseId) || !isUsableCodexValue(row.turnId) || !isUsableCodexValue(row.model) || Number.isNaN(ms)) {
+      return { timestamps: null, reason: 'Codex census response timeline is unavailable or incomplete' };
+    }
+    if (ids.has(row.responseId)) return { timestamps: null, reason: 'Codex census response timeline has duplicate response ids' };
+    ids.add(row.responseId);
+    timestamps.push(ms);
+    rows.push(row);
+  }
+  return { timestamps: timestamps.sort((a, b) => a - b), rows, reason: null };
+}
+
+function codexTokenSummary(census, tiers) {
+  const top = sumTopTier(census.combined, tiers, true);
+  const unavailable = [];
+  const split = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+  for (const model of top.matched) {
+    const aggregate = census.combined[model];
+    for (const [field, label] of [['input_tokens', 'input'], ['cache_creation_input_tokens', 'cache-write'], ['cache_read_input_tokens', 'cache-read'], ['output_tokens', 'output']]) {
+      if (!Number.isFinite(aggregate[field]) || aggregate[field] < 0) unavailable.push(`${label} (${model})`);
+      else if (field === 'input_tokens') split.input += aggregate[field];
+      else if (field === 'cache_creation_input_tokens') split.cacheWrite += aggregate[field];
+      else if (field === 'cache_read_input_tokens') split.cacheRead += aggregate[field];
+      else split.output += aggregate[field];
+    }
+  }
+  const breakdown = unavailable.length
+    ? `breakdown unavailable (${unavailable.join(', ')})`
+    : `cache-read ${split.cacheRead}, cache-write ${split.cacheWrite}, input ${split.input}, output ${split.output}`;
+  return { ...top, value: `total ${top.total}; ${breakdown}` };
+}
 // ── Number 1 — top-tier tokens per build ────────────────────────────────────
 // matched models + total, and (MAJOR 5) the same sums split into the four raw fields.
-function sumTopTier(combined, tiers) {
+function sumTopTier(combined, tiers, useDerivedTotals = false) {
   const matched = Object.keys(combined || {}).filter((model) => tiers.some((t) => model.toLowerCase().includes(t)));
   const split = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
   for (const m of matched) {
@@ -57,12 +138,16 @@ function sumTopTier(combined, tiers) {
     split.input += a.input_tokens || 0; split.cacheWrite += a.cache_creation_input_tokens || 0;
     split.cacheRead += a.cache_read_input_tokens || 0; split.output += a.output_tokens || 0;
   }
-  return { total: matched.reduce((n, m) => n + totalTokens(combined[m]), 0), matched, split };
+  return { total: matched.reduce((n, m) => n + (useDerivedTotals ? combined[m].derived_total_tokens : totalTokens(combined[m])), 0), matched, split };
 }
 // BLOCKER 1(b): reject a census whose window doesn't match this build's own window.
 export function computeTopTierTokens(census, specCensus, fields, openedMs = null, acceptedMs = null, lastAcceptedMs = null) {
   if (!census) return { value: 'unavailable (no census)' };
+  const coverageReason = codexCoverageReason(census);
+  if (coverageReason) return { value: `unavailable (${coverageReason})` };
   if (!census.combined) return { value: 'unavailable (census has no combined by-model sums)' };
+  const modelTotalsReason = isCodexCensus(census) ? codexModelTotalsReason(census.combined) : null;
+  if (modelTotalsReason) return { value: `unavailable (${modelTotalsReason})` };
   const tolerance = 5 * 60000;
   const windowStartAt = census.lead && census.lead.windowStartAt ? Date.parse(census.lead.windowStartAt) : NaN;
   if (Number.isNaN(windowStartAt)) return { value: 'unavailable (census has no window start)' }; // MAJOR 1
@@ -75,14 +160,18 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
   if (lastAcceptedMs !== null && windowEndAt > lastAcceptedMs + tolerance) {
     return { value: `unavailable (census window ends ${census.lead.windowEndAt}, after the last acceptance)` };
   }
-  const tiers = topTierModels();
-  const build = sumTopTier(census.combined, tiers);
+  const tiers = topTierModels(census);
+  const build = sumTopTier(census.combined, tiers, isCodexCensus(census));
   const buildPart = `build ${build.total}${build.matched.length ? ` (${build.matched.sort().join(', ')})` : ' (no top-tier model matched)'}`;
   if (specCensus) { // r1 BLOCKER 1's twin: the spec slice is Spec-session's Spec-from:..Opened:, checked like the census
     const sl = specCensus.lead || {}, sFrom = parseDateMs(fields['spec-from']), sStart = parseDateMs(sl.windowStartAt), sEnd = parseDateMs(sl.windowEndAt);
-    const sFile = specCensus.leadPath ? path.basename(specCensus.leadPath).replace(/\.jsonl$/i, '') : null;
+    const specCoverageReason = codexCoverageReason(specCensus);
+    const specTotalsReason = isCodexCensus(specCensus) && specCensus.combined ? codexModelTotalsReason(specCensus.combined) : null;
+    const specIdentityReason = isCodexCensus(specCensus) ? codexIdentityReason(specCensus, fields['spec-session'], 'Spec-session') : null;
+    if (specCoverageReason || specTotalsReason || specIdentityReason) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): ${specCoverageReason || specTotalsReason || specIdentityReason}` };
+    const sFile = censusLeadSessionId(specCensus);
     if (!specCensus.combined || sFile !== fields['spec-session'] || [sFrom, sStart, sEnd, openedMs].includes(null) || sStart < sFrom - tolerance || sEnd > openedMs + tolerance) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): spec-census is not Spec-session:'s Spec-from:..Opened: window` };
-    const spec = sumTopTier(specCensus.combined, tiers);
+    const spec = sumTopTier(specCensus.combined, topTierModels(specCensus), isCodexCensus(specCensus));
     return { value: `${build.total + spec.total} tokens: ${buildPart} + spec slice ${spec.total}` };
   }
   const reason = /^[(<[{"']*(?:none|null|undefined|unavailable|unknown|missing|unset|n.?a|tbd|pending|-+)(?![A-Za-z0-9_-])/i.test(fields['spec-session'] || 'none') || parseDateMs(fields['spec-from']) === null ? 'Spec-session:/Spec-from: missing from record' : 'spec-census not run';
@@ -118,7 +207,7 @@ function gaps(msList, mode, thresholdMinutes = 0) {
 }
 // ── Number 2 — hours ask to accepted, plus the largest gap inside that window ──────────
 // leadGapReason (MAJOR 1): why leadTimestamps is null (a lead-session mismatch, not a missing transcript).
-export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason) {
+export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason, gapLabel = 'largest gap') {
   const openedMs = parseDateMs(fields.opened);
   if (openedMs === null) return { value: 'unavailable (no Opened:)', openedMs: null, acceptedMs: null, reason: 'no Opened:' };
   const first = logs.find((l) => l.status.toLowerCase() === 'accepted');
@@ -137,7 +226,7 @@ export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapR
   } else {
     const gap = gaps(leadTimestamps.filter((t) => t >= openedMs && t <= acceptedMs), 'max');
     gapPart = gap
-      ? `largest gap ${gap.minutes.toFixed(1)}min at ${new Date(gap.startMs).toISOString()}`
+      ? `${gapLabel} ${gap.minutes.toFixed(1)}min at ${new Date(gap.startMs).toISOString()}`
       : 'gap unavailable (fewer than 2 lead messages in window)';
   }
   return { value: `${hours.toFixed(1)}h; ${gapPart}`, openedMs, acceptedMs };
@@ -219,7 +308,7 @@ function ledgerInWindow(entries, kinds, leadSlug, openedMs, acceptedMs) {
 }
 function ledgerHasSlug(entries, leadSlug) { return entries.some((e) => e.from === leadSlug || e.to === leadSlug); }
 // ── Number 4 — work lost or stalled. leadGapReason (MAJOR 1): see computeHoursAskToAccepted.
-export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, leadGapReason) {
+export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, leadGapReason, gapUnit = 'gap') {
   if (openedMs === null) return { value: 'unavailable (no Opened:)' };
   if (acceptedMs === null) return { value: `unavailable (${reason || 'no accepted Log: entry'})` }; // MAJOR 4
   let gapPart;
@@ -231,8 +320,8 @@ export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug
     const over30 = inWindow.length < 2 ? null : gaps(inWindow, 'over', 30);
     gapPart = over30 === null ? 'gaps unavailable (fewer than 2 lead messages in window)'
       : over30.length
-        ? `${over30.length} gap(s) over 30min: ${over30.map((g) => `${new Date(g.startMs).toISOString()} (${g.minutes.toFixed(1)}min)`).join(', ')}`
-        : '0 gaps over 30min';
+        ? `${over30.length} ${gapUnit}(s) over 30min: ${over30.map((g) => `${new Date(g.startMs).toISOString()} (${g.minutes.toFixed(1)}min)`).join(', ')}`
+        : `0 ${gapUnit}s over 30min`;
   }
   let askPart;
   if (!leadSlug) askPart = 'ASKs unavailable (no --lead-slug)';
@@ -278,9 +367,15 @@ function countTopTierMessages(fsImpl, filePath, tiers, sinceMs, untilMs) {
   return ids.size;
 }
 // BLOCKER 1/MAJOR 1 (r2): gate on Number 1's own census verdict and count over its window.
-function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedMs, acceptedMs, numberOneValue) {
+function computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, openedMs, acceptedMs, numberOneValue, codexTimeline = null) {
   if (numberOneValue.startsWith('unavailable')) return { value: numberOneValue };
-  const tiers = topTierModels();
+  const tiers = topTierModels(census);
+  if (isCodexCensus(census)) {
+    const timeline = codexTimeline || codexResponseTimeline(census);
+    if (timeline.reason) return { value: `unavailable (${timeline.reason})` };
+    const count = timeline.rows.filter((row) => tiers.some((tier) => row.model.toLowerCase().includes(tier))).length;
+    return { value: `${count} verified top-tier native API response(s) (lead only); tokens: ${codexTokenSummary(census, tiers).value}` };
+  }
   const { split } = sumTopTier(census.combined, tiers);
   const splitPart = `cache-read ${split.cacheRead}, cache-write ${split.cacheWrite}, input ${split.input}, output ${split.output}`;
   if (leadGapReason) return { value: `unavailable (${leadGapReason}); tokens: ${splitPart}` };
@@ -305,25 +400,32 @@ export function buildFourRead(opts, fsImpl = fs) {
   const census = loadJson(fsImpl, opts.census);
   const specCensus = loadJson(fsImpl, opts.specCensus);
   const leadPath = census && census.leadPath ? census.leadPath : null;
-  // MAJOR 1: only trust the transcript when Lead-session:/--lead-session actually names the
-  // file the census read — a wrong/missing session must not silently produce numbers.
-  const leadFileId = leadPath ? path.basename(leadPath).replace(/\.jsonl$/i, '') : null;
-  const leadGapReason = !leadSessionId ? 'no Lead-session:'
-    : leadFileId && leadFileId !== leadSessionId ? `census lead file ${leadFileId} is not Lead-session ${leadSessionId}` : null;
-  const leadTimestamps = leadPath && !leadGapReason ? scanTimestamps(fsImpl, leadPath) : null;
+  // Claude's filename is its session id. A Codex rollout basename is not: C1 supplies the
+  // verified logical session id, so do not reject a valid timestamp-prefixed rollout filename.
+  const leadFileId = censusLeadSessionId(census);
+  const leadIdentityReason = isCodexCensus(census)
+    ? codexIdentityReason(census, leadSessionId)
+    : !leadSessionId ? 'no Lead-session:'
+      : leadFileId && leadFileId !== leadSessionId ? `census lead file ${leadFileId} is not Lead-session ${leadSessionId}` : null;
+  const codexTimeline = isCodexCensus(census) ? codexResponseTimeline(census) : null;
+  // Codex gap inputs come only from C1's verified, window-filtered response timeline.
+  // Claude retains its established transcript timestamp scan unchanged.
+  const leadGapReason = leadIdentityReason || (codexTimeline && codexTimeline.reason);
+  const leadTimestamps = isCodexCensus(census) ? (leadGapReason ? null : codexTimeline.timestamps) : leadPath && !leadGapReason ? scanTimestamps(fsImpl, leadPath) : null;
   const ledgerEntries = opts.ledger ? collectLedgerEntries(opts.ledger, fsImpl) : null;
-  const numberTwo = computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason);
+  const numberTwo = computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapReason, isCodexCensus(census) ? 'largest native API response gap' : 'largest gap');
   const windowMs = { openedMs: numberTwo.openedMs, acceptedMs: numberTwo.acceptedMs, reason: numberTwo.reason };
   const acceptedLogs = logs.filter((l) => l.status.toLowerCase() === 'accepted');
   const lastAcceptedMs = (acceptedLogs.length ? parseDateMs(acceptedLogs[acceptedLogs.length - 1].at) : null) ?? windowMs.acceptedMs; // unparseable last -> the tighter first bound
   // BLOCKER 1 (r2): an unchecked window says so; BLOCKER 1(b)/MAJOR 1/2 (r3): refuse with Number 2.
-  const numberOne = leadGapReason && leadSessionId ? { value: `unavailable (${leadGapReason})` } // the census read another session
+  const numberOne = isCodexCensus(census) && leadIdentityReason ? { value: `unavailable (${leadIdentityReason})` }
+    : !isCodexCensus(census) && leadIdentityReason && leadSessionId ? { value: `unavailable (${leadIdentityReason})` } // the census read another session
     : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason.replace(/:$/, '')}: census window cannot be checked)` } // MINOR 3 (r4): no doubled colon
     : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, windowMs.acceptedMs, lastAcceptedMs);
   const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');
-  const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason);
+  const numberFour = computeWorkLostOrStalled(leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason, isCodexCensus(census) ? 'native API response gap' : 'gap');
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
-  const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value);
+  const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };
   return {
     record: opts.record, acceptAt: opts.acceptAt || null,
