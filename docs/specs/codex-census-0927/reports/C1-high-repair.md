@@ -1,0 +1,34 @@
+VERDICT: PASS 5dc4c36d39c490d4f45accb0a2459657349d85dc
+
+Work: `wr-2026-09-27-codex-census`
+
+Research (round 4, recorded before source edits):
+
+1. Exact repros: the independent high-tier review at `C1-C2-review.md` reproduced F1-F7 against exact candidate `1be32d8aa9f90181024d9fa158793ea1daa549fd` with an injected in-memory filesystem. F1 produced 17 observed tokens from native inclusive input 10 and output 5 when one cache component was absent. F2 moved one response from Astra to Terra when its repeated response id retained turn and usage but changed model. F3 dropped an in-window child when the marker appeared only in the lead. F4 declared a run complete although its effective end crossed beyond the reported two-day horizon. F5 ignored conflicting copies of the selected lead identity and could resurrect a third child copy. F6 suppressed ENOENT for an explicitly requested tasks directory. F7 counted a descendant whose immediate parent had failed root-namespace verification.
+2. Smallest failing inputs: each review repro uses one root `session_meta`, one model context and one response except where the defect intrinsically needs a second record: F1 varies missing cache fields; F2 repeats response `r` with a second model; F3 adds one child at the lead marker timestamp; F4 places the lead end and eligible child on UTC day three; F5 adds a divergent same-id lead copy or three same-id child copies; F6 supplies one nonexistent explicit tasks directory; F7 supplies one rejected parent and its claimed descendant.
+3. Hypothesis: Codex evidence is being forced through Claude's always-numeric four-column aggregate, response conflict fingerprints omit native identity evidence, and discovery mixes collection, ancestry trust and window rules. Those three structural mistakes explain all seven observations without changing the Claude path.
+4. Discriminating expectation: a Codex-only accumulator must retain missing optional fields as unavailable while deriving exactly `input_tokens + output_tokens`; a strengthened response fingerprint must reject changes in model, timestamp or raw optional usage; one lead-derived effective window must filter every child and validate the horizon; one identity registry must make duplicates permanent and only verified nodes eligible as parents; explicit directory failures must be named. Exact repeats, same response ids in distinct children, valid depth-two descendants, missing default next-day folders and bounded in-horizon slices must keep working.
+5. Evidence in source: `codexUsage` substitutes inclusive input when either cache component is absent, then `aggByModel`/`mergeAggInto` coerce null fields through numeric aggregation; the response fingerprint contains only turn id and normalized usage; every child re-runs the lead marker search; horizon validation checks only explicit `opts.from`/`opts.to`; selected-lead identity is bypassed and duplicate ids can re-enter `byId`; `listCodexJsonl` treats all ENOENT as optional; rejected candidates are inserted into `known`. These sites match every supplied repro directly.
+
+No test command was run; the integrator owns all gates.
+
+Implementation artifact: `5dc4c36d39c490d4f45accb0a2459657349d85dc` (`fix: make Codex census accounting auditable`).
+
+Cause: the Codex reader normalized native usage into the Claude four-column aggregate before availability could be preserved; response conflict validation omitted model, timestamp and raw optional evidence; each child independently searched for the lead marker; horizon validation inspected only explicit option strings; discovery bypassed the selected lead identity, allowed duplicate ids to re-enter, treated explicit directory absence as optional, and let rejected nodes enter the parent-authentication map.
+
+Discriminating check: F1 now retains inclusive native input, nullable split/cache/reasoning/raw-total fields and a separate `derived_total_tokens`; F2 fingerprints turn, model, timestamp and all normalized native evidence while retaining exact-repeat dedup; F3 applies the resolved lead boundary to children; F4 validates the effective start and end against the two-day horizon; F5 registers the lead and permanently removes conflicting identity groups while accepting exact copies once; F6 records any explicit directory listing failure but tolerates missing default day folders; F7 admits only verified parents. The pinned foreign-candidate ruling is explicit: unrelated namespaces remain normal exclusions, while selected-root claims with an unverifiable edge are partial. The lead-only response timeline carries exactly response id, turn id, timestamp and model, is window-filtered/deduplicated, and has an independent completeness flag.
+
+Fix location: `scripts/build-census.mjs` adds a Codex-only native normalizer/accumulator beside the unchanged Claude helpers, strengthens `censusCodexLeadFile`, replaces the Codex identity traversal in `discoverCodexChildren`, and shares the effective lead window in `runCodexCensus`. `docs/census.md` documents native response versus user-turn units, derived totals, optional availability, timeline metadata, shared marker boundaries, horizon semantics, explicit directory evidence and verified ancestry.
+
+Simplification: the repair keeps the existing JSONL reader, response maps, canonical two-day discovery and formatter routing. It adds one Codex aggregate path and one identity registry; it does not add a parser, discovery pass, store or provider-specific orchestration mechanism. Claude aggregation helpers and Claude formatting logic are unchanged.
+
+Changed paths:
+
+- `scripts/build-census.mjs`
+- `docs/census.md`
+- `docs/specs/codex-census-0927/reports/C1-high-repair.md`
+- `docs/specs/codex-census-0927/reports/C1-high-repair-state.md`
+
+Verification: `node --check scripts/build-census.mjs` exited 0; `git diff --check` exited 0 before the implementation commit. Per the task boundary, no test command or Claude golden command was run. The integrator owns the nondeleting-mutex contract gate and exact Claude golden comparison.
+
+Limitations: integrator gate results are pending. The independent contract-test defects listed in `C1-C2-review.md` were intentionally left for their separate writer; no integration contract test file was touched. The current tree has a standalone synthetic `scripts/build-census.fixtures/codex-lead.jsonl` and the synthetic `codexFixtureTree()` helper, but no committed whitelist-trimmed native lead-plus-two-child fixture set with provenance to root `01a0df4c-2809-7520-b1d7-876cc51a87ee`. That exact gap was reported to `/root` and `/root/integrator` for the mid-tier fixture/test lane; this repair did not access or copy private transcript fields. The pre-existing untracked round-one through round-three logs, exits, report and state were left untouched.
