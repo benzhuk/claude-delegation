@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-delete-deny
 Scope: docs/specs/2026-09-27-delete-deny.md@3489ffa (origin/docs/lane-specs-0925)
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-delete-deny-1: build D1 and D2, review, push build/delete-deny-1, merge on acceptance under the lane eight rule. No install, chezmoi, release, Notion.
 Artifact: build/delete-deny-1@4f57e1ad5951da4c4c37800eb41581497185adc2
 Worktree: build/delete-deny-1
@@ -55,6 +55,7 @@ Four numbers: Hours ask to accepted: 1.5h; largest gap 41.8min at 2026-09-27T06:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 1 gap(s) over 30min: 2026-09-27T06:20:46.606Z (41.8min); 0 unanswered ASKs to skills-o
 Log: 2026-09-27T07:50:16.000Z accepted skills-o artifact 4f57e1ad5951da4c4c37800eb41581497185adc2
+Log: 2026-09-27T07:54:36Z closed skills-o merged to main at e47504b after the merged-tree suite passed 2002/2002 on Windows
 
 Observed: D1 APPROVE b7a3fef after 4 rounds, D2 APPROVE f9ed55d after 2, integrated 4f57e1ad5951da4c4c37800eb41581497185adc2 APPROVE. Windows 2002/2002, Netcup 1999/2002 with 0 fail. Live: agent_id absent on the lead Bash call, present on a subagent (a2d4d9c238c181450); a subagent mkdir+rm -rf refused in 2.235 s, nothing ran. Codex: wired through --codex-hooks with its own trust entry, and the deny shape matches upstream source and the installed binary, but no live Codex refusal has been seen. Evidence: docs/work/evidence/wr-2026-09-27-delete-deny-int-review.md, docs/work/evidence/wr-2026-09-27-delete-deny-integrator.md, docs/work/evidence/wr-2026-09-27-delete-deny-D1-review-r4.md, docs/work/evidence/wr-2026-09-27-delete-deny-D2-review-r2.md, docs/work/evidence/wr-2026-09-27-delete-deny-netcup-suite.md.
 
