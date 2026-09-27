@@ -11,3 +11,4 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T20:40:00Z
 Base: 0c926057a948c4365cf92d82d8fb584cbcc77dcd
 Log: 2026-09-27T20:31:01.000Z owned skills-n picked up skills-fable-lane-24-1, ACK sent over ssh on ben-desktop, base 0c92605
+Log: 2026-09-27T20:31:39.000Z owned skills-n Sonnet builder spawned on the four-file territory; /tmp holds 72 sealed-home dirs at pickup
