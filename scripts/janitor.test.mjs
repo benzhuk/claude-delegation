@@ -2330,7 +2330,7 @@ test("J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and
   assert.match(body, /GIT_TERMINAL_PROMPT:\s*"0"/, "must disable git's own terminal credential prompt");
 });
 
-test("J1 round 2 MINOR 5: SKILL.md adds no new top-level section - the origin-is-the-record-of-truth text is folded into an existing one", () => {
+test("J1 round 2 MINOR 5 (updated, lane nineteen J1): SKILL.md's origin-is-the-record-of-truth text stays folded into an existing section; lane nineteen J1 adds exactly one new section, for the daily timer installer", () => {
   const src = fs.readFileSync(path.join(import.meta.dirname, "..", "skills", "janitor", "SKILL.md"), "utf8");
   const headings = src.split("\n").filter((l) => /^#{1,2} /.test(l));
   assert.deepEqual(headings, [
@@ -2340,6 +2340,7 @@ test("J1 round 2 MINOR 5: SKILL.md adds no new top-level section - the origin-is
     "## What janitor will never do",
     "## Definition of done, for any builder",
     "## Cadence: fed, not run on a whim",
+    "## Installing the daily timer",
     "## Cleanup is never chained onto productive work",
     "## Adapters",
   ]);
