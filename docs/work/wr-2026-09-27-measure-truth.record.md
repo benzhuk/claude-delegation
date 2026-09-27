@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-measure-truth
 Scope: docs/specs/measure-truth-1/spec.md (read at origin 65a50a0) with lead rulings docs/specs/measure-truth-1/contracts.md; territories F1, F2, F3
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/measure-truth-1, and merge into main on acceptance under the merge-on-acceptance rule, without Ben
 Artifact: ea149162b51537c283195e7f9a57edac7731fe3b
 Evidence: docs/work/evidence/wr-2026-09-27-measure-truth-seam-review.md, docs/work/evidence/wr-2026-09-27-measure-truth-F1.md, docs/work/evidence/wr-2026-09-27-measure-truth-F2.md, docs/work/evidence/wr-2026-09-27-measure-truth-F3.md, docs/work/evidence/wr-2026-09-27-measure-truth-seam-review-r1.md, docs/work/evidence/wr-2026-09-27-measure-truth-windows-suite.md, docs/work/evidence/wr-2026-09-27-measure-truth-suites.md
@@ -60,6 +60,7 @@ Four numbers: Hours ask to accepted: 4.3h; largest gap 61.5min at 2026-09-27T08:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 2 gap(s) over 30min stalled: 2026-09-27T11:28:53.143Z (36.1min); 2 waiting-on-agents (119.9 min); agent a4a474e84f8e25782 silent 64.9 min from 2026-09-27T09:48:32.147Z; 2 unanswered ASK(s) to skills-n: skills-fable-decisions-pickup-netcup-1, pickup-netcup-decisions-f403a017344d22307a71c1e89fb9406f588c2b92bd68fe2bf65a503282c39dc1-1
 Log: 2026-09-27T12:49:28.000Z accepted skills-n artifact ea149162b51537c283195e7f9a57edac7731fe3b
+Log: 2026-09-27T12:50:28.000Z closed skills-n merged to main at c2f3b73 after the merged-tree suite passed 2089 of 2092 with 0 fail on Netcup
 
 Predicts: accept refuses a record missing Spec-session, Spec-from in Z form, a one-sha Base, a model on review lines, or a stall count its own Log contradicts; four-read counts subagent stalls and stops counting a lead's wait on its own agents as stalled.
 
