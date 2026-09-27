@@ -113,13 +113,14 @@ const alwaysNoteSend = () => "/usr/bin/note-send-stub";
 
 test("parseArgs: defaults and every flag", () => {
   const a = parseArgs([
-    "--repo", "/r", "--main", "origin/trunk", "--no-fetch", "--skip", "x", "--skip", "y",
+    "--repo", "/r", "--main", "origin/trunk", "--no-fetch", "--skip", "x", "--skip", "y", "--only-prefix", "build/",
     "--out", "/o", "--to", "lead", "--host", "Netcup!!", "--merge-hours", "2", "--stale-hours", "3", "--quiet",
   ]);
   assert.equal(a.repo, "/r");
   assert.equal(a.main, "origin/trunk");
   assert.equal(a.noFetch, true);
   assert.deepEqual(a.skip, ["x", "y"]);
+  assert.deepEqual(a.onlyPrefix, ["build/"]);
   assert.equal(a.out, "/o");
   assert.equal(a.to, "lead");
   assert.equal(a.host, "Netcup!!");
@@ -131,6 +132,7 @@ test("parseArgs: defaults and every flag", () => {
   assert.equal(d.main, "origin/main");
   assert.equal(d.noFetch, false);
   assert.deepEqual(d.skip, []);
+  assert.deepEqual(d.onlyPrefix, []);
   assert.equal(d.mergeHours, 4);
   assert.equal(d.staleHours, 6);
   assert.equal(d.quiet, false);
@@ -223,9 +225,11 @@ test("buildStatusMd: header carries fetch: failed only on failure; attention fir
   const lines = md.split("\n");
   assert.match(lines[0], /generatedAt: 2026-09-27T18:20:00\.000Z \(.*America\/New_York\) \| main: a{40} \| rows: 1/);
   assert.ok(!lines[0].includes("fetch: failed"));
-  assert.equal(lines[1], "attention (1)");
-  assert.equal(lines[2], "- b1\tp\towned\tsilent-over-6-h");
-  assert.ok(lines[3].startsWith("branch\ttipSha\t")); // formatTable's own header row
+  assert.equal(lines[1], "lane: every non-terminal Status shows as owned");
+  assert.equal(lines[2], "attention (1)");
+  assert.equal(lines[3], "- b1\tp\towned\tsilent-over-6-h");
+  assert.ok(lines[4].startsWith("branch\ttipSha\t"));
+  assert.ok(lines[4].endsWith("\tlane"));
 
   const failedMd = buildStatusMd({ status, fetchStatus: "failed", sendOutcome: { attempted: false, sent: false, reason: null } });
   assert.ok(failedMd.split("\n")[0].includes("fetch: failed"));

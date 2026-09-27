@@ -139,9 +139,9 @@ test("hoursSinceLog: hours since the LAST Log: line in file order, null with no 
   assert.equal(hoursSinceLog([{ at: "not-a-date" }], now), null);
 });
 
-test("parseArgs: flags, --main default, repeatable --skip", () => {
-  const a = parseArgs(["--repo", "/x", "--main", "origin/release", "--no-fetch", "--json", "--skip", "a", "--skip", "b"]);
-  assert.deepEqual(a, { repo: "/x", main: "origin/release", noFetch: true, json: true, skip: ["a", "b"] });
+test("parseArgs: flags, --main default, repeatable --skip and --only-prefix", () => {
+  const a = parseArgs(["--repo", "/x", "--main", "origin/release", "--no-fetch", "--json", "--skip", "a", "--skip", "b", "--only-prefix", "build/", "--only-prefix", ""]);
+  assert.deepEqual(a, { repo: "/x", main: "origin/release", noFetch: true, json: true, skip: ["a", "b"], onlyPrefix: ["build/", ""] });
   assert.equal(parseArgs([]).main, "origin/main");
 });
 
