@@ -139,14 +139,22 @@ function isExcluded(safeSpans, index) {
 
 /** A single-dash short flag group containing any of `letters` (checked per-character, so
  * `-rf`/`-fr`/`-vrf` all count for `r`). The flag must START a token — preceded by
- * whitespace or the start of the window — and end at whitespace, a shell separator, a
- * quote, or `:` (PowerShell's `-Recurse:$true`). That keeps a `-` in the MIDDLE of a word
- * (a path like `-orca`/`-results`, or `wt-fix`) from ever counting as a flag, and keeps a
- * double-dash long option out (the character right after the leading `-` in `--force` is
- * another `-`, not a letter, so it can never start this match; a long option only counts
- * via its own exact-word check elsewhere, e.g. `--recursive`, `--force`). */
+ * whitespace, a quote, a backslash, or the start of the window (review r2 MAJOR R1: a
+ * flag can be split open by shell quoting or escaping, e.g. `rm "-rf" x`, `rm \-rf x`,
+ * `git clean "-fdx"` — those are real recursive deletes once the shell strips the quote
+ * or the escape) — and end at any character that cannot continue a word or path (a
+ * negated class: not a letter, digit, `_`, `.`, `/`, or `-`), instead of a short allow-list
+ * of terminators. That single negated class covers whitespace, the shell separators
+ * `;&|)"':`, AND punctuation the old allow-list missed — a redirect (`rm -rf>/dev/null`),
+ * a comma, braces, a backtick — while a `-` in the MIDDLE of a word (a path like
+ * `-orca`/`-results`, or `wt-fix`) still never counts as a flag START, and a hyphenated
+ * path like `-results.json`/`-r.log` still does not end at a word boundary so it stays
+ * allowed. A double-dash long option is still out (the character right after the leading
+ * `-` in `--force` is another `-`, not a letter, so it can never start this match; a long
+ * option only counts via its own exact-word check elsewhere, e.g. `--recursive`,
+ * `--force`). */
 function hasShortFlagWithAnyOf(window, letters) {
-  const re = /(?:^|\s)-([a-zA-Z]{1,20})(?=$|[\s;&|)"':])/g;
+  const re = /(?:^|[\s"'\\])-([a-zA-Z]{1,20})(?=$|[^\w./-])/g;
   let m;
   while ((m = re.exec(window))) {
     if (letters.test(m[1])) return true;
@@ -166,8 +174,13 @@ function hasCleanFlag(window) {
  * `--no-pager`, …) between `git` and the subcommand word — `git -C <worktree> clean -fdx`
  * is the normal way this project addresses a path outside the caller's own cwd (30+
  * occurrences across agents/, skills/, docs). The repeat count is capped, so there is no
- * unbounded-backtracking shape even on an adversarial run of repeated options. */
-const GIT_PREFIX = String.raw`\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--[a-zA-Z-]+(?:=\S+)?)){0,6}\s+`;
+ * unbounded-backtracking shape even on an adversarial run of repeated options. Also
+ * matches `git.exe` (review r2 n1), the space-separated form of the long path-valued
+ * options (`--work-tree ../wt`, not just `--work-tree=../wt`), and the short `-p`/`-P`
+ * pager toggle, all of which were falling through the alternation entirely and letting
+ * `git --work-tree ../wt clean -fdx` / `git -P clean -fdx` / `git.exe clean -fdx` skip the
+ * global-option scan and read as an un-prefixed (safe) `clean`. */
+const GIT_PREFIX = String.raw`\bgit(?:\.exe)?(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)\s+(?:"[^"]*"|'[^']*'|\S+)|--[a-zA-Z-]+(?:=\S+)?|-[pP])){0,6}\s+`;
 
 /** PowerShell allows an unambiguous prefix abbreviation of a parameter name — `-r`, `-re`,
  * `-recurse`, all the way to `-Recurse`, optionally `:$true`. `'recurse'.startsWith(base)`
@@ -195,8 +208,19 @@ const SAFE_CMD_RE = /\b(?:grep|echo|printf|git\s+commit\s+-m|note-send\s+--text)
 const QUOTE_SPAN_RE = /(["'])((?:(?!\1).)*)\1/g;
 // If the sub-command's window terminates at a `|` that feeds a shell/interpreter, the
 // quoted text is not just displayed/committed — it really executes once that pipe runs,
-// so none of that window's quoted spans are safe (m1).
-const PIPES_TO_SHELL_RE = /^\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|pwsh|powershell|cmd|iex|Invoke-Expression|xargs)\b/i;
+// so none of that window's quoted spans are safe (m1). Checked per pipe STAGE (review r2
+// n2), not just the stage immediately after the window, so an intermediate stage the
+// window doesn't lead straight into (`| tee f | sh`) still counts, and a stage led by an
+// interpreter reached through a path (`| /bin/sh`) or through `sudo` with its own options
+// (`| sudo -u me sh`) still counts.
+const PIPE_STAGE_SHELL_RE = /^\s*(?:sudo\s+(?:-\S+\s+(?:\S+\s+)?)*)?(?:\S*[\\/])?(?:sh|bash|zsh|dash|pwsh|powershell|cmd|iex|Invoke-Expression|xargs)\b/i;
+function pipesToShell(afterWindow) {
+  const stages = afterWindow.split('|');
+  for (let i = 1; i < stages.length; i += 1) {
+    if (PIPE_STAGE_SHELL_RE.test(stages[i])) return true;
+  }
+  return false;
+}
 
 function findSafeQuoteSpans(command) {
   const spans = [];
@@ -206,7 +230,7 @@ function findSafeQuoteSpans(command) {
     const windowStart = SAFE_CMD_RE.lastIndex;
     const window = commandWindow(command, windowStart, 300);
     const afterWindow = command.slice(windowStart + window.length, windowStart + 300);
-    if (PIPES_TO_SHELL_RE.test(afterWindow)) continue;
+    if (pipesToShell(afterWindow)) continue;
     QUOTE_SPAN_RE.lastIndex = 0;
     let qm;
     while ((qm = QUOTE_SPAN_RE.exec(window))) {

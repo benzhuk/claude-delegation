@@ -307,6 +307,74 @@ test('detectDelete: "rm x -Recurse:$true" (PowerShell alias abuse of the word rm
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Flag can be split open by a quote or an escape, not just followed by one (review r2
+// MAJOR R1) — the round-1 MAJOR-3 fix anchored a flag to "preceded by whitespace" and
+// ended it at a short allow-list of terminators; both ends reopened a bypass a quote or
+// backslash BEFORE the flag, or a redirect/punctuation AFTER it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('detectDelete: rm "-rf" x denies (flag opened by a leading double quote)', () => {
+  assert.ok(detectDelete('rm "-rf" x'));
+});
+
+test('detectDelete: rm \'-rf\' x denies (flag opened by a leading single quote)', () => {
+  assert.ok(detectDelete("rm '-rf' x"));
+});
+
+test('detectDelete: rm \\-rf x denies (flag opened by a leading backslash escape)', () => {
+  assert.ok(detectDelete('rm \\-rf x'));
+});
+
+test('detectDelete: git clean "-fdx" denies (flag opened by a leading double quote)', () => {
+  assert.ok(detectDelete('git clean "-fdx"'));
+});
+
+test('detectDelete: rm -rf>/dev/null x denies (flag glued to a redirect, not a short allow-listed terminator)', () => {
+  assert.ok(detectDelete('rm -rf>/dev/null x'));
+});
+
+test('allowance: rm -f hooks/delete-guard.log still passes after the MAJOR R1 fix (hyphenated path, unaffected)', () => {
+  assert.equal(detectDelete('rm -f hooks/delete-guard.log'), null);
+});
+
+test('allowance: docker rm -f my-container still passes after the MAJOR R1 fix', () => {
+  assert.equal(detectDelete('docker rm -f my-container'), null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// git global-option prefix: space-separated long options, -P/-p, git.exe (review r2 n1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('detectDelete: "git --work-tree ../wt clean -fdx" matches through the space-separated long-option form', () => {
+  assert.ok(detectDelete('git --work-tree ../wt clean -fdx'));
+});
+
+test('detectDelete: "git -P clean -fdx" matches through the short pager toggle', () => {
+  assert.ok(detectDelete('git -P clean -fdx'));
+});
+
+test('detectDelete: "git.exe clean -fdx" matches the Windows executable name', () => {
+  assert.ok(detectDelete('git.exe clean -fdx'));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipe-to-shell: intermediate stage, path-prefixed interpreter, sudo with options
+// (review r2 n2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('quoted: echo \'rm -rf x\' | /bin/sh is NOT exempted (interpreter reached through a path prefix)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | /bin/sh"));
+});
+
+test('quoted: echo \'rm -rf x\' | tee f | sh is NOT exempted (shell is not the first pipe stage)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | tee f | sh"));
+});
+
+test('quoted: echo \'rm -rf x\' | sudo -u me sh is NOT exempted (sudo carries its own options before the shell)', () => {
+  assert.ok(detectDelete("echo 'rm -rf x' | sudo -u me sh"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PowerShell rmdir/rd -Recurse (review r1 MAJOR 4)
 // ─────────────────────────────────────────────────────────────────────────────
 
