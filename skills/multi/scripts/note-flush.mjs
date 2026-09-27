@@ -1473,7 +1473,14 @@ export async function runOverdueAsks(argv, context, deps = {}) {
     if (Object.hasOwn(state, id)) { nudgedCount += 1; continue; } // R1: once per id, ever
 
     // Spec item 3: sender's inbox first, then the recipient's, else log and record without a send.
-    const target = inboxes[ask.from] ? ask.from : (inboxes[ask.to] ? ask.to : null);
+    // Review round 2, MAJOR 1 (twin): registered alone is not enough — a registered inbox whose `cwd`
+    // is gone is no more reachable than no inbox at all. Prefer whichever of sender/recipient has a
+    // registered inbox with a `cwd` that still exists on disk; only fall back to "registered but
+    // possibly unreachable" (the `!target` branch below still keys on registered-at-all) when neither
+    // is reachable, so a live recipient is never skipped in favor of a stale sender.
+    const reachable = (slug) => Boolean(inboxes[slug]?.cwd) && fsImpl.existsSync(inboxes[slug].cwd);
+    const registered = inboxes[ask.from] ? ask.from : (inboxes[ask.to] ? ask.to : null);
+    const target = reachable(ask.from) ? ask.from : (reachable(ask.to) ? ask.to : registered);
 
     if (!target) {
       appendFlushLog(
@@ -1495,6 +1502,9 @@ export async function runOverdueAsks(argv, context, deps = {}) {
     // rely on that fallback, this pre-checks the registered inbox's own `cwd` and only sends — with
     // `--recipient-repo` passed explicitly — when that path still exists on disk. Otherwise nothing is
     // sent at all: the id stays recorded (never retried), and the failure is logged so it is visible.
+    // With the `reachable()` preference above, this branch is now reached only when NEITHER party's
+    // registered inbox has a resolvable `cwd` — a genuinely unresolvable case, not merely "the sender
+    // happened to be checked first." A reachable recipient is never dropped in favor of a stale sender.
     const inboxRecord = inboxes[target];
     const recipientRepo = inboxRecord?.cwd && fsImpl.existsSync(inboxRecord.cwd) ? inboxRecord.cwd : null;
     if (!recipientRepo) {

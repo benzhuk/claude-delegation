@@ -12,6 +12,14 @@ scout-O1.md (read from /home/ben/Code/wt-oa/... since not copied into this workt
 numbers and the "topic has no field on parseEnvelope" open question.
 
 ## Done
+Round 3 fix against `O1-review-2.md`'s only carried finding (MAJOR 1, "partly fixed"): the review's
+ruling (b′) — fix the "twin" in target selection so a reachable recipient is never skipped in favor of
+a sender whose registered `cwd` is gone (`note-flush.mjs:1475-1482`), the exact three-line shape the
+review suggested, needing no lead ruling. Ruling (a) (a `note-send.mjs` change, out of O1's file list)
+remains unresolved and is restated for the lead in the report, not decided here. New test:
+`note-flush.test.mjs:1990`, mutation-checked (reverted the fix in a scratch edit, confirmed the new
+test alone fails, restored). Gate: 142/142 (was 141).
+
 Round 1 (all as before) plus round 2 fixes against `O1-review-1.md` (all reviewer-verified findings):
 - **MAJOR 1**: `--recipient-repo` is now passed explicitly, pre-checked against `inboxes[target].cwd`
   existing on disk (`note-flush.mjs:1489-1506`); when it doesn't resolve, nothing is sent at all
@@ -30,13 +38,15 @@ Round 1 (all as before) plus round 2 fixes against `O1-review-1.md` (all reviewe
   existing tmp dir) so the MAJOR 1 gate still lets the stub through — mechanical test-only change.
 
 ## Next
-Nothing outstanding for O1. Flagged for the lead in the report's "Deviations" section: option (b)
-(implemented) means a registered inbox with no/stale `cwd` now gets NO nudge, vs. round 1's
-possibly-misrouted one. Worth a lead ruling on option (a) if that turns out to matter on real hosts.
+Nothing outstanding for O1 that stays in-territory. Flagged for the lead in the report's "Deviations"
+section (round 3): whether to authorize ruling (a) — a small `note-send.mjs` change (out of O1's file
+list) so the genuinely-both-unreachable case also lands in the host ledger instead of dropping (logged,
+not silent). Round 3's fix (b′) already removes the twin: a reachable party is never skipped in favor
+of an unreachable one.
 
 ## Open questions
-None unresolved.
+None O1 can resolve alone — ruling (a) vs. amending R5 to accept (b′) as final is the lead's call.
 
 ## How to run my gate
 `cd /home/ben/Code/wt-overdue-asks-1-O1 && node --test skills/multi/scripts/note-flush.test.mjs`
-Last run: 141/141 pass, 0 fail (round 1 was 134/134). Log: `docs/specs/overdue-asks-1/reports/O1-gate.log`.
+Last run: 142/142 pass, 0 fail (round 2 was 141/141). Log: `docs/specs/overdue-asks-1/reports/O1-gate.log`.

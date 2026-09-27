@@ -2,6 +2,48 @@ VERDICT: PASS
 
 # O1 report — overdue-asks-1 (skills/multi/scripts/note-flush.mjs, its test, skills/multi/SKILL.md)
 
+## Round 3 (fixes applied against `docs/specs/overdue-asks-1/reports/O1-review-2.md`)
+
+Reviewed sha: `b05e85b07a39ddc2733337fb1b3c0982460ebe1e`. Review round 2 carried forward MAJOR 1 as
+"partly fixed" (BLOCKER 0, MAJOR 1, MINOR 0, NIT 0) and offered the lead two options to close it: (a)
+a `note-send.mjs` change (touches a file this territory's brief explicitly forbids editing — "call into
+them, never edit them" — and needs lead authorization that has not landed in the work record, which
+still reads `Observed: pending.`), or (b′) an in-territory fix for the "twin" bug the review named,
+which the review itself said needed no lead ruling ("the only in-territory change I would still ask
+for is the twin"). Applying every reviewer-verified, in-territory finding this round means (b′): the
+twin bug is fixed; (a) stays exactly as flagged for the lead, since it requires touching a file O1 is
+not permitted to edit.
+
+- **MAJOR 1, twin (fixed)**: target selection at `note-flush.mjs:1475-1482` now prefers whichever of
+  sender/recipient has a registered inbox whose `cwd` still resolves on disk (`reachable()`), falling
+  back to "registered but possibly unreachable" only when neither is reachable — the exact three-line
+  shape the review suggested for ruling (b′), at `note-flush.mjs:1475`. Before this fix, a sender
+  registered-but-stale was chosen over a live, reachable recipient and the pass sent nothing; after,
+  the reachable recipient (or sender) is used. Test:
+  `note-flush.test.mjs:1990` ("review round 2, MAJOR 1 (twin): a reachable recipient is used when the
+  sender is registered but its cwd is gone") — sender `astra` registered with a gone `cwd`, recipient
+  `taxonomy` registered with `cwd: home`; asserts exactly one send, to `taxonomy`, with
+  `--recipient-repo` equal to `home`. Mutation-checked (temporarily reverted `target` to `registered`
+  in a scratch edit, ran the suite, saw only this new test fail with `0 !== 1`, then restored the fix
+  — never committed the reverted state) — confirmed the test actually exercises the branch it names.
+- **MAJOR 1, the genuinely-unresolvable case (unchanged, per (b′))**: when NEITHER party's registered
+  inbox has a resolvable `cwd`, the pass still sends nothing — logged `overdue-send-failed ... no repo
+  resolvable ...; not sent`, id recorded once, never retried (`note-flush.mjs:1502-1512`, comment
+  updated to say this branch is now reached only in the genuinely-unresolvable case). This is
+  narrower than R5's literal "host ledger only" (which would require a `note-send.mjs` flag skipping
+  repo-ledger resolution, ruling (a)), but it is the most R5-faithful behavior reachable without
+  editing a file outside this territory, and it strictly improves on round 2 (a reachable party is now
+  never skipped in favor of an unreachable one). **Still flagged for the lead, unresolved**: whether
+  ruling (a) — authorizing a small `note-send.mjs` change — is worth taking so the truly-unresolvable
+  case also lands in the host ledger instead of dropping silently-but-logged. This round did not decide
+  that on its own, since it is out of O1's file list without explicit authorization.
+- Severity carried by the reviewer as MAJOR rather than BLOCKER because both production registrars
+  always record a `cwd` (hooks/multi-inbox.js:224, hooks/multi-codex-hook.mjs:154); the twin only bites
+  when a worktree was removed after registration, and even then the failure is logged, not silent.
+
+Gate after the fix: `node --test skills/multi/scripts/note-flush.test.mjs` — 142 pass, 0 fail (was 141;
++1 new test). Log: `docs/specs/overdue-asks-1/reports/O1-gate.log`.
+
 ## Round 2 (fixes applied against `docs/specs/overdue-asks-1/reports/O1-review-1.md`)
 
 Reviewed sha: `e1bd2d5059f5991bb97f10ec821c5900f1566558`. Every finding the review verified (MAJOR 1,
@@ -274,3 +316,13 @@ several `10:15 NYC`/`09:00 NYC` by-times and a real 7-open/0-nudged burst, but d
 inboxes carry a `cwd`), this could mean fewer real nudges land than round 1's version would have sent —
 correctly routed or not. Worth a lead decision on option (a) (a `note-send.mjs` flag) if that turns out
 to matter in practice.
+
+Round 3: none — the fix for MAJOR 1's twin is entirely inside `note-flush.mjs`/its test, per (b′), the
+option the round-2 review said needed no lead ruling. Ruling (a) (the `note-send.mjs` change) remains
+unresolved and unflagged-as-decided; this round did not take it, since it requires editing a file
+outside O1's list without authorization that has not arrived. Restating for the lead, sharpened by
+round 3's fix: the remaining gap is narrower now (only the case where NEITHER party has a resolvable
+`cwd` still drops the nudge — that case is logged, not silent), but it still does not match R5's literal
+"host ledger only" wording for that narrow case. A lead ruling on (a) vs. amending R5/spec item 3 to
+read "(b′)" as the accepted behavior would close this permanently; until then this is the best O1 can
+do without touching `note-send.mjs`.

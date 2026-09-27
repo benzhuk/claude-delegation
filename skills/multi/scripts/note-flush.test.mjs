@@ -1986,6 +1986,21 @@ test('review MAJOR 1: a registered inbox with no cwd recorded at all is never se
   assert.equal(result.nudged, 0);
 });
 
+test('review round 2, MAJOR 1 (twin): a reachable recipient is used when the sender is registered but its cwd is gone', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine()); // from astra (sender) to taxonomy (recipient)
+  const goneCwd = toPosix(path.join(os.tmpdir(), 'note-flush-gone-worktree-does-not-exist'));
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-sender-gone', cwd: goneCwd }, { now: DEADLINE });
+  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-recipient-live', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 1, 'the reachable recipient is used instead of dropping the nudge');
+  const { argv } = calls[0];
+  assert.equal(argv[argv.indexOf('--to') + 1], 'taxonomy');
+  assert.equal(argv[argv.indexOf('--recipient-repo') + 1], home);
+  assert.equal(result.nudged, 1);
+});
+
 test('overdue-asks: budget, missing/malformed argv guards, and a not-ok drain never run the pass', async () => {
   const home = tmp();
   writeOverdueLedgerLine(home, '2026-09-26', askLine());
