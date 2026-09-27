@@ -367,5 +367,10 @@ Topic reads out of `~/.claude/knowledge/` are counted per host in `~/.agents/kno
 `scripts/knowledge-count.mjs` read it, and the same numbers reach the SessionStart notice through
 `scripts/goal-card.mjs`). No census in this file consumes those counts yet — a per-host log of
 reads is not the same thing as a build-over-build measure, and turning it into one is a later
-lane's work (spec.md's own "Why" section names lanes fourteen and seventeen as the owners of
-`scripts/build-census.mjs` and `scripts/four-read.mjs`; this lane does not touch either).
+lane's work (spec.md Territory K3 item 3 names lanes fourteen and seventeen as the owners of
+`scripts/build-census.mjs` and `scripts/four-read.mjs`; this lane does not touch either). The
+SessionStart line only rides with a rendering goal card — it is computed inside
+`renderInjection`, which returns nothing when a project has no valid `docs/goals/card.md`
+(status `blind`, `absent`, or `rejected`) — so a live check of the line must run from a project
+that carries one, such as this repo's own checkout; a scratch directory with no card shows none
+(round-1 review, MAJOR 2).

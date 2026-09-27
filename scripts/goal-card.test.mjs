@@ -23,9 +23,14 @@ import {
 } from './goal-card.mjs';
 import { storeDir as knowledgeStoreDir, inboxDir as knowledgeInboxDir, readLogPath as knowledgeReadLogPath }
   from './knowledge-counts.mjs';
+// Round 2 (MAJOR 3): the two end-to-end tests below drive the real hook adapters (never edited —
+// both are outside this territory's file list) to prove the knowledge line actually reaches the
+// SessionStart notice through each host, not only through `renderInjection` in isolation.
+import { runCodexHook } from '../hooks/multi-codex-hook.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const CLI = path.join(REPO, 'scripts', 'goal-card.mjs');
+const CLAUDE_HOOK = path.join(REPO, 'hooks', 'delegation-reminder.js');
 
 const GOOD = [
   'GOAL: every batch is cheap, fast, recoverable, tracked and metered, and we never lose one.',
@@ -528,7 +533,7 @@ test('knowledge line: the no-knowledge-log switch silences it; the master ws-off
   assert.equal(knowledgeSessionLine({ env, now: Date.now() }), null);
 });
 
-test('knowledge line: an unrelated switch name does not silence it', () => {
+test('knowledgeSessionLine itself ignores ws-off-goalcard (goalCardResult still gates it upstream)', () => {
   const home = mkKnowledgeHome({ topics: ['orca.md'] });
   const agentsDir = tmpdir('goal-card-agentshome-');
   fs.writeFileSync(path.join(agentsDir, 'ws-off-goalcard'), '', 'utf8');
@@ -564,10 +569,13 @@ test('formatKnowledgeLine: pathological (even the shortened line is over cap) re
 });
 
 test('renderInjection: the knowledge line rides after the card and before the subagent extra', () => {
+  // Round 2 (BLOCKER 1): renderInjection is pure again — it takes `opts.knowledgeLine` rather
+  // than computing it itself, so this test computes it the same way `goalCardResult` now does.
   const home = mkKnowledgeHome({ topics: ['orca.md', 'react.md'], inbox: ['2026-09-24-a.md'] });
   const env = { KNOWLEDGE_HOME: home };
   const now = Date.now();
-  const out = renderInjection(GOOD, now, { env, now, extra: 'Name the GOAL line your territory serves.' });
+  const knowledgeLine = knowledgeSessionLine({ env, now });
+  const out = renderInjection(GOOD, now, { extra: 'Name the GOAL line your territory serves.', knowledgeLine });
   const linesOut = out.split('\n');
   assert.equal(linesOut.length, 8, 'header + 5 card lines + knowledge + extra');
   assert.match(linesOut[6], /^knowledge: 2 topics, 1 inbox notes pending \(oldest 2026-09-24\), 0 topic reads/);
@@ -575,8 +583,12 @@ test('renderInjection: the knowledge line rides after the card and before the su
 });
 
 test('renderInjection: over the render cap with the knowledge line added, the line is dropped, card and extra survive', () => {
+  // Round 2 (BLOCKER 1): drive the knowledge line in through `opts.knowledgeLine`, the same shape
+  // `goalCardResult` now builds, rather than `renderInjection` computing it from `env` itself.
   const home = mkKnowledgeHome({ topics: ['orca.md'] });
   const env = { KNOWLEDGE_HOME: home };
+  const now = Date.now();
+  const knowledgeLine = knowledgeSessionLine({ env, now });
   // A card near CARD_MAX_BYTES (well under LINE_MAX_BYTES per line) plus a long `extra` line eats
   // most of the render headroom (RENDER_MAX_BYTES - CARD_MAX_BYTES), leaving no room for the
   // knowledge line too — sized against the actual `formatKnowledgeLine` output below, not a
@@ -587,7 +599,7 @@ test('renderInjection: over the render cap with the knowledge line added, the li
   assert.equal(validateCard(packed).ok, true, 'fixture card must itself be valid');
 
   const knowledgeLineBytes = Buffer.byteLength(formatKnowledgeLine({ topics: 1, pending: 0, oldest: null, reads: 0 }), 'utf8');
-  const withoutKnowledgeBytes = Buffer.byteLength(renderInjection(packed, Date.now(), { env: noKnowledgeEnv(), extra: 'x' }), 'utf8');
+  const withoutKnowledgeBytes = Buffer.byteLength(renderInjection(packed, now, { extra: 'x' }), 'utf8');
   // Room left before RENDER_MAX_BYTES once card + a 1-byte extra + its own newlines are in;
   // an extra sized to use most of it, but leave less than the knowledge line + its newline needs.
   const room = RENDER_MAX_BYTES - withoutKnowledgeBytes;
@@ -595,8 +607,69 @@ test('renderInjection: over the render cap with the knowledge line added, the li
   const extraLen = room - Math.floor(knowledgeLineBytes / 2);
   const extra = 'x'.repeat(extraLen);
 
-  const withoutKnowledge = renderInjection(packed, Date.now(), { env: noKnowledgeEnv(), extra });
+  const withoutKnowledge = renderInjection(packed, now, { extra });
   assert.notEqual(withoutKnowledge, null, 'fixture must actually render without the knowledge line');
-  const withKnowledge = renderInjection(packed, Date.now(), { env, extra });
+  const withKnowledge = renderInjection(packed, now, { extra, knowledgeLine });
   assert.equal(withKnowledge, withoutKnowledge, 'the knowledge line was dropped; card and extra are untouched');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// End to end (round-2 review, MAJOR 3): the knowledge line proven through each host's real
+// adapter, not only through `renderInjection`/`goalCardResult` called directly. Neither
+// `hooks/multi-codex-hook.mjs` nor `hooks/delegation-reminder.js` is edited here (both are
+// outside this territory, per the brief's NOT list) — these tests only drive them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A minimal, valid Codex `session_meta` first line naming a confirmed lead (no spawn/child
+ * shape at all — `classifyCodexRole`'s "no spawn" branch, matching a real `cli`-launched lead). */
+function codexLeadMetadata(sessionId) {
+  return `${JSON.stringify({ type: 'session_meta', payload: { id: sessionId, session_id: sessionId, source: 'cli' } })}\n`;
+}
+
+function codexTranscript(dir, content) {
+  const file = path.join(dir, 'session.jsonl');
+  fs.writeFileSync(file, content, 'utf8');
+  return file;
+}
+
+test('end to end (Codex): a confirmed lead SessionStart carries the exact knowledge line through runCodexHook', async () => {
+  const sessionId = 'k23-codex-e2e-lead-session';
+  const transcriptHome = tmpdir('goal-card-codex-transcript-');
+  const file = codexTranscript(transcriptHome, codexLeadMetadata(sessionId));
+  const root = project({ card: GOOD });
+  const home = mkKnowledgeHome({ topics: ['orca.md'] }); // topics:1, pending:0, oldest:null, reads:0
+  const env = { AGENTS_HOME: path.join(home, '.agents') }; // no KNOWLEDGE_HOME: exercises the M1 fallback
+  const out = await runCodexHook(
+    { hook_event_name: 'SessionStart', session_id: sessionId, transcript_path: file, cwd: root },
+    { home, env },
+  );
+  const context = out?.output?.hookSpecificOutput?.additionalContext ?? '';
+  assert.match(context, /GOAL: every batch is cheap/, 'the card itself must still be present');
+  assert.ok(
+    context.includes(
+      'knowledge: 1 topics, 0 inbox notes pending, 0 topic reads on this host in 7 days; INDEX ~/.claude/knowledge/INDEX.md',
+    ),
+    `knowledge line missing from Codex additionalContext: ${context}`,
+  );
+});
+
+test('end to end (Claude): a spawned delegation-reminder.js SessionStart carries the exact knowledge line', () => {
+  const home = mkKnowledgeHome({ topics: ['orca.md'] }); // topics:1, pending:0, oldest:null, reads:0
+  const root = project({ card: GOOD });
+  const payload = JSON.stringify({ hook_event_name: 'SessionStart', cwd: root, session_id: 'k23-claude-e2e-session' });
+  const stdout = execFileSync(process.execPath, [CLAUDE_HOOK, 'SessionStart'], {
+    input: payload,
+    encoding: 'utf8',
+    // No KNOWLEDGE_HOME: exercises the M1 fallback (AGENTS_HOME's dirname). `HOME`/`USERPROFILE`
+    // are also this fixture home (childEnv), so even the un-overridden `homedir()` path would agree.
+    env: childEnv(home, { AGENTS_HOME: path.join(home, '.agents') }),
+  });
+  const context = JSON.parse(stdout).hookSpecificOutput.additionalContext;
+  assert.match(context, /GOAL: every batch is cheap/, 'the card itself must still be present');
+  assert.ok(
+    context.includes(
+      'knowledge: 1 topics, 0 inbox notes pending, 0 topic reads on this host in 7 days; INDEX ~/.claude/knowledge/INDEX.md',
+    ),
+    `knowledge line missing from Claude additionalContext: ${context}`,
+  );
 });
