@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   mergeHooksJson, trustEntriesForPlacements, upsertHooksState, pruneOurHooksState, ourTrustHashes, codexHomes,
+  CODEX_EVENTS, HOOK_MARKER, CODEX_DELETE_GUARD_EVENTS, DELETE_GUARD_HOOK_MARKER,
 } from './codex-hook-trust.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +74,13 @@ const OWN_SOURCE_PATH = REPO.split(path.sep).join('/');
  * hash. The installer re-runs on every `chezmoi apply`, so a plugin that moves is repaired next apply.
  */
 const CODEX_HOOK_SCRIPT = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
+
+/**
+ * delete-deny Territory D2 — D1's PreToolUse recursive-delete guard, by its path in this repo. Wired
+ * through the exact same merge/trust machinery as `CODEX_HOOK_SCRIPT` above, and through the SAME opt-in
+ * (`--codex-hooks`/`--codex-hooks-only`) — see `installDeleteGuardHooks` for why no separate flag.
+ */
+const DELETE_GUARD_SCRIPT = path.join(REPO, 'hooks', 'delete-guard.mjs');
 
 export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server', 'bearings', 'continue', 'janitor'];
 export const CLAUDE_SKILLS = ['knowledge', 'triage', 'learn'];
@@ -618,7 +626,9 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
 
   --dry-run    print every action without touching anything
   --codex-hooks
-               ALSO wire (and pre-trust) the Codex hooks. OFF by default: it edits live Codex homes
+               ALSO wire (and pre-trust) the Codex hooks — note delivery AND, when hooks/delete-guard.mjs
+               exists (D1's build), the recursive-delete PreToolUse guard (delete-deny D2). OFF by
+               default: it edits live Codex homes
   --codex-hooks-only
                only wire the Codex hooks; publish nothing
   --codex-home <dir>
@@ -690,10 +700,19 @@ export function isDurablePath(target, { tmpDir = os.tmpdir(), home = os.homedir(
   return !/(^|\/)(tmp|temp|scratchpad|worktrees?|wt-[^/]*)\//i.test(lower);
 }
 
-function installCodexHooks() {
+/**
+ * Shared body for both Codex PreToolUse/note-delivery installers below — the merge/trust dance is
+ * identical for either script; only the script, its event list, its marker and the log wording differ.
+ * Extracted for delete-deny D2: a second script (hooks/delete-guard.mjs) now goes through this same
+ * path, and a forked copy of this function is exactly the drift `codex-guards.md` constraint 4 warns
+ * against ("no forked regex lists" — the same principle applies to the installer around them).
+ */
+function installCodexHookScript({
+  scriptPath, events, marker, missingLabel, writeLabel, updateLabel, trustLabel,
+}) {
   const results = [];
-  if (!fs.existsSync(CODEX_HOOK_SCRIPT)) {
-    refuse(`missing Codex hook script ${CODEX_HOOK_SCRIPT}`);
+  if (!fs.existsSync(scriptPath)) {
+    refuse(`missing ${missingLabel} hook script ${scriptPath}`);
     return results;
   }
   // `--codex-home` restricts this to ONE home. Without it the installer covers every Codex home on the
@@ -704,8 +723,8 @@ function installCodexHooks() {
 
   // Live homes are only ever wired from a durable checkout. A scratch checkout may still target a
   // scratch home, which is what every smoke and every test must do.
-  if (!opts.codexHome && !isDurablePath(CODEX_HOOK_SCRIPT)) {
-    refuse(`refusing to wire live Codex homes from a temporary checkout (${CODEX_HOOK_SCRIPT}) — `
+  if (!opts.codexHome && !isDurablePath(scriptPath)) {
+    refuse(`refusing to wire live Codex homes from a temporary checkout (${scriptPath}) — `
       + 'run the installer from the installed plugin, or pass --codex-home <scratch dir>');
     return results;
   }
@@ -742,7 +761,7 @@ function installCodexHooks() {
     // so a home that gets a new hooks.json whose hash never reached config.toml is a home that silently
     // stops delivering. Writing hooks.json first and refusing the trust afterwards did exactly that. So
     // everything below computes, and nothing writes until the trust text is known to be safe.
-    const merged = mergeHooksJson(existing, CODEX_HOOK_SCRIPT);
+    const merged = mergeHooksJson(existing, scriptPath, events, process.execPath, marker);
     const desired = `${JSON.stringify(merged.json, null, 2)}\n`;
     result.placements = merged.placements.map((pl) => `${pl.event}:${pl.groupIndex}:${pl.handlerIndex}`);
 
@@ -772,12 +791,12 @@ function installCodexHooks() {
     }
 
     if (current !== desired) {
-      say(current === null ? 'write codex hooks.json' : 'add multi hooks to codex hooks.json', hooksPath);
+      say(current === null ? writeLabel : updateLabel, hooksPath);
       if (!opts.dryRun) writeFileAtomic(hooksPath, desired);
       result.wroteHooks = true;
     }
     if (upserted.changed || pruned.removed.length > 0) {
-      say('trust codex hooks',
+      say(trustLabel,
         `${configPath} (+${upserted.added.length} ~${upserted.updated.length} =${upserted.deduped.length} -${pruned.removed.length})`);
       for (const key of upserted.deduped) say('dedupe trust entry', key);
       if (!opts.dryRun) {
@@ -798,17 +817,63 @@ function installCodexHooks() {
   return results;
 }
 
+function installCodexHooks() {
+  return installCodexHookScript({
+    scriptPath: CODEX_HOOK_SCRIPT,
+    events: CODEX_EVENTS,
+    marker: HOOK_MARKER,
+    missingLabel: 'Codex',
+    writeLabel: 'write codex hooks.json',
+    updateLabel: 'add multi hooks to codex hooks.json',
+    trustLabel: 'trust codex hooks',
+  });
+}
+
+/**
+ * delete-deny Territory D2 — wire hooks/delete-guard.mjs (D1's PreToolUse recursive-delete guard) as a
+ * Codex PreToolUse hook, through the same merge/trust machinery as `installCodexHooks` above, but its
+ * OWN marker (`DELETE_GUARD_HOOK_MARKER`) so the two scripts never collide in the same event's group
+ * list.
+ *
+ * Rides along with `--codex-hooks`/`--codex-hooks-only` — no separate flag. See the doc comment above
+ * `CODEX_DELETE_GUARD_EVENTS` in `codex-hook-trust.mjs` and
+ * `docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md` for why the deny shape this guard relies on
+ * (`hookSpecificOutput.permissionDecision: 'deny'`) is established, not merely assumed: Codex's own
+ * upstream source confirms both that a PreToolUse hook fires (Orca's own production wiring already
+ * proved that) and that this exact deny shape blocks the tool call. A missing `hooks/delete-guard.mjs`
+ * (D1 not yet landed in this worktree) is a named refusal here, same as any other missing hook script —
+ * never a crash, never a silent no-op.
+ */
+function installDeleteGuardHooks() {
+  return installCodexHookScript({
+    scriptPath: DELETE_GUARD_SCRIPT,
+    events: CODEX_DELETE_GUARD_EVENTS,
+    marker: DELETE_GUARD_HOOK_MARKER,
+    missingLabel: 'Codex delete-guard',
+    writeLabel: 'write codex hooks.json (delete-guard)',
+    updateLabel: 'add delete-guard hooks to codex hooks.json',
+    trustLabel: 'trust codex hooks (delete-guard)',
+  });
+}
+
 function main() {
   if (opts.help) { process.stdout.write(USAGE); return 0; }
   let codexHooks = [];
+  let codexDeleteGuardHooks = [];
 
   // Just the Codex wiring, publishing nothing: what the integrator runs against a scratch CODEX_HOME to
   // prove a hook fires without the bypass flag, and the quickest repair when a home has drifted.
   if (opts.codexHooksOnly) {
     codexHooks = installCodexHooks();
+    // delete-deny D2: rides along with the note-delivery hooks — same opt-in, no separate flag (see
+    // installDeleteGuardHooks's doc comment for why this no longer needs its own gate).
+    codexDeleteGuardHooks = installDeleteGuardHooks();
     const lines = [...log, ...refusals.map((r) => `REFUSED: ${r}`)];
-    if (opts.json) process.stdout.write(`${JSON.stringify({ ok: refusals.length === 0, codexHooks, actions: log, refusals }, null, 2)}\n`);
-    else process.stdout.write(`${lines.join('\n')}\n`);
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify({
+        ok: refusals.length === 0, codexHooks, codexDeleteGuardHooks, actions: log, refusals,
+      }, null, 2)}\n`);
+    } else process.stdout.write(`${lines.join('\n')}\n`);
     return refusals.length === 0 ? 0 : 1;
   }
 
@@ -873,7 +938,11 @@ function main() {
     // gate run into a live-config edit — twice, on two machines, in one afternoon. `--codex-hooks` asks
     // for it explicitly. Deliberately NOT in the manifest either: `--uninstall` must never strip a
     // Codex home's hooks.json or rewrite Ben's config.toml.
-    if (opts.codexHooks) codexHooks = installCodexHooks();
+    if (opts.codexHooks) {
+      codexHooks = installCodexHooks();
+      // delete-deny D2: rides along with --codex-hooks, no separate flag (see installDeleteGuardHooks).
+      codexDeleteGuardHooks = installDeleteGuardHooks();
+    }
   }
 
   if (opts.json) {
@@ -884,6 +953,7 @@ function main() {
       shims: SHIM_SPECS.map((s) => path.join(LOCAL_BIN, s.name).split(path.sep).join('/')),
       shimCommands: SHIM_COMMANDS,
       codexHooks: codexHooks.map((c) => ({ ...c, home: c.home.split(path.sep).join('/') })),
+      codexDeleteGuardHooks: codexDeleteGuardHooks.map((c) => ({ ...c, home: c.home.split(path.sep).join('/') })),
       actions: log, refusals,
     }, null, 2)}\n`);
   } else {
