@@ -14,7 +14,7 @@ import {
   render, normalize, RefusedError, BlindError,
   checkProseLines, countSentences, checkWaitingItem,
   formatSinceHeading, formatClearedTimestamp, formatMonthDay,
-  run,
+  run, defaultReadPageWithCli, defaultReplaceMdWithCli,
 } from './decisions-render.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -393,6 +393,63 @@ test('acceptance: render output parses clean through decisions-read.mjs', () => 
   for (const rest of lines.slice(doneIdx + 1)) {
     assert.ok(rest.trim() === '' || rest.trim() === '<empty-block/>', `unexpected content after Done: ${JSON.stringify(rest)}`);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// --reader: an explicit path to a notion.js-shaped CLI, never hardcoded (same convention
+// decisions-pickup.mjs's readPageWithCli already uses). A tiny fake script stands in for
+// notion.js here — never the real network, never a real page.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function writeFakeReader(dir, { failRead = false } = {}) {
+  const script = path.join(dir, 'fake-reader.mjs');
+  fs.writeFileSync(script, `import fs from 'node:fs';
+const [, , cmd, ...rest] = process.argv;
+if (cmd === 'read') {
+  if (${JSON.stringify(failRead)}) { process.stderr.write('deliberate failure\\n'); process.exit(1); }
+  const page = rest[0];
+  process.stdout.write('page-content-for-' + page + '\\n');
+  process.exit(0);
+} else if (cmd === 'replace-md') {
+  const [page, file, flag] = rest;
+  if (flag !== '--force') { process.stderr.write('missing --force\\n'); process.exit(1); }
+  const md = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(process.env.FAKE_READER_LAST_WRITE, page + '\\n' + md);
+  console.log('replaced');
+  process.exit(0);
+} else {
+  process.stderr.write('unknown command\\n');
+  process.exit(1);
+}
+`, 'utf8');
+  return script;
+}
+
+test('defaultReadPageWithCli: spawns the given reader path with "read <page>" and returns its stdout', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-render-reader-'));
+  const script = writeFakeReader(dir);
+  const readPage = defaultReadPageWithCli(script, childEnv(dir));
+  const text = await readPage('abc123');
+  assert.equal(text, 'page-content-for-abc123\n');
+});
+
+test('defaultReplaceMdWithCli: writes the markdown to a temp file and calls "replace-md <page> <file> --force"', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-render-reader-'));
+  const script = writeFakeReader(dir);
+  const lastWrite = path.join(dir, 'last-write.txt');
+  const replaceMd = defaultReplaceMdWithCli(script, childEnv(dir, { FAKE_READER_LAST_WRITE: lastWrite }));
+  await replaceMd('abc123', '# hello\nworld\n');
+  const written = fs.readFileSync(lastWrite, 'utf8');
+  assert.equal(written, 'abc123\n# hello\nworld\n');
+});
+
+test('defaultReadPageWithCli: a nonzero reader exit throws, never returns silently', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-render-reader-'));
+  const script = writeFakeReader(dir, { failRead: true });
+  const readPage = defaultReadPageWithCli(script, childEnv(dir));
+  // "fail" stands in for a real notion.js failure (bad page id, network error, ...), which must
+  // never be swallowed into an empty or stale-looking read.
+  await assert.rejects(() => readPage('abc123'), /--reader exited 1/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

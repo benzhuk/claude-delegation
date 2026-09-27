@@ -4,18 +4,23 @@
  * Lane 26). The page is a render of repo files under `docs/decisions/`, never edited in place:
  *
  *   node decisions-render.mjs render --repo <dir> [--done-line <text>] [--drop-owner-lines <file>]
- *   node decisions-render.mjs publish --repo <dir> --page <id> [--clear-done] [--adopt-live] [--dry-run]
+ *   node decisions-render.mjs publish --repo <dir> --page <id> --reader <path-to-notion.js>
+ *     [--clear-done] [--adopt-live] [--dry-run] [--topic <Topic>]
  *
  * `render` is pure (the one optional side effect is an injectable, read-only `git ls-tree`
- * against `origin/main`); `publish` is the numbered 8-step pipeline, with `notion.js`,
- * `decisions-title.mjs` and the pickup's status read always injected — nothing in this file (or
- * anything it imports) calls the real Notion API on its own. This file is the CLI entry point
- * only; the composition logic lives in `decisions-render-core.mjs` and the publish pipeline in
- * `decisions-render-publish.mjs` (split past ~800 lines per the build brief) — both re-exported
- * here so every test and caller can import this one file.
+ * against `origin/main`); `publish` is the numbered 8-step pipeline. `--reader <path>` is the
+ * same "an explicit path, never hardcoded" convention `decisions-pickup.mjs`'s `readPageWithCli`
+ * already uses: this file still never assumes where `notion.js` lives on disk, and nothing here
+ * calls the real Notion API in-process — a missing `--reader` leaves `deps.readPage`/`replaceMd`
+ * unset, and `publish()` itself refuses with its own clear error rather than reaching the network.
+ * This file is the CLI entry point only; the composition logic lives in `decisions-render-core.mjs`
+ * and the publish pipeline in `decisions-render-publish.mjs` (split past ~800 lines per the build
+ * brief) — both re-exported here so every test and caller can import this one file.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   render, normalize, RefusedError, BlindError,
@@ -35,6 +40,7 @@ export {
   defaultReadFile, defaultReaddir, defaultExecGit,
   publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, describeMismatch,
   lineDiff, defaultReadPickupCapture,
+  defaultReadPageWithCli, defaultReplaceMdWithCli,
 };
 
 function parseArgs(argv) {
@@ -42,7 +48,7 @@ function parseArgs(argv) {
   const opts = { cmd };
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
-    if (a === '--repo') { opts.repo = rest[i + 1]; i += 1; } else if (a === '--page') { opts.page = rest[i + 1]; i += 1; } else if (a === '--done-line') { opts.doneLine = rest[i + 1]; i += 1; } else if (a === '--drop-owner-lines') { opts.dropOwnerLines = rest[i + 1]; i += 1; } else if (a === '--topic') { opts.topic = rest[i + 1]; i += 1; } else if (a === '--clear-done') { opts.clearDone = true; } else if (a === '--adopt-live') { opts.adoptLive = true; } else if (a === '--dry-run') { opts.dryRun = true; } else {
+    if (a === '--repo') { opts.repo = rest[i + 1]; i += 1; } else if (a === '--page') { opts.page = rest[i + 1]; i += 1; } else if (a === '--done-line') { opts.doneLine = rest[i + 1]; i += 1; } else if (a === '--drop-owner-lines') { opts.dropOwnerLines = rest[i + 1]; i += 1; } else if (a === '--topic') { opts.topic = rest[i + 1]; i += 1; } else if (a === '--reader') { opts.reader = rest[i + 1]; i += 1; } else if (a === '--clear-done') { opts.clearDone = true; } else if (a === '--adopt-live') { opts.adoptLive = true; } else if (a === '--dry-run') { opts.dryRun = true; } else {
       throw new RefusedError(`unrecognized argument: ${a}`);
     }
   }
@@ -56,6 +62,45 @@ function defaultTitleSet(page) {
     if (topic) argv.push('--topic', topic);
     const code = await runTitle({ argv });
     if (code !== 0) throw new Error(`decisions-title.mjs set exited ${code}`);
+  };
+}
+
+/**
+ * `--reader <path>`: the same "reader is an explicit path, never hardcoded" convention
+ * `decisions-pickup.mjs`'s `readPageWithCli` already uses — this file still never assumes where
+ * `notion.js` lives on disk. Bound only when `--reader` is given; otherwise `deps.readPage` /
+ * `deps.replaceMd` stay unset and `publish()` itself refuses with its own clear error.
+ */
+function runReaderCli(reader, args, env) {
+  const readerPath = path.resolve(reader);
+  const isNodeScript = /\.(?:c|m)?js$/i.test(readerPath);
+  const command = isNodeScript ? process.execPath : readerPath;
+  const fullArgs = isNodeScript ? [readerPath, ...args] : args;
+  const result = spawnSync(command, fullArgs, {
+    encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024, ...(env ? { env } : {}),
+  });
+  if (result.error) throw new Error(`--reader failed to run: ${result.error.message}`);
+  if (result.status !== 0) {
+    throw new Error(`--reader exited ${result.status}: ${result.stderr || result.stdout}`);
+  }
+  return result.stdout;
+}
+
+/** `env` is test-only (a sealed `childEnv()`); production leaves it unset, inheriting the real
+ * process environment the same way `decisions-pickup.mjs`'s `readPageWithCli` already does. */
+function defaultReadPageWithCli(reader, env) {
+  return async (page) => runReaderCli(reader, ['read', page], env);
+}
+
+function defaultReplaceMdWithCli(reader, env) {
+  return async (page, md) => {
+    const tmp = path.join(os.tmpdir(), `decisions-render-publish-${process.pid}-${Date.now()}.md`);
+    fs.writeFileSync(tmp, md, 'utf8');
+    try {
+      runReaderCli(reader, ['replace-md', page, tmp, '--force'], env);
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    }
   };
 }
 
@@ -94,6 +139,7 @@ export async function run({
         writeFile: (f, c) => fs.writeFileSync(f, c),
         titleSet: defaultTitleSet(opts.page),
         write,
+        ...(opts.reader ? { readPage: defaultReadPageWithCli(opts.reader), replaceMd: defaultReplaceMdWithCli(opts.reader) } : {}),
         ...deps,
       };
       const result = await publish({

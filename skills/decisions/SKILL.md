@@ -59,8 +59,8 @@ log. `replace-md`, `replace-range`, `append-md`, `publish` and every hand or anc
 edit are banned there for every agent — `scripts/decisions-render.mjs` (the renderer)
 excepted — because that script is the ONLY way the page is ever written. Write it only
 by running `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
-<decisions-page-id>` (add `--clear-done` when the fresh read shows owner input, per
-"Reading answers" below).
+<decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done` when the
+fresh read shows owner input, per "Reading answers" below).
 
 When the record on origin says accepted, its Opus verdicts are in its evidence, and the
 sealed suite is green on a second host from origin (a Windows host when built on Linux, a
@@ -73,7 +73,8 @@ bullet — never starting with bold — to `docs/decisions/history/<today>.md` i
 merge commit:
 `Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.` —
 then runs `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
-<decisions-page-id>` (Lane 26), and only then sends its RESULT. No Waiting item is
+<decisions-page-id> --reader ~/.claude/scripts/notion.js` (Lane 26), and only then
+sends its RESULT. No Waiting item is
 posted for an ordinary accepted merge. Any conflict when merging into main, of any kind,
 means no merge: post a decision item under Waiting (template shape, with options) naming
 the conflicting paths instead. When

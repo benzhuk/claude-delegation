@@ -136,7 +136,7 @@ Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host
 Then, once main is pushed, the lead runs the renderer:
 
 ```
-node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page <decisions-page-id>
+node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page <decisions-page-id> --reader ~/.claude/scripts/notion.js
 ```
 
 `publish` reads the page fresh, refuses (exit 4) if it has drifted from
