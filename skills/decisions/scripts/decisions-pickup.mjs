@@ -336,13 +336,18 @@ function isSubMultiset(fresh, original) {
   return true;
 }
 
-/** Reads a private capture's saved `items` (not the raw bytes) as owner-input triples, or null. */
-function loadCaptureOwnerInputs(receipt, ref, base, fsImpl) {
+/**
+ * Reads a private capture's owner-input triples derived from its digest-verified bytes (not the
+ * saved, possibly stale-parser `items` field), or null. `expectedDigest` ties the read to the
+ * capture the caller means to trust; a capture that fails digest verification is never used.
+ */
+function loadCaptureOwnerInputs(receipt, ref, expectedDigest, now, base, fsImpl) {
+  if (verifyOnePrivateCapture(receipt, ref, expectedDigest, base, fsImpl).status !== 'OK') return null;
   try {
     const full = resolvePrivateCapture(receipt, ref, base, fsImpl);
     const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
-    if (!Array.isArray(capture.items)) return null;
-    return ownerInputs(capture.items);
+    const raw = Buffer.from(capture.originalBytes, 'base64').toString('utf8');
+    return ownerInputs(capturedItems(parseDocument(raw, { now })));
   } catch {
     return null;
   }
@@ -354,8 +359,8 @@ function loadCaptureOwnerInputs(receipt, ref, base, fsImpl) {
  * not raw bytes). Missing an original baseline to compare against is not proof of no change,
  * so it is treated conservatively as a change.
  */
-function ownerInputsChanged(receipt, doc, base, fsImpl) {
-  const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, base, fsImpl);
+function ownerInputsChanged(receipt, doc, now, base, fsImpl) {
+  const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
   if (!original) return true;
   const fresh = ownerInputs(capturedItems(doc));
   return !isSubMultiset(fresh, original);
@@ -995,7 +1000,7 @@ export async function pickupOnce(options, deps = {}) {
         // Contracts.md C1: raw bytes differing from the digest that opened this intent is not,
         // by itself, a change — only a new owner input against the round's original capture is.
         if (doc.done === true && digest !== receipt.digest
-            && !ownerInputsChanged(receipt, doc, base, fsImpl)) {
+            && !ownerInputsChanged(receipt, doc, now, base, fsImpl)) {
           return receiptStatus(receipt, paths.claim, base, fsImpl, false);
         }
         let interrupted;
@@ -1077,7 +1082,7 @@ export async function pickupOnce(options, deps = {}) {
 
     if (receipt && doc.done === true && receipt.digest !== digest
         && (receipt.state !== 'ACCOUNTED' || !receipt.observedUncheckedAt)
-        && ownerInputsChanged(receipt, doc, base, fsImpl)) {
+        && ownerInputsChanged(receipt, doc, now, base, fsImpl)) {
       const changed = changedReceipt(receipt, raw, doc, now, base, fsImpl);
       atomicJson(paths.receipt, changed, fsImpl);
       return receiptStatus(changed, paths.claim, base, fsImpl, false);
@@ -1296,13 +1301,22 @@ export function account(options, deps = {}) {
     if (integrity.status !== 'OK') throw new PickupError(`cannot account a round with ${integrity.status}`);
     // Contracts.md C1 (P1.2): a round the old byte check stuck in NEEDS_RECONCILIATION may be
     // accounted like RECORDED when the reconciliation capture's owner inputs are a sub-multiset
-    // of the original capture's — the lead acted on it, the owner added nothing new.
+    // of the original capture's — the lead acted on it, the owner added nothing new. `previousState`
+    // alone does not survive a second stuck pass under the old code (it gets overwritten to
+    // NEEDS_RECONCILIATION), so provenance is proven instead from the receipt's own evidence: only a
+    // round that actually reached RECORDED sets `recordedAt`, and only via a positive transport
+    // result or a MATCH recovery; an UNKNOWN round sets `uncertainAt` instead, and an already
+    // accounted round carries a non-null `accountingOutcome`.
+    const reachedRecorded = typeof receipt.recordedAt === 'string'
+      && (receipt.transportResult?.recorded === true || receipt.transportEvidence?.status === 'MATCH')
+      && !receipt.uncertainAt && receipt.accountingOutcome == null;
     const stuckAccountable = receipt.state === 'NEEDS_RECONCILIATION'
       && receipt.reconciliationReason === 'checked page bytes changed during the active round'
-      && receipt.previousState === 'RECORDED'
+      && (receipt.previousState === 'RECORDED' || receipt.previousState === 'NEEDS_RECONCILIATION')
+      && reachedRecorded
       && (() => {
-        const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, base, fsImpl);
-        const reconciliation = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, base, fsImpl);
+        const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
+        const reconciliation = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, now, base, fsImpl);
         return Boolean(original) && Boolean(reconciliation) && isSubMultiset(reconciliation, original);
       })();
     if (receipt.state !== 'RECORDED' && !stuckAccountable) {

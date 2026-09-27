@@ -109,6 +109,13 @@ test('contracts.md C3: a registration entry accepts one optional topic key and r
   assert.deepEqual(noTopic, { code: 'PICKUP_NO_ACTION', ordinal: 0 });
   assert.equal(seen[1].topic, null, 'a missing topic key is still a valid entry');
 
+  fx.writeRegistration([{ ...fx.entry, topic: 'A'.repeat(40) }]);
+  assert.deepEqual(
+    await registered(fx, { pickupOnce: async () => ({ status: 'UNCHANGED' }) }),
+    { code: 'PICKUP_NO_ACTION', ordinal: 0 },
+    'a 40-character topic is the accepted maximum',
+  );
+
   for (const topic of [
     'a'.repeat(41), // one over the 40-character limit
     'Skills: taxonomy', // a colon is the title-format separator, reserved

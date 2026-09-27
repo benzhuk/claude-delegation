@@ -43,6 +43,17 @@ const SUBSET_CHANGE = `<summary>Choose transport</summary>
 No default: owner action is required
 - [x] Done
 `;
+// Spec P1.5's literal fixture: the lead moves the whole settled decision under `# Closed` between
+// rounds. `# Closed`'s block is untouched (skills/decisions/scripts/decisions-read.mjs:337) and its
+// captured triples are identical to `PAGE`'s, so bytes differ but no owner input does.
+const CLOSED_MOVE = `# Closed
+<summary>Choose transport</summary>
+- [x] Keep the existing transport
+No default: owner action is required
+\\*\\*Please preserve the capture
+# Next
+- [x] Done
+`;
 const NOW = '2026-09-23T16:00:00.000Z';
 const REGISTERED_PAGE = '1234567890abcdef1234567890abcdef';
 
@@ -429,6 +440,15 @@ test('C1: raw bytes differing with no new owner input keeps a RECORDED round unc
   }));
   assert.equal(subset.status, 'RECORDED');
   assert.equal(sends, 1, 'a sub-multiset fresh read never sends again');
+
+  // Spec P1.5: the whole decision moved under `# Closed` between rounds is a byte change with
+  // identical captured triples, so it is not a change either.
+  const closedMove = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => CLOSED_MOVE,
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(closedMove.status, 'RECORDED', 'a decision moved verbatim under # Closed is not a change');
+  assert.equal(sends, 1, 'no new send for the Closed-move fixture');
 });
 
 test('C1: a new owner comment is a change and still requires reconciliation', async (t) => {
@@ -455,29 +475,62 @@ test('ownerInputs drops line/ref/replied and keeps kind, title, and text', () =>
   ]);
 });
 
-test('a stuck NEEDS_RECONCILIATION round with sub-multiset reconciliation inputs is accountable', async (t) => {
-  const fx = fixture(); t.after(fx.cleanup);
-  let sends = 0;
-  await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
-  const captured = await pickupOnce(fx.options, deps(fx, {
-    readPage: async () => NEW_COMMENT,
-    send: async () => { sends += 1; return {}; },
-  }));
-  assert.equal(captured.status, 'NEEDS_RECONCILIATION');
-  const reconCapturePath = privateFile(fx, captured.receipt, captured.receipt.reconciliationPrivateCaptureRef);
-  const reconCapture = JSON.parse(fs.readFileSync(reconCapturePath, 'utf8'));
-  // Rewrite the reconciliation capture down to a true sub-multiset of the original (drop the new
-  // comment) so it matches the accountable shape, keeping every other saved field byte-identical.
-  const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, captured.receipt), 'utf8'));
-  reconCapture.items = originalCapture.items;
-  fs.writeFileSync(reconCapturePath, `${JSON.stringify(reconCapture, null, 2)}\n`);
+test('C1 multiset: a third identical comment, a swapped tick, and a renamed title are changes; equal counts are not', async (t) => {
+  const TWO_SAME = PAGE.replace('\\*\\*Please preserve the capture', '\\*\\*Please preserve the capture\n\\*\\*Please preserve the capture');
+  const THREE_SAME = PAGE.replace('\\*\\*Please preserve the capture', '\\*\\*Please preserve the capture\n\\*\\*Please preserve the capture\n\\*\\*Please preserve the capture');
+  const SWAPPED = PAGE.replace('- [x] Keep the existing transport', '- [ ] Keep the existing transport\n- [x] Switch transport');
+  const RENAMED = PAGE.replace('<summary>Choose transport</summary>', '<summary>Choose the transport</summary>');
+  for (const [name, first, second, expected] of [
+    ['three identical comments against two', TWO_SAME, THREE_SAME, 'NEEDS_RECONCILIATION'],
+    ['two identical comments, byte-only edit', TWO_SAME, TWO_SAME.replace('- [x] Done', '- a closed bullet\n- [x] Done'), 'RECORDED'],
+    ['one tick removed and a different one added', PAGE, SWAPPED, 'NEEDS_RECONCILIATION'],
+    ['decision title renamed under a live input', PAGE, RENAMED, 'NEEDS_RECONCILIATION'],
+  ]) {
+    const fx = fixture(); t.after(fx.cleanup);
+    assert.equal((await pickupOnce(fx.options, deps(fx, { readPage: async () => first }))).status, 'RECORDED', name);
+    assert.equal((await pickupOnce(fx.options, deps(fx, { readPage: async () => second }))).status, expected, name);
+  }
+});
 
-  const report = path.join(fx.repo, 'outcome.md');
-  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
-  const result = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
-  assert.equal(result.status, 'ACCOUNTED');
-  assert.equal(result.receipt.accountedFrom, 'NEEDS_RECONCILIATION');
-  assert.equal(result.receipt.accountingOutcome.ownerAttested, true);
+test('a stuck NEEDS_RECONCILIATION round is accountable from receipt-evidenced provenance, either previousState', async (t) => {
+  // This is the live shape a round reaches when the old byte check re-applied `changedReceipt` on
+  // an already-NR receipt: `previousState` gets clobbered to NEEDS_RECONCILIATION, so provenance
+  // must come from the receipt's own recordedAt/transportResult evidence, not from previousState.
+  for (const previousState of ['RECORDED', 'NEEDS_RECONCILIATION']) {
+    const fx = fixture(); t.after(fx.cleanup);
+    const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+    assert.equal(recorded.status, 'RECORDED', previousState);
+    const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+    const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+    const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, receipt), 'utf8'));
+    const observedDigest = crypto.createHash('sha256').update(Buffer.from(BYTE_ONLY_CHANGE, 'utf8')).digest('hex');
+    const ref = `captures/${receipt.projectScope}/r1-changed-${observedDigest}.json`;
+    const reconCapture = {
+      ...originalCapture,
+      digest: observedDigest,
+      originalBytes: Buffer.from(BYTE_ONLY_CHANGE, 'utf8').toString('base64'),
+    };
+    const reconPath = privateFile(fx, receipt, ref);
+    fs.mkdirSync(path.dirname(reconPath), { recursive: true });
+    fs.writeFileSync(reconPath, `${JSON.stringify(reconCapture, null, 2)}\n`);
+    const stuck = {
+      ...receipt,
+      previousState,
+      state: 'NEEDS_RECONCILIATION',
+      reconciliationReason: 'checked page bytes changed during the active round',
+      observedDigest,
+      reconciliationPrivateCaptureRef: ref,
+      observedAt: NOW,
+    };
+    fs.writeFileSync(paths.receipt, `${JSON.stringify(stuck, null, 2)}\n`);
+
+    const report = path.join(fx.repo, `outcome-${previousState}.md`);
+    fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+    const result = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
+    assert.equal(result.status, 'ACCOUNTED', previousState);
+    assert.equal(result.receipt.accountedFrom, 'NEEDS_RECONCILIATION', previousState);
+    assert.equal(result.receipt.accountingOutcome.ownerAttested, true, previousState);
+  }
 });
 
 test('a stuck NEEDS_RECONCILIATION round with a genuinely different reconciliation input is refused', async (t) => {
@@ -495,23 +548,105 @@ test('a stuck NEEDS_RECONCILIATION round with a genuinely different reconciliati
   );
 });
 
-test('an UNKNOWN receipt is never accepted by the stuck-round account path', async (t) => {
+test('uncertain-delivery provenance is never accepted by the stuck-round account path, even with sub-multiset inputs', async (t) => {
+  // The realistic uncertain-delivery shape: SENDING -> UNKNOWN, then a byte-only page change during
+  // the active round gives NEEDS_RECONCILIATION with previousState UNKNOWN, uncertainAt set, and no
+  // recordedAt. The sub-multiset clause alone must not be enough to account it — only provenance
+  // (reachedRecorded) and the reconciliation-reason gate can refuse it.
   const fx = fixture(); t.after(fx.cleanup);
-  await pickupOnce(fx.options, deps(fx));
+  const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+  assert.equal(recorded.status, 'RECORDED');
   const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
   const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
-  fs.writeFileSync(paths.receipt, JSON.stringify({
-    ...receipt,
-    previousState: 'RECORDED',
-    state: 'UNKNOWN',
+  const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, receipt), 'utf8'));
+  const observedDigest = crypto.createHash('sha256').update(Buffer.from(BYTE_ONLY_CHANGE, 'utf8')).digest('hex');
+  const ref = `captures/${receipt.projectScope}/r1-changed-${observedDigest}.json`;
+  const reconCapture = {
+    ...originalCapture,
+    digest: observedDigest,
+    originalBytes: Buffer.from(BYTE_ONLY_CHANGE, 'utf8').toString('base64'),
+  };
+  const reconPath = privateFile(fx, receipt, ref);
+  fs.mkdirSync(path.dirname(reconPath), { recursive: true });
+  fs.writeFileSync(reconPath, `${JSON.stringify(reconCapture, null, 2)}\n`);
+
+  const { recordedAt, transportResult, ...receiptWithoutRecordedAtAndTransportResult } = receipt;
+  const uncertain = {
+    ...receiptWithoutRecordedAtAndTransportResult,
+    state: 'NEEDS_RECONCILIATION',
+    previousState: 'UNKNOWN',
+    uncertainAt: NOW,
     reconciliationReason: 'checked page bytes changed during the active round',
-  }));
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+  };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(uncertain, null, 2)}\n`);
   const report = path.join(fx.repo, 'outcome.md');
   fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
   assert.throws(
     () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
     /cannot account a round outside RECORDED/,
   );
+
+  // Same live-shaped RECORDED provenance (recordedAt + transportResult intact), but a different
+  // reconciliationReason: the reason gate alone must also refuse it.
+  const wrongReason = {
+    ...receipt,
+    state: 'NEEDS_RECONCILIATION',
+    previousState: 'RECORDED',
+    reconciliationReason: 'the saved note id exists with conflicting envelope fields',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+  };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(wrongReason, null, 2)}\n`);
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+
+  // Isolates the provenance gate itself from the previousState gate: previousState and reason both
+  // read as an accountable stuck round, and the reconciliation inputs are a true sub-multiset, but
+  // recordedAt (and transportResult/transportEvidence) never got set, so the round never actually
+  // reached RECORDED. A mutant that drops the recordedAt/transport-evidence check would wrongly
+  // account this; only the provenance gate refuses it.
+  const neverRecorded = {
+    ...receiptWithoutRecordedAtAndTransportResult,
+    state: 'NEEDS_RECONCILIATION',
+    previousState: 'RECORDED',
+    reconciliationReason: 'checked page bytes changed during the active round',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+  };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(neverRecorded, null, 2)}\n`);
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+});
+
+test('C1 at the CAPTURE_INTENT branch: byte-only bytes stay an orphan capture, a real owner input reconciles', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+  assert.equal(recorded.status, 'RECORDED');
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  const receiptText = fs.readFileSync(paths.receipt, 'utf8');
+  const receipt = JSON.parse(receiptText);
+  // The capture and pointer from the RECORDED round already exist, so this shape's evidence verifies.
+  const intent = { ...receipt, state: 'CAPTURE_INTENT' };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(intent, null, 2)}\n`);
+  const capturesDir = path.join(fx.agentsHome, 'ws', 'decisions-pickup', 'captures');
+  const changedFilesBefore = fs.readdirSync(capturesDir, { recursive: true }).filter((entry) => String(entry).includes('-changed-'));
+  assert.equal(changedFilesBefore.length, 0);
+
+  const byteOnly = await pickupOnce(fx.options, deps(fx, { readPage: async () => BYTE_ONLY_CHANGE }));
+  assert.equal(byteOnly.status, 'ORPHAN_CAPTURE');
+  assert.equal(fs.readFileSync(paths.receipt, 'utf8'), `${JSON.stringify(intent, null, 2)}\n`, 'the receipt file is not rewritten');
+  const changedFilesAfter = fs.readdirSync(capturesDir, { recursive: true }).filter((entry) => String(entry).includes('-changed-'));
+  assert.equal(changedFilesAfter.length, 0, 'no reconciliation capture is written for a non-change at CAPTURE_INTENT');
+
+  const withComment = await pickupOnce(fx.options, deps(fx, { readPage: async () => NEW_COMMENT }));
+  assert.equal(withComment.status, 'NEEDS_RECONCILIATION');
+  assert.equal(withComment.receipt.reconciliationReason, 'checked page bytes changed during the active round');
 });
 
 test('the CLI runs identically through a symlink to the script', (t) => {
@@ -519,7 +654,15 @@ test('the CLI runs identically through a symlink to the script', (t) => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const real = path.join(here, 'decisions-pickup.mjs');
   const link = path.join(fx.fixtureRoot, 'decisions-pickup-link.mjs');
-  fs.symlinkSync(real, link);
+  try {
+    fs.symlinkSync(real, link, 'file');
+  } catch (error) {
+    if (error && (error.code === 'EPERM' || error.code === 'EACCES')) {
+      t.skip(`symlinks not permitted on this machine (${error.code})`);
+      return;
+    }
+    throw error;
+  }
   const reader = path.join(fx.fixtureRoot, 'symlink-reader.mjs');
   fs.writeFileSync(reader, "process.stdout.write('# Group {toggle=\"true\"}\\n');\n");
   const child = spawnSync(process.execPath, [
@@ -577,6 +720,7 @@ test('account requires explicit owner, reconciliation, and every captured ref', 
   const result = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
   assert.equal(result.status, 'ACCOUNTED');
   assert.equal(result.receipt.accountingOutcome.ownerAttested, true);
+  assert.equal(Object.hasOwn(result.receipt, 'accountedFrom'), false, 'a normal RECORDED account never carries accountedFrom');
 });
 
 test('account derives required refs from immutable bytes, not mutable receipt metadata', async (t) => {
