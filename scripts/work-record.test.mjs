@@ -2412,6 +2412,19 @@ test("closeRecord: accepted record closes only after its merge is on main, and w
   assert.deepEqual(parsed.log.at(-1), { at: "2026-09-24T10:01:00.000Z", status: "closed", owner: "lead", note: `merge ${f.sha}` });
 });
 
+test("closeRecord: malformed final Log timestamp refuses both stale and current closes without changing bytes", () => {
+  for (const at of ["2026-09-24T10:00:00Z", "2026-09-24T11:00:00Z"]) {
+    const f = makeAcceptanceFixture();
+    acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+    const file = path.join(f.repo, f.record);
+    const accepted = fs.readFileSync(file, "utf8");
+    const corrupt = accepted.replace("\n\n", `\nLog: not-a-date accepted lead artifact ${f.sha}\n\n`);
+    fs.writeFileSync(file, corrupt);
+    assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at, now: new Date("2026-09-24T11:00:00Z") }), /invalid final Log: timestamp/);
+    assert.equal(fs.readFileSync(file, "utf8"), corrupt);
+  }
+});
+
 test("closeRecord: rejects non-accepted, unmerged, repeated, and stale closure attempts without changing the record", () => {
   const f = makeAcceptanceFixture();
   const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");

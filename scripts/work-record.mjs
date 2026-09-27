@@ -1606,7 +1606,12 @@ export function closeRecord(opts = {}) {
   const atDate = new Date(atInput);
   const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
   const nowMs = (opts.now ?? new Date()).getTime();
-  if (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, nowMs - 600000) || atDate.getTime() > nowMs + 300000) {
+  // An unparseable final Log: must not enter Math.max: Math.max(NaN, x) is NaN and
+  // silently turns the lower-bound comparison false, allowing a stale close write.
+  if (record.log.length && !Number.isFinite(lastLogMs)) {
+    throw acceptanceError(`invalid final Log: timestamp: ${record.log.at(-1).at}`, "invalid-at");
+  }
+  if (Number.isNaN(atDate.getTime()) || atDate.getTime() < lastLogMs || atDate.getTime() < nowMs - 600000 || atDate.getTime() > nowMs + 300000) {
     throw acceptanceError(`invalid --at: ${opts.at} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
   }
   const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})accepted([ \t]*)$/mi;
