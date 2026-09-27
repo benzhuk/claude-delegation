@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-windows-task
 Scope: docs/specs/2026-09-27-followup-bundle.md@7e92f16 (origin/docs/lane-specs-0925), section Lane 22, windows-task
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-22-1: build, review, live proof on Windows, merge on acceptance under the standing grant of 2026-09-26, post the Closed entry. Ben approved the janitor timer on all four hosts on 2026-09-27 12:38 PM NY. No release, chezmoi or install beyond the timer.
 Artifact: build/windows-task-1@899a6e615d895aea074c51e25e3f116329f5cbd4
 Worktree: build/windows-task-1
@@ -52,6 +52,7 @@ Four numbers: Hours ask to accepted: 0.3h; largest gap 11.1min at 2026-09-27T20:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o
 Log: 2026-09-27T20:47:05.000Z accepted skills-o artifact 899a6e615d895aea074c51e25e3f116329f5cbd4
+Log: 2026-09-27T20:50:03Z closed skills-o merged to main at da6b9f6 after the merged-tree suite passed 2348/2350 with 0 fail on Windows; final --enable waits for the release carrying this fix
 
 Observed: schtasks accepts the UTF-16 task xml on Windows (0.20.15 UTF-8 file was refused with "unable to switch the encoding"). The /TR fallback was not needed. An old 0.20.15 UTF-8 file is still recognised as ours and overwritten (review probe). The live runs used --force-root from the branch worktree; the final --enable is run from the main checkout after the merge so the task does not point at a worktree. The collect-status job is NOT wired on Windows in this lane; the collector runs on Netcup only. Minors open: three byte-identical test checks read the UTF-16 file as UTF-8 (test :1192, :1211, :1239); the BOM at install-janitor-timer.mjs:284 is a literal character, better written as an escape.
 
