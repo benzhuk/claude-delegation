@@ -12,6 +12,9 @@ import { childEnv, scratchHome } from './test-child-env.mjs';
 
 import { parseEnvelope } from './envelope.mjs';
 import { runNoteInbox } from './note-inbox.mjs';
+// review MAJOR-4: importing `runNoteFlush` is allowed (only editing note-flush.mjs is out of
+// territory) — it is what lets the R3 test exercise the REAL outbox retry rather than a stand-in.
+import { runNoteFlush } from './note-flush.mjs';
 import {
   NoteError, MAX_LINE,
   normalizeTitle, titleMatchesSlug, resolvePane, isLocalPane,
@@ -20,7 +23,7 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
-  runNoteSend, writeBinding, writeInbox, firstStderrLine,
+  runNoteSend, writeBinding, writeInbox, firstStderrLine, failureJson,
   wakeAllKindsPath, noUnknownCheckPath, withoutIds, undeliveredIds, outboxDir, deadOutboxDir, knownSlugs,
   MIRROR_HOSTS, resolveSenderHost, remoteAppendCommand,
 } from './note-send.mjs';
@@ -1498,7 +1501,10 @@ test('--dry-run reports the planned mirror — host name and the exact remote co
   const repo = tmp();
   const res = await runNoteSend(
     ARGS_OK(['--recipient-repo', repo, '--dry-run', '--sender-host', 'zhuk-netcup']),
-    { orca: mockOrca({}), home: tmp(), git: () => '.git', now: NOW },
+    {
+      orca: mockOrca({}), home: tmp(), git: () => '.git', now: NOW, hostname: 'test-host', localAddrs: [],
+      spawnMirror: async () => { throw new Error('dry-run spawned'); },
+    },
   );
   assert.equal(res.dryRun, true);
   assert.ok(
@@ -1516,7 +1522,7 @@ test('--sender-host given explicitly plans/runs the mirror to that mapped host',
   const spawnMirror = async (cmd, args, opts) => { spawnCalls.push({ cmd, args, opts }); return { ok: true }; };
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true);
   assert.deepEqual(res.mirrorLedger, { host: 'zhuk-netcup', ok: true });
@@ -1537,7 +1543,7 @@ test('SSH_CONNECTION with a known address plans/runs the mirror to the mapped ho
   const spawnMirror = async () => ({ ok: true });
   const res = await runNoteSend(
     ARGS_OK(),
-    { orca, home, git: () => '.git', now: NOW, env: { ...TYPING, SSH_CONNECTION: '100.111.119.54 4 5 6' }, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: { ...TYPING, SSH_CONNECTION: '100.111.119.54 4 5 6' }, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true);
   assert.deepEqual(res.mirrorLedger, { host: 'zhuk-vps32', ok: true });
@@ -1550,7 +1556,7 @@ test('R1: an unmapped SSH address means no mirror, logged loudly, delivery outco
   const spawnMirror = async () => { spawnCalled = true; return { ok: true }; };
   const res = await runNoteSend(
     ARGS_OK(),
-    { orca, home, git: () => '.git', now: NOW, env: { ...TYPING, SSH_CONNECTION: '10.0.0.9 1 2 3' }, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: { ...TYPING, SSH_CONNECTION: '10.0.0.9 1 2 3' }, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true, 'delivery outcome is unchanged by a mirror problem');
   assert.equal(res.exitCode, 0);
@@ -1561,7 +1567,7 @@ test('R1: an unmapped SSH address means no mirror, logged loudly, delivery outco
 test('R1: a plain local run (no --sender-host, no SSH env) gets no mirrorLedger key at all', async () => {
   const repo = tmp(); const home = tmp();
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  const res = await runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: TYPING, hostname: 'test-host', localAddrs: [] });
   assert.equal(res.delivered, true);
   assert.ok(!('mirrorLedger' in res), `local run must stay silent: ${JSON.stringify(res)}`);
 });
@@ -1573,7 +1579,27 @@ test('R1: a mapped sender host that IS this machine mirrors to nobody — mirror
   const spawnMirror = async () => { spawnCalled = true; return { ok: true }; };
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'zhuk-netcup.tailnet' },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'zhuk-netcup.tailnet', localAddrs: [] },
+  );
+  assert.equal(res.delivered, true);
+  assert.ok(!('mirrorLedger' in res));
+  assert.equal(spawnCalled, false);
+});
+
+test('R1 (review MAJOR-3): a mapped sender host that is THIS machine by interface address, not by hostname label, still mirrors to nobody', async () => {
+  // On a real Netcup box, os.hostname() is a cloud-provider id like "v2202608391056492408", never the
+  // literal table name "zhuk-netcup" — matching only the hostname label would ssh this box to itself
+  // and double-append the same line. Matching this machine's own tailnet addresses catches that case.
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  let spawnCalled = false;
+  const spawnMirror = async () => { spawnCalled = true; return { ok: true }; };
+  const res = await runNoteSend(
+    ARGS_OK(['--sender-host', 'zhuk-netcup']),
+    {
+      orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror,
+      hostname: 'v2202608391056492408', localAddrs: ['100.69.249.18'],
+    },
   );
   assert.equal(res.delivered, true);
   assert.ok(!('mirrorLedger' in res));
@@ -1587,7 +1613,7 @@ test('--no-mirror skips the mirror unconditionally, whatever the sender host res
   const spawnMirror = async () => { spawnCalled = true; return { ok: true }; };
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup', '--no-mirror']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true);
   assert.ok(!('mirrorLedger' in res));
@@ -1599,7 +1625,7 @@ test('--no-mirror also silences the otherwise-loud unknown-sender-address case',
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
   const res = await runNoteSend(
     ARGS_OK(['--no-mirror']),
-    { orca, home, git: () => '.git', now: NOW, env: { ...TYPING, SSH_CONNECTION: '10.0.0.9 1 2 3' } },
+    { orca, home, git: () => '.git', now: NOW, env: { ...TYPING, SSH_CONNECTION: '10.0.0.9 1 2 3' }, hostname: 'test-host', localAddrs: [] },
   );
   assert.ok(!('mirrorLedger' in res));
 });
@@ -1610,7 +1636,7 @@ test('a mirror failure (non-zero exit) leaves the exit code and delivery outcome
   const spawnMirror = async () => ({ ok: false, code: 127, stderr: 'bash: note-send: command not found\nsome more noise' });
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true, 'a mirror failure never changes the delivery outcome');
   assert.equal(res.mirrorLedger.host, 'zhuk-netcup');
@@ -1628,7 +1654,7 @@ test('a mirror failure truncates a long stderr line to 120 chars', async () => {
   const spawnMirror = async () => ({ ok: false, code: 1, stderr: long });
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.mirrorLedger.ok, false);
   assert.ok(res.mirrorLedger.error.length <= 130, res.mirrorLedger.error);
@@ -1641,7 +1667,7 @@ test('a mirror timeout kills the child and reports error: "timeout" — no retry
   const spawnMirror = async () => { calls += 1; return { ok: false, timedOut: true }; };
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.deepEqual(res.mirrorLedger, { host: 'zhuk-netcup', ok: false, error: 'timeout' });
   assert.equal(calls, 1, 'no retry, ever');
@@ -1653,7 +1679,7 @@ test('a spawn error (e.g. no ssh on PATH) degrades to the same ok:false shape, n
   const spawnMirror = async () => { throw new Error('spawn ssh ENOENT'); };
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true);
   assert.equal(res.mirrorLedger.ok, false);
@@ -1666,7 +1692,7 @@ test('the mirror fires for --to ben too — no special case by recipient (contra
   const res = await runNoteSend(
     ['--from', 'taxonomy', '--to', 'ben', '--kind', 'FYI', '--topic', 'ping', '--text', 'status',
       '--sender-repo', repo, '--sender-host', 'zhuk-netcup'],
-    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, spawnMirror },
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.notified, true);
   assert.deepEqual(res.mirrorLedger, { host: 'zhuk-netcup', ok: true });
@@ -1678,10 +1704,38 @@ test('the mirror fires for a ledger-only ACK/FYI too — no special case by kind
   const res = await runNoteSend(
     ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'status',
       '--recipient-repo', repo, '--sender-host', 'zhuk-netcup'],
-    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, spawnMirror },
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.wake, 'none');
   assert.deepEqual(res.mirrorLedger, { host: 'zhuk-netcup', ok: true });
+});
+
+test('review MAJOR-2: a thrown NoteError past the ledger write still carries mirrorLedger, and failureJson keeps it', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })] });
+  const spawnMirror = async () => ({ ok: false, code: 255, stderr: 'ssh: connect to host … Connection refused' });
+  // The default no-inbox deferral (env: {}, no MULTI_ALLOW_TYPING) throws exit 3 AFTER the ledger write
+  // and the mirror attempt both already ran — this is "normal" per the USAGE text, and it is the path
+  // MAJOR-2 measured losing mirrorLedger entirely.
+  const err = await rejectsWith(
+    runNoteSend(
+      ARGS_OK(['--sender-host', 'zhuk-netcup']),
+      { orca, home, git: () => '.git', now: NOW, env: {}, spawnMirror, hostname: 'test-host', localAddrs: [] },
+    ),
+    3,
+  );
+  assert.ok(err.mirrorLedger, 'the thrown NoteError itself must carry mirrorLedger');
+  assert.equal(err.mirrorLedger.ok, false);
+  assert.equal(err.mirrorLedger.host, 'zhuk-netcup');
+  const json = failureJson(err, err.exitCode);
+  assert.ok('mirrorLedger' in json, `failureJson dropped mirrorLedger: ${JSON.stringify(json)}`);
+  assert.deepEqual(json.mirrorLedger, err.mirrorLedger);
+});
+
+test('review MAJOR-2: failureJson omits mirrorLedger entirely for a thrown error that never set it (plain local)', () => {
+  const err = new NoteError(1, 'boom');
+  const json = failureJson(err, 1);
+  assert.ok(!('mirrorLedger' in json), `local/no-mirror failure must stay silent: ${JSON.stringify(json)}`);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1726,6 +1780,31 @@ test('--append-ledger rejects an over-length stdin BEFORE parsing (MAX_LINE, reu
   assert.equal(fs.existsSync(notesMirrorPath(home, '2026-09-27')), false);
 });
 
+test('--append-ledger rejects a 701-char line with no trailing newline (review MINOR-1)', async () => {
+  const home = tmp();
+  // The earlier over-length check is on `raw` (`> MAX_LINE + 1`, the char cap plus the one newline), so
+  // a 701-char body with NO trailing newline used to slip past it — `parseEnvelope`'s regex bounds no
+  // length on its own.
+  const over = 'a'.repeat(MAX_LINE + 1);
+  await rejectsWith(
+    runNoteSend(['--append-ledger', '2026-09-27'], { home, stdin: over }),
+    1,
+  );
+  assert.equal(fs.existsSync(notesMirrorPath(home, '2026-09-27')), false);
+});
+
+test('--append-ledger rejects a line carrying a trailing CR (review MINOR-1)', async () => {
+  const home = tmp();
+  // Goal/by are `[^\t\n]`, so a CR (a line copied off Windows) parses as an envelope and would write a
+  // stray `\r` into the ledger.
+  const line = 'taxonomy → nucleus, 9.27.26 08:00 NYC [taxonomy-ping-1] FYI: status Goal: g\r';
+  await rejectsWith(
+    runNoteSend(['--append-ledger', '2026-09-27'], { home, stdin: `${line}\n` }),
+    1,
+  );
+  assert.equal(fs.existsSync(notesMirrorPath(home, '2026-09-27')), false);
+});
+
 test('--append-ledger never calls the mirror dependency and writes no outbox entry — never re-mirrored, by construction', async () => {
   const home = tmp();
   const line = 'taxonomy → nucleus, 9.27.26 08:00 NYC [taxonomy-ping-1] FYI: status.';
@@ -1757,9 +1836,42 @@ test('R3: the piggyback drain (deps.flush) is a separate call from the mirror �
   const spawnMirror = async () => { mirrorCalls += 1; return { ok: true }; };
   const res = await runNoteSend(
     ARGS_OK(['--sender-host', 'zhuk-netcup']),
-    { orca, home, git: () => '.git', now: NOW, env: TYPING, flush, spawnMirror },
+    { orca, home, git: () => '.git', now: NOW, env: TYPING, flush, spawnMirror, hostname: 'test-host', localAddrs: [] },
   );
   assert.equal(res.delivered, true);
   assert.equal(flushCalls, 1, 'the drain ran, through deps.flush');
   assert.equal(mirrorCalls, 1, 'the mirror ran exactly once, from the send itself — never from the drain');
+});
+
+test('R3 (review MAJOR-4): the real outbox retry, via note-flush.mjs\'s own runNoteFlush, never reaches the mirror dependency', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })] });
+  let mirrorCalls = 0;
+  const spawnMirror = async () => { mirrorCalls += 1; return { ok: true }; };
+  // Step 1: a real deferred send — MULTI_ALLOW_TYPING unset, so this is the no-inbox path (exit 3,
+  // queued in the outbox) — with a REMOTE sender host, so the mirror runs once from the send itself.
+  const err = await rejectsWith(
+    runNoteSend(
+      ARGS_OK(['--sender-host', 'zhuk-netcup']),
+      { orca, home, git: () => '.git', now: NOW, env: {}, spawnMirror, hostname: 'test-host', localAddrs: [] },
+    ),
+    3,
+  );
+  assert.equal(err.queued, true);
+  assert.equal(mirrorCalls, 1, 'the mirror ran exactly once, from the send itself');
+  assert.equal(fs.readdirSync(outboxDir(home)).length, 1, 'one outbox entry queued');
+
+  // Step 2: the REAL retry — note-flush.mjs's own runNoteFlush, imported (not a stand-in), driving the
+  // same outbox entry on the same home. note-flush.mjs never imports runNoteSend and has no concept of
+  // `spawnMirror` in its own deps, so this is the independent proof that the retry path — whatever
+  // branch it takes — cannot reach the mirror. An SSH_CONNECTION that maps to the very host this send
+  // named is passed on purpose: a mirror bug reachable from note-flush would fire here if it existed.
+  await runNoteFlush([], {
+    home, orca, env: { SSH_CONNECTION: '100.69.249.18 1 2 3' }, spawnMirror, now: NOW,
+  });
+  assert.equal(mirrorCalls, 1, 'the retry never touches the mirror dependency — count is unchanged');
+  const day = timeParts(new Date(NOW)).ymd;
+  const mirrorFile = notesMirrorPath(home, day);
+  const idLines = fs.readFileSync(mirrorFile, 'utf8').split('\n').filter((l) => l.includes(`[${err.id}]`));
+  assert.equal(idLines.length, 1, 'exactly one line for this id — the retry never re-appends it');
 });

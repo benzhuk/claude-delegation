@@ -184,9 +184,22 @@ function defaultSpawnMirror(cmd, args, { input = '', timeoutMs = MIRROR_TIMEOUT_
     let stderr = '';
     let timedOut = false;
     let child;
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
     const timer = setTimeout(() => {
       timedOut = true;
       try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      // review MINOR-3: a single-process child resolves on 'close' just fine, but a grandchild that
+      // still holds the stderr pipe open (ProxyCommand/ProxyJump) can keep 'close' from ever firing.
+      // Destroying our own ends of the pipes here is what actually bounds the promise at timeoutMs; a
+      // later 'close' still fires but `settle` is then a no-op.
+      try { child.stdin?.destroy(); child.stderr?.destroy(); } catch { /* ignore */ }
+      settle({ ok: false, code: null, stderr, timedOut: true });
     }, timeoutMs);
     try {
       child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'pipe'] });
@@ -196,13 +209,16 @@ function defaultSpawnMirror(cmd, args, { input = '', timeoutMs = MIRROR_TIMEOUT_
       return;
     }
     child.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+    // review MAJOR-1: a child that exits before reading stdin (ssh failing fast) makes the write EPIPE
+    // asynchronously; with no listener that is an uncaught 'error' on `child.stdin` that kills note-send
+    // after the ledger write has already succeeded. Best-effort: 'close'/'error' on the child itself
+    // still resolves this promise either way.
+    child.stdin.on('error', () => { /* best effort: EPIPE on a child that exited early */ });
     child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ ok: false, code: null, stderr: String(err?.message ?? err) });
+      settle({ ok: false, code: null, stderr: String(err?.message ?? err) });
     });
     child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: !timedOut && code === 0, code, stderr, timedOut });
+      settle({ ok: !timedOut && code === 0, code, stderr, timedOut });
     });
     try {
       child.stdin.write(input);
@@ -254,7 +270,11 @@ function runAppendLedgerMode(args, deps) {
     throw new NoteError(1, `--append-ledger stdin is ${raw.length} bytes, over the ${MAX_LINE}-char line cap plus one newline`);
   }
   const body = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
-  if (!body || body.includes('\n')) {
+  // review MINOR-1: the length check above is on `raw` (`> MAX_LINE + 1`), so a 701-char body with no
+  // trailing newline slipped through — `parseEnvelope`'s regex bounds no length on its own. The Goal/by
+  // groups are `[^\t\n]`, so a stray `\r` (a line copied off Windows) also parsed and wrote a CR into the
+  // ledger. Both are refused here, before `parseEnvelope` ever runs.
+  if (!body || body.includes('\n') || body.includes('\r') || body.length > MAX_LINE) {
     throw new NoteError(1, '--append-ledger expects exactly one envelope line on stdin');
   }
   if (!parseEnvelope(body)) {
@@ -430,8 +450,16 @@ export async function runNoteSend(argv, deps = {}) {
   const noMirror = Boolean(args['no-mirror']);
   const { host: mirrorSenderHost, sawAddress: mirrorSawAddress } = resolveSenderHost(args, env);
   const localHostLabel = String(deps.hostname ?? os.hostname()).split('.')[0].toLowerCase();
+  // review MAJOR-3: R1's literal wording ("its `name` equals `os.hostname()`'s first label") never fires
+  // on a box whose OS hostname is not literally the table's row name (e.g. this Netcup host's own
+  // `os.hostname()` is a cloud-provider id, not "zhuk-netcup") — a sender-host resolved to THIS machine
+  // would then ssh to itself and double-append the same line to the same file. Matching this machine's
+  // own tailnet interface addresses too keeps R1's intent (never mirror to yourself) without depending on
+  // a hostname string nobody set. Injectable so tests stay hermetic (never the real host's addresses).
+  const localAddrs = deps.localAddrs ?? Object.values(os.networkInterfaces()).flat().map((i) => i?.address);
   // Mapped to THIS machine: no mirror, and `mirrorLedger` is absent entirely (R1, not ok:false).
-  const mirrorIsLocal = Boolean(mirrorSenderHost) && mirrorSenderHost.name.toLowerCase() === localHostLabel;
+  const mirrorIsLocal = Boolean(mirrorSenderHost)
+    && (mirrorSenderHost.name.toLowerCase() === localHostLabel || localAddrs.includes(mirrorSenderHost.addr));
   const mirrorTargetHost = (!noMirror && mirrorSenderHost && !mirrorIsLocal) ? mirrorSenderHost : null;
   // Env address present but unmapped, with no --sender-host override: no mirror, but a loud
   // `unknown-sender-address` rather than silence (R1). `--no-mirror` overrides even this: silent, like
@@ -1004,13 +1032,21 @@ Exit: 0 delivered, queued (--no-type) or notified (ben) · 1 bad arguments/envel
       3 deferred — queued in the outbox, NOT typed · 4 orca CLI error · 5 cross-host misuse
 `;
 
-function failureJson(err, exitCode) {
+// review MAJOR-2: exported (was module-private) so the mirrorLedger-through-a-thrown-path test can
+// assert on it directly, rather than spawning a real CLI process just to read stdout back.
+export function failureJson(err, exitCode) {
   return {
     ok: false, exitCode, envelope: err.envelope ?? null, id: err.id ?? null, to: err.to ?? null,
     handle: err.handle ?? null, classification: err.classification ?? null, delivered: false,
     deferred: exitCode === 3, queued: Boolean(err.queued), notified: Boolean(err.notified),
     ledgers: err.ledgers ?? [], packetPath: err.packetPath ?? null, outbox: err.outbox ?? null,
     warnings: err.warnings ?? [], error: err.message,
+    // review MAJOR-2: every thrown NoteError past the ledger write carries `...base`, which carries
+    // `mirrorLedger` when the send was cross-host — but this function used to list its fields one by one
+    // and drop it, so a remote send's default deferral (the no-inbox exit 3) reported no mirror outcome
+    // at all. Present only when the send actually set it (undefined for a plain local run), matching the
+    // absent-vs-ok:false distinction the resolved-return path already keeps.
+    ...(err.mirrorLedger !== undefined ? { mirrorLedger: err.mirrorLedger } : {}),
     // N2: only present when note-send actually ran the unknown-recipient check and it fired.
     ...(err.unknownRecipient
       ? { unknown_recipient: true, known: err.known ?? [], suggestion: err.suggestion ?? null }
