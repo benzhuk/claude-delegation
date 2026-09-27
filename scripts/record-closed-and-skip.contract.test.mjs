@@ -8,7 +8,7 @@ import test from "node:test";
 import { STATUSES, acceptanceMain, closeRecord, parseRecord, validateRecord, withdrawRecord } from "./work-record.mjs";
 import { selectContinuationSnapshot } from "./continuation.mjs";
 import { main as collectFromOrigin } from "./collect-from-origin.mjs";
-import { buildStatusMd, computeChangeKey, main as collectStatus } from "./collect-status.mjs";
+import { main as collectStatus } from "./collect-status.mjs";
 import { makeTempHome } from "./test-home.mjs";
 
 function git(args, cwd, env) { return execFileSync("git", args, { cwd, env, encoding: "utf8" }).trim(); }
@@ -136,10 +136,24 @@ test("prefixes filter collector rows; collect-status defaults to build/, counts 
   assert.match(fs.readFileSync(path.join(out, "status.md"), "utf8"), /feat\/noise/);
 });
 
-test("change keys use only listed row data and survive the status.md lane-label rename", () => {
-  const rows = [{ branch: "build/l23-1", recordPath: "docs/work/x.record.md", state: "owned", tipSha: "a".repeat(40) }];
-  assert.equal(computeChangeKey(rows), computeChangeKey(rows.map((r) => ({ ...r }))));
-  const md = buildStatusMd({ status: { generatedAt: "2026-09-27T20:00:00.000Z", main: { sha: "a".repeat(40) }, rows, summary: { byState: { owned: 1 }, attention: [] } }, fetchStatus: "ok", sendOutcome: { reason: null } });
-  assert.match(md, /lane/);
-  assert.equal(computeChangeKey(rows), computeChangeKey(rows), "presentation does not enter the key");
+test("independent status runs keep the key for equal listed rows despite prefix presentation, and change it for a listed row", (t) => {
+  const f = prefixFixture(); t.after(f.cleanup);
+  const defaultOut = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-key-default-"));
+  const explicitOut = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-key-explicit-"));
+  const allOut = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-key-all-"));
+  t.after(() => fs.rmSync(defaultOut, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(explicitOut, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(allOut, { recursive: true, force: true }));
+  const run = (out, prefixes = []) => {
+    assert.equal(collectStatus(["--repo", f.root, "--no-fetch", "--out", out, "--quiet", ...prefixes], {}), 0);
+    return JSON.parse(fs.readFileSync(path.join(out, "status.json"), "utf8"));
+  };
+  const defaultStatus = run(defaultOut);
+  const explicitStatus = run(explicitOut, ["--only-prefix", "build/", "--only-prefix", "docs/"]);
+  assert.deepEqual(defaultStatus.rows, explicitStatus.rows, "different prefix metadata leaves the one listed build lane unchanged");
+  assert.equal(defaultStatus.changeKey, explicitStatus.changeKey, "status.json keys are independently obtained from equal listed rows");
+  assert.match(fs.readFileSync(path.join(defaultOut, "status.md"), "utf8"), /lane/, "Markdown presents the derived state as lane");
+  const allStatus = run(allOut, ["--only-prefix", ""]);
+  assert.equal(allStatus.rows.length, defaultStatus.rows.length + 1, "empty prefix adds the previously skipped feature branch");
+  assert.notEqual(allStatus.changeKey, defaultStatus.changeKey, "an actual listed-row change changes the key");
 });

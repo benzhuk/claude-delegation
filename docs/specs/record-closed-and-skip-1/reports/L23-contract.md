@@ -9,6 +9,6 @@ Contract matrix (not run pending implementation gate):
 - Validator: hand-edited closed status without accepted/closed receipts is a finding.
 - Continuation: one valid selected record for every `STATUSES` value, including `closed` and `withdrawn`, yields `OK` buckets.
 - Prefixes: collector explicit `build/`, `feat/`, and empty prefix; status default `build/`, skipped count, excluded noise row, empty-prefix inclusion, legend, and `lane` heading.
-- Change key: identical listed rows have the same key independent of Markdown's state-to-lane presentation.
+- Change key: independently written default and explicit-prefix status files retain a key for identical listed rows while Markdown presents `lane`; adding the formerly skipped row changes the key.
 
 This test intentionally imports the pinned additive public API (`closeRecord`) and will fail before the implementation exposes it.
