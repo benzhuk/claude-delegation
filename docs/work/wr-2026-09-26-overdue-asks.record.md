@@ -12,7 +12,7 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-26T22:50:00-04:00
 Base: 3bd6ef6f98a07037b258ca7b843cbf88b7820f89
 Log: 2026-09-27T02:54:00.000Z owned skills-n picked up skills-fable-overdue-asks-1, ACK sent over ssh on ben-desktop, base 3bd6ef6
-Log: 2026-09-27T03:55:00.000Z owned skills-n launch wf_25e7cd56-c3f: O2 APPROVE at 974d096 (2 rounds); O1 rounds exhausted at a97c0fd with one MAJOR needing a lead ruling and one MINOR test
-Log: 2026-09-27T03:58:00.000Z owned skills-n lead ruling: R5 amended (both inbox cwds gone means log and record, send nothing); lead applied the MINOR test verbatim at 2346279; O1 merged, integration head 81bd3b9; Opus final review, Linux and Windows suites launched
+Log: 2026-09-27T03:44:00.000Z owned skills-n launch wf_25e7cd56-c3f: O2 APPROVE at 974d096 (2 rounds); O1 rounds exhausted at a97c0fd with one MAJOR needing a lead ruling and one MINOR test
+Log: 2026-09-27T03:47:00.000Z owned skills-n lead ruling: R5 amended (both inbox cwds gone means log and record, send nothing); lead applied the MINOR test verbatim at 2346279; O1 merged, integration head 81bd3b9; Opus final review, Linux and Windows suites launched
 
 Observed: pending.

@@ -28,7 +28,7 @@ Spec: `docs/specs/overdue-asks-1/spec.md` (lane thirteen, from origin/docs/lane-
 - Reuse the in-process send the pickup already uses. Do not add a second send path.
 - The BLOCKED line is in spec item 3. Its id is `note-flush-<topic>-overdue-<n>` or whatever the existing id helper yields for sender note-flush. It must never collide with the ASK id.
 - The repo ledger is written only when the pickup's recipient-repo route can name a repo. Otherwise the host ledger only, and the report says which.
-- Lead amendment, 2026-09-26 23:55 NY, after O1 round 3 (reports/O1-review-3.md MAJOR 1). When neither party's registered inbox cwd resolves, the nudge is logged `overdue-send-failed ... no repo resolvable` and the id is recorded, and nothing is sent. Both parties' worktrees are gone, so no live session is left to wake. note-send has no host-ledger-only path, and adding one is a second mechanism this lane does not need. That drop is the accepted behaviour.
+- Lead amendment, 2026-09-26 23:45 NY, after O1 round 3 (reports/O1-review-3.md MAJOR 1). When neither party's registered inbox cwd resolves, the nudge is logged `overdue-send-failed ... no repo resolvable` and the id is recorded, and nothing is sent. Both parties' worktrees are gone, so no live session is left to wake. note-send has no host-ledger-only path, and adding one is a second mechanism this lane does not need. That drop is the accepted behaviour.
 
 ## R6. Territories
 - O1 (Sonnet): `skills/multi/scripts/note-flush.mjs`, `skills/multi/scripts/note-flush.test.mjs`, `skills/multi/SKILL.md`. Gate: `node --test skills/multi/scripts/note-flush.test.mjs`.
