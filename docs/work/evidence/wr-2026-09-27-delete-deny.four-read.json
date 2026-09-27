@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-27T07:49:19Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "188 messages; tokens: cache-read 10703364, cache-write 792423, input 376, output 176336"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "0 note(s) to skills-o: (none)"
+    }
+  ],
+  "leadSession": {
+    "id": "588290d9-ee43-400b-a808-cf44c407171c",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "11672499 tokens: build 11672499 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.5h; largest gap 41.8min at 2026-09-27T06:20:46.606Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "1 gap(s) over 30min: 2026-09-27T06:20:46.606Z (41.8min); 0 unanswered ASKs to skills-o"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-27-delete-deny.record.md"
+}
