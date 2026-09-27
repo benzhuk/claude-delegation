@@ -5,11 +5,11 @@ Status: closed
 Authority: skills-fable-lane-23-1 assigns Lane 23 under the standing merge grant. Only its exclusive territory may change. No install, release, or other lane edits. Root owns this record.
 Artifact: build/record-closed-and-skip-1@255bfd34d25a35c1932e5c048a7be9f1a2dcace3
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1
-Evidence: docs/work/evidence/wr-2026-09-27-record-closed-and-skip-review-final-r4.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-sealed.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-main-closeout.md
-Next: no implementation work remains; retain the reviewed artifact, receipts, and cleanup ownership. The Notion Closed bullet awaits the spec owner's destination on the redesigned page; spec cost remains explicitly unavailable under the pinned inverted timestamp.
+Evidence: docs/work/evidence/wr-2026-09-27-record-closed-and-skip-review-final-r4.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-sealed.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-main-closeout.md, docs/work/evidence/wr-2026-09-27-record-closed-and-skip-metadata-correction.md
+Next: no implementation work remains; retain the reviewed artifact, receipts, and cleanup ownership. The spec owner published the closure entry in docs/decisions/history/2026-09-27.md at f1c59d88a1820e4d9f73cfe83b0c69403160b3dc. Spec-from is corrected below; the original acceptance measurement remains partial because no spec census slice was supplied.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
-Spec-from: 2026-09-27T20:40:00Z
+Spec-from: 2026-09-27T20:15:00Z
 Base: 0c926057a948c4365cf92d82d8fb584cbcc77dcd
 Opened: 2026-09-27T20:30:00Z
 Log: 2026-09-27T20:31:00Z owned root received Lane 23 and opened the bounded manual Codex build
@@ -52,7 +52,7 @@ Four numbers: Work lost or stalled: stalled classification unavailable (native C
 Log: 2026-09-27T21:21:49.748Z accepted root artifact 255bfd34d25a35c1932e5c048a7be9f1a2dcace3
 Log: 2026-09-27T21:31:46.078Z closed root merge 8ab7afecf8cf6f82998b58ba42609a51f6f15b7d
 
-Codex-led manual sequence (no Workflow tool). Pinned Spec-from is later than pickup; retain the source metadata and flag the inconsistency in measurement rather than changing it silently.
+Codex-led manual sequence (no Workflow tool). Metadata correction, September 27, 2026 (America/New_York): skills-fable-lane-23-4 corrected Spec-from from 2026-09-27T20:40:00Z to 2026-09-27T20:15:00Z (4:15 PM America/New_York), verified in docs/specs/2026-09-27-followup-bundle.md at 04d771b18bc0d67f745dbc2aa04a85842b4e709d. The original pinned scope, acceptance and close logs, census, and four-read snapshot remain unchanged. Earlier reports describing the inverted timestamp or pending closure destination are historical; the corrected metadata does not supply missing spec-session tokens.
 
 Observed: final reviewed candidate 255bfd passed sealed suites with native exit zero on both hosts: Windows 2377 passed and 2 skipped, Netcup 2375 passed and 4 skipped. Quiet collector snapshots list only six build branches, report twelve skipped branches, place the legend immediately below the table header, and retain identical change keys for identical rows. Source 0830d78 passed 294 focused tests after the independently identified clock bypass was reproduced and fixed; integration 89b219e passed six independent contract tests. The later legend placement correction passed 25 collector tests. Prior failed gates, the Netcup launch-only exit 127 on 28fa, and superseded reviews remain preserved as history. This is measured correctness evidence, not a demonstrated four-measure goal win.
 
