@@ -556,7 +556,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // the same slug pattern note-send uses (SLUG_RE, above).
   const toGiven = argv.includes("--to");
   const toFlag = parseArgFlag(argv, "--to");
-  if (job === "collect-status" && !toGiven) {
+  // Required only for an actual install — `--remove --job collect-status` (below) identifies which
+  // files to delete from the job/name alone, exactly like `--remove --name x` needs no `--repo`/
+  // `--host` either; the fix here mirrors that existing removeFlag guard.
+  if (job === "collect-status" && !toGiven && !removeFlag) {
     refusals.push("--to <slug> is required for --job collect-status");
   }
   if (job === "janitor-record" && toGiven) {
