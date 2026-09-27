@@ -14,7 +14,7 @@ Spec-from: 2026-09-27T18:20:00Z
 Base: 44118f4fc0175993909851d08b2cdfe8b6ed000d
 Log: 2026-09-27T18:22:46.000Z owned skills-n picked up skills-fable-collect-status-1, ACK sent over ssh on ben-desktop, base 44118f4
 Log: 2026-09-27T18:23:35.000Z owned skills-n pack committed: spec copied from 02b6156, rulings K1-K3 (paths, note, installer). Build loop launching
-Log: 2026-09-27T19:13:00.000Z owned skills-n launch wf_58db5277-9a9: C1 APPROVE ed9d8ca (r2, Opus reviewer), C2 APPROVE 6b08cec (r3, Opus reviewer), C3 APPROVE 3707afa (r2, Opus reviewer); integrated at 1542f8c, integrator PASS 2345 of 2349 with 0 fail, seam r1 Opus APPROVE 1542f8c with five minors; accept-prep refused the record, which had no Artifact line yet
+Log: 2026-09-27T19:15:41.000Z owned skills-n launch wf_58db5277-9a9: C1 APPROVE ed9d8ca (r2, Opus reviewer), C2 APPROVE 6b08cec (r3, Opus reviewer), C3 APPROVE 3707afa (r2, Opus reviewer); integrated at 1542f8c, integrator PASS 2345 of 2349 with 0 fail, seam r1 Opus APPROVE 1542f8c with five minors; accept-prep refused the record, which had no Artifact line yet
 Log: 2026-09-27T19:25:01.000Z reviewed skills-n seam Opus APPROVE ccac310874957b2f21525bc6c3f518dd1713e052 after two delta rounds: the lead applied seam m1 (K2 allowlist, now enforced and tested) at 121eb52, and made three path-literal tests portable after Windows failed them, at ccac310; Linux 2346 of 2350 with 0 fail, Windows 2348 of 2350 with 0 fail
 
 Predicts: the lead reads one status file per wave instead of answering each lane event, so top-tier tokens and turns per day fall toward 40M and 200 in the 2026-09-28 census window.
