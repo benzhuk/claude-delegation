@@ -307,7 +307,9 @@ timestamp, then the nearest-preceding Workflow's own `tool_result` when that, to
 strictly later than the file's last timestamp, then the window end. A timestamp that fails
 to parse, or that has no `Z` or offset, rejects the whole file rather than being guessed as
 local time; that file prints `agent <id> unreadable timestamps` instead of a count. Each
-real stall prints `agent <id> silent <N> min from <ISO>` and adds one to the leading count;
+real stall prints `agent <id> silent <N> min from <ISO>` and adds one to the leading count
+(when the lead's gaps are available; the gaps-unavailable line prints no count, and accept
+then needs a `Stall:`/`Gap:` paragraph);
 these stalls also print alongside a "fewer than 2 lead messages in window" gaps-unavailable
 line rather than being dropped, since the lead's own message count says nothing about
 whether its subagents stalled.

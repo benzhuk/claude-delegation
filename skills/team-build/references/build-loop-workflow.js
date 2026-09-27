@@ -352,7 +352,10 @@ function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, le
     : 'none'
   const censusOut = `docs/work/evidence/${workId}-census.md`
   const markerFlag = censusMarker ? ` --marker '${String(censusMarker).replace(/'/g, `'\\''`)}'` : ''
-  const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha}` : 'seam SKIPPED'
+  // measure-truth-1 R3: this is a loop-accepted record's only `reviewed` Log line, so it must
+  // name a counted high-tier model. Every territory and seam reviewer above is pinned to
+  // model 'opus'.
+  const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha} (Opus reviewer)` : 'seam SKIPPED; territory reviews APPROVE (Opus reviewer)'
   const evidenceFlag = evidenceDestPaths.length ? evidenceDestPaths.join(',') : 'none'
   const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --census-out ${censusOut} --json`
   let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `

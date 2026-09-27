@@ -2927,6 +2927,22 @@ test("checkMeasureTruthRules: a reviewed line whose note contains SKIPPED needs 
   assert.equal(result.strict, true);
 });
 
+// Seam (measure-truth-1): the build loop's own accept-prep reviewed line is a loop-accepted
+// record's ONLY `reviewed` line; a strict record must pass R3 on that line alone.
+for (const note of [
+  `seam r1 APPROVE ${"d".repeat(40)} (Opus reviewer)`,
+  "seam SKIPPED; territory reviews APPROVE (Opus reviewer)",
+]) {
+  test(`R3 seam: the loop's own reviewed line satisfies R3 on a strict record: ${note.slice(0, 24)}`, () => {
+    const text = mkRecordText(
+      { Opened: STRICT_FROM, Base: "a".repeat(40), "Spec-session": "real-spec-session-1", "Spec-from": STRICT_FROM },
+      [`Log: ${STRICT_FROM} reviewed lead ${note}`],
+    );
+    const record = parseRecord(text);
+    assert.equal(checkMeasureTruthRules(text, record, {}).strict, true);
+  });
+}
+
 // Round 1 review, M1: SKIPPED is the loop's own literal seam word, never one of R3's
 // model tokens - it must stay case-sensitive, or a lowercase "skipped" anywhere in a
 // reviewed line's note (incidental prose, not the loop's seam) would exempt a
@@ -3079,6 +3095,25 @@ test("checkMeasureTruthRules: the same Log: line passes with a zero count when a
   const record = parseRecord(text);
   const result = checkMeasureTruthRules(text, record, { now: new Date("2020-01-03T00:00:00Z") });
   assert.equal(result.strict, false);
+});
+
+// Seam (R9): F2's real R6 line shape - only the leading N is read, never M or X.
+test("R4 seam: R6's '0 gap(s) ... stalled; M waiting-on-agents (X min)' reads N=0 and refuses; unavailable wording refuses; N>0 passes", () => {
+  const text = mkRecordText(
+    { Opened: "2020-01-01T00:00:00Z", Base: "a".repeat(40) },
+    ["Log: 2020-01-02T00:00:00Z owned lead the builder hung on a prompt"],
+  );
+  const record = parseRecord(text);
+  const now = new Date("2020-01-03T00:00:00Z");
+  const run = (v) => checkMeasureTruthRules(text, record, { now, fourNumbers: [`Work lost or stalled: ${v}`] });
+  for (const v of [
+    "0 gap(s) over 30min stalled; 3 waiting-on-agents (95.0 min); 0 unanswered ASKs to lead",
+    "gaps unavailable (fewer than 2 lead messages in window); agent a1 silent 64.9 min from 2020-01-02T00:00:00.000Z; 0 unanswered ASKs to lead",
+    "unavailable (no accepted Log: entry)",
+  ]) {
+    assert.throws(() => run(v), (e) => e.code === "stall-word-unexplained", v);
+  }
+  assert.equal(run("1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a1 silent 64.9 min from 2020-01-02T00:00:00.000Z; 0 unanswered ASKs to lead").strict, false);
 });
 
 test("checkMeasureTruthRules: no Four numbers: line at all skips the check and warns, never refuses", () => {

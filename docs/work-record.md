@@ -83,9 +83,11 @@ reviewer)`). The model tokens are the tiers table's own names (`docs/model-tiers
 matched case-insensitively as a whole word (`claude-opus-5-5` counts as `Opus`); a `no`,
 `not`, or `without` in the two words before the token means no model is named (`no Opus
 reviewer was used` names none). A `reviewed` line whose note contains the whole word
-`SKIPPED` (the loop's `seam SKIPPED`) needs no model. At least one `reviewed` line must
-name both a high- or top-tier token and `APPROVE`. Lines dated before `STRICT_FROM`, and
-every rule on a non-strict record, are never re-judged.
+`SKIPPED` (the loop's `seam SKIPPED`) needs no model. Such a line still satisfies the
+at-least-one rule below when it also names a high- or top-tier token and `APPROVE`; the
+build loop writes `seam SKIPPED; territory reviews APPROVE (Opus reviewer)`. At least one
+`reviewed` line must name both a high- or top-tier token and `APPROVE`. Lines dated before
+`STRICT_FROM`, and every rule on a non-strict record, are never re-judged.
 
 ### The `hung`/`stall`/`relaunch` check (measure-truth-1)
 

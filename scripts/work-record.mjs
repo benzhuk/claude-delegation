@@ -670,8 +670,14 @@ export function checkMeasureTruthRules(text, record, opts = {}) {
       const approves = APPROVE_WORD_RE.test(note);
       const isReviewed = status === "reviewed";
       if (!isReviewed && !approves) continue; // not covered by R3 at all
-      if (isReviewed && SKIPPED_WORD_RE.test(note)) continue; // the loop's "seam SKIPPED"
       const tiers = countedModelTiers(note);
+      if (isReviewed && SKIPPED_WORD_RE.test(note)) {
+        // The loop's "seam SKIPPED" needs no model of its own, but when the same line also
+        // names the territory reviews' high/top-tier APPROVE it still satisfies the
+        // at-least-one rule below (seam review: the loop's only reviewed line).
+        if (approves && (tiers.has("high") || tiers.has("top"))) hasHighTopApprove = true;
+        continue;
+      }
       if (tiers.size === 0) {
         throw acceptanceError(
           `Log: ${line.at} ${status} line's note names no counted model token (docs/model-tiers.md); add one, e.g. "Opus reviewer"`,
@@ -723,7 +729,7 @@ export function checkMeasureTruthRules(text, record, opts = {}) {
       const nonZero = leadingMatch ? Number(leadingMatch[1]) !== 0 : false;
       if (!nonZero && !hasStallOrGapParagraph(text)) {
         throw acceptanceError(
-          `Log: ${stallLines[0].at} ${stallLines[0].status} names a hung/stall/relaunch word, but Four numbers: Work lost or stalled: is zero or missing and no Stall:/Gap: body paragraph explains it`,
+          `Log: ${stallLines[0].at} ${stallLines[0].status} names a hung/stall/relaunch word, but Four numbers: Work lost or stalled: has no non-zero leading integer (zero, unavailable, or missing) and no Stall:/Gap: body paragraph explains it`,
           "stall-word-unexplained",
         );
       }
