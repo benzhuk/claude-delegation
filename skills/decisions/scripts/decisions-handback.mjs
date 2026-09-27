@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, formatText } from './decisions-read.mjs';
+import { parseTitle, canonicalPageId } from './decisions-title.mjs';
 
 // This module is deliberately skill-local: mirroring copies the entire skill directory. A failed
 // load remains BLIND, but there is no repository-relative fallback or second config parser.
@@ -114,6 +115,110 @@ export function shaMatch(a, b) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// C5 second half: the `--title-meta` check. `decisions-title.mjs set` retitles the page as the
+// last step of any job that edits it (SKILL.md's new Page rules sentence); this is the read-side
+// check that a hand-back refuses a title that is off-pattern or stale. A malformed or
+// wrong-page meta file is treated as untrustworthy input -- thrown as BlindError, exit 3, the
+// same as an unreadable page -- never printed as one of the four `TITLE`/`title ok` lines below.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TITLE_STALE_TOLERANCE_MS = 2 * 60 * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The NY UTC offset (minutes, NY wall clock minus UTC) in effect at a given UTC instant. */
+function nyOffsetMinutesAt(utcMillis) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(new Date(utcMillis)).map((p) => [p.type, p.value]),
+  );
+  const asIfUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second),
+  );
+  return (asIfUtc - utcMillis) / 60000;
+}
+
+/** The UTC instant (ms) for a given America/New_York wall-clock time. Two passes resolve the
+ * offset (DST at the target date, not "now") without pulling in a timezone database. */
+function nyWallTimeToUtcMillis(year, month, day, hour, minute) {
+  let guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  for (let i = 0; i < 2; i += 1) {
+    const offset = nyOffsetMinutesAt(guess);
+    guess = Date.UTC(year, month - 1, day, hour, minute, 0) - offset * 60000;
+  }
+  return guess;
+}
+
+/**
+ * C5: "the NY wall time in the year of last_edited_time's NY date, minus one year when that
+ * lands more than one day after last_edited_time" -- the title carries no year (C2), so this
+ * recovers the one instance of it nearest the actual retitle, including across a New Year's Eve
+ * retitle read back the following January.
+ */
+export function titleTimeMillis(parsed, lastEditedMillis) {
+  const nyYear = Number(
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric' }).format(new Date(lastEditedMillis)),
+  );
+  let candidate = nyWallTimeToUtcMillis(nyYear, parsed.month, parsed.day, parsed.hour24, parsed.minute);
+  if (candidate - lastEditedMillis > ONE_DAY_MS) {
+    candidate = nyWallTimeToUtcMillis(nyYear - 1, parsed.month, parsed.day, parsed.hour24, parsed.minute);
+  }
+  return candidate;
+}
+
+/**
+ * The `--title-meta` check itself: exactly one of the four C5 output lines, and whether it
+ * blocks (every line but `title ok: ...` does). Throws BlindError (exit 3) for a `--title-meta`
+ * file this check cannot trust at all -- unreadable, malformed, or naming a different page than
+ * this project's configured `decisions_url` -- never for a merely missing `--title-meta` flag,
+ * which is a normal (if blocking) result, not a defect in an input this check was given.
+ */
+function titleCheckLine(args, readFile, readDecisionsUrl) {
+  const decisionsUrl = readDecisionsUrl(args.repo);
+  if (!args.titleMeta) {
+    const pageHint = decisionsUrl || '<id>';
+    return {
+      line: `TITLE unchecked: run decisions-title.mjs meta --page ${pageHint} and pass --title-meta`,
+      blocks: true,
+    };
+  }
+  let raw;
+  try {
+    raw = readFile(args.titleMeta);
+  } catch (e) {
+    throw new BlindError(e instanceof Error ? e.message : 'failed to read the title-meta file');
+  }
+  let meta;
+  try {
+    meta = JSON.parse(raw);
+  } catch {
+    throw new BlindError('title-meta file is not valid JSON');
+  }
+  if (!meta || typeof meta.page !== 'string' || typeof meta.title !== 'string'
+    || typeof meta.last_edited_time !== 'string') {
+    throw new BlindError('title-meta file is missing page/title/last_edited_time');
+  }
+  if (decisionsUrl && canonicalPageId(meta.page) !== canonicalPageId(decisionsUrl)) {
+    throw new BlindError("title-meta page does not match this project's decisions_url");
+  }
+  const lastEditedMillis = Date.parse(meta.last_edited_time);
+  if (Number.isNaN(lastEditedMillis)) {
+    throw new BlindError('title-meta last_edited_time is not a valid date');
+  }
+  const parsed = parseTitle(meta.title);
+  if (!parsed) {
+    return { line: `TITLE off-pattern: ${meta.title}`, blocks: true };
+  }
+  const staleBy = lastEditedMillis - titleTimeMillis(parsed, lastEditedMillis);
+  if (staleBy > TITLE_STALE_TOLERANCE_MS) {
+    return { line: `TITLE stale: ${meta.title} vs last edit ${meta.last_edited_time}`, blocks: true };
+  }
+  return { line: `title ok: ${meta.title}`, blocks: false };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Kill switch: `~/.agents/ws-off` (master) or `~/.agents/ws-off-decisions` (this feature).
 // Mirrors `scripts/goal-card.mjs`'s pattern (an injectable `env`, never a bare `process.env`
 // read down in the logic) rather than `scripts/project-config.mjs`'s `switchedOff`, which reads
@@ -178,7 +283,9 @@ export function countNotesToday(decisionsText, todayMD) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const out = { decisions: null, goals: null, repo: null, head: null, today: null, config: false };
+  const out = {
+    decisions: null, goals: null, repo: null, head: null, today: null, config: false, titleMeta: null,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--config') out.config = true;
@@ -187,6 +294,7 @@ function parseArgs(argv) {
     else if (a === '--repo') { out.repo = argv[i + 1] ?? null; i += 1; }
     else if (a === '--head') { out.head = argv[i + 1] ?? null; i += 1; }
     else if (a === '--today') { out.today = argv[i + 1] ?? null; i += 1; }
+    else if (a === '--title-meta') { out.titleMeta = argv[i + 1] ?? null; i += 1; }
   }
   return out;
 }
@@ -254,6 +362,21 @@ function defaultReadGoalsParentPage(repo) {
   return { configured: page !== null && page !== undefined && page !== '' };
 }
 
+/**
+ * The repo's configured `decisions_url`, or `null` when there is none or it cannot be
+ * determined (no loader beside this skill, or an unreadable/unparsable project.json) -- the
+ * title-meta page-match check is skipped rather than blind in that case (a judgment call: unlike
+ * the goals mirror, an unresolved decisions_url is not itself evidence of a defect worth
+ * stopping the hand-back for; the title's own off-pattern/stale checks still run either way).
+ */
+function defaultReadDecisionsUrl(repo) {
+  const mod = tryLoadProjectConfigModule();
+  if (!mod) return null;
+  const { config, source } = mod.loadProjectConfig(repo);
+  if (source === 'unreadable') return null;
+  return config.decisions_url || null;
+}
+
 function computeHeadSha(repo, head, execGit) {
   if (head !== null) return head;
   let out;
@@ -270,7 +393,7 @@ function computeHeadSha(repo, head, execGit) {
 }
 
 /** The whole check. Never throws past this: caller's try/catch turns anything into BLIND, exit 3. */
-function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
+function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, readDecisionsUrl) {
   if (!args.decisions || !args.repo) {
     throw new BlindError('missing required --decisions/--repo');
   }
@@ -283,6 +406,11 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
   } catch (e) {
     throw new BlindError(e instanceof Error ? e.message : 'failed to read or parse the decisions page');
   }
+
+  // C5: an unreadable/malformed/wrong-page --title-meta is BLIND, "like an unreadable page" --
+  // computed early so it fails fast the same way the decisions/goals reads do, before any of the
+  // page-content checks below run.
+  const titleCheck = titleCheckLine(args, readFile, readDecisionsUrl);
 
   const today = computeToday(args.today);
   const decisionsOffending = objectionableLines(decisionsDoc);
@@ -328,10 +456,11 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage) {
   printed.push(...archive);
   printed.push(...goalsOffending);
   if (shaWarnLine) printed.push(shaWarnLine);
+  printed.push(titleCheck.line);
   for (const line of printed) writeOut(`${line}\n`);
 
   const clean = decisionsOffending.length === 0 && shapeOffending.length === 0 && !doneLine
-    && goalsOffending.length === 0 && !shaWarnLine;
+    && goalsOffending.length === 0 && !shaWarnLine && !titleCheck.blocks;
   if (killSwitchActive(env)) {
     writeOut('HANDBACK disabled\n');
     return 0;
@@ -360,6 +489,7 @@ export function run({
   writeErr = (s) => process.stderr.write(s),
   env = process.env,
   readGoalsParentPage = defaultReadGoalsParentPage,
+  readDecisionsUrl = defaultReadDecisionsUrl,
 } = {}) {
   let args;
   try {
@@ -379,7 +509,7 @@ export function run({
   }
 
   try {
-    return runCheck(args, env, readFile, execGit, write, readGoalsParentPage);
+    return runCheck(args, env, readFile, execGit, write, readGoalsParentPage, readDecisionsUrl);
   } catch (e) {
     writeErr(`decisions-handback: ${e instanceof Error ? e.message : 'failed'}\n`);
     write('HANDBACK blind\n');
