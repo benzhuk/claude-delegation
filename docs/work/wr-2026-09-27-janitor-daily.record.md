@@ -61,5 +61,6 @@ Census: | claude-opus-5-5 | 230061 | 16731651 |
 Census: | claude-sonnet-5 | 453718 | 53319178 |
 Four numbers: not run
 Log: 2026-09-27T14:23:05.210Z accepted skills-h artifact b9fc40e34d80320aab6286c2849cca93fe6b9d8f
+Log: 2026-09-27T14:24:26Z accepted skills-h four-read run after accept (the accept call omitted --four-read), docs/work/evidence/wr-2026-09-27-janitor-daily-four-read.md; its rework row counts the lead's own census and accept commits
 
 Observed: All three territories approved by Opus reviewers (J1 in 3 rounds, J2 in 2, J3 in 1). The integrator gate passed on Hetzner, and the seam review approved at a8e0bb5 after 3 rounds. The live checks (installer dry-run and scratch install, one hand-run record, wiring check on Hetzner and Windows, Windows suite) are recorded in the live evidence file. The live checks found two J1 defects (L1: --help installed into the real home; L2: the temp-checkout refusal missed -wt dirs); a two-round live-fix (3ea1493 NEEDS_FIXES, b9fc40e APPROVE) closed them, and the Windows suite re-ran green at b9fc40e (2047 pass). Overdue-check finding for skills-fable: note-flush flagged skills-fable-janitor-daily-1 as overdue at 08:45 NYC although the ACK was on the ledger at 07:59, because the check counts only RESULT or BLOCKED.
