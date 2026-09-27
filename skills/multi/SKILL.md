@@ -147,7 +147,7 @@ ACK, because the multi skill already tells you what to do with one — remove th
 send a RESULT dropping the ask. `~/.agents/ws-off-overdue` turns this off, beside the shared
 `~/.agents/ws-off`; the status line's own `; overdue: <n> open, <m> nudged` suffix counts the overdue
 asks still unanswered and, of those, how many were already handled once without a nudge landing (no
-inbox here, the send failed, or the answer side was not observable) — a nudge that lands is itself a
+inbox here, the send failed, or seeded on the first pass; `--json` counts answer-side-not-observable ids separately as `crossHost`) — a nudge that lands is itself a
 BLOCKED `re` the ask, so it closes the ask and leaves the count.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is

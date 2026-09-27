@@ -56,7 +56,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  NoteError, parseEnvelope, LEDGER_ONLY_KINDS, suggestSlug, DEFAULT_ZONE, zonedWallToInstant, nextCounter,
+  NoteError, parseEnvelope, LEDGER_ONLY_KINDS, suggestSlug, DEFAULT_ZONE, zonedWallToInstant, nextCounter, envelopeInstant,
 } from './envelope.mjs';
 import {
   toPosix, makeOrcaRunner, resolvePaneWithSource, showPane, readPane, classifyPane, isSendable,
@@ -1376,9 +1376,10 @@ function recordOverdueId(home, state, id, now, fsImpl, opts = {}) {
  *   (b) both the sender and the recipient slugs are registered in this host's inbox registry.
  */
 function observableAnswerSide(ask, lines, inboxes) {
-  const hasReplyLine = lines.some((line) => {
+  const askAt = envelopeInstant(ask);
+  const hasReplyLine = askAt !== null && lines.some((line) => {
     const g = parseEnvelope(line);
-    return Boolean(g) && g.from === ask.to && g.to === ask.from;
+    return Boolean(g) && g.from === ask.to && g.to === ask.from && (envelopeInstant(g) ?? -Infinity) >= askAt;
   });
   if (hasReplyLine) return true;
   return Boolean(inboxes[ask.from]) && Boolean(inboxes[ask.to]);
