@@ -100,12 +100,16 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
   const second = { ...fx.entry, page: 'fedcba9876543210fedcba9876543210' };
   fs.writeFileSync(path.join(fx.repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: PAGE }));
   // The second needs its own canonical project binding.
-  const repo2 = fs.mkdtempSync(path.join(fx.fixtureRoot, 'registered-project-two-'));
+  // Prefix sorts before fx.repo's 'registered-project-' under any collation, so canonical order is
+  // always [second, fx.entry] — the reverse of creation order — and the ordinal assertion bites every run.
+  const repo2 = fs.mkdtempSync(path.join(fx.fixtureRoot, 'a-registered-project-two-'));
   fs.mkdirSync(path.join(repo2, '.agents'), { recursive: true });
   fs.writeFileSync(path.join(repo2, '.agents', 'project.json'), JSON.stringify({ decisions_url: second.page }));
   second.repo = repo2;
   fx.writeRegistration([fx.entry, second]);
-  const canonical = [fx.entry, second].sort((a, b) => path.resolve(a.repo).localeCompare(path.resolve(b.repo)) || a.page.localeCompare(b.page));
+  // Mirror decisions-pickup.mjs's order: code-point compare of the normalized repo key, then page.
+  const key = (e) => `${process.platform === 'win32' ? path.normalize(e.repo).toLowerCase() : path.normalize(e.repo)}\0${e.page}`;
+  const canonical = [fx.entry, second].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   const seen = [];
   const recorded = await registered(fx, {
     selectIndex: (count) => { assert.equal(count, 2); return 1; },
@@ -127,8 +131,7 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
     assert.deepEqual(summary, { code, ordinal: 0 });
     assert.equal(privateText(summary).includes(CANARY), false, `${outcome.status} leaked private detail`);
   }
-  // Pre-seed the claim for whichever entry canonical sort actually placed at ordinal 0 —
-  // mkdtempSync's random fixture-directory suffix, not creation order, decides that.
+  // Pre-seed the claim for the entry canonical sort places at ordinal 0 (the second-created repo).
   const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(canonical[0].repo), page: canonical[0].page });
   fs.mkdirSync(paths.claim, { recursive: true });
   const marker = path.join(fx.home, 'reader-must-not-run-for-held-claim');

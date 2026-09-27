@@ -1,0 +1,821 @@
+{
+  "combined": {
+    "claude-opus-5-5": {
+      "cache_creation_input_tokens": 464647,
+      "cache_read_input_tokens": 6344630,
+      "input_tokens": 196,
+      "output_tokens": 67734
+    },
+    "claude-sonnet-5": {
+      "cache_creation_input_tokens": 270684,
+      "cache_read_input_tokens": 4750340,
+      "input_tokens": 244,
+      "output_tokens": 61648
+    }
+  },
+  "defaultSubagentsDir": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents",
+  "lead": {
+    "coverageReason": null,
+    "coverageSupported": true,
+    "host": "claude",
+    "leadLastMessageAt": "2026-09-27T02:49:48.889Z",
+    "leadTurns": 11,
+    "leadTurnsTotal": 46,
+    "markerFound": true,
+    "nativeTurnCount": null,
+    "nativeTurnCountWindow": null,
+    "observedLeadRequests": null,
+    "observedLeadTokens": null,
+    "observedNativeTurnCount": null,
+    "observedNativeTurnCountWindow": null,
+    "observedTotalByModel": null,
+    "observedWindowByModel": null,
+    "totalByModel": {
+      "<synthetic>": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0
+      },
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 1234669,
+        "cache_read_input_tokens": 45807485,
+        "input_tokens": 566,
+        "output_tokens": 188796
+      }
+    },
+    "totalTurns": 284,
+    "turnsPerHour": 83.08925863608982,
+    "wallClockHours": 0.48141,
+    "windowByModel": {
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 327901,
+        "cache_read_input_tokens": 4665124,
+        "input_tokens": 80,
+        "output_tokens": 19198
+      }
+    },
+    "windowEndAt": "2026-09-27T02:49:48.889Z",
+    "windowStartAt": "2026-09-27T02:20:55.813Z",
+    "windowTurns": 40
+  },
+  "leadPath": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e.jsonl",
+  "marker": null,
+  "subagents": {
+    "excludedByWindow": 2374,
+    "fileCount": 92,
+    "incomplete": false,
+    "perFile": [
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 38978,
+            "cache_read_input_tokens": 443513,
+            "input_tokens": 40,
+            "output_tokens": 16409
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-a453331a5324df66d.jsonl",
+        "role": "unassigned",
+        "turns": 19
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 51498,
+            "cache_read_input_tokens": 1059545,
+            "input_tokens": 60,
+            "output_tokens": 11917
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-a609df02941ddea75.jsonl",
+        "role": "unassigned",
+        "turns": 30
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 18,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-a96b58a3f9ab913ad.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 53,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-aa85862ea3591f2e1.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 31,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-ab30438090ba88a55.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 9,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-ad5e09843978a0530.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 42972,
+            "cache_read_input_tokens": 590022,
+            "input_tokens": 38,
+            "output_tokens": 6394
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-ae5bf35678507fa6e.jsonl",
+        "role": "unassigned",
+        "turns": 19
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 42,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/agent-ae8e80fc4c165ba2a.jsonl",
+        "role": "unassigned",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 42,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-a06c157d2784e7417.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 23,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-a222a48f2af3a0673.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 39,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-a32b0eb24f9624d96.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 17,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-a5e8e64903b6f0f4a.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-a72ab2e6cbfa9099f.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 17,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-a860a18a46563384b.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 10,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-ab01bf2f133fbe28b.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 23,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-ad6a2e6f537954c71.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 16,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-ad8dd9bc6ab868593.jsonl",
+        "role": "accept-prep",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 54,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-adeb2aeda974c28af.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 16,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_136f6f46-ace/agent-adf54772908101525.jsonl",
+        "role": "seam",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 13,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_21356b5b-b4b/agent-a35418c82e955cbff.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 12,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_21356b5b-b4b/agent-a459ca456aceefa1b.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 48,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_21356b5b-b4b/agent-a984ba37843dfa5b5.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 36,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_21356b5b-b4b/agent-ae91679a59a88dce4.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_21356b5b-b4b/agent-af18cd23eabeca586.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 38,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-a0de44d307552ca4c.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 9,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-a1a416af9b452acb6.jsonl",
+        "role": "accept-prep",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 21,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-a1f99975fd46c478e.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 71,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-a5817cf1140fc312a.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 30,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-a6496e1d4495e102f.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 34,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-ab25ad1b795af8485.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 18,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-acbf08ab518ee9530.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 10,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-aeba483134fba500c.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 32,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_277f6db8-55a/agent-af80c76d547465ebe.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 18,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_4c36746b-d7c/agent-a7020444c1cd6621d.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 33,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_4c36746b-d7c/agent-aaa58ca5d121a38e1.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 13,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_4c36746b-d7c/agent-ae2d07a372798e143.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 23,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_5aa4c182-f5e/agent-a61eaa70f80bb4e85.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 27,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_5aa4c182-f5e/agent-a797bbf1b5d149aef.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 20,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_5aa4c182-f5e/agent-a915524221f61625b.jsonl",
+        "role": "seam",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 22,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_5aa4c182-f5e/agent-abce27e0925f9966f.jsonl",
+        "role": "accept-prep",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 17,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_5aa4c182-f5e/agent-ad43320b8940b7a04.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 18,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-a4e6bd3b5c3ace00f.jsonl",
+        "role": "seam",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 12,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-a633311d4a424546b.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 101,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-ab4fb3dd19832fe54.jsonl",
+        "role": "seam-fix",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-ac28e0440487a3e42.jsonl",
+        "role": "seam",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 24,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-ac30630266331ebc7.jsonl",
+        "role": "accept-prep",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 55,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-ad3e9936f954a5c16.jsonl",
+        "role": "seam-fix",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 21,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_60c57c96-32d/agent-aeb95174faaf09453.jsonl",
+        "role": "seam",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 2,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_63e2ed2a-6c7/agent-a482b729a566a5bce.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 45,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_7223f595-b7d/agent-a314563636ff6b931.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 41,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_7223f595-b7d/agent-a527ad921a2f63b9c.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 29,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_86297318-c59/agent-a3a7388ade6624ceb.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 29,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_86297318-c59/agent-a61c552aa04eb37b6.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 43,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_86297318-c59/agent-a65eef2911d6e1d39.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 102,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_86297318-c59/agent-aa8e1f99069269ab7.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 67,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_86297318-c59/agent-ab290f7d3cace259a.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 15,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-a0fad46fcdd0f9097.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-a12aa749501399e73.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 22,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-a3126edc7d975921c.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 28,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-a480f1bc1acd13cf1.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 59,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-a7a62703911253619.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 27,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-a863aa2803ae0f832.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 23,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_a8895a4c-118/agent-abfa252b15fe28d10.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 37,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_aa0318cb-4d9/agent-a831fa8dc7ddc49ff.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 27,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_aa0318cb-4d9/agent-ac6c83eb294876259.jsonl",
+        "role": "accept-prep",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 35,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_aa0318cb-4d9/agent-af289d1ec8f844f14.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_aa0318cb-4d9/agent-af6d0766158651ff7.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 27,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a06008bb1a5b54054.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 50,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a3f23f3c51e600100.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 23,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a4551bb7a8f1c957c.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 18,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a5faf6e241e3d5dda.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 31,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a602be14bf9af4ed0.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 14,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a6b416af4db2a9fdb.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 27,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a74f95e9f3b6d8449.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 24,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-a97818e61bc9737a5.jsonl",
+        "role": "review",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 28,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-ab6ef538185785bfe.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 44,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-ac29a67add2e7537a.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 23,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-ae07a3708f9de9704.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 64,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_b9df59bc-46c/agent-ae9c2ef1b9d9be11e.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 32,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_bc76a98a-05b/agent-ae8e0607238597482.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 63465,
+            "cache_read_input_tokens": 947837,
+            "input_tokens": 48,
+            "output_tokens": 22436
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_e3b29d48-9a5/agent-a671f283ed04b2ab2.jsonl",
+        "role": "review",
+        "turns": 24
+      },
+      {
+        "byModel": {
+          "claude-opus-5-5": {
+            "cache_creation_input_tokens": 34303,
+            "cache_read_input_tokens": 288156,
+            "input_tokens": 28,
+            "output_tokens": 9691
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_e3b29d48-9a5/agent-a87eb6fecde0926ee.jsonl",
+        "role": "review",
+        "turns": 14
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 49199,
+            "cache_read_input_tokens": 778138,
+            "input_tokens": 40,
+            "output_tokens": 12024
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_e3b29d48-9a5/agent-aa75db888c5083f31.jsonl",
+        "role": "build",
+        "turns": 20
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 74442,
+            "cache_read_input_tokens": 1536661,
+            "input_tokens": 62,
+            "output_tokens": 20111
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_e3b29d48-9a5/agent-abf9d59501809d3f2.jsonl",
+        "role": "build",
+        "turns": 31
+      },
+      {
+        "byModel": {
+          "claude-sonnet-5": {
+            "cache_creation_input_tokens": 52573,
+            "cache_read_input_tokens": 785974,
+            "input_tokens": 44,
+            "output_tokens": 11202
+          }
+        },
+        "excludedByWindow": 0,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_e3b29d48-9a5/agent-aec4cf6864e453167.jsonl",
+        "role": "integrate",
+        "turns": 22
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 1,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-a00036e0b4a7db7dd.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 19,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-a1812b41944844518.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 1,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-a2ed7a1b1cc9dd86e.jsonl",
+        "role": "integrate",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 20,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-a6bb0e2d0d69ed817.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 1,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-a6f547b0829e17fd1.jsonl",
+        "role": "build",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 39,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-aa772d8d149c3837e.jsonl",
+        "role": "setup",
+        "turns": 0
+      },
+      {
+        "byModel": {},
+        "excludedByWindow": 1,
+        "file": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/subagents/workflows/wf_fd1322af-501/agent-ad2dba635de2ee5f7.jsonl",
+        "role": "build",
+        "turns": 0
+      }
+    ],
+    "roleFileCounts": {
+      "build": 2,
+      "integrate": 1,
+      "review": 2,
+      "unassigned": 3
+    },
+    "totalByModel": {
+      "claude-opus-5-5": {
+        "cache_creation_input_tokens": 136746,
+        "cache_read_input_tokens": 1679506,
+        "input_tokens": 116,
+        "output_tokens": 48536
+      },
+      "claude-sonnet-5": {
+        "cache_creation_input_tokens": 270684,
+        "cache_read_input_tokens": 4750340,
+        "input_tokens": 244,
+        "output_tokens": 61648
+      }
+    },
+    "totalByRole": {
+      "build": {
+        "cache_creation_input_tokens": 123641,
+        "cache_read_input_tokens": 2314799,
+        "input_tokens": 102,
+        "output_tokens": 32135
+      },
+      "integrate": {
+        "cache_creation_input_tokens": 52573,
+        "cache_read_input_tokens": 785974,
+        "input_tokens": 44,
+        "output_tokens": 11202
+      },
+      "review": {
+        "cache_creation_input_tokens": 97768,
+        "cache_read_input_tokens": 1235993,
+        "input_tokens": 76,
+        "output_tokens": 32127
+      },
+      "unassigned": {
+        "cache_creation_input_tokens": 133448,
+        "cache_read_input_tokens": 2093080,
+        "input_tokens": 138,
+        "output_tokens": 34720
+      }
+    },
+    "totalTurns": 179,
+    "unreadable": 0,
+    "unreadableDirs": []
+  },
+  "tasksPaths": []
+}
