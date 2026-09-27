@@ -1905,6 +1905,20 @@ test("overdue-asks: a STALE ACK (before the ask's own instant) does not answer a
   assert.equal(result.open, 1);
 });
 
+// review F4: the "at" half of "at or after" — an ACK in the SAME minute as its ASK (envelope times
+// have minute resolution, so this is the common fast-ack case) must still answer it.
+test('overdue-asks: an ACK in the SAME minute as its Needs: ack ask answers it (at or after) - never nudged', async () => {
+  const home = tmp();
+  seedOverdueState(home);
+  writeOverdueLedgerLine(home, '2026-09-26', askLine({ needs: 'ack' }));
+  writeOverdueLedgerLine(home, '2026-09-26', ackLine({ time: '20:00' }));
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't4g', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 0, 'at-or-after: a same-minute ACK from the recipient answers it');
+  assert.equal(result.open, 0);
+});
+
 test('overdue-asks: a by-time earlier than the note\'s own time means the deadline is the next day', async () => {
   const home = tmp();
   seedOverdueState(home);

@@ -506,16 +506,31 @@ export async function runNoteSend(argv, deps = {}) {
   // `localInboxRegistered` is read independent of `noType` (unlike `inboxRecord` above, which
   // --no-type deliberately blanks so the later inbox-delivery branch is skipped) because this refusal
   // must fire on the --no-type path too, and it needs the TRUE registration state to do that.
-  const localInboxRegistered = slugWasGiven ? Boolean(readInboxes(home, fsImpl)[toRaw]) : false;
+  // review F1: a record stamped with another machine's hostname means THIS machine has no inbox for
+  // that slug (inbox-claude.mjs:179-188, inbox-codex.mjs:198-207, C7) — a restored backup or a synced
+  // profile must not exempt the refusal either, or the note still lands only in the local ledger.
+  const localInboxRec = slugWasGiven ? (readInboxes(home, fsImpl)[toRaw] ?? null) : null;
+  const localInboxRegistered = Boolean(localInboxRec)
+    && (!localInboxRec.host || localInboxRec.host === os.hostname());
   const localOk = Boolean(args['local-ok']);
-  const canRefuseNoLocalRecipient = slugWasGiven && !dryRun && !args['recipient-repo']
+  // review F5 (lead ruling): --dry-run is no longer excluded — a preview that describes success for a
+  // send that would in fact be refused describes the wrong world (N4's own principle). Case A below
+  // (quiet/--no-type/foreign-inbox) is fully knowable without touching orca, so dry-run reports the
+  // same exit-6 refusal there. The typed-path Case B genuinely cannot be known without a live pane
+  // lookup, which --dry-run deliberately never makes, so that preview is unchanged.
+  const canRefuseNoLocalRecipient = slugWasGiven && !args['recipient-repo']
     && !mirrorTargetHost && !localInboxRegistered && !localOk;
   const refuseNoLocalRecipient = () => new NoteError(
     6,
+    // review F2: --sender-host naming THIS machine has no effect on a local send (mirrorTargetHost
+    // stays null for it) — the working fix is to run note-send on the recipient's own machine over
+    // ssh, adding --sender-host <the host you came from> INSIDE that ssh'd command only when
+    // SSH_CONNECTION doesn't already map it, so the line mirrors back here too.
     `"${toRaw}" has no registered inbox on this machine and no mirror target — a plain local send here `
-    + 'would append the ledger and reach nobody. Run note-send on the recipient\'s machine over ssh, or '
-    + 'pass --sender-host <this host>. Pass --local-ok if this machine\'s ledger is what the recipient '
-    + 'actually reads. NO ledger line was written.',
+    + 'would append the ledger and reach nobody. Run note-send on the recipient\'s machine over ssh — '
+    + 'inside that command, add --sender-host <the host you came from> if SSH_CONNECTION does not map, '
+    + 'so the line mirrors back here too. Pass --local-ok if this machine\'s ledger is what the '
+    + 'recipient actually reads. NO ledger line was written.',
     {
       refused: 'no-local-recipient', to: toRaw,
       hint: 'run note-send on the recipient\'s machine over ssh, or pass --sender-host <this host>',
@@ -523,7 +538,10 @@ export async function runNoteSend(argv, deps = {}) {
   );
   // Case A: the quiet kind or --no-type path never resolves a pane at all, so nothing downstream would
   // ever notice the note has no local reader — checked here, before any pane lookup is even attempted.
-  if (canRefuseNoLocalRecipient && (quietSkipsResolution || noType)) {
+  // review F1: a foreign-host `inboxRecord` (blanked here, unlike `localInboxRegistered` above, since
+  // --no-type deliberately drops it) would otherwise route the typed path into the inbox branch and
+  // exit 3 instead of refusing — so it joins the quiet/--no-type triggers for Case A too.
+  if (canRefuseNoLocalRecipient && (quietSkipsResolution || noType || inboxRecord)) {
     throw refuseNoLocalRecipient();
   }
 
@@ -1058,7 +1076,7 @@ const USAGE = `note-send — one peer-note envelope, ledger-first, with a best-e
             [--n <int>] [--re <parent-id>] [--supersedes <id>] [--goal "<why>"] [--details <repo/relative/path.md>]
             [--needs decision|review|ack|none] [--by "<time>"] [--recipient-repo <dir>] [--sender-repo <dir>]
             [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>]
-            [--sender-host <name>] [--no-mirror] [--no-type] [--no-drain] [--dry-run] [--json]
+            [--sender-host <name>] [--no-mirror] [--local-ok] [--no-type] [--no-drain] [--dry-run] [--json]
 
   note-send --append-ledger <YYYY-MM-DD>   (peer-side mode: reads one envelope line from stdin and
             appends it to THIS machine's ~/.agents/notes/<day>.md; nothing else)

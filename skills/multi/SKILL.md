@@ -377,7 +377,7 @@ safety gate and its failures are silent.
 | 3 | **deferred — queued, nothing delivered yet** | nothing to do. The ledger has the note and `note-flush` retries. Do NOT re-send the id. Since 0.5.0 this is also what a recipient with no registered inbox looks like |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
-| 6 | **refused — no local recipient, NO ledger line written** (since 2026-09-27) | run note-send on the recipient's host over ssh, or pass `--sender-host <this host>`; pass `--local-ok` if this machine's ledger really is what the recipient reads |
+| 6 | **refused — no local recipient, NO ledger line written** (since 2026-09-27) | run note-send on the recipient's own machine over ssh — inside that command, add `--sender-host <the host you came from>` if `SSH_CONNECTION` doesn't map; pass `--local-ok` if this machine's ledger really is what the recipient reads |
 
 Exit 3 is the ordinary outcome now, not a problem. It covers **a recipient with no registered
 inbox on this machine** (the common one since 0.5.0 — the message says exactly that), an inbox post
@@ -427,11 +427,15 @@ target used to append the ledger and post to nobody — the recipient on another
 there is no resolved cross-host mirror target; no inbox is registered here for `--to`; and either the
 send never looks up a pane at all (a ledger-only ACK/FYI, or `--no-type`) or pane resolution on the
 typed path finds no pane whatsoever. An AMBIGUOUS pane is different — a session DOES exist here, just
-under an unclear title — and stays exit 2 as before. Fix: run `note-send` on the recipient's own
-machine over ssh, or pass `--sender-host <this host>` so the cross-host mirror carries it. Pass
-`--local-ok` when you know this machine's ledger genuinely is what the recipient reads (a same-host
-peer with a pane that just hasn't registered its inbox yet); that restores the exact pre-2026-09-27
-behaviour for this one send.
+under an unclear title — and stays exit 2 as before. An inbox record stamped with a DIFFERENT
+machine's hostname (a restored backup, a synced profile) does not exempt the refusal either — this
+machine still has no inbox for that slug. Fix: run `note-send` on the recipient's own machine over
+ssh — inside that command, add `--sender-host <the host you came from>` if `SSH_CONNECTION` doesn't
+already map it, so the line mirrors back to this machine too (`--sender-host` naming the machine
+you're already on has no effect from a local shell). Pass `--local-ok` when you know this machine's
+ledger genuinely is what the recipient reads (a same-host peer with a pane that just hasn't
+registered its inbox yet); that restores the exact pre-2026-09-27 behaviour for this one send.
+`--dry-run` never refuses — it previews the send it would attempt, unaffected by exit 6.
 
 **Two kill switches**, both a file whose mere presence restores the pre-2026-09-20 behaviour (`touch`
 to pause, `rm` to resume — no deploy, no restart):

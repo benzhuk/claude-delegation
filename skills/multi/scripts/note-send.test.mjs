@@ -1135,6 +1135,8 @@ test('Defect 1: the quiet (ledger-only) path is refused too, before any pane loo
   );
   assert.equal(err.refused, 'no-local-recipient');
   assert.equal(orca.calls.length, 0, 'the quiet path never resolves a pane even to refuse');
+  assert.equal(fs.existsSync(path.join(home, '.agents', 'notes')), false, 'no ledger, no outbox');
+  assert.equal(fs.existsSync(path.join(repo, 'docs')), false, 'no repo ledger');
 });
 
 test('Defect 1: --no-type is refused too, before any pane lookup is attempted', async () => {
@@ -1146,6 +1148,8 @@ test('Defect 1: --no-type is refused too, before any pane lookup is attempted', 
   );
   assert.equal(err.refused, 'no-local-recipient');
   assert.equal(orca.calls.length, 0, '--no-type already resolves no pane; the refusal changes nothing about that');
+  assert.equal(fs.existsSync(path.join(home, '.agents', 'notes')), false, 'no ledger, no outbox');
+  assert.equal(fs.existsSync(path.join(repo, 'docs')), false, 'no repo ledger');
 });
 
 test('Defect 1: --local-ok bypasses the refusal on the quiet path too, resuming the old N1 exit-0 ledger-only behaviour', async () => {
@@ -1158,6 +1162,34 @@ test('Defect 1: --local-ok bypasses the refusal on the quiet path too, resuming 
   assert.equal(res.exitCode, 0);
   assert.equal(res.wake, 'none');
   assert.ok(fs.existsSync(res.ledgers[0]));
+});
+
+// review F5 (lead ruling): --dry-run must report the same refusal, not preview a success that would
+// not actually happen — a preview describing the wrong world is worse than none.
+test('Defect 1: --dry-run on the quiet path reports the exit-6 refusal too, not a success preview', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(
+      ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films', '--dry-run'],
+      { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+    ),
+    6,
+  );
+  assert.equal(err.refused, 'no-local-recipient');
+  assert.equal(orca.calls.length, 0);
+  assert.equal(fs.existsSync(path.join(home, '.agents', 'notes')), false, 'a dry-run refusal writes nothing, same as a real one');
+});
+
+test('Defect 1: --dry-run + --local-ok still previews the ledger-only success, unaffected', async () => {
+  const repo = tmp(); const home = tmp();
+  const orca = mockOrca({ panes: [] });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films', '--dry-run', '--local-ok'],
+    { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.dryRun, true);
 });
 
 test('Defect 1: --to ben is exempt — still exit 0 notified, even with no inbox and no mirror target', async () => {
@@ -1183,6 +1215,68 @@ test('Defect 1: --recipient-repo is exempt (the collector\'s cross-repo path) �
   );
   assert.ok(err.ledgers.length > 0, 'collect-status.mjs:162-168 always passes --recipient-repo, so it must still record');
   assert.equal(err.queued, true);
+});
+
+// review F3: the previous test's inbox-for-a-different-slug fixture also passes --recipient-repo,
+// which exempts the send on its own — it does not, by itself, prove the refusal is scoped to `--to`.
+// This test drops --recipient-repo so ONLY the foreign-slug inbox is in play.
+test('Defect 1: an inbox registered for a DIFFERENT slug does not exempt --to - still exit 6, nothing written', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'someone-else-entirely', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't9' }, { now: NOW });
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(
+      ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+      { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+    ),
+    6,
+  );
+  assert.equal(err.refused, 'no-local-recipient');
+  assert.deepEqual(err.ledgers ?? [], []);
+  assert.deepEqual(fs.readdirSync(path.join(home, '.agents', 'notes')).filter((f) => f !== 'inboxes.json'), [], 'no ledger, no outbox');
+  assert.equal(fs.existsSync(path.join(repo, 'docs')), false);
+});
+
+// review F1: a record stamped with another machine's hostname means THIS machine has no inbox for
+// that slug (C7) — it must not exempt the refusal either, or the note still lands only in the local
+// ledger. Covers both the quiet path (FYI, exit 6 now) and the typed path (would otherwise take the
+// foreign inboxRecord branch and exit 3).
+test('Defect 1: an inbox registered on a DIFFERENT HOST does not exempt --to - still exit 6 (quiet path)', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', host: 'another-box' }, { now: NOW });
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(
+      ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+      { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+    ),
+    6,
+  );
+  assert.equal(err.refused, 'no-local-recipient');
+  assert.deepEqual(err.ledgers ?? [], []);
+});
+
+test('Defect 1: an inbox registered on a DIFFERENT HOST does not exempt --to - still exit 6 (typed path, would otherwise exit 3)', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', host: 'another-box' }, { now: NOW });
+  const orca = mockOrca({ panes: [] });
+  const err = await rejectsWith(
+    runNoteSend(ARGS_OK(), { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } }),
+    6,
+  );
+  assert.equal(err.refused, 'no-local-recipient');
+  assert.deepEqual(err.ledgers ?? [], []);
+});
+
+test('Defect 1: a SAME-host registered inbox still exempts --to as before (no host field, or matches os.hostname())', async () => {
+  const repo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', cwd: repo }, { now: NOW });
+  const orca = mockOrca({ panes: [] });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca, home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${repo}::workspace:w` } },
+  );
+  assert.equal(res.exitCode, 0);
 });
 
 test('Defect 1: a --sender-host that resolves to a real mirror target is exempt — still exits 2 old-H3, not 6', async () => {
