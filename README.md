@@ -261,6 +261,37 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.14 — four-read, accept: the four-number read counts stalls across every
+  transcript of a build, lead and children, and top-tier tokens from both Claude and
+  Codex shaped records; accept refuses a record missing Spec-session, a Spec-from not
+  in Z form, a Base that is not one sha, an approving review line without a model
+  token, or a zero-stall claim beside a hung, stall or relaunch Log line (lane
+  fourteen, c2f3b73).
+- 0.20.14 — census: the census reads a Codex lead's children, models and windows
+  natively, and the four-number read takes the lead id from the census for a Codex
+  build; default top tiers gain gpt-6-astra and gpt-5.6-sol; the Codex fixture's
+  golden matches the Claude golden byte for byte (lane seventeen, led from Codex,
+  f474c7d).
+- 0.20.14 — knowledge: a PostToolUse knowledge-log hook records topic reads and
+  inbox writes under ~/.agents/knowledge, kill switches ~/.agents/no-knowledge-log
+  and ~/.agents/ws-off; SessionStart prints one knowledge line with topics, pending
+  inbox notes and reads in seven days; knowledge-count.mjs and the GOALS.md status
+  feed from it (lane eighteen, 83c415d).
+- 0.20.14 — janitor: install-janitor-timer.mjs installs a daily report-only janitor
+  --record timer or task per host and never --apply; wiring-check.mjs exits 1 on a
+  missing or stale wire and its checks can fail; the release procedure names the
+  check (lane nineteen, 619ad1c).
+- 0.20.14 — decisions: the pickup's active-round check compares owner inputs, not
+  page bytes, and a round stuck by the old byte check can be accounted; Bearings
+  sections read as historical; the pickup CLI works through a symlink;
+  decisions-title.mjs retitles a page to "<Topic>: M/D H:MMAM Decisions" in
+  America/New_York and the hand-back requires --title-meta and refuses a stale or
+  off-pattern title (pickup completion, ae60967).
+- 0.20.14 — docs: record closures and four-number reads for lanes fourteen,
+  seventeen, eighteen, nineteen and the pickup completion (78bf171, 26cc132, 56f80ce,
+  de52a91, 0a39e0b).
+- 0.20.14 — docs: the 2026-09-27 bearings evidence branch docs/bearings-0927
+  (a2bd711) is referenced, not merged.
 - 0.20.13 — work-record: a terminal withdrawn status and a withdraw command; the two
   Sep 23 rejected records are withdrawn, so the prompt work line is quiet (lane nine,
   68d2a15).
