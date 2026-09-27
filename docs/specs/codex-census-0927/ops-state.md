@@ -13,4 +13,10 @@ No C1 or C2 builder checkout exists. The lead must first consume the scout resul
 
 Blocker recorded by the red-team: the current `four-read.mjs` does not yet cover the native Codex rollout filename, Astra's tier classification, or Codex usage records. No `four-read.mjs` change or placeholder four-number output is authorized until the lead receives the scope ruling for a narrow C3.
 
+High-tier review: `spec-review.md` records the additional required measurement-contract rulings on coverage, discovery horizon/depth, identity, unavailable aggregation, turn/window definitions, and Claude byte preservation. C1 must preserve its Claude golden baseline before source changes. C2 may wait for the lane-fourteen contract if its exact accept-prep wording is unresolved.
+
+Claude golden baseline: `claude-golden-base.md` is the complete stdout from the pinned base command `node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --tasks scripts/build-census.fixtures/tasks`; C1 must reproduce it byte-for-byte using those exact fixture paths and options.
+
+T0 contract: `contracts.md` freezes the existing report shape and the minimum Codex-host metadata C3 may consume if it is later authorized. `briefs/C1-C2.md` assigns the cohesive four-file C1/C2 feature to one mid-tier builder. The C1 checkout is created only after this t0 packet is committed and pushed.
+
 The native lead transcript must use `C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home` as `CODEX_HOME`. The private rollout routing note is not copied into this repository.
