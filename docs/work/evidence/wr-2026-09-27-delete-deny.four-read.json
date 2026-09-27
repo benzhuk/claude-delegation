@@ -1,10 +1,10 @@
 {
-  "acceptAt": "2026-09-27T07:49:19Z",
+  "acceptAt": "2026-09-27T07:50:16Z",
   "companions": [
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "188 messages; tokens: cache-read 10703364, cache-write 792423, input 376, output 176336"
+      "value": "189 messages; tokens: cache-read 10733554, cache-write 829224, input 378, output 177199"
     },
     {
       "key": "notesToLeadPerBuild",
@@ -21,7 +21,7 @@
     {
       "key": "topTierTokensPerBuild",
       "label": "Top-tier tokens per build",
-      "value": "11672499 tokens: build 11672499 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+      "value": "11740355 tokens: build 11740355 (claude-opus-5-5); partial (no spec slice): spec-census not run"
     },
     {
       "key": "hoursAskToAccepted",
