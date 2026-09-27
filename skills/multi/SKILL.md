@@ -29,7 +29,8 @@ Five rules carry the whole protocol:
   `note-inbox` or the ledger before you decide something did not land.
 - **Never wait on a peer inside a turn.** Send, record, carry on. They answer at their next pause.
 - **Receipts, not heartbeats.** One ACK when a peer starts, one RESULT when it finishes. Nothing in
-  between. A peer that says nothing is working, not stuck. Since 2026-09-20 an ACK no longer STARTS a
+  between. A peer that says nothing is working, not stuck until its by-time; after that the flusher
+  says so. Since 2026-09-20 an ACK no longer STARTS a
   turn — it is a ledger record, not a nudge (so is FYI); the recipient's own hooks surface it at their
   next event. It still shows up mid-turn if this turn does anything at all (a prompt, a tool call), and
   since round 2 (MINOR 11) it no longer costs a Stop-block by itself either: a Stop where EVERY waiting
@@ -132,6 +133,15 @@ mechanism, never a second one — ending in `; pickup: not registered on this ho
 this machine, which is the normal state on most hosts), `; pickup: configured, awaiting first pickup
 pass` when the file exists but no pass has annotated a result yet, `; pickup: <code> <age>` once a pass
 has annotated one, or `; pickup: disabled (<switch>)` when `ws-off`/`ws-off-decisions` is present.
+
+`note-flush` also reads the whole ledger for an ASK whose by-time deadline is at least 15 minutes past
+with no RESULT or BLOCKED yet — an ACK does not answer one. It nudges once per id, ever: one BLOCKED
+note from `note-flush` into whichever of the sender or the recipient has a registered inbox on this
+host (neither registered logs it and moves on). BLOCKED, not FYI or ACK, because the multi skill
+already tells you what to do with one — remove the blocker, escalate, or send a RESULT dropping the
+ask. `~/.agents/notes/ws-off-overdue` turns this off, beside the shared `~/.agents/notes/ws-off`; the
+status line's own `; overdue: <n> open, <m> nudged` suffix says how many are still unanswered and how
+many of those have already been nudged.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
