@@ -232,6 +232,8 @@ node scripts/mirror-shared-skills.mjs
 
 Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
 
+After installing a release on a host, run `node scripts/wiring-check.mjs --line` on that host and report its line and exit code, so the install is verified that same day rather than assumed clean.
+
 ## The philosophy, in four lines
 
 1. Orchestrator tokens buy judgment (spec, adjudication, ship); executors run at full
