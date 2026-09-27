@@ -1785,7 +1785,10 @@ test('--append-ledger rejects a 701-char line with no trailing newline (review M
   // The earlier over-length check is on `raw` (`> MAX_LINE + 1`, the char cap plus the one newline), so
   // a 701-char body with NO trailing newline used to slip past it — `parseEnvelope`'s regex bounds no
   // length on its own.
-  const over = 'a'.repeat(MAX_LINE + 1);
+  const head = 'taxonomy → nucleus, 9.27.26 08:00 NYC [taxonomy-ping-1] FYI: ';
+  const over = head + 's'.repeat(MAX_LINE + 1 - head.length);
+  assert.equal(over.length, MAX_LINE + 1);
+  assert.ok(parseEnvelope(over), 'the probe must be a valid envelope, so only the length check can refuse it');
   await rejectsWith(
     runNoteSend(['--append-ledger', '2026-09-27'], { home, stdin: over }),
     1,
@@ -1864,10 +1867,12 @@ test('R3 (review MAJOR-4): the real outbox retry, via note-flush.mjs\'s own runN
   // Step 2: the REAL retry — note-flush.mjs's own runNoteFlush, imported (not a stand-in), driving the
   // same outbox entry on the same home. note-flush.mjs never imports runNoteSend and has no concept of
   // `spawnMirror` in its own deps, so this is the independent proof that the retry path — whatever
-  // branch it takes — cannot reach the mirror. An SSH_CONNECTION that maps to the very host this send
-  // named is passed on purpose: a mirror bug reachable from note-flush would fire here if it existed.
+  // branch it takes — cannot reach the mirror. An SSH_CONNECTION mapping to a REMOTE table host
+  // (zhuk-vps32, never this machine: hostname/localAddrs are pinned below) is passed on purpose, so a
+  // mirror bug reachable from note-flush would fire here if it existed, on every host the suite runs on.
   await runNoteFlush([], {
-    home, orca, env: { SSH_CONNECTION: '100.69.249.18 1 2 3' }, spawnMirror, now: NOW,
+    home, orca, env: { SSH_CONNECTION: '100.111.119.54 1 2 3' }, spawnMirror, now: NOW,
+    hostname: 'test-host', localAddrs: [],
   });
   assert.equal(mirrorCalls, 1, 'the retry never touches the mirror dependency — count is unchanged');
   const day = timeParts(new Date(NOW)).ymd;
