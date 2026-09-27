@@ -139,16 +139,18 @@ with no RESULT or BLOCKED yet — an ACK does not answer one. It nudges once per
 note from `note-flush` into whichever of the sender or the recipient has a registered inbox on this
 host (neither registered logs it and moves on). A nudge only ever goes out when the answer side is
 observable on this host — the corpus already holds a reply from the recipient to the sender, of any
-kind, or both slugs are registered here — otherwise it is logged and recorded without a send, since a
-cross-host pair's ledger here is only half the conversation. And the first pass ever on a machine seeds
-its state file silently, recording every already-overdue id without nudging any of them, so publishing
-this feature does not fire a burst of BLOCKED notes for asks that were merely old. BLOCKED, not FYI or
-ACK, because the multi skill already tells you what to do with one — remove the blocker, escalate, or
-send a RESULT dropping the ask. `~/.agents/ws-off-overdue` turns this off, beside the shared
-`~/.agents/ws-off`; the status line's own `; overdue: <n> open, <m> nudged` suffix counts the overdue
-asks still unanswered and, of those, how many were already handled once without a nudge landing (no
-inbox here, the send failed, or seeded on the first pass; `--json` counts answer-side-not-observable ids separately as `crossHost`) — a nudge that lands is itself a
-BLOCKED `re` the ask, so it closes the ask and leaves the count.
+kind and stamped at or after the ASK, or both slugs are registered here — otherwise it is logged and
+recorded without a send, since a cross-host pair's ledger here is only half the conversation, until
+the sender's host has the thread too, which the mirror now gives it. And the first pass ever on a
+machine seeds its state file silently, recording every already-overdue id without nudging any of them,
+so publishing this feature does not fire a burst of BLOCKED notes for asks that were merely old.
+BLOCKED, not FYI or ACK, because the multi skill already tells you what to do with one — remove the
+blocker, escalate, or send a RESULT dropping the ask. `~/.agents/ws-off-overdue` turns this off, beside
+the shared `~/.agents/ws-off`; the status line's own `; overdue: <n> open, <m> nudged` suffix counts the
+overdue asks still unanswered and, of those, how many were already handled once without a nudge landing
+(no inbox here, the send failed, or seeded on the first pass; `--json` counts answer-side-not-observable
+ids separately as `crossHost`) — a nudge that lands is itself a BLOCKED `re` the ask, so it closes the
+ask and leaves the count.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
@@ -305,7 +307,12 @@ ssh command, tmux) run `bash -lc 'note-send …'` or set `ORCA_CLI`, because not
 
 **A peer on another machine**: run note-send ON that machine over ssh. The packet and both
 ledger lines then land where the recipient actually works, and `Details:` stays
-repo-relative. There is no `<host>:` path form.
+repo-relative. There is no `<host>:` path form. When the sender's host differs from the one running
+this command (given by `--sender-host` or read off `SSH_CONNECTION`/`SSH_CLIENT`), the same envelope
+line also lands, best-effort, in the sender host's own `~/.agents/notes/<day>.md` — so the line now
+lands on both hosts, not just the recipient's; the repo ledger under `docs/ledger` is never mirrored,
+only that one file. The JSON result's `mirrorLedger` (`{host, ok:true}`, `{host, ok:false, error}`, or
+absent for a local send) reports that outcome and never changes the exit code or the delivery outcome.
 
 Call it by its absolute path and quote the whole remote command as ONE argument:
 

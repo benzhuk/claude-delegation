@@ -75,11 +75,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 
 import {
   NoteError, RESERVED_RECIPIENT, DEFAULT_ZONE, DEFAULT_TZ_LABEL, LEDGER_ONLY_KINDS,
   assertFieldSafe, validateSlug, validateId, validateDetails, validateKindNeeds,
-  buildEnvelope, nextCounter, timeParts, suggestSlug,
+  buildEnvelope, nextCounter, timeParts, suggestSlug, MAX_LINE, parseEnvelope,
 } from './envelope.mjs';
 
 import {
@@ -118,8 +119,175 @@ const PERMISSION_POLL_MS = 5_000;
 const STRING_FLAGS = new Set([
   'from', 'to', 'kind', 'topic', 'text', 'n', 're', 'supersedes', 'goal', 'details',
   'needs', 'by', 'recipient-repo', 'sender-repo', 'packet-file', 'tz', 'orca', 'wait-max', 'id',
+  'sender-host', 'append-ledger',
 ]);
-const BOOL_FLAGS = new Set(['dry-run', 'json', 'force', 'help', 'no-type', 'no-drain']);
+const BOOL_FLAGS = new Set(['dry-run', 'json', 'force', 'help', 'no-type', 'no-drain', 'no-mirror']);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L1: sender-host resolution and the cross-host ledger mirror (contracts R1-R3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One frozen table, one place (contract R1). Tailnet addresses and ssh users measured by the lead
+ * 2026-09-27; `os` picks the remote shim's invocation form (`remoteAppendCommand` below) — Windows has
+ * no `~/.local/bin` on PATH, the others do.
+ */
+export const MIRROR_HOSTS = Object.freeze([
+  Object.freeze({ name: 'zhuk-netcup', addr: '100.69.249.18', user: 'ben', os: 'linux' }),
+  Object.freeze({ name: 'ben-desktop', addr: '100.78.52.18', user: 'benzh', os: 'windows' }),
+  Object.freeze({ name: 'zhuk-vps32', addr: '100.111.119.54', user: 'ben', os: 'linux' }),
+  Object.freeze({ name: 'bens-m2-air', addr: '100.116.13.27', user: 'benzhuk', os: 'macos' }),
+]);
+
+/** Hard 5 s: no retry, ever (contract R2). */
+export const MIRROR_TIMEOUT_MS = 5_000;
+
+/**
+ * `--sender-host <name>` looks up by name (an unknown name is a usage error, exit 1, distinct from an
+ * unmapped address). Otherwise the first field of `SSH_CONNECTION`, else `SSH_CLIENT`, looked up by
+ * addr. Reads no other environment variable and never returns either raw value it read — only the
+ * table row, so nothing about the address or connection string can leak into a result or a log.
+ */
+export function resolveSenderHost(args, env, hostTable = MIRROR_HOSTS) {
+  if (args['sender-host'] !== undefined) {
+    const name = String(args['sender-host']);
+    const host = hostTable.find((h) => h.name === name);
+    if (!host) {
+      throw new NoteError(
+        1,
+        `--sender-host "${name}" is not one of the known hosts (${hostTable.map((h) => h.name).join(', ')})`,
+      );
+    }
+    return { host, sawAddress: false };
+  }
+  const raw = env.SSH_CONNECTION || env.SSH_CLIENT || '';
+  const addr = String(raw).trim().split(/\s+/)[0] || '';
+  if (!addr) return { host: null, sawAddress: false };
+  const host = hostTable.find((h) => h.addr === addr) ?? null;
+  return { host, sawAddress: true };
+}
+
+/** Linux/macOS have the shim on `~/.local/bin`; Windows resolves it from PATH instead (contract Facts). */
+export function remoteAppendCommand(host, day) {
+  return host.os === 'windows'
+    ? `note-send --append-ledger ${day}`
+    : `~/.local/bin/note-send --append-ledger ${day}`;
+}
+
+/**
+ * `ssh -o BatchMode=yes -o ConnectTimeout=3 <user>@<addr> <remote>`, the envelope line on stdin, killed
+ * hard at `MIRROR_TIMEOUT_MS`. Never runs a real shell: `spawn(cmd, args)` with an argv array, exactly
+ * the `execFile`-without-shell discipline the rest of this file already uses for `orca`.
+ */
+function defaultSpawnMirror(cmd, args, { input = '', timeoutMs = MIRROR_TIMEOUT_MS } = {}) {
+  return new Promise((resolve) => {
+    let stderr = '';
+    let timedOut = false;
+    let child;
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      // review MINOR-3: a single-process child resolves on 'close' just fine, but a grandchild that
+      // still holds the stderr pipe open (ProxyCommand/ProxyJump) can keep 'close' from ever firing.
+      // Destroying our own ends of the pipes here is what actually bounds the promise at timeoutMs; a
+      // later 'close' still fires but `settle` is then a no-op.
+      try { child.stdin?.destroy(); child.stderr?.destroy(); } catch { /* ignore */ }
+      settle({ ok: false, code: null, stderr, timedOut: true });
+    }, timeoutMs);
+    try {
+      child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'pipe'] });
+    } catch (err) {
+      clearTimeout(timer);
+      resolve({ ok: false, code: null, stderr: String(err?.message ?? err) });
+      return;
+    }
+    child.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+    // review MAJOR-1: a child that exits before reading stdin (ssh failing fast) makes the write EPIPE
+    // asynchronously; with no listener that is an uncaught 'error' on `child.stdin` that kills note-send
+    // after the ledger write has already succeeded. Best-effort: 'close'/'error' on the child itself
+    // still resolves this promise either way.
+    child.stdin.on('error', () => { /* best effort: EPIPE on a child that exited early */ });
+    child.on('error', (err) => {
+      settle({ ok: false, code: null, stderr: String(err?.message ?? err) });
+    });
+    child.on('close', (code) => {
+      settle({ ok: !timedOut && code === 0, code, stderr, timedOut });
+    });
+    try {
+      child.stdin.write(input);
+      child.stdin.end();
+    } catch { /* the child may already be gone; `close` still fires */ }
+  });
+}
+
+/**
+ * The mirror call itself (contract R2/R3), run once per invocation after the local ledger write has
+ * already succeeded. Never throws: every failure mode — timeout, non-zero exit, spawn error, an old
+ * peer rejecting the flag — degrades to the same `{ host, ok: false, error }` shape, never the note's
+ * own text.
+ */
+async function runMirror(host, day, envelope, deps) {
+  const spawnMirror = deps.spawnMirror ?? defaultSpawnMirror;
+  const remote = remoteAppendCommand(host, day);
+  const args = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', `${host.user}@${host.addr}`, remote];
+  let res;
+  try {
+    res = await spawnMirror('ssh', args, { input: `${envelope}\n`, timeoutMs: MIRROR_TIMEOUT_MS });
+  } catch (err) {
+    return { host: host.name, ok: false, error: String(err?.message ?? err).slice(0, 120) };
+  }
+  if (res?.timedOut) return { host: host.name, ok: false, error: 'timeout' };
+  if (res?.ok) return { host: host.name, ok: true };
+  const stderrLine = String(res?.stderr ?? '').split('\n')[0].slice(0, 120);
+  const codePart = res?.code !== undefined && res?.code !== null ? `exit ${res.code}` : 'spawn error';
+  return { host: host.name, ok: false, error: stderrLine ? `${codePart}: ${stderrLine}` : codePart };
+}
+
+/**
+ * `note-send --append-ledger <YYYY-MM-DD>` (contract R2): the peer-side half of the mirror. Reads
+ * exactly one line from stdin, refuses anything that is not a parseable envelope, and appends it verbatim
+ * to this machine's own `~/.agents/notes/<day>.md` — nothing else. No delivery, no outbox, no repo
+ * ledger, no mirror of its own; that is the "never re-mirrored" guarantee, by construction: this
+ * function never calls `runMirror`.
+ */
+function runAppendLedgerMode(args, deps) {
+  const fsImpl = deps.fsImpl ?? fs;
+  const home = toPosix(deps.home ?? os.homedir());
+  const day = String(args['append-ledger']);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    throw new NoteError(1, `--append-ledger needs a day in YYYY-MM-DD form (got "${day}")`);
+  }
+  const raw = deps.stdin ?? readStdin();
+  // Reject over-length before parsing anything (contract R2): MAX_LINE chars plus the one newline.
+  if (raw.length > MAX_LINE + 1) {
+    throw new NoteError(1, `--append-ledger stdin is ${raw.length} bytes, over the ${MAX_LINE}-char line cap plus one newline`);
+  }
+  const body = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
+  // review MINOR-1: the length check above is on `raw` (`> MAX_LINE + 1`), so a 701-char body with no
+  // trailing newline slipped through — `parseEnvelope`'s regex bounds no length on its own. The Goal/by
+  // groups are `[^\t\n]`, so a stray `\r` (a line copied off Windows) also parsed and wrote a CR into the
+  // ledger. Both are refused here, before `parseEnvelope` ever runs.
+  if (!body || body.includes('\n') || body.includes('\r') || body.length > MAX_LINE) {
+    throw new NoteError(1, '--append-ledger expects exactly one envelope line on stdin');
+  }
+  if (!parseEnvelope(body)) {
+    throw new NoteError(1, '--append-ledger refuses a line that does not parse as an envelope; nothing was written');
+  }
+  const file = notesMirrorPath(home, day);
+  appendLine(file, body, fsImpl);
+  return {
+    ok: true, exitCode: 0, appendLedger: true, day, file, envelope: body,
+    delivered: false, deferred: false, queued: false, notified: false,
+    ledgers: [file], packetPath: null, outbox: null, warnings: [], error: null,
+  };
+}
 
 export function parseArgs(argv) {
   const out = {};
@@ -212,6 +380,12 @@ export function needsBen(kind, to, needs) {
  */
 export async function runNoteSend(argv, deps = {}) {
   const args = parseArgs(argv);
+  // R2: `--append-ledger <day>` is a completely separate mode — the peer-side half of the mirror. It
+  // does nothing else (no delivery, no outbox, no repo ledger, no mirror of its own), so it returns
+  // before any of the normal --from/--to/--kind validation below, which it never needs.
+  if (args['append-ledger'] !== undefined) {
+    return runAppendLedgerMode(args, deps);
+  }
   const fsImpl = deps.fsImpl ?? fs;
   const env = deps.env ?? process.env;
   const home = toPosix(deps.home ?? os.homedir());
@@ -267,6 +441,30 @@ export async function runNoteSend(argv, deps = {}) {
   }
   if (args.re) validateId('re', args.re);
   if (args.supersedes) validateId('supersedes', args.supersedes);
+
+  // R1: sender-host resolution for the cross-host ledger mirror. `mirrorSenderHost` is a DIFFERENT
+  // concept from `env.ORCA_SENDER_HOST` above (M4 pins that one's own, unrelated meaning) — this reads
+  // only `--sender-host` / `SSH_CONNECTION` / `SSH_CLIENT`, maps through `MIRROR_HOSTS`, and never
+  // prints either raw value. An unknown `--sender-host` name is a usage error and throws here, before
+  // any pane is touched. `--no-mirror` is read here too so the plan/dry-run block below can be silent.
+  const noMirror = Boolean(args['no-mirror']);
+  const { host: mirrorSenderHost, sawAddress: mirrorSawAddress } = resolveSenderHost(args, env);
+  const localHostLabel = String(deps.hostname ?? os.hostname()).split('.')[0].toLowerCase();
+  // review MAJOR-3: R1's literal wording ("its `name` equals `os.hostname()`'s first label") never fires
+  // on a box whose OS hostname is not literally the table's row name (e.g. this Netcup host's own
+  // `os.hostname()` is a cloud-provider id, not "zhuk-netcup") — a sender-host resolved to THIS machine
+  // would then ssh to itself and double-append the same line to the same file. Matching this machine's
+  // own tailnet interface addresses too keeps R1's intent (never mirror to yourself) without depending on
+  // a hostname string nobody set. Injectable so tests stay hermetic (never the real host's addresses).
+  const localAddrs = deps.localAddrs ?? Object.values(os.networkInterfaces()).flat().map((i) => i?.address);
+  // Mapped to THIS machine: no mirror, and `mirrorLedger` is absent entirely (R1, not ok:false).
+  const mirrorIsLocal = Boolean(mirrorSenderHost)
+    && (mirrorSenderHost.name.toLowerCase() === localHostLabel || localAddrs.includes(mirrorSenderHost.addr));
+  const mirrorTargetHost = (!noMirror && mirrorSenderHost && !mirrorIsLocal) ? mirrorSenderHost : null;
+  // Env address present but unmapped, with no --sender-host override: no mirror, but a loud
+  // `unknown-sender-address` rather than silence (R1). `--no-mirror` overrides even this: silent, like
+  // the plain-local case, per R3's "skips it unconditionally... silent about it".
+  const mirrorUnknownAddress = !noMirror && !mirrorSenderHost && mirrorSawAddress;
 
   const senderRepo = args['sender-repo'] ? mainCheckout(args['sender-repo'], git) : null;
   const plan = [];
@@ -490,6 +688,13 @@ export async function runNoteSend(argv, deps = {}) {
       plan.push(`write packet ${packetPath} from ${args['packet-file'] === '-' ? 'stdin' : args['packet-file']}${force ? ' (--force: overwrites an existing packet)' : ' (refuses to overwrite)'}`);
     }
     for (const t of ledgerTargets) plan.push(`append envelope to ${t}`);
+    // R3: the planned mirror — host name and the exact remote command string — without spawning
+    // anything. No kind/recipient carve-out: a `--to ben` or ledger-only note plans it too.
+    if (mirrorTargetHost) {
+      plan.push(`mirror the envelope to "${mirrorTargetHost.name}" over ssh: `
+        + `ssh -o BatchMode=yes -o ConnectTimeout=3 ${mirrorTargetHost.user}@${mirrorTargetHost.addr} `
+        + `${remoteAppendCommand(mirrorTargetHost, ymd)} (skipped: --dry-run)`);
+    }
     if (quietKind) {
       // N1: "--dry-run says the same" — no pane-resolution plan for a ledger-only kind.
       plan.push(`exit 0: delivered:false, wake:none (${kind} is ledger-only)`);
@@ -511,6 +716,8 @@ export async function runNoteSend(argv, deps = {}) {
       delivered: false, deferred: false, queued: false, notified: false, dryRun: true,
       ledgers: ledgerTargets, packetPath, outbox: null, plan, warnings, error: null,
       ...(quietKind ? { wake: 'none', reason: 'ledger-only kind' } : {}),
+      // R1: the unmapped-address outcome does not depend on actually sending, so --dry-run reports it too.
+      ...(mirrorUnknownAddress ? { mirrorLedger: { host: null, ok: false, error: 'unknown-sender-address' } } : {}),
     };
   }
 
@@ -541,9 +748,23 @@ export async function runNoteSend(argv, deps = {}) {
 
   for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
 
+  // R2/R3: the mirror runs exactly once per invocation, here — after the local ledger write has
+  // already succeeded, and reached by every return path below because it lands on `base`, which every
+  // one of them spreads. `mirrorLedger` stays `undefined` (and therefore absent from the spread) for
+  // the plain-local case and for `--no-mirror`; it is only ever set for a genuinely remote sender host
+  // or an unmapped address. No kind or recipient carve-out (contract R3): `--to ben` and a ledger-only
+  // ACK/FYI both reach this line exactly like any other send.
+  let mirrorLedger;
+  if (mirrorTargetHost) {
+    mirrorLedger = await runMirror(mirrorTargetHost, ymd, envelope, deps);
+  } else if (mirrorUnknownAddress) {
+    mirrorLedger = { host: null, ok: false, error: 'unknown-sender-address' };
+  }
+
   const base = {
     envelope, id, to: toRaw, handle: pane?.handle ?? null, ledgers: ledgerTargets,
     packetPath, packetWritten, warnings, drained: drained ? drained.drained : 0,
+    ...(mirrorLedger !== undefined ? { mirrorLedger } : {}),
   };
 
   const queue = (classification) => writeOutboxEntry(home, {
@@ -790,10 +1011,17 @@ const USAGE = `note-send — one peer-note envelope, ledger-first, with a best-e
             [--n <int>] [--re <parent-id>] [--supersedes <id>] [--goal "<why>"] [--details <repo/relative/path.md>]
             [--needs decision|review|ack|none] [--by "<time>"] [--recipient-repo <dir>] [--sender-repo <dir>]
             [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>]
-            [--no-type] [--no-drain] [--dry-run] [--json]
+            [--sender-host <name>] [--no-mirror] [--no-type] [--no-drain] [--dry-run] [--json]
+
+  note-send --append-ledger <YYYY-MM-DD>   (peer-side mode: reads one envelope line from stdin and
+            appends it to THIS machine's ~/.agents/notes/<day>.md; nothing else)
 
 The ledger is the channel: the recipient finds the note by reading it (note-inbox), not by being typed
 at. Typing is a wake-up. Deferral is normal — the outbox retries it. NEVER re-send the same id.
+
+Cross-host mirror: when the sender's own host differs from this one (--sender-host, or
+SSH_CONNECTION/SSH_CLIENT mapped through the frozen host table), the envelope also lands, best-effort,
+in the sender host's own notes ledger over ssh, after the local write. --no-mirror skips it.
 
 Cross-host: run note-send ON the recipient's host over ssh. Use the absolute path (an ssh command
 gets a non-login shell, which has no ~/.local/bin on PATH) and quote the whole remote command as
@@ -804,13 +1032,21 @@ Exit: 0 delivered, queued (--no-type) or notified (ben) · 1 bad arguments/envel
       3 deferred — queued in the outbox, NOT typed · 4 orca CLI error · 5 cross-host misuse
 `;
 
-function failureJson(err, exitCode) {
+// review MAJOR-2: exported (was module-private) so the mirrorLedger-through-a-thrown-path test can
+// assert on it directly, rather than spawning a real CLI process just to read stdout back.
+export function failureJson(err, exitCode) {
   return {
     ok: false, exitCode, envelope: err.envelope ?? null, id: err.id ?? null, to: err.to ?? null,
     handle: err.handle ?? null, classification: err.classification ?? null, delivered: false,
     deferred: exitCode === 3, queued: Boolean(err.queued), notified: Boolean(err.notified),
     ledgers: err.ledgers ?? [], packetPath: err.packetPath ?? null, outbox: err.outbox ?? null,
     warnings: err.warnings ?? [], error: err.message,
+    // review MAJOR-2: every thrown NoteError past the ledger write carries `...base`, which carries
+    // `mirrorLedger` when the send was cross-host — but this function used to list its fields one by one
+    // and drop it, so a remote send's default deferral (the no-inbox exit 3) reported no mirror outcome
+    // at all. Present only when the send actually set it (undefined for a plain local run), matching the
+    // absent-vs-ok:false distinction the resolved-return path already keeps.
+    ...(err.mirrorLedger !== undefined ? { mirrorLedger: err.mirrorLedger } : {}),
     // N2: only present when note-send actually ran the unknown-recipient check and it fired.
     ...(err.unknownRecipient
       ? { unknown_recipient: true, known: err.known ?? [], suggestion: err.suggestion ?? null }
@@ -831,6 +1067,10 @@ export function firstStderrLine(message) {
 function emit(result, wantsJson) {
   if (wantsJson) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (result.appendLedger) {
+    process.stdout.write(`mirrored line appended to ${result.file}\n`);
     return;
   }
   process.stdout.write(`${result.envelope}\n`);
