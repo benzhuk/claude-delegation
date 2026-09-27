@@ -4,6 +4,14 @@
  * markdown shape of `templates/goals-page.md`. `render` is pure: no network, no git write,
  * sources read straight off `--repo`. Publication is deliberately disabled: use the existing
  * notion-writing skill's fresh targeted edits and readback for an attended update.
+ *
+ * Pinned shape (2026-09-27, "one line per goal, detail collapsed"): the marker callout is
+ * the FIRST callout on the page, its first line carrying the sha (decisions-handback reads
+ * it from there); then one table, a row per `## ` goal (state word, heading, one-sentence
+ * status cut, status date); then ONE `# Detail {toggle="true"}` whose tab-indented children
+ * are the card callout, the source note, and today's per-goal `# X {toggle="true"}` sections
+ * carried byte for byte after one added tab; then a trailing `<empty-block/>`. No callout
+ * lives outside Detail except the marker callout.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,6 +49,12 @@ function splitLines(text) {
   return text.split(/\r\n|\n/);
 }
 
+/** Every line of `text` gets exactly one leading tab; a genuinely blank line stays blank. */
+function indentBlock(text) {
+  if (text === '') return '';
+  return text.split('\n').map((l) => (l === '' ? '' : `\t${l}`)).join('\n');
+}
+
 /** Rule 2: card.md's five lines, each TAB-prefixed, in source order. */
 function buildCardBlock(cardText) {
   const lines = splitLines(cardText).filter((l) => l.trim() !== '');
@@ -48,10 +62,80 @@ function buildCardBlock(cardText) {
   return lines.map((l) => `\t${l}`).join('\n');
 }
 
-/** Rules 3-4-7: one `# X {toggle="true"}` block per `## ` section of GOALS.md. */
+// ── Table-row refusal rules: a hex token (7-40 hex chars with a letter and a digit), a test
+// count (`N of M` or `N/M`), or a session id (a UUID shape) in the one-sentence table cut —
+// the Status line is fixed in GOALS.md at the source, never patched here.
+const TEST_COUNT_RE = /\b\d+\s+of\s+\d+\b|\b\d+\/\d+\b/;
+const SESSION_ID_RE = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/;
+
+/** First 7-40-char hex run in `s` that mixes at least one letter (a-f) and one digit, or null. */
+function findHexToken(s) {
+  const re = /\b[0-9a-fA-F]{7,40}\b/g;
+  let m;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(s))) {
+    const tok = m[0];
+    if (/[a-fA-F]/.test(tok) && /\d/.test(tok)) return tok;
+  }
+  return null;
+}
+
+/** Throws RefusedError naming the goal heading and the offending token, else returns. */
+function checkTableSentence(sentence, heading, lineNo) {
+  const session = SESSION_ID_RE.exec(sentence);
+  if (session) {
+    throw new RefusedError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a session id "${session[0]}": fix the Status line at the source`);
+  }
+  const testCount = TEST_COUNT_RE.exec(sentence);
+  if (testCount) {
+    throw new RefusedError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a test count "${testCount[0]}": fix the Status line at the source`);
+  }
+  const hex = findHexToken(sentence);
+  if (hex) {
+    throw new RefusedError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a hex token "${hex}": fix the Status line at the source`);
+  }
+}
+
+/** The Status line's text after the state word, up to (and including) its first ". ". */
+function cutSentence(rest) {
+  const idx = rest.indexOf('. ');
+  if (idx === -1) return rest.trim();
+  return rest.slice(0, idx + 1).trim();
+}
+
+// A trailing dated citation, e.g. "(2026-09-22 audit)" or "(2026-09-25 bearings O5; note
+// `...`)" at the very end of the Status line's text — any other date mentioned mid-evidence
+// (a file name, an earlier citation) is not "the status date".
+const STATUS_DATE_RE = /\((\d{4}-\d{2}-\d{2})\b[^()]*\)\s*$/;
+
+function extractStatusDate(rest) {
+  const m = STATUS_DATE_RE.exec(rest.trim());
+  return m ? m[1] : 'undated';
+}
+
+function escapeCell(s) {
+  return s.replace(/\|/g, '\\|');
+}
+
+function buildTableRow({ heading, word, sentence, date }) {
+  const color = STATUS_COLOR[word] || 'red';
+  const stateCell = `<span color="${color}">**${word}**</span>`;
+  return `| ${stateCell} | ${escapeCell(heading)} | ${escapeCell(sentence)} | ${date} |`;
+}
+
+const TABLE_HEADER = '| State | Goal | Summary | Date |\n| --- | --- | --- | --- |';
+
+/**
+ * One goal's Detail toggle (unchanged text vs. before Detail existed) and its table row.
+ * Both are derived from the same single pass over the section's lines so the table's word,
+ * sentence and date always agree with what Detail shows.
+ */
 function renderSection(headingText, sectionLines) {
   const out = [`# ${headingText} {toggle="true"}`];
   let sawStatus = false;
+  let tableWord = 'UNKNOWN';
+  let tableSentence = '';
+  let tableDate = 'undated';
   for (const { text, lineNo } of sectionLines) {
     if (text.trim() === '') continue;
     checkForbidden(text, lineNo, 'docs/GOALS.md');
@@ -62,20 +146,28 @@ function renderSection(headingText, sectionLines) {
       const rest = statusMatch[2];
       const color = STATUS_COLOR[word] || 'red';
       out.push(`\t<span color="${color}">**${word}**</span>${rest ? ` ${rest}` : ''}`);
+      tableWord = word;
+      tableSentence = cutSentence(rest);
+      tableDate = extractStatusDate(rest);
+      checkTableSentence(tableSentence, headingText, lineNo);
     } else {
       out.push(`\t${text}`);
     }
   }
   if (!sawStatus) out.push('\t<span color="red">**UNKNOWN**</span>');
   out.push('\t<empty-block/>');
-  return out.join('\n');
+  const tableRow = buildTableRow({
+    heading: headingText, word: tableWord, sentence: tableSentence, date: tableDate,
+  });
+  return { detail: out.join('\n'), tableRow };
 }
 
-function buildSections(goalsText) {
+/** One `{ headingText, sectionLines }` per `## ` section of GOALS.md, in source order. */
+function parseGoalSections(goalsText) {
   const lines = splitLines(goalsText);
   const startIdx = lines.findIndex((l) => /^##[ \t]+/.test(l));
-  if (startIdx === -1) return '';
-  const blocks = [];
+  if (startIdx === -1) return [];
+  const sections = [];
   let i = startIdx;
   while (i < lines.length) {
     const headingMatch = /^##[ \t]+(.*)$/.exec(lines[i]);
@@ -86,9 +178,22 @@ function buildSections(goalsText) {
       sectionLines.push({ text: lines[i], lineNo: i + 1 });
       i += 1;
     }
-    blocks.push(renderSection(headingText, sectionLines));
+    sections.push({ headingText, sectionLines });
   }
-  return blocks.join('\n');
+  return sections;
+}
+
+/** Rules 3-4-7-refusals: the Detail block (goal sections, unchanged text) and the table rows. */
+function buildDetailAndTable(goalsText) {
+  const sections = parseGoalSections(goalsText);
+  const details = [];
+  const rows = [TABLE_HEADER];
+  for (const { headingText, sectionLines } of sections) {
+    const { detail, tableRow } = renderSection(headingText, sectionLines);
+    details.push(detail);
+    rows.push(tableRow);
+  }
+  return { sectionsBlock: details.join('\n'), tableBlock: rows.join('\n') };
 }
 
 const defaultReadFile = (f) => fs.readFileSync(f, 'utf8');
@@ -109,9 +214,23 @@ export function renderPage({ repo, sha, readFile = defaultReadFile, templatePath
   const cardText = readOrBlind(path.join(repo, 'docs', 'goals', 'card.md'));
   const template = readOrBlind(templatePath);
   const cardBlock = buildCardBlock(cardText);
-  const sectionsBlock = buildSections(goalsText);
-  const values = { sha, card: cardBlock, sections: sectionsBlock };
-  let page = template.replace(/\{\{(sha|card|sections)\}\}/g, (_m, key) => values[key]);
+  const { sectionsBlock, tableBlock } = buildDetailAndTable(goalsText);
+
+  // The card callout + source note, exactly as they read before Detail existed — indented one
+  // tab, same as the goal sections, because both are now Detail's children (2026-09-27 rule).
+  const cardCallout = [
+    '<callout icon="🃏" color="blue_background">',
+    '\t**Five-line project card** (rendered from source; installed host injection coverage is unknown)',
+    cardBlock,
+    '\tGOAL, NOT, DONE, and KILL are source labels, not attributed quotations. Verify the source and `main at` version before an attended publication; the card is capped at 800 bytes by a plugin constant.',
+    '</callout>',
+    'Source lines labeled as quotations retain their source attribution and date. Other lines are project wording. Status styling reflects the source text: MET, PARTIAL, NONE, or UNKNOWN; it does not establish installed behavior or release state.',
+  ].join('\n');
+
+  const detailBlock = [indentBlock(cardCallout), indentBlock(sectionsBlock)].filter((s) => s !== '').join('\n');
+
+  const values = { sha, table: tableBlock, detail: detailBlock };
+  let page = template.replace(/\{\{(sha|table|detail)\}\}/g, (_m, key) => values[key]);
   if (!page.endsWith('\n')) page += '\n';
   return page;
 }

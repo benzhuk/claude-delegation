@@ -133,8 +133,12 @@ node skills/decisions/scripts/goals-mirror.mjs render --repo . > <scratch>/goals
 ```
 
 Read the existing Goals child fresh, then use the existing `notion-writing` skill for
-anchored targeted edits of agent-owned mirror sections only and verify the readback.
-Preserve surrounding human content; reconcile a changed anchor or uncertain write from
-a fresh read. Initial creation uses the existing writer under normal authority.
-`goals-mirror.mjs publish` is intentionally disabled. No runner brief template exists
-for this step; none is created here.
+anchored targeted edits of the agent-owned mirror sections: the marker callout, the
+one-line-per-goal table (its rows are agent-owned too, not just the callouts), and the
+`# Detail {toggle="true"}` block. Detail's children — the card callout, the source
+note, and each goal's own toggle — carry one leading tab now, since they nest under
+Detail rather than sitting at the page's top level; write and diff anchors at that
+depth. Verify the readback. Preserve surrounding human content; reconcile a changed
+anchor or uncertain write from a fresh read. Initial creation uses the existing writer
+under normal authority. `goals-mirror.mjs publish` is intentionally disabled. No runner
+brief template exists for this step; none is created here.
