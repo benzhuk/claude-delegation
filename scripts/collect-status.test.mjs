@@ -261,10 +261,10 @@ test("buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut
 
 test("status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced", () => {
   const root = initRepoWithOrigin();
-  newBranch(root, "feature/one");
+  newBranch(root, "build/one");
   const rec = writeRecord(root, "wr-2026-09-27-one.record.md", ["Work: wr-2026-09-27-one", "Status: owned", "Artifact: none", ""]);
   commitAll(root, "one record");
-  pushBranch(root, "feature/one");
+  pushBranch(root, "build/one");
   backToMain(root);
 
   const out = outTmp();
@@ -284,6 +284,7 @@ test("status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey
   assert.equal(status.rows[0].recordPath, rec);
   assert.deepEqual(status.summary.byState, { owned: 1 });
   assert.deepEqual(status.summary.attention, []);
+  assert.deepEqual(status.summary.skipped, { count: 0, prefixes: ["build/"] });
   assert.equal(typeof status.changeKey, "string");
   assert.equal(status.announced, status.changeKey); // first run: attempted (quiet), so announced updates
   assert.ok(fs.existsSync(path.join(out, "status.md")));
@@ -322,10 +323,10 @@ test("change key different: exactly one call, kind RESULT, --no-type present", (
   main(["--repo", root, "--no-fetch", "--out", out, "--to", "lead"], opts); // no branches yet: first run still sends once
   assert.equal(spawn.calls.length, 1);
 
-  newBranch(root, "feature/new");
+  newBranch(root, "build/new");
   writeRecord(root, "wr-2026-09-27-new.record.md", ["Work: wr-2026-09-27-new", "Status: owned", "Artifact: none", ""]);
   commitAll(root, "new record");
-  pushBranch(root, "feature/new");
+  pushBranch(root, "build/new");
   backToMain(root);
 
   main(["--repo", root, "--no-fetch", "--out", out, "--to", "lead"], opts);

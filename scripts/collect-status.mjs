@@ -273,7 +273,7 @@ export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATU
     const a = attention[i];
     lines.push(`- ${a.branch}\t${a.recordPath ?? "-"}\t${a.state}\t${a.reason}`);
   }
-  lines.push(formatTable(rows.slice(0, rowsShown)).replace(/\tstate$/, "\tlane"));
+  lines.push(formatTable(rows.slice(0, rowsShown)).replace(/^([^\n]*)\tstate(?=\n|$)/, "$1\tlane"));
   if (anyCut) lines.push(`(+${cutAttn + cutRows} more, see status.json)`);
   return `${lines.join("\n")}\n`;
 }

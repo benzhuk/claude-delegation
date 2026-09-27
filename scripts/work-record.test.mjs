@@ -530,12 +530,21 @@ test("seam S3: accepted-without-check never fires for a non-code Artifact: path 
   assert.ok(!codes(validateRecord(r, { repoRoot: process.cwd() })).includes("accepted-without-check"));
 });
 
-test("accepted-without-check: every record already in this repo's docs/work/ is grandfathered (zero hits)", () => {
+test("accepted-without-check: existing accepted records remain grandfathered", () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dir = path.join(repoRoot, "docs", "work");
-  const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".record.md")).filter((f) =>
-    codes(validateRecord(parseRecord(fs.readFileSync(path.join(dir, f), "utf8")))).includes("accepted-without-check"));
+  const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".record.md")).filter((f) => {
+    const record = parseRecord(fs.readFileSync(path.join(dir, f), "utf8"));
+    return record.fields.status === "accepted" && codes(validateRecord(record)).includes("accepted-without-check");
+  });
   assert.deepEqual(hits, []);
+});
+
+test("validateRecord: closed fixtures require the exact closed merge receipt", () => {
+  for (const extra of [[], ["Log: 2026-09-27T18:00:00Z closed someone-else merge aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]) {
+    const record = parseRecord(mkRecordText({ Status: "closed", Artifact: "docs/work-record.md", Evidence: "docs/work-record.md", Opened: "2026-09-27T17:00:00Z" }, extra));
+    assert.ok(codes(validateRecord(record, { repoRoot: process.cwd() })).includes("accepted-without-check"));
+  }
 });
 
 // Named failure case 3 (T1 brief): "fresh worker on an obsolete fact" -> scope-drift, on a
@@ -2409,9 +2418,10 @@ test("closeRecord: rejects non-accepted, unmerged, repeated, and stale closure a
   assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD" }), /only accepted/);
   assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
   acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
-  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "does-not-exist", now: new Date("2026-09-24T10:01:00Z") }), /not an ancestor/);
-  closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", now: new Date("2026-09-24T10:01:00Z") });
-  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", now: new Date("2026-09-24T10:01:00Z") }), /already closed/);
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "does-not-exist", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") }), /not an ancestor/);
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", now: new Date("2026-09-24T10:01:00Z") }), /--at is required/);
+  closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") });
+  assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") }), /already closed/);
   const parsed = parseCloseArgs(["close", "--record", "docs/work/a.record.md", "--repo", ".", "--merge", "abc", "--at", "2026-09-24T10:01:00Z"]);
   assert.equal(parsed.main, "origin/main");
 });

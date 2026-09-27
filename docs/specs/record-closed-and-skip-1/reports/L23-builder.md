@@ -1,6 +1,6 @@
 VERDICT: BLOCKED
 
-Source SHA: 0c926057a948c4365cf92d82d8fb584cbcc77dcd
+Source SHA: a6feb3a3499c9e451c3c29ef71ff7dc64b42a615 (Round 1 artifact; base was 0c926057a948c4365cf92d82d8fb584cbcc77dcd)
 Scope: scripts/work-record.mjs and its test; scripts/continuation.mjs; scripts/collect-from-origin.mjs and its test; scripts/collect-status.mjs and its test; docs/work-record.md; docs/census.md.
 
 Cause: The first scoped gate exposed four compatibility assertions that its implementation changes intentionally affect: three collect-status tests still assume no default prefix/legend/skipped summary, and the repository-wide accepted-check fixture expects five pre-existing hand-closed records to be exempt from the new closed validation.

@@ -1562,19 +1562,18 @@ export function withdrawRecord(opts = {}) {
  * close is the sole code-mediated transition from accepted to closed. It resolves the
  * supplied merge revision to a full commit id and proves it is already on main; no fetch
  * occurs because closure records the main the caller actually inspected.
- * opts: { recordPath, repoRoot, merge, at?, main?, fsImpl, execImpl, now? }
+ * opts: { recordPath, repoRoot?, merge, at, main?, fsImpl, execImpl, now? }
  */
 export function closeRecord(opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
   const execImpl = opts.execImpl ?? execFileSync;
-  if (!opts.repoRoot) throw acceptanceError("--repo is required");
   if (!opts.recordPath) throw acceptanceError("--record is required");
   const merge = typeof opts.merge === "string" ? opts.merge.trim() : "";
   if (!merge) throw acceptanceError("--merge is required", "merge-missing");
   let repoRoot;
   let repoReal;
   try {
-    repoRoot = path.resolve(opts.repoRoot);
+    repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
     repoReal = fsImpl.realpathSync(repoRoot);
   } catch (error) {
     throw acceptanceError(`repository is unreadable: ${error.message}`);
@@ -1600,10 +1599,14 @@ export function closeRecord(opts = {}) {
   } catch {
     throw acceptanceError(`--merge ${fullMerge} is not an ancestor of --main ${main}`, "merge-not-ancestor");
   }
-  const atDate = opts.at !== undefined ? new Date(opts.at) : (opts.now ?? new Date());
+  const atInput = typeof opts.at === "string" ? opts.at.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(atInput)) {
+    throw acceptanceError(`--at is required and must be an ISO-8601 timestamp with a zone: ${opts.at ?? "<missing>"}`, "invalid-at");
+  }
+  const atDate = new Date(atInput);
   const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
   const nowMs = (opts.now ?? new Date()).getTime();
-  if (opts.at !== undefined && (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, nowMs - 600000) || atDate.getTime() > nowMs + 300000)) {
+  if (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, nowMs - 600000) || atDate.getTime() > nowMs + 300000) {
     throw acceptanceError(`invalid --at: ${opts.at} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
   }
   const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})accepted([ \t]*)$/mi;

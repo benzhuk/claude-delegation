@@ -62,6 +62,14 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
   record here, from `rejected`, `blocked`, `runnable` or `owned` (never `accepted`, never a
   second time).
 
+### Migration debt
+
+Five historical records currently say `Status: closed` with prose merge notes rather than the
+required machine-readable close receipt: `wr-2026-09-27-collect-status`,
+`wr-2026-09-27-delete-deny`, `wr-2026-09-27-knowledge-counted`,
+`wr-2026-09-27-measure-truth`, and `wr-2026-09-27-pickup-complete`. They remain invalid under
+this contract and require a separately authorized record migration; this lane does not edit them.
+
 ### `Log:` notes with fixed meaning
 
 - `artifact <reference>` — `Artifact:` changed in this edit. Convention: the ownership-return
