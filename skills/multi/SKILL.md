@@ -137,12 +137,18 @@ has annotated one, or `; pickup: disabled (<switch>)` when `ws-off`/`ws-off-deci
 `note-flush` also reads the whole ledger for an ASK whose by-time deadline is at least 15 minutes past
 with no RESULT or BLOCKED yet — an ACK does not answer one. It nudges once per id, ever: one BLOCKED
 note from `note-flush` into whichever of the sender or the recipient has a registered inbox on this
-host (neither registered logs it and moves on). BLOCKED, not FYI or ACK, because the multi skill
-already tells you what to do with one — remove the blocker, escalate, or send a RESULT dropping the
-ask. `~/.agents/ws-off-overdue` turns this off, beside the shared `~/.agents/ws-off`; the
-status line's own `; overdue: <n> open, <m> nudged` suffix counts the overdue asks still unanswered and,
-of those, how many were already handled once without a nudge landing (no inbox here, or the send
-failed) — a nudge that lands is itself a BLOCKED `re` the ask, so it closes the ask and leaves the count.
+host (neither registered logs it and moves on). A nudge only ever goes out when the answer side is
+observable on this host — the corpus already holds a reply from the recipient to the sender, of any
+kind, or both slugs are registered here — otherwise it is logged and recorded without a send, since a
+cross-host pair's ledger here is only half the conversation. And the first pass ever on a machine seeds
+its state file silently, recording every already-overdue id without nudging any of them, so publishing
+this feature does not fire a burst of BLOCKED notes for asks that were merely old. BLOCKED, not FYI or
+ACK, because the multi skill already tells you what to do with one — remove the blocker, escalate, or
+send a RESULT dropping the ask. `~/.agents/ws-off-overdue` turns this off, beside the shared
+`~/.agents/ws-off`; the status line's own `; overdue: <n> open, <m> nudged` suffix counts the overdue
+asks still unanswered and, of those, how many were already handled once without a nudge landing (no
+inbox here, the send failed, or the answer side was not observable) — a nudge that lands is itself a
+BLOCKED `re` the ask, so it closes the ask and leaves the count.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
