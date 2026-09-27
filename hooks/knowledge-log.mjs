@@ -34,8 +34,9 @@
 //
 // Kill switches (spec item 2): `~/.agents/no-knowledge-log` (this hook only) and the shared
 // `~/.agents/ws-off`. Either present means log nothing, exit 0 — same fail-toward-doing-
-// nothing polarity as delete-guard.mjs's `switchPresentFailSafe` (a stat error other than
-// ENOENT/ENOTDIR counts as PRESENT, i.e. skip).
+// nothing polarity as delete-guard.mjs's `switchPresentFailSafe` (if the existence check
+// itself throws, the switch counts as PRESENT, i.e. skip; note real `fs.existsSync`
+// swallows stat errors and returns false, so this branch guards injected/odd fs impls).
 //
 // Writes nothing when `~/.claude/knowledge/` does not exist (spec item 2): checked with the
 // same fail-safe polarity, but inverted — a stat error here counts as ABSENT (skip), since
@@ -44,22 +45,24 @@
 //
 // Path comparison (spec item 1's "normalising separators and case on Windows", and this
 // file's own autonomy call on HOW): `normalizeForCompare` expands a leading `~`, resolves a
-// relative path against `tool_input.cwd` (falling back to `process.cwd()`), then — on
-// win32 only — lower-cases the result and forces forward slashes, so
+// relative path against the payload's top-level `cwd` (falling back to `process.cwd()`),
+// then — on win32 only — lower-cases the result and forces forward slashes, so
 // `C:\Users\x\.claude\Knowledge\_INBOX\note.md` compares equal to
 // `c:/users/x/.claude/knowledge/_inbox/note.md`. The logged `<path>` itself keeps its
 // resolved-but-original case/separators (path.resolve's own normal form) for readability;
 // only the comparison key is case-folded.
 //
+// Symlinks: the comparison is lexical (path.resolve only, no realpath), by decision. A Read
+// counts by the path the session named: a store reached through `~/.claude/knowledge/...`
+// counts even when that dir is itself a link; the same file read via the link's target path
+// does not; a link inside the store that points elsewhere still counts as a store read.
+//
 // Rotation (spec item 2, "a log over 1 MB is rotated to `.1` once, never deleted" — this
 // file's own autonomy call on the mechanics): checked BEFORE each append. If the target log
-// is already >= 1 MiB, it is renamed to `<name>.1` (overwriting any prior `.1` — a single
-// backup generation, never a `.2`/`.3` chain, and the live log file is never deleted, only
-// renamed), then a fresh log is started with the new line. This can repeat indefinitely
-// (each future crossing again rotates the current file to `.1`), which keeps exactly one
-// once-live backup generation rather than letting the file grow forever after a single
-// lifetime rotation — read literally, "rotated ... once" describes the single-generation
-// shape (no numbered chain), not a one-time-ever event.
+// is already >= 1 MiB AND no `.1` exists yet, it is renamed to `<name>.1`, then a fresh log
+// is started with the new line. Once a `.1` exists, no further rotation happens — the live
+// log simply keeps growing — so the rotation is literally "once": a single backup
+// generation, never a `.2`/`.3` chain, and nothing is ever overwritten or deleted.
 //
 // Codex (spec item 3): NOT registered. Investigated against the upstream `openai/codex`
 // source already checked out for this build's Codex research (commit
@@ -93,7 +96,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const LINE_CAP = 400;
 const ROTATE_AT_BYTES = 1024 * 1024; // 1 MiB
@@ -127,12 +130,12 @@ function dirExistsFailSafe(fsImpl, dirPath) {
 /** Expand a leading `~`, then resolve to an absolute path (relative paths resolve against
  * `cwd`, falling back to `process.cwd()`). Returns null for anything that is not a
  * non-empty string. Never throws. */
-function resolveDisplayPath(filePath, cwd) {
+function resolveDisplayPath(filePath, cwd, home = os.homedir()) {
   if (typeof filePath !== 'string' || filePath.length === 0) return null;
   let p = filePath;
   try {
     if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) {
-      p = path.join(os.homedir(), p.slice(1));
+      p = path.join(home, p.slice(1));
     }
     const base = typeof cwd === 'string' && cwd.length > 0 ? cwd : process.cwd();
     return path.isAbsolute(p) ? path.resolve(p) : path.resolve(base, p);
@@ -184,7 +187,7 @@ export function decide(input, ctx = {}) {
 
   const filePath = input?.tool_input?.file_path;
   const cwd = typeof input?.cwd === 'string' ? input.cwd : undefined;
-  const displayPath = resolveDisplayPath(filePath, cwd);
+  const displayPath = resolveDisplayPath(filePath, cwd, home);
   if (displayPath === null) {
     return { skip: false, target: null, line: null };
   }
@@ -236,9 +239,10 @@ function readStdin() {
   });
 }
 
-/** Rotate `logPath` to `logPath.1` (overwriting any prior `.1`) if it is already at or
- * over the 1 MiB cap, then append `line`. Swallows any error — a log write failure must
- * never affect this hook's (already no-op) exit behaviour. */
+/** Rotate `logPath` to `logPath.1` the FIRST time it crosses the 1 MiB cap, then append
+ * `line`. If `.1` already exists, no further rotation happens — the live log keeps growing
+ * — so nothing is ever overwritten or deleted. Swallows any error — a log write failure
+ * must never affect this hook's (already no-op) exit behaviour. */
 function appendWithRotation(fsImpl, logPath, line) {
   try {
     fsImpl.mkdirSync(path.dirname(logPath), { recursive: true });
@@ -248,7 +252,7 @@ function appendWithRotation(fsImpl, logPath, line) {
     } catch {
       size = 0; // does not exist yet: nothing to rotate.
     }
-    if (size >= ROTATE_AT_BYTES) {
+    if (size >= ROTATE_AT_BYTES && !fsImpl.existsSync(`${logPath}.1`)) {
       try {
         fsImpl.renameSync(logPath, `${logPath}.1`);
       } catch {
@@ -287,13 +291,24 @@ export async function runCli(fsImpl = fs) {
   // PostToolUse never blocks or prints hook output — the tool call already completed.
 }
 
-const isMain = (() => {
+/** Same-file check that survives a symlinked/junctioned launch path: Node realpaths
+ * `import.meta.url` but not `process.argv[1]`, so a naive URL-string comparison silently
+ * no-ops when this file is reached through a link (see hooks/multi-codex-hook.mjs:222-223
+ * for the same failure mode). Resolve both sides to a real path before comparing, and
+ * case-fold on win32. */
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const canon = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
   try {
-    return import.meta.url === pathToFileURL(process.argv[1] ?? '').href;
+    return canon(real(fileURLToPath(import.meta.url))) === canon(real(entry));
   } catch {
     return false;
   }
-})();
+}
+
+const isMain = isMainModule();
 
 if (isMain) {
   runCli().then(
