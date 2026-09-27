@@ -87,7 +87,8 @@ grep -c hooks.state $CODEX_HOME/config.toml                             # 4 per 
 A plain run never touches a Codex home, and the installer refuses to wire live homes at all when it is
 running from a temporary checkout — a worktree or an unpacked archive, whose path is about to vanish.
 Point a scratch run at a scratch home with `--codex-home <dir>`.
-nThe same installer adds the delete guard to Codex. Codex subagents are covered: a recursive delete from one is refused, as it is in Claude. Top-level Codex lanes, such as a `codex exec` builder or a Codex pane running unattended, are not guarded yet.
+
+The same installer adds the delete guard to Codex. Codex subagents are covered: a recursive delete from one is refused, as it is in Claude. Top-level Codex lanes, such as a `codex exec` builder or a Codex pane running unattended, are not guarded yet.
 
 Two things silently untrust every hook, and both are repaired by re-running the installer: a node
 upgrade, because the recorded command is an absolute `node` path, and Orca adding or removing a hook
