@@ -1,16 +1,16 @@
-VERDICT: REVIEWED
+VERDICT: ACCEPTED f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 
 # Codex census operations state
 
-- Integration branch/head: `build/codex-census-1@d503de85b9504a723b669cf06adaad3f2e7a010d`
 - Reviewed source artifact: `f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9`
 - Base: `c25cc70cb180f22fc2f5ddb40a47be501cde9245`
 - Work: `wr-2026-09-27-codex-census`; Lead `01a0df4c-2809-7520-b1d7-876cc51a87ee`; Spec session `9c61c35a-82dd-4aef-8eca-c99bb0e72e31`; Spec-from `2026-09-27T11:05:00Z`.
+- Accepted instant: `2026-09-27T13:38:25.751Z`.
 
-C3 reconciliation repair is independently APPROVED at `2026-09-27T13:16:28Z` by GPT-6-Astra for exact `f59fb856`. Its focused four-suite gate passed 423/423. The final unchanged sealed suite passed on Windows (2,123/2,123) and Netcup (2,120 pass, 0 fail, 3 skipped), both native test exits 0. Netcup's outer SSH wrapper separately exited 1 after its native result because CRLF made Bash receive `exit 0\r`; the raw diagnostic is preserved without calling the suite failed or rerunning it.
+C3 reconciliation was independently APPROVED by GPT-6-Astra at `2026-09-27T13:16:28Z`. Its focused four-suite gate passed 423/423. The unchanged sealed suite passed on Windows (2,123/2,123) and Netcup (2,120 pass, 0 fail, 3 skipped), both native test exits 0. Netcup's outer SSH wrapper separately exited 1 after its native result because CRLF made Bash receive `exit 0\r`; that diagnostic remains raw evidence and is not a suite failure.
 
-Historical C1/C3 review rejections and earlier f190 cross-host failure remain preserved as linked history. Final deciding evidence is limited to exact-f59 verdict wrappers. No main merge has occurred.
+Final measured acceptance evidence is COUNTED: Codex census 244 responses, 14 verified subagent files, complete coverage; Claude spec slice 19 lead requests and 331 subagent files. The four values are 54,697,326 top-tier tokens (49,869,913 build + 4,827,413 spec), 2.4h ask-to-accepted with a 3.3-minute largest native response gap, 0 observed rework commits/0 re-accept logs in the queried seven-day period, and stalled classification unavailable with 0 response gaps over 30 minutes and 0 unanswered ASKs. The seven-day rework horizon remains immature; native response gaps do not establish stall attribution.
 
-The next bounded step is live acceptance evidence at one fixed UTC instant: build a Codex census for `11:17Z..acceptAt`, a Claude spec slice for `11:05Z..11:17Z`, then run four-read, check-acceptance and, only on clean results, `accept --census --four-read --at` at that same instant. Native model/coverage limitations and incomplete values remain visible rather than converted to zero.
+The successful original acceptance receipt and raw exits are retained. A format-only record repair set `Owner: root` and normalized the same accepted log event to the validator grammar; `validateRecord` now returns no findings. The post-acceptance check command's expected refusal of status `accepted` is also retained as raw evidence. No main merge has occurred.
 
-Lane-12 comparison is observational: fresh complete census measurements replace no historical facts; its non-date Spec-from leaves its spec slice partial, and its seven-day rework horizon is immature.
+Historical C1/C3 review rejections and the earlier f190 cross-host failure remain preserved as linked history. Lane-12 comparison remains observational: its non-date Spec-from leaves the spec slice partial, and its seven-day rework horizon is immature.

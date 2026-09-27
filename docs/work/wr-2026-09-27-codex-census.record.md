@@ -1,17 +1,18 @@
 Work: wr-2026-09-27-codex-census
 Scope: docs/specs/codex-census-0927/spec.md@e1b31f7159d3f1f7ba15181d9d312f63fa201151
-Owner: root (reviewed final artifact; acceptance preparation)
-Status: reviewed
+Owner: root
+Status: accepted
 Authority: Root leads this build; after the scout is consumed, isolated C1 and C2 builders may edit only their named territories. Builders and reviewers never write docs/work. No scripts/work-record.mjs change, release, install, README, or changelog work.
 Artifact: integration@f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-census-1
-Evidence: docs/specs/codex-census-0927/reports/C3-main-reconciliation-review-round2.md, docs/specs/codex-census-0927/reports/C3-main-reconciliation-repair-gate.md, docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f59.md
-Next: produce the bounded live Codex census, Claude spec slice, and four-read at one fixed acceptance instant; then run check-acceptance and accept only if the measured census is COUNTED and all checks pass.
+Evidence: docs/specs/codex-census-0927/reports/C3-main-reconciliation-review-round2.md, docs/specs/codex-census-0927/reports/C3-main-reconciliation-repair-gate.md, docs/work/evidence/wr-2026-09-27-codex-census/sealed-cross-host-f59.md, docs/work/evidence/wr-2026-09-27-codex-census-final-acceptance.md
+Next: accepted on reviewed artifact f59; retain the fixed-instant evidence and await root direction for any final main-merge work.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-27T11:05:00Z
 Base: c25cc70cb180f22fc2f5ddb40a47be501cde9245
 Opened: 2026-09-27T11:17:00Z
+Log: 2026-09-27T13:16:28Z reviewed reviewer GPT-6-Astra APPROVE artifact f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 Log: 2026-09-27T11:17:00Z runnable root opened the pinned Codex census build record; scout consumption gates builder checkout creation
 Log: 2026-09-27T11:17:00Z runnable root red-team blocker recorded: four-read lacks Codex rollout filename, Astra tier, and Codex usage support; narrow C3 scope ruling is pending and no placeholder metrics are permitted
 Log: 2026-09-27T11:32:06.884Z owned builder native 01a0e2a2-f888-7a23-b091-0356e340a2f4 spawned for C1+C2 at integration 4ab6312; C3 remains pending
@@ -32,10 +33,41 @@ Log: 2026-09-27T12:20:30.244Z runnable integrator ran the one authorized non-del
 Log: 2026-09-27T12:30:44.833Z owned C3 code-only delta review of exact 2f8e8ac returned NEEDS_FIXES for one remaining Codex spec-slice identity validation bypass. The original report is byte-preserved; C3 returns to its owner for the same-helper repair.
 Log: 2026-09-27T12:33:48.272Z runnable C1 R2 evidence a6bd550, source-equivalent to d73ef36, passed its sole mutex gate 80/80 and exact Claude golden. C3 R4 artifact 7d50ab0 passed its sole mutex gate 69/69. Both await final review; no source integration occurred.
 Log: 2026-09-27T12:37:25.315Z rejected clean integration artifact bc309e4 preserved C1/C3 candidate commits but failed the corrected contract gate 17/18 on the lead-only marker shared-boundary assertion. Raw receipt is preserved and reviewer adjudication is read-only; no rerun or full gate followed.
+Census: - leadHost: codex
+Census: - leadSessionId: 01a0df4c-2809-7520-b1d7-876cc51a87ee
+Census: - coverageSupported: true
+Census: - leadTurns: 1
+Census: - wallClockHours: 2.35
+Census: - by-model: gpt-5.6-sol=10716507, gpt-5.6-terra=70514114, gpt-6-astra=39153406
+Census: - by-role: builder=4571681, integrator=43990544, reviewer=12578915, unmapped=32986608
+Census: - subagentFiles: 14
+Census: - home: canonical
+Census: - horizonUtcDays: 2026-09-26, 2026-09-27
+Census: - candidates: 17
+Census: - excluded: C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\26\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl (duplicate lead/path)
+Census: - excluded: C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\26\rollout-2026-09-26T15-06-50-01a0df1c-ef5c-7870-b029-e1f02e2e5109.jsonl (unrelated)
+Census: - excluded: C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\26\rollout-2026-09-26T15-36-12-01a0df37-d1c4-7d33-a1ec-8ac16ce15d23.jsonl (unrelated)
+Census: ## Lead tokens by model — observed per-response usage
+Census: | model | native_input | exclusive_input | cache_creation | cache_read | output | derived_total | reasoning_output | raw_total | unavailable |
+Census: |---|---|---|---|---|---|---|---|---|---|
+Census: | gpt-6-astra | 26178781 | 317021 | 0 | 25861760 | 77498 | 26256279 | 40152 | 26256279 | (none) |
+Census: ## Combined native totals (lead window + subagents)
+Census: | model | output_tokens | derived_total_tokens | unavailable optional fields |
+Census: |---|---|---|---|
+Census: | gpt-5.6-sol | 72183 | 10716507 | (none) |
+Census: | gpt-5.6-terra | 324412 | 70514114 | (none) |
+Census: | gpt-6-astra | 120130 | 39153406 | (none) |
+Four numbers: Top-tier tokens per build: 54697326 tokens: build 49869913 (gpt-5.6-sol, gpt-6-astra) + spec slice 4827413
+Four numbers: Hours ask to accepted: 2.4h; largest native API response gap (heuristic) 3.3min at 2026-09-27T12:22:06.344Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 0 unanswered ASKs to skills-a
+Log: 2026-09-27T13:38:25.751Z accepted root artifact f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
 
 Log: 2026-09-27T12:50:35Z rejected sealed unchanged `node scripts/run-tests.mjs` on exact f1908a0 failed on both hosts at the same stale `scripts/work-record.test.mjs:1622` UNSUPPORTED expectation. Windows: 2030/2031 pass, exit 1. Separately fetched-origin Netcup: 2027/2031 pass, exit 1. Raw logs/exits are preserved; no rerun, baseline exception, acceptance, or main merge occurred.
 
-Log: 2026-09-27T13:16:28Z reviewed reviewer GPT-6-Astra APPROVE artifact f59fb856a0f508d0e7fb6b74b6b7924ae5a3b6b9
+
+
+Historical formatting note: the original successful acceptance receipt used Owner `root (reviewed final artifact; acceptance preparation)`; this record normalizes that owner field and the same accepted log syntax without changing its timestamp, artifact, census, or four-read values.
 
 Observed: exact f59fb856 is independently approved by GPT-6-Astra at 2026-09-27T13:16:28Z and passed sealed full suites: Windows 2,123/2,123; Netcup 2,120 pass, 0 fail, 3 skipped, both native test exits 0. Netcup's distinct outer-wrapper CRLF exit-format error is retained in the linked raw receipt, not relabeled as a test failure. Historical NEEDS_FIXES/FAIL and prior f190 rejection evidence remain preserved as linked history but are not listed as deciding evidence for f59.
 
