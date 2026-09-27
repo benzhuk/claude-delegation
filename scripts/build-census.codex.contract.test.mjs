@@ -270,7 +270,7 @@ test('Codex contract: a lead-only marker includes child responses at and after i
     usage('lead-after', turn, { output: 3, at: '2026-09-27T12:00:11.000Z' }),
   ]);
   writeRollout(home, DAY, 'rollout-child.jsonl', [
-    meta('marker-child', ROOT, 1, 1), context('child-turn'),
+    meta('marker-child', ROOT, ROOT, 1), context('child-turn'),
     usage('child-before', 'child-turn', { output: 4, at: '2026-09-27T12:00:09.000Z' }),
     usage('child-at', 'child-turn', { output: 5, at: '2026-09-27T12:00:10.000Z' }),
     usage('child-after', 'child-turn', { output: 6, at: '2026-09-27T12:00:11.000Z' }),
