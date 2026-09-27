@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-pickup-complete
 Scope: docs/specs/pickup-complete-1/spec.md (written at 78bf171) with lead rulings docs/specs/pickup-complete-1/contracts.md; territories P1, P2, P3
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/pickup-complete-1, merge into main on acceptance under the merge-on-acceptance rule without Ben, then reconcile round 1 and add the topic on the Netcup pickup host
 Artifact: 69efa39a48713d088cae349b48d22dce79dd5468
 Evidence: docs/work/evidence/wr-2026-09-27-pickup-complete-seam-review.md, docs/work/evidence/wr-2026-09-27-pickup-complete-P1.md, docs/work/evidence/wr-2026-09-27-pickup-complete-P2.md, docs/work/evidence/wr-2026-09-27-pickup-complete-P3.md, docs/work/evidence/wr-2026-09-27-pickup-complete-seam-review-r1.md, docs/work/evidence/wr-2026-09-27-pickup-complete-suites.md
@@ -58,6 +58,7 @@ Four numbers: Hours ask to accepted: 1.0h; largest gap 31.2min at 2026-09-27T13:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 1 waiting-on-agents (31.2 min); 0 unanswered ASKs to skills-n
 Log: 2026-09-27T14:36:40.000Z accepted skills-n artifact 69efa39a48713d088cae349b48d22dce79dd5468
+Log: 2026-09-27T14:37:33.000Z closed skills-n merged to main at ae609674ab43d16636a077e28f7b3a03759fd746 (suite on the merged head 2301 of 2305 with 0 fail)
 
 Predicts: an edit by the lead while Done is ticked no longer kills the Done-tick wake, the stuck round 1 can be accounted, Bearings sections stop blocking pickup and hand-back, and the page title carries topic and last change.
 
