@@ -154,7 +154,7 @@ test('Codex attribution keeps only per-response usage and reports unknown models
   const report = await runCensus({ lead: fixture.lead, tasksDirs: [], marker: null, codexHome: fixture.home });
   assert.equal(report.lead.coverageSupported, false);
   assert.ok(report.lead.codex.discovery.malformedFiles.some((file) => file.endsWith('malformed.jsonl')));
-  assert.equal(report.lead.observedTotalByModel['gpt-5.6-terra'].input_tokens, 210, 'cumulative snapshots never contribute');
+  assert.equal(report.lead.observedTotalByModel['gpt-5.6-terra'].input_tokens, 70, 'the lead uses only response-local usage and splits cache input once');
   assert.match(formatText(report).split('\n')[0], /^VERDICT: PARTIAL/);
 });
 
@@ -163,7 +163,7 @@ test('Codex --from/--to accepts offset timestamps, keeps preceding model context
   const report = await runCensus({ lead: fixture.lead, tasksDirs: [], from: '2026-09-26T19:59:00-04:00', to: '2026-09-26T20:01:00-04:00', codexHome: fixture.home });
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.lead.windowTurns, 1);
-  assert.equal(report.subagents.fileCount, 1);
+  assert.equal(report.subagents.totalTurns, 1, 'the following-day grandchild remains discovered but its response is outside the inclusive window');
   assert.ok(report.lead.observedWindowByModel['gpt-5.6-terra']);
 });
 

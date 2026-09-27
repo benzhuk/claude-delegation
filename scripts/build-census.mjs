@@ -359,7 +359,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   if (fromMs !== null && toMs !== null && fromMs > toMs) throw new Error('--from is after --to');
   const rl = await openLines(fsImpl, filePath);
   const totalById = new Map();
-  const windowById = marker ? new Map() : totalById;
+  const windowById = marker || from || to ? new Map() : totalById;
   const totalNativeTurns = new Set();
   const windowNativeTurns = new Set();
   const responseFingerprints = new Map();
@@ -423,11 +423,9 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     if (seen !== undefined && seen !== fingerprint) throw new Error('Codex token_usage_record repeats a response_id with conflicting turn or usage');
     responseFingerprints.set(key, fingerprint);
     totalById.set(key, entry);
-    totalNativeTurns.add(record.turn_id);
     if (inWindow) {
       windowTokenRecordCount += 1;
       windowById.set(key, entry);
-      windowNativeTurns.add(record.turn_id);
     }
   }
   if (!sawMeta) throw new Error('Codex session_meta was not found');
@@ -826,6 +824,7 @@ async function runCodexCensus(opts, fsImpl) {
       roleFileCounts[candidate.role] = (roleFileCounts[candidate.role] || 0) + 1;
       subTotalTurns += child.windowById.size;
       if (child.unknownModels.length) unavailable.push(`unknown model attribution in ${candidate.file}`);
+      if (child.coverageReason) unavailable.push(`unusable child coverage in ${candidate.file}: ${child.coverageReason}`);
       perFile.push({ file: candidate.file, role: candidate.role, parentId: candidate.parentId, agentNickname: candidate.agentNickname, depth: candidate.depth, turns: child.windowById.size, byModel, excludedByWindow: child.totalById.size - child.windowById.size });
     } catch (error) {
       discovery.unreadableFiles.push(candidate.file);
