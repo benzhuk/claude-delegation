@@ -792,8 +792,11 @@ test('comments-only and selections-only checked pages still admit a round', asyn
 test('empty checked bytes never erase an active round and preserve accounted episode sequencing', async (t) => {
   const active = fixture(); t.after(active.cleanup);
   await pickupOnce(active.options, deps(active));
+  // Contracts.md C1: the option disappearing (the lead acting on it) is a sub-multiset of the
+  // round's capture, not a new owner input, so this is not a change: RECORDED stays RECORDED,
+  // untouched, rather than moving to NEEDS_RECONCILIATION.
   const changed = await pickupOnce(active.options, deps(active, { readPage: async () => EMPTY_DONE }));
-  assert.equal(changed.status, 'NEEDS_RECONCILIATION');
+  assert.equal(changed.status, 'RECORDED');
   assert.equal(changed.receipt.round, 1);
 
   const accounted = fixture(); t.after(accounted.cleanup);
