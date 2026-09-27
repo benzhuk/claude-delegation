@@ -2124,3 +2124,16 @@ test('overdue-asks: state entries older than 8 days are pruned on write; file is
     assert.equal(fs.statSync(overdueStatePath(home)).mode & 0o777, 0o600);
   }
 });
+
+test('overdue-asks: sender and recipient both reachable - spec item 3 sends to the sender', async () => {
+  const home = tmp();
+  writeOverdueLedgerLine(home, '2026-09-26', askLine()); // from astra (sender) to taxonomy (recipient)
+  writeInbox(home, 'astra', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-sender', cwd: home }, { now: DEADLINE });
+  writeInbox(home, 'taxonomy', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't-recipient', cwd: home }, { now: DEADLINE });
+  const calls = [];
+  const result = await runOverdueAsks([], overdueContext(), { home, now: DEADLINE + 16 * 60_000, send: stubSend(calls) });
+  assert.equal(calls.length, 1);
+  const { argv } = calls[0];
+  assert.equal(argv[argv.indexOf('--to') + 1], 'astra');
+  assert.equal(result.nudged, 1);
+});
