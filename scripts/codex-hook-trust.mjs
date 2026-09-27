@@ -391,6 +391,26 @@ export const CODEX_EVENTS = [
 ];
 
 /**
+ * delete-deny Territory D2 — the SAME PreToolUse guard D1 wires for Claude (hooks/delete-guard.mjs),
+ * offered to Codex through this file's existing merge/trust machinery. A separate list from
+ * `CODEX_EVENTS` on purpose: that one is note delivery (a different script, `multi-codex-hook.mjs`),
+ * and the two must never share a trust-key index — see `DELETE_GUARD_HOOK_MARKER` below.
+ *
+ * Ten seconds: long enough for a cold `node` start on a loaded box, short enough that a hung hook
+ * cannot sit on the very approval prompt this guard exists to preempt.
+ *
+ * UNVERIFIED (see docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md): Codex is confirmed to
+ * EXECUTE a PreToolUse hook — this file's own trust machinery and Orca's own `codex-hook.cmd` wiring
+ * both prove that a command hook fires. What this build could NOT confirm on this host is whether
+ * Codex's PreToolUse contract honors the deny shape Claude's hooks use
+ * (`hookSpecificOutput.permissionDecision: 'deny'`) as an actual refusal, or silently accepts the tool
+ * call anyway — a false green, which is worse than shipping no guard. `mirror-shared-skills.mjs` gates
+ * wiring this list behind its own opt-in flag (`--codex-hooks-delete-guard`), never turned on by
+ * `--codex-hooks` alone, until that is proven live.
+ */
+export const CODEX_DELETE_GUARD_EVENTS = [{ event: 'PreToolUse', timeout: 10 }];
+
+/**
  * Timeouts our handler has shipped with and no longer writes, per event.
  *
  * The trust hash covers the timeout, so an entry written by 0.4.0 carries the 1020-second hash. That
@@ -450,8 +470,17 @@ export function buildHooksJson(scriptPath, events = CODEX_EVENTS, nodeBin = proc
  */
 export const HOOK_MARKER = 'multi-codex-hook.mjs';
 
-function isOurHandler(handler) {
-  return typeof handler?.command === 'string' && handler.command.includes(HOOK_MARKER);
+/**
+ * delete-deny D2: the marker for the OTHER script this file merges into a Codex home,
+ * `hooks/delete-guard.mjs` (D1's PreToolUse guard). A separate marker is not cosmetic —
+ * `mergeHooksJson` finds "our" existing handler in an event's group list by searching for this
+ * substring, and two scripts sharing one marker would each mistake the other's entry for its own,
+ * silently overwriting a different guard's command instead of adding its own group.
+ */
+export const DELETE_GUARD_HOOK_MARKER = 'delete-guard.mjs';
+
+function isOurHandler(handler, marker) {
+  return typeof handler?.command === 'string' && handler.command.includes(marker);
 }
 
 /**
@@ -461,9 +490,12 @@ function isOurHandler(handler) {
  * therefore keeps its trust, which is keyed by that index. An earlier copy of ours is updated in place
  * for the same reason.
  *
+ * @param {string} marker  how OUR handler is told apart from anyone else's in the same event —
+ *   defaults to `HOOK_MARKER` (the note-delivery script). A second script merged into the same file
+ *   (delete-deny D2's delete-guard) passes its OWN marker, so the two never mistake each other's group.
  * @returns {{ json: object, changed: boolean, placements: {event: string, groupIndex: number, handlerIndex: number, command: string, timeout: number}[] }}
  */
-export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath) {
+export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath, marker = HOOK_MARKER) {
   const command = nodeCommand(scriptPath, nodeBin);
   const base = existing && typeof existing === 'object' ? existing : {};
   const json = { ...base, hooks: { ...(base.hooks && typeof base.hooks === 'object' ? base.hooks : {}) } };
@@ -472,7 +504,7 @@ export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, node
 
   for (const { event, timeout } of events) {
     const groups = Array.isArray(json.hooks[event]) ? json.hooks[event].map((g) => ({ ...g })) : [];
-    let groupIndex = groups.findIndex((g) => Array.isArray(g?.hooks) && g.hooks.some(isOurHandler));
+    let groupIndex = groups.findIndex((g) => Array.isArray(g?.hooks) && g.hooks.some((h) => isOurHandler(h, marker)));
     let handlerIndex = 0;
 
     if (groupIndex === -1) {
@@ -481,7 +513,7 @@ export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, node
       changed = true;
     } else {
       const hooks = [...groups[groupIndex].hooks];
-      handlerIndex = hooks.findIndex(isOurHandler);
+      handlerIndex = hooks.findIndex((h) => isOurHandler(h, marker));
       const current = hooks[handlerIndex];
       if (current.command !== command || current.timeout !== timeout || current.type !== 'command') {
         hooks[handlerIndex] = { ...current, type: 'command', command, timeout };
