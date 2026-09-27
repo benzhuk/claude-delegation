@@ -1,0 +1,75 @@
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-one.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-stable.record.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-F1tZ9T\status.md
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-F1tZ9T\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-EFBmIk\status.md
+warning: in the working copy of 'docs/work/wr-2026-09-27-new.record.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-EFBmIk\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-YARARr\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-mqEevs\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-989CDh\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-QHdcEZ\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-Igv4S1\status.md
+warning: in the working copy of 'docs/work/wr-2026-09-27-rotate.record.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-Igv4S1\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-cSab8J\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-9cRhU1\status.md
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-9cRhU1\status.md
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-9cRhU1\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-tONcU5\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-HeMKrE\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-ro.record.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-LL0nC8\status.md
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-many-0.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-many-1.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-many-2.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-many-3.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-many-4.record.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\cstatus-out-sictpU\status.md
+✔ parseArgs: defaults and every flag (1.062ms)
+✔ defaultOutDir: ~/.agents/collect/<basename of repo> (0.1172ms)
+✔ sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host (0.1443ms)
+✔ computeByState: counts rows per state (0.1204ms)
+✔ computeChangeKey: order-independent (sorted), sensitive to any field change (0.13ms)
+✔ computeAttention: accepted-unmerged boundary (over merge-hours only) (0.6163ms)
+✔ computeAttention: owned + hoursSinceLog boundary (silent-over-N-h) (0.0915ms)
+✔ computeAttention: no-record always flagged; unparseable tipDate never confidently flagged (0.0784ms)
+✔ resolveNoteSend: prefers ~/.local/bin/note-send when executable, else PATH, else null (2.199ms)
+✔ buildStatusMd: header carries fetch: failed only on failure; attention first, then formatTable's table (9.1117ms)
+✔ buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut is marked (0.3375ms)
+✔ status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced (1880.2017ms)
+✔ change key equal across two runs with no repo change: zero note-send calls (1843.392ms)
+✔ change key different: exactly one call, kind RESULT, --no-type present (1910.9647ms)
+✔ --quiet: key differs but note-send is never invoked; status still written (829.4712ms)
+✔ missing note-send on PATH: writes status anyway, exits 0, says so in status.md (914.1518ms)
+✔ missing --to: skips the send, still writes status, still exits 0 (838.3998ms)
+✔ atomic write: no temp file left behind under --out after a run (870.0748ms)
+✔ previous.json rotation: prior status.json is renamed aside, not copied, before the new write (1822.1542ms)
+✔ fetch failure: still writes a status (fetch: failed), sends no note, never updates announced (1016.6889ms)
+✔ a failed fetch that sees a change does not swallow it: the next good run announces it (953.1026ms)
+✔ K2 allowlist: a state outside collect-from-origin's names reaches --text only as other (seam m1) (921.8849ms)
+✔ a --main ref that doesn't resolve sends no note (no real state to report) (871.9314ms)
+✔ never writes: every file under .git is byte-identical before and after a --no-fetch run (1814.4918ms)
+✔ status.md stays within the 60-line budget for a modest fixture (5178.5035ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21954.8563

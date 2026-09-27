@@ -1,0 +1,10 @@
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+✔ R3 repro: malformed final Log timestamp lets a stale close write (328.2875ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 390.2915

@@ -24,7 +24,7 @@
 // counts the key as "announced" in those last three cases: they are operator/config conveniences,
 // not a reason to re-send once they are fixed).
 //
-// node scripts/collect-status.mjs [--repo <dir>] [--main <ref>] [--no-fetch] [--skip <name>]...
+// node scripts/collect-status.mjs [--repo <dir>] [--main <ref>] [--no-fetch] [--skip <name>]... [--only-prefix <prefix>]...
 //   [--out <dir>] [--to <slug>] [--host <name>] [--merge-hours <n>=4] [--stale-hours <n>=6] [--quiet]
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -40,10 +40,11 @@ import { assertFieldSafe } from "../skills/multi/scripts/envelope.mjs";
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
 // names plus the no-record row); anything else is counted as "other", never named.
 const NOTE_STATE_TOKENS = new Set(["owned", "rejected", "withdrawn", "accepted-merged", "accepted-unmerged", "no-record"]);
+export const DEFAULT_ONLY_PREFIXES = ["build/"];
 
 export function parseArgs(argv) {
   const out = {
-    repo: null, main: "origin/main", noFetch: false, skip: [], out: null,
+    repo: null, main: "origin/main", noFetch: false, skip: [], onlyPrefix: [], out: null,
     to: null, host: null, mergeHours: 4, staleHours: 6, quiet: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -52,6 +53,7 @@ export function parseArgs(argv) {
     else if (a === "--main") out.main = argv[++i];
     else if (a === "--no-fetch") out.noFetch = true;
     else if (a === "--skip") out.skip.push(argv[++i]);
+    else if (a === "--only-prefix") out.onlyPrefix.push(argv[++i]);
     else if (a === "--out") out.out = argv[++i];
     else if (a === "--to") out.to = argv[++i];
     else if (a === "--host") out.host = argv[++i];
@@ -244,13 +246,14 @@ export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATU
   if (fetchStatus === "failed") header += " | fetch: failed";
   lines.push(header);
   if (sendOutcome.reason) lines.push(sendOutcome.reason);
+  if (status.summary.skipped) lines.push(`skipped: ${status.summary.skipped.count} (outside ${status.summary.skipped.prefixes.join(", ")})`);
   const attention = status.summary.attention;
   lines.push(`attention (${attention.length})`);
 
-  const fixedCount = lines.length; // header [+ reason] + the "attention (n)" line
+  const fixedCount = lines.length; // header [+ reason] [+ skipped] + the "attention (n)" line
   const rows = status.rows;
-  // Reserve the table's own header row so the table is never starved to nothing.
-  let remaining = Math.max(0, budget - fixedCount - 1);
+  // Reserve both the table header and its immediately following lane legend.
+  let remaining = Math.max(0, budget - fixedCount - 2);
   let attnShown = Math.min(attention.length, remaining);
   let rowsShown = Math.min(rows.length, remaining - attnShown);
   let cutAttn = attention.length - attnShown;
@@ -269,7 +272,10 @@ export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATU
     const a = attention[i];
     lines.push(`- ${a.branch}\t${a.recordPath ?? "-"}\t${a.state}\t${a.reason}`);
   }
-  lines.push(formatTable(rows.slice(0, rowsShown)));
+  const [tableHeader, ...tableRows] = formatTable(rows.slice(0, rowsShown))
+    .replace(/^([^\n]*)\tstate(?=\n|$)/, "$1\tlane")
+    .split("\n");
+  lines.push(tableHeader, "lane: every non-terminal Status shows as owned", ...tableRows);
   if (anyCut) lines.push(`(+${cutAttn + cutRows} more, see status.json)`);
   return `${lines.join("\n")}\n`;
 }
@@ -295,7 +301,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const collectArgv = ["--repo", repo, "--main", args.main, "--json"];
     if (args.noFetch) collectArgv.push("--no-fetch");
     for (const s of args.skip) collectArgv.push("--skip", s);
-    collectMain(collectArgv, { write: (s) => written.push(s), warn: (s) => collectWarnings.push(s), now });
+    const onlyPrefixes = args.onlyPrefix.length ? args.onlyPrefix : DEFAULT_ONLY_PREFIXES;
+    for (const prefix of onlyPrefixes) collectArgv.push("--only-prefix", prefix);
+    let skipped = { count: 0, prefixes: onlyPrefixes };
+    collectMain(collectArgv, { write: (s) => written.push(s), warn: (s) => collectWarnings.push(s), onSkipped: (value) => { skipped = value; }, now });
     const rows = written.length ? JSON.parse(written[0]) : [];
 
     // Keep collect-from-origin's own exit-0-on-failed-fetch promise: a failed fetch still writes
@@ -352,7 +361,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       fetch: fetchStatus,
       main: { ref: args.main, sha: mainSha },
       rows,
-      summary: { byState, attention },
+      summary: { byState, attention, skipped },
       changeKey: currentKey,
       announced,
     };

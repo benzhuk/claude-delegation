@@ -113,13 +113,14 @@ const alwaysNoteSend = () => "/usr/bin/note-send-stub";
 
 test("parseArgs: defaults and every flag", () => {
   const a = parseArgs([
-    "--repo", "/r", "--main", "origin/trunk", "--no-fetch", "--skip", "x", "--skip", "y",
+    "--repo", "/r", "--main", "origin/trunk", "--no-fetch", "--skip", "x", "--skip", "y", "--only-prefix", "build/",
     "--out", "/o", "--to", "lead", "--host", "Netcup!!", "--merge-hours", "2", "--stale-hours", "3", "--quiet",
   ]);
   assert.equal(a.repo, "/r");
   assert.equal(a.main, "origin/trunk");
   assert.equal(a.noFetch, true);
   assert.deepEqual(a.skip, ["x", "y"]);
+  assert.deepEqual(a.onlyPrefix, ["build/"]);
   assert.equal(a.out, "/o");
   assert.equal(a.to, "lead");
   assert.equal(a.host, "Netcup!!");
@@ -131,6 +132,7 @@ test("parseArgs: defaults and every flag", () => {
   assert.equal(d.main, "origin/main");
   assert.equal(d.noFetch, false);
   assert.deepEqual(d.skip, []);
+  assert.deepEqual(d.onlyPrefix, []);
   assert.equal(d.mergeHours, 4);
   assert.equal(d.staleHours, 6);
   assert.equal(d.quiet, false);
@@ -225,7 +227,9 @@ test("buildStatusMd: header carries fetch: failed only on failure; attention fir
   assert.ok(!lines[0].includes("fetch: failed"));
   assert.equal(lines[1], "attention (1)");
   assert.equal(lines[2], "- b1\tp\towned\tsilent-over-6-h");
-  assert.ok(lines[3].startsWith("branch\ttipSha\t")); // formatTable's own header row
+  assert.ok(lines[3].startsWith("branch\ttipSha\t"));
+  assert.ok(lines[3].endsWith("\tlane"));
+  assert.equal(lines[4], "lane: every non-terminal Status shows as owned");
 
   const failedMd = buildStatusMd({ status, fetchStatus: "failed", sendOutcome: { attempted: false, sent: false, reason: null } });
   assert.ok(failedMd.split("\n")[0].includes("fetch: failed"));
@@ -257,10 +261,10 @@ test("buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut
 
 test("status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced", () => {
   const root = initRepoWithOrigin();
-  newBranch(root, "feature/one");
+  newBranch(root, "build/one");
   const rec = writeRecord(root, "wr-2026-09-27-one.record.md", ["Work: wr-2026-09-27-one", "Status: owned", "Artifact: none", ""]);
   commitAll(root, "one record");
-  pushBranch(root, "feature/one");
+  pushBranch(root, "build/one");
   backToMain(root);
 
   const out = outTmp();
@@ -280,6 +284,7 @@ test("status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey
   assert.equal(status.rows[0].recordPath, rec);
   assert.deepEqual(status.summary.byState, { owned: 1 });
   assert.deepEqual(status.summary.attention, []);
+  assert.deepEqual(status.summary.skipped, { count: 0, prefixes: ["build/"] });
   assert.equal(typeof status.changeKey, "string");
   assert.equal(status.announced, status.changeKey); // first run: attempted (quiet), so announced updates
   assert.ok(fs.existsSync(path.join(out, "status.md")));
@@ -318,10 +323,10 @@ test("change key different: exactly one call, kind RESULT, --no-type present", (
   main(["--repo", root, "--no-fetch", "--out", out, "--to", "lead"], opts); // no branches yet: first run still sends once
   assert.equal(spawn.calls.length, 1);
 
-  newBranch(root, "feature/new");
+  newBranch(root, "build/new");
   writeRecord(root, "wr-2026-09-27-new.record.md", ["Work: wr-2026-09-27-new", "Status: owned", "Artifact: none", ""]);
   commitAll(root, "new record");
-  pushBranch(root, "feature/new");
+  pushBranch(root, "build/new");
   backToMain(root);
 
   main(["--repo", root, "--no-fetch", "--out", out, "--to", "lead"], opts);
