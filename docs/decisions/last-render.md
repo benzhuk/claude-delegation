@@ -19,6 +19,7 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
 - Release 0.20.16 carrying today's eight lanes waits on your word above; installs on the four machines follow it.
 # History {toggle="true"}
+	- [Sep 28](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-28.md) — the collector follow-ups landed, so a reinstall keeps --stale-hours and a closed lane stays closed.
 	- [Sep 27](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-27.md) — lanes merged all day, including the delete guard, the knowledge count, the Windows janitor task and this page's renderer, and a second RE-PLAN reached your page.
 	- [Sep 26](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-26.md) — eleven lanes merged, including the four-number read and the merge-on-acceptance rule.
 	- [Sep 25](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-25.md) — four build lanes launched across four hosts, and a review flagged an uncounted stall.
