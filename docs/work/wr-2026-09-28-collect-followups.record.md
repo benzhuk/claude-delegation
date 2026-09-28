@@ -5,7 +5,7 @@ Status: reviewed
 Authority: build, review, integrate, push build/collect-followups-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; live proof only against a scratch HOME with --force-root --dry-run --json, never the live Netcup unit
 Next: accept, merge into main, close, RESULT to skills-fable
 Artifact: 0523ec8e82bb48d8fa775f0c20bfa6559813b049
-Evidence: docs/work/evidence/wr-2026-09-28-collect-followups-review.md (deciding, Opus r2), docs/work/evidence/wr-2026-09-28-collect-followups-review-r1.md, docs/work/evidence/wr-2026-09-28-collect-followups-suites.md, docs/work/evidence/wr-2026-09-28-collect-followups-live.md
+Evidence: docs/work/evidence/wr-2026-09-28-collect-followups-review.md, docs/work/evidence/wr-2026-09-28-collect-followups-review-r1.md, docs/work/evidence/wr-2026-09-28-collect-followups-suites.md, docs/work/evidence/wr-2026-09-28-collect-followups-live.md
 Worktree: build/collect-followups-1
 Opened: 2026-09-28T03:48:18.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
