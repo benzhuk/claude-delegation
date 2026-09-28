@@ -3,7 +3,7 @@ Scope: docs/specs/transport-identity-1/spec.md (lane 44 lead spec, rulings P1 to
 Owner: skills-n
 Status: delivered
 Authority: build, review, integrate, push build/transport-identity-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; the live proof reads only (decisions-pickup status); no release, no install
-Next: after Ben frees Netcup /tmp inodes, one more fix round (the test builds its child env through childEnv() from test-child-env.mjs, per N2), then Opus delta r2, Windows, live proof
+Next: Opus delta r2 and Windows at 216d56b, then the live proof on decisions-pickup status
 Worktree: build/transport-identity-1
 Opened: 2026-09-28T21:18:00.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -14,5 +14,6 @@ Log: 2026-09-28T21:17:20.000Z owned skills-n picked up skills-fable-lane-44-1, A
 Log: 2026-09-28T21:22:18.000Z delivered skills-n Sonnet builder DONE 25a523b (gitRunner env without the four repo-locating vars, transport.test.mjs red on base then green), full 2654 of 2659 with 0 fail; Opus review r1 and Windows suite started
 Log: 2026-09-28T21:31:25.000Z rejected skills-n Opus review r1 NEEDS_FIXES 25a523b, production cause confirmed; F1 the test fails on win32 (confirmed on Windows, 2646 of 2659 with 1 fail), F2 F3 F5 test hygiene and coverage, F4 mixed-case key on win32, all in (lead-ruling-r1.md); FU1 to FU6 are follow-ups
 Log: 2026-09-28T21:40:31.000Z delivered skills-n fix builder DONE fc8f7fd (F1 to F5 as patched; the GIT_COMMON_DIR test fails on base and on a GIT_DIR-only mutant, passes at the fix); on hold: the verbatim test patch trips hooks.test.mjs N2 (a test file spreads the runner env instead of childEnv), and the full suite cannot run because Netcup /tmp is out of inodes (1046152 of 1048576), freeing it is Ben's call
+Log: 2026-09-28T21:51:05.000Z delivered skills-n fix builder DONE 216d56b (the test builds its git env through childEnv, N2 passes; red on base and on the GIT_DIR-only mutant, green at the fix), full 2655 of 2660 with 0 fail after Netcup /tmp was freed with Ben's word; Opus delta r2 and Windows suite started
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-44
