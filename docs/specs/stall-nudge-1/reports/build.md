@@ -1,4 +1,5 @@
-STATUS: DONE (uncommitted at time of writing; see report below for the commit sha once pushed)
+VERDICT: PASS
+STATUS: DONE d026b5b
 
 ## Goal-card line served
 
