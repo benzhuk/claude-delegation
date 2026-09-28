@@ -423,7 +423,12 @@ export function gitRunner(args, cwd) {
   // Shallow copy so the parent's own environment object is never mutated; each name is removed
   // (not set to '') because an empty GIT_DIR is itself an error, not "unset" (lane 44, F3/P1).
   const env = { ...process.env };
-  for (const name of REPO_LOCATING_GIT_ENV) delete env[name];
+  // win32 env names are case-insensitive to the OS and to git, but a spread copy keeps each key's
+  // stored case, so `Git_Dir` would survive `delete env.GIT_DIR`; match case-insensitively there.
+  const locating = process.platform === 'win32'
+    ? (key) => REPO_LOCATING_GIT_ENV.includes(key.toUpperCase())
+    : (key) => REPO_LOCATING_GIT_ENV.includes(key);
+  for (const key of Object.keys(env)) if (locating(key)) delete env[key];
   return execFileSync('git', args, {
     cwd, env, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   }).toString();
