@@ -7,7 +7,6 @@ Next: accept, merge into main, publish --clear-done from wt-ws-mainbase to clear
 Artifact: 26c61ad66543bb84f91d3aac79bb85acea04dfc4
 Evidence: docs/work/evidence/wr-2026-09-28-pickup-binding-review.md, docs/work/evidence/wr-2026-09-28-pickup-binding-review-r1.md, docs/work/evidence/wr-2026-09-28-pickup-binding-suites.md
 Worktree: build/pickup-binding-1
-Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-34
 Opened: 2026-09-28T19:13:30.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
@@ -23,3 +22,5 @@ Log: 2026-09-28T19:50:19.000Z reviewed skills-n Opus reviewer a3419dc7f623522d7 
 Observed: at 26c61ad a linked worktree's pickup identity is its main checkout's, so the live round 3, bound to /home/ben/Code/claude-delegation, reads RECORDED from /home/ben/Code/wt-ws-mainbase. The reviewer ran this read-only in both rounds, where the old code gave PENDING_MANUAL_HANDOFF. A main checkout's projectScope is unchanged, so no receipt migration is needed. A bare-backed worktree and a separate clone stay separate projects. A registration naming a worktree still reads that worktree's config. F3 (an inherited GIT_DIR rebinds identity, in the shared transport gitRunner) is left for a follow-up lane.
 
 Predicts: the next Done tick Ben makes on the decisions page is captured by the Netcup note-flush timer and cleared by one publish --clear-done from wt-ws-mainbase, with no hand step on the parked checkout. Read it from the receipts under ~/.agents/ws/decisions-pickup/ on Netcup (decisions-pickup.mjs status --page 3e1da11277a18174bccfea187d5c3972 --repo /home/ben/Code/wt-ws-mainbase reads RECORDED, then ACCOUNTED).
+
+Scratch directory for this lane (the bundle rule; the Scratch: header field arrives with lane 36, and today's parser refuses an unknown label): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-34
