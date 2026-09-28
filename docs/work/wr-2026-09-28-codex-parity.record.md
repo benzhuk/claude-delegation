@@ -3,11 +3,10 @@ Scope: docs/specs/codex-parity-37/pinned-spec.md@dc16de3ba767fe9762cde454b3483e1
 Owner: skills-a
 Status: owned
 Authority: Lane 37 assignment skills-fable-lane-37-1 under the standing build and merge grant. Exclusive lane territory only. No release or real-home installation. Page publication deferred to lane 34. Root alone writes this record.
-Artifact: ad75d1eff34f6b015bb387f5182265214c776018
+Artifact: b726ff9ad09f3e403ade74d27ab0a497c742c729
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-parity-37
-Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37
 Evidence: docs/specs/codex-parity-37/L37-builder-report.md, docs/specs/codex-parity-37/L37-tests-report.md, docs/specs/codex-parity-37/L37-native-proof-r2.md, docs/specs/codex-parity-37/L37-windows-integration.md, docs/specs/codex-parity-37/L37-netcup-integration.md
-Next: receive skills-fable territory ruling for scripts/native-package.test.mjs via skills-a-lane-37-3, apply prepared assertion fix, gate corrected artifact on Windows and Netcup, and obtain Claude Opus delta review after original skills-a-lane-37-2 review. No main merge or acceptance until all pass.
+Next: isolate and fix the remaining Netcup SessionStart output losses under full-suite load, then repeat changed-source focused/native/host gates and obtain Claude Opus delta approval. All native-package scope changes are approved and applied.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T19:03:14Z
@@ -22,12 +21,16 @@ Log: 2026-09-28T21:57:56.688Z delivered skills-a integrated focused-green artifa
 Log: 2026-09-28T22:04:30.415Z rejected skills-a retained Windows native1 (2650pass 2fail 12skip), Netcup native1 and failed live proof on 0b9d020; source and test fix round required
 Log: 2026-09-28T22:05:53.570Z blocked skills-a native-proof fix passes live Codex hi plus21 focused and26 hygiene tests; native-package territory extension requested skills-a-lane-37-3 and Claude Opus review remain pending; candidate ad75d1eff34f6b015bb387f5182265214c776018
 Log: 2026-09-28T22:10:43.015Z rejected skills-a read Claude Opus NEEDS_FIXES report on 0b9d020 via skills-fable-lane-37-4; builder applied two text-only MAJOR patches at786d1d5; original source proof fixed separately
+Log: 2026-09-28T22:21:49.687Z reviewed Opus reviewer APPROVE b726ff9ad09f3e403ade74d27ab0a497c742c729 via skills-a-lane-37-5 and skills-fable-lane-37-7; original report docs/specs/codex-parity-37/L37-opus-review-r2.md
+Log: 2026-09-28T22:21:49.687Z rejected skills-a Netcup full-suite still omits two SessionStart wiring outputs after socket-path issue was eliminated; mid builder and independent author own research-first runtime round3
+
+Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37
 
 Measure: work lost or stalled on Codex-led builds; DONE mixed handoff clause.
 
 Predicts: the next Codex-led lane record shows zero not-stated host coverage gaps.
 
-Observed: corrected source passes real scratch Codex hi (both wiring and backlog lines, native0), 21 focused tests and 26 repository hygiene tests. Original sealed suites failed and are retained. One known package assertion still expects only five Codex events; its concrete patch is prepared but the file is outside the pinned territory. Scope ruling skills-a-lane-37-3 and required Claude Opus delta review remain pending. Codex-led manual sequence; no acceptance or complete four-measure win claimed.
+Observed: Claude Opus approved b726ff9; Windows sealed passed2653 skipped12 native0 and live Codex proof emits both lines. Netcup socket fixtures passed73 after shortening remote scratch paths, but its full suite still failed two SessionStart output checks (2658pass 2fail 5skip). No acceptance or four-measure win is claimed; research-first runtime repair remains owned.
 
 Continuation bind: native episode wjkOi7-mk-Up7QCia1QFaPAR was suspended; bind returned EPISODE_INACTIVE. Ordinary authorized work continues without claiming active continuation enforcement.
 
@@ -38,3 +41,5 @@ Current outcome: real scratch Codex hi now emits both wiring and backlog lines (
 Scope and handoff: concrete unapplied proposal docs/specs/codex-parity-37/L37-native-package-proposal.patch preserves five adapter events and separately pins the existing PreToolUse Bash delete guard. Second ASK skills-a-lane-37-3 is a protocol deviation required by the bundle rule to stop and ask before editing outside territory; it also reports the native-proof finding to the active reviewer. Skills-fable-lane-37-2 confirms a fresh Claude Opus reviewer on original0b9d020, not approval of correctedad75d1e. Peer replies are pending, no polling or stale-source acceptance.
 
 Resume authority: skills-fable-lane-37-3 grants the native-package event-list assertion only. The proposed patch also preserves adapter command assertions while asserting the separate PreToolUse guard, so skills-a-lane-37-4 requests clarification for that same first test. skills-o-lane37-verify-1 reports possible unmutexed Windows overlap and honors the Netcup lock. Current continuation bind returned MALFORMED_RECORD because this pre-Lane36 parser rejects the spec-required Scratch header (parseRecord.errors: unknown label Scratch); validateRecord returned no independent findings. Installed mirror source now verifies to C:/Users/benzh/.claude/plugins/cache/benzhuk/delegation/0.20.17; continuation is not claimed active.
+
+Scratch compatibility: the exact spec-required Scratch line is retained once in the body because current released parser0.20.17 rejects it as a header, before Lane36 adds that field. No parser source or acceptance guard was changed. Source-derived rationale and the denied optional fixture check are retained in L37-acceptance-plan.md. Remote lane scratch is now /tmp/01a0df4c-2809-7520-b1d7-876cc51a87ee/37; all prior artifacts moved intact from the longer root, reducing actual socket path146 to69bytes. Gate receipts preserve every attempt.
