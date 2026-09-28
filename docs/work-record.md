@@ -45,6 +45,7 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `WORKAROUND:` | no, repeatable | `<cause> / <blocked by> / <remove when>`; `remove when` is `by <yyyy-mm-dd>` or a worded condition |
 | `Log:` | no, repeatable | `<ISO-8601 UTC> <status> <owner> [<note>]`, append-only, one per status or owner change |
 | `Superseded-by:` | no | the work id of the record that made this one moot; written by `withdraw` (below) |
+| `Scratch:` | conditional (see below) | an absolute directory: `<scratch root>/<lead session id>/<lane>/` — the one place temp files this build wrote may live; removed by `close --closeout` |
 
 ### Status meanings
 
@@ -61,6 +62,29 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 - `withdrawn` — terminal, closed without a fix round; only `work-record.mjs withdraw` moves a
   record here, from `rejected`, `blocked`, `runnable` or `owned` (never `accepted`, never a
   second time).
+
+### The `Scratch:` field, and where temp files live
+
+> Temp files go only under the directory named by the record's `Scratch:` line
+> (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and
+> never delete them yourself: the lead's `work-record.mjs close --closeout` removes that
+> directory.
+
+`Scratch:` is a singleton header field, `Scratch: <absolute directory>`. The lead creates
+that directory and names it in the brief; agents never delete it themselves. Two checks apply,
+in `validateRecord`, `checkAcceptance`, and `acceptRecord` alike:
+
+- A `Scratch:` value that is present but **not absolute** is refused (`scratch-invalid`),
+  at any date.
+- A record with **no** `Scratch:` line is refused (`scratch-missing`) only when `Spec-from:`
+  is parseable *and* on or after `SCRATCH_FROM` — the lane-closeout lane's own merge time,
+  set by the lead in that lane's merge commit (`export const SCRATCH_FROM` in
+  `scripts/work-record.mjs`). Any other record missing `Scratch:` gets a warning only,
+  never a refusal — `checkAcceptance`/`acceptRecord` surface it in the `"warnings":[...]`
+  array, `validateRecord` as an `info`-level `scratch-missing` finding.
+
+`checkScratchField(record, opts)` takes `opts.scratchFrom` the same way the strict-cutoff
+check above takes `opts.strictFrom` — for tests only; there is no CLI flag to move it.
 
 ### Migration debt
 
@@ -240,6 +264,8 @@ only attempted when both `gitDir` and `ref` are given.
 | `workaround-overdue` | finding | any `WORKAROUND:`'s `remove when` is `by <yyyy-mm-dd>` and that date is in the past, in any status |
 | `bugfix-gate-missing` | finding | `Class:` is set, `Status: accepted`, and no evidence path's basename contains `prefix-test` |
 | `runnable-with-owner` | finding | `Status: runnable` and `Owner:` is present and not `none` |
+| `scratch-missing` | finding, or `info` | see "The `Scratch:` field" above — finding when `Spec-from:` is on/after `SCRATCH_FROM`, info (a warning) otherwise |
+| `scratch-invalid` | finding | `Scratch:` is present but not an absolute directory path |
 
 `scope-drift`'s git check can also emit `scope-unresolvable`, level `info` — when
 `gitDir` and `ref` are both given but `git log -1` for the `Scope:` path returns no
@@ -262,6 +288,63 @@ paths: [...] }` — deliberately a different shape from `validateRecord`'s findi
 set-level finding, not a per-record one. `hooks/backlog-notice.js` calls it once per
 scan and prints a duplicate-id id list on stderr when it returns anything; a duplicated
 work id does not change which bucket its records fall into.
+
+## Closing out: `close --closeout`, and `sweep-origin`
+
+Plain `close` (no `--closeout`) behaves exactly as documented elsewhere in this file — it
+writes the `closed` receipt and nothing more. `--closeout` adds five cleanup steps after
+that close (or after accepting a record whose `Status:` is already `closed`): a merge
+proof against `origin/main`, the worktree and its local branch, the branch on origin, and
+the record's own `Scratch:` directory. This is the plugin's one file-delete path
+(`fs.rmSync`, scratch directories only) and its one branch-delete paths (local `git branch
+-d`, and `git push origin --delete`) — every other command in this repo only ever reads.
+
+```
+node <verified-plugin-root>/scripts/work-record.mjs close \
+  --record <repo-relative-record> --repo <target-root> --by <lead-session-id> \
+  --closeout [--dry-run]
+```
+
+Each of the five steps prints exactly one line: `removed`, `refused <reason>`, `absent`,
+or `dirty`. `--dry-run` prints the same lines prefixed `would ` and changes nothing on
+disk — including the close write itself and the `Log:` line below. Exit 0 only when every
+step is `removed` or `absent`; otherwise exit 2. On a real (non-dry-run) run, one `Log:`
+line is appended: `closeout <lead-session-id> <step>=<result> <step>=<result> ...`.
+
+A failed merge proof — `git fetch origin` fails, or the record's `Artifact:` sha is not an
+ancestor of `origin/main` — refuses every one of the four cleanup steps with that one
+reason (`UNVERIFIABLE: fetch failed`, or the ancestry failure), rather than attempting any
+of them. The worktree/branch step never forces: a dirty worktree is reported `dirty` and
+left exactly in place; the local branch is deleted with `-d`, never `-D`, so it too is
+merely refused (not forced) when git's own checkout-local merge judgment disagrees. The
+main worktree, and whichever worktree contains `process.cwd()`, are always refused. The
+origin branch (`build/<...>`, taken from `Worktree:` or the `Artifact:` ref) is deleted
+with `git push origin --delete`, printing its tip sha and a restore command (`git push
+origin <sha>:refs/heads/<name>`) — refused when it is not under `build/`, not this
+record's own, named by another record under `docs/work/` whose `Status:` is neither
+`closed` nor `withdrawn`, or its tip fails any of the three merge-safety proofs (ancestor
+of `origin/main`, not equal to `origin/main`'s own tip, reachable only through a `--no-ff`
+merge commit's second parent). The scratch directory is removed only when `--by` matches
+the record's own `Lead-session:`, and only after the full set of path-safety checks named
+in the pinned scratch sentence's own contract (a scratch root, `--by` as its own path
+segment, no symlink, never a drive root/home directory/repo root/worktree/`.git` entry).
+
+`sweep-origin` runs a standing, repo-wide version of the same origin-branch rule, useful
+for a batch cleanup outside any one record's own closeout:
+
+```
+node <verified-plugin-root>/scripts/work-record.mjs sweep-origin \
+  --repo <target-root> [--exclude <name,name,...>] [--apply]
+```
+
+Dry run by default: lists every `origin/build/*` branch with its tip sha and a verdict,
+`delete <name> <sha>` or `keep <name> <sha> <reason>`. It applies the same rules as
+`close --closeout`'s origin-branch step, with two changes: "not this record's own" is
+dropped (there is no one record to be the owner of here — sweep-origin only ever keeps a
+branch that some *other*, still-active record names), and branches listed in `--exclude`
+are added to the keep list outright. `--apply` deletes only the branches marked `delete`,
+against origin, printing each name and sha plus its own restore command — a dry run
+deletes nothing.
 
 ## Full example record
 

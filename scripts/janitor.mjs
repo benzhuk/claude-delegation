@@ -1177,6 +1177,91 @@ export function applySafe(state, log = []) {
   return log;
 }
 
+/**
+ * (C1 ruling b, lane-closeout) The one new export this file gains for `work-record.mjs close
+ * --closeout`: given a record's `Worktree:` field (a path or a bare branch name), resolves it
+ * through `git worktree list --porcelain`, refuses the main worktree and the worktree
+ * containing `cwd`, and — when not a dry run — hands a state narrowed to exactly that one
+ * worktree (and NO branches) to `applySafe`, so the same unforced `git worktree remove` path is
+ * used here as for a routine sweep. `applySafe`'s own `-D` branch-delete path is never reached
+ * (`state.safe.branches` is always empty): the local branch is deleted separately below, with
+ * `-d`, never `-D` — the caller (close --closeout) has already proven the record's Artifact: is
+ * an ancestor of origin/main, but `-d` still re-derives its own merge judgment against THIS
+ * checkout's HEAD and simply refuses (never throws, never forces) when it disagrees, which is
+ * the right "reported and left in place" behavior for a branch not yet fast-forwarded locally.
+ *
+ * Never throws for an ordinary refusal: returns `{ steps: [{ step: "worktree"|"branch", ref?,
+ * result: "removed"|"refused"|"absent"|"dirty", detail? }] }` so a caller stepping through one
+ * record never has to wrap this in try/catch. Dry run performs no git mutation at all — it
+ * reports the same verdicts (clean tree => "removed"/"removed", dirty => "dirty"/"refused")
+ * that a live run would, computed from `isTreeClean` alone.
+ */
+export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd = process.cwd(), dryRun = false }) {
+  if (!worktreeField) {
+    return { steps: [{ step: "worktree", result: "refused", detail: "no Worktree: field" }] };
+  }
+  const worktrees = listWorktrees(root);
+  if (worktrees === null) {
+    return { steps: [{ step: "worktree", result: "refused", detail: "could not read git worktree state" }] };
+  }
+  const target = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(root, worktreeField);
+  let entry = worktrees.find((w) => samePath(w.path, target));
+  if (!entry) entry = worktrees.find((w) => w.branch === worktreeField);
+  if (!entry) {
+    return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }] };
+  }
+  if (entry.main) {
+    return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the main worktree" }] };
+  }
+  const cwdReal = path.resolve(cwd);
+  const entryWithSep = entry.path.replace(/[/\\]+$/, "") + path.sep;
+  if (samePath(entry.path, cwdReal) || (cwdReal + path.sep).startsWith(entryWithSep)) {
+    return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the worktree containing process.cwd()" }] };
+  }
+
+  const branch = entry.branch;
+  const clean = entry.bare ? true : isTreeClean(entry.path);
+  const steps = [];
+
+  if (dryRun) {
+    steps.push({ step: "worktree", ref: entry.path, result: clean ? "removed" : "dirty" });
+    if (branch) {
+      steps.push(clean
+        ? { step: "branch", ref: branch, result: "removed" }
+        : { step: "branch", ref: branch, result: "refused", detail: "worktree removal did not report success" });
+    }
+    return { steps };
+  }
+
+  const state = {
+    safe: { worktrees: [{ ref: entry.path, branch }], branches: [] },
+    judgment: { worktrees: [], branches: [], untrackedFiles: [] },
+    fetch: { attempted: true, ok: true },
+    _raw: { root, mainBranch },
+  };
+  const log = applySafe(state, []);
+  const wtLog = log.find((l) => l.action === "worktree-remove" && samePath(l.ref, entry.path));
+  if (wtLog && wtLog.ok) {
+    steps.push({ step: "worktree", ref: entry.path, result: "removed" });
+  } else {
+    const dirty = Boolean(wtLog && /modified|untracked|locked|contains/i.test(wtLog.error || ""));
+    steps.push({ step: "worktree", ref: entry.path, result: dirty ? "dirty" : "refused", detail: wtLog ? wtLog.error : "worktree removal did not run" });
+  }
+  if (branch) {
+    if (wtLog && wtLog.ok) {
+      try {
+        git(["branch", "-d", "--", branch], root);
+        steps.push({ step: "branch", ref: branch, result: "removed" });
+      } catch (err) {
+        steps.push({ step: "branch", ref: branch, result: "refused", detail: String(err.message || err) });
+      }
+    } else {
+      steps.push({ step: "branch", ref: branch, result: "refused", detail: "worktree removal did not report success" });
+    }
+  }
+  return { steps };
+}
+
 // ---------- output ----------
 
 function table(rows, columns) {

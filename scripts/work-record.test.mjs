@@ -11,6 +11,7 @@ import {
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
   isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs, closeRecord, parseCloseArgs,
   STRICT_FROM, MODEL_TIER_TOKENS, countedModelTiers, isStrictRecord, checkMeasureTruthRules,
+  SCRATCH_FROM, checkScratchField, closeoutRecord,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -40,6 +41,10 @@ function mkRecordText(overrides = {}, extraLines = [], body = "Prose body.") {
     "Lead-session": "fixture-lead-session-1",
     "Spec-session": "fixture-spec-session-1",
     "Spec-from": "2026-09-21T08:00:00Z",
+    // C1 ruling a (lane-closeout): an absolute path by default so every fixture that doesn't
+    // care about Scratch: stays free of the scratch-missing warning; a test of that ruling
+    // overrides this to `undefined` (omitted) or an explicit bad value.
+    Scratch: path.join(os.tmpdir(), "work-record-fixture-scratch", "lead-session-1", "lane-1"),
   };
   const merged = { ...defaults, ...overrides };
   const lines = Object.entries(merged)
@@ -237,9 +242,9 @@ test("validateRecord: a clean record with no repoRoot given produces zero findin
   assert.deepEqual(validateRecord(r), []);
 });
 
-test("FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-check (fourteen total)", () => {
+test("FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-check plus C1's scratch-missing/scratch-invalid (sixteen total)", () => {
   // Documents the full set this suite must cover; the individual tests below assert each one fires.
-  assert.equal(FINDING_CODES.length, 14);
+  assert.equal(FINDING_CODES.length, 16);
   assert.deepEqual(
     [...FINDING_CODES].sort(),
     [
@@ -255,6 +260,8 @@ test("FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-
       "missing-field",
       "runnable-with-owner",
       "scope-drift",
+      "scratch-invalid",
+      "scratch-missing",
       "stale-result-candidate",
       "workaround-overdue",
     ].sort(),
@@ -268,7 +275,107 @@ test("validateRecord: missing-field fires once per absent required field", () =>
   for (const field of ["scope", "status", "authority", "artifact", "evidence", "next", "opened"]) {
     assert.ok(missing.some((m) => m.includes(field)), `expected a missing-field finding naming "${field}"`);
   }
-  assert.ok(findings.every((f) => f.level === "finding"));
+  // This minimal, Scratch:-free record also gets checkScratchField's info-level warning (C1
+  // ruling a) - every OTHER finding here (missing-field) is still level "finding".
+  assert.ok(findings.filter((f) => f.code !== "scratch-missing").every((f) => f.level === "finding"));
+});
+
+// ── C1 ruling a (lane-closeout): the Scratch: field ─────────────────────────────────
+
+test("checkScratchField: refuses scratch-missing only when Spec-from is parseable and on/after scratchFrom", () => {
+  const scratchFrom = "2026-09-28T00:00:00Z";
+  const onOrAfter = parseRecord(mkRecordText({ "Spec-from": "2026-09-28T00:00:00Z", Scratch: undefined }));
+  const onOrAfterResult = checkScratchField(onOrAfter, { scratchFrom });
+  assert.equal(onOrAfterResult.refusal?.code, "scratch-missing");
+  assert.match(onOrAfterResult.refusal.message, /Spec-from:.*on or after SCRATCH_FROM/);
+  assert.equal(onOrAfterResult.warning, null);
+
+  const after = parseRecord(mkRecordText({ "Spec-from": "2026-09-29T00:00:00Z", Scratch: undefined }));
+  assert.equal(checkScratchField(after, { scratchFrom }).refusal?.code, "scratch-missing");
+});
+
+test("checkScratchField: a record with no Scratch: line gets a warning only, never a refusal, when Spec-from is before scratchFrom, absent, or unparseable", () => {
+  const scratchFrom = "2026-09-28T00:00:00Z";
+  const before = parseRecord(mkRecordText({ "Spec-from": "2026-09-27T23:59:59Z", Scratch: undefined }));
+  const beforeResult = checkScratchField(before, { scratchFrom });
+  assert.equal(beforeResult.refusal, null);
+  assert.match(beforeResult.warning, /scratch-missing/);
+
+  const absent = parseRecord(mkRecordText({ "Spec-from": undefined, Scratch: undefined }));
+  const absentResult = checkScratchField(absent, { scratchFrom });
+  assert.equal(absentResult.refusal, null);
+  assert.match(absentResult.warning, /scratch-missing/);
+
+  const unparseable = parseRecord(mkRecordText({ "Spec-from": "not-a-date", Scratch: undefined }));
+  const unparseableResult = checkScratchField(unparseable, { scratchFrom });
+  assert.equal(unparseableResult.refusal, null);
+  assert.match(unparseableResult.warning, /scratch-missing/);
+});
+
+test("checkScratchField: a Scratch: value that is not absolute is refused (scratch-invalid) at any date, before or after scratchFrom", () => {
+  const scratchFrom = "2026-09-28T00:00:00Z";
+  const beforeCutoff = parseRecord(mkRecordText({ "Spec-from": "2020-01-01T00:00:00Z", Scratch: "relative/scratch/dir" }));
+  const beforeResult = checkScratchField(beforeCutoff, { scratchFrom });
+  assert.equal(beforeResult.refusal?.code, "scratch-invalid");
+  assert.match(beforeResult.refusal.message, /not an absolute directory path/);
+
+  const afterCutoff = parseRecord(mkRecordText({ "Spec-from": "2027-01-01T00:00:00Z", Scratch: "relative/scratch/dir" }));
+  assert.equal(checkScratchField(afterCutoff, { scratchFrom }).refusal?.code, "scratch-invalid");
+});
+
+test("checkScratchField: an absolute Scratch: value never refuses or warns, regardless of Spec-from/scratchFrom", () => {
+  const abs = path.join(os.tmpdir(), "some-lead-session", "some-lane");
+  const r = parseRecord(mkRecordText({ "Spec-from": "2099-06-01T00:00:00Z", Scratch: abs }));
+  const result = checkScratchField(r, { scratchFrom: "2026-09-28T00:00:00Z" });
+  assert.deepEqual(result, { refusal: null, warning: null });
+});
+
+test("checkScratchField uses the real SCRATCH_FROM export by default, when opts.scratchFrom is not given", () => {
+  const r = parseRecord(mkRecordText({ "Spec-from": "2099-06-01T00:00:00Z", Scratch: undefined }));
+  const result = checkScratchField(r);
+  assert.equal(result.refusal?.code, "scratch-missing");
+  assert.match(result.refusal.message, new RegExp(SCRATCH_FROM.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("validateRecord: scratch-missing is a finding-level refusal when Spec-from is on/after opts.scratchFrom, an info-level warning otherwise", () => {
+  const refused = parseRecord(mkRecordText({ "Spec-from": "2026-09-28T00:00:00Z", Scratch: undefined }));
+  const refusedFindings = validateRecord(refused, { scratchFrom: "2026-09-28T00:00:00Z" });
+  const refusedRow = refusedFindings.find((f) => f.code === "scratch-missing");
+  assert.equal(refusedRow.level, "finding");
+
+  const warned = parseRecord(mkRecordText({ "Spec-from": "2020-01-01T00:00:00Z", Scratch: undefined }));
+  const warnedFindings = validateRecord(warned, { scratchFrom: "2026-09-28T00:00:00Z" });
+  const warnedRow = warnedFindings.find((f) => f.code === "scratch-missing");
+  assert.equal(warnedRow.level, "info");
+});
+
+test("validateRecord: scratch-invalid is a finding-level refusal", () => {
+  const r = parseRecord(mkRecordText({ Scratch: "relative/dir" }));
+  const findings = validateRecord(r);
+  const row = findings.find((f) => f.code === "scratch-invalid");
+  assert.equal(row.level, "finding");
+});
+
+test("checkAcceptance/acceptRecord: refuse with code scratch-missing when Spec-from is on/after opts.scratchFrom and there is no Scratch: line", () => {
+  const f = makeAcceptanceFixture({ Scratch: undefined, "Spec-from": "2026-09-28T00:00:00Z" });
+  assert.throws(
+    () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, scratchFrom: "2026-09-28T00:00:00Z" }),
+    (err) => err.code === "scratch-missing",
+  );
+});
+
+test("checkAcceptance/acceptRecord: refuse with code scratch-invalid when Scratch: is not an absolute path, regardless of Spec-from", () => {
+  const f = makeAcceptanceFixture({ Scratch: "relative/dir", "Spec-from": "2020-01-01T00:00:00Z" });
+  assert.throws(
+    () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }),
+    (err) => err.code === "scratch-invalid",
+  );
+});
+
+test("checkAcceptance: a record with no Scratch: line and Spec-from before opts.scratchFrom is not refused, and carries the scratch-missing warning", () => {
+  const f = makeAcceptanceFixture({ Scratch: undefined, "Spec-from": "2020-01-01T00:00:00Z" });
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, scratchFrom: "2026-09-28T00:00:00Z" });
+  assert.ok(result.warnings?.some((w) => w.startsWith("scratch-missing:")));
 });
 
 test("validateRecord: bad-status fires on a status outside STATUSES", () => {
@@ -2437,6 +2544,57 @@ test("closeRecord: rejects non-accepted, unmerged, repeated, and stale closure a
   assert.throws(() => closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") }), /already closed/);
   const parsed = parseCloseArgs(["close", "--record", "docs/work/a.record.md", "--repo", ".", "--merge", "abc", "--at", "2026-09-24T10:01:00Z"]);
   assert.equal(parsed.main, "origin/main");
+});
+
+// ── C1 ruling b (lane-closeout): close --closeout ───────────────────────────────────
+
+test("parseCloseArgs: --closeout/--dry-run are bare flags, --by is a name/value pair distinct from --merge/--at", () => {
+  const parsed = parseCloseArgs(["close", "--record", "docs/work/a.record.md", "--closeout", "--by", "lead-session-9", "--dry-run"]);
+  assert.equal(parsed.closeout, true);
+  assert.equal(parsed.dryRun, true);
+  assert.equal(parsed.closeoutBy, "lead-session-9");
+  const withoutFlags = parseCloseArgs(["close", "--record", "docs/work/a.record.md", "--merge", "abc", "--at", "2026-09-24T10:01:00Z"]);
+  assert.equal(withoutFlags.closeout, undefined);
+  assert.equal(withoutFlags.dryRun, undefined);
+});
+
+test("closeoutRecord: --by is required", () => {
+  const f = makeAcceptanceFixture();
+  assert.throws(() => closeoutRecord({ repoRoot: f.repo, recordPath: f.record }), (err) => err.code === "by-missing");
+});
+
+test("closeoutRecord: runs the existing close, then a failed merge proof (git fetch origin fails, no origin remote) refuses every one of the four cleanup steps with the same UNVERIFIABLE reason, and still writes the closeout Log: line", () => {
+  const f = makeAcceptanceFixture();
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  const result = closeoutRecord({
+    repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD",
+    at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z"),
+    closeoutBy: "closeout-session-1",
+  });
+  assert.equal(result.exitCode, 2);
+  assert.equal(result.ok, false);
+  assert.equal(result.lines[0], "close: closed");
+  for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
+    const row = result.steps.find((s) => s.step === step);
+    assert.equal(row.result, "refused", `step ${step}`);
+    assert.match(row.detail, /UNVERIFIABLE: fetch failed/, `step ${step}`);
+  }
+  const parsed = parseRecord(fs.readFileSync(path.join(f.repo, f.record), "utf8"));
+  assert.equal(parsed.fields.status, "closed");
+  assert.equal(parsed.log.at(-1).status, "closeout");
+  assert.equal(parsed.log.at(-1).owner, "closeout-session-1");
+});
+
+test("closeoutRecord: --dry-run on an already-closed record changes nothing on disk and reports 'close: closed (already)'", () => {
+  const f = makeAcceptanceFixture();
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const result = closeoutRecord({
+    repoRoot: f.repo, recordPath: f.record, closeoutBy: "closeout-session-1", dryRun: true,
+  });
+  assert.equal(result.lines[0], "close: closed (already)");
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before, "--dry-run must change nothing on disk");
 });
 
 test("withdrawRecord: transition table — each of rejected/blocked/runnable/owned may be withdrawn, exactly one Log line each", () => {

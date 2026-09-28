@@ -19,6 +19,9 @@ function recordText({ status = "accepted", artifact, extra = [] } = {}) {
     `Status: ${status}`, "Authority: contract fixture", `Artifact: ${artifact ?? "none"}`,
     "Evidence: docs/work/evidence/review.md", "Next: close the merged lane", "Opened: 2026-09-21T00:00:00Z",
     "Lead-session: contract-lead", "Spec-session: contract-spec", "Spec-from: 2026-09-21T00:00:00Z",
+    // C1 ruling a (lane-closeout): an absolute Scratch: keeps this fixture free of
+    // checkScratchField's unconditional scratch-missing info finding.
+    `Scratch: ${path.join(os.tmpdir(), "record-closed-contract-scratch", "contract-lead", "lane")}`,
     ...extra, "", "Observed: independent contract fixture.", "",
   ].join("\n");
 }

@@ -31,6 +31,7 @@ import {
   classify,
   fetchOrigin,
   lastFetchAgeHours,
+  closeoutWorktree,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -2367,6 +2368,80 @@ test("J1 round 2 MINOR 5 (updated, lane nineteen J1): SKILL.md's origin-is-the-r
     "## Adapters",
   ]);
   assert.match(src, /Origin is the record of truth/, "the origin-truth content must still be present, just not under its own heading");
+});
+
+// ── C1 ruling b (lane-closeout): closeoutWorktree, the one new export this file gains ──────
+
+test("closeoutWorktree: removes a clean worktree and deletes its local branch with -d, never -D", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-clean-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  assert.deepEqual(result.steps.map((s) => s.step), ["worktree", "branch"]);
+  assert.equal(result.steps[0].result, "removed");
+  assert.equal(result.steps[1].result, "removed");
+  assert.equal(fs.existsSync(wt), false);
+  assert.equal(git(["branch", "--list", branch], root).trim(), "");
+});
+
+test("closeoutWorktree: a dirty worktree is reported 'dirty', left in place, and its branch is refused (never forced)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-dirty-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  fs.writeFileSync(path.join(wt, "uncommitted.txt"), "dirty\n");
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "dirty");
+  assert.equal(steps.branch.result, "refused");
+  assert.equal(fs.existsSync(wt), true);
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "");
+});
+
+test("closeoutWorktree: refuses the main worktree, and refuses the worktree containing cwd", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const mainResult = closeoutWorktree({ root, worktreeField: root, cwd: root });
+  assert.equal(mainResult.steps[0].result, "refused");
+  assert.match(mainResult.steps[0].detail, /main worktree/);
+
+  const branch = "close-cwd-1";
+  const wt = addWorktree(root, branch);
+  const cwdResult = closeoutWorktree({ root, worktreeField: branch, cwd: wt });
+  assert.equal(cwdResult.steps[0].result, "refused");
+  assert.match(cwdResult.steps[0].detail, /process\.cwd\(\)/);
+  assert.equal(fs.existsSync(wt), true);
+});
+
+test("closeoutWorktree: a Worktree: naming a branch never checked out anywhere is 'absent' for both worktree and branch, not an error", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  git(["branch", "close-absent-1"], root);
+  const result = closeoutWorktree({ root, worktreeField: "close-absent-1", cwd: root });
+  assert.deepEqual(result.steps, [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }]);
+});
+
+test("closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and reports the same verdicts a live run would", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-dry-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root, dryRun: true });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "removed");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(fs.existsSync(wt), true, "--dry-run must not remove the worktree");
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "--dry-run must not delete the branch");
 });
 
 after(() => {

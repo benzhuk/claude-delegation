@@ -40,6 +40,18 @@ individual file:
 
 A tool with no unlink code path cannot delete the wrong file.
 
+`work-record.mjs close --closeout` (documented in `docs/work-record.md`) is the one other
+caller of these two actions, through `janitor.mjs`'s own `closeoutWorktree` export: once a
+record's `Artifact:` is proven an ancestor of `origin/main`, it resolves that record's
+`Worktree:` field the same way, calls `applySafe` with a state narrowed to exactly that one
+worktree, and — never through `applySafe`'s own `-D` path — deletes the local branch
+separately with `-d`, so a branch not yet fast-forwarded locally is merely refused, never
+forced. It then does one more thing this file's own sweep never does: deletes the *origin*
+branch itself (`git push origin --delete`), and the record's own `Scratch:` directory
+(`fs.rmSync`) — the plugin's one file-delete path, gated by its own long list of path-safety
+checks. Both live in `work-record.mjs`, not here, because both act on ONE record's own,
+already-proven-safe artifact, never on a sweep's report-then-batch-ask shape below.
+
 Origin is the record of truth for every merge judgment, not the checkout's local main.
 Every run that will judge a merge fetches first (`git fetch origin --prune`); merged
 means an ancestor of `refs/remotes/origin/<main>` - local main plays no part in SAFE,
