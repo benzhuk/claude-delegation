@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-stale-session-guard
 Scope: docs/specs/stale-session-guard-1/spec.md (lane 42 lead spec, pinned rulings P1 to P8) from the "Lane 42, stale-session guard" sentence of docs/specs/2026-09-28-parallel-bundle.md at dc16de3, packet docs/specs/stale-session-guard-1/packet.md
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/stale-session-guard-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; the live proof runs only against a scratch HOME; no release, no install, no enforce-file change on any machine
 Next: accept, merge into main, close, publish, RESULT to skills-fable; it takes effect on a machine only after a release and a fresh session there
 Artifact: a960c366d34ece5ee1044f866f873701c4c5fc08
@@ -56,6 +56,8 @@ Four numbers: Hours ask to accepted: 0.6h; gap unavailable (no lead transcript)
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 0 unanswered ASKs to skills-n
 Log: 2026-09-28T21:12:39.000Z accepted skills-n artifact a960c366d34ece5ee1044f866f873701c4c5fc08
+Log: 2026-09-28T21:13:25.000Z merged skills-n build/stale-session-guard-1 into main at c91c1cc77c818b84da94b3f79ba59a702641d5eb under the standing merge grant; merge suite 2652 of 2657, 0 fail
+Log: 2026-09-28T21:13:25.000Z closed skills-n merge c91c1cc77c818b84da94b3f79ba59a702641d5eb
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-42
 
