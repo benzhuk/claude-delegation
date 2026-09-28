@@ -1,4 +1,4 @@
-VERDICT: COUNTED 21 lead requests (leadTurns 9), 73 subagent files, leadLastMessageAt: 2026-09-28T10:27:39.536Z
+VERDICT: COUNTED 23 lead requests (leadTurns 9), 73 subagent files, leadLastMessageAt: 2026-09-28T10:27:58.541Z
 
 # Build census
 
@@ -6,7 +6,7 @@ VERDICT: COUNTED 21 lead requests (leadTurns 9), 73 subagent files, leadLastMess
 
 - leadTurns: 9
 - wallClockHours: 7.35
-- by-model: claude-opus-5-5=4260699, claude-sonnet-5=9371669
+- by-model: claude-opus-5-5=4492627, claude-sonnet-5=9371669
 - by-role: unassigned=11451454
 - subagentFiles: 73
 
@@ -14,23 +14,23 @@ Lead: `588290d9-ee43-400b-a808-cf44c407171c.jsonl` | Tasks dirs: `C:/Users/benzh
 
 ## Lead transcript
 
-- Total assistant turns, deduped (whole file): **332**
-- Window assistant turns, deduped: **21**
+- Total assistant turns, deduped (whole file): **334**
+- Window assistant turns, deduped: **23**
 - leadTurns (conversational runs — see docs/census.md): **9**
-- Window: 2026-09-28T03:06:49.535Z .. 2026-09-28T10:27:39.536Z
-- Turns/hour in window: **2.86**
+- Window: 2026-09-28T03:06:49.535Z .. 2026-09-28T10:27:58.541Z
+- Turns/hour in window: **3.13**
 
 ### Lead tokens by model — whole file (deduped)
 
 | model | input | cache_creation | cache_read | output |
 |---|---|---|---|---|
-| claude-opus-5-5 | 664 | 2461771 | 48538720 | 175301 |
+| claude-opus-5-5 | 668 | 2463388 | 48767862 | 176466 |
 
 ### Lead tokens by model — window (deduped)
 
 | model | input | cache_creation | cache_read | output |
 |---|---|---|---|---|
-| claude-opus-5-5 | 42 | 220328 | 1951674 | 8870 |
+| claude-opus-5-5 | 46 | 221945 | 2180816 | 10035 |
 
 ## Subagents (73 files, 128 turns total, deduped)
 
@@ -129,5 +129,5 @@ Roles: unassigned=5
 
 | model | output_tokens | input+cache_creation+cache_read |
 |---|---|---|
-| claude-opus-5-5 | 54800 | 4205899 |
+| claude-opus-5-5 | 55965 | 4436662 |
 | claude-sonnet-5 | 56542 | 9315127 |

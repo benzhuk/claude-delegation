@@ -1,10 +1,10 @@
 {
   "combined": {
     "claude-opus-5-5": {
-      "cache_creation_input_tokens": 345917,
-      "cache_read_input_tokens": 3859840,
-      "input_tokens": 142,
-      "output_tokens": 54800
+      "cache_creation_input_tokens": 347534,
+      "cache_read_input_tokens": 4088982,
+      "input_tokens": 146,
+      "output_tokens": 55965
     },
     "claude-sonnet-5": {
       "cache_creation_input_tokens": 582498,
@@ -18,7 +18,7 @@
     "coverageReason": null,
     "coverageSupported": true,
     "host": "claude",
-    "leadLastMessageAt": "2026-09-28T10:27:39.536Z",
+    "leadLastMessageAt": "2026-09-28T10:27:58.541Z",
     "leadTurns": 9,
     "leadTurnsTotal": 77,
     "markerFound": true,
@@ -32,26 +32,26 @@
     "observedWindowByModel": null,
     "totalByModel": {
       "claude-opus-5-5": {
-        "cache_creation_input_tokens": 2461771,
-        "cache_read_input_tokens": 48538720,
-        "input_tokens": 664,
-        "output_tokens": 175301
+        "cache_creation_input_tokens": 2463388,
+        "cache_read_input_tokens": 48767862,
+        "input_tokens": 668,
+        "output_tokens": 176466
       }
     },
-    "totalTurns": 332,
-    "turnsPerHour": 2.8582229543204933,
-    "wallClockHours": 7.3472225,
+    "totalTurns": 334,
+    "turnsPerHour": 3.128186982163214,
+    "wallClockHours": 7.352501666666667,
     "windowByModel": {
       "claude-opus-5-5": {
-        "cache_creation_input_tokens": 220328,
-        "cache_read_input_tokens": 1951674,
-        "input_tokens": 42,
-        "output_tokens": 8870
+        "cache_creation_input_tokens": 221945,
+        "cache_read_input_tokens": 2180816,
+        "input_tokens": 46,
+        "output_tokens": 10035
       }
     },
-    "windowEndAt": "2026-09-28T10:27:39.536Z",
+    "windowEndAt": "2026-09-28T10:27:58.541Z",
     "windowStartAt": "2026-09-28T03:06:49.535Z",
-    "windowTurns": 21
+    "windowTurns": 23
   },
   "leadPath": "C:/Users/benzh/.claude/projects/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/588290d9-ee43-400b-a808-cf44c407171c.jsonl",
   "marker": null,
