@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { runSealed, sweepStaleHomes, main } from "./run-tests.mjs";
 // N2 (windows-r1-f8aa816.log, skills/multi/scripts/hooks.test.mjs:429): every spawned child's env
@@ -455,6 +455,51 @@ async function startForwardRunner(probe) {
   return { runner, suitePid, home };
 }
 
+async function startForeignListenerRunner(probe) {
+  const tmp = scratchDir("run-tests-foreign-listener-tmp-");
+  const fixtureHome = scratchDir("run-tests-foreign-listener-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
+  delete env.NODE_TEST_CONTEXT;
+  const script = [
+    `import { runSealed } from ${JSON.stringify(pathToFileURL(RUN_TESTS_MODULE).href)};`,
+    "let deliveries = 0;",
+    "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`foreign-deliveries=${deliveries}\\n`); process.exit(73); }, 250); });",
+    `runSealed({ files: [${JSON.stringify(probe.file)}] }).then((code) => { process.exitCode = code; });`,
+  ].join("\n");
+  const runner = spawn(NODE, ["--input-type=module", "-e", script], { env, stdio: ["ignore", "pipe", "inherit"] });
+  let stdout = "";
+  const home = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("foreign-listener runner did not print its home within 4s")), 4000);
+    runner.once("error", (error) => { clearTimeout(timeout); reject(error); });
+    runner.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.includes("\n")) { clearTimeout(timeout); resolve(stdout.split("\n")[0].trim()); }
+    });
+  });
+  const suitePid = Number(await waitForMarker(probe.ready, "foreign-listener suite ready marker"));
+  assert.ok(Number.isInteger(suitePid) && suitePid > 0, "ready marker must identify runner's immediate suite child");
+  return { runner, suitePid, home, stdout: () => stdout };
+}
+
+test(
+  "SIGTERM to a runSealed wrapper with a foreign listener delivers once and removes its home (R1, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const probe = writeForwardProbe();
+    const { runner, suitePid, home, stdout } = await startForeignListenerRunner(probe);
+    cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} try { process.kill(suitePid, "SIGKILL"); } catch {} });
+    const exited = waitForExit(runner, "foreign-listener runner");
+    const sentAt = Date.now();
+    process.kill(runner.pid, "SIGTERM");
+    const { code } = await exited;
+    assert.ok(Date.now() - sentAt < 5000, "the wrapper must not wait for the 10s fixture");
+    assert.equal(code, 73, "the foreign listener owns the wrapper's bounded exit");
+    assert.match(stdout(), /foreign-deliveries=1/, "the foreign listener must receive SIGTERM exactly once");
+    assert.equal(fs.existsSync(home), false, "the wrapper's registered home must be removed on SIGTERM");
+    await waitForOwnedPidGone(suitePid, "foreign-listener immediate suite controller");
+  },
+);
+
 test(
   "SIGTERM to only the runner terminates its immediate suite controller and removes the runner home (R1, POSIX only)",
   { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
@@ -480,12 +525,13 @@ test(
     const probe = writeForwardProbe();
     const { runner, suitePid, home } = await startForwardRunner(probe);
     cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} });
+    const exited = waitForExit(runner, "runner after taskkill");
     const killed = new Promise((resolve, reject) => {
       const killer = spawn("taskkill.exe", ["/PID", String(suitePid), "/F"], { windowsHide: true, stdio: "ignore" });
       killer.once("error", reject); killer.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`taskkill failed: ${code}`)));
     });
     await killed;
-    const { code } = await waitForExit(runner, "runner after taskkill");
+    const { code } = await exited;
     assert.notEqual(code, 0, "a killed suite is a failed suite");
     assert.equal(fs.existsSync(home), true, "kept-on-failure retains the runner home");
   },
