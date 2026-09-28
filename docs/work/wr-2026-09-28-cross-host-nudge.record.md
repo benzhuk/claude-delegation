@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-cross-host-nudge
 Scope: docs/specs/cross-host-nudge-1/packet.md (lane 43, skills-fable's pickup packet) and the "Lane 43" sentences of docs/specs/cross-host-nudge-1/spec.md (bundle spec at dc16de3 on origin/docs/lane-specs-0925)
 Owner: skills-n
-Status: reviewed
+Status: accepted
 Authority: build, review, integrate, push build/cross-host-nudge-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; one live proof note to skills-h on Hetzner, labelled as a proof; the live Netcup collector unit is not changed
 Next: accept, merge into main, close, publish, RESULT to skills-fable; going live on Netcup needs a release and a reinstall of the collector timer from the new cache
 Artifact: 4cb22f16383e5ccb6d17b5e2e64d8c05a9cb900d
@@ -17,6 +17,44 @@ Log: 2026-09-28T20:06:37.000Z delivered skills-n Sonnet builder DONE c12a494 (ow
 Log: 2026-09-28T20:13:14.000Z rejected skills-n Opus review r1 NEEDS_FIXES c12a494 (Windows 2588 of 2600, 0 fail). Rulings: F1 in, because the mirror writes the owner's ~/.agents/notes (what note-inbox reads), not its docs/ledger, so the census lines and the live proof read the notes mirror and the packet's docs/ledger wording is amended here (no new transport); F2 F3 F5 in as patched; F4 the duplicate gate log removed by the lead in this commit; F6 in as the reviewer's alternative, owner_hosts read from origin/main:.agents/project.json with the working tree as fallback, because the timer's --repo is the parked checkout at 0c92605
 Log: 2026-09-28T20:26:35.000Z delivered skills-n fix builder DONE 4cb22f1 (F1 F2 F3 F5 F6 as ruled), unit 81 of 81, full 2601 of 2606 with 0 fail; proof harness written in scratch, dry-run only; Opus delta r2 and Windows suite started
 Log: 2026-09-28T20:34:43.000Z reviewed skills-n Opus reviewer a59ef3b3dbd0ae94c delta r2 VERDICT: APPROVE 4cb22f1 (F1 F2 F3 F5 F6 verified); Windows 2594 of 2606 and Linux 2601 of 2606, 0 fail; live proof id collect-proof-host-stall-build-proof-cross-host-1-d7d73c1-1 read back once from Hetzner's ~/.agents/notes
+Census: - leadTurns: 9
+Census: - wallClockHours: 0.64
+Census: - by-model: claude-opus-5-5=11623981, claude-sonnet-5=11106894
+Census: - by-role: unassigned=16220884
+Census: - subagentFiles: 196
+Census: - Total assistant turns, deduped (whole file): **940**
+Census: - Window assistant turns, deduped: **33**
+Census: - leadTurns (conversational runs — see docs/census.md): **9**
+Census: - Window: 2026-09-28T19:56:07.521Z .. 2026-09-28T20:34:48.456Z
+Census: - Turns/hour in window: **51.19**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 1878 | 3486075 | 157920376 | 610205 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 66 | 103536 | 6381521 | 24868 |
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 120 | 247102 | 4806266 | 60502 |
+Census: | claude-sonnet-5 | 262 | 278586 | 10728411 | 99635 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 382 | 525688 | 15534677 | 160137 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 85370 | 11538611 |
+Census: | claude-sonnet-5 | 99635 | 11007259 |
+Four numbers: Top-tier tokens per build: unavailable (no census)
+Four numbers: Hours ask to accepted: 0.6h; gap unavailable (no lead transcript)
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-lane-43-1
+Log: 2026-09-28T20:34:53.000Z accepted skills-n artifact 4cb22f16383e5ccb6d17b5e2e64d8c05a9cb900d
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-43
 
