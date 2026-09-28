@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-render-guard
 Scope: docs/specs/2026-09-27-render-guard.md@d15cf9e (origin/docs/lane-specs-0925)
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-28-1: build, review, live proof (a refused publish on the real page from an up-to-date main checkout, then a normal publish, and one local note-send refusal), merge on acceptance under the standing grant of 2026-09-26, closing bullet in docs/decisions/history in the merge commit. No release, chezmoi or install.
 Artifact: build/render-guard-1@1a493e21cc2bc240bfe694ade4fdde64cb32d459
 Worktree: build/render-guard-1
@@ -53,7 +53,9 @@ Four numbers: Hours ask to accepted: 3.8h; gap unavailable (no lead transcript)
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); ASKs unavailable (no ledger dir)
 Log: 2026-09-28T02:42:49.000Z accepted skills-o artifact 1a493e21cc2bc240bfe694ade4fdde64cb32d459
+Log: 2026-09-28T02:52:15.000Z closed skills-o merge 1f6b74924d3deaebcef6c8ba3343ad2a63d1cde2
 
 Observed: publish refuses a dirty docs/decisions tree with exit 7 before any write, including untracked files under status.showUntrackedFiles=no and renames on either side of last-render.md; --dry-run warns on stderr from the CLI; the note-send exit-6 hint names the ssh form and --local-ok. Open minor: the rename split applies to every status line (review-r2, fix in the report). The round-1 reviewer committed once in its own scratch repo with --no-gpg-sign, outside the reviewed tree.
 
 Predicts: no page drift from an uncommitted source file again; the next publish with an uncommitted docs/decisions edit exits 7.
+Log: 2026-09-28T02:52:21Z verified skills-o live proof on main 1f6b749: with session.md edited but not committed, publish exited 7 and the page read was byte-identical before and after. After commit 4fe1db8 the page published normally, retitled 9/27 10:51PM with a clean tree. A note-send to an unregistered slug refused with exitCode 6 and the new --sender-host hint, and wrote no ledger line.
