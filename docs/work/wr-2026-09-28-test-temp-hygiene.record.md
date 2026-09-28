@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-test-temp-hygiene
 Scope: docs/specs/test-temp-hygiene-1/spec.md (lane 46 lead spec, rulings P1 to P6) from packet docs/specs/test-temp-hygiene-1/packet.md (skills-fable-lane-46-1, from skills-n-release-0-20-17-2)
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/test-temp-hygiene-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; the live proof runs one full suite on Netcup; no release, no install, no manual deletion under /tmp
 Next: accept, merge into main, close, publish, RESULT to skills-fable; live on hosts only after the next release; the m3 file-leak pin (review r2 NIT 1) is a follow-up
 Artifact: 3ff71effc9cb9933edcb7446d1412e32bd2b8f98
@@ -55,6 +55,8 @@ Four numbers: Hours ask to accepted: 0.7h; gap unavailable (no lead transcript)
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-lane-47-1
 Log: 2026-09-28T22:47:28.000Z accepted skills-n artifact 3ff71effc9cb9933edcb7446d1412e32bd2b8f98
+Log: 2026-09-28T22:48:16.000Z merged skills-n build/test-temp-hygiene-1 into main at 50463d884ee10aa02258f62d10c2d68a9a615469 under the standing merge grant; main suite 2685 of 2690, 0 fail, leak check: 0 new temp entries
+Log: 2026-09-28T22:48:16.000Z closed skills-n merge 50463d884ee10aa02258f62d10c2d68a9a615469
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-46
 
