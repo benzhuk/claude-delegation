@@ -487,7 +487,7 @@ SessionStart line only rides with a rendering goal card — it is computed insid
 that carries one, such as this repo's own checkout; a scratch directory with no card shows none
 (round-1 review, MAJOR 2).
 
-Codex: the read counter is unsupported on Codex, because Codex hook payloads carry no file path, so Codex sessions' reads are never counted. The SessionStart line still renders in Codex sessions, and its read count there covers Claude sessions on the same host only.
+Codex: the knowledge read counter is unsupported because Codex hook payloads carry no file path, so Codex sessions' reads are never counted. The SessionStart line still renders in Codex sessions, and its read count there covers Claude sessions on the same host only. The Codex token census reads the explicit lead transcript plus only verified descendant session files in the configured canonical Codex home’s UTC date folder and following date folder, to depth three; explicit `--tasks` files are read only after the same ancestry and root-namespace checks. It cannot read tokens from other Codex homes, sessions outside that two-day horizon, descendants without authenticated `thread_spawn` ancestry, or any Claude session file unless it is supplied through Claude’s separate lead/subagent discovery. Those sources produce `PARTIAL`/`unavailable` evidence rather than an implied zero, so an unavailable record names this discovery limit.
 
 ## Counted markers
 
