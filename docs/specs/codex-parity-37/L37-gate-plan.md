@@ -6,7 +6,7 @@ No installer, scratch home, clone, test, or Codex execution ran while preparing 
 
 ## Scratch Codex proof after the reviewed artifact is present
 
-Use only `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-parity-37\integration\codex-home` and a sibling fixture repo. Create the home with restrictive ACLs, then copy the existing `$env:CODEX_HOME\auth.json` to it without printing, parsing, hashing, or retaining its content; source existence was confirmed, and the scratch copy keeps ordinary authenticated execution while no live home is written. Never use `--dangerously-bypass-hook-trust`.
+Use the prepared fixture at `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-parity-37\integration\fixture-repo` and invoke `run-live.ps1 -ArtifactCheckout <absolute-path> -ArtifactSha <40-hex>`. It creates only its sibling `codex-home`, copies `$env:CODEX_HOME\auth.json` without printing, parsing, hashing, or retaining its content, isolates `AGENTS_HOME`, and clears probe `NOTE_SLUG`/pane handles. It rejects a dirty or mismatched artifact before installation. Never use `--dangerously-bypass-hook-trust`.
 
 From the reviewed checkout, the installer command is:
 
@@ -17,10 +17,10 @@ node scripts/mirror-shared-skills.mjs --codex-hooks-only --codex-home $scratchHo
 It must return `ok:true`, name only `$scratchHome`, and write trusted normal-hook plus delete-guard placements. Then run `C:\nvm4w\nodejs\codex.cmd` through `cmd.exe` (PowerShell does not implement `< NUL`), with `CODEX_HOME=$scratchHome`, read-only sandbox, and no `--ephemeral` (the JSONL transcript is required):
 
 ```powershell
-cmd.exe /d /c ""C:\nvm4w\nodejs\codex.cmd" exec --json -C "%FIXTURE_REPO%" -s read-only "Reply with exactly the two context lines beginning wiring: and work:, then DONE." < NUL"
+cmd.exe /d /c ""C:\nvm4w\nodejs\codex.cmd" exec --json -m gpt-5.6-terra -C "%FIXTURE_REPO%" -s read-only "hi" < NUL"
 ```
 
-Fixture precondition: its `docs/work/` contains one valid runnable/unowned record and no backlog sentinel, so `backlog-notice` must emit the deterministic `work: 1 runnable...` line. The reviewed routing must also add the SessionStart `wiring:` line. Keep only a redacted excerpt of the JSONL events that contains those two strings, hook start/completion markers, CLI version, and exit; do not retain prompt text, auth material, full transcript, or unrelated response payloads. Success requires both strings in the model's final reply plus hook completion with no trust-bypass flag; a hook JSON file or installer success alone is insufficient.
+Fixture precondition: its `docs/work/` contains one valid runnable/unowned record and no backlog sentinel, so `backlog-notice` must emit the deterministic `work: 1 runnable...` line. Its `AGENTS.md` tells the model to reproduce observed `wiring:` and `work:` context verbatim and then `DONE`; the fixture supplies no such values. The reviewed routing must add the SessionStart `wiring:` line. Keep `codex-live.raw.jsonl`, stderr, and immediate native-exit receipt under this scratch path; redact only authentication material if present. Success requires both observed strings in the model's final reply plus hook completion with no trust-bypass flag; a hook JSON file or installer success alone is insufficient. After the process exits, the script uses one standalone, non-recursive `Remove-Item -LiteralPath` for the scratch auth copy; any denial is retained verbatim and stops cleanup.
 
 Cheap delete-guard evidence: run `node --test scripts/codex-hook-trust.test.mjs hooks/delete-guard.test.mjs` under the Windows mutex and retain the exact `PreToolUse`/`Bash` matcher and `permissionDecision: deny` assertions. Do not perform a recursive deletion: upstream source and current unit fixtures establish the deny shape, while live recursive-delete scope is intentionally not this gate.
 
