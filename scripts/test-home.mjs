@@ -25,6 +25,59 @@ function toGitPath(p) {
   return p.split(path.sep).join("/");
 }
 
+// ---------------------------------------------------------------------------
+// Sealed-home leak fix (lane 24, sealed-home-leak): a sealed home used to outlive its suite whenever
+// the process didn't reach the ordinary `finally` - SIGINT, SIGTERM, a pane closed, an ssh session
+// dropped - leaking a fresh `sealed-home-*` directory per run (585 of them filled Netcup's inodes to
+// 70 percent before this fix). Every directory `makeTempHome` creates is now registered in this
+// per-process list, and - once per process - `exit`/`SIGINT`/`SIGTERM`/(non-win32)`SIGHUP` each get
+// ONE handler that removes every still-registered directory synchronously, then (signals only)
+// re-raises so the process still dies the way it would have with no handler at all: exit code 128+n
+// on POSIX. `makeTempHome`'s returned `keep()` (alias `unregister()`) removes a directory from this
+// list without deleting it - `run-tests.mjs` calls it on a non-zero suite result so a failed suite's
+// home is still left for inspection, exactly as before this fix.
+// ---------------------------------------------------------------------------
+const registeredHomes = new Set();
+let handlersInstalled = false;
+
+/** Best-effort and NEVER throws: this runs inside an `exit`/signal handler, where an uncaught throw
+ * would either be silently swallowed (in `exit`) or crash the re-raise that follows it (in a signal
+ * handler) - a leftover temp dir under the system temp root is harmless; a crashed handler is not. */
+function removeRegisteredHomes() {
+  for (const dir of registeredHomes) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best-effort only; a leftover temp dir under the system temp root is harmless
+    }
+  }
+  registeredHomes.clear();
+}
+
+function onProcessExit() {
+  removeRegisteredHomes();
+}
+
+/** SIGINT/SIGTERM/(non-win32)SIGHUP: clean up, remove OUR OWN listener for this exact signal (so the
+ * re-raise below can't loop back into this handler), then re-deliver the signal to this same process
+ * via `process.kill` - with no listener left for it, the OS's default disposition takes over and the
+ * process dies exactly as it would have with no handler installed: exit code 128+n on POSIX, a real
+ * signal a caller's `wait`/shell can see, not one swallowed by a handler that stayed installed. */
+function onProcessSignal(signal) {
+  removeRegisteredHomes();
+  process.removeListener(signal, onProcessSignal);
+  process.kill(process.pid, signal);
+}
+
+function installHandlersOnce() {
+  if (handlersInstalled) return;
+  handlersInstalled = true;
+  process.on("exit", onProcessExit);
+  process.on("SIGINT", onProcessSignal);
+  process.on("SIGTERM", onProcessSignal);
+  if (process.platform !== "win32") process.on("SIGHUP", onProcessSignal);
+}
+
 /**
  * Build a fresh sealed home for a test (or a child process the test spawns).
  *
@@ -46,10 +99,16 @@ function toGitPath(p) {
  * @param {boolean} [opts.gitIdentity=true]  seed the fixture git identity scoped to `fixtureRoot`.
  *   `false` leaves `GIT_CONFIG_GLOBAL` pointed at an empty file: any commit under the seal then
  *   has no identity and git refuses it, on purpose.
- * @returns {{ home: string, agentsHome: string, env: object, fixtureRoot: string, cleanup: () => void }}
+ * @returns {{ home: string, agentsHome: string, env: object, fixtureRoot: string, cleanup: () => void,
+ *   keep: () => void, unregister: () => void }} `keep`/`unregister` are the same function (alias):
+ *   removes this directory from the per-process leak-fix registry (see above) WITHOUT deleting it -
+ *   `run-tests.mjs` calls it to keep a failed suite's home around for inspection without the exit
+ *   handler sweeping it out from under that intent.
  */
 export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
+  installHandlersOnce();
   const raw = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-home-"));
+  registeredHomes.add(raw);
   // realpath now: the includeIf glob below is matched against a realpath, and a mismatch here
   // (e.g. a symlinked temp dir) would silently widen or narrow which repos get the fixture identity.
   const home = fs.realpathSync(raw);
@@ -104,7 +163,12 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
   for (const k of ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "ORCA_CODEX_HOME", "ORCA_USER_DATA_PATH",
     "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_TAB_ID", "ORCA_WORKTREE_ID", "NOTE_SLUG"]) delete env[k];
 
+  function unregister() {
+    registeredHomes.delete(raw);
+  }
+
   function cleanup() {
+    unregister();
     try {
       fs.rmSync(raw, { recursive: true, force: true });
     } catch {
@@ -112,7 +176,7 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
     }
   }
 
-  return { home, agentsHome, env, fixtureRoot, cleanup };
+  return { home, agentsHome, env, fixtureRoot, cleanup, keep: unregister, unregister };
 }
 
 /**
