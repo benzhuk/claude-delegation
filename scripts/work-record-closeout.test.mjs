@@ -1072,6 +1072,8 @@ test("sweepOrigin: L1 - --apply's delete is a lease against the exact evaluated 
   assert.equal(row.ok, false);
   assert.equal(row.error, "moved", "the moved-branch case must be flagged distinctly (never silently treated as a generic failure)");
   assert.ok(result.lines.some((l) => l === `delete-failed ${branch} moved`));
+  // M4: a delete-failed must never be swallowed into a blanket exit 0.
+  assert.equal(result.exitCode, 2);
   const ls = git(["ls-remote", "--heads", "origin", branch], repo, env).trim();
   assert.notEqual(ls, "", "the branch (with the raced-in commit) must survive a lease that no longer matches origin's current tip - a lease is conditional, never a force");
 });
