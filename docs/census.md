@@ -492,4 +492,4 @@ Codex: the read counter is unsupported on Codex, because Codex hook payloads car
 ## Counted markers
 
 - `stale session:`: the stale-session guard's marker; the guard logs it as rule `R0-stale` (with `hard_deny: true`); wiring-check `--line` prints the same text.
-- `leak check:`: `scripts/run-tests.mjs`'s own line, the reader for a test temp leak - `leak check: 0 new temp entries` when a run left nothing new directly under the real temp dir, otherwise the count and up to 5 names, and the run exits 1 even when the suite itself passed.
+- `leak check:`: `scripts/run-tests.mjs`'s own line, the reader for a test temp leak - `leak check: 0 new temp entries` when a run left nothing new directly under the real temp dir, otherwise the count and up to 5 names as a signal to investigate, and `leak check: nested run, not checked` when the CLI is itself running inside another run's root. It never changes the run's exit code (round 1 ruling R1: a shared host's concurrent runs made the forced exit 1 too flaky to gate on); the unit tests in run-tests.test.mjs are the gate for the mechanism itself.

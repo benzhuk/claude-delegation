@@ -216,7 +216,7 @@ test("sweepStaleHomes is skipped when <homeDir>/.agents/ws-off exists (shared ki
   fs.writeFileSync(path.join(homeDir, ".agents", "ws-off"), "");
 
   const result = sweepStaleHomes({ tmpDir, homeDir, now: () => now });
-  assert.deepEqual(result, { swept: 0, skipped: true });
+  assert.deepEqual(result, { swept: 0, sweptRoots: 0, skipped: true });
   assert.equal(fs.existsSync(stale), true, "nothing must be removed while ws-off is present");
 });
 
@@ -227,7 +227,7 @@ test("sweepStaleHomes is skipped when <homeDir>/.agents/ws-off-sweep exists (lan
   fs.writeFileSync(path.join(homeDir, ".agents", "ws-off-sweep"), "");
 
   const result = sweepStaleHomes({ tmpDir, homeDir, now: () => now });
-  assert.deepEqual(result, { swept: 0, skipped: true });
+  assert.deepEqual(result, { swept: 0, sweptRoots: 0, skipped: true });
   assert.equal(fs.existsSync(stale), true, "nothing must be removed while ws-off-sweep is present");
 });
 
@@ -698,7 +698,7 @@ test("P1: the root is created directly under the injected temp dir, exported as 
     path.basename(root).startsWith(TEST_RUN_ROOT_PREFIX),
     `the sealed home's parent must be the per-run root, got ${root}`,
   );
-  assert.ok(root.startsWith(fs.realpathSync(tmp)), "the root must be directly under the injected TMPDIR");
+  assert.equal(path.dirname(root), fs.realpathSync(tmp), "the root must be DIRECTLY under the injected TMPDIR (n2, review-r1.md)");
 
   // The run has already exited and removed `root` by the time we get here (that's the very thing
   // this test proves below) - so these can't be re-realpath'd against a path that no longer
@@ -767,6 +767,31 @@ test("P2: a child run killed with SIGTERM leaves no root at all (POSIX only)", {
   assert.equal(fs.existsSync(root), false, "the whole per-run root must not survive a SIGTERM");
 });
 
+// M1 (review-r1.md): `keepPath` is `makeTempHome`'s REALPATH'd home, while the root itself is the
+// unresolved mkdtemp path - under a symlinked temp dir (macOS /var -> /private/var always, or any
+// Linux TMPDIR reached through a symlink) the two spellings never compare equal, so a failing run
+// used to remove the "retained" sealed home along with everything else, then print a path that no
+// longer exists.
+test(
+  "P2: a failing run under a SYMLINKED temp dir still keeps the sealed home (POSIX only)",
+  { skip: process.platform === "win32" ? "dir symlinks need privileges on win32" : false },
+  () => {
+    const real = scratchDir("run-tests-root-symreal-");
+    const link = path.join(scratchDir("run-tests-root-symlink-"), "tmp");
+    fs.symlinkSync(real, link, "dir");
+    const { file } = writeEnvProbe({ passes: false });
+    const fixtureHome = scratchDir("run-tests-root-symhome-");
+    const env = childEnv(fixtureHome, { TMPDIR: link, TEMP: link, TMP: link });
+    delete env.NODE_TEST_CONTEXT;
+    const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", file], { env, encoding: "utf8" });
+    assert.notEqual(r.status, 0);
+    const home = r.stdout.split("\n")[0].trim();
+    cleanups.push(() => fs.rmSync(path.dirname(home), { recursive: true, force: true }));
+    assert.equal(fs.existsSync(home), true, "the printed retained home must exist after a failing run");
+    assert.deepEqual(fs.readdirSync(path.dirname(home)), [path.basename(home)]);
+  },
+);
+
 test("P3: sweepStaleHomes removes a stale test-run root with a dead pid, keeps a young one and one with a live pid", async () => {
   const tmpDir = scratchDir("run-tests-root-sweep-tmp-");
   const homeDir = emptyHomeDir();
@@ -791,12 +816,24 @@ test("P3: sweepStaleHomes removes a stale test-run root with a dead pid, keeps a
   fs.mkdirSync(livePath);
   fs.utimesSync(livePath, new Date(now - TWENTY_FIVE_HOURS), new Date(now - TWENTY_FIVE_HOURS));
 
+  // m1 (review-r1.md): EPERM (pid 1 is init/launchd, owned by another user) must count as ALIVE,
+  // never swept - the ESRCH-only branch of isPidAlive is otherwise untested and a mutation that
+  // treats EPERM as dead survives without this.
+  const epermPath = path.join(tmpDir, `${TEST_RUN_ROOT_PREFIX}1-stuvwx`);
+  if (process.platform !== "win32") {
+    fs.mkdirSync(epermPath);
+    fs.utimesSync(epermPath, new Date(now - TWENTY_FIVE_HOURS), new Date(now - TWENTY_FIVE_HOURS));
+  }
+
   const result = sweepStaleHomes({ tmpDir, homeDir, now: () => now });
 
   assert.equal(result.sweptRoots, 1);
   assert.equal(fs.existsSync(stalePath), false, "an old root with a dead pid must be swept");
   assert.equal(fs.existsSync(youngPath), true, "a young root must survive even with a dead pid");
   assert.equal(fs.existsSync(livePath), true, "an old root must survive while its pid is alive");
+  if (process.platform !== "win32") {
+    assert.equal(fs.existsSync(epermPath), true, "an old root whose pid answers EPERM must survive (counts as alive)");
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -837,7 +874,7 @@ test("describeLeak reports at most 5 names even when more than 5 leaked", () => 
   assert.equal(result.line, "leak check: 6 new temp entries: goal-1, goal-2, goal-3, goal-4, goal-5");
 });
 
-test("the real CLI's leak check line is printed and forces exit 1 even when the suite itself passes, on a planted real leak", () => {
+test("the real CLI's leak check line is printed on a planted real leak, but the exit code stays the suite's own (R1: the leak check is a reader, not a gate)", () => {
   // Plants a leak DIRECTLY under the injected TMPDIR the runner treats as its "real" os.tmpdir()
   // (never the genuine system /tmp) by writing a probe that mkdtemps a LEAK_PREFIX_RE name itself,
   // bypassing TMPDIR the way a P5 straggler would (this probe deliberately imitates that defect
@@ -868,6 +905,24 @@ test("the real CLI's leak check line is printed and forces exit 1 even when the 
   const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", file], { env, encoding: "utf8" });
   cleanups.push(() => fs.rmSync(path.join(tmp, "goal-leak-probe-abc123"), { recursive: true, force: true }));
 
-  assert.notEqual(r.status, 0, "a real leak must force a nonzero exit even though the probe itself passed");
+  assert.equal(r.status, 0, "R1: a leak must NOT change the exit code - the suite itself passed");
   assert.match(r.stdout, /^leak check: 1 new temp entries: goal-leak-probe-abc123$/m);
+});
+
+// R2 (m5, review-r1.md): the CLI recognises it is running NESTED inside another run's own per-run
+// root (this process's own os.tmpdir() is itself a `delegation-test-run-<pid>-*` directory) and
+// skips the check entirely rather than reading its outer run's sibling test files' concurrent
+// mkdtemp traffic as a false leak.
+test("R2: a nested run (this CLI's own os.tmpdir() is itself another run's per-run root) prints 'leak check: nested run, not checked' and never snapshots", () => {
+  const probe = writeProbe(true);
+  const outerTmp = scratchDir("run-tests-nested-outer-");
+  const outerRoot = fs.mkdtempSync(path.join(outerTmp, `${TEST_RUN_ROOT_PREFIX}999999-`));
+  cleanups.push(() => fs.rmSync(outerRoot, { recursive: true, force: true }));
+  const fixtureHome = scratchDir("run-tests-nested-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: outerRoot, TEMP: outerRoot, TMP: outerRoot });
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
+  assert.equal(r.status, 0, "the inner suite itself still passes normally");
+  assert.match(r.stdout, /^leak check: nested run, not checked$/m);
+  assert.ok(!/^leak check: \d+ new temp entries/m.test(r.stdout), "a nested run must never print the counted form");
 });
