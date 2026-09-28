@@ -1,5 +1,12 @@
 # Waiting on you now
-Nothing right now.
+<details>
+<summary>**Release 0.20.17 and install it on the four machines**</summary>
+	Main since 0.20.16 carries lane 34 (the Done pickup treats any worktree of the repo as one project, so your tick clears from a clean checkout with no hand step) and lane 43 (a stall nudge from the collector now reaches an owner on another host). Lanes 36, 37 and 38 are in flight, and any of them merged by the time of your tick ride along. On yes, skills-n cuts the release from main at that moment, reinstalls the Netcup collector timer, and installs on the four machines per your word as before.
+	- [ ] Yes, release 0.20.17 and install it everywhere
+	- [ ] Hold the release; tell me why in a comment
+	No default: installs take your word per item
+	<empty-block/>
+</details>
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Mon 2:51 PM)
