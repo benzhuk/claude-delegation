@@ -1,9 +1,9 @@
 Work: wr-2026-09-27-sealed-home-leak
 Scope: docs/specs/sealed-home-leak-1/spec.md (lane 24 of skills-fable's follow-up bundle, origin/docs/lane-specs-0925 at 7e92f16); territory scripts/test-home.mjs, scripts/test-home.test.mjs, scripts/run-tests.mjs, scripts/run-tests.test.mjs
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/sealed-home-leak-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; delete sealed-home-* temp dirs only through the suite's own cleanup and sweep
-Next: census, four-read, accept, merge into main, history bullet, RESULT
+Next: none
 Artifact: be8028019245ea7aa7b5e374242d603ae5326c37
 Evidence: docs/work/evidence/wr-2026-09-27-sealed-home-leak-review.md, docs/work/evidence/wr-2026-09-27-sealed-home-leak-review-r1.md, docs/work/evidence/wr-2026-09-27-sealed-home-leak-review-r2.md, docs/work/evidence/wr-2026-09-27-sealed-home-leak-suites.md
 Worktree: build/sealed-home-leak-1
@@ -58,5 +58,6 @@ Four numbers: Hours ask to accepted: 6.1h; largest gap 323.0min at 2026-09-27T20
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 2 gap(s) over 30min stalled; 1 waiting-on-agents (323.0 min); agent a4b99791b198900fe silent 320.7 min from 2026-09-27T20:55:28.952Z; agent ac06d17763ff792ba silent 328.2 min from 2026-09-27T20:52:08.881Z; 0 unanswered ASKs to skills-n
 Log: 2026-09-28T02:34:59.000Z accepted skills-n artifact be8028019245ea7aa7b5e374242d603ae5326c37
+Log: 2026-09-28T02:36:08.000Z closed skills-n merged to main at 71f8351b86463f74859856d90dd7b8e8486bac2d; merged-head suite on Netcup 2499 of 2503, 0 fail, 4 skipped; history bullet in docs/decisions/history/2026-09-27.md
 
 Observed: the sealed test home no longer outlives its suite on a kill. A group SIGINT, SIGTERM or SIGHUP now exits 130, 143 or 129 with no home left. Before the fix the exit code was 1 and the runner home leaked. A failed suite still keeps its home. On Netcup one full run swept 72 stale homes, 129 before and 57 after, all 57 younger than 6 h. On Windows the first run swept 1743. F4 (re-raise with another listener) and R1 (pid-only SIGTERM waits for the suite) are deferred to the spec session.
