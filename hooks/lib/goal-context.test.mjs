@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { childEnv, scratchHome } from '../../skills/multi/scripts/test-child-env.mjs';
+import { scratchHome } from '../../skills/multi/scripts/test-child-env.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const HELPER = path.join(REPO, 'hooks', 'lib', 'goal-context.mjs');
@@ -47,23 +47,25 @@ test('a copied helper keeps card rendering when its optional bearings module is 
 test('bearings receipt written for the main checkout reads current from a linked worktree', async (t) => {
   const bearingsHome = scratchHome(fs, 'goal-context-bearings-home-');
   t.after(() => { try { fs.rmSync(bearingsHome, { recursive: true, force: true }); } catch {} });
-  const gitFixtureHome = scratchHome(fs, 'goal-context-bearings-gitconfig-');
-  t.after(() => { try { fs.rmSync(gitFixtureHome, { recursive: true, force: true }); } catch {} });
-  fs.writeFileSync(path.join(gitFixtureHome, '.gitconfig'), '[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n');
-  const gitEnv = childEnv(gitFixtureHome);
 
-  const parent = scratchHome(fs, 'goal-context-bearings-repo-');
+  // Real git fixtures need a real commit identity. Under `run-tests.mjs`'s sealed run,
+  // `GIT_CONFIG_GLOBAL` carries an `includeIf` that only matches a gitdir under `FIXTURE_ROOT` (see
+  // test-home.mjs's own doc comment) - so every repo this test builds must sit inside that root, the
+  // same way scripts/janitor.test.mjs's own `mkTmp` does. Falls back to `os.tmpdir()` when this file
+  // runs standalone, outside the sealed harness. No custom env override needed: the ambient
+  // `process.env` (sealed or not) already carries whatever identity is available.
+  const parent = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), 'goal-context-bearings-repo-'));
   t.after(() => { try { fs.rmSync(parent, { recursive: true, force: true }); } catch {} });
   const main = path.join(parent, 'main');
   fs.mkdirSync(main, { recursive: true });
-  execFileSync('git', ['init', '-q', main], { env: gitEnv });
+  execFileSync('git', ['init', '-q', main]);
   fs.mkdirSync(path.join(main, 'docs', 'goals'), { recursive: true });
   fs.writeFileSync(path.join(main, 'docs', 'goals', 'card.md'), 'GOAL: fixture\nNOT: nothing\nDONE: nothing\nKILL: nothing\n');
-  execFileSync('git', ['-C', main, 'add', '-A'], { env: gitEnv });
-  execFileSync('git', ['-C', main, 'commit', '-qm', 'seed'], { env: gitEnv });
-  execFileSync('git', ['-C', main, 'branch', '-q', 'feature'], { env: gitEnv });
+  execFileSync('git', ['-C', main, 'add', '-A']);
+  execFileSync('git', ['-C', main, 'commit', '-qm', 'seed']);
+  execFileSync('git', ['-C', main, 'branch', '-q', 'feature']);
   const worktree = path.join(parent, 'wt');
-  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', worktree, 'feature'], { env: gitEnv });
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', worktree, 'feature']);
 
   const report = path.join(parent, 'report.md');
   const response = path.join(parent, 'response.md');
