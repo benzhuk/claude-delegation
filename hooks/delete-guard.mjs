@@ -66,29 +66,40 @@
 //   `git branch -d`/`-D` (scripts/janitor.mjs's sanctioned verb — a ref delete, not a
 //   directory delete; nothing in this file even has a pattern shaped to catch it).
 //   Quoted-argument exception: a matched verb that appears inside ANY single- or
-//   double-quoted span within the sub-command window of `grep`, `echo`, `printf`,
+//   double-quoted span within the sub-command window of `grep`, `rg`, `echo`, `printf`,
 //   `git commit -m`, or `note-send --text` is not treated as a delete (the simple case the
 //   spec asks for), UNLESS that same sub-command's window also pipes into a shell/xargs
 //   (`echo "rm -rf x" | sh`), or the double-quoted span itself contains a command
 //   substitution (`"...$(rm -rf x)..."` or a backtick form) — both of those really execute,
-//   so they are excluded from the exemption rather than trusted. A here-doc that writes a
-//   script to a FILE and runs that file as a later, separate command is a known,
-//   undocumented-by-regex residual limit: the delete is a literal substring of the
-//   here-doc body (and is caught, see the here-doc test below) but nothing here follows a
-//   script file written by one call into a DIFFERENT call that later executes it.
+//   so they are excluded from the exemption rather than trusted.
+//   Here-doc exception (lane 36 / C2 ruling, `findHeredocSafeSpans`): a here-doc body fed
+//   to `cat` with no output redirection, to `tee` (even though it writes a file — the real
+//   incidents were reviewers writing reports with `tee`), to `note-send`, or into a
+//   `git commit` message is not treated as a delete either. `cat <<EOF > script.sh … EOF`
+//   stays refused on purpose (see the pinned regression test below): writing the here-doc
+//   to a FILE is exactly the shape a later, separate command can go on to execute, so only
+//   a `cat` here-doc with no `>` redirect is exempt; piping the consumer onward into a
+//   shell (`cat <<EOF | sh`) also stays refused, same `pipesToShell` guard used above.
+//   ssh nested re-parse (`findSshSafeSpans`): `ssh host "…"`'s quoted argument is a
+//   SEPARATE command string the remote shell re-parses on its own, so it gets its own
+//   recursive `detectDelete` call rather than one opaque quoted span — `ssh host
+//   "grep -n 'rm -rf' file"` is exempt (the pattern sits inside a `grep` argument once
+//   re-parsed) while `ssh host "rm -rf x"` stays refused (the remote string, parsed on its
+//   own, really is a delete).
 //   Also out of scope, by the same "regex over a string" limit, not guessed at: a delete
 //   issued through a language runtime rather than a shell verb (`node -e
 //   "fs.rmSync(x,{recursive:true})"`, `python -c "shutil.rmtree(x)"`,
 //   `[System.IO.Directory]::Delete(x,$true)`) and `Remove-Item` fed a path over a pipe
 //   (`gci -Recurse | Remove-Item`, no delete-shaped flag on the `Remove-Item` word itself).
-//   A handful of quoted/safe-command shapes still false-refuse rather than being made
-//   quote-aware inside `commandWindow` (accepted per "false refusals are cheap"): a
-//   here-doc body quoted into `git commit -m "$(cat <<'EOF' … EOF)"`, a `;` inside a quoted
-//   commit message (`git commit -m "fix: rm -rf; guard"`), and a `|` inside a quoted grep
-//   pattern (`grep -E "rm -rf|rd /s"`) — each stops the sub-command window early because
-//   the window scan is not quote-aware.
+//   A couple of quoted/safe-command shapes still false-refuse rather than being made fully
+//   quote-aware inside `commandWindow` (accepted per "false refusals are cheap"): a `;`
+//   inside a quoted commit message (`git commit -m "fix: rm -rf; guard"`), and a `|` inside
+//   a quoted grep pattern (`grep -E "rm -rf|rd /s"`) — each stops the sub-command window
+//   early because the window scan is not quote-aware.
 //   False refusals are cheap (the agent rephrases or asks); false passes cost hours — when
-//   in doubt, this file refuses.
+//   in doubt, this file refuses. Unknown or unparseable quoting (an unterminated quote, an
+//   unterminated here-doc) always fails CLOSED: it is never added to a safe span, so the
+//   plain, quote-unaware detectors still see and refuse it.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -200,12 +211,12 @@ function hasRecurseFlag(window) {
   return false;
 }
 
-/** Spans of quoted text that are an ARGUMENT to a known-safe command (`grep`, `echo`,
+/** Spans of quoted text that are an ARGUMENT to a known-safe command (`grep`, `rg`, `echo`,
  * `printf`, `git commit -m`, `note-send --text`) — a verb matched only inside one of these
  * is text being displayed or committed, not executed. Every quoted span within that same
  * sub-command's window counts (spec examples include `printf "%s" "rm -rf /"`, where the
  * matched text is the SECOND quoted argument, not the one immediately after the word). */
-const SAFE_CMD_RE = /\b(?:grep|echo|printf|git\s+commit\s+-m|note-send\s+--text)\b/gi;
+const SAFE_CMD_RE = /\b(?:grep|rg|echo|printf|git\s+commit\s+-m|note-send\s+--text)\b/gi;
 // A quoted span within an already-bounded (<=300 char) window: negative lookahead per
 // character is linear here because the window itself is capped, not because the pattern
 // is bounded on its own.
@@ -252,6 +263,111 @@ function findSafeQuoteSpans(command) {
       // substitutes, so it stays exempt.
       if (qm[1] === '"' && /\$\(|`/.test(qm[2])) continue;
       spans.push([windowStart + qm.index + 1, windowStart + qm.index + qm[0].length - 1]);
+    }
+  }
+  return spans;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Here-doc bodies that go to a non-executing consumer (lane 36 / C2 ruling): a here-doc
+// FED TO `cat` with no output redirection (a report printed to stdout, never written to a
+// file that could later be executed), `tee` (explicitly allowed even though it writes a
+// file — the real incidents were reviewers writing reports with `tee`), `note-send`, or a
+// `git commit` message. The pinned regression test (`cat <<EOF > script.sh … EOF …
+// bash script.sh`) MUST keep matching: that is exactly the "written to a file, executed
+// later" shape this exemption declines to cover for `cat` — the `>` redirect check below
+// is what keeps it refused. Piping the consumer onward into a shell (`cat <<EOF | sh`)
+// also keeps it refused, same `pipesToShell` guard used for quoted spans above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HEREDOC_OPEN_RE = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g;
+const CMD_SEP_RE = /;|&&|\|\||\n|\|/g;
+
+/** The text of the CURRENT sub-command ending at `endIdx` — everything back to (but not
+ * including) the nearest preceding separator, capped at `cap` characters. The mirror
+ * image of `commandWindow`, used to see what a here-doc redirection is attached to. */
+function commandWindowBefore(command, endIdx, cap = 200) {
+  const start = Math.max(0, endIdx - cap);
+  const slice = command.slice(start, endIdx);
+  CMD_SEP_RE.lastIndex = 0;
+  let lastSepEnd = 0;
+  let sm;
+  while ((sm = CMD_SEP_RE.exec(slice))) {
+    lastSepEnd = sm.index + sm[0].length;
+  }
+  return slice.slice(lastSepEnd);
+}
+
+/** Which non-executing consumer (if any) this here-doc feeds, from the text immediately
+ * before the `<<` operator. Checked in this order only for readability — a command
+ * naming more than one of these words is exempt either way. */
+function heredocConsumer(targetBefore) {
+  if (/\bgit\s+commit\b/i.test(targetBefore)) return 'git-commit';
+  if (/\btee\b/i.test(targetBefore)) return 'tee';
+  if (/\bnote-send\b/i.test(targetBefore)) return 'note-send';
+  if (/\bcat\b/i.test(targetBefore)) return 'cat';
+  return null;
+}
+
+function findHeredocSafeSpans(command) {
+  const spans = [];
+  HEREDOC_OPEN_RE.lastIndex = 0;
+  let m;
+  while ((m = HEREDOC_OPEN_RE.exec(command))) {
+    const delim = m[2];
+    const openEnd = HEREDOC_OPEN_RE.lastIndex;
+    const nl = command.indexOf('\n', openEnd);
+    if (nl === -1) continue; // no body at all: nothing to exempt
+    const trailer = command.slice(openEnd, Math.min(nl, openEnd + 200));
+    const targetBefore = commandWindowBefore(command, m.index, 200);
+    const consumer = heredocConsumer(targetBefore);
+    if (!consumer) continue;
+    // `cat` writing its here-doc to a file (`cat <<EOF > script.sh`) is the exact shape
+    // that can be executed later by a separate command — stays refused, unlike a plain
+    // `cat <<EOF` report body.
+    if (consumer === 'cat' && />/.test(trailer)) continue;
+    if (pipesToShell(trailer)) continue; // the consumer's own output really executes
+    const escapedDelim = delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const closeRe = new RegExp(`^[ \\t]*${escapedDelim}[ \\t]*$`, 'm');
+    const bodyStart = nl + 1;
+    const closeMatch = closeRe.exec(command.slice(bodyStart));
+    if (!closeMatch) continue; // unterminated here-doc: unparseable, fails closed
+    spans.push([bodyStart, bodyStart + closeMatch.index]);
+  }
+  return spans;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `ssh host "…"` / `ssh host '…'` (lane 36 / C2 ruling): the quoted argument is a
+// SEPARATE command string the remote shell re-parses on its own — so it gets its own
+// recursive `detectDelete` call rather than being treated as one opaque quoted span.
+// `ssh host "grep -n 'rm -rf' file"` is then exempt because the pattern sits inside a
+// `grep` argument once re-parsed; `ssh host "rm -rf x"` stays refused because the
+// remote string, parsed on its own, is a real delete. Recursion terminates because each
+// inner string is strictly shorter than the outer one (it excludes at least `ssh`, the
+// host token and the wrapping quotes), so there is no unbounded recursion shape here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function findSshSafeSpans(command) {
+  const spans = [];
+  // A LOCAL regex instance, not a shared module-level one: this loop's body calls
+  // `detectDelete` recursively, which can re-enter `findSshSafeSpans` on an inner string
+  // before this iteration finishes. A shared `g`-flag regex's `lastIndex` is mutable
+  // state — two loops mid-iteration over the SAME object would stomp each other's
+  // position and could spin forever re-finding the same match. A fresh object per call
+  // has no state to collide over.
+  const sshRe = /\bssh\b/gi;
+  let m;
+  while ((m = sshRe.exec(command))) {
+    const windowStart = sshRe.lastIndex;
+    const window = commandWindow(command, windowStart, 500);
+    QUOTE_SPAN_RE.lastIndex = 0;
+    const qm = QUOTE_SPAN_RE.exec(window);
+    if (!qm) continue; // no complete quoted remote command found in this window
+    if (qm[1] === '"' && /\$\(|`/.test(qm[2])) continue; // really substitutes locally too
+    if (detectDelete(qm[2]) === null) {
+      const start = windowStart + qm.index + 1;
+      spans.push([start, start + qm[0].length - 2]);
     }
   }
   return spans;
@@ -365,7 +481,11 @@ export function detectDelete(command) {
   // hides a flag on the next line from every window scan above, which stops at `\n`
   // (m3) — collapse it to a single space so the whole logical command is one line.
   const normalized = command.replace(/[\\`]\r?\n/g, ' ');
-  const safeSpans = findSafeQuoteSpans(normalized);
+  const safeSpans = [
+    ...findSafeQuoteSpans(normalized),
+    ...findHeredocSafeSpans(normalized),
+    ...findSshSafeSpans(normalized),
+  ];
   for (const detector of DETECTORS) {
     const found = detector(normalized, safeSpans);
     if (found) return found;

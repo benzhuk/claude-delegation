@@ -492,6 +492,130 @@ test('quoted: a command substitution inside a quoted commit message is NOT exemp
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2: the delete guard stops matching quoted text — heredoc bodies fed to a
+// non-executing consumer, `rg` added to the quoted-argument safe-command list, and an
+// ssh remote string that is itself quoted gets re-parsed on its own. Spec's three named
+// false-positive shapes: a heredoc report body, a quoted grep pattern (already covered
+// above), and a quoted ssh remote grep (below).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('quoted: rg -n "rm -rf" file passes (never a delete) — rg added to the safe-command list', () => {
+  assert.equal(detectDelete('rg -n "rm -rf" file'), null);
+});
+
+test("false positive #1 (spec): a heredoc report body into cat passes — not written to a file, never executed", () => {
+  const cmd = 'cat <<EOF\n' + 'the incident report should never mention running rm -rf directly\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: heredoc into tee (writing to a file) passes — the real incidents were reviewers writing reports with tee', () => {
+  const cmd = 'tee report.md <<EOF\n' + 'never run rm -rf again\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: heredoc into note-send passes', () => {
+  const cmd = 'note-send <<EOF\n' + 'warned peer about the rm -rf incident\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: heredoc into a git commit message (git commit -F -) passes', () => {
+  const cmd = 'git commit -F - <<EOF\n' + 'fix: rm -rf handling in the closeout script\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: a heredoc fed to cat inside a git commit -m "$(...)" substitution passes (previously a known false refusal)', () => {
+  const cmd = 'git commit -m "$(cat <<\'EOF\'\n' + 'fix: never run rm -rf again\n' + 'EOF\n)"';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test("false positive #3 (spec): ssh host \"grep -n 'rm -rf' file\" passes — the remote string is re-parsed, and the pattern sits inside a grep argument there", () => {
+  const cmd = "ssh host \"grep -n 'rm -rf' file\"";
+  assert.equal(detectDelete(cmd), null);
+});
+
+test("quoted: ssh host 'grep -n \"rm -rf\" file' passes (single-quoted remote command, same re-parse)", () => {
+  const cmd = 'ssh host \'grep -n "rm -rf" file\'';
+  assert.equal(detectDelete(cmd), null);
+});
+
+// ── Stay refused: real executors of quoted/heredoc text (each C2-pinned shape) ────────
+
+test('quoted: bash -c "rm -rf x" is NOT exempted (bash -c is not on the safe-command list, and it really executes it)', () => {
+  assert.ok(detectDelete('bash -c "rm -rf x"'));
+});
+
+test('quoted: zsh -c "rm -rf x" is NOT exempted', () => {
+  assert.ok(detectDelete('zsh -c "rm -rf x"'));
+});
+
+test('quoted: eval "rm -rf x" is NOT exempted', () => {
+  assert.ok(detectDelete('eval "rm -rf x"'));
+});
+
+test('quoted: ssh host "rm -rf x" is NOT exempted (the remote string, re-parsed on its own, really is a delete)', () => {
+  assert.ok(detectDelete('ssh host "rm -rf x"'));
+});
+
+test("quoted: ssh host 'rm -rf x' is NOT exempted (single-quoted form)", () => {
+  assert.ok(detectDelete("ssh host 'rm -rf x'"));
+});
+
+test('quoted: ssh host <<EOF with the delete in the body is NOT exempted (ssh is not a recognized non-executing heredoc consumer)', () => {
+  const cmd = 'ssh host <<EOF\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: bash <<EOF with the delete in the body is NOT exempted', () => {
+  const cmd = 'bash <<EOF\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: sh -s <<EOF with the delete in the body is NOT exempted', () => {
+  const cmd = 'sh -s <<EOF\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('detectDelete: pwsh -Command "Remove-Item -Recurse ..." still matches (quoting is not exemption-eligible for pwsh)', () => {
+  const found = detectDelete('pwsh -Command "Remove-Item -Recurse ./x"');
+  assert.ok(found);
+  assert.match(found.verb, /Remove-Item -Recurse/);
+});
+
+test('detectDelete: find ... -exec rm -rf {} \\; still matches (the rm verb inside -exec is caught by the plain rm detector)', () => {
+  const found = detectDelete('find . -type f -exec rm -rf {} \\;');
+  assert.ok(found);
+});
+
+test('detectDelete: the pinned regression stays refused — cat <<EOF > script.sh ... EOF ... bash script.sh (written to a file, executed later)', () => {
+  const cmd = 'cat <<EOF > script.sh\nrm -rf SCRATCH/dg\nEOF\nbash script.sh';
+  const found = detectDelete(cmd);
+  assert.ok(found, 'a cat here-doc redirected to a FILE must stay refused even though a bare cat here-doc is now exempt');
+});
+
+test('quoted: a cat here-doc piped onward into sh is NOT exempted (cat <<EOF | sh)', () => {
+  const cmd = 'cat <<EOF | sh\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: an unterminated quote after echo still refuses (fails closed on unparseable quoting)', () => {
+  const found = detectDelete('echo "rm -rf x');
+  assert.ok(found, 'an unterminated quote must never be treated as a safe span');
+});
+
+test('quoted: an unterminated here-doc (no closing EOF line) still refuses (fails closed on unparseable quoting)', () => {
+  const found = detectDelete('cat <<EOF\nrm -rf x\n');
+  assert.ok(found, 'a here-doc with no closing delimiter must never be treated as a safe span');
+});
+
+test('detectDelete stays fast (not exponential) on repeated ssh-quoted-grep segments, and still denies a trailing real delete', () => {
+  const command = `ssh host "grep -n 'rm -rf' file"; `.repeat(50) + 'rm -rf z';
+  const t0 = performance.now();
+  const found = detectDelete(command);
+  assert.ok(performance.now() - t0 < 500, 'must not blow up on repeated ssh/quote re-parsing');
+  assert.ok(found);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // decide() — agent_id scoping (spec item 4), kill switches, log verbs
 // ─────────────────────────────────────────────────────────────────────────────
 
