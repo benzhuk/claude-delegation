@@ -13,3 +13,10 @@ Attack brief:
 
 Run the territory tests only (goals-mirror + decisions-read), not the full suite. No deletion commands, no notion.js calls, never touch docs/work/, never send a note, never commit.
 Findings: severity, file:line, concrete fix, ready patch for mechanical ones. Report: docs/specs/goals-one-line-1/reports/G1-review.md, line 1 exactly `VERDICT: APPROVE <full sha>` or `VERDICT: NEEDS_FIXES <full sha>`.
+
+## Round-1 restart addendum (fresh reviewer, 2026-09-27 22:20 NY)
+The first reviewer stalled 4.8 h: it wrote a scratch mutate.sh that began with `rm -rf` and ran it through a heavily escaped perl one-liner; the call never returned (an unseen approval prompt). Rules for you, which override your habits:
+- Never write or run a shell script. Never use rm, rm -rf, perl -i, sed -i, or any deletion. No command with nested escaped quotes.
+- Do every mutation from ONE node script you write with the Write tool in /tmp/claude-1000/-home-ben-Code-claude-delegation/ad389ae1-f992-4dd3-8a19-2b51176675c1/scratchpad/g1r/ : for each mutation it copies the worktree's skills/decisions/scripts dir to a NEW dir name (fs.cpSync, name includes the mutation name and Date.now()), applies a plain string replace in node (assert the replace changed something), runs `node --test` there via child_process.spawnSync, and prints pass/fail counts. Never mutate the worktree itself.
+- If a command does not return within a few minutes, do not retry it: write the report with what you have and say which check was not run.
+- ETA 40 minutes.

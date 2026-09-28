@@ -15,5 +15,6 @@ Worktree: build/goals-one-line-1
 Log: 2026-09-27T21:15:00Z owned skills-h ACK skills-h-goals-one-line-1 sent over ssh on ben-desktop with --sender-host zhuk-vps32, recorded in the Windows ledger; Goals page read fresh into docs/specs/goals-one-line-1/goals-page-live-before.md
 Log: 2026-09-27T21:25:25Z delivered skills-h G1 builder (sonnet) DONE cb555e65cc2d70b2e845a2d90e3c55a98d146117, suite 2380 of 2384 0 fail, real GOALS.md renders with 0 refusals
 Log: 2026-09-27T21:29:04Z delivered skills-h Windows suite at cb555e6 2382 of 2384, 0 fail, 2 skips; Opus review spawned
+Log: 2026-09-28T02:16:28Z delivered skills-h Opus reviewer stalled 4.8 h (last tool call 2026-09-27T21:29:30Z, a scratch mutate.sh beginning with rm -rf, run through an escaped perl one-liner, never returned; the brief forbade deletion); stopped, no report written, worktree clean; fresh Opus reviewer spawned with a node-only mutation rule
 
 Observed: pending.
