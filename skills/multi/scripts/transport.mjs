@@ -408,10 +408,29 @@ export function isLocalPane(pane, senderHost) {
 
 export function toPosix(p) { return String(p).replace(/\\/g, '/'); }
 
+/**
+ * Names that make `git` answer for whatever repo THEY point at instead of `cwd` (lane 44,
+ * transport-identity-1 F3): a hook run inside a git operation, an agent spawned from one, or a
+ * timer unit with a stale environment can leave one of these set in the parent process, and every
+ * `git` child that inherits it silently resolves identity for the wrong project.
+ */
+export const REPO_LOCATING_GIT_ENV = Object.freeze([
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
+]);
+
 /** Default git shell-out. Tests inject their own `git` through deps, so this is never hit off-box. */
 export function gitRunner(args, cwd) {
+  // Shallow copy so the parent's own environment object is never mutated; each name is removed
+  // (not set to '') because an empty GIT_DIR is itself an error, not "unset" (lane 44, F3/P1).
+  const env = { ...process.env };
+  // win32 env names are case-insensitive to the OS and to git, but a spread copy keeps each key's
+  // stored case, so `Git_Dir` would survive `delete env.GIT_DIR`; match case-insensitively there.
+  const locating = process.platform === 'win32'
+    ? (key) => REPO_LOCATING_GIT_ENV.includes(key.toUpperCase())
+    : (key) => REPO_LOCATING_GIT_ENV.includes(key);
+  for (const key of Object.keys(env)) if (locating(key)) delete env[key];
   return execFileSync('git', args, {
-    cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+    cwd, env, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   }).toString();
 }
 
