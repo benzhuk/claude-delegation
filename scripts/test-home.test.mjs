@@ -450,6 +450,42 @@ test(
   },
 );
 
+// F4: this child installs its listener before makeTempHome installs ours.  The first SIGTERM
+// must therefore invoke it once; it owns the eventual normal exit.  The timer is a bounded
+// sentinel, so the old unconditional re-raise records two deliveries instead of passing by
+// exiting from the foreign listener before test-home's handler runs.
+test(
+  "an existing SIGTERM listener receives one delivery and owns the eventual exit (F4, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const fixture = tempHome();
+    const script = [
+      `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+      "let deliveries = 0;",
+      "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`deliveries=${deliveries}\\n`); process.exit(0); }, 250); });",
+      "const { home } = makeTempHome();",
+      "process.stdout.write(home + '\\n');",
+    ].join("\\n");
+    const child = spawn(NODE, ["--input-type=module", "-e", script], {
+      env: childEnv(fixture.home), stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { home, stdout, code } = await new Promise((resolve, reject) => {
+      let output = "";
+      let sent = false;
+      const timeout = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} reject(new Error("F4 child did not exit within 4s")); }, 4000);
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        if (!sent && output.includes("\\n")) { sent = true; child.kill("SIGTERM"); }
+      });
+      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\\n")[0].trim(), stdout: output, code: exitCode }); });
+    });
+    assert.equal(code, 0, "the existing listener, not a re-raised default action, owns exit");
+    assert.match(stdout, /deliveries=1/, "the existing listener must receive SIGTERM exactly once");
+    assert.equal(fs.existsSync(home), false, "our handler must still remove its registered home");
+  },
+);
+
 test("handler registration is idempotent: exactly one listener per event, even after two homes", () => {
   const events = process.platform === "win32" ? ["exit", "SIGINT", "SIGTERM"] : ["exit", "SIGINT", "SIGTERM", "SIGHUP"];
   const script = [
