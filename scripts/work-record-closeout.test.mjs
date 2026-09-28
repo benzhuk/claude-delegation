@@ -145,31 +145,6 @@ function stepsOf(result) {
   return out;
 }
 
-/** R2-2/R2-3(f) (C1 round 3): runs `fn()` with a shim `git` placed FIRST on PATH that fails only
- * `git worktree list ...` (delegating every other invocation, unchanged, to the real `git`) - the
- * one way to make `listWorktrees` itself fail without touching the injectable `spawnImpl`/
- * `execImpl` (fetch and for-each-ref keep working through the same shim, exactly like a real
- * `git worktree list` failure would leave them). Restores `process.env.PATH` in a `finally`, even
- * if `fn` throws. Skipped on win32 (no `#!/bin/sh` shebang there) by the caller.
- */
-function withFailingWorktreeList(fn) {
-  const dir = mkTmp("closeout-git-shim-");
-  const shim = path.join(dir, "git");
-  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
-  fs.writeFileSync(
-    shim,
-    `#!/bin/sh\ncase "$*" in *"worktree list"*) echo "fatal: simulated worktree list failure" >&2; exit 128;; esac\nexec ${realGit} "$@"\n`,
-    { mode: 0o755 },
-  );
-  const savedPath = process.env.PATH;
-  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
-  try {
-    return fn();
-  } finally {
-    process.env.PATH = savedPath;
-  }
-}
-
 // ── Worktree and local branch (ruling b item 3) ─────────────────────────────────────
 
 test("closeoutRecord: a clean worktree is removed and its local branch deleted with -d (never -D); the origin's own tip proves the merge, so no force is ever needed", () => {
@@ -1174,7 +1149,7 @@ test("sweepOrigin: R2-3(a) - a failed fetch refuses EVERYTHING (exit 2, UNVERIFI
 // `worktreesByPath === null` guard. (R3-1 correction: this is NOT round 2's mutant M-c - M-c
 // was the scratch step's `listWorktrees === null` refusal at work-record.mjs:2064-2066, held
 // by the `closeoutRecord: R2-2 ...` test below, not by this one.)
-test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2, UNVERIFIABLE), never fails open", { skip: process.platform === "win32" ? "PATH-shim git wrapper needs a POSIX shell" : false }, () => {
+test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2, UNVERIFIABLE), never fails open", () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
   const branch = "build/r22-sweep-1";
@@ -1182,7 +1157,7 @@ test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2,
   mergeNoFF(repo, env, branch);
   pushMain(repo, env);
   pushBranch(repo, env, branch);
-  const result = withFailingWorktreeList(() => sweepOrigin({ repoRoot: repo, apply: true }));
+  const result = sweepOrigin({ repoRoot: repo, apply: true, listWorktreesImpl: () => null });
   assert.equal(result.exitCode, 2);
   assert.deepEqual(result.lines, ["refused UNVERIFIABLE: could not read git worktree list"]);
   assert.notEqual(git(["ls-remote", "--heads", "origin", branch], repo, env).trim(), "", "the branch must still be on origin");
@@ -1191,14 +1166,14 @@ test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2,
 // R2-2/R2-7: the same failure, inside close --closeout's own origin-branch step - the worktree
 // step already fails closed on its own (it reads git worktree list itself), so this pins the
 // origin-branch step specifically, which round 2 left silently claiming "no branch name" instead.
-test("closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branch step (UNVERIFIABLE, exit 2), never silently proceeding as if no record claimed the branch", { skip: process.platform === "win32" ? "PATH-shim git wrapper needs a POSIX shell" : false }, () => {
+test("closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branch step (UNVERIFIABLE, exit 2), never silently proceeding as if no record claimed the branch", () => {
   const env = fixtureEnv();
   const { repo, branch, tip } = closedFixtureForScratch(env);
   const { scratchPath, by } = mkScratchFixture();
   const recordRel = writeClosedRecord(repo, {
     work: "wr-2026-09-27-r22-closeout", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
   });
-  const result = withFailingWorktreeList(() => closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by }));
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by, listWorktreesImpl: () => null });
   const steps = stepsOf(result);
   assert.equal(steps["origin-branch"].result, "refused");
   assert.match(steps["origin-branch"].detail, /could not read git worktree list/);
@@ -1587,6 +1562,52 @@ test("closeoutRecord: idempotent - a Worktree: naming a real directory that exis
   assert.equal(steps.worktree.detail, "worktree-unresolved");
   assert.equal(result.exitCode, 2);
   assert.equal(fs.existsSync(notAWorktree), true, "an unregistered real directory must never be removed");
+});
+
+test("closeoutRecord: idempotent - a path-form Worktree: that no longer exists, while a registered worktree elsewhere still holds the record's branch, stays refused worktree-unresolved (exit 2)", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/idem-stale-1";
+  const { wt, tip } = cutBranch(repo, env, branch);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  const { scratchPath, by } = mkScratchFixture();
+  const stale = path.join(path.dirname(wt), `moved-away-${by}`, "idem-stale-1");
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-idem-stale", worktree: stale, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.worktree.result, "refused");
+  assert.equal(steps.worktree.detail, "worktree-unresolved");
+  assert.equal(result.exitCode, 2);
+  assert.equal(fs.existsSync(wt), true, "the live worktree holding the record's branch must survive");
+});
+
+test("closeoutRecord: idempotent - a path-form Worktree: that no longer exists, with the record's own local branch surviving, goes on to remove that branch with -d", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/idem-pathbranch-1";
+  git(["branch", branch], repo, env);
+  const tree = git(["rev-parse", `${branch}^{tree}`], repo, env).trim();
+  const tip = git(["commit-tree", tree, "-p", branch, "-m", `work on ${branch}`], repo, env).trim();
+  git(["update-ref", `refs/heads/${branch}`, tip], repo, env);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  const { scratchPath, by } = mkScratchFixture();
+  const gone = path.join(os.tmpdir(), `never-existed-${by}`, "idem-pathbranch-1");
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-idem-pathbranch", worktree: gone, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.worktree.result, "absent");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(steps.branch.ref, branch);
+  assert.equal(git(["branch", "--list", branch], repo, env).trim(), "", "the record's local branch must actually be gone");
+  assert.equal(result.exitCode, 0);
 });
 
 after(() => {

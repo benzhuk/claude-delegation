@@ -1747,8 +1747,8 @@ function worktreePathKey(p) {
  * `worktreePathKey` so a `Worktree:` absolute path resolves to its branch even across a
  * symlinked ancestor or win32 case folding. `null` when `listWorktrees` itself failed (caller
  * must treat that as fail-closed, not "no match" - see R2-2). */
-function buildWorktreesByPath(root) {
-  const worktrees = listWorktrees(root);
+function buildWorktreesByPath(root, listWorktreesImpl = listWorktrees) {
+  const worktrees = listWorktreesImpl(root);
   if (worktrees === null) return null;
   const map = new Map();
   for (const w of worktrees) {
@@ -1964,7 +1964,7 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
  * "nothing to remove", and a target that is a file, not a directory, is refused rather than
  * removed. `platform` is test-only, defaulting to the real `process.platform` (same convention
  * used elsewhere in this file). */
-function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl, platform }) {
+function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl, platform, listWorktreesImpl = listWorktrees }) {
   if (!scratchPath) return { step: "scratch", result: "absent" };
   if (record.fields.leadSession !== by) {
     return {
@@ -2061,7 +2061,7 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
     if (cmp(repoResolved, resolved)) {
       return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the repo root" };
     }
-    const worktrees = listWorktrees(root);
+    const worktrees = listWorktreesImpl(root);
     if (worktrees === null) {
       return { step: "scratch", result: "refused", ref: scratchPath, detail: "could not read git worktree list" };
     }
@@ -2121,6 +2121,7 @@ export function closeoutRecord(opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
   const execImpl = opts.execImpl ?? execFileSync;
   const spawnImpl = opts.spawnImpl ?? spawnSync;
+  const listWorktreesImpl = opts.listWorktreesImpl ?? listWorktrees;
   const dryRun = Boolean(opts.dryRun);
   const by = typeof opts.closeoutBy === "string" ? opts.closeoutBy.trim() : "";
   if (!by) throw acceptanceError("--by is required with --closeout (the session id running the closeout)", "by-missing");
@@ -2205,12 +2206,12 @@ export function closeoutRecord(opts = {}) {
     // `git worktree list` itself failed (R2-2) - `buildWorktreesByPath`'s own doc comment already
     // says a `null` result is fail-closed, not "no claims".
     const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
-    const worktreesByPath = buildWorktreesByPath(repoRoot);
+    const worktreesByPath = buildWorktreesByPath(repoRoot, listWorktreesImpl);
     const ownBranchName = worktreesByPath === null ? null : deriveRecordBranch(record, worktreesByPath);
 
     // 3. Worktree and local branch.
     const wt = closeoutWorktree({
-      root: repoRoot, worktreeField: record.fields.worktree, mainBranch, cwd: process.cwd(), dryRun,
+      root: repoRoot, worktreeField: record.fields.worktree, branchName: ownBranchName, mainBranch, cwd: process.cwd(), dryRun, listWorktreesImpl,
     });
     for (const s of wt.steps) results.push(s);
     if (!wt.steps.some((s) => s.step === "branch")) results.push({ step: "branch", result: "absent" });
@@ -2230,7 +2231,16 @@ export function closeoutRecord(opts = {}) {
         // had removed from origin - that is not a refusal, it is the closeout having already
         // happened. Every OTHER "keep" reason (still named by an open record, excluded, not under
         // build/, ...) is a real, distinct protection and stays a "refused".
-        results.push({ step: "origin-branch", result: "absent", ref: branchName });
+        // R4-5 (C1 round 5, MINOR): `evaluateOriginBranch`'s "not found on origin" reason trusts a
+        // missing refs/remotes/origin/<name> tracking ref, which a narrow fetch refspec (a
+        // single-branch clone) never creates even when the branch is genuinely still on origin -
+        // confirm absence against the remote itself with one `ls-remote` before calling it absent.
+        const ls = spawnImpl("git", ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branchName}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+        if (!ls.error && ls.status === 2) {
+          results.push({ step: "origin-branch", result: "absent", ref: branchName });
+        } else {
+          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: ls.status === 0 ? "on origin, but no refs/remotes/origin tracking ref (check the fetch refspec)" : "UNVERIFIABLE: git ls-remote failed" });
+        }
       } else if (verdict.verdict !== "delete") {
         results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: verdict.reason });
       } else if (dryRun) {
@@ -2247,7 +2257,7 @@ export function closeoutRecord(opts = {}) {
     }
 
     // 5. Scratch directory.
-    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform }));
+    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform, listWorktreesImpl }));
   }
 
   const lines = [closeLine, ...results.map((r) => formatCloseoutLine(r, dryRun))];
@@ -2302,6 +2312,7 @@ export function sweepOrigin(opts = {}) {
   const fsImpl = opts.fsImpl ?? fs;
   const spawnImpl = opts.spawnImpl ?? spawnSync;
   const execImpl = opts.execImpl ?? execFileSync;
+  const listWorktreesImpl = opts.listWorktreesImpl ?? listWorktrees;
   if (!opts.repoRoot) throw acceptanceError("--repo is required");
   const repoRoot = path.resolve(opts.repoRoot);
   const apply = Boolean(opts.apply);
@@ -2330,7 +2341,7 @@ export function sweepOrigin(opts = {}) {
   // not silently claim nothing for every path-form Worktree: (buildWorktreesByPath's own doc
   // comment already says "caller must treat null as fail-closed" - round 2 built the map but
   // never checked for null before using it).
-  const worktreesByPath = buildWorktreesByPath(repoRoot);
+  const worktreesByPath = buildWorktreesByPath(repoRoot, listWorktreesImpl);
   if (worktreesByPath === null) {
     return { rows: [], lines: ["refused UNVERIFIABLE: could not read git worktree list"], apply, applied: [], exitCode: 2 };
   }

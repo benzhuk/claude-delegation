@@ -297,7 +297,8 @@ that close (or after accepting a record whose `Status:` is already `closed`): a 
 proof against `origin/main`, the worktree and its local branch, the branch on origin, and
 the record's own `Scratch:` directory. This is the plugin's one file-delete path
 (`fs.rmSync`, scratch directories only) and its one branch-delete paths (local `git branch
--d`, and `git push origin --delete`) — every other command in this repo only ever reads.
+-d`, and ``git push --force-with-lease=refs/heads/<name>:<tip> origin :refs/heads/<name>``)
+— every other command in this repo only ever reads.
 
 ```
 node <verified-plugin-root>/scripts/work-record.mjs close \
@@ -360,11 +361,13 @@ list that cannot itself be read fails CLOSED for the whole origin-branch step (`
 UNVERIFIABLE: could not read git worktree list`, exit 2), never silently claiming no open
 record protects anything. The worktree step of `close --closeout` uses the same
 realpath-normalized, win32-case-folded match for `Worktree:` against `git worktree list`,
-and reports an unmatched value `refused worktree-unresolved` (exit 2), never a silent
-`absent` — a record naming a branch genuinely never checked out anywhere and a record whose
-`Worktree:` failed to match a real, still-live worktree can no longer be told apart from
-the closeout's own point of view, so both now stop for a human rather than one of them
-completing silently. The scratch directory is removed only after the full set of
+and reports an unmatched value `refused worktree-unresolved` (exit 2) when it names a
+directory that exists but is not a registered worktree, a value written on the other OS,
+or a path whose record branch a registered worktree still holds. A value naming a path
+that no longer exists, with no registered worktree holding the record's branch, is
+`absent` (round 4: closeout is safe to re-run); if that branch still exists locally it is
+deleted with `-d` as usual. A second closeout of a fully cleaned-up record exits 0 with
+every step `absent`, and appends one more `Log:` line. The scratch directory is removed only after the full set of
 path-safety checks named in the pinned scratch sentence's own contract: a `Scratch:` value
 must be absolute on THIS host's own path convention (a value recorded on the other OS is
 refused, not resolved against this host's cwd); the session id from `--by` must be a whole
