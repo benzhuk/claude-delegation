@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-transport-identity
 Scope: docs/specs/transport-identity-1/spec.md (lane 44 lead spec, rulings P1 to P3) from packet docs/specs/transport-identity-1/packet.md (skills-fable-lane-44-1, lane 34 review r1 F3)
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/transport-identity-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; the live proof reads only (decisions-pickup status); no release, no install
 Next: accept, merge into main, close, publish, RESULT to skills-fable; the fix reaches installed hosts only with the next release; FU1 to FU6 from review r1 and N1 from review r2 are follow-ups
 Artifact: 216d56bc1bb27233c3771e0779a2884fde6dd0c7
@@ -56,6 +56,8 @@ Four numbers: Hours ask to accepted: 0.7h; gap unavailable (no lead transcript)
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 2 unanswered ASK(s) to skills-n: pickup-netcup-decisions-f403a017344d22307a71c1e89fb9406f588c2b92bd68fe2bf65a503282c39dc1-4, skills-fable-release-0-20-17-1
 Log: 2026-09-28T21:57:01.000Z accepted skills-n artifact 216d56bc1bb27233c3771e0779a2884fde6dd0c7
+Log: 2026-09-28T21:57:49.000Z merged skills-n build/transport-identity-1 into main at 30a923dbeddcf92c18254aeaa16ba164e3b189c8 under the standing merge grant; main suite 2655 of 2660, 0 fail
+Log: 2026-09-28T21:57:49.000Z closed skills-n merge 30a923dbeddcf92c18254aeaa16ba164e3b189c8
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-44
 
