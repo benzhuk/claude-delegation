@@ -2225,7 +2225,13 @@ export function closeoutRecord(opts = {}) {
       const verdict = evaluateOriginBranch(branchName, null, {
         root: repoRoot, mainRef, mainBranch, spawnImpl, records, ownWorkId: record.fields.work, worktreesByPath,
       });
-      if (verdict.verdict !== "delete") {
+      if (verdict.verdict !== "delete" && verdict.reason === "not found on origin") {
+        // Idempotent closeout (C1 round 4): a re-run finds the branch this record itself already
+        // had removed from origin - that is not a refusal, it is the closeout having already
+        // happened. Every OTHER "keep" reason (still named by an open record, excluded, not under
+        // build/, ...) is a real, distinct protection and stays a "refused".
+        results.push({ step: "origin-branch", result: "absent", ref: branchName });
+      } else if (verdict.verdict !== "delete") {
         results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: verdict.reason });
       } else if (dryRun) {
         results.push({ step: "origin-branch", result: "removed", ref: branchName, sha: verdict.tip });
@@ -2235,7 +2241,7 @@ export function closeoutRecord(opts = {}) {
         if (del.ok) {
           results.push({ step: "origin-branch", result: "removed", ref: branchName, sha: verdict.tip });
         } else {
-          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: del.moved ? "moved" : del.error });
+          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: del.moved ? "moved" : del.error.replace(/\s+/g, " ").trim() });
         }
       }
     }
@@ -2272,7 +2278,12 @@ export function closeoutRecord(opts = {}) {
     // second `realpathSync` call.
     const relReal = path.relative(repoReal, realAbsPath);
     if (relReal.startsWith("..") || path.isAbsolute(relReal)) {
-      throw acceptanceError(`path resolves outside repository: ${opts.recordPath}`);
+      // R3-5 (C1 round 4, MINOR): a `throw` here discards `lines`, including every step's own
+      // `restore:` line (the only record of an already-deleted origin branch's sha) - by this
+      // point the worktree, the origin branch and the scratch dir may already be gone, so this
+      // must return the refusal, not throw it away.
+      lines.push(`log: refused (path resolves outside repository: ${opts.recordPath})`);
+      return { lines, ok: false, exitCode: 2, steps: results };
     }
     fsImpl.writeFileSync(realAbsPath, closedLines.join(eol));
   }
@@ -2360,7 +2371,7 @@ export function sweepOrigin(opts = {}) {
         lines.push(`deleted ${r.name} ${r.tip} restore: git push origin ${r.tip}:refs/heads/${r.name}`);
       } else {
         anyFailed = true;
-        const detail = del.moved ? "moved" : del.error;
+        const detail = del.moved ? "moved" : del.error.replace(/\s+/g, " ").trim();
         applied.push({ name: r.name, tip: r.tip, ok: false, error: detail });
         lines.push(`delete-failed ${r.name} ${detail}`);
       }

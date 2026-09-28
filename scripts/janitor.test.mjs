@@ -2467,18 +2467,20 @@ test("closeoutWorktree: refuses the main worktree, and refuses the worktree cont
   assert.equal(fs.existsSync(wt), true);
 });
 
-// R2-8 (C1 round 3): superseded by the test below - an unmatched Worktree: is now refused
-// (worktree-unresolved), never silently "absent", so an unresolved match can never be read as a
-// harmless no-op.
-test("closeoutWorktree: R2-8 - a Worktree: naming a branch never checked out anywhere is refused 'worktree-unresolved' (never silently 'absent')", () => {
+// R2-8 (C1 round 3), narrowed by the round-4 idempotent-closeout ruling: a Worktree: naming a
+// branch never checked out anywhere is no longer a blanket "refused worktree-unresolved" - the
+// branch it names genuinely exists (only the WORKTREE part is absent), so this now goes on to the
+// branch step as usual, same as the round-4 "directory gone, branch survives" case.
+test("closeoutWorktree: R2-8/round-4 - a Worktree: naming a branch never checked out anywhere reports the worktree absent and still removes the local branch", () => {
   const root = initRepo();
   writeProjectConfig(root);
   git(["branch", "close-absent-1"], root);
   const result = closeoutWorktree({ root, worktreeField: "close-absent-1", cwd: root });
   assert.deepEqual(result.steps, [
-    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
-    { step: "branch", result: "absent" },
+    { step: "worktree", result: "absent" },
+    { step: "branch", ref: "close-absent-1", result: "removed" },
   ]);
+  assert.equal(git(["branch", "--list", "close-absent-1"], root).trim(), "", "the local branch must actually be gone now");
 });
 
 // R2-8 (C1 round 3, MINOR): kills the "entry lookup is not normalized" gap directly - a
@@ -2534,6 +2536,62 @@ test("closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and re
   assert.equal(steps.branch.result, "removed");
   assert.equal(fs.existsSync(wt), true, "--dry-run must not remove the worktree");
   assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "--dry-run must not delete the branch");
+});
+
+// C1 round 4 (idempotent closeout, the lead's ruling on the R2-3 review's O1 observation): a
+// Worktree: whose directory is genuinely gone from disk, with no registered worktree holding its
+// branch either, is `absent`, not a refusal - a re-run must be safe. But when the LOCAL BRANCH
+// still exists (only the directory is gone), closeout goes on to remove that branch as usual (a
+// plain `git branch -d`), rather than treating the missing directory as cover to skip it too.
+test("closeoutWorktree: idempotent - a genuinely absent Worktree: (no directory, no registered worktree, no local branch) is 'absent' on both steps, not a refusal", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const result = closeoutWorktree({ root, worktreeField: "idem-never-existed-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ]);
+});
+
+test("closeoutWorktree: idempotent - a Worktree: whose directory is genuinely gone, but whose local branch still exists, goes on to remove that branch as usual", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "idem-branch-survives-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch); // so a plain `git branch -d` (never -D) can succeed below
+  git(["worktree", "remove", "--force", wt], root); // the directory is gone; the local branch is not
+  assert.equal(fs.existsSync(wt), false, "fixture sanity");
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "fixture sanity: the local branch still exists");
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "absent");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(git(["branch", "--list", branch], root).trim(), "", "the local branch must actually be gone now");
+});
+
+// R2-8 still holds on this same re-run path: a value this host cannot resolve as a local path at
+// all (a Windows-shaped value read on Linux) stays ambiguous, even though it also never exists on
+// disk on this host - idempotency narrows ONLY the "the path is simply gone now" case.
+test("closeoutWorktree: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (never silently absent)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const result = closeoutWorktree({ root, worktreeField: "C:/Users/benzh/orca/workspaces/x/idem-foreign-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ]);
+});
+
+// R2-8 still holds: a real directory that exists on disk but simply is not a registered worktree
+// also stays ambiguous - only a target that is genuinely gone counts as absent.
+test("closeoutWorktree: idempotent - a Worktree: naming a real directory that exists but is not a registered worktree stays refused worktree-unresolved", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const notAWorktree = mkTmp("closeout-idem-not-a-worktree-");
+  const result = closeoutWorktree({ root, worktreeField: notAWorktree, cwd: root });
+  assert.equal(result.steps[0].result, "refused");
+  assert.equal(result.steps[0].detail, "worktree-unresolved");
+  assert.equal(fs.existsSync(notAWorktree), true, "an unregistered real directory must never be removed");
 });
 
 after(() => {

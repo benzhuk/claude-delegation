@@ -309,29 +309,32 @@ test("closeoutRecord: merge proof - an Artifact: sha not an ancestor of origin/m
   }
 });
 
-// R2-8 (C1 round 3, MINOR ruling): an unmatched Worktree: is refused worktree-unresolved, with
-// exit 2, never silently "absent" - a record naming a branch that genuinely has no worktree
-// (never checked out) can no longer be told apart, from the closeout's own point of view, from a
-// record whose Worktree: value failed to match a real, still-live worktree for some normalization
-// reason, so both now stop the closeout for a human to look at instead of completing silently.
-test("closeoutRecord: R2-8 - a Worktree: naming a branch that was never checked out anywhere is refused worktree-unresolved (exit 2), never silently 'absent'", () => {
+// R2-8 (C1 round 3), narrowed by the round-4 idempotent-closeout ruling: a record naming a branch
+// that genuinely never had a worktree is no longer a blanket refusal - the branch it names really
+// exists (only the WORKTREE half is absent), so closeout goes on to remove that branch, and the
+// rest of the record, as usual.
+test("closeoutRecord: R2-8/round-4 - a Worktree: naming a branch whose worktree directory is already gone reports the worktree step absent and still removes the branch, exit 0", () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
   const branch = "build/wt-absent-1";
-  const { tip } = cutBranch(repo, env, branch, { worktree: false });
+  // A real commit of its own (not the zero-commit `{ worktree: false }` form), so the branch's
+  // tip is distinct from main's - the worktree directory is removed by hand BEFORE closeout ever
+  // runs, exactly like a worktree the janitor sweep (or an earlier closeout) already cleaned up.
+  const { wt, tip } = cutBranch(repo, env, branch);
   mergeNoFF(repo, env, branch);
   pushMain(repo, env);
   pushBranch(repo, env, branch);
+  git(["worktree", "remove", "--force", wt], repo, env);
   const { scratchPath, by } = mkScratchFixture();
   const recordRel = writeClosedRecord(repo, {
     work: "wr-2026-09-27-wt-absent", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
   });
   const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
   const steps = stepsOf(result);
-  assert.equal(steps.worktree.result, "refused");
-  assert.equal(steps.worktree.detail, "worktree-unresolved");
-  assert.equal(steps.branch.result, "absent");
-  assert.equal(result.exitCode, 2);
+  assert.equal(steps.worktree.result, "absent");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(git(["branch", "--list", branch], repo, env).trim(), "", "the local branch must actually be gone now");
+  assert.equal(result.exitCode, 0);
 });
 
 test("closeoutRecord: --dry-run performs no git mutation for the worktree/branch steps and prints 'would ...' lines", () => {
@@ -1167,9 +1170,11 @@ test("sweepOrigin: R2-3(a) - a failed fetch refuses EVERYTHING (exit 2, UNVERIFI
 });
 
 // R2-2 (C1 round 3, MAJOR blocker): a failed `git worktree list` must refuse sweep-origin
-// outright, not silently claim no open record protects anything - kills mutant M-c (the
-// `worktreesByPath === null` guard removed).
-test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2, UNVERIFIABLE), never fails open", () => {
+// outright, not silently claim no open record protects anything - kills sweepOrigin's own
+// `worktreesByPath === null` guard. (R3-1 correction: this is NOT round 2's mutant M-c - M-c
+// was the scratch step's `listWorktrees === null` refusal at work-record.mjs:2064-2066, held
+// by the `closeoutRecord: R2-2 ...` test below, not by this one.)
+test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2, UNVERIFIABLE), never fails open", { skip: process.platform === "win32" ? "PATH-shim git wrapper needs a POSIX shell" : false }, () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
   const branch = "build/r22-sweep-1";
@@ -1186,7 +1191,7 @@ test("sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2,
 // R2-2/R2-7: the same failure, inside close --closeout's own origin-branch step - the worktree
 // step already fails closed on its own (it reads git worktree list itself), so this pins the
 // origin-branch step specifically, which round 2 left silently claiming "no branch name" instead.
-test("closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branch step (UNVERIFIABLE, exit 2), never silently proceeding as if no record claimed the branch", () => {
+test("closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branch step (UNVERIFIABLE, exit 2), never silently proceeding as if no record claimed the branch", { skip: process.platform === "win32" ? "PATH-shim git wrapper needs a POSIX shell" : false }, () => {
   const env = fixtureEnv();
   const { repo, branch, tip } = closedFixtureForScratch(env);
   const { scratchPath, by } = mkScratchFixture();
@@ -1197,6 +1202,11 @@ test("closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branc
   const steps = stepsOf(result);
   assert.equal(steps["origin-branch"].result, "refused");
   assert.match(steps["origin-branch"].detail, /could not read git worktree list/);
+  assert.equal(steps.worktree.result, "refused");
+  assert.match(steps.worktree.detail, /could not read git worktree state/);
+  assert.equal(steps.scratch.result, "refused");
+  assert.match(steps.scratch.detail, /could not read git worktree list/);
+  assert.equal(fs.existsSync(scratchPath), true, "the scratch directory must survive when git worktree list cannot be read");
   assert.equal(result.exitCode, 2);
   assert.notEqual(git(["ls-remote", "--heads", "origin", branch], repo, env).trim(), "", "the branch must still be on origin");
 });
@@ -1352,10 +1362,9 @@ test("closeoutRecord: R2-9 - a symlink swapped into the record's path between th
       return realFsImpl.realpathSync(p, ...rest);
     },
   };
-  assert.throws(
-    () => closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by, fsImpl: racingFsImpl }),
-    /path resolves outside repository/,
-  );
+  const r = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by, fsImpl: racingFsImpl });
+  assert.equal(r.exitCode, 2);
+  assert.match(r.lines.at(-1), /log: refused \(path resolves outside repository/);
   assert.ok(realpathCalls >= 2, "fixture sanity: the swap must actually have been exercised on the second realpath call");
   assert.doesNotMatch(fs.readFileSync(outsideTarget, "utf8"), /Log:.*closeout/, "the escaped path outside the repo must never receive the closeout write");
 });
@@ -1368,7 +1377,11 @@ test("closeoutRecord: R2-10 - on a win32 host, a POSIX-shaped Scratch: path is r
   const env = fixtureEnv();
   const { repo, branch, tip } = closedFixtureForScratch(env);
   const by = `closeout-test-by-r210-${++scratchCounter}`;
-  const { scratchPath } = mkScratchFixture("r210-lane"); // a real POSIX absolute path, e.g. /tmp/.../r210-lane
+  // On a win32 host, mkScratchFixture's os.tmpdir()-based path is already host-absolute (a real
+  // C:\... path), so the POSIX-shaped value this test needs to drive through the win32 gate must
+  // be synthesized instead - it never exists on disk, so the final existsSync check (which only
+  // ever meant "the fixture directory was not removed") is skipped there.
+  const scratchPath = process.platform === "win32" ? `/tmp/${by}/r210-lane` : mkScratchFixture("r210-lane").scratchPath; // a real POSIX absolute path, e.g. /tmp/.../r210-lane
   const recordRel = writeClosedRecord(repo, {
     work: "wr-2026-09-27-r210", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
   });
@@ -1376,7 +1389,9 @@ test("closeoutRecord: R2-10 - on a win32 host, a POSIX-shaped Scratch: path is r
   const steps = stepsOf(result);
   assert.equal(steps.scratch.result, "refused");
   assert.match(steps.scratch.detail, /not absolute on this host \(recorded on another OS\)/);
-  assert.equal(fs.existsSync(scratchPath), true, "a POSIX path misread as win32-absolute must never be removed");
+  if (process.platform !== "win32") {
+    assert.equal(fs.existsSync(scratchPath), true, "a POSIX path misread as win32-absolute must never be removed");
+  }
 });
 
 // R2-1 (C1 round 3, MAJOR ruling, L8 fallback): an open record whose Worktree: is a path that
@@ -1439,6 +1454,13 @@ test("sweepOrigin: R2-1 - the basename fallback does not protect a DIFFERENT bra
     artifact: "none", leadSession: "some-session", scratch: mkScratchFixture().scratchPath,
     extra: { Status: "owned" },
   });
+  // R3-4 (C1 round 4): a CLOSED record whose Worktree: basename DOES match must not protect the
+  // branch either - the fallback applies only to OPEN records (owned/pending), never to one
+  // already closed/withdrawn, which is the half of the test title the body above never exercised.
+  writeClosedRecord(repo, {
+    work: "wr-2026-09-27-r1-nomatch-closed", worktree: "C:/Users/benzh/x/r1-nomatch-1",
+    artifact: "none", leadSession: "some-session", scratch: mkScratchFixture().scratchPath,
+  });
   const result = sweepOrigin({ repoRoot: repo });
   const row = result.rows.find((r) => r.name === branch);
   assert.equal(row.verdict, "delete", "a non-matching basename must not protect an unrelated branch");
@@ -1489,6 +1511,82 @@ test("sweepOrigin: R2-1 (P6) - an open record's Worktree: given as a SYMLINKED p
   assert.equal(otherRow.verdict, "delete");
   assert.equal(otherRow.tip, tip);
   void otherTip;
+});
+
+// ── C1 round 4: idempotent closeout (the lead's ruling on the R2-3 review's O1 observation) ──
+
+// Round 4: a closeout must be safe to re-run. The FIRST run removes the worktree, the local
+// branch, the origin branch and the scratch directory for real; the SECOND run, on the exact
+// same (already-closed) record, must exit 0 with every one of the four steps `absent` - never
+// re-refuse a record that has already been fully cleaned up.
+test("closeoutRecord: idempotent - running closeout twice on the same fixture exits 0 both times, and the second run reports every step absent", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/idem-1";
+  const { wt, tip } = cutBranch(repo, env, branch);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-idem", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+
+  const first = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  assert.equal(first.exitCode, 0);
+  const firstSteps = stepsOf(first);
+  assert.equal(firstSteps.worktree.result, "removed");
+  assert.equal(firstSteps.branch.result, "removed");
+  assert.equal(firstSteps["origin-branch"].result, "removed");
+  assert.equal(firstSteps.scratch.result, "removed");
+  assert.equal(fs.existsSync(wt), false, "fixture sanity: the worktree is really gone after run 1");
+  assert.equal(fs.existsSync(scratchPath), false, "fixture sanity: the scratch dir is really gone after run 1");
+
+  const second = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  assert.equal(second.exitCode, 0, "a re-run of an already-cleaned-up record must not raise the exit code");
+  const secondSteps = stepsOf(second);
+  for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
+    assert.equal(secondSteps[step].result, "absent", `step ${step} on the second run`);
+  }
+});
+
+// R2-8 ruling still holds on a re-run too: a Worktree: this host genuinely cannot resolve as a
+// path at all (a Windows-shaped value read on Linux) stays `refused worktree-unresolved`, exit 2
+// - idempotency narrows ONLY the "the path is simply gone now" case, never this ambiguous one.
+test("closeoutRecord: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (exit 2), even though it never exists on disk on this host either", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-idem-foreign", worktree: "C:/Users/benzh/orca/workspaces/x/idem-foreign-1",
+    artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.worktree.result, "refused");
+  assert.equal(steps.worktree.detail, "worktree-unresolved");
+  assert.equal(steps.branch.result, "refused");
+  assert.equal(steps.branch.detail, "worktree-unresolved (not checked)");
+  assert.equal(result.exitCode, 2);
+});
+
+// R2-8 ruling on a re-run: a Worktree: naming a real directory that exists on disk but is simply
+// not (or no longer) a registered worktree also stays ambiguous, exit 2 - only a path that is
+// genuinely gone counts as absent.
+test("closeoutRecord: idempotent - a Worktree: naming a real directory that exists but is not a registered worktree stays refused worktree-unresolved (exit 2)", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const { scratchPath, by } = mkScratchFixture();
+  const notAWorktree = mkTmp("closeout-idem-not-a-worktree-");
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-idem-notwt", worktree: notAWorktree, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.worktree.result, "refused");
+  assert.equal(steps.worktree.detail, "worktree-unresolved");
+  assert.equal(result.exitCode, 2);
+  assert.equal(fs.existsSync(notAWorktree), true, "an unregistered real directory must never be removed");
 });
 
 after(() => {

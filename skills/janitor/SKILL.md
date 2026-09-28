@@ -47,7 +47,8 @@ record's `Artifact:` is proven an ancestor of `origin/main`, it resolves that re
 worktree, and — never through `applySafe`'s own `-D` path — deletes the local branch
 separately with `-d`, so a branch not yet fast-forwarded locally is merely refused, never
 forced. It then does one more thing this file's own sweep never does: deletes the *origin*
-branch itself (`git push origin --delete`), and the record's own `Scratch:` directory
+branch itself (`git push --force-with-lease=refs/heads/<name>:<tip> origin :refs/heads/<name>`,
+a lease on the sha it just proved merged), and the record's own `Scratch:` directory
 (`fs.rmSync`) — the plugin's one file-delete path, gated by its own long list of path-safety
 checks. Both live in `work-record.mjs`, not here, because both act on ONE record's own,
 already-proven-safe artifact, never on a sweep's report-then-batch-ask shape below.

@@ -370,9 +370,9 @@ must be absolute on THIS host's own path convention (a value recorded on the oth
 refused, not resolved against this host's cwd); the session id from `--by` must be a whole
 path segment strictly between a scratch root and the target, at ANY depth (matching the
 real `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout); no symlink
-anywhere in the resolved path; and the target must never be, contain, or (round 3 ruling)
-LIE INSIDE, a drive/filesystem root, the home directory, the repo root, or a path in `git
-worktree list` — checked in both directions, so a `Scratch:` a few levels below a linked
+anywhere in the resolved path; the target must never be a drive/filesystem root or the
+home directory; and it must never be, contain, or (round 3 ruling) LIE INSIDE the repo root
+or a path in `git worktree list` — checked in both directions, so a `Scratch:` a few levels below a linked
 worktree's own root is refused too, not just the reverse. There is deliberately no walk for
 a `.git` entry anywhere below the target: lanes keep fixture git repos in their own scratch
 directories, so that walk refused almost every real closeout; an unregistered git repo

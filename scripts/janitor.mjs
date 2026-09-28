@@ -1246,7 +1246,34 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
   let entry = worktrees.find((w) => normPath(w.path) === normPath(target));
   if (!entry) entry = worktrees.find((w) => w.branch === branchField);
   if (!entry) {
-    return { steps: [{ step: "worktree", result: "refused", detail: "worktree-unresolved" }, { step: "branch", result: "absent" }] };
+    // Idempotent closeout (C1 round 4, the lead's ruling on the R2-8 observation): a re-run must
+    // be safe. `Worktree:` naming a path that simply does not exist on disk any more, with no
+    // registered worktree holding its branch either, is genuinely absent - not the same ambiguity
+    // R2-8 refused - and must not keep raising the exit code forever. A value this host cannot
+    // even resolve as a local path (foreign-OS-shaped, e.g. a `C:\...` value read on Linux) and a
+    // real directory that exists but simply is not a registered worktree both stay ambiguous,
+    // exactly as R2-8 ruled, and keep refusing.
+    const isForeignPath = (path.posix.isAbsolute(String(worktreeField)) || path.win32.isAbsolute(String(worktreeField)))
+      && !path.isAbsolute(String(worktreeField));
+    if (!isForeignPath && !existsSync(target)) {
+      const branchSha = branchField ? refSha(root, `refs/heads/${branchField}`) : null;
+      if (!branchSha) {
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }] };
+      }
+      // The worktree itself is genuinely gone, but its local branch survived - go on to the
+      // branch step as usual (a plain, unconditional `git branch -d`; there is no worktree
+      // directory left for a tree-clean check to run against).
+      if (dryRun) {
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "removed" }] };
+      }
+      try {
+        git(["branch", "-d", "--", branchField], root);
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "removed" }] };
+      } catch (err) {
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "refused", detail: String(err.message || err) }] };
+      }
+    }
+    return { steps: [{ step: "worktree", result: "refused", detail: "worktree-unresolved" }, { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" }] };
   }
   if (entry.main) {
     return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the main worktree" }] };
