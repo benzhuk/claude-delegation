@@ -12,3 +12,4 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T19:03:14Z
 Base: 7b00418621f3b7dc168a2c1aa2f7d3618b1b6d45
 Log: 2026-09-28T19:15:13.000Z owned skills-n picked up skills-fable-lane-34-1, ACK sent; lead ruling P1 (identity via the main checkout) replaces the no-code re-point, because the page-keyed receipt makes a re-pointed registration a permanent manual handoff
+Log: 2026-09-28T19:15:38.000Z owned skills-n Sonnet builder spawned on P1 and P3, ETA 45 min, stall watcher on its transcript
