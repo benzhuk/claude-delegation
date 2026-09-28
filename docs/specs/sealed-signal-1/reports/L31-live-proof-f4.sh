@@ -18,21 +18,38 @@ node --input-type=module -e '
   let deliveries = 0;
   process.on("SIGTERM", () => {
     deliveries += 1;
-    setTimeout(() => { process.stdout.write(`deliveries=${deliveries}\\n`); process.exit(0); }, 250);
+    setTimeout(() => { process.stdout.write(`deliveries=${deliveries}\n`); process.exit(0); }, 250);
   });
+  setInterval(() => {}, 1000);
   const { home } = makeTempHome();
-  process.stdout.write(`${home}\\n`);
+  process.stdout.write(`${home}\n`);
 ' "$module_url" >"$out" 2>"$scratch/err" &
 child=$!
+
+reap_child() {
+  if kill -0 "$child" 2>/dev/null; then
+    kill -TERM "$child" 2>/dev/null || true
+    deadline=$((SECONDS + 4))
+    while kill -0 "$child" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
+  fi
+  if kill -0 "$child" 2>/dev/null; then
+    kill -KILL "$child" 2>/dev/null || true
+    deadline=$((SECONDS + 4))
+    while kill -0 "$child" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
+  fi
+  if ! kill -0 "$child" 2>/dev/null; then wait "$child" 2>/dev/null || true; fi
+}
+
 deadline=$((SECONDS + 4))
 while test ! -s "$out" && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
-test -s "$out" || { printf 'F4_NOT_READY retained=%s\n' "$scratch" >&2; exit 1; }
+test -s "$out" || { reap_child; printf 'F4_NOT_READY retained=%s\n' "$scratch" >&2; exit 1; }
 home=$(head -n 1 "$out")
 kill -TERM "$child"
 deadline=$((SECONDS + 4))
 while kill -0 "$child" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
 if kill -0 "$child" 2>/dev/null; then printf 'F4_CHILD_NOT_GONE retained=%s\n' "$scratch" >&2; exit 1; fi
 wait "$child"; exit_code=$?
+test "$exit_code" -eq 0 || { printf 'F4_CHILD_EXIT=%s retained=%s\n' "$exit_code" "$scratch" >&2; exit 1; }
 grep -qx 'deliveries=1' "$out" || { printf 'F4_NOT_ONE_DELIVERY retained=%s\n' "$scratch" >&2; exit 1; }
 test ! -e "$home" || { printf 'F4_HOME_REMAINS=%s retained=%s\n' "$home" "$scratch" >&2; exit 1; }
 printf 'PASS F4_HEAD=%s EXIT=%s DELIVERIES=1 HOME_REMOVED=%s RETAINED=%s\n' "$actual" "$exit_code" "$home" "$scratch"

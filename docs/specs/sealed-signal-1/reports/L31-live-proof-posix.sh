@@ -16,6 +16,28 @@ probe="$scratch/forward.test.mjs"
 ready="$scratch/controller.pid"
 runner_out="$scratch/runner.out"
 runner_err="$scratch/runner.err"
+runner=
+
+reap_runner() {
+  test -n "$runner" || return 0
+  if kill -0 "$runner" 2>/dev/null; then
+    kill -TERM "$runner" 2>/dev/null || true
+    deadline=$((SECONDS + 12))
+    while kill -0 "$runner" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
+  fi
+  if kill -0 "$runner" 2>/dev/null; then
+    kill -KILL "$runner" 2>/dev/null || true
+    deadline=$((SECONDS + 5))
+    while kill -0 "$runner" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
+  fi
+  if ! kill -0 "$runner" 2>/dev/null; then wait "$runner" 2>/dev/null || true; fi
+}
+
+fail() {
+  reap_runner
+  printf '%s retained=%s\n' "$1" "$scratch" >&2
+  exit 1
+}
 cat >"$probe" <<EOF
 import test from "node:test";
 import fs from "node:fs";
@@ -30,20 +52,23 @@ TMPDIR="$scratch/tmp" TEMP="$scratch/tmp" TMP="$scratch/tmp" \
 runner=$!
 deadline=$((SECONDS + 4))
 while { test ! -s "$ready" || test ! -s "$runner_out"; } && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
-test -s "$ready" && test -s "$runner_out" || { printf 'NOT_READY retained=%s\n' "$scratch" >&2; exit 1; }
+test -s "$ready" && test -s "$runner_out" || fail NOT_READY
 home=$(head -n 1 "$runner_out")
+case $home in ("$scratch"/tmp/sealed-home-*) ;; (*) fail "BAD_RUNNER_HOME=$home";; esac
 controller=$(tr -d '[:space:]' <"$ready")
-case $controller in (*[!0-9]*|'') printf 'BAD_CONTROLLER=%s retained=%s\n' "$controller" "$scratch" >&2; exit 1;; esac
+case $controller in (*[!0-9]*|'') fail "BAD_CONTROLLER=$controller";; esac
 
 sent_at=$(date +%s%3N)
 kill -TERM "$runner"
 deadline=$((SECONDS + 5))
 while kill -0 "$runner" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
-if kill -0 "$runner" 2>/dev/null; then printf 'RUNNER_NOT_GONE_5S retained=%s\n' "$scratch" >&2; exit 1; fi
+if kill -0 "$runner" 2>/dev/null; then fail RUNNER_NOT_GONE_5S; fi
 wait "$runner"; runner_exit=$?
 elapsed=$(( $(date +%s%3N) - sent_at ))
-if kill -0 "$controller" 2>/dev/null; then printf 'CONTROLLER_STILL_LIVE retained=%s\n' "$scratch" >&2; exit 1; fi
-test ! -e "$home" || { printf 'RUNNER_HOME_REMAINS=%s retained=%s\n' "$home" "$scratch" >&2; exit 1; }
+test "$elapsed" -le 5000 || fail "RUNNER_ELAPSED_MS=$elapsed"
+test ! -e "$home" || fail "RUNNER_HOME_REMAINS=$home"
+deadline=$((SECONDS + 5))
+while kill -0 "$controller" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
+if kill -0 "$controller" 2>/dev/null; then fail CONTROLLER_STILL_LIVE; fi
 printf 'PASS R1_HEAD=%s RUNNER_EXIT=%s ELAPSED_MS=%s CONTROLLER=%s HOME_REMOVED=%s RETAINED=%s\n' \
   "$actual" "$runner_exit" "$elapsed" "$controller" "$home" "$scratch"
-
