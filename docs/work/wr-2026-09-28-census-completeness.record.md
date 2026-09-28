@@ -15,7 +15,7 @@ Opened: 2026-09-28T21:41:38Z
 Log: 2026-09-28T21:41:38Z owned skills-o pack in the Scratch: directory (Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/588290d9-ee43-400b-a808-cf44c407171c/census-completeness; the Scratch: label waits for lane 36's parser)
 Log: 2026-09-28T22:28:09Z delivered skills-o Sonnet builder, three rounds: 1c41ce7, d2000ee (Codex wakes and nudges, F2-F4), fb079b53356ecc872a8f46988fe16e57e7511aa7 (Codex Stop-blocks from HookPrompt stop:*)
 Log: 2026-09-28T22:28:09Z reviewed skills-o Opus reviewer APPROVE fb079b53356ecc872a8f46988fe16e57e7511aa7 after Opus NEEDS_FIXES on 1c41ce7 (F1 Codex gap, F2-F4) and d2000ee (F5 false Codex Stop-block reason); Netcup 2672/2677 0 fail 5 skipped at fb079b53356ecc872a8f46988fe16e57e7511aa7
-Log: 2026-09-28T22:28:09Z verified skills-o live run over closed lane 32 (wr-2026-09-27-autolink-guard): wakes 1 (note-flush from skills-a 03:58Z), Stop-blocks 0, stall nudges 0
+Log: 2026-09-28T22:28:09Z verified skills-o live run over closed lane 32 (wr-2026-09-27-autolink-guard): wakes 1 (note-flush from skills-a 03:58Z), Stop-blocks 0, collector nudges 0
 
 Observed: build-census counts wakes (note-flush and Done-tick envelope turns), Stop-blocks (multi-inbox block text, Codex HookPrompt stop:*) and stall nudges (collect-*-stall-* ledger ids to the lead slug) per lead file and window, for Claude and Codex leads, read-only. four-read prints all three in its Work lost or stalled row.
 
