@@ -553,6 +553,65 @@ test('quoted: a heredoc fed to cat inside a git commit -m "$(...)" substitution 
   assert.ok(detectDelete(cmd), 'round 2 drops the nested $(cat <<EOF ...) substitution shape entirely');
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 3 (N1): R1 condition 5 — a cat/tee heredoc target whose name ends,
+// final suffix, case-insensitively, in a script/executable extension is never exempt, even
+// with an otherwise-blessed shape (quoted delimiter, no other disqualifier). One test per
+// suffix, each checking all three head shapes (`cat > f`, `tee f`, `cat <<'EOF' > f`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function heredocHeads(file) {
+  return [
+    "cat > " + file + " <<'EOF'",
+    'tee ' + file + " <<'EOF'",
+    "cat <<'EOF' > " + file,
+  ];
+}
+
+const N1_DEL = 'rm -rf x';
+const N1_DISALLOWED_SUFFIXES = [
+  '.sh', '.bash', '.zsh', '.ps1', '.psm1', '.cmd', '.bat', '.py', '.js', '.mjs', '.cjs',
+];
+
+for (const suffix of N1_DISALLOWED_SUFFIXES) {
+  test(`R1 condition 5: cat/tee heredoc target ending in ${suffix} is refused, all three head shapes`, () => {
+    for (const head of heredocHeads('x' + suffix)) {
+      const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+      assert.ok(detectDelete(cmd), `expected refusal for: ${head}`);
+    }
+  });
+}
+
+test('R1 condition 5: the suffix check is case-insensitive (x.SH refused, all three head shapes)', () => {
+  for (const head of heredocHeads('x.SH')) {
+    const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+    assert.ok(detectDelete(cmd), `expected refusal for: ${head}`);
+  }
+});
+
+test('R1 condition 5: only the FINAL suffix counts — x.md.sh is refused (ends in .sh)', () => {
+  for (const head of heredocHeads('x.md.sh')) {
+    const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+    assert.ok(detectDelete(cmd), `expected refusal for: ${head}`);
+  }
+});
+
+test('R1 condition 5: only the FINAL suffix counts — x.sh.md passes (ends in .md, not a disallowed suffix)', () => {
+  for (const head of heredocHeads('x.sh.md')) {
+    const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+    assert.equal(detectDelete(cmd), null, `expected pass for: ${head}`);
+  }
+});
+
+test('R1 condition 5: report.md and x.txt still pass — no disallowed suffix, all three head shapes', () => {
+  for (const file of ['report.md', 'x.txt']) {
+    for (const head of heredocHeads(file)) {
+      const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+      assert.equal(detectDelete(cmd), null, `expected pass for: ${head}`);
+    }
+  }
+});
+
 test("false positive #3 (spec): ssh host \"grep -n 'rm -rf' file\" passes — round 2: no ssh-specific code at all, this is the ordinary quoted-argument safe-command rule, because grep sits in command position right inside the remote string's own opening quote", () => {
   const cmd = "ssh host \"grep -n 'rm -rf' file\"";
   assert.equal(detectDelete(cmd), null);

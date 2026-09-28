@@ -89,6 +89,12 @@
 //   tool call is still out of scope for this file the same way any other write-then-run
 //   split is (this hook only ever sees one command string at a time) — only same-call
 //   execution after the body is refused, via the empty-trailer requirement above.
+//   Condition 5 (round 3, N1): a `cat`/`tee` target whose name ends — final suffix,
+//   case-insensitive — in `.sh`, `.bash`, `.zsh`, `.ps1`, `.psm1`, `.cmd`, `.bat`, `.py`,
+//   `.js`, `.mjs` or `.cjs` is never exempt, even with a quoted delimiter and no other
+//   disqualifier: writing a script-shaped file is exactly the write-then-run split the
+//   exemption otherwise leaves out of scope, so this closes that gap at the write step
+//   itself. `x.md.sh` refuses (final suffix `.sh`); `x.sh.md` passes (final suffix `.md`).
 //   ssh (lane 36 / C2 ruling, round 2): there is no ssh-specific re-parse here. `ssh host
 //   "grep -n 'rm -rf' file"` is exempt through the ordinary quoted-argument rule above (the
 //   word `grep` is found in command position, and the quoted span inside its window is
@@ -298,7 +304,7 @@ function findSafeQuoteSpans(command) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CAT_LINE_RE = /^\s*cat(?:\s+(>{1,2})\s*(\S+))?\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\3(?:\s+(>{1,2})\s*(\S+))?\s*$/;
-const TEE_LINE_RE = /^\s*tee(?:\s+-a)?\s+\S+\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
+const TEE_LINE_RE = /^\s*tee(?:\s+-a)?\s+(\S+)\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\2\s*$/;
 const NOTE_SEND_LINE_RE = /^\s*note-send(?:\s+\S+)*\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
 const GIT_COMMIT_F_LINE_RE = /^\s*git\s+commit\s+-F\s+-\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
 
@@ -308,6 +314,11 @@ const GIT_COMMIT_F_LINE_RE = /^\s*git\s+commit\s+-F\s+-\s+<<(['"])([A-Za-z_][A-Z
 // outright, on top of the anchored shape checks.
 const HEREDOC_DISQUALIFY_RE = /\|\||&&|[|;&`]|\$\(|<\(|>\(/;
 
+// R1 condition 5: the target's name must not end (final suffix, case-insensitive) in one
+// of these script/executable extensions. Only `cat`/`tee` name a target file at all; a
+// disqualifying suffix here refuses the whole command, same as any other condition-5 miss.
+const HEREDOC_DISALLOWED_SUFFIX_RE = /\.(sh|bash|zsh|ps1|psm1|cmd|bat|py|js|mjs|cjs)$/i;
+
 function findHeredocSafeSpans(command) {
   const nl = command.indexOf('\n');
   if (nl === -1) return []; // no body at all: nothing to exempt
@@ -316,15 +327,18 @@ function findHeredocSafeSpans(command) {
 
   let consumer = null;
   let delim = null;
+  let target = null;
   let m = CAT_LINE_RE.exec(line1);
   if (m && (m[1] || m[5])) {
     // `cat` is exempt only writing to a FILE (round 2: bare `cat <<EOF` with no redirect
     // at all is no longer on the exempt list — see the header comment).
     consumer = 'cat';
     delim = m[4];
+    target = m[2] || m[6];
   } else if ((m = TEE_LINE_RE.exec(line1))) {
     consumer = 'tee';
-    delim = m[2];
+    delim = m[3];
+    target = m[1];
   } else if ((m = NOTE_SEND_LINE_RE.exec(line1))) {
     consumer = 'note-send';
     delim = m[2];
@@ -333,6 +347,8 @@ function findHeredocSafeSpans(command) {
     delim = m[2];
   }
   if (!consumer) return [];
+  // R1 condition 5: refuse when `cat`/`tee`'s target ends in a script/executable suffix.
+  if (target && HEREDOC_DISALLOWED_SUFFIX_RE.test(target)) return [];
 
   // Plain `<<` closing-line rule: the closing delimiter line must match EXACTLY (no
   // leading whitespace at all — that is `<<-`'s rule, and `<<-` is never exempt here).
