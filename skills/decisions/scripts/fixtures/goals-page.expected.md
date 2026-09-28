@@ -7,12 +7,12 @@
 | <span color="orange">**PARTIAL**</span> | Cut token cost hard, lose no benefit | The ladder runs (Fable spec, Opus loop, Sonnet builders). | 2026-09-22 |
 | <span color="orange">**PARTIAL**</span> | Speed and quality count as much as tokens | One speed census: the lead's dispatch latency was 29 percent of a build's wall clock. | undated |
 | <span color="orange">**PARTIAL**</span> | The lead spends judgment, not turns | 19 and 67 orchestrator turns on the two loop builds against 152 hand-run. | undated |
-| <span color="orange">**PARTIAL**</span> | Simplest architecture, rethought from the aim | The card hook shipped in 0.8.0; the card was first written 2026-09-22. | undated |
+| <span color="orange">**PARTIAL**</span> | Simplest architecture, rethought from the aim | The card hook shipped in 0.8.0; the card was first written 2026-09-22. | 2026-09-22 |
 | <span color="orange">**PARTIAL**</span> | One package, the same on every machine, tested everywhere at once | 0.13.0 on four machines. | undated |
 | <span color="orange">**PARTIAL**</span> | Nothing stalls silently | Delivery works but is not logged on the direct path; two results waited hours unread; subagent hook events consume the lead's notes. | undated |
-| <span color="red">**NONE**</span> | Decisions and goals have one home that Ben reads | The reader exists but nothing ran it; the page was repaired by hand on 2026-09-22; the mechanism is specced (docs/specs/2026-09-22-decisions-current.md). | undated |
-| <span color="red">**NONE**</span> | What one session learns reaches every machine | Memory never syncs. | undated |
-| <span color="orange">**PARTIAL**</span> | Cleanup has an owner | Janitor reports (48 SAFE, 5 JUDGMENT on 2026-09-22) but is unscheduled and has never acted. | undated |
+| <span color="red">**NONE**</span> | Decisions and goals have one home that Ben reads | The reader exists but nothing ran it; the page was repaired by hand on 2026-09-22; the mechanism is specced (docs/specs/2026-09-22-decisions-current.md). | 2026-09-22 |
+| <span color="red">**NONE**</span> | What one session learns reaches every machine | Memory never syncs. | 2026-09-27 |
+| <span color="orange">**PARTIAL**</span> | Cleanup has an owner | Janitor reports (48 SAFE, 5 JUDGMENT on 2026-09-22) but is unscheduled and has never acted. | 2026-09-22 |
 # Detail {toggle="true"}
 	<callout icon="🃏" color="blue_background">
 		**Five-line project card** (rendered from source; installed host injection coverage is unknown)

@@ -43,19 +43,22 @@ test('decisions-read still sees every goal heading with zero shapeless', () => {
   const page = renderPage({ repo: fixtureRepo, sha: 'test' });
   const doc = parseDocument(page);
   assert.equal(doc.shapeless.length, 0);
-  // Same title-line contract decisions-read.mjs's matchTitle uses (docs/specs/2026-09-20-decisions-reader.md):
-  // a `#`/`##`/`###` heading, any indentation, ending in `{toggle="true"}`.
-  const HEADING_RE = /^[ \t]*#{1,3}[ \t]+(.*?)[ \t]*\{[^}]*\btoggle="true"[^}]*\}[ \t]*$/;
-  const seen = new Set(
-    page.split(/\r\n|\n/).map((l) => HEADING_RE.exec(l)).filter(Boolean).map((m) => m[1].trim()),
-  );
+  assert.equal(doc.unattached.length, 0);
+  // Let the real reader report the titles it recognises: a test-only checkbox under every
+  // toggle heading turns each title into a decision parseDocument returns (titles without
+  // options are not exported). A reader that stops seeing nested headings fails here.
+  const probed = page.split('\n').flatMap((l) => {
+    const m = /^(\t*)#{1,3} .*\{toggle="true"\}$/.exec(l);
+    return m ? [l, `${m[1]}\t- [ ] probe`] : [l];
+  }).join('\n');
+  const seen = new Set(parseDocument(probed).decisions.map((d) => d.title));
   const goalsText = fs.readFileSync(path.join(fixtureRepo, 'docs', 'GOALS.md'), 'utf8');
   const goalHeadings = goalsText.split(/\r\n|\n/)
     .map((l) => /^##[ \t]+(.*)$/.exec(l))
     .filter(Boolean)
     .map((m) => m[1].trim());
   assert.ok(goalHeadings.length > 0);
-  for (const heading of goalHeadings) assert.ok(seen.has(heading), `missing heading: ${heading}`);
+  for (const heading of goalHeadings) assert.ok(seen.has(heading), `reader missed goal heading: ${heading}`);
 });
 
 test('render reports a git failure as BLIND', () => {
@@ -78,7 +81,7 @@ test('the marker callout is the first callout, sha on its first line', () => {
   const detailIdx = lines.findIndex((l) => l === '# Detail {toggle="true"}');
   const tableIdx = lines.findIndex((l) => l.startsWith('| State |'));
   assert.ok(tableIdx > 0 && tableIdx < detailIdx);
-  for (let i = 2; i < tableIdx; i += 1) assert.doesNotMatch(lines[i], /<callout/);
+  for (let i = 2; i < detailIdx; i += 1) assert.doesNotMatch(lines[i], /<callout/);
 });
 
 test('render preserves exact dated paths, URLs, years, and parenthetical source context', () => {
@@ -196,6 +199,13 @@ test('table sentence is cut at the first ". " after the state word', () => {
   assert.match(page, /Second part never shows up here/);
 });
 
+test('a "|" in the table sentence or heading is escaped so the row keeps four cells', () => {
+  const goals = '# Goals\n\n## A | B\nStatus: PARTIAL. Uses `a|b` syntax. More.\n';
+  const page = renderPage({ repo: fixtureRepo, sha: 't', readFile: readFileFor(goals) });
+  assert.match(page, /\| A \\\| B \| Uses `a\\\|b` syntax\. \| undated \|/);
+  assert.match(page, /\t# A \| B \{toggle="true"\}/); // Detail keeps the raw heading
+});
+
 test('table sentence with no ". " at all uses the whole trimmed rest', () => {
   const goals = '# Goals\n\n## G\nStatus: PARTIAL. one sentence no period at end\n';
   const page = renderPage({ repo: fixtureRepo, sha: 't', readFile: readFileFor(goals) });
@@ -209,10 +219,25 @@ test('table date: a trailing dated citation is the status date, else "undated"',
   assert.match(page, /\| Undated \| Evidence here, no citation\. \| undated \|/);
 });
 
+test('table date: the latest standalone ISO date in the Status line, excluding dates inside file names', () => {
+  const goals = '# Goals\n\n## G\nStatus: PARTIAL. Shipped on 2026-09-24. See docs/x/2026-09-30-y.md (2026-09-25 bearings O4).\n';
+  const page = renderPage({ repo: fixtureRepo, sha: 't', readFile: readFileFor(goals) });
+  assert.match(page, /\| G \| Shipped on 2026-09-24\. \| 2026-09-25 \|/);
+});
+
 // ── The three table-sentence refusals ──────────────────────────────────────────────────────
 
 test('table refuses a sentence carrying a hex token (7-40 hex chars, a letter and a digit)', () => {
   const goals = '# Goals\n\n## G\nStatus: PARTIAL. Fixed in 7dfc59d today.\n';
+  const readFile = readFileFor(goals);
+  assert.throws(
+    () => renderPage({ repo: fixtureRepo, sha: 't', readFile }),
+    /carries a hex token "7dfc59d"/,
+  );
+});
+
+test('table refuses a hex token glued to a word character, not just word-boundary hex', () => {
+  const goals = '# Goals\n\n## G\nStatus: PARTIAL. git describe says 0.20.6-3-g7dfc59d today.\n';
   const readFile = readFileFor(goals);
   assert.throws(
     () => renderPage({ repo: fixtureRepo, sha: 't', readFile }),
@@ -239,6 +264,15 @@ test('table refuses a sentence carrying a session id', () => {
   assert.throws(
     () => renderPage({ repo: fixtureRepo, sha: 't', readFile }),
     /carries a session id "9c61c35a-82dd-4aef-8eca-c99bb0e72e31"/,
+  );
+});
+
+test('table refuses a sentence carrying a literal callout tag', () => {
+  const goals = '# Goals\n\n## G\nStatus: PARTIAL. Uses <callout> tags inline.\n';
+  const readFile = readFileFor(goals);
+  assert.throws(
+    () => renderPage({ repo: fixtureRepo, sha: 't', readFile }),
+    /carries a callout tag/,
   );
 });
 

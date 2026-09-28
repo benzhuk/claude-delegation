@@ -72,7 +72,7 @@ const SESSION_ID_RE = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 
 /** First 7-40-char hex run in `s` that mixes at least one letter (a-f) and one digit, or null. */
 function findHexToken(s) {
-  const re = /\b[0-9a-fA-F]{7,40}\b/g;
+  const re = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{7,40}(?![0-9A-Fa-f])/g;
   let m;
   // eslint-disable-next-line no-cond-assign
   while ((m = re.exec(s))) {
@@ -84,6 +84,9 @@ function findHexToken(s) {
 
 /** Throws TableRefusalError (CLI exit 2) naming the goal heading and the offending token. */
 function checkTableSentence(sentence, heading, lineNo) {
+  if (/<\/?callout\b/i.test(sentence)) {
+    throw new TableRefusalError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a callout tag: fix the Status line at the source`);
+  }
   const session = SESSION_ID_RE.exec(sentence);
   if (session) {
     throw new TableRefusalError(`docs/GOALS.md:${lineNo} table sentence for "${heading}" carries a session id "${session[0]}": fix the Status line at the source`);
@@ -105,14 +108,14 @@ function cutSentence(rest) {
   return rest.slice(0, idx + 1).trim();
 }
 
-// A trailing dated citation, e.g. "(2026-09-22 audit)" or "(2026-09-25 bearings O5; note
-// `...`)" at the very end of the Status line's text — any other date mentioned mid-evidence
-// (a file name, an earlier citation) is not "the status date".
-const STATUS_DATE_RE = /\((\d{4}-\d{2}-\d{2})\b[^()]*\)\s*$/;
+// The status date is the latest standalone ISO date in the Status line's text (the newest
+// evidence the line cites). A date inside a file name (`/2026-09-24-x.md`, `2026-09-24-x`)
+// is not a standalone date and never counts. No date at all: "undated".
+const STATUS_DATE_RE = /(?<![\w/-])(\d{4}-\d{2}-\d{2})(?![\w-])/g;
 
 function extractStatusDate(rest) {
-  const m = STATUS_DATE_RE.exec(rest.trim());
-  return m ? m[1] : 'undated';
+  const dates = [...rest.matchAll(STATUS_DATE_RE)].map((m) => m[1]).sort();
+  return dates.length ? dates[dates.length - 1] : 'undated';
 }
 
 function escapeCell(s) {
