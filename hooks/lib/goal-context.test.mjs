@@ -88,3 +88,47 @@ test('bearings receipt written for the main checkout reads current from a linked
   const notice = await bearingsNotice(worktree, { env: bearingsEnv });
   assert.equal(notice, null, 'a current main-checkout receipt must silence the worktree pane\'s notice too');
 });
+
+// Review r1, F2: the fix above (checking the main checkout first) is a regression for the OTHER
+// direction — a receipt completed FROM a linked worktree (a lead in an Orca worktree pane running
+// `complete --repo .`, per SKILL.md) is keyed on that worktree, not the main checkout. Checking only
+// `mainCheckout(cwd)` misses it entirely and the notice wrongly says "Bearings are due" even though
+// `bearings-state.mjs check --repo .` run in that same worktree already agrees the receipt is
+// current. Must fail at 1b6a5d5 (red) before this patch, pass after it (green).
+test('bearings receipt completed from a linked worktree still reads current from that worktree', async (t) => {
+  const bearingsHome = scratchHome(fs, 'goal-context-bearings-home-');
+  t.after(() => { try { fs.rmSync(bearingsHome, { recursive: true, force: true }); } catch {} });
+
+  const parent = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), 'goal-context-bearings-repo-'));
+  t.after(() => { try { fs.rmSync(parent, { recursive: true, force: true }); } catch {} });
+  const main = path.join(parent, 'main');
+  fs.mkdirSync(main, { recursive: true });
+  execFileSync('git', ['init', '-q', main]);
+  fs.mkdirSync(path.join(main, 'docs', 'goals'), { recursive: true });
+  fs.writeFileSync(path.join(main, 'docs', 'goals', 'card.md'), 'GOAL: fixture\nNOT: nothing\nDONE: nothing\nKILL: nothing\n');
+  execFileSync('git', ['-C', main, 'add', '-A']);
+  execFileSync('git', ['-C', main, 'commit', '-qm', 'seed']);
+  execFileSync('git', ['-C', main, 'branch', '-q', 'feature']);
+  const worktree = path.join(parent, 'wt');
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', worktree, 'feature']);
+
+  const report = path.join(parent, 'report.md');
+  const response = path.join(parent, 'response.md');
+  fs.writeFileSync(report, 'review\n');
+  fs.writeFileSync(response, 'lead\n');
+
+  const { complete, check } = await import(pathToFileURL(path.join(REPO, 'skills', 'bearings', 'scripts', 'bearings-state.mjs')).href);
+  const bearingsEnv = { AGENTS_HOME: bearingsHome };
+  complete({
+    repo: worktree, report, leadResponse: response, publication: 'https://example.test/decision',
+    reviewerId: 'reviewer-a', leadId: 'lead-b', env: bearingsEnv,
+  });
+
+  // `bearings-state.mjs check --repo .` run from the WORKTREE already agrees the receipt is
+  // current — this is the resolution goal-context.mjs's own bearingsNotice must now honour too.
+  assert.equal(check({ repo: worktree, env: bearingsEnv }).status, 'current');
+
+  const { bearingsNotice } = await import(pathToFileURL(HELPER).href);
+  const notice = await bearingsNotice(worktree, { env: bearingsEnv });
+  assert.equal(notice, null, 'a current worktree-keyed receipt must silence that same worktree\'s notice');
+});
