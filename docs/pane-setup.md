@@ -157,8 +157,18 @@ node skills/decisions/scripts/goals-mirror.mjs render --repo . > <scratch>/goals
 ```
 
 Read the existing Goals child fresh, then use the existing `notion-writing` skill for
-anchored targeted edits of agent-owned mirror sections only and verify the readback.
-Preserve surrounding human content; reconcile a changed anchor or uncertain write from
-a fresh read. Initial creation uses the existing writer under normal authority.
-`goals-mirror.mjs publish` is intentionally disabled. No runner brief template exists
-for this step; none is created here.
+anchored targeted edits of the agent-owned mirror sections: the marker callout, the
+one-line-per-goal table (its rows are agent-owned too, not just the callouts), and the
+`# Detail {toggle="true"}` block. Detail's children — the card callout, the source
+note, and each goal's own toggle — carry one leading tab now, since they nest under
+Detail rather than sitting at the page's top level; write and diff anchors at that
+depth. Verify the readback. Preserve surrounding human content; reconcile a changed
+anchor or uncertain write from a fresh read. Render exit 2 means a Status line's first
+sentence carries a sha, test count or session id: fix that line in docs/GOALS.md in the
+release commit and render again, never hand-edit the page. The readback returns the table
+as `<table>` rows; compare cell text. The first run after the one-line change is a
+one-time move: replace everything from the card callout through the last goal toggle with
+the rendered table and Detail block, carrying any `**` line Ben left inside a goal toggle.
+Initial creation uses the existing writer under normal authority. `goals-mirror.mjs
+publish` is intentionally disabled. No runner brief template exists for this step; none is
+created here.
