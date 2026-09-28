@@ -1,9 +1,9 @@
 Work: wr-2026-09-28-transport-identity
 Scope: docs/specs/transport-identity-1/spec.md (lane 44 lead spec, rulings P1 to P3) from packet docs/specs/transport-identity-1/packet.md (skills-fable-lane-44-1, lane 34 review r1 F3)
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build, review, integrate, push build/transport-identity-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; the live proof reads only (decisions-pickup status); no release, no install
-Next: Sonnet builder on the spec, then one Opus review, then the live proof with GIT_DIR exported to a scratch repo
+Next: fix round 1 (same Sonnet builder) on review r1 as ruled, then Opus delta r2 and Windows, then the live proof
 Worktree: build/transport-identity-1
 Opened: 2026-09-28T21:18:00.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -12,5 +12,6 @@ Spec-from: 2026-09-28T21:20:00Z
 Base: 8b8c2f04cdabe25d1a996ad76bee7e6f2391b6ee
 Log: 2026-09-28T21:17:20.000Z owned skills-n picked up skills-fable-lane-44-1, ACK sent; lead spec written with rulings P1 to P3; this lead runs 0.20.9 hooks, so once 0.20.17 installs here a fresh skills-n session picks this record up from origin
 Log: 2026-09-28T21:22:18.000Z delivered skills-n Sonnet builder DONE 25a523b (gitRunner env without the four repo-locating vars, transport.test.mjs red on base then green), full 2654 of 2659 with 0 fail; Opus review r1 and Windows suite started
+Log: 2026-09-28T21:31:25.000Z rejected skills-n Opus review r1 NEEDS_FIXES 25a523b, production cause confirmed; F1 the test fails on win32 (confirmed on Windows, 2646 of 2659 with 1 fail), F2 F3 F5 test hygiene and coverage, F4 mixed-case key on win32, all in (lead-ruling-r1.md); FU1 to FU6 are follow-ups
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-44
