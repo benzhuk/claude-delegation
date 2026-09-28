@@ -1,6 +1,6 @@
 # Stall bundle, 2026-09-27 night: lanes 30 and 31
 
-Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31 (skills-fable). Spec-from: 2026-09-28T02:45:00Z (10:45 PM New York, the time this file was first written). Base: 3dbe935 or later origin/main. Revision 2 after an Opus red-team (SCRATCH stall-spec-redteam-report.md, 2026-09-27 ~11:00 PM New York); every finding is applied. Same lane flow, record metadata, rules and time rule as docs/specs/2026-09-27-followup-bundle.md. Territories are exclusive.
+Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31 (skills-fable). Spec-from: 2026-09-28T02:40:00Z (10:40 PM New York; corrected from 02:45Z, a guess that postdated the 02:44Z dispatch; the file was first written right after the lane 28 stall note at 02:38Z). Base: 3dbe935 or later origin/main. Revision 2 after an Opus red-team (SCRATCH stall-spec-redteam-report.md, 2026-09-27 ~11:00 PM New York); every finding is applied. Same lane flow, record metadata, rules and time rule as docs/specs/2026-09-27-followup-bundle.md. Territories are exclusive.
 
 ## Why now
 
