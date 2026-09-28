@@ -228,6 +228,29 @@ test("closeoutRecord: refuses the worktree that contains process.cwd()", () => {
   assert.equal(fs.existsSync(wt), true);
 });
 
+test("closeoutRecord: merge proof - an Artifact: sha not an ancestor of origin/main refuses every one of the four cleanup steps, with a fetch that itself succeeds", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  // A commit that exists locally but was never pushed - `git fetch origin` succeeds (origin is a
+  // real, reachable bare repo), but the artifact sha itself is not an ancestor of origin/main.
+  fs.writeFileSync(path.join(repo, "unpushed.txt"), "never pushed\n");
+  git(["add", "."], repo, env);
+  git(["commit", "-q", "-m", "unpushed work"], repo, env);
+  const unpushedSha = git(["rev-parse", "HEAD"], repo, env).trim();
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-merge-proof-unmerged", worktree: ".", artifact: `docs/mandate-template.md@${unpushedSha}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  assert.equal(result.exitCode, 2);
+  assert.equal(result.ok, false);
+  for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
+    const row = result.steps.find((s) => s.step === step);
+    assert.equal(row.result, "refused", `step ${step}`);
+    assert.match(row.detail, /is not an ancestor of origin\/main/, `step ${step}`);
+  }
+});
+
 test("closeoutRecord: a Worktree: naming a branch that was never checked out anywhere is 'absent', not an error, for both worktree and branch steps", () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
