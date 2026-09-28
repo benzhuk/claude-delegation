@@ -1,4 +1,4 @@
-VERDICT: PASS — source artifact c121228fd2660aaf624a929f8a0a743dd0d24265; scoped counts 21/21, 26/26, and 11/11 pass; exits 0/0/0; negative controls proved removed and overlapping coverage fail.
+VERDICT: PASS — source artifact 5201a727a59c212b912e1a5d2f0e84e8f948e140; scoped counts 21/21, 26/26, 11/11, and 8/8 pass; exits 0/0/0/0; negative controls proved removed and overlapping coverage fail.
 
 # Lane 37 independent contract-test report
 
@@ -37,3 +37,11 @@ Test and report are ready for separate add/commit. No full suite was run. Scratc
 - Scope provenance: `skills-fable-lane-37-5` explicitly approved the exact prepared patch at 6:09 PM America/New_York. It changes only the first test in `scripts/native-package.test.mjs`.
 - Applied against builder artifact `c121228fd2660aaf624a929f8a0a743dd0d24265`: the exact native event set now includes `PreToolUse`, while the original five adapter events remain individually constrained to `multi-codex-hook.mjs`; `PreToolUse` is pinned to one `Bash` group running `delete-guard.mjs` with timeout `10`.
 - Ran only the two affected tests, `node --test scripts/native-package.test.mjs hooks/codex-unsupported.test.mjs`: 11 passed, 0 failed, exit 0. Raw evidence: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-native-package.raw.log`; immediate exit: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-native-package.raw.exit`.
+
+## Round 3 research: SessionStart route budget
+
+1. **Actual evidence.** The R3 Netcup full suite on `b726ff9ad09f3e403ade74d27ab0a497c742c729` had two remaining failures, both in this test file. Their assertion durations were 57.687189 ms and 58.124411 ms. Each retained peer and continuation text but omitted `wiring:`.
+2. **Role distinction.** The R3 source already contained `5817021`'s route eligibility change (`role === 'child'` only), and the prior metadata-free SessionStart regression passes locally. The Netcup failures therefore do not establish an unknown-role rejection; they show that an eligible route result was absent.
+3. **Environment isolation.** The route child receives exactly `deps.env`. On Netcup, the existing fixtures supplied `AGENTS_HOME` but no `HOME`, so `wiring-check --line --hook` read an ambient OS home and correctly returned silent. Builder's exact child reproduction was silent with that environment; adding only `HOME=/tmp/nonexistent` emitted `wiring: 4 flagged...`. A local isolated fixture home produced the same expected line.
+4. **Discriminating regression.** The SessionStart test now supplies `childEnv(home, ...)`, which sets both `HOME` and the Windows-equivalent `USERPROFILE` without inheriting inbox credentials. It proves a controlled unwired home emits `wiring:` while a separately constructed fully wired home is silent. Both paths retain the same metadata-free callback shape and never consult a real home.
+5. **Result and follow-up.** The focused regression passes 8/8, exit 0, on unchanged `b726`-equivalent runtime. A controlled 450 ms outer-race experiment previously exposed a separate SessionStart budget concern, but the observed 57/58 ms R3 failures cannot have reached that timer; it is recorded as a non-blocking follow-up, not a Lane 37 product requirement. Raw passing evidence: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-round3-home.raw.log`.
