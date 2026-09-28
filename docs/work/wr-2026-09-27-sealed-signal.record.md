@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-sealed-signal
 Scope: docs/specs/sealed-signal-1/spec.md@b159e9d2ff29e4abb7cbc8e58aabd2e22aca6c63, Lane 31
 Owner: root
-Status: accepted
+Status: closed
 Authority: skills-fable-lane-31-1 assigns Lane 31 under the standing merge grant. Only its four exclusive scripts may change. No release, install or other lane edits. Root owns this record.
 Artifact: b5341c71d9436427e31bdae11a6726ec798d1946
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/sealed-signal-1
-Evidence: docs/work/evidence/wr-2026-09-27-sealed-signal-review-r2.md, docs/work/evidence/wr-2026-09-27-sealed-signal-proof-review.md, docs/work/evidence/wr-2026-09-27-sealed-signal-integration.md, docs/specs/sealed-signal-1/reports/L31-integration.md
-Next: owner decision Resolve Lane 31 history merge must authorize preserving both history bullets; then finish the merge, gate the combined tree, push main, close this record and publish.
+Evidence: docs/work/evidence/wr-2026-09-27-sealed-signal-review-r2.md, docs/work/evidence/wr-2026-09-27-sealed-signal-proof-review.md, docs/work/evidence/wr-2026-09-27-sealed-signal-integration.md, docs/specs/sealed-signal-1/reports/L31-integration.md, docs/work/evidence/wr-2026-09-27-sealed-signal-main-merge.md
+Next: implementation is merged and this record is closed; reconcile the prior decisions-page write and publish the current render through the existing renderer.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T02:40:00Z
@@ -24,6 +24,7 @@ Four numbers: Hours ask to accepted: 0.9h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-31-1
 Log: 2026-09-28T03:37:01.270Z accepted root artifact b5341c71d9436427e31bdae11a6726ec798d1946
+Log: 2026-09-28T04:08:23.490Z closed root merge 5bf05649b669ccf0bbf5230398ebdc2d26ec7313
 
 Measure: work lost or stalled. A SIGTERM to the sealed runner must clean its home within five seconds on POSIX without delivering the signal twice to another listener. No goal improvement is claimed before evidence.
 
@@ -34,4 +35,6 @@ Observed: Source b5341c71d9436427e31bdae11a6726ec798d1946 passed independent rev
 
 Measurement limit: The native Codex census has no configurable discovery horizon. This lead began September 26, so its fixed September 26-27 discovery excludes this September 28 UTC build. The original PARTIAL census and four-read outputs are retained, with top-tier token cost and native stall classification unavailable. The checked acceptance command rejects a PARTIAL header as census-missing, so the documented no-census path is used with this specific reason; no source or measurement was changed. The 0.9h acceptance window is measured, and zero rework is an immature acceptance-time snapshot. Evidence formatting checks first rejected duplicate Evidence fields and missing reviewer model labels; both record defects were corrected before acceptance.
 
-Integration blocker: The normal main push of local merge5aeb1e9226803d832208844dcb277306aab921de was rejected after Lane30 advanced main. Merging1839481c5f0bf7c6d8f7e6758daf35c6dd40daec conflicted only in docs/decisions/history/2026-09-27.md. No resolution was applied. This accepted lane remains unmerged and unclosed. See docs/specs/sealed-signal-1/reports/L31-merge-blocked.md and the exact proposed history file beside it. Root retains sealed-signal-1, sealed-signal-1-builder, codex-census-1-final-main-merge (conflicted), inbox-truth-1-publish, and both named Netcup clones pending this decision and closeout.
+Historical integration blocker (resolved by clean merge under skills-fable-lane-31-3): The normal main push of local merge5aeb1e9226803d832208844dcb277306aab921de was rejected after Lane30 advanced main. Merging1839481c5f0bf7c6d8f7e6758daf35c6dd40daec conflicted only in docs/decisions/history/2026-09-27.md. No resolution was applied. The clean merge 5bf05649b669ccf0bbf5230398ebdc2d26ec7313 is now on origin/main. See docs/specs/sealed-signal-1/reports/L31-merge-blocked.md and the exact proposed history file beside it. Root retains sealed-signal-1, sealed-signal-1-builder, codex-census-1-final-main-merge (conflicted), inbox-truth-1-publish, and both named Netcup clones pending this decision and closeout.
+
+Integration outcome: skills-fable-lane-31-3 identified the clean branch merge route; root independently verified no decisions delta on the lane branch. A fresh main clone merged source and added the history bullet without conflict, removing the obsolete Waiting item in the same merge. The prior approval request was unnecessary for this route. Windows was reserved by Lane32 according to skills-o-lane31-verify-2, so the allowed Netcup fallback gated the combined merge: native0, 2546pass, 5skip, 0failures. Both original host gates and the53ms live proof remain attached. The prior Waiting publication did reach Notion despite exit5, as the retained fresh read proves; the pending page recovery accounts for that fact.
