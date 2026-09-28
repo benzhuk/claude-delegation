@@ -1,4 +1,4 @@
-since: 2026-09-27T18:16:00Z
+since: 2026-09-28T18:51:33.492Z
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
 - Release 0.20.16 is on Windows, Netcup and Hetzner (installed Sep 28 about 3 PM NY). The Mac did not answer again; it is retried at the next release.
 - This page is rendered from repo files, refuses to publish while any source is uncommitted, and never drops a line you wrote unless it is saved in the history first.
