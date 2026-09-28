@@ -1,9 +1,11 @@
 Work: wr-2026-09-27-sealed-home-leak
 Scope: docs/specs/sealed-home-leak-1/spec.md (lane 24 of skills-fable's follow-up bundle, origin/docs/lane-specs-0925 at 7e92f16); territory scripts/test-home.mjs, scripts/test-home.test.mjs, scripts/run-tests.mjs, scripts/run-tests.test.mjs
 Owner: skills-n
-Status: rejected
+Status: reviewed
 Authority: build, review, integrate, push build/sealed-home-leak-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; delete sealed-home-* temp dirs only through the suite's own cleanup and sweep
-Next: fix round 2 on review-r2 N1 N2 plus the Windows findings (childEnv lint, TEMP/TMP), then delta review r3 and a second-host suite
+Next: census, four-read, accept, merge into main, history bullet, RESULT
+Artifact: be8028019245ea7aa7b5e374242d603ae5326c37
+Evidence: docs/work/evidence/wr-2026-09-27-sealed-home-leak-review.md, docs/work/evidence/wr-2026-09-27-sealed-home-leak-review-r1.md, docs/work/evidence/wr-2026-09-27-sealed-home-leak-review-r2.md, docs/work/evidence/wr-2026-09-27-sealed-home-leak-suites.md
 Worktree: build/sealed-home-leak-1
 Opened: 2026-09-27T20:31:01.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -17,3 +19,6 @@ Log: 2026-09-27T20:52:25.000Z rejected skills-n Opus review r1 NEEDS_FIXES 28125
 Log: 2026-09-28T02:16:16.000Z rejected skills-n fix-round-1 builder stalled from 20:55:28Z (transcript mtime) on a compound command carrying rm -rf, likely held at a permission prompt; stopped by the lead at 2026-09-28T02:16:16.000Z with uncommitted edits to run-tests.mjs and run-tests.test.mjs; fresh builder spawned with the recovery prompt
 Log: 2026-09-28T02:20:10.000Z delivered skills-n recovery builder DONE f8aa816 (F1 F2 F3; both discriminating checks fail on revert), territory gate 39 of 39; Opus delta review started
 Log: 2026-09-28T02:24:56.000Z rejected skills-n Opus delta r2 NEEDS_FIXES f8aa816 (F1 F2 F3 fixed; N1 MAJOR: the F1 test signals before the sealed child exists, so it never reaches the keep path; N2 NIT: F3 untested). Windows full suite at f8aa816: 2360 of 2370, 3 fail, 7 skipped; 2 are lane defects (hooks.test N2 childEnv lint on both new CLI tests, and the F2 test ignoring TEMP/TMP on win32), 1 is the lead's bundle lacking origin/main. The first sweep on Windows removed 1743 stale homes
+Log: 2026-09-28T02:34:49.000Z reviewed skills-n Opus delta r3 APPROVE be80280 (reviewer claude-opus-5-5, subagent ac06d17763ff792ba); Linux 2367 of 2371 and Windows 2363 of 2371, 0 fail; Netcup live count 129 before, 57 after one run, swept 72 older than 6 h
+
+Observed: the sealed test home no longer outlives its suite on a kill. A group SIGINT, SIGTERM or SIGHUP now exits 130, 143 or 129 with no home left. Before the fix the exit code was 1 and the runner home leaked. A failed suite still keeps its home. On Netcup one full run swept 72 stale homes, 129 before and 57 after, all 57 younger than 6 h. On Windows the first run swept 1743. F4 (re-raise with another listener) and R1 (pid-only SIGTERM waits for the suite) are deferred to the spec session.
