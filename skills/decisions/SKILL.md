@@ -40,7 +40,11 @@ reader (not checked).
 
 `scripts/decisions-read.mjs` reads a comment from a line starting with the escaped
 `\*\*` Notion produces from the owner's typed asterisks — plain agent bold
-(`**like this**`) is never one (checked by `scripts/decisions-read.mjs`). Never
+(`**like this**`) is never one (checked by `scripts/decisions-read.mjs`). The
+decisions-page renderer refuses, before publishing, a bare filename ending in .md,
+.sh, .io, .ai, .co, .me, .so or .py, a bare `~`, or an unwrapped `www.`/`http(s)://`
+span that Notion would otherwise autolink on the way back, with no exemption for a
+quoted owner line (Lane 32, checked by `scripts/decisions-render.test.mjs`). Never
 re-type or quote the owner's line when answering it: a copied `\*\*` prefix forges a
 second comment that never clears (not checked). Write and read the page through the
 `notion-writing` skill: markdown endpoints only, one request per page, never a

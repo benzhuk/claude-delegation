@@ -103,6 +103,76 @@ export function checkProseLines(text, sourceLabel) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Autolink-guard (Lane 32, pack/spec.md): Notion autolinks a bare `word.TLD`-shaped filename, a
+// bare `~`, or an unwrapped `www.`/`http(s)://` span on the way back onto the page — silently
+// rewriting text nobody asked it to touch (the observed defect: `GOALS.md` became
+// `[GOALS.md](http://GOALS.md)`, `~` became `\~`). Refused here, before `publish` ever reaches
+// Notion, rather than caught after the write at the readback-compare step. No owner-quote
+// exemption here (unlike the hex rule's `stripExempt`, which is never widened for this): Notion
+// rewrites the text whoever wrote it, so a quoted filename is still written in backticks.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AUTOLINK_EXTENSIONS = ['md', 'sh', 'io', 'ai', 'co', 'me', 'so', 'py'];
+const AUTOLINK_FILENAME_RE = new RegExp(`[A-Za-z0-9_-]+\\.(?:${AUTOLINK_EXTENSIONS.join('|')})(?![A-Za-z0-9_-]|[./][A-Za-z0-9_-])`, 'i');
+const AUTOLINK_WWW_HTTP_RE = /www\.\S+|https?:\/\/\S+/i;
+
+/** Blanks (same length, so line/col accounting stays honest) the spans exempt from the autolink
+ * rules below: inline code spans, whole `[text](url)` links (both the visible text and the
+ * target — `stripExempt` above only ever blanks a link's target, and only for the hex rule;
+ * never widened here), fenced code blocks, and `<http(s)://...>` / `<www....>` autolinks (markdown's
+ * own escape, which Notion leaves alone — NOT every `<...>` span: review r1 F1, a blanket blank
+ * there let ordinary prose like `x <- y, ~/.agents -> z` or `latency < 5s, see GOALS.md` through
+ * unchecked). Runs on the whole text at once, never a single line, because a fenced block's own
+ * fence lines are the only signal that its content is exempt. */
+export function stripAutolinkExempt(text) {
+  const lines = String(text).split(/\r\n|\n/);
+  const out = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      out.push(' '.repeat(line.length));
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      out.push(' '.repeat(line.length));
+      continue;
+    }
+    out.push(
+      line
+        .replace(/\[[^\]]*\]\([^)]*\)/g, (m) => ' '.repeat(m.length))
+        .replace(/`[^`]*`/g, (m) => ' '.repeat(m.length))
+        .replace(/<(?:https?:\/\/|www\.)[^>\s]*>/gi, (m) => ' '.repeat(m.length)),
+    );
+  }
+  return out.join('\n');
+}
+
+/** Throws RefusedError naming `sourceLabel:line` on the first bare filename (final path segment
+ * only), bare `~`, or unwrapped `www.`/`http(s)://` span found — text Notion will silently
+ * autolink on the way back (Lane 32). Runs on the same lines `checkProseLines` runs on, wired in
+ * next to it at every call site. */
+export function checkAutolinkLines(text, sourceLabel) {
+  const rawLines = String(text).split(/\r\n|\n/);
+  const strippedLines = stripAutolinkExempt(text).split(/\r\n|\n/);
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const lineNo = i + 1;
+    const scanned = strippedLines[i] ?? '';
+    const filenameMatch = AUTOLINK_FILENAME_RE.exec(scanned);
+    if (filenameMatch) {
+      throw new RefusedError(`${sourceLabel}:${lineNo} carries a bare filename Notion will autolink (${filenameMatch[0]}) — wrap it in backticks or write it as a link.`);
+    }
+    if (scanned.includes('~')) {
+      throw new RefusedError(`${sourceLabel}:${lineNo} carries a bare ~ Notion will autolink — wrap it in backticks or write it as a link.`);
+    }
+    const urlMatch = AUTOLINK_WWW_HTTP_RE.exec(scanned);
+    if (urlMatch) {
+      throw new RefusedError(`${sourceLabel}:${lineNo} carries a bare ${urlMatch[0]} Notion will autolink — wrap it in backticks or write it as a link.`);
+    }
+  }
+}
+
 /** "a sentence ends at `. `, `? ` or `! ` outside a markdown link" (plus the paragraph's own end). */
 export function countSentences(text) {
   const stripped = String(text).replace(/\[[^\]]*\]\([^)]*\)/g, (m) => 'x'.repeat(m.length));
@@ -298,6 +368,7 @@ function buildWaitingSection({
     const text = readRequired(readFile, full, `waiting/${f}`);
     checkWaitingItem(text, `waiting/${f}`, now);
     checkProseLines(text, `waiting/${f}`);
+    checkAutolinkLines(text, `waiting/${f}`);
     return text.replace(/\s+$/, '');
   });
   return blocks.join('\n\n');
@@ -316,6 +387,7 @@ function buildNowSection({ repo, readFile }) {
   const full = path.join(repo, 'docs', 'decisions', 'now.md');
   const text = readRequired(readFile, full, 'now.md').trim();
   checkProseLines(text, 'now.md');
+  checkAutolinkLines(text, 'now.md');
   const n = countSentences(text);
   if (n < NOW_MIN_SENTENCES || n > NOW_MAX_SENTENCES) {
     throw new RefusedError(`now.md:1 has ${n} sentences, outside the required ${NOW_MIN_SENTENCES}-${NOW_MAX_SENTENCES}`);
@@ -337,6 +409,7 @@ function buildSessionSection({ repo, readFile }) {
   const text = readRequired(readFile, full, 'session.md');
   const { since, bullets } = parseSessionSource(text);
   checkProseLines(bullets.join('\n'), 'session.md');
+  checkAutolinkLines(text, 'session.md');
   if (bullets.length > SESSION_MAX_BULLETS) {
     throw new RefusedError(`session.md has ${bullets.length} bullets, more than the required ${SESSION_MAX_BULLETS}`);
   }
@@ -378,6 +451,7 @@ function buildHistorySection({
     const text = readRequired(readFile, full, label);
     const { text: summaryText, line } = extractSummary(text, label);
     checkProseLines(summaryText, `${label}:${line}`);
+    checkAutolinkLines(summaryText, `${label}:${line}`);
     checkLsTree(execGit, repo, `docs/decisions/history/${file}`, label);
     const day = formatMonthDay(DATE_FILE_RE.exec(file)[1]);
     bullets.push(`- [${day}](${REPO_BLOB_BASE}/docs/decisions/history/${file}) — ${summaryText}`);
@@ -421,6 +495,8 @@ export function render({
   const readFile = deps.readFile ?? defaultReadFile;
   const readdirSync = deps.readdirSync ?? defaultReaddir;
   const execGit = deps.execGit ?? defaultExecGit;
+
+  checkAutolinkLines(doneLine, '--done-line');
 
   const waitingBlock = buildWaitingSection({
     repo, readFile, readdirSync, now,
