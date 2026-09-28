@@ -466,15 +466,11 @@ this filter is introduced has a new row-only change key and therefore sends one 
 In `status.md` the rendered derived-state column is named `lane`; every non-terminal `Status:`
 renders as `owned` there. JSON retains the `state` field for callers.
 
-A stall nudge (`sendStallNudges`, work lost or stalled) counts two different ways depending on
-where the owner's ledger lives, and this file counts both: a nudge that reached the owner's own
-host ledger (the owner is on the same host as the collector, or `.agents/project.json`'s
-`owner_hosts` table names the owner's host and note-send's cross-host mirror appended the line
-there over ssh) versus a nudge that only reached the sender's host ledger, never the owner's (the
-owner is on another host and `owner_hosts` names no entry for it, so today's default behaviour
-never asked the mirror to run) — `grep -c 'collect-.*-stall-' docs/ledger/2026-09-2*.md` on each
-host distinguishes the two: a count on the owner's own host is a delivered nudge, a count that
-exists only on the sender's host is a lost one.
+A stall nudge (`sendStallNudges`, work lost or stalled) is counted delivered when its id is in the
+OWNER's host notes mirror, `~/.agents/notes/<day>.md` (what `note-inbox` reads), and lost when it is
+only in the sender's `docs/ledger/<day>.md`: `grep -c 'collect-.*-stall-' ~/.agents/notes/<day>.md` on
+the owner's host (the note-send mirror for an `owner_hosts` entry, or the local write when owner and
+collector share a host) against the same grep on the collector host's `docs/ledger/<day>.md`.
 
 ## Knowledge read counting (not yet a census)
 

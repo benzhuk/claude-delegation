@@ -17,7 +17,10 @@ export const DEFAULTS = Object.freeze({
 // thrown. This loader's whole contract is "a broken .agents/project.json degrades every reader to
 // safe defaults, never a crash"; `owner_hosts` follows that same rule rather than carving out its own
 // throw path that every caller would then have to guard against separately.
-function sanitizeOwnerHosts(raw) {
+// F6 (review r1): exported so `collect-status.mjs` can run the SAME sanitizer against
+// `origin/main:.agents/project.json` (read through its own git runner) as this loader runs
+// against the working tree - one sanitizing rule, never a second copy of it.
+export function sanitizeOwnerHosts(raw) {
   if (raw === undefined) return { ...DEFAULTS.owner_hosts };
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
   for (const [k, v] of Object.entries(raw)) {
@@ -45,7 +48,7 @@ export function loadProjectConfig(start = process.cwd()) {
   }
   try {
     const raw = JSON.parse(readFileSync(file, "utf8"));
-    return { root, config: { ...DEFAULTS, ...raw, owner_hosts: sanitizeOwnerHosts(raw.owner_hosts) }, source: file };
+    return { root, config: { ...DEFAULTS, ...raw, owner_hosts: sanitizeOwnerHosts(raw?.owner_hosts) }, source: file };
   } catch {
     return { root, config: { ...DEFAULTS, name: root.split("/").pop(), vcs: "none" }, source: "unreadable" };
   }

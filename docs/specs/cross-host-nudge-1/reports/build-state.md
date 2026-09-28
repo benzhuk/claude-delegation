@@ -35,18 +35,36 @@ build/cross-host-nudge-1.
   `docs/specs/cross-host-nudge-1/reports/{gate-unit,gate-full,cross-host-nudge-gate}.log`.
 - Committed and pushed on `build/cross-host-nudge-1`.
 
+## Fix round 1 (this pass)
+
+Review r1 NEEDS_FIXES on c12a494, rulings in the record's last Log line: F1/F2/F3/F5/F6 applied
+as ruled, F4 already done by the lead (duplicate gate log removed; no new gate log committed here).
+See `reports/build-r1.md` for the full account (Cause/Discriminating check/Fix location/
+Simplification, plus the proof harness's --dry-run output).
+
+- F1: `docs/census.md` replaced with the exact review text (notes-mirror is the delivered copy).
+- F2: `MIRROR_HOST_NAMES` (from note-send's own `MIRROR_HOSTS`) gates every `owner_hosts` value;
+  an unknown name falls back to no `--sender-host`, with one warn(). Typo test + a guard test that
+  every value in this repo's own `.agents/project.json` owner_hosts is a MIRROR_HOSTS name.
+- F3: `mirrorOutcome()` reads note-send's own `mirrorLedger` from its stdout JSON; a failed mirror
+  produces one warn() naming the sender host, never a retry.
+- F5: `sanitizeOwnerHosts(raw?.owner_hosts)` - a top-level `null` project.json no longer throws.
+- F6: `loadOwnerHosts()` reads `owner_hosts` from `origin/main:.agents/project.json` through the
+  same `gitRunner`/sanitizer, falling back to the working-tree config when the ref or file is
+  missing/unparseable. `opts.gitRunner` added to `main()` for test injection.
+
 ## Next
 
 Nothing outstanding in this territory. The live proof (a real ASK to skills-h on Hetzner, read back
-over ssh from Hetzner's own `docs/ledger/`) is explicitly the lead's step, not this builder's — brief
-forbids sending a real note or ssh'ing anywhere from here.
+over Hetzner's own `~/.agents/notes/<day>.md`, per F1's ruling) is explicitly the lead's step, not
+this builder's - brief forbids sending a real note or ssh'ing anywhere from here. A throwaway
+--dry-run-only proof harness demonstrating the same mechanism against a synthetic fixture is at
+`scratchpad/lane-43/proof.mjs` (scratch, not part of the territory diff).
 
 ## Open questions
 
-None. The two design choices the brief left open were both made and stated in `build.md`'s
-Simplification section: malformed `owner_hosts` is **ignored** (not refused), and the loader edited is
-the canonical `skills/decisions/scripts/project-config.mjs` (with tests added to the existing
-`scripts/project-config.test.mjs`, which already imports both it and its re-export).
+None. F2's typo fallback, F3's mirror-failure warning and F6's origin/main-first read are all
+mechanical per the review's own patches; no further design choice was left open.
 
 ## How to run my gate
 

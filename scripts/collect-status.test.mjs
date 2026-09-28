@@ -1180,6 +1180,203 @@ test("stall-nudge: with no .agents/project.json at all, no --sender-host flag is
   assert.equal(args.includes("--sender-host"), false, "no .agents/project.json: no --sender-host flag");
 });
 
+// ---------------------------------------------------------------------------
+// Review r1 F2: an owner_hosts value that is not one of note-send's own MIRROR_HOSTS names (a
+// typo, a renamed/dropped host) must fall back to the no-flag path, with one warn(), rather than
+// reaching note-send and losing the ASK entirely (note-send refuses an unknown --sender-host with
+// exit 1 before any write).
+// ---------------------------------------------------------------------------
+
+test("stall-nudge: an owner_hosts value that is not a MIRROR_HOSTS name falls back to no --sender-host, with one warning", () => {
+  const root = initRepoWithOrigin();
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".agents", "project.json"),
+    JSON.stringify({ owner_hosts: { "skills-h": "zhuk-vps-32" } }), // typo: a hyphen note-send does not know
+  );
+  commitAll(root, "add owner_hosts table with a typo'd host");
+  git(["push", "-q", "origin", "main"], root);
+
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/typo-host-stall");
+  writeRecord(root, "wr-2026-09-27-typohost.record.md", [
+    "Work: wr-2026-09-27-typohost", "Owner: skills-h", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned skills-h note`, "",
+  ]);
+  commitAll(root, "typo host stall record");
+  pushBranch(root, "build/typo-host-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const warnings = [];
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home, warn: (s) => warnings.push(s) },
+  );
+
+  assert.equal(spawn.calls.length, 1, `expected exactly one ASK, got: ${JSON.stringify(spawn.calls.map((c) => c.args))}`);
+  const args = spawn.calls[0].args;
+  assert.equal(args.includes("--sender-host"), false, "unknown host name: no --sender-host flag");
+  assert.ok(
+    warnings.some((w) => /owner_hosts maps skills-h to a host note-send does not know/.test(w)),
+    `expected a warning naming the unknown host, got: ${JSON.stringify(warnings)}`,
+  );
+});
+
+// Guard: every value in the repo's OWN .agents/project.json owner_hosts is a MIRROR_HOSTS name -
+// catches a future rename/drop of a host in note-send.mjs's table before it silently strands a
+// nudge (F2's class of bug), without needing a live send to notice.
+test("guard: every value in this repo's own .agents/project.json owner_hosts is a MIRROR_HOSTS name", async () => {
+  const { loadProjectConfig: loadRoot } = await import("./project-config.mjs");
+  const { MIRROR_HOSTS: liveHosts } = await import("../skills/multi/scripts/note-send.mjs");
+  const names = new Set(liveHosts.map((h) => h.name));
+  const { config } = loadRoot(path.resolve(new URL(".", import.meta.url).pathname, ".."));
+  for (const [owner, host] of Object.entries(config.owner_hosts)) {
+    assert.ok(names.has(host), `owner_hosts["${owner}"] = "${host}" is not a MIRROR_HOSTS name (${[...names].join(", ")})`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Review r1 F3: a failed mirror (note-send's own `mirrorLedger.ok === false` inside its stdout
+// JSON) must produce exactly one warn() naming the owner's sender host, without changing the
+// local send's own outcome or retrying.
+// ---------------------------------------------------------------------------
+
+test("stall-nudge: a failed mirror (mirrorLedger.ok === false in note-send's stdout JSON) produces one warning naming the sender host", () => {
+  const root = initRepoWithOrigin();
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".agents", "project.json"),
+    JSON.stringify({ owner_hosts: { "skills-h": "zhuk-vps32" } }),
+  );
+  commitAll(root, "add owner_hosts table");
+  git(["push", "-q", "origin", "main"], root);
+
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/mirror-fail-stall");
+  writeRecord(root, "wr-2026-09-27-mirrorfail.record.md", [
+    "Work: wr-2026-09-27-mirrorfail", "Owner: skills-h", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned skills-h note`, "",
+  ]);
+  commitAll(root, "mirror-fail stall record");
+  pushBranch(root, "build/mirror-fail-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = (execPath, args) => {
+    spawn.calls.push({ execPath, args });
+    return {
+      status: 3,
+      stdout: JSON.stringify({ mirrorLedger: { host: "zhuk-vps32", ok: false, error: "timeout" } }),
+      stderr: "",
+    };
+  };
+  spawn.calls = [];
+  const warnings = [];
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home, warn: (s) => warnings.push(s) },
+  );
+
+  assert.equal(spawn.calls.length, 1);
+  const mirrorWarnings = warnings.filter((w) => /mirror to zhuk-vps32 failed/.test(w));
+  assert.equal(mirrorWarnings.length, 1, `expected exactly one mirror-failure warning, got: ${JSON.stringify(warnings)}`);
+  assert.ok(/timeout/.test(mirrorWarnings[0]));
+});
+
+// ---------------------------------------------------------------------------
+// Review r1 F6: owner_hosts is read from origin/main:.agents/project.json through the same git
+// runner the ledger path already uses, with the working tree as fallback when that ref or file is
+// missing or unparseable. Both paths use a FAKE git runner (never the real one for the seam under
+// test), so neither depends on this fixture's real git push having updated origin/main already.
+// ---------------------------------------------------------------------------
+
+function fakeGitRunnerWith(showResponse) {
+  return (args, cwd) => {
+    if (args[0] === "show" && args[1] === "origin/main:.agents/project.json") {
+      if (showResponse instanceof Error) throw showResponse;
+      return showResponse;
+    }
+    return gitRunner(args, cwd); // anything else (mainCheckout's rev-parse) goes to the real git
+  };
+}
+
+test("stall-nudge (F6): owner_hosts prefers origin/main's copy over the working tree, via a fake git runner", () => {
+  const root = initRepoWithOrigin();
+  // Working tree has NO .agents/project.json at all - only the fake git runner's origin/main
+  // blob supplies the mapping, so a passing test proves origin/main was actually consulted.
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/origin-main-hosts-stall");
+  writeRecord(root, "wr-2026-09-27-originmain.record.md", [
+    "Work: wr-2026-09-27-originmain", "Owner: skills-h", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned skills-h note`, "",
+  ]);
+  commitAll(root, "origin-main-hosts stall record");
+  pushBranch(root, "build/origin-main-hosts-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const fakeGit = fakeGitRunnerWith(JSON.stringify({ owner_hosts: { "skills-h": "zhuk-vps32" } }));
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home, gitRunner: fakeGit },
+  );
+
+  assert.equal(spawn.calls.length, 1);
+  const args = spawn.calls[0].args;
+  const get = (flag) => args[args.indexOf(flag) + 1];
+  assert.equal(get("--sender-host"), "zhuk-vps32", "origin/main's owner_hosts should have been used");
+});
+
+test("stall-nudge (F6): falls back to the working-tree config when the fake git runner throws (missing ref/blob)", () => {
+  const root = initRepoWithOrigin();
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".agents", "project.json"),
+    JSON.stringify({ owner_hosts: { "skills-h": "zhuk-vps32" } }),
+  );
+  commitAll(root, "add working-tree owner_hosts table");
+  // Deliberately NOT pushed to origin, so the real ref would not have this file either - but the
+  // seam under test is the fake git runner throwing, standing in for "no origin/main ref yet".
+
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/fallback-hosts-stall");
+  writeRecord(root, "wr-2026-09-27-fallbackhosts.record.md", [
+    "Work: wr-2026-09-27-fallbackhosts", "Owner: skills-h", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned skills-h note`, "",
+  ]);
+  commitAll(root, "fallback-hosts stall record");
+  pushBranch(root, "build/fallback-hosts-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const fakeGit = fakeGitRunnerWith(new Error("fatal: invalid object name 'origin/main:.agents/project.json'"));
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home, gitRunner: fakeGit },
+  );
+
+  assert.equal(spawn.calls.length, 1);
+  const args = spawn.calls[0].args;
+  const get = (flag) => args[args.indexOf(flag) + 1];
+  assert.equal(get("--sender-host"), "zhuk-vps32", "a throwing git runner should fall back to the working-tree table");
+});
+
 after(() => {
   // Under scripts/run-tests.mjs every mkTmp'd dir here lives under FIXTURE_ROOT, and
   // makeTempHome's own cleanup() already removes the whole sealed home (fixtureRoot included)

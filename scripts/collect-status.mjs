@@ -39,6 +39,13 @@ import { parseRecord, STATUSES } from "./work-record.mjs";
 import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/envelope.mjs";
 import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
+import { sanitizeOwnerHosts } from "../skills/decisions/scripts/project-config.mjs";
+import { MIRROR_HOSTS } from "../skills/multi/scripts/note-send.mjs";
+
+// F2 (review r1): the one place a `owner_hosts` value is checked against note-send's own host
+// table (never a second table copied here) - an unknown host name falls back to the no-flag path
+// instead of reaching note-send, which would refuse the whole send with exit 1 before any write.
+const MIRROR_HOST_NAMES = new Set(MIRROR_HOSTS.map((h) => h.name));
 
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
 // names plus the no-record row); anything else is counted as "other", never named. Lane 33 F2 adds
@@ -333,6 +340,31 @@ function buildStallNudgeArgv({ from, to, repo, text, topic, by, senderHost }) {
   return argv;
 }
 
+// F3 (review r1): note-send's own failure JSON on stdout carries `mirrorLedger` (note-send.mjs
+// :1121, :1185) - the last line of stdout is the JSON envelope note-send prints on every exit
+// path, success or refusal alike. Never throws: an unparseable/absent stdout is simply "no signal".
+function mirrorOutcome(result) {
+  const line = String(result?.stdout ?? "").trim().split("\n").pop();
+  try { return JSON.parse(line)?.mirrorLedger ?? null; } catch { return null; }
+}
+
+// F6 (review r1): the timer's `--repo` is a pinned plugin checkout that can sit at an old commit
+// indefinitely (a detached HEAD parked at a release tag) while the live repo's `.agents/project.json`
+// has moved on - reading `owner_hosts` from `origin/main` through the same `gitRunner` the ledger
+// path already uses (`mainCheckout`, above) means a config change never waits on that checkout
+// catching up. Falls back to the working-tree config (today's behaviour) when the ref does not
+// resolve (no `origin/main`, e.g. a fresh clone with no fetch yet) or the blob is missing/unparseable
+// JSON - never a throw, same "a broken table degrades to defaults" promise the loader itself makes.
+function loadOwnerHosts(repoAbs, gitRunnerFn, workingTreeHosts) {
+  try {
+    const raw = gitRunnerFn(["show", "origin/main:.agents/project.json"], repoAbs);
+    const parsed = JSON.parse(raw);
+    return sanitizeOwnerHosts(parsed?.owner_hosts);
+  } catch {
+    return workingTreeHosts;
+  }
+}
+
 /**
  * S1-S6: one note-send spawn per still-silent row, after status.md/the RESULT are already
  * written. Never throws (every failure path here is a warn() and an early return); returns the
@@ -398,11 +430,25 @@ function sendStallNudges({
     // Lane 43: the owner's own mirror host, from `.agents/project.json`'s `owner_hosts` table
     // (loaded once by the caller, never a hardcoded map here). An owner with no entry there gets
     // `undefined` -> `buildStallNudgeArgv` omits the flag -> today's sender-only-host behaviour.
-    const senderHost = ownerHosts && typeof ownerHosts[owner] === "string" ? ownerHosts[owner] : undefined;
+    const mappedHost = ownerHosts && Object.hasOwn(ownerHosts, owner) ? ownerHosts[owner] : undefined;
+    const senderHost = MIRROR_HOST_NAMES.has(mappedHost) ? mappedHost : undefined;
+    if (mappedHost !== undefined && !senderHost) {
+      warn(`collect-status: owner_hosts maps ${owner} to a host note-send does not know; sending without --sender-host`);
+    }
     const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by, senderHost });
     const result = spawnNoteSend(execPath, argv);
     if (result && result.status !== 0) {
       warn(`collect-status: stall-nudge send exit ${result.status ?? "unknown"} for ${a.branch}`);
+    }
+    // F3 (review r1): a failed mirror is invisible on `result.status`, which is 3 for the normal
+    // "no registered inbox" ASK path whether or not the ssh mirror to the owner's own host worked.
+    // Surface it as one warn() line so a lost remote copy leaves a trace in last-run.log, without
+    // changing the exit code or retrying (R2: no retry, ever - the local ledger line already exists).
+    if (senderHost) {
+      const mirror = mirrorOutcome(result);
+      if (mirror && mirror.ok === false) {
+        warn(`collect-status: stall-nudge mirror to ${senderHost} failed (${mirror.error ?? "unknown"}) for ${a.branch}; the ASK is only in this host's ledger`);
+      }
     }
     // F6 (review r1): two silent records sharing one branch tip share one topic (one row per
     // record, `collect-from-origin` makes one row per changed record). Without this, both send in
@@ -497,6 +543,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   const collectMain = opts.collectMain ?? collectFromOriginMain;
   const resolveNoteSendFn = opts.resolveNoteSend ?? resolveNoteSend;
   const spawnNoteSendFn = opts.spawnNoteSend ?? defaultSpawnNoteSend;
+  const gitRunnerFn = opts.gitRunner ?? gitRunner;
 
   try {
     const args = parseArgs(argv);
@@ -602,7 +649,11 @@ export function main(argv = process.argv.slice(2), opts = {}) {
         // every script already shares (never a map hardcoded here). A missing/malformed table
         // resolves to `{}` inside the loader itself, so every owner is simply unmapped - today's
         // behaviour, no flag - rather than this call ever needing its own fallback.
-        const ownerHosts = loadProjectConfig(repo).config.owner_hosts || {};
+        // F6 (review r1): prefer `origin/main`'s copy (the timer's `--repo` checkout can be parked
+        // on an old release for a long time), falling back to this same working-tree read when the
+        // ref or file is missing/unparseable.
+        const workingTreeHosts = loadProjectConfig(repo).config.owner_hosts || {};
+        const ownerHosts = loadOwnerHosts(repo, gitRunnerFn, workingTreeHosts);
         sendStallNudges({
           args, home, env, hostname, repoAbs: repo, rows, attention, now, warn, ownerHosts,
           spawnNoteSend: spawnNoteSendFn, resolveNoteSendFn,

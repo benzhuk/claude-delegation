@@ -63,6 +63,19 @@ test('owner_hosts: a malformed table (wrong shape, or a non-string value) is ign
   assert.deepEqual(loadProjectConfig(unparseableFile).config.owner_hosts, {});
 });
 
+// F5 (review r1): a project.json whose top-level JSON value is the literal `null` must not throw
+// inside `sanitizeOwnerHosts(raw?.owner_hosts)` - before the fix, `raw.owner_hosts` on a `null` raw
+// threw a TypeError and the loader fell into its catch, reporting `source: "unreadable"` /
+// `vcs: "none"` instead of the file's real (if useless) presence.
+test('owner_hosts: a top-level `null` project.json does not throw and is treated as readable, not "unreadable"', () => {
+  const nullFile = mkProjectDir('null');
+  assert.doesNotThrow(() => loadProjectConfig(nullFile));
+  const { config, source } = loadProjectConfig(nullFile);
+  assert.deepEqual(config.owner_hosts, {});
+  assert.notEqual(source, 'unreadable');
+  assert.notEqual(config.vcs, 'none');
+});
+
 after(() => {
   for (const dir of tracked) {
     try {
