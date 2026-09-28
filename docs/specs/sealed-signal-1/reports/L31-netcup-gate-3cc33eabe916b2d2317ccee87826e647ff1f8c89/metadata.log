@@ -1,0 +1,10 @@
+NODE_PATH=/home/ben/.local/state/fnm_multishells/895558_1790565762626/bin/node
+NODE_VERSION=v24.18.1
+LOCK=ACQUIRED
+F4_SHA256=2c563a2215391c2c59c919b01830e7f49a32fd0f8d41d73268e3b05272d41281
+R1_SHA256=da85918e717e00afecaaa352bac8d190f3fd1c00a4e670c6c2ab2d70b95bc141
+BASE_HEAD=3dbe93567049ffc2fdd4fbe424226e57b7dc7ed0
+BASE_RUNNER=/home/ben/orca-gates/sealed-signal-1-3dbe93567049ffc2fdd4fbe424226e57b7dc7ed0/scripts/run-tests.mjs
+GATE_HEAD=3cc33eabe916b2d2317ccee87826e647ff1f8c89
+GATE_RUNNER=/home/ben/orca-gates/sealed-signal-1-b5341c71d9436427e31bdae11a6726ec798d1946/scripts/run-tests.mjs
+SOURCE_DIFF_VS_B534=NONE
