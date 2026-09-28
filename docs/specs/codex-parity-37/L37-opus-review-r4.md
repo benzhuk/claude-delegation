@@ -1,7 +1,3 @@
-VERDICT: APPROVE 11a1023e47aeb94d7646d21c1b4c9b4cdc0bc883
-
-Format-only acceptance wrapper for the unchanged independent Claude Opus report below. Handoff ASK skills-a-lane-37-8 and RESULT skills-fable-lane-37-12. Original preserved at docs/specs/codex-parity-37/L37-opus-review-r4.md; prior review originals remain in r1-r3.
-
 APPROVE 11a1023e47aeb94d7646d21c1b4c9b4cdc0bc883
 
 Lane 37 codex-parity delta review, 66bd1b4..11a1023, production change in hooks/multi-codex-hook.mjs. Reviewer: Claude Opus 5.5 (claude-opus-5-5), subagent of skills-fable session 9c61c35a-82dd-4aef-8eca-c99bb0e72e31. Worktree scratchpad/wt-review-37c, detached at 11a1023, left in place and clean.

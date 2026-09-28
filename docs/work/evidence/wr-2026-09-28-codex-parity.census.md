@@ -1,4 +1,4 @@
-VERDICT: PARTIAL Codex census (unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon), 25 subagent files, leadLastMessageAt: 2026-09-28T22:40:42.445Z
+VERDICT: PARTIAL Codex census (unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon), 25 subagent files, leadLastMessageAt: 2026-09-28T22:59:02.505Z
 
 # Build census
 
@@ -9,13 +9,13 @@ VERDICT: PARTIAL Codex census (unverified or out-of-contract discovery candidate
 - coverageSupported: false
 - unavailable: unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon
 - leadTurns: 2
-- wallClockHours: 0.99
+- wallClockHours: 1.30
 - by-model: partial/unavailable
 - by-role: partial/unavailable
 - subagentFiles: 25
 
 Lead: `rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl` | Tasks dirs: (none)
-Window: 2026-09-28T21:40:55.604Z .. 2026-09-28T22:40:14.765Z
+Window: 2026-09-28T21:40:55.604Z .. 2026-09-28T22:58:54.494Z
 
 ## Codex discovery
 
@@ -37,7 +37,7 @@ Window: 2026-09-28T21:40:55.604Z .. 2026-09-28T22:40:14.765Z
 
 | model | native_input | exclusive_input | cache_creation | cache_read | output | derived_total | reasoning_output | raw_total | unavailable |
 |---|---|---|---|---|---|---|---|---|---|
-| gpt-6-astra | 20267084 | 541772 | 0 | 19725312 | 67567 | 20334651 | 19532 | 20334651 | (none) |
+| gpt-6-astra | 25997807 | 593903 | 0 | 25403904 | 80617 | 26078424 | 24318 | 26078424 | (none) |
 
 ## Subagents (25 files, 0 observed responses)
 

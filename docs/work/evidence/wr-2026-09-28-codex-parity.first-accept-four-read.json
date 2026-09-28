@@ -1,10 +1,10 @@
 {
-  "acceptAt": "2026-09-28T22:58:55.152Z",
+  "acceptAt": "2026-09-28T22:40:15.516Z",
   "companions": [
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "unavailable (census window ends 2026-09-28T22:58:54.494Z, after the last acceptance)"
+      "value": "169 verified top-tier native API response(s) (lead only); tokens: unavailable (Codex census coverage is unavailable: unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon)"
     },
     {
       "key": "notesToLeadPerBuild",
@@ -31,7 +31,7 @@
     {
       "key": "reworkAfterAcceptance",
       "label": "Rework after acceptance",
-      "value": "4 commit(s) touching build files within 7 days: aafc1d0 \"docs: record Lane 37 merge gate rejection\", 1841065 \"test: preserve advisory through stalled codex route\", 8b1f4bf \"fix: preserve Codex advisory after route timeout\", 325fb41 \"docs(work): accept codex parity evidence\"; 0 re-accept Log: entries after the first"
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
     },
     {
       "key": "workLostOrStalled",
