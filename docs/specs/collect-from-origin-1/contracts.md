@@ -9,8 +9,10 @@ scripts/build-census.mjs, work-record.mjs, four-read.mjs, janitor.mjs, hooks/, .
 R1 (C1 CLI, pinned): `node scripts/collect-from-origin.mjs [--repo <dir>] [--main <ref>] [--no-fetch] [--json]`,
 default --main origin/main. Row fields (JSON keys, in this order): branch, tipSha, tipDate, recordPath,
 status, artifactSha, merged (boolean|null when no artifact sha), hoursSinceLog (number|null), state
-(accepted-unmerged | accepted-merged | owned | rejected | no-record; any other Status maps to owned
-unless it is accepted/rejected). A branch with several changed records yields one row per record.
+(accepted-unmerged | accepted-merged | owned | rejected | withdrawn | closed | no-record; any other
+Status maps to owned unless it is accepted/rejected/withdrawn/closed — withdrawn and closed updated
+here by later lanes, withdraw-status-1 and lane 33's collect-followups-1 respectively, both their own
+terminal states, never folded into owned). A branch with several changed records yields one row per record.
 "Changed" = the record's blob on the branch differs from main's, or main lacks it. Exit 0 always,
 including when fetch fails (then a stderr warning and it proceeds with local refs). Protected names
 skipped: main, HEAD, and any branch named in --skip (repeatable). Reads only via git plumbing

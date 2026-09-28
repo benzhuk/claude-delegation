@@ -114,6 +114,11 @@ export function computeState(status, merged) {
   // withdrawn (R3, withdraw-status-1): its own terminal state - never shown as owned (the
   // "still needs attention" fallback below) or rejected (a false "awaiting a fix round" signal).
   if (status === "withdrawn") return "withdrawn";
+  // closed (lane 33 F2, docs/specs/collect-followups-1/spec.md): its own terminal state too, like
+  // accepted-merged/withdrawn above - before this it fell through to "owned", so collect-status.mjs
+  // had to carry its own separate `r.status !== "closed"` guard to keep a stale closed record from
+  // being flagged silent; one place (here) now decides state, so that guard is gone.
+  if (status === "closed") return "closed";
   return status === "rejected" ? "rejected" : "owned"; // absent/unparseable/any other -> owned (R1)
 }
 

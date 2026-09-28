@@ -1,0 +1,183 @@
+✔ extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything else (1.079708ms)
+✔ computeState: accepted maps by merged, rejected/withdrawn/closed pass through as their own states, everything else is owned (0.157468ms)
+✔ hoursSinceLog: hours since the LAST Log: line in file order, null with no log or a bad date (0.142415ms)
+✔ parseArgs: flags, --main default, repeatable --skip and --only-prefix (0.70969ms)
+✔ fullRef: origin/main -> refs/remotes/origin/main; a bare name -> refs/heads/<name>; refs/* passes through (0.164859ms)
+✔ formatTable: header row plus one tab-separated row per record, with '-' for null/undefined (0.187262ms)
+✔ bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, withdrawn, no-record all classify correctly (1008.269912ms)
+✔ main branch and HEAD are never listed as rows; --skip removes a named branch (174.79641ms)
+✔ a branch with several changed records yields one row per record (R1) (178.734927ms)
+✔ a branch identical to main (no changed record) contributes zero rows (126.409832ms)
+✔ --no-fetch skips the network call entirely: origin unreachable still exits 0 on local refs (174.030028ms)
+✔ a real fetch failure still exits 0, with a stderr warning, using whatever local refs exist (95.634582ms)
+✔ attack: tip equals main and Artifact: is missing never reads as merged, even with a later-Status record on main for the same path (363.048543ms)
+✔ F1 regression: piped/subprocess --json output past 64 KiB is never truncated (2566.922003ms)
+✔ attack: a branch that has already been fully merged into main disappears entirely, even though main later rewrites the same record with a later Status (297.795942ms)
+✔ three-dot: a record main rewrote after an unmerged branch forked is not a row for that branch (292.046307ms)
+✔ no merge base (orphan branch): its record is still a row, never a confident no-record (165.655931ms)
+✔ never writes: every file under .git is byte-identical (by content hash) before and after a run (170.594224ms)
+✔ refExists: true for a real ref, false for an absent one (77.309578ms)
+✔ listOriginBranches: skips names in the skip set, strips the origin/ prefix (118.936863ms)
+✔ changedRecordPaths: diff --name-only against docs/work/*.record.md, added and identical cases (150.124215ms)
+✔ changedRecordPaths / row.recordPath: always forward-slash, never path.sep, regardless of OS (173.791293ms)
+/tmp/cstatus-out-zBtxpG/status.md
+/tmp/cstatus-out-zBtxpG/status.md
+/tmp/cstatus-out-gfGAqq/status.md
+/tmp/cstatus-out-gfGAqq/status.md
+/tmp/cstatus-out-YuqIiB/status.md
+/tmp/cstatus-out-qu7ioh/status.md
+/tmp/cstatus-out-OQmet6/status.md
+/tmp/cstatus-out-roCQj1/status.md
+/tmp/cstatus-out-r0hcxg/status.md
+/tmp/cstatus-out-r0hcxg/status.md
+/tmp/cstatus-out-iYzWlH/status.md
+/tmp/cstatus-out-8pXCWH/status.md
+/tmp/cstatus-out-8pXCWH/status.md
+/tmp/cstatus-out-8pXCWH/status.md
+/tmp/cstatus-out-NKHFEf/status.md
+/tmp/cstatus-out-TTk8TW/status.md
+/tmp/cstatus-out-I70YA5/status.md
+/tmp/cstatus-out-xULdfH/status.md
+/tmp/cstatus-out-7QQuYA/status.md
+/tmp/cstatus-out-v3GmZW/status.md
+/tmp/cstatus-out-v3GmZW/status.md
+/tmp/cstatus-out-v3GmZW/status.md
+/tmp/cstatus-out-FB2CKD/status.md
+/tmp/cstatus-out-FB2CKD/status.md
+/tmp/cstatus-out-Lyi3m2/status.md
+/tmp/cstatus-out-4VOAOs/status.md
+collect-status: stall-nudge skipped, kill switch present (no-nudge)
+/tmp/cstatus-out-2z0bjb/status.md
+collect-status: stall-nudge skipped for build/owner-bad-grammar, no usable Owner
+collect-status: stall-nudge skipped for build/owner-missing, no usable Owner
+collect-status: stall-nudge skipped for build/owner-none, no usable Owner
+/tmp/cstatus-out-n8lF0V/status.md
+collect-status: stall-nudge skipped, ledger read failed: ENOTDIR: not a directory, scandir '/tmp/cstatus-repo-PDpalK/docs/ledger'
+/tmp/cstatus-out-hWxBre/status.md
+/tmp/cstatus-out-ZdIHKu/status.md
+✔ parseArgs: defaults and every flag (1.653612ms)
+✔ parseArgs: --stale-hours range 0.1-48 — in range carries no error, 0 and 99 set staleHoursError (lane 33 F1) (0.300193ms)
+✔ main: --stale-hours 0 or 99 is refused, exit 2, before computeAttention ever runs (lane 33 F1) (135.622825ms)
+✔ defaultOutDir: ~/.agents/collect/<basename of repo> (1.303194ms)
+✔ sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host (0.486283ms)
+✔ computeByState: counts rows per state (0.224097ms)
+✔ computeByState: closed is counted under its own key, never folded into owned (lane 33 F2) (0.221524ms)
+✔ computeAttention: a closed row is never flagged, even with an enormous hoursSinceLog (lane 33 F2 - closed is terminal, computeAttention only ever flags state owned) (0.27812ms)
+✔ grep: 'closed' appears in collect-status.mjs only in NOTE_STATE_TOKENS and the legend line (lane 33 F2 acceptance) (0.559572ms)
+✔ computeChangeKey: order-independent (sorted), sensitive to any field change (0.399111ms)
+✔ computeAttention: accepted-unmerged boundary (over merge-hours only) (0.643469ms)
+✔ computeAttention: owned + hoursSinceLog boundary (silent-over-N-h) (0.175955ms)
+✔ computeAttention: no-record always flagged; unparseable tipDate never confidently flagged (0.117987ms)
+✔ resolveNoteSend: prefers ~/.local/bin/note-send when executable, else PATH, else null (0.551071ms)
+✔ buildStatusMd: header carries fetch: failed only on failure; attention first, then formatTable's table (14.618831ms)
+✔ buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut is marked (0.527806ms)
+✔ status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced (172.3002ms)
+✔ change key equal across two runs with no repo change: zero note-send calls (162.825411ms)
+✔ change key different: exactly one call, kind RESULT, --no-type present (196.875314ms)
+✔ --quiet: key differs but note-send is never invoked; status still written (84.67743ms)
+✔ missing note-send on PATH: writes status anyway, exits 0, says so in status.md (85.353168ms)
+✔ missing --to: skips the send, still writes status, still exits 0 (93.536982ms)
+✔ atomic write: no temp file left behind under --out after a run (87.956442ms)
+✔ previous.json rotation: prior status.json is renamed aside, not copied, before the new write (185.233941ms)
+✔ fetch failure: still writes a status (fetch: failed), sends no note, never updates announced (113.667319ms)
+✔ a failed fetch that sees a change does not swallow it: the next good run announces it (105.440773ms)
+✔ K2 allowlist: a state outside collect-from-origin's names reaches --text only as other (seam m1) (87.485693ms)
+✔ a --main ref that doesn't resolve sends no note (no real state to report) (86.931468ms)
+✔ never writes: every file under .git is byte-identical before and after a --no-fetch run (176.586891ms)
+✔ status.md stays within the 60-line budget for a modest fixture (477.316999ms)
+✔ branchSlug: lowercases, collapses every run of non-[a-z0-9] to one '-', trims ends (0.240954ms)
+✔ buildStallTopic: stall-<branch-slug>-<sha7>; a long branch truncates only the slug, never the sha (0.238309ms)
+✔ ownerSlugOrNull: none/missing/mixed-case/spaced all null; a real slug passes through unchanged (0.15223ms)
+✔ stall-nudge: one ASK per stale owned/blocked row; none for accepted-merged/accepted-unmerged/rejected/withdrawn/no-record/closed or a 1.9h row; argv is exact (1040.942183ms)
+✔ stall-nudge: dedupe - a second run on the same tip sends nothing; a new tip idle past the threshold asks again (333.570543ms)
+✔ stall-nudge: F1 - dedupe holds across two runs when --repo is a linked worktree (note-send's ledger lives in the MAIN checkout, never a worktree) (235.959299ms)
+✔ stall-nudge: F3 - --quiet sends no ASK, even for an otherwise-stale row (attention still shows it) (174.296861ms)
+✔ stall-nudge: F6 - two stale records sharing one branch tip get exactly one ASK per run (the topic is per-tip, not per-record) (189.359571ms)
+✔ stall-nudge: S4 - the kill-switch file suppresses the ASK; the attention row stays in status.md (168.266174ms)
+✔ stall-nudge: S3 - no ASK when Owner is none, missing, or fails note-send's slug grammar (379.060882ms)
+✔ stall-nudge: S2 - a ledger read error means no ASK this run (fail closed, not open) (183.321663ms)
+✔ stall-nudge: a failed fetch never sends an ASK either, same promise as the RESULT (153.14031ms)
+✔ byte-stability: every generator is a pure function of its inputs — called twice, identical bytes (1.892732ms)
+✔ --apply never appears in any generated text, for any of the three schedulers (0.386313ms)
+✔ scheduledCommandArgv is exactly <node> <pluginRoot>/scripts/janitor.mjs --record --repo <repo>, plus --host when given (0.746265ms)
+✔ installed.json is byte-stable and matches the pinned seam shape exactly (key order included) (0.129766ms)
+✔ resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if present; else ~/Code/claude-delegation (0.534145ms)
+✔ refuses to install from a temporary/worktree checkout unless --force-root, and writes nothing when refused (1.848075ms)
+✔ L2: a plugin root inside the installed Claude plugin cache installs without --force-root (1.441041ms)
+✔ L2 review: the allowlist itself rejects this host's real worktree layout and accepts only the two caches (0.765775ms)
+✔ L2: a real worktree name, a durable non-cache path, and a fresh non-cache root all refuse under --dry-run and a real install, on the pluginRoot check alone, nothing written (3.252552ms)
+✔ --force-root (tests only) bypasses the checkout-durability refusal (0.801979ms)
+✔ --remove is never gated by the checkout-durability check (only install creates a new reference) (0.523639ms)
+✔ a real install (fixture plugin root) writes the systemd unit+timer and installed.json, idempotently (1.667282ms)
+✔ --dry-run writes nothing at all, even the containing directory, but still reports the generated content (0.826074ms)
+✔ --remove --dry-run reports would-remove, never claiming a file was removed when it was not (1.32074ms)
+✔ --remove deletes only the files it made (marker-checked) and leaves a same-named foreign file alone (1.281231ms)
+✔ --remove on a host where nothing was ever installed reports absent, not an error (0.455515ms)
+✔ seam review round 1, M1: installed.json is name-owned — a second --name install is refused, and --remove for that name never touches a different name's installed.json (1.225667ms)
+✔ --hour sets the systemd OnCalendar hour and installed.json's hour field (0.884031ms)
+✔ --hour out of range (or non-integer) refuses outright and writes nothing, rather than silently falling back (1.784961ms)
+✔ J1 review round 2, m2: a valueless --hour (nothing follows, or another --flag follows) refuses rather than silently falling back to the default hour (0.797211ms)
+✔ --enable runs the platform's own enable command through the injected exec, never spawning a real one — and is skipped entirely under --dry-run (1.535064ms)
+✔ J1 review round 2, m3: a failing post-remove daemon-reload is reported in result.commands, not swallowed silently (1.512811ms)
+✔ J1 review round 1, M1: a foreign (unmarked) same-named unit blocks --enable entirely, on both install and --remove — zero exec calls, the user's unit left alone (1.093769ms)
+✔ windows and macos generation (text-only; schtasks/launchctl are never executed on this host) (2.544435ms)
+✔ J1 review round 1, B1: --repo or --host carrying the literal string --apply is refused outright, nothing written (0.741748ms)
+✔ J1 review round 1, B1: an ordinary space-bearing repo (no --apply) still generates a single, correctly quoted ExecStart argv element (0.903441ms)
+✔ J1 review round 1, M5: refuses when the janitor script is missing, or the repo is not a git checkout — nothing written, exit 1 (0.962701ms)
+✔ L1: --help prints usage, exits 0, and writes nothing — even against the installer's own default (worktree) pluginRoot (0.268284ms)
+✔ L1: an unrecognized flag (--bogus) exits 2 and writes nothing (0.215485ms)
+✔ L1: a stray positional argument exits 2 and writes nothing (0.230357ms)
+✔ L1 review: a valueless/empty --repo/--host/--name, or a repeated value flag, refuses and touches nothing (4.034501ms)
+✔ C2: scheduledCommandArgv for --job collect-status is exactly <node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>, plus --host and --out when given, plus --stale-hours <n> always last (lane 33 F1, default 2) (0.284679ms)
+✔ C2: installedJsonText for --job collect-status is schema, repo, node, every, staleHours, scheduler, name, to — key order exact, no hour field at all (lane 33 F1) (0.167913ms)
+✔ C2: systemd unit and timer text for --job collect-status — exact bytes (0.200824ms)
+✔ C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --job collect-status, both carrying --stale-hours (lane 33 F1) (0.422407ms)
+✔ C2: --stale-hours 0.5 appears in the systemd ExecStart too (all three generators, lane 33 F1) (0.210188ms)
+✔ C2: --stale-hours bounds — 0.1 and 48 accepted, out of range or non-numeric refused (exit 1, nothing written), default is 2 (4.332588ms)
+✔ C2: a real install (--job collect-status) writes to ~/.agents/collect/, never ~/.agents/janitor/, with installed.json matching the pinned K1 shape (0.74946ms)
+✔ C2: --every bounds — 5 and 60 accepted, out of range or non-integer refused, default is 15 (2.760359ms)
+✔ C2: --to is required for --job collect-status and refused for --job janitor-record; slug pattern enforced (0.712193ms)
+✔ C2: --hour is refused for --job collect-status; --every is refused for --job janitor-record (0.604451ms)
+✔ C2: --job with an unrecognized value is refused; --out is refused for --job janitor-record (0.633504ms)
+✔ C2 review round 1, m2: --out is resolved to an absolute path (never left relative to the repo's own WorkingDirectory), and a control character (e.g. a real newline) is refused outright (0.848688ms)
+✔ C2 (contracts.md K3 B1 twin): --to or --out carrying the literal string --apply is refused outright, nothing written (0.510199ms)
+✔ C2 (seam, K1): installed.json records both jobs, each in its own name-owned file — installing collect-status never touches the janitor's installed.json and vice versa (0.908398ms)
+✔ C2 (seam, K3): --remove --job collect-status removes only the collect job's own files, leaving the janitor's timer/service/installed.json in place (1.16204ms)
+✔ C2 review round 1, M1: a collect-status install/remove sharing the janitor's own --name must never touch the janitor's units — each job gets its own marker (1.013097ms)
+✔ C2: --job collect-status refuses when collect-status.mjs is missing from the plugin root — job-scoped, distinct from the janitor's own missing-script message (0.331249ms)
+✔ C2 review round 2, N1: on Windows, --name reuse across jobs is refused before any write or exec (Task Scheduler's single task-name namespace) (1.783216ms)
+✔ C2 review round 2, N2: --remove --job collect-status without --to must not throw on darwin or win32 (launchdPlist argv coercion) (1.344646ms)
+✔ V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT} (2.188199ms)
+✔ V3: UserPromptSubmit injects the new notes and acks them (173.818517ms)
+✔ V3: Stop blocks with the notes as the reason, then never blocks on them again (185.423637ms)
+✔ V3: stop_hook_active short-circuits — a Stop hook must never loop (59.392234ms)
+✔ V3: PostToolUse is silent until the ledger changes, then injects once (153.865919ms)
+✔ V3: a session with no pane identity produces nothing at all (181.568538ms)
+✔ V3: an empty ledger, a missing notes dir and a corrupt cursor are all silent, exit 0 (264.028067ms)
+✔ V3: my own sends and other panes' notes are never injected (88.733843ms)
+✔ M1: a hook that cannot import its script exits 0 and SAYS SO once, never silently (111.392271ms)
+✔ M1: an unwritable cursor still surfaces the notes, with the problem named (186.631348ms)
+✔ M1: a bad NOTE_SLUG is reported once instead of silencing the pane (68.534824ms)
+✔ M1/M3: Stop never emits a config warning — a broken hook must not block a stop (53.971908ms)
+✔ M3: a missing packet is surfaced in the injected context, not just on stderr (105.227181ms)
+✔ L3: a Stop reason stays small — six notes, each truncated (103.201107ms)
+✔ L1: a stale pane-slug cache entry is not used — PostToolUse never acks the previous slug (164.187056ms)
+✔ V3: malformed stdin is not a crash (85.960705ms)
+✔ H4: a wedged orca cannot hold a prompt open — the hook returns inside its own budget (2552.009066ms)
+✔ H4: PostToolUse never pays for orca at all, wedged or not (53.670305ms)
+✔ D2: a session with a messaging socket registers its inbox, and prints no token (119.35968ms)
+✔ D2: a session with NOTHING waiting still registers - being reachable is the point (82.058084ms)
+✔ D2: Stop registers too, and a session without the env vars registers nothing (200.89675ms)
+✔ C4: SessionStart registers and does nothing else - a session that starts idle is reachable (57.959207ms)
+✔ C6: no session_id in the payload means no registration at all (101.887168ms)
+✔ D2: a GUESSED slug never registers - that would send another session its notes (174.782636ms)
+✔ S1: no hook child can register anything the fixture did not give it (437.158409ms)
+✔ N2: no test file in this suite inherits the runner environment on its own (24.04093ms)
+ℹ tests 140
+ℹ suites 0
+ℹ pass 140
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6258.14348

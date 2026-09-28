@@ -119,7 +119,7 @@ test("extractArtifactSha: 40-hex after @, a bare 40-hex, or null for anything el
   assert.equal(extractArtifactSha(undefined), null);
 });
 
-test("computeState: accepted maps by merged, rejected and withdrawn pass through as their own states, everything else is owned", () => {
+test("computeState: accepted maps by merged, rejected/withdrawn/closed pass through as their own states, everything else is owned", () => {
   assert.equal(computeState("accepted", true), "accepted-merged");
   assert.equal(computeState("accepted", false), "accepted-unmerged");
   assert.equal(computeState("accepted", null), "accepted-unmerged"); // unknown is never merged
@@ -127,6 +127,9 @@ test("computeState: accepted maps by merged, rejected and withdrawn pass through
   // R3 (withdraw-status-1): withdrawn is its own terminal state - never shown as owned (the
   // "still needs attention" fallback) or rejected (a false "awaiting a fix round" signal).
   assert.equal(computeState("withdrawn", null), "withdrawn");
+  // Lane 33 F2: closed is its own terminal state too, like withdrawn/accepted-merged - never
+  // folded into "owned" (which is why a stale closed record must never be flagged silent).
+  assert.equal(computeState("closed", null), "closed");
   assert.equal(computeState("owned", null), "owned");
   assert.equal(computeState(undefined, null), "owned"); // absent Status: -> owned, not no-record
   assert.equal(computeState("some-typo'd-status", null), "owned");

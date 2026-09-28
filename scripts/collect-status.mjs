@@ -40,8 +40,10 @@ import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/env
 import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
 
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
-// names plus the no-record row); anything else is counted as "other", never named.
-const NOTE_STATE_TOKENS = new Set(["owned", "rejected", "withdrawn", "accepted-merged", "accepted-unmerged", "no-record"]);
+// names plus the no-record row); anything else is counted as "other", never named. Lane 33 F2 adds
+// "closed" - computeState now returns it as its own terminal state rather than folding it into
+// "owned", so byState carries a real "closed" key that must not be counted as "other".
+const NOTE_STATE_TOKENS = new Set(["owned", "rejected", "withdrawn", "accepted-merged", "accepted-unmerged", "no-record", "closed"]);
 export const DEFAULT_ONLY_PREFIXES = ["build/"];
 
 export function parseArgs(argv) {
@@ -60,7 +62,17 @@ export function parseArgs(argv) {
     else if (a === "--to") out.to = argv[++i];
     else if (a === "--host") out.host = argv[++i];
     else if (a === "--merge-hours") out.mergeHours = Number(argv[++i]);
-    else if (a === "--stale-hours") out.staleHours = Number(argv[++i]);
+    else if (a === "--stale-hours") {
+      // Lane 33 F1 (docs/specs/collect-followups-1/spec.md): the same 0.1-48 range the installer's
+      // own --stale-hours now enforces, so a bad value here is refused before it ever reaches
+      // computeAttention - unvalidated, a NaN there would never compare greater than staleHours,
+      // silently never flagging a stale row rather than loudly refusing the run.
+      const raw = argv[++i];
+      out.staleHours = Number(raw);
+      if (!(Number.isFinite(out.staleHours) && out.staleHours >= 0.1 && out.staleHours <= 48)) {
+        out.staleHoursError = `--stale-hours must be a number from 0.1 to 48, got ${raw === undefined ? "(no value)" : raw}`;
+      }
+    }
     else if (a === "--quiet") out.quiet = true;
   }
   return out;
@@ -115,9 +127,10 @@ export function computeAttention(rows, mergeHours, staleHours, now) {
         continue;
       }
     }
-    // F2 (review r1): a `closed` record is terminal (work-record.mjs STATUSES), so it must never be
-    // flagged silent even though `computeState` still buckets it as "owned" (collect-from-origin.mjs).
-    if (r.state === "owned" && r.status !== "closed" && typeof r.hoursSinceLog === "number" && r.hoursSinceLog > staleHours) {
+    // Lane 33 F2: `closed` is now its own terminal state from `computeState` (collect-from-origin.mjs),
+    // never "owned", so this branch already excludes it without a separate status check - one place
+    // (computeState) decides state, replacing the `r.status !== "closed"` guard this used to need.
+    if (r.state === "owned" && typeof r.hoursSinceLog === "number" && r.hoursSinceLog > staleHours) {
       out.push({
         branch: r.branch, recordPath: r.recordPath ?? null, state: r.state,
         reason: `silent-over-${staleHours}-h`,
@@ -458,7 +471,7 @@ export function buildStatusMd({ status, fetchStatus, sendOutcome, budget = STATU
   const [tableHeader, ...tableRows] = formatTable(rows.slice(0, rowsShown))
     .replace(/^([^\n]*)\tstate(?=\n|$)/, "$1\tlane")
     .split("\n");
-  lines.push(tableHeader, "lane: every non-terminal Status shows as owned", ...tableRows);
+  lines.push(tableHeader, "lane: every non-terminal Status shows as owned; closed is its own terminal lane", ...tableRows);
   if (anyCut) lines.push(`(+${cutAttn + cutRows} more, see status.json)`);
   return `${lines.join("\n")}\n`;
 }
@@ -476,6 +489,14 @@ export function main(argv = process.argv.slice(2), opts = {}) {
 
   try {
     const args = parseArgs(argv);
+    // Lane 33 F1: a bad --stale-hours is the one CLI-parsing mistake worth its own exit code (2)
+    // rather than the blanket "exit 0 always" this run otherwise promises for every other error -
+    // a silently-accepted NaN/out-of-range value would just never trip computeAttention's threshold,
+    // never telling the operator their flag was wrong.
+    if (args.staleHoursError) {
+      warn(`collect-status: ${args.staleHoursError}`);
+      return 2;
+    }
     const repo = path.resolve(args.repo ?? opts.cwd ?? process.cwd());
     const outDir = args.out ? path.resolve(args.out) : defaultOutDir(home, repo);
 
