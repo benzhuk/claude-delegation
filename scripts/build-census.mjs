@@ -233,6 +233,29 @@ export function classifyCodexWake(obj) {
   return { to: m[2], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[4]) };
 }
 
+/**
+ * A Codex Stop-hook block. When the multi-inbox Stop hook refuses a stop, Codex records the hook's output as
+ * an `event_msg` / `item_completed` whose `item.type` is `HookPrompt`; each fragment carries the hook's text
+ * and a `hookRunId` that starts with the event, `stop:`. (Read live: rollout 01a0df4c-2809-7520-b1d7-876cc51a87ee,
+ * 2026-09-28T03:56:33Z. The same block also appears once as a `<hook_prompt hook_run_id="stop:...">` user
+ * message; that form is not counted, or each block would count twice.) Another Stop hook uses the same item
+ * shape ("Continuation accounting ..."), so a block is counted only when the fragment text holds the multi-inbox
+ * reason sentence. The sentence in tool output (CommandExecution, custom_tool_call_output) is another item type
+ * and never matches. Returns null or `{ slug }`.
+ */
+export function classifyCodexStopBlock(obj) {
+  if (!obj || obj.type !== 'event_msg') return null;
+  const p = obj.payload;
+  if (!p || p.type !== 'item_completed' || !p.item || p.item.type !== 'HookPrompt' || !Array.isArray(p.item.fragments)) return null;
+  for (const f of p.item.fragments) {
+    if (!f || typeof f.hookRunId !== 'string' || !f.hookRunId.startsWith('stop:')) continue;
+    if (typeof f.text !== 'string' || !f.text.includes(STOP_BLOCK_REASON)) continue;
+    const m = PEER_HEADER_RE.exec(f.text);
+    return { slug: m ? m[1] : null };
+  }
+  return null;
+}
+
 /** The slug a Codex developer-role hook context addresses. */
 function codexHookContextSlug(obj) {
   if (!obj || obj.type !== 'response_item' || !obj.payload || obj.payload.type !== 'message' || obj.payload.role !== 'developer') return null;
@@ -605,6 +628,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   let currentModel = null;
   const unknownModels = new Set();
   const invalidResponseTimestamps = new Set();
+  const stopBlocks = { window: 0, total: 0 };
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
   const slugVotes = new Map();
   const vote = (slug) => { if (slug) slugVotes.set(slug, (slugVotes.get(slug) || 0) + 1); };
@@ -648,6 +672,12 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
       vote(wake.to);
     }
     vote(codexHookContextSlug(obj));
+    const stop = classifyCodexStopBlock(obj);
+    if (stop) {
+      stopBlocks.total += 1;
+      if (inWindow) stopBlocks.window += 1;
+      vote(stop.slug);
+    }
     const started = nativeTaskStarted(obj);
     if (started && inWindow) windowNativeTurns.add(started);
     if (started) totalNativeTurns.add(started);
@@ -698,6 +728,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     tokenRecordCount, windowTokenRecordCount,
     windowLastAt: (marker || fromMs !== null || toMs !== null) ? windowLastAt : lastAt,
     wakes: wakes.window, wakesDoneTick: wakes.windowDoneTick, wakesTotal: wakes.total,
+    stopBlocks: stopBlocks.window, stopBlocksTotal: stopBlocks.total,
     slugVotes: [...slugVotes.entries()],
     sessionId: meta.id,
     rootSessionId: meta.session_id,
@@ -1091,8 +1122,6 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
  * opts: { lead, tasksDirs, marker, out, json, roleMap } — see parseArgs. fsImpl defaults
  * to real node:fs.
  */
-/** Why a Codex lead has no Stop-block count: no rollout on record holds the Stop hook's block. */
-export const CODEX_STOP_BLOCK_REASON = 'no Codex rollout record of a Stop-hook block is established; the Stop reason appears only inside tool output';
 
 async function runCodexCensus(opts, fsImpl) {
   const lead = await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker, from: opts.from, to: opts.to });
@@ -1170,7 +1199,7 @@ async function runCodexCensus(opts, fsImpl) {
       totalByModel: coverageSupported ? leadTotalByModel : null, windowByModel: coverageSupported ? leadWindowByModel : null,
       observedTotalByModel: leadTotalByModel, observedWindowByModel: leadWindowByModel,
       wakes: lead.wakes, wakesNoteFlush: lead.wakes - lead.wakesDoneTick, wakesDoneTick: lead.wakesDoneTick, wakesTotal: lead.wakesTotal,
-      stopBlocks: null, stopBlocksUnavailable: CODEX_STOP_BLOCK_REASON,
+      stopBlocks: lead.stopBlocks, stopBlocksTotal: lead.stopBlocksTotal,
       markerFound: lead.markerFound, windowStartAt: lead.windowStartAt, windowEndAt: endAt, leadLastMessageAt: lead.lastAt,
       turnsPerHour: wallClockHours ? lead.windowById.size / wallClockHours : null, wallClockHours,
       codex: {
@@ -1432,7 +1461,7 @@ function formatCodexText(report) {
   md.push(`- leadTurns: ${report.lead.leadTurns}`);
   md.push(`- wallClockHours: ${report.lead.wallClockHours === null ? 'n/a' : report.lead.wallClockHours.toFixed(2)}`);
   md.push(`- wakes: ${report.lead.wakes} (${report.lead.wakesNoteFlush} note-flush, ${report.lead.wakesDoneTick} Done-tick)`);
-  md.push(`- stopBlocks: unavailable (${report.lead.stopBlocksUnavailable})`);
+  md.push(`- stopBlocks: ${report.lead.stopBlocks}`);
   md.push(`- stallNudges: ${stallNudgesLabel(report.stallNudges)}`);
   md.push(`- by-model: ${supported ? Object.keys(report.combined).sort().map((model) => `${model}=${report.combined[model].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);
   md.push(`- by-role: ${supported ? Object.keys(report.subagents.totalByRole).sort().map((role) => `${role}=${report.subagents.totalByRole[role].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);

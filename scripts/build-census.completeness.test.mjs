@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   parseArgs, runCensus, formatText, formatJson,
-  classifyWake, classifyStopBlock, classifyCodexWake, CODEX_STOP_BLOCK_REASON, WAKE_PREFIX, STOP_BLOCK_REASON, STOP_FEEDBACK_PREFIX,
+  classifyWake, classifyStopBlock, classifyCodexWake, classifyCodexStopBlock, WAKE_PREFIX, STOP_BLOCK_REASON, STOP_FEEDBACK_PREFIX,
 } from './build-census.mjs';
 import { buildEnvelope } from '../skills/multi/scripts/envelope.mjs';
 import { inboxFrames, DEFAULT_FROM } from '../skills/multi/scripts/inbox-claude.mjs';
@@ -179,27 +179,28 @@ test('a note-flush delivery queued into a running turn joins that turn and is no
   assert.equal(classifyStopBlock(queued[0]), null);
 });
 
-// ── Codex leads: wakes and stall nudges are read; Stop-blocks are unavailable by a stated reason ──
+// ── Codex leads: wakes and stall nudges are read; wakes, Stop-blocks and stall nudges are all read ──
 // The wake record shape was read on a live rollout that received a queued note
 // (01a0dab2-065e-7a31-bff4-9aecfe1fa833, 2026-09-25T22:32:53Z): a response_item / message / user whose one
 // input_text part is exactly the envelope line. codex-lead.jsonl reproduces that shape.
 const CODEX_LEAD = path.join(HERE, 'build-census.fixtures', 'completeness', 'codex-lead.jsonl');
 const codexBase = () => ({ lead: CODEX_LEAD, tasksDirs: [], marker: null, ledgerDir: LEDGER, leadSlug: 'skills-o', codexHome: mkTmp('census-codex-home-') });
 
-test('codex lead: one note-flush wake and one Done-tick wake, and one stall nudge; Stop-blocks unavailable with the stated reason', async () => {
+test('codex lead: one note-flush wake and one Done-tick wake, one Stop-block, and one stall nudge', async () => {
   const report = await runCensus(codexBase());
   assert.equal(report.lead.host, 'codex');
   assert.equal(report.lead.wakesNoteFlush, 1);
   assert.equal(report.lead.wakesDoneTick, 1);
   assert.equal(report.lead.wakes, 2);
   assert.equal(report.lead.wakesTotal, 2);
-  assert.equal(report.lead.stopBlocks, null);
-  assert.equal(report.lead.stopBlocksUnavailable, CODEX_STOP_BLOCK_REASON);
+  assert.equal(report.lead.stopBlocks, 1);
+  assert.equal(report.lead.stopBlocksTotal, 1);
+  assert.equal('stopBlocksUnavailable' in report.lead, false);
   assert.equal(report.stallNudges.count, 1);
   assert.deepEqual(report.stallNudges.ids, ['collect-netcup-stall-build-fixture-1-abc1234-1']);
   const text = formatText(report);
   assert.match(text, /^- wakes: 2 \(1 note-flush, 1 Done-tick\)$/m);
-  assert.match(text, /^- stopBlocks: unavailable \(no Codex rollout record/m);
+  assert.match(text, /^- stopBlocks: 1$/m);
   assert.match(text, /^- stallNudges: 1 to skills-o/m);
 });
 
@@ -211,6 +212,23 @@ test('codex lead: the slug is inferred from the rollout, and the window narrows 
   assert.equal(late.lead.wakes, 1);
   assert.equal(late.lead.wakesDoneTick, 1);
   assert.equal(late.lead.wakesTotal, 2);
+  assert.equal(late.lead.stopBlocks, 1, 'the block at 12:30 is inside a window from 12:10');
+  const after = await runCensus({ ...codexBase(), from: '2026-09-27T12:35:00Z' });
+  assert.equal(after.lead.stopBlocks, 0);
+  assert.equal(after.lead.stopBlocksTotal, 1);
+});
+
+test('codex lead: only a HookPrompt item from a stop: hook that holds the multi-inbox reason is a Stop-block', () => {
+  const item = (hookRunId, text, type = 'HookPrompt') => ({ type: 'event_msg', payload: { type: 'item_completed', item: { type, fragments: [{ text, hookRunId }] } } });
+  const block = `1 new peer note for skills-o (the multi skill; the ledger is the channel):\n  x\n\n${STOP_BLOCK_REASON}`;
+  assert.deepEqual(classifyCodexStopBlock(item('stop:12:C:\\hooks.json', block)), { slug: 'skills-o' });
+  assert.deepEqual(classifyCodexStopBlock(item('stop:1:x', STOP_BLOCK_REASON)), { slug: null });
+  assert.equal(classifyCodexStopBlock(item('stop:11:x', 'Continuation accounting for the bound selected work: none.')), null, 'another Stop hook');
+  assert.equal(classifyCodexStopBlock(item('userpromptsubmit:3:x', block)), null, 'not a stop: hook run');
+  assert.equal(classifyCodexStopBlock(item('stop:12:x', block, 'CommandExecution')), null, 'tool output is another item type');
+  assert.equal(classifyCodexStopBlock({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `<hook_prompt hook_run_id="stop:12:x">${block}</hook_prompt>` }] } }), null, 'the paired user message would double the count');
+  assert.equal(classifyCodexStopBlock({ type: 'response_item', payload: { type: 'custom_tool_call_output', output: block } }), null);
+  assert.equal(classifyCodexStopBlock(null), null);
 });
 
 test('codex lead: text that only resembles a wake is not counted', () => {

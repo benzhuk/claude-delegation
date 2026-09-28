@@ -67,23 +67,24 @@ test('stall nudges are counted over the record window, not the census window', a
   assert.match(value, /wakes unavailable \(census window ends 2026-09-27T12:59:00.000Z, after the last acceptance\); Stop-blocks unavailable/);
 });
 
-test('a census that predates the counts, or a Codex census, is unavailable rather than zero', async () => {
+test('a census that predates the counts is unavailable rather than zero', async () => {
   const old = await setup({ mutateCensus: (c) => { delete c.lead.wakes; delete c.lead.stopBlocks; return c; } });
   assert.match(row(buildFourRead({ record: old.record, census: old.censusPath, ledger: LEDGER, leadSlug: 'skills-o' }, fs)), /; wakes unavailable \(census predates wake\/Stop-block counts\); Stop-blocks unavailable \(census predates wake\/Stop-block counts\); stall nudges 1 to skills-o/);
   assert.match(computeCompletenessSuffix(null, null, null, { openedMs: null, acceptedMs: null }, null), /wakes unavailable \(no census\)/);
 });
 
-test('a Codex census prints its wakes and stall nudges, and Stop-blocks as unavailable with the stated reason', async () => {
+test('a Codex census prints its wakes, Stop-blocks and stall nudges as numbers', async () => {
   const CODEX_FIXTURE = path.join(HERE, 'build-census.fixtures', 'completeness', 'codex-lead.jsonl');
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'four-read-codex-home-'));
   tracked.push(codexHome);
   const census = await runCensus({ lead: CODEX_FIXTURE, tasksDirs: [], marker: null, ledgerDir: LEDGER, leadSlug: 'skills-o', codexHome });
   assert.equal(census.lead.host, 'codex');
+  assert.equal(census.lead.stopBlocks, 1);
   const entries = collectLedgerEntries(LEDGER, fs);
   const openedMs = Date.parse('2026-09-27T12:00:00.000Z');
   const acceptedMs = Date.parse('2026-09-27T13:00:00.000Z');
   const value = computeCompletenessSuffix(census, entries, 'skills-o', { openedMs, acceptedMs, reason: null }, acceptedMs);
-  assert.match(value, /^wakes 2 \(1 note-flush, 1 Done-tick\); Stop-blocks unavailable \(no Codex rollout record of a Stop-hook block is established; the Stop reason appears only inside tool output\); stall nudges 1 to skills-o: collect-netcup-stall-build-fixture-1-abc1234-1$/);
+  assert.match(value, /^wakes 2 \(1 note-flush, 1 Done-tick\); Stop-blocks 1; stall nudges 1 to skills-o: collect-netcup-stall-build-fixture-1-abc1234-1$/);
 });
 
 test('countStallNudges: collect-*-stall-* ids to the slug, inside the window, and nothing else', () => {

@@ -224,11 +224,9 @@ transcript and the repo's ledger): no new log, no new hook. They print in the `#
 `stallNudges` in the JSON, and in `four-read.mjs`'s "Work lost or stalled" row (below). Each is
 counted inside the census window (`--marker`, `--from`/`--to`, else the whole file), with the
 whole-file total beside it (`wakesTotal`, `stopBlocksTotal`). None of the three reads a
-subagent transcript. A Codex lead is read for wakes (below) and its stall nudges are counted the
-same way (the ledger is host-agnostic); its Stop-blocks are `null` with `stopBlocksUnavailable`
-saying why: no Codex rollout record of a Stop-hook block is established, and the Stop reason
-sentence appears in a rollout only inside tool output, where it would also match a command that
-merely printed it. `four-read.mjs` prints that reason instead of a number.
+subagent transcript. A Codex lead is read for all three: wakes and Stop-blocks from its rollout
+(each below) and stall nudges from the ledger, which is host-agnostic. No Codex field is
+unavailable.
 
 **`wakes`** is the number of lead turns that start from a peer note delivered by note-flush, of
 which `wakesDoneTick` start from the Done-tick line and `wakesNoteFlush` from any other note
@@ -274,6 +272,20 @@ sum), so a transcript that keeps only one form still counts it. The same sentenc
 prose, a human prompt or a tool result, another hook's Stop reason, or the multi-inbox reason
 on a non-Stop event, is not a block. A test pins `STOP_BLOCK_REASON` in `build-census.mjs` to
 the hook's own export, so a reworded hook fails the suite instead of silently counting zero.
+
+A Codex lead records the same block once as an `event_msg` whose payload is an `item_completed`
+with `item.type: "HookPrompt"`; each item fragment carries the hook's `text` and a `hookRunId`
+that starts with the event name, `stop:`. It is counted when a fragment's `hookRunId` starts
+with `stop:` and its text contains the reason sentence above. The paired `response_item` user
+message `<hook_prompt hook_run_id="stop:...">` holds the same text and is not counted, or each
+block would count twice. A different Stop hook produces the same item shape (for example
+"Continuation accounting for the bound selected work: ..."), so the reason sentence, not
+`stop:` alone, decides. The sentence inside tool output (`CommandExecution`,
+`custom_tool_call_output`), or under a `hookRunId` for another event, is not a block. Shape
+verified live on rollout `01a0df4c-2809-7520-b1d7-876cc51a87ee` at 2026-09-28T03:56:33Z
+(`response_item` user message, then the `HookPrompt` `item_completed` 7 ms later); the fixture
+`scripts/build-census.fixtures/completeness/codex-lead.jsonl` reproduces it with lookalike
+negatives.
 
 **`stallNudges`** is the number of stall nudges the lead received: lines in
 `<ledger-dir>/*.md` (default `docs/ledger`) whose id matches `^collect-.+-stall-` — the ASK the
@@ -381,8 +393,8 @@ verbatim from `docs/specs/2026-09-25-four-number-read.md`:
    that census is the build's window (the same check as number 1: window start not before
    `Opened:` minus 5 minutes, window end not after the last acceptance plus 5 minutes);
    otherwise each says `unavailable (<reason>)`, as it does for a census that predates the
-   counts. A Codex census prints its wakes the same way, and its Stop-blocks as `unavailable
-   (no Codex rollout record of a Stop-hook block is established; ...)`. Stall nudges are counted by `four-read.mjs` itself from
+   counts (no integer for wakes and Stop-blocks); a Codex census prints all three the same way.
+   Stall nudges are counted by `four-read.mjs` itself from
    `--ledger` over `Opened:` to the first accepted `Log:`, for `--lead-slug`, and say
    `unavailable (<reason>)` without either. Nothing is ever printed as a zero it did not
    count.
