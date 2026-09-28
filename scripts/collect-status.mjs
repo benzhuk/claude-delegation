@@ -38,6 +38,7 @@ import { main as collectFromOriginMain, fullRef, refExists, formatTable } from "
 import { parseRecord, STATUSES } from "./work-record.mjs";
 import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/envelope.mjs";
 import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
+import { loadProjectConfig } from "./project-config.mjs";
 
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
 // names plus the no-record row); anything else is counted as "other", never named. Lane 33 F2 adds
@@ -318,12 +319,18 @@ function killSwitchPath(home, repoAbs) {
   return path.join(defaultOutDir(home, repoAbs), "no-nudge");
 }
 
-function buildStallNudgeArgv({ from, to, repo, text, topic, by }) {
-  return [
+// Lane 43 (cross-host nudge): `--sender-host <name>` is note-send's own existing flag
+// (skills/multi/scripts/note-send.mjs resolveSenderHost) - passing it here is the whole fix, no
+// new transport. Omitted (undefined/null/"") when the owner has no entry in the lookup, which
+// keeps today's behaviour byte-for-byte for every owner this table does not name.
+function buildStallNudgeArgv({ from, to, repo, text, topic, by, senderHost }) {
+  const argv = [
     "--from", from, "--to", to, "--kind", "ASK", "--no-type",
     "--recipient-repo", repo, "--topic", topic, "--text", text,
     "--needs", "review", "--by", by,
   ];
+  if (senderHost) argv.push("--sender-host", senderHost);
+  return argv;
 }
 
 /**
@@ -332,7 +339,7 @@ function buildStallNudgeArgv({ from, to, repo, text, topic, by }) {
  * per-row outcomes so a caller (or a test) can see what happened without re-deriving it.
  */
 function sendStallNudges({
-  args, home, env, hostname, repoAbs, rows, attention, now, warn,
+  args, home, env, hostname, repoAbs, rows, attention, now, warn, ownerHosts,
   spawnNoteSend, resolveNoteSendFn,
 }) {
   // F3 (review r1): --quiet means "send nothing this run", same promise it already makes for the
@@ -388,7 +395,11 @@ function sendStallNudges({
     const text = `${a.branch} has had no Log line for ${hours} h in state ${statusWord}. `
       + "Reply with the lane state and a new ETA, or BLOCKED. A Log line on the record resets this.";
     const by = timeParts(new Date(now + 30 * 60_000)).time;
-    const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by });
+    // Lane 43: the owner's own mirror host, from `.agents/project.json`'s `owner_hosts` table
+    // (loaded once by the caller, never a hardcoded map here). An owner with no entry there gets
+    // `undefined` -> `buildStallNudgeArgv` omits the flag -> today's sender-only-host behaviour.
+    const senderHost = ownerHosts && typeof ownerHosts[owner] === "string" ? ownerHosts[owner] : undefined;
+    const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by, senderHost });
     const result = spawnNoteSend(execPath, argv);
     if (result && result.status !== 0) {
       warn(`collect-status: stall-nudge send exit ${result.status ?? "unknown"} for ${a.branch}`);
@@ -586,8 +597,14 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     // for waking a lead.
     if (!fetchFailed) {
       try {
+        // Lane 43 (cross-host nudge): the Owner-slug -> mirror-host lookup lives ONLY in
+        // `.agents/project.json`'s `owner_hosts` key, read through the one project-config loader
+        // every script already shares (never a map hardcoded here). A missing/malformed table
+        // resolves to `{}` inside the loader itself, so every owner is simply unmapped - today's
+        // behaviour, no flag - rather than this call ever needing its own fallback.
+        const ownerHosts = loadProjectConfig(repo).config.owner_hosts || {};
         sendStallNudges({
-          args, home, env, hostname, repoAbs: repo, rows, attention, now, warn,
+          args, home, env, hostname, repoAbs: repo, rows, attention, now, warn, ownerHosts,
           spawnNoteSend: spawnNoteSendFn, resolveNoteSendFn,
         });
       } catch (err) {

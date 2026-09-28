@@ -1072,6 +1072,114 @@ test("stall-nudge: a failed fetch never sends an ASK either, same promise as the
   assert.equal(spawn.calls.length, 0, "a failed fetch never wakes anyone, ASK included");
 });
 
+// ---------------------------------------------------------------------------
+// Lane 43 (cross-host nudge, docs/specs/cross-host-nudge-1): the ASK for an owner on another
+// host must carry --sender-host <that host> (note-send.mjs's own existing flag, resolveSenderHost),
+// so the existing ssh mirror (runMirror) writes the line into the OWNER's own ledger instead of
+// only the sender's. The Owner-to-host lookup is `.agents/project.json`'s `owner_hosts` key, read
+// through the shared project-config loader - never a map hardcoded in this collector.
+// ---------------------------------------------------------------------------
+
+test("stall-nudge: an owner mapped in .agents/project.json's owner_hosts gets --sender-host <that host>", () => {
+  const root = initRepoWithOrigin();
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".agents", "project.json"),
+    JSON.stringify({ owner_hosts: { "skills-h": "zhuk-vps32" } }),
+  );
+  commitAll(root, "add owner_hosts table");
+  git(["push", "-q", "origin", "main"], root);
+
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/cross-host-stall");
+  writeRecord(root, "wr-2026-09-27-crosshost.record.md", [
+    "Work: wr-2026-09-27-crosshost", "Owner: skills-h", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned skills-h note`, "",
+  ]);
+  commitAll(root, "cross-host stall record");
+  pushBranch(root, "build/cross-host-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home },
+  );
+
+  assert.equal(spawn.calls.length, 1, `expected exactly one ASK, got: ${JSON.stringify(spawn.calls.map((c) => c.args))}`);
+  const args = spawn.calls[0].args;
+  const get = (flag) => args[args.indexOf(flag) + 1];
+  assert.equal(get("--to"), "skills-h");
+  assert.equal(get("--sender-host"), "zhuk-vps32");
+});
+
+test("stall-nudge: an owner absent from owner_hosts (table present, no entry for this owner) gets no --sender-host flag", () => {
+  const root = initRepoWithOrigin();
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".agents", "project.json"),
+    JSON.stringify({ owner_hosts: { "skills-h": "zhuk-vps32" } }),
+  );
+  commitAll(root, "add owner_hosts table");
+  git(["push", "-q", "origin", "main"], root);
+
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/unmapped-owner-stall");
+  writeRecord(root, "wr-2026-09-27-unmapped.record.md", [
+    "Work: wr-2026-09-27-unmapped", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned leadslug note`, "",
+  ]);
+  commitAll(root, "unmapped owner stall record");
+  pushBranch(root, "build/unmapped-owner-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home },
+  );
+
+  assert.equal(spawn.calls.length, 1, `expected exactly one ASK, got: ${JSON.stringify(spawn.calls.map((c) => c.args))}`);
+  const args = spawn.calls[0].args;
+  assert.equal(args.includes("--sender-host"), false, "no owner_hosts entry: no --sender-host flag, today's behaviour");
+});
+
+test("stall-nudge: with no .agents/project.json at all, no --sender-host flag is ever added (today's behaviour, unmodified)", () => {
+  const root = initRepoWithOrigin();
+
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  newBranch(root, "build/no-config-stall");
+  writeRecord(root, "wr-2026-09-27-noconfig.record.md", [
+    "Work: wr-2026-09-27-noconfig", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned leadslug note`, "",
+  ]);
+  commitAll(root, "no-config stall record");
+  pushBranch(root, "build/no-config-stall");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home },
+  );
+
+  assert.equal(spawn.calls.length, 1, `expected exactly one ASK, got: ${JSON.stringify(spawn.calls.map((c) => c.args))}`);
+  const args = spawn.calls[0].args;
+  assert.equal(args.includes("--sender-host"), false, "no .agents/project.json: no --sender-host flag");
+});
+
 after(() => {
   // Under scripts/run-tests.mjs every mkTmp'd dir here lives under FIXTURE_ROOT, and
   // makeTempHome's own cleanup() already removes the whole sealed home (fixtureRoot included)
