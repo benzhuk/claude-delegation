@@ -58,6 +58,20 @@ function runnableRecord(root) {
   ].join('\n'));
 }
 
+function wireHealthyWiringHome(home) {
+  const write = (relative, text) => {
+    const file = path.join(home, relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+  };
+  write('.agents/lean-rules.md', '# fixture rules\n');
+  write('.local/bin/note-send', '#!/bin/sh\n');
+  write('.claude/settings.json', JSON.stringify({ crossSessionInbound: 'accept' }));
+  write('.agents/janitor/installed.json', JSON.stringify({ schema: 1 }));
+  write('.agents/janitor/last-run.log', 'ok\n');
+  fs.mkdirSync(path.join(home, '.agents', 'notes'), { recursive: true });
+}
+
 function peerNotes() {
   return {
     slug: 'lead', count: 1, problems: [], scanned: [],
@@ -125,7 +139,7 @@ test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop out
   const input = { session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'native-turn' };
   const deps = {
     home,
-    env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO },
+    env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
     inbox: async () => peerNotes(),
     handleContinuationEvent: async () => ({ context: 'CONTINUATION-PARITY-MARKER' }),
     nativeRouteForLead,
@@ -163,12 +177,13 @@ test('the actual wrapper CLI selects the default native backlog route and writes
 
 test('real SessionStart without transcript metadata still routes wiring while preserving peer context', async (t) => {
   const root = scratch('codex-parity-no-transcript-project-'); const home = scratch('codex-parity-no-transcript-home-');
-  rmLater(t, root); rmLater(t, home);
+  const healthyHome = scratch('codex-parity-wiring-healthy-home-');
+  rmLater(t, root); rmLater(t, home); rmLater(t, healthyHome);
   const result = await runCodexHook(
     { hook_event_name: 'SessionStart', session_id: LEAD, cwd: root, turn_id: 'no-transcript-turn' },
     {
       home,
-      env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO },
+      env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
       inbox: async () => peerNotes(),
       handleContinuationEvent: async () => ({ context: 'NO-TRANSCRIPT-CONTINUATION' }),
       nativeRouteForLead,
@@ -177,6 +192,18 @@ test('real SessionStart without transcript metadata still routes wiring while pr
   assert.match(context(result), /wiring:/, 'Codex callbacks do not supply transcript_path');
   assert.match(context(result), /peer → lead/, 'unknown role must retain peer delivery');
   assert.match(context(result), /NO-TRANSCRIPT-CONTINUATION/, 'unknown role must retain continuation delivery');
+  wireHealthyWiringHome(healthyHome);
+  const healthy = await runCodexHook(
+    { hook_event_name: 'SessionStart', session_id: LEAD, cwd: root, turn_id: 'healthy-wiring-turn' },
+    {
+      home: healthyHome,
+      env: childEnv(healthyHome, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(healthyHome, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
+      inbox: async () => ({ slug: 'lead', count: 0, notes: [] }),
+      codexContinuationSupported: false,
+      nativeRouteForLead,
+    },
+  );
+  assert.equal(healthy, null, 'a fully wired isolated home keeps SessionStart silent');
 });
 
 test('route child early-close and bounded timeout fail silent without erasing peer or advisory output', async (t) => {
