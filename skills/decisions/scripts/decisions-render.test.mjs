@@ -133,6 +133,46 @@ test('normalize: a real content change is never hidden', () => {
   assert.notEqual(normalize('a\nb\n'), normalize('a\nc\n'));
 });
 
+const RENDER_READBACK_48_FIXTURES = path.join(HERE, 'fixtures', 'render-readback-48');
+const lane48Intended = fs.readFileSync(
+  path.join(RENDER_READBACK_48_FIXTURES, 'main-merge-r2-decisions-intended-publish-render.md'),
+  'utf8',
+);
+const lane48Live = fs.readFileSync(
+  path.join(RENDER_READBACK_48_FIXTURES, 'main-merge-r2-decisions-live-after-exit5.md'),
+  'utf8',
+);
+
+test('normalize: Lane48 exact Notion readback differs only by the structural details separator', () => {
+  assert.equal(normalize(lane48Intended), normalize(lane48Live));
+});
+
+test('normalize: Lane48 meaningful changes and fenced literals remain unequal', () => {
+  assert.notEqual(
+    normalize(lane48Intended),
+    normalize(lane48Live.replace('\t- [ ] Yes, release 0.20.18 now\n', '')),
+    'removing a bullet must remain visible',
+  );
+  assert.notEqual(
+    normalize(lane48Intended),
+    normalize(lane48Live.replace('\t- [ ] Yes, release 0.20.18 now', '\t- [x] Yes, release 0.20.18 now')),
+    'changing a tick must remain visible',
+  );
+  assert.notEqual(
+    normalize(lane48Intended),
+    normalize(lane48Live.replace(
+      '\t- [ ] Yes, release 0.20.18 now\n\t- [ ] Hold',
+      '\t- [ ] Hold\n\t- [ ] Yes, release 0.20.18 now',
+    )),
+    'moving a content line must remain visible',
+  );
+  assert.notEqual(
+    normalize('```md\n</details>\n\nnext\n```'),
+    normalize('```md\n</details>\nnext\n```'),
+    'a literal closing tag inside a fenced block must retain its blank line',
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // countSentences() — now.md's three-to-five-sentence rule
 // ─────────────────────────────────────────────────────────────────────────────
