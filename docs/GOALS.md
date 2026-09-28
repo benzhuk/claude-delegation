@@ -53,7 +53,7 @@ The top-tier lead plans, adjudicates and synthesizes. Tools run in the cheapest 
 In Ben's words: "I think you are taking too many turns, at least from what I can see! Think about our plan and how to fix this." (9-21) "one major tooling direction is to run tools in the cheapest subagent that achieves the goal and read the results in a higher level agent." (9-21)
 
 Measure: lead turns per build; share of tool output read by the top tier.
-Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 hand-run (no source record; 2026-09-25 bearings O9). Loop-gates' 7 lead turns is a hand count no script has checked (`docs/work/wr-2026-09-24-loop-gates.record.md:16`; 2026-09-25 bearings O3). Census-complete's script count is 32 lead turns at re-acceptance, over the 20-turn target (`docs/work/evidence/wr-2026-09-25-census-complete-census.md`; 2026-09-25 bearings O4).
+Status: PARTIAL. 19 and 67 orchestrator turns on the two loop builds against 152 turns (no source record; 2026-09-25 bearings O9). Loop-gates' 7 lead turns is a hand count no script has checked (`docs/work/wr-2026-09-24-loop-gates.record.md:16`; 2026-09-25 bearings O3). Census-complete's script count is 32 lead turns at re-acceptance, over the 20-turn target (`docs/work/evidence/wr-2026-09-25-census-complete-census.md`; 2026-09-25 bearings O4).
 
 ## Simplest architecture, rethought from the aim
 
