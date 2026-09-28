@@ -1,4 +1,4 @@
-VERDICT: COUNTED 36 lead requests (leadTurns 8), 193 subagent files, leadLastMessageAt: 2026-09-28T19:50:34.169Z
+VERDICT: COUNTED 36 lead requests (leadTurns 8), 193 subagent files, leadLastMessageAt: 2026-09-28T19:50:47.721Z
 
 # Build census
 
@@ -14,18 +14,18 @@ Lead: `f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e.jsonl` | Tasks dirs: (none) | Defaul
 
 ## Lead transcript
 
-- Total assistant turns, deduped (whole file): **896**
+- Total assistant turns, deduped (whole file): **897**
 - Window assistant turns, deduped: **36**
 - leadTurns (conversational runs — see docs/census.md): **8**
-- Window: 2026-09-28T19:13:54.124Z .. 2026-09-28T19:50:27.903Z
-- Turns/hour in window: **59.08**
+- Window: 2026-09-28T19:13:54.124Z .. 2026-09-28T19:50:40.090Z
+- Turns/hour in window: **58.75**
 
 ### Lead tokens by model — whole file (deduped)
 
 | model | input | cache_creation | cache_read | output |
 |---|---|---|---|---|
 | <synthetic> | 0 | 0 | 0 | 0 |
-| claude-opus-5-5 | 1790 | 3372054 | 149139248 | 578047 |
+| claude-opus-5-5 | 1792 | 3373209 | 149352743 | 578831 |
 
 ### Lead tokens by model — window (deduped)
 
