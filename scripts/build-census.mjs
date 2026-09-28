@@ -49,10 +49,12 @@
 // lead sessions spawn no subagents, or Task-tool subagents only) and contributes zero
 // files without complaint.
 //
-// SECRECY, load-bearing: this tool never reads or prints `message.content` (or any other
-// transcript text) except to test membership of `--marker` inside a parsed line via
-// `containsMarkerDeep`, which returns only a boolean and never the matched string. Output
-// is numbers, model names, role names, and file paths only.
+// SECRECY, load-bearing: this tool never prints `message.content` (or any other transcript
+// text). It tests membership of `--marker` inside a parsed line via `containsMarkerDeep`,
+// which returns only a boolean and never the matched string; and (lane 38) it matches the
+// plugin's own wake / Stop-block marker strings (classifyWake, classifyStopBlock), keeping
+// only a kind and a recipient slug from them, never the text. Output is numbers, model
+// names, role names, slugs, ledger ids, and file paths only.
 //
 // node --test scripts/build-census.test.mjs
 
@@ -60,6 +62,8 @@ import fs, { realpathSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+
+import { collectLedgerEntries, countStallNudges } from './four-read.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage aggregation
@@ -134,6 +138,90 @@ function isToolResultOnlyUser(obj) {
   const content = obj.message && obj.message.content;
   if (!Array.isArray(content)) return false; // a string/notification body is a real user turn
   return content.length > 0 && content.every((c) => c && c.type === 'tool_result');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wakes, Stop-blocks (census-completeness, lane 38). Read-only over the lead transcript: each
+// classifier below answers a kind / a slug / null and the text it looked at is never kept or printed.
+// The marker strings are the plugin's own; see docs/census.md "Wakes, Stop-blocks, stall nudges"
+// for each marker with its producing file:line.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Claude Code's own prefix on a peer turn; the envelope line the plugin wrote follows it. */
+export const WAKE_PREFIX = 'Another Claude session sent a message:';
+/** The plugin's envelope line (skills/multi/scripts/envelope.mjs ENVELOPE_RE, without the tail groups). */
+const ENVELOPE_LINE_RE = /^([a-z0-9-]+) → ([a-z0-9-]+), \d{1,2}\.\d{1,2}\.\d{2} \d{2}:\d{2} [A-Z]{2,5} \[([a-z0-9-]+-\d+)(?: re [a-z0-9-]+-\d+)?(?: supersedes [a-z0-9-]+-\d+)?\] (?:ASK|ACK|RESULT|BLOCKED|FYI): (.+)$/u;
+/** The decisions pickup's note (decisions-pickup.mjs sendInputs): id `<from>-decisions-<64 hex>-<round>`. */
+const DONE_TICK_ID_RE = /^[a-z0-9-]+-decisions-[0-9a-f]{64}-\d+$/;
+const DONE_TICK_BODY_RE = /^Owner decisions pickup round \d+ is ready\./;
+/** hooks/multi-hook-core.mjs STOP_REASON, verbatim (a test pins it to the hook's own export). */
+export const STOP_BLOCK_REASON = 'Handle these before you stop: ACK what you are taking, answer what you can, '
+  + 'or send BLOCKED with the reason. If none of it is for you, say so in one line and stop.';
+export const STOP_FEEDBACK_PREFIX = 'Stop hook feedback:\n';
+const PEER_HEADER_RE = /\d+ new peer notes? for ([a-z0-9-]+) \(the multi skill; the ledger is the channel\):/;
+
+function userText(obj) {
+  const content = obj.message && obj.message.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.filter((c) => c && c.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('\n');
+  return '';
+}
+
+/**
+ * A wake: a top-level user turn that opens with the peer prefix and then the plugin's envelope line,
+ * delivered by note-flush (origin `{kind:'peer', from:'note-flush'}` when the transcript records one).
+ * Returns null, or `{ to, doneTick }`. Text that merely quotes an envelope mid-message never matches:
+ * the prefix must be the first thing in the turn.
+ */
+export function classifyWake(obj) {
+  if (!obj || obj.type !== 'user' || isToolResultOnlyUser(obj)) return null;
+  const origin = obj.origin;
+  if (origin && typeof origin === 'object' && !(origin.kind === 'peer' && origin.from === 'note-flush')) return null;
+  const text = userText(obj);
+  if (!text.startsWith(WAKE_PREFIX)) return null;
+  const rest = text.slice(WAKE_PREFIX.length);
+  const nl = /^[ \t]*\r?\n/.exec(rest);
+  if (!nl) return null;
+  const line = rest.slice(nl[0].length).split(/\r?\n/, 1)[0].trim();
+  const m = ENVELOPE_LINE_RE.exec(line);
+  if (!m) return null;
+  return { to: m[2], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[4]) };
+}
+
+/**
+ * A Stop-block, in either of the two records Claude Code keeps of one: the `hook_blocking_error`
+ * attachment for the Stop event, or the meta user turn that opens with `Stop hook feedback:`. Both
+ * must carry the multi-inbox STOP reason sentence. Returns null, or `{ form, slug }`.
+ */
+export function classifyStopBlock(obj) {
+  if (!obj) return null;
+  let reason = null;
+  let form = null;
+  if (obj.type === 'attachment' && obj.attachment && obj.attachment.type === 'hook_blocking_error' && obj.attachment.hookEvent === 'Stop') {
+    const be = obj.attachment.blockingError;
+    reason = be && typeof be === 'object' ? be.blockingError : be;
+    const command = be && typeof be === 'object' ? be.command : null;
+    if (typeof command === 'string' && !command.includes('multi-inbox')) return null;
+    form = 'attachment';
+  } else if (obj.type === 'user' && !isToolResultOnlyUser(obj)) {
+    const text = userText(obj);
+    if (text.startsWith(STOP_FEEDBACK_PREFIX)) { reason = text; form = 'feedback'; }
+  }
+  if (typeof reason !== 'string' || !reason.includes(STOP_BLOCK_REASON)) return null;
+  const m = PEER_HEADER_RE.exec(reason);
+  return { form, slug: m ? m[1] : null };
+}
+
+/** The slug a UserPromptSubmit / PostToolUse hook context addresses ("N new peer note(s) for <slug> ..."). */
+function hookContextSlug(obj) {
+  if (!obj || obj.type !== 'attachment' || !obj.attachment || obj.attachment.type !== 'hook_additional_context') return null;
+  const content = obj.attachment.content;
+  for (const c of Array.isArray(content) ? content : [content]) {
+    if (typeof c !== 'string') continue;
+    const m = PEER_HEADER_RE.exec(c);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +306,11 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   let inRun = false;
   let inWindowRun = false;
 
+  const wakes = { window: 0, windowDoneTick: 0, total: 0 };
+  const stops = { window: { attachment: 0, feedback: 0 }, total: { attachment: 0, feedback: 0 } };
+  const slugVotes = new Map();
+  const vote = (slug) => { if (slug) slugVotes.set(slug, (slugVotes.get(slug) || 0) + 1); };
+
   for await (const line of rl) {
     if (!line.trim()) continue;
     let obj;
@@ -245,6 +338,20 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
     // MAJOR 6 (R1 fix round 1): a --to window's own last in-window timestamp, not the
     // whole file's, so wallClockHours/windowEndAt don't run past a --to cutoff.
     if (inWindowNow && obj.timestamp) windowLastAt = obj.timestamp;
+
+    const wake = classifyWake(obj);
+    if (wake) {
+      wakes.total += 1;
+      if (inWindowNow) { wakes.window += 1; if (wake.doneTick) wakes.windowDoneTick += 1; }
+      vote(wake.to);
+    }
+    const stop = classifyStopBlock(obj);
+    if (stop) {
+      stops.total[stop.form] += 1;
+      if (inWindowNow) stops.window[stop.form] += 1;
+      vote(stop.slug);
+    }
+    vote(hookContextSlug(obj));
 
     if (obj.type === 'assistant') {
       if (!inRun) {
@@ -281,6 +388,12 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   return {
     totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal,
     windowLastAt: windowed ? windowLastAt : lastAt,
+    // Lane 38. A Stop-block leaves two records in one transcript (see classifyStopBlock); one block is
+    // counted once, as the larger of the two forms, never their sum.
+    wakes: wakes.window, wakesDoneTick: wakes.windowDoneTick, wakesTotal: wakes.total,
+    stopBlocks: Math.max(stops.window.attachment, stops.window.feedback),
+    stopBlocksTotal: Math.max(stops.total.attachment, stops.total.feedback),
+    slugVotes: [...slugVotes.entries()],
   };
 }
 
@@ -1030,6 +1143,32 @@ async function runCodexCensus(opts, fsImpl) {
   };
 }
 
+const DEFAULT_LEDGER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'ledger');
+
+/**
+ * Stall nudges received by the lead in the window (lane 38): ledger lines whose id matches
+ * `collect-*-stall-*` addressed to the lead's slug. The slug is `--lead-slug`, else the recipient the
+ * transcript itself names most often (wake envelopes, Stop-block and hook-context headers); the ledger is
+ * `--ledger-dir`, else this repository's docs/ledger. Anything that cannot be read is
+ * `count: null` with a reason, never a zero.
+ */
+export function computeStallNudges(opts, lead, fsImpl) {
+  const votes = [...(lead.slugVotes || [])].sort((a, b) => b[1] - a[1]);
+  const slug = opts.leadSlug || (votes.length ? votes[0][0] : null);
+  const slugSource = opts.leadSlug ? 'option' : slug ? 'inferred' : null;
+  const ledgerDir = opts.ledgerDir || DEFAULT_LEDGER_DIR;
+  const base = { count: null, ids: [], slug, slugSource, ledgerDir, windowStartAt: opts.from || lead.windowStartAt || null, windowEndAt: opts.to || lead.windowLastAt || lead.lastAt || null, reason: null };
+  if (!slug) return { ...base, reason: 'no --lead-slug and the transcript names no recipient' };
+  const entries = collectLedgerEntries(ledgerDir, fsImpl);
+  if (entries === null) return { ...base, reason: 'ledger dir unreadable' };
+  // An explicit --from/--to is the window as asked for; otherwise the lead file's own window (in base).
+  const fromMs = Date.parse(base.windowStartAt);
+  const toMs = Date.parse(base.windowEndAt);
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return { ...base, reason: 'no window timestamps' };
+  const { count, ids } = countStallNudges(entries, slug, fromMs, toMs);
+  return { ...base, count, ids };
+}
+
 export async function runCensus(opts, fsImpl = realFs()) {
   const leadHost = await detectLeadHost(opts.lead, fsImpl);
   if (leadHost === 'codex') return runCodexCensus(opts, fsImpl);
@@ -1162,6 +1301,12 @@ export async function runCensus(opts, fsImpl = realFs()) {
       windowTurns: codex ? null : lead.windowById.size,
       leadTurns: lead.leadTurns,
       leadTurnsTotal: lead.leadTurnsTotal,
+      wakes: lead.wakes,
+      wakesNoteFlush: lead.wakes - lead.wakesDoneTick,
+      wakesDoneTick: lead.wakesDoneTick,
+      wakesTotal: lead.wakesTotal,
+      stopBlocks: lead.stopBlocks,
+      stopBlocksTotal: lead.stopBlocksTotal,
       nativeTurnCount: codex ? null : lead.nativeTurnCount ?? null,
       nativeTurnCountWindow: codex ? null : lead.nativeTurnCountWindow ?? null,
       observedLeadRequests: codex && lead.windowTokenRecordCount > 0 ? lead.windowById.size : null,
@@ -1194,6 +1339,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       perFile,
     },
     combined: codex ? null : combined,
+    stallNudges: computeStallNudges(opts, lead, fsImpl),
     marker: opts.marker || null,
     leadPath: opts.lead,
     tasksPaths: [...(opts.tasksDirs || [])],
@@ -1262,6 +1408,11 @@ function formatCodexText(report) {
   return md.join('\n');
 }
 
+function stallNudgesLabel(s) {
+  if (!s || s.count === null) return `unavailable (${s && s.reason ? s.reason : 'not counted'})`;
+  return `${s.count} to ${s.slug} (slug ${s.slugSource}, ledger ${s.ledgerDir})${s.count ? `: ${s.ids.join(', ')}` : ''}`;
+}
+
 export function formatText(report) {
   if (report.lead.host === 'codex') return formatCodexText(report);
   const md = [];
@@ -1302,6 +1453,9 @@ export function formatText(report) {
     md.push('- codexSubagents: unsupported (native child transcript discovery/usage is not established; Codex --tasks is rejected)');
   }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
+  md.push(`- wakes: ${report.lead.wakes} (${report.lead.wakesNoteFlush} note-flush, ${report.lead.wakesDoneTick} Done-tick)`);
+  md.push(`- stopBlocks: ${report.lead.stopBlocks}`);
+  md.push(`- stallNudges: ${stallNudgesLabel(report.stallNudges)}`);
   const modelLine = codexTokensUnsupported
     ? `unsupported (${report.lead.coverageReason})`
     : Object.keys(report.combined).sort().map((m) => `${m}=${totalTokens(report.combined[m])}`).join(', ') || '(none)';
@@ -1332,6 +1486,9 @@ export function formatText(report) {
   } else {
     md.push(`- leadTurns (conversational runs — see docs/census.md): **${report.lead.leadTurns}**${report.marker ? ` (of ${report.lead.leadTurnsTotal} in the whole file, unwindowed)` : ''}`);
   }
+  md.push(`- Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **${report.lead.wakes}** (${report.lead.wakesNoteFlush} note-flush, ${report.lead.wakesDoneTick} Done-tick)${report.marker ? ` (of ${report.lead.wakesTotal} in the whole file, unwindowed)` : ''}`);
+  md.push(`- Stop-blocks (multi-inbox Stop hook blocks): **${report.lead.stopBlocks}**${report.marker ? ` (of ${report.lead.stopBlocksTotal} in the whole file, unwindowed)` : ''}`);
+  md.push(`- Stall nudges received (ledger \`collect-*-stall-*\` ASKs to the lead's slug, in the window): **${stallNudgesLabel(report.stallNudges)}**`);
   md.push(`- Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`);
   md.push(`- Turns/hour in window: **${report.lead.turnsPerHour !== null ? report.lead.turnsPerHour.toFixed(2) : 'n/a'}**`);
   md.push('');
@@ -1416,7 +1573,7 @@ export function formatJson(report) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const opts = { lead: null, tasksDirs: [], marker: null, from: null, to: null, out: null, json: null, roleMap: null };
+  const opts = { lead: null, tasksDirs: [], marker: null, from: null, to: null, out: null, json: null, roleMap: null, ledgerDir: null, leadSlug: null };
   const need = (flag) => {
     const v = argv[++i];
     if (!v) throw new Error(`${flag} needs a value`);
@@ -1430,6 +1587,8 @@ export function parseArgs(argv) {
     else if (a === '--marker') opts.marker = need('--marker');
     else if (a === '--from') opts.from = need('--from');
     else if (a === '--to') opts.to = need('--to');
+    else if (a === '--ledger-dir') opts.ledgerDir = need('--ledger-dir');
+    else if (a === '--lead-slug') opts.leadSlug = need('--lead-slug');
     else if (a === '--out') opts.out = need('--out');
     else if (a === '--json') opts.json = need('--json');
     else if (a === '--role-map') {
