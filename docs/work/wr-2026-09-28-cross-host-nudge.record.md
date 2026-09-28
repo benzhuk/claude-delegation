@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-cross-host-nudge
 Scope: docs/specs/cross-host-nudge-1/packet.md (lane 43, skills-fable's pickup packet) and the "Lane 43" sentences of docs/specs/cross-host-nudge-1/spec.md (bundle spec at dc16de3 on origin/docs/lane-specs-0925)
 Owner: skills-n
-Status: rejected
+Status: delivered
 Authority: build, review, integrate, push build/cross-host-nudge-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; one live proof note to skills-h on Hetzner, labelled as a proof; the live Netcup collector unit is not changed
 Next: fix round 1 (fresh Sonnet builder) on F1 F2 F3 F5 F6, then Opus delta review, then the live proof read from Hetzner's ~/.agents/notes
 Worktree: build/cross-host-nudge-1
@@ -13,5 +13,6 @@ Base: 14174e81dfc49a18018fc07d246a30f35bd39f80
 Log: 2026-09-28T19:56:28.000Z owned skills-n picked up skills-fable-lane-43-1, ACK sent; Sonnet builder spawned, ETA 45 min, watcher on its transcript
 Log: 2026-09-28T20:06:37.000Z delivered skills-n Sonnet builder DONE c12a494 (owner_hosts in .agents/project.json, --sender-host from the owner's host); Opus review r1 and Windows suite started
 Log: 2026-09-28T20:13:14.000Z rejected skills-n Opus review r1 NEEDS_FIXES c12a494 (Windows 2588 of 2600, 0 fail). Rulings: F1 in, because the mirror writes the owner's ~/.agents/notes (what note-inbox reads), not its docs/ledger, so the census lines and the live proof read the notes mirror and the packet's docs/ledger wording is amended here (no new transport); F2 F3 F5 in as patched; F4 the duplicate gate log removed by the lead in this commit; F6 in as the reviewer's alternative, owner_hosts read from origin/main:.agents/project.json with the working tree as fallback, because the timer's --repo is the parked checkout at 0c92605
+Log: 2026-09-28T20:26:35.000Z delivered skills-n fix builder DONE 4cb22f1 (F1 F2 F3 F5 F6 as ruled), unit 81 of 81, full 2601 of 2606 with 0 fail; proof harness written in scratch, dry-run only; Opus delta r2 and Windows suite started
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-43
