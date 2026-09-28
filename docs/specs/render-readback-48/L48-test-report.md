@@ -11,6 +11,8 @@ Simplification: no retry, adoption, page write, or test-only normalizer was adde
 
 Fixtures are byte-pinned by in-test SHA-256: intended `535914342B07C360AB2FBC59699598C2012F547C3C7F501FCC5CC8EC8D755E1E`; live `5E38CB6460AC8B4C7255E785716ED664A4C028DD3CB3C5A74A8EDFB90BBE6DB1`.
 
+Review remediation: fixture-local `skills/decisions/scripts/fixtures/render-readback-48/.gitattributes` marks only these Markdown snapshots `-text`, and the original CRLF bytes were recopied before staging. This preserves the pinned incident bytes in committed blobs; the global text rule had previously stored LF-normalized blobs that fail the same in-test hashes from a fresh checkout.
+
 Red command: `node --test skills/decisions/scripts/decisions-render.test.mjs skills/decisions/scripts/decisions-render-publish.test.mjs`; native exit `1`, 143 pass / 1 fail / 144 tests. The only failure was exact intended/live equality. Raw: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48/lane48-red.raw.log`.
 
 An intermediate post-fix run exited `1` because an LF-only test mutation did not alter CRLF fixture bytes; it is retained at `lane48-green.raw.log`. The mutation was corrected to assert it changes the raw snapshot before normalization.

@@ -1,0 +1,2 @@
+# Lane48 byte-pinned Notion snapshots retain their original CRLF bytes; hashes are asserted in-test.
+*.md -text
