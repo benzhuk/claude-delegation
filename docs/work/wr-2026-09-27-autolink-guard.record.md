@@ -1,7 +1,7 @@
 Work: wr-2026-09-27-autolink-guard
 Scope: docs/specs/2026-09-27-autolink-guard.md@a7b1d20 (origin/docs/lane-specs-0925)
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-32-1: build, review, second-host suite, merge, publish from main
 Artifact: build/autolink-guard-1@72f8b71e0410b55ce5402e5013de6541042f50a0
 Worktree: build/autolink-guard-1
@@ -53,7 +53,9 @@ Four numbers: Hours ask to accepted: 7.4h; largest gap 179.1min at 2026-09-28T07
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 1 gap(s) over 30min stalled; 4 waiting-on-agents (415.1 min); agent a356bf87ac505c39d silent 413.3 min from 2026-09-28T03:15:48.781Z; 0 unanswered ASKs to skills-o
 Log: 2026-09-28T10:28:19.000Z accepted skills-o artifact 72f8b71e0410b55ce5402e5013de6541042f50a0
+Log: 2026-09-28T10:31:15.000Z closed skills-o merge 321bb3afe18bbc21d1e37a7180acb3195b73f031
 
 Observed: at 72f8b71, render refuses with exit 2 and the true file:line a bare word.md (md, sh, io, ai, co, me, so, py, final segment), a bare tilde and a bare URL outside a link or a real <http(s)://> autolink, before any write. Current docs/decisions sources render with exit 0.
 
 Predicts: no publish fails after the write on text Notion autolinks. The next publish with a bare GOALS.md exits 2 at render with zero Notion writes, not exit 5 after replace-md.
+Log: 2026-09-28T10:31:15Z verified skills-o merged-tree Windows suite 2577/2589 0 fail at 321bb3a. render on main exits 0, publish --dry-run exits 0, and the real publish exited 0, retitled 9/28 6:31AM with Ben's Done line and release item untouched.
