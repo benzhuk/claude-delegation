@@ -35,8 +35,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { main as collectFromOriginMain, fullRef, refExists, formatTable } from "./collect-from-origin.mjs";
-import { parseRecord } from "./work-record.mjs";
+import { parseRecord, STATUSES } from "./work-record.mjs";
 import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/envelope.mjs";
+import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
 
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
 // names plus the no-record row); anything else is counted as "other", never named.
@@ -114,7 +115,9 @@ export function computeAttention(rows, mergeHours, staleHours, now) {
         continue;
       }
     }
-    if (r.state === "owned" && typeof r.hoursSinceLog === "number" && r.hoursSinceLog > staleHours) {
+    // F2 (review r1): a `closed` record is terminal (work-record.mjs STATUSES), so it must never be
+    // flagged silent even though `computeState` still buckets it as "owned" (collect-from-origin.mjs).
+    if (r.state === "owned" && r.status !== "closed" && typeof r.hoursSinceLog === "number" && r.hoursSinceLog > staleHours) {
       out.push({
         branch: r.branch, recordPath: r.recordPath ?? null, state: r.state,
         reason: `silent-over-${staleHours}-h`,
@@ -272,8 +275,15 @@ function readOwnerField(repoAbs, row) {
 // error, so it returns "". Any OTHER failure (permission denied, docs/ledger existing as a plain
 // file, ...) is rethrown so the caller can fail closed for the whole round, per S2's "a ledger
 // read error means no ASK this run, with one stderr line".
+//
+// F1 (review r1): note-send never writes the ledger at `repoAbs/docs/ledger` unless `repoAbs` is
+// already the main checkout - `--recipient-repo` resolves through the SAME `mainCheckout` note-send
+// itself calls (skills/multi/scripts/note-send.mjs, targetRepo derivation), so a linked worktree or
+// a subdirectory `--repo` must read there too, or the dedupe never finds what was actually sent and
+// asks again every run. `mainCheckout` returns null only when `repoAbs` is not a git repo at all
+// (no `.git`), in which case `repoAbs` itself is the best guess left.
 function readLedgerCorpus(repoAbs) {
-  const dir = path.join(repoAbs, "docs", "ledger");
+  const dir = path.join(mainCheckout(repoAbs, gitRunner) ?? repoAbs, "docs", "ledger");
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -312,6 +322,11 @@ function sendStallNudges({
   args, home, env, hostname, repoAbs, rows, attention, now, warn,
   spawnNoteSend, resolveNoteSendFn,
 }) {
+  // F3 (review r1): --quiet means "send nothing this run", same promise it already makes for the
+  // RESULT (sendNote's own first check) - a lead's by-hand preview run must never cost the one ASK
+  // the timer would otherwise have sent for this tip.
+  if (args.quiet) return [];
+
   const stallRows = attention.filter((a) => STALL_REASON_RE.test(a.reason));
   if (stallRows.length === 0) return [];
 
@@ -352,7 +367,12 @@ function sendStallNudges({
       continue;
     }
     const hours = typeof row.hoursSinceLog === "number" ? row.hoursSinceLog.toFixed(1) : "unknown";
-    const text = `${a.branch} has had no Log line for ${hours} h in state ${a.state}. `
+    // F7 (review r1): name the record's own Status: word when it is one of work-record.mjs's
+    // known STATUSES tokens (K2-safe: STATUSES is a closed, hand-written set, so no untrusted
+    // record text ever reaches --text), falling back to the row's bucket ("owned") when the field
+    // is absent/unparseable - never a guess at a status the record never claimed.
+    const statusWord = STATUSES.includes(row.status) ? row.status : a.state;
+    const text = `${a.branch} has had no Log line for ${hours} h in state ${statusWord}. `
       + "Reply with the lane state and a new ETA, or BLOCKED. A Log line on the record resets this.";
     const by = timeParts(new Date(now + 30 * 60_000)).time;
     const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by });
@@ -360,6 +380,11 @@ function sendStallNudges({
     if (result && result.status !== 0) {
       warn(`collect-status: stall-nudge send exit ${result.status ?? "unknown"} for ${a.branch}`);
     }
+    // F6 (review r1): two silent records sharing one branch tip share one topic (one row per
+    // record, `collect-from-origin` makes one row per changed record). Without this, both send in
+    // the SAME run before either's ledger line exists on disk - append the id this send would have
+    // produced to the in-memory corpus so the next row in this same loop sees it as "already asked".
+    ledgerCorpus += `\n${idPrefix}`;
     outcomes.push({ branch: a.branch, sent: true, argv, result });
   }
   return outcomes;
