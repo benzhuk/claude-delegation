@@ -25,7 +25,12 @@ import {
   computeAttention,
   resolveNoteSend,
   buildStatusMd,
+  branchSlug,
+  buildStallTopic,
+  ownerSlugOrNull,
 } from "./collect-status.mjs";
+import { timeParts, buildEnvelope } from "../skills/multi/scripts/envelope.mjs";
+import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -507,6 +512,517 @@ test("status.md stays within the 60-line budget for a modest fixture", () => {
   const md = fs.readFileSync(path.join(out, "status.md"), "utf8");
   const lineCount = md.split("\n").filter((l) => l.length > 0).length;
   assert.ok(lineCount <= 60, `status.md is ${lineCount} lines`);
+});
+
+// ---------------------------------------------------------------------------
+// Lane thirty (stall-nudge, docs/specs/stall-nudge-1): pure helpers.
+// ---------------------------------------------------------------------------
+
+test("branchSlug: lowercases, collapses every run of non-[a-z0-9] to one '-', trims ends", () => {
+  assert.equal(branchSlug("Build/Foo_Bar!!"), "build-foo-bar");
+  assert.equal(branchSlug("--x--"), "x");
+  assert.equal(branchSlug(""), "");
+});
+
+test("buildStallTopic: stall-<branch-slug>-<sha7>; a long branch truncates only the slug, never the sha", () => {
+  assert.equal(buildStallTopic("build/foo", "abcdef0123456789"), "stall-build-foo-abcdef0");
+  const longBranch = `build/${"x".repeat(80)}`;
+  const topic = buildStallTopic(longBranch, "1234567890");
+  assert.ok(topic.endsWith("-1234567"), topic);
+  assert.ok(topic.length < 6 + branchSlug(longBranch).length + 8, topic);
+});
+
+test("ownerSlugOrNull: none/missing/mixed-case/spaced all null; a real slug passes through unchanged", () => {
+  assert.equal(ownerSlugOrNull(undefined), null);
+  assert.equal(ownerSlugOrNull(null), null);
+  assert.equal(ownerSlugOrNull("none"), null);
+  assert.equal(ownerSlugOrNull("None"), null);
+  assert.equal(ownerSlugOrNull("Not A Slug"), null);
+  assert.equal(ownerSlugOrNull("skills-fable"), "skills-fable");
+});
+
+// ---------------------------------------------------------------------------
+// Lane thirty: the stall ASK itself, against real bare-remote fixtures (spec's acceptance list).
+// ---------------------------------------------------------------------------
+
+function checkoutExisting(root, name) {
+  git(["checkout", "-q", name], root);
+}
+
+test("stall-nudge: one ASK per stale owned/blocked row; none for accepted-merged/accepted-unmerged/rejected/withdrawn/no-record/closed or a 1.9h row; argv is exact", () => {
+  const root = initRepoWithOrigin();
+  // F4 (review r1): the old fixed `NOW` (2026-09-27T12:00:00Z) sat BEFORE the fixture commits' real
+  // committer dates (the actual machine clock, whatever "today" really is when the test runs), so
+  // `accepted-unmerged`'s own tipDate never read as "over merge-hours" and the acceptance claim that
+  // it produces NO ask was never really exercised - the filter was never what excluded it. Anchoring
+  // NOW five hours past the real clock keeps every commit `git commit` makes here safely "over
+  // 4h old" by the time computeAttention runs, while every `hoursAgoIso(h)` below stays
+  // self-consistently relative to this same NOW (the Log: field is a string, never a real commit
+  // date, so its absolute value never has to match the machine clock).
+  const NOW = Date.now() + 5 * 3_600_000;
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  // accepted-merged: the artifact commit lands on main first, so it's trivially an ancestor.
+  fs.writeFileSync(path.join(root, "artifact-a.txt"), "a\n");
+  commitAll(root, "artifact A");
+  const artifactA = git(["rev-parse", "HEAD"], root).trim();
+  git(["push", "-q", "origin", "main"], root);
+
+  newBranch(root, "build/accepted-merged");
+  writeRecord(root, "wr-2026-09-27-am.record.md", [
+    "Work: wr-2026-09-27-am", "Owner: leadslug", "Status: accepted",
+    `Artifact: scripts/foo.mjs@${artifactA}`, "Log: 2026-09-27T01:00:00Z accepted leadslug note", "",
+  ]);
+  commitAll(root, "am record");
+  pushBranch(root, "build/accepted-merged");
+  backToMain(root);
+
+  // accepted-unmerged: never a "silent-over-" reason regardless of its own tipDate age, since
+  // computeAttention only ever gives it "accepted-unmerged-over-N-h".
+  newBranch(root, "build/accepted-unmerged");
+  fs.writeFileSync(path.join(root, "artifact-b.txt"), "b\n");
+  commitAll(root, "artifact B");
+  const artifactB = git(["rev-parse", "HEAD"], root).trim();
+  writeRecord(root, "wr-2026-09-27-au.record.md", [
+    "Work: wr-2026-09-27-au", "Owner: leadslug", "Status: accepted",
+    `Artifact: ${artifactB}`, "Log: 2026-09-27T01:00:00Z accepted leadslug note", "",
+  ]);
+  commitAll(root, "au record");
+  pushBranch(root, "build/accepted-unmerged");
+  backToMain(root);
+
+  newBranch(root, "build/rejected");
+  writeRecord(root, "wr-2026-09-27-rejected.record.md", [
+    "Work: wr-2026-09-27-rejected", "Owner: leadslug", "Status: rejected", "Artifact: none",
+    "Log: 2026-09-27T01:00:00Z rejected leadslug note", "",
+  ]);
+  commitAll(root, "rejected record");
+  pushBranch(root, "build/rejected");
+  backToMain(root);
+
+  newBranch(root, "build/withdrawn");
+  writeRecord(root, "wr-2026-09-27-withdrawn.record.md", [
+    "Work: wr-2026-09-27-withdrawn", "Owner: leadslug", "Status: withdrawn", "Artifact: none",
+    "Log: 2026-09-27T01:00:00Z withdrawn leadslug note", "",
+  ]);
+  commitAll(root, "withdrawn record");
+  pushBranch(root, "build/withdrawn");
+  backToMain(root);
+
+  newBranch(root, "build/no-record-branch");
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "unrelated\n");
+  commitAll(root, "no-record work");
+  pushBranch(root, "build/no-record-branch");
+  backToMain(root);
+
+  newBranch(root, "build/fresh-owned");
+  writeRecord(root, "wr-2026-09-27-fresh.record.md", [
+    "Work: wr-2026-09-27-fresh", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(1.9)} owned leadslug note`, "",
+  ]);
+  commitAll(root, "fresh record");
+  pushBranch(root, "build/fresh-owned");
+  backToMain(root);
+
+  newBranch(root, "build/stall-owned");
+  writeRecord(root, "wr-2026-09-27-stall.record.md", [
+    "Work: wr-2026-09-27-stall", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned leadslug note`, "",
+  ]);
+  commitAll(root, "stall record");
+  const stallTip = git(["rev-parse", "HEAD"], root).trim();
+  pushBranch(root, "build/stall-owned");
+  backToMain(root);
+
+  // F2: `closed` is a terminal Status (work-record.mjs STATUSES) that `computeState` still buckets
+  // as "owned" - a stale closed record must never be flagged silent or asked, even though it would
+  // pass every other test above's checks unchanged.
+  newBranch(root, "build/closed-lane");
+  writeRecord(root, "wr-2026-09-27-closed.record.md", [
+    "Work: wr-2026-09-27-closed", "Owner: leadslug", "Status: closed", "Artifact: none",
+    `Log: ${hoursAgoIso(2.5)} closed leadslug note`, "",
+  ]);
+  commitAll(root, "closed record");
+  pushBranch(root, "build/closed-lane");
+  backToMain(root);
+
+  // F7: a stale row whose OWN Status: is a known-but-non-owned-bucket word ("blocked") must name
+  // that word in the ASK text, not the row's bucket ("owned", which `computeState` gives every
+  // non-terminal status alike) - the bucket says nothing a lead doesn't already know from being
+  // asked at all.
+  newBranch(root, "build/blocked-stalled");
+  writeRecord(root, "wr-2026-09-27-blocked.record.md", [
+    "Work: wr-2026-09-27-blocked", "Owner: leadslug", "Status: blocked", "Artifact: none",
+    `Log: ${hoursAgoIso(2.3)} blocked leadslug note`, "",
+  ]);
+  commitAll(root, "blocked record");
+  const blockedTip = git(["rev-parse", "HEAD"], root).trim();
+  pushBranch(root, "build/blocked-stalled");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home },
+  );
+
+  // F4: assert the underlying attention list BEFORE the call count, so a filter regression (mutant
+  // M1: `stallRows = attention`, no filter at all) cannot hide behind a call count that happens to
+  // still look right - it also proves accepted-unmerged really did trip its own reason this time,
+  // and that `closed` never enters the list at all (F2).
+  const status = JSON.parse(fs.readFileSync(path.join(out, "status.json"), "utf8"));
+  assert.deepEqual(
+    status.summary.attention.map((a) => a.reason).sort(),
+    ["accepted-unmerged-over-4-h", "no-record", "silent-over-2-h", "silent-over-2-h"].sort(),
+  );
+
+  assert.equal(spawn.calls.length, 2, `expected exactly two ASKs (stall-owned, blocked-stalled), got: ${JSON.stringify(spawn.calls.map((c) => c.args))}`);
+  const get = (args, flag) => args[args.indexOf(flag) + 1];
+  const byBranch = (branchSuffix) => spawn.calls.map((c) => c.args).find((args) => get(args, "--topic").includes(branchSuffix));
+
+  const stallArgs = byBranch("stall-build-stall-owned-");
+  assert.ok(stallArgs, "no ASK for build/stall-owned");
+  assert.equal(get(stallArgs, "--kind"), "ASK");
+  assert.equal(get(stallArgs, "--from"), "collect-testhost");
+  assert.equal(get(stallArgs, "--to"), "leadslug");
+  assert.ok(stallArgs.includes("--no-type"));
+  assert.equal(get(stallArgs, "--recipient-repo"), root);
+  assert.equal(get(stallArgs, "--topic"), `stall-build-stall-owned-${stallTip.slice(0, 7)}`);
+  assert.equal(get(stallArgs, "--needs"), "review");
+  assert.equal(get(stallArgs, "--by"), timeParts(new Date(NOW + 30 * 60_000)).time);
+  assert.match(
+    get(stallArgs, "--text"),
+    /^build\/stall-owned has had no Log line for 2\.1 h in state owned\. Reply with the lane state and a new ETA, or BLOCKED\. A Log line on the record resets this\.$/,
+  );
+
+  const blockedArgs = byBranch("stall-build-blocked-stalled-");
+  assert.ok(blockedArgs, "no ASK for build/blocked-stalled");
+  assert.equal(get(blockedArgs, "--topic"), `stall-build-blocked-stalled-${blockedTip.slice(0, 7)}`);
+  assert.match(
+    get(blockedArgs, "--text"),
+    /^build\/blocked-stalled has had no Log line for 2\.3 h in state blocked\. Reply with the lane state and a new ETA, or BLOCKED\. A Log line on the record resets this\.$/,
+  );
+});
+
+test("stall-nudge: dedupe - a second run on the same tip sends nothing; a new tip idle past the threshold asks again", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+
+  newBranch(root, "build/dedupe-owned");
+  writeRecord(root, "wr-2026-09-27-dedupe.record.md", [
+    "Work: wr-2026-09-27-dedupe", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "dedupe record");
+  const tip1 = git(["rev-parse", "HEAD"], root).trim();
+  pushBranch(root, "build/dedupe-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const opts = { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home };
+
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 1, "first run: asks once");
+  const firstArgs = spawn.calls[0].args;
+  const from = firstArgs[firstArgs.indexOf("--from") + 1];
+  const topic = firstArgs[firstArgs.indexOf("--topic") + 1];
+
+  // fakeSpawnCounter never really runs note-send, so nothing writes the ledger line the real tool
+  // would have. F5 (review r1): build that line with note-send's OWN `buildEnvelope` (never a
+  // hand-written string that only happens to match ENVELOPE_RE), with id counter "-2" (a real
+  // ledger can carry any counter, not just "-1" - the dedupe reads the PREFIX, never the suffix
+  // number), and file it under the PREVIOUS day (note-send appends by the day it ran on, and the
+  // dedupe scan reads every docs/ledger/*.md file, never only today's).
+  const ledgerDir = path.join(root, "docs", "ledger");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  const ledgerLine = buildEnvelope({
+    from, to: "leadslug", date: "9.26.26", time: "23:05", tz: "NYC",
+    id: `${from}-${topic}-2`, kind: "ASK", body: "stalled already, an earlier run asked this.",
+    needs: "review", by: "23:35",
+  });
+  fs.writeFileSync(path.join(ledgerDir, "2026-09-26.md"), `${ledgerLine}\n`);
+
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 1, "second run, same tip: ledger hit, sends nothing more");
+
+  // A new tip, still idle past the threshold: an unrelated follow-up commit changes tipSha
+  // while the record (and its stale Log:) are untouched, so the topic's sha7 changes and the
+  // dedupe check does not fire.
+  checkoutExisting(root, "build/dedupe-owned");
+  fs.writeFileSync(path.join(root, "unrelated-2.txt"), "x\n");
+  commitAll(root, "unrelated follow-up commit");
+  const tip2 = git(["rev-parse", "HEAD"], root).trim();
+  assert.notEqual(tip2, tip1);
+  pushBranch(root, "build/dedupe-owned");
+  backToMain(root);
+
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 2, "new tip, still idle: asks again");
+});
+
+// A spawnNoteSend stand-in that behaves like the REAL note-send for the one thing F1 needs proven:
+// where the ledger line actually lands. It resolves `--recipient-repo` through the exact same
+// `mainCheckout` note-send itself calls, builds a real envelope line with `buildEnvelope`, and
+// appends it there - so a dedupe bug that reads the wrong directory shows up as a second real ASK,
+// never as a passing assertion that never looked at the disk.
+function fakeSpawnWritingLedger(now) {
+  const calls = [];
+  const counters = {};
+  const fn = (execPath, args) => {
+    calls.push({ execPath, args });
+    const get = (flag) => args[args.indexOf(flag) + 1];
+    const from = get("--from");
+    const to = get("--to");
+    const kind = get("--kind");
+    const recipientRepo = get("--recipient-repo");
+    const topic = get("--topic");
+    const text = get("--text");
+    const needsIdx = args.indexOf("--needs");
+    const needsRaw = needsIdx === -1 ? undefined : args[needsIdx + 1];
+    const byIdx = args.indexOf("--by");
+    const by = byIdx === -1 ? undefined : args[byIdx + 1];
+    const prefix = `${from}-${topic}`;
+    counters[prefix] = (counters[prefix] ?? 0) + 1;
+    const id = `${prefix}-${counters[prefix]}`;
+    const { date, time } = timeParts(new Date(now));
+    const line = buildEnvelope({
+      from, to, date, time, tz: "NYC", id, kind, body: text,
+      needs: needsRaw === "none" ? undefined : needsRaw, by,
+    });
+    const target = mainCheckout(recipientRepo, gitRunner) ?? recipientRepo;
+    const dir = path.join(target, "docs", "ledger");
+    fs.mkdirSync(dir, { recursive: true });
+    const ymd = timeParts(new Date(now)).ymd;
+    fs.appendFileSync(path.join(dir, `${ymd}.md`), `${line}\n`);
+    return { status: 0, stdout: "ok\n", stderr: "" };
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+test("stall-nudge: F1 - dedupe holds across two runs when --repo is a linked worktree (note-send's ledger lives in the MAIN checkout, never a worktree)", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+
+  newBranch(root, "build/wt-stall-owned");
+  writeRecord(root, "wr-2026-09-27-wtstall.record.md", [
+    "Work: wr-2026-09-27-wtstall", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "wt stall record");
+  pushBranch(root, "build/wt-stall-owned");
+  backToMain(root);
+
+  // A linked worktree of `root`, detached (the primary worktree already has `main` checked out,
+  // so `git worktree add` refuses to check the same branch out twice) - `collect-from-origin`
+  // reads refs, not the working tree, so a detached worktree sees the exact same branches `root`
+  // does; only where note-send's ledger physically lands is different, which is the whole point.
+  const wtParent = mkTmp("cstatus-wtparent-");
+  const wt = path.join(wtParent, "wt");
+  const mainSha = git(["rev-parse", "main"], root).trim();
+  git(["worktree", "add", "-q", "--detach", wt, mainSha], root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnWritingLedger(NOW);
+  const opts = { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home };
+
+  main(["--repo", wt, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 1, "first run from the worktree: asks once");
+  assert.ok(!fs.existsSync(path.join(wt, "docs", "ledger")), "the worktree itself never grows a ledger");
+  assert.ok(fs.existsSync(path.join(root, "docs", "ledger")), "the real ledger lands in the main checkout");
+
+  main(["--repo", wt, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 1, "second run, same tip, same worktree --repo: dedupe holds, sends nothing more");
+});
+
+test("stall-nudge: F3 - --quiet sends no ASK, even for an otherwise-stale row (attention still shows it)", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/quiet-owned");
+  writeRecord(root, "wr-2026-09-27-quiet.record.md", [
+    "Work: wr-2026-09-27-quiet", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "quiet record");
+  pushBranch(root, "build/quiet-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2", "--quiet"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "--quiet: no ASK sent, even though the row is 2.1h stale");
+
+  const status = JSON.parse(fs.readFileSync(path.join(out, "status.json"), "utf8"));
+  assert.deepEqual(status.summary.attention.map((a) => a.reason), ["silent-over-2-h"], "the row still shows in status.json/status.md");
+});
+
+test("stall-nudge: F6 - two stale records sharing one branch tip get exactly one ASK per run (the topic is per-tip, not per-record)", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+
+  newBranch(root, "build/two-records");
+  writeRecord(root, "wr-2026-09-27-two-a.record.md", [
+    "Work: wr-2026-09-27-two-a", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  writeRecord(root, "wr-2026-09-27-two-b.record.md", [
+    "Work: wr-2026-09-27-two-b", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "two stale records, one branch tip");
+  pushBranch(root, "build/two-records");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+
+  assert.equal(spawn.calls.length, 1, "one branch tip is one topic - the second row's send is covered by the first, same as a real second run would be");
+});
+
+test("stall-nudge: S4 - the kill-switch file suppresses the ASK; the attention row stays in status.md", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/killed-owned");
+  writeRecord(root, "wr-2026-09-27-killed.record.md", [
+    "Work: wr-2026-09-27-killed", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "killed record");
+  pushBranch(root, "build/killed-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  fs.mkdirSync(path.join(home, ".agents", "collect", path.basename(root)), { recursive: true });
+  fs.writeFileSync(path.join(home, ".agents", "collect", path.basename(root), "no-nudge"), "");
+
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "kill switch: no ASK");
+
+  const status = JSON.parse(fs.readFileSync(path.join(out, "status.json"), "utf8"));
+  assert.deepEqual(status.summary.attention.map((a) => a.reason), ["silent-over-2-h"]);
+  const md = fs.readFileSync(path.join(out, "status.md"), "utf8");
+  assert.ok(md.includes("silent-over-2-h"), "attention row still in status.md despite the kill switch");
+});
+
+test("stall-nudge: S3 - no ASK when Owner is none, missing, or fails note-send's slug grammar", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+
+  newBranch(root, "build/owner-none");
+  writeRecord(root, "wr-2026-09-27-none.record.md", [
+    "Work: wr-2026-09-27-none", "Owner: none", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned t1 note`, "",
+  ]);
+  commitAll(root, "owner none record");
+  pushBranch(root, "build/owner-none");
+  backToMain(root);
+
+  newBranch(root, "build/owner-missing");
+  writeRecord(root, "wr-2026-09-27-missing.record.md", [
+    "Work: wr-2026-09-27-missing", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned t1 note`, "",
+  ]);
+  commitAll(root, "owner missing record");
+  pushBranch(root, "build/owner-missing");
+  backToMain(root);
+
+  newBranch(root, "build/owner-bad-grammar");
+  writeRecord(root, "wr-2026-09-27-bad.record.md", [
+    "Work: wr-2026-09-27-bad", "Owner: Not A Slug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned t1 note`, "",
+  ]);
+  commitAll(root, "owner bad grammar record");
+  pushBranch(root, "build/owner-bad-grammar");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "no usable Owner anywhere: no ASK");
+});
+
+test("stall-nudge: S2 - a ledger read error means no ASK this run (fail closed, not open)", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/ledger-err-owned");
+  writeRecord(root, "wr-2026-09-27-ledgererr.record.md", [
+    "Work: wr-2026-09-27-ledgererr", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "ledger err record");
+  pushBranch(root, "build/ledger-err-owned");
+  backToMain(root);
+
+  // Force a real (non-ENOENT) readdir failure: docs/ledger exists as a plain FILE, not a
+  // directory, so readdirSync throws ENOTDIR regardless of the runner's own privileges (a
+  // chmod-based test would pass as root and prove nothing).
+  fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(root, "docs", "ledger"), "not a directory\n");
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "ledger read error: fail closed, no ASK");
+});
+
+test("stall-nudge: a failed fetch never sends an ASK either, same promise as the RESULT", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/fetchfail-owned");
+  writeRecord(root, "wr-2026-09-27-fetchfail.record.md", [
+    "Work: wr-2026-09-27-fetchfail", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "fetchfail record");
+  pushBranch(root, "build/fetchfail-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const row = (b) => ({
+    branch: b, tipSha: "a".repeat(40), tipDate: "2026-09-27T00:00:00Z", recordPath: `docs/work/${b}.record.md`,
+    status: "owned", artifactSha: null, merged: null, hoursSinceLog: 2.1, state: "owned",
+  });
+  const collect = (argv, o) => {
+    o.warn("collect-from-origin: git fetch failed, proceeding with local refs: x");
+    o.write(JSON.stringify([row("fetchfail-owned")]));
+    return 0;
+  };
+  main(["--repo", root, "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home, collectMain: collect,
+  });
+  assert.equal(spawn.calls.length, 0, "a failed fetch never wakes anyone, ASK included");
 });
 
 after(() => {
