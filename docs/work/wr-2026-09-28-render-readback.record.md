@@ -1,12 +1,12 @@
 Work: wr-2026-09-28-render-readback
 Scope: docs/work/wr-2026-09-28-render-readback.record.md specification below, based on origin/main@926c6f801ce21383b06bd5f92ffb18b5ca2603bc and skills-fable-lane-48-1
 Owner: skills-a
-Status: accepted
+Status: closed
 Authority: Lane48 dispatch under the standing build/merge grant; normal renderer publication is the required live proof. Comparison function and tests only. No release, install, manual page write, pickup change or adoption workaround. Root alone writes this record.
 Artifact: d6e7fcc182da4c9a288c176872797aeb8bb9fa3c
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/render-readback-48
-Evidence: docs/specs/render-readback-48/L48-spec-evidence.md, docs/specs/render-readback-48/L48-builder-report.md, docs/specs/render-readback-48/L48-test-report.md, docs/specs/render-readback-48/L48-opus-r1.md, docs/specs/render-readback-48/L48-host-gates-r1.md, docs/specs/render-readback-48/L48-opus-r2.md, docs/specs/render-readback-48/L48-host-gates-r2.md, docs/work/evidence/wr-2026-09-28-render-readback.census.md, docs/work/evidence/wr-2026-09-28-render-readback.spec-census.md, docs/work/evidence/wr-2026-09-28-render-readback.four-read-evidence.md, docs/work/evidence/wr-2026-09-28-render-readback.work-census-evidence.md
-Next: finish census and accept approved d6e7fcc, merge with history bullet, gate exact merge, then normal live publication before close. Both corrected-candidate host suites are green.
+Evidence: docs/specs/render-readback-48/L48-spec-evidence.md, docs/specs/render-readback-48/L48-builder-report.md, docs/specs/render-readback-48/L48-test-report.md, docs/specs/render-readback-48/L48-opus-r1.md, docs/specs/render-readback-48/L48-host-gates-r1.md, docs/specs/render-readback-48/L48-opus-r2.md, docs/specs/render-readback-48/L48-host-gates-r2.md, docs/work/evidence/wr-2026-09-28-render-readback.census.md, docs/work/evidence/wr-2026-09-28-render-readback.spec-census.md, docs/work/evidence/wr-2026-09-28-render-readback.four-read-evidence.md, docs/work/evidence/wr-2026-09-28-render-readback.work-census-evidence.md, docs/specs/render-readback-48/L48-closeout-receipt.md, docs/specs/render-readback-48/L48-result.md
+Next: closed; next three lane closes measure recurrence. Retained worktrees and gate scratch are named in L48-result.md; no release or install was performed.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:12:00Z
@@ -26,13 +26,14 @@ Four numbers: Hours ask to accepted: 0.6h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-48-1; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
 Log: 2026-09-28T23:47:24.000Z accepted skills-a artifact d6e7fcc182da4c9a288c176872797aeb8bb9fa3c
+Log: 2026-09-28T23:57:13.000Z closed skills-a merge 4764e42ebadfbe711499967487cd1e0497971258
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48
 
 Measure: rework after acceptance, specifically manual recovery after normal decisions publication.
 Predicts: the required normal publish exits0 without adopt-live and records its pushed bookkeeping commit; the next three lane closes need zero whitespace-recovery publishes.
 
-Observed: Exact snapshots compare unequal on the base normalizer and equal after the fix, while substantive changes remain unequal. Opus exposed a Git CRLF-to-LF fixture packaging defect, now repaired with fixture-local attributes and fresh-checkout145/145 proof. Opus approved d6e7fcc; corrected candidate Windows2687pass0fail14skip and Netcup2696pass0fail5skip. The first Windows backlog failure is retained with load sensitivity an unproved hypothesis. Four-read reports0.6h to acceptance, zero post-acceptance rework at this point, and unavailable complete top-tier tokens/stall attribution due native census horizon. Normal live publication remains unproved. Peer-reported baseline is three prior recovery publishes; next-three-close efficacy remains future measurement.
+Observed: Exact snapshots compare unequal on the base normalizer and equal after the fix, while substantive changes remain unequal. Opus approved d6e7fcc after fresh-checkout145/145 verification of the repaired byte-preserving fixtures. Candidate Windows2687pass0fail14skip and Netcup2696pass0fail5skip; exact merge4764e42 Windows2687pass0fail14skip. One normal live publish from clean main exited0 at7:56PM America/New_York, backup/readback succeeded, no recovery flags. It created no bookkeeping commit because last-render.md already matched; existing bookkeeping commit629858a498c7df9e69a8bc50bd99e2a059cdd725 remains. This no-op is an explicit exception to the packet's assumed new bookkeeping commit, not fabricated evidence or a reason for another publish. Four-read reports0.6h to acceptance and zero post-acceptance build-file rework at acceptance; complete tokens/stall attribution remain unavailable. Earlier host failures and setup errors are retained. Peer-reported baseline is three prior recovery publishes; this normal close needed zero, while the next-three-close prediction remains to be measured.
 
 ## Specification and pinned contract
 

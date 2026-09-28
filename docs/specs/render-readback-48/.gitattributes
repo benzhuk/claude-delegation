@@ -1,0 +1,2 @@
+# Preserve the raw publish receipt bytes and the SHA-256 recorded in the closeout receipt.
+L48-normal-publish.raw.log -text
