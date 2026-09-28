@@ -9,7 +9,7 @@ import { buildEnvelope } from '../../multi/scripts/envelope.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   account, inspectTransport, openPrivateCapture, ownerInputs, pickupOnce, readPageWithCli,
   receiptPaths, runRegisteredPickup, status, PickupError,
@@ -68,6 +68,31 @@ function fixture() {
   };
   const cleanup = () => sealed.cleanup();
   return { ...sealed, repo, options, cleanup };
+}
+
+// Lane 34 / P1: a real git main checkout, committed under the sealed fixture identity (never a
+// per-command -c user.* override — see skills/../scripts/test-home.mjs's includeIf identity), with
+// `.agents/project.json` tracked so a linked worktree checks out the identical config.
+function gitMainFixture(page = 'page-registered') {
+  const sealed = makeTempHome();
+  const repo = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'git-main-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: repo, env: sealed.env });
+  fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: page }));
+  execFileSync('git', ['add', '-A'], { cwd: repo, env: sealed.env });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env: sealed.env });
+  const options = {
+    repo, page, from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js',
+  };
+  const cleanup = () => sealed.cleanup();
+  return { ...sealed, repo, options, cleanup };
+}
+
+/** `git worktree add` a linked worktree of `fx.repo`, still inside the sealed fixture root. */
+function addLinkedWorktree(fx, branch = 'lane34-worktree') {
+  const worktree = path.join(fx.fixtureRoot, 'linked-worktree');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', branch, worktree], { cwd: fx.repo, env: fx.env });
+  return worktree;
 }
 
 function deps(fx, overrides = {}) {
@@ -1321,4 +1346,50 @@ test('transport recovery and success receipts discard external envelope diagnost
   }));
   assert.deepEqual(success.receipt.transportResult, { id: success.receipt.noteId, recorded: true });
   assert.equal(JSON.stringify(success).includes(senderCanary), false);
+});
+
+// Lane 34 (pickup-binding, lead ruling P1): project identity resolves through the main checkout
+// (the same `mainCheckout`/`durableTransportRepo` resolver `Details uses the durable main checkout...`
+// above already exercises for the transport repo), so every worktree of one repository is one
+// project. Real git fixtures throughout: `git init` plus `git worktree add` in mktemp dirs under the
+// sealed fixture root, committed under the fixture's own configured identity — no `-c user.*` here.
+test('a linked worktree of a repo resolves to the same project and projectScope as its main checkout, and finds a RECORDED round bound to the main checkout', async (t) => {
+  const fx = gitMainFixture('page-worktree-identity'); t.after(fx.cleanup);
+  const worktree = addLinkedWorktree(fx);
+
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  assert.equal(recorded.status, 'RECORDED');
+  assert.equal(recorded.receipt.round, 1);
+
+  const fromWorktree = status({ repo: worktree, page: fx.options.page }, { agentsHome: fx.agentsHome });
+  assert.equal(fromWorktree.status, 'RECORDED', JSON.stringify(fromWorktree));
+  assert.equal(fromWorktree.receipt.round, 1, 'the worktree finds the round RECORDED from the main checkout');
+  assert.equal(
+    fromWorktree.receipt.project, fs.realpathSync(fx.repo),
+    'a linked worktree must resolve to its main checkout, never its own path',
+  );
+  assert.equal(fromWorktree.receipt.projectScope, recorded.receipt.projectScope);
+
+  const expected = receiptPaths({
+    agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page,
+  });
+  assert.equal(fromWorktree.receipt.projectScope, expected.projectScope);
+});
+
+test("a main-checkout path's projectScope is unchanged from today's formula", async (t) => {
+  const fx = gitMainFixture('page-main-formula'); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  assert.equal(recorded.status, 'RECORDED');
+  const todaysProject = fs.realpathSync(fx.repo);
+  const todaysPaths = receiptPaths({ agentsHome: fx.agentsHome, project: todaysProject, page: fx.options.page });
+  assert.equal(recorded.receipt.project, todaysProject, 'a main checkout keeps the plain realpath identity');
+  assert.equal(recorded.receipt.projectScope, todaysPaths.projectScope, "today's sha256(project + page) formula, byte for byte");
+});
+
+test('a non-git directory keeps its realpath identity', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  assert.equal(recorded.status, 'RECORDED');
+  assert.equal(recorded.receipt.project, fs.realpathSync(fx.repo));
+  assert.equal(recorded.receipt.transportRepo, fs.realpathSync(fx.repo));
 });

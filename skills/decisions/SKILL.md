@@ -64,7 +64,10 @@ edit are banned there for every agent — `scripts/decisions-render.mjs` (the re
 excepted — because that script is the ONLY way the page is ever written. Write it only
 by running `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
 <decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done` when the
-fresh read shows owner input, per "Reading answers" below).
+fresh read shows owner input, per "Reading answers" below). `publish` runs from any
+clean checkout on branch main of the registered repository, a worktree included; the
+pickup round is found through the repository's main checkout (Lane 34,
+pickup-binding).
 
 When the record on origin says accepted, its Opus verdicts are in its evidence, and the
 sealed suite is green on a second host from origin (a Windows host when built on Linux, a
@@ -80,7 +83,8 @@ pushes; then runs `node <skill-dir>/scripts/decisions-render.mjs publish --repo 
 sends its RESULT. No Waiting item is
 posted for an ordinary accepted merge. Any conflict when merging into main, of any kind,
 means no merge: post a decision item under Waiting (template shape, with options) naming
-the conflicting paths instead. When
+the conflicting paths instead. An append-only conflict on the day file is resolved by
+keeping both bullets in commit order; it is not a decision item. When
 `origin/main` is not an ancestor of the branch tip, the merge result is a new tree: run
 the sealed suite on the merge commit (at least the lead's own host, no new failing test
 name vs main) before pushing main. Releases and installs to the owner's machines stay per
