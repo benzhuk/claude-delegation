@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 import { nativeRouteForLead, runCodexHook, runRoute } from './multi-codex-hook.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -153,11 +154,29 @@ test('the actual wrapper CLI selects the default native backlog route and writes
   const input = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'cli-turn' };
   const child = spawnSync(process.execPath, [WRAPPER], {
     cwd: root, input: JSON.stringify(input), encoding: 'utf8',
-    env: { ...process.env, NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO },
+    env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
   });
   assert.equal(child.status, 0, child.stderr);
   const output = JSON.parse(child.stdout.trim());
   assert.match(output.hookSpecificOutput.additionalContext, /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/);
+});
+
+test('real SessionStart without transcript metadata still routes wiring while preserving peer context', async (t) => {
+  const root = scratch('codex-parity-no-transcript-project-'); const home = scratch('codex-parity-no-transcript-home-');
+  rmLater(t, root); rmLater(t, home);
+  const result = await runCodexHook(
+    { hook_event_name: 'SessionStart', session_id: LEAD, cwd: root, turn_id: 'no-transcript-turn' },
+    {
+      home,
+      env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO },
+      inbox: async () => peerNotes(),
+      handleContinuationEvent: async () => ({ context: 'NO-TRANSCRIPT-CONTINUATION' }),
+      nativeRouteForLead,
+    },
+  );
+  assert.match(context(result), /wiring:/, 'Codex callbacks do not supply transcript_path');
+  assert.match(context(result), /peer → lead/, 'unknown role must retain peer delivery');
+  assert.match(context(result), /NO-TRANSCRIPT-CONTINUATION/, 'unknown role must retain continuation delivery');
 });
 
 test('route child early-close and bounded timeout fail silent without erasing peer or advisory output', async (t) => {

@@ -1,4 +1,4 @@
-VERDICT: PASS — artifact 51072e6942db072b44183dfc668329411a46d683; focused count 7 pass / 0 fail; native exit 0; negative controls proved removed and overlapping coverage fail.
+VERDICT: PASS — fix artifact 58170210871638726594cca8b9452cb7a6f1b3a8; scoped count 21 pass / 0 fail; native exit 0; negative controls proved removed and overlapping coverage fail.
 
 # Lane 37 independent contract-test report
 
@@ -18,3 +18,11 @@ Artifact checked: `51072e6942db072b44183dfc668329411a46d683`
 ## State
 
 Test and report are ready for separate add/commit. No full suite was run. Scratch artifacts are retained at the required Lane 37 path for gate review.
+
+## Fix round: no-transcript native callback
+
+- The Netcup sealed suite on the prior artifact `0b9d02068f2a6cbcfac8d6c2af0cbdbd9168f60f` failed this test's SessionStart assertion at `hooks/codex-unsupported.test.mjs:134`: it expected `/wiring:/` but got peer-note and continuation text only. This is a missing route result, not a timing failure; the failed fixture itself supplied a transcript path, so it cannot by itself prove the live callback's missing-metadata shape.
+- Builder diagnosis report `c6212e56739e13cf3e353a636716d5ce15bc23ec` identifies the live Codex callback shape: `cwd` and `session_id`, no `transcript_path`. The fix artifact permits unknown role only for the advisory native route after confirmed children have already returned.
+- Added a regression with a real `SessionStart` payload lacking `transcript_path`; it requires `wiring:` while retaining peer and continuation context. Existing focused source tests retain confirmed-child suppression.
+- Replaced the test's direct child environment spread with `childEnv(home, ...)`, addressing the sealed-suite hygiene finding at the former direct spawn line.
+- Ran only `node --test hooks/codex-unsupported.test.mjs hooks/multi-codex-hook.test.mjs` against `58170210871638726594cca8b9452cb7a6f1b3a8`: 21 passed, 0 failed, exit 0. Raw evidence: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-fixround.raw.log`.
