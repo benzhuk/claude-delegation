@@ -447,3 +447,23 @@ test('N2: no test file in this suite inherits the runner environment on its own'
   assert.equal(childEnv('/fixture').CLAUDE_CODE_MESSAGING_TOKEN, '', 'and the helper really does blank them');
   assert.equal(childEnv('/fixture').HOME, '/fixture');
 });
+
+// Lane 47, P3/FU4: childEnv strips the four repo-locating git names too, even when the parent
+// process (this test runner) has one set. Must fail on base d6f5c9d (red) before the fix.
+test('childEnv strips the four repo-locating git names, even when the parent process has them set', () => {
+  const names = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE'];
+  const saved = {};
+  for (const name of names) {
+    saved[name] = { had: Object.prototype.hasOwnProperty.call(process.env, name), value: process.env[name] };
+    process.env[name] = '/somewhere/.git';
+  }
+  try {
+    const env = childEnv('/fixture');
+    for (const name of names) assert.equal(env[name], undefined, `${name} leaked into childEnv's output`);
+  } finally {
+    for (const name of names) {
+      if (saved[name].had) process.env[name] = saved[name].value;
+      else delete process.env[name];
+    }
+  }
+});

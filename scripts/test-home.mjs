@@ -165,8 +165,12 @@ export function makeTempHome({ files = {}, gitIdentity = true, tmpDir = os.tmpdi
   // Removed rather than blanked: some callers branch on the KEY BEING ABSENT, not on its value
   // being empty (e.g. codex-hook-trust.mjs falls back to process.env.CODEX_HOME only when the
   // passed-in env has no such key at all) - an empty string would still count as "present".
+  // GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR/GIT_INDEX_FILE (lane 47, P3/FU4): also removed here so
+  // an agent or git hook running the suite with one of these exported in the PARENT process
+  // cannot point a fixture git call at the real repo instead of the sealed home's scratch repo.
   for (const k of ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "ORCA_CODEX_HOME", "ORCA_USER_DATA_PATH",
-    "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_TAB_ID", "ORCA_WORKTREE_ID", "NOTE_SLUG"]) delete env[k];
+    "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_TAB_ID", "ORCA_WORKTREE_ID", "NOTE_SLUG",
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]) delete env[k];
 
   function unregister() {
     registeredHomes.delete(raw);
