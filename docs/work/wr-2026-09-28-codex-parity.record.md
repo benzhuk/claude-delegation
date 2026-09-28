@@ -1,12 +1,12 @@
 Work: wr-2026-09-28-codex-parity
 Scope: docs/specs/codex-parity-37/pinned-spec.md@dc16de3ba767fe9762cde454b3483e1e3a5abd9a Lane 37
 Owner: skills-a
-Status: accepted
+Status: closed
 Authority: Lane 37 assignment skills-fable-lane-37-1 under the standing build and merge grant. Exclusive lane territory only. No release or real-home installation. Lane34 cleared the earlier page-publication deferral on main; normal guarded renderer publication is authorized at closeout. Root alone writes this record.
 Artifact: 11a1023e47aeb94d7646d21c1b4c9b4cdc0bc883
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-parity-37
-Evidence: docs/work/evidence/wr-2026-09-28-codex-parity-opus-review.md, docs/specs/codex-parity-37/L37-builder-report.md, docs/specs/codex-parity-37/L37-tests-report.md, docs/specs/codex-parity-37/L37-native-proof-r2.md, docs/specs/codex-parity-37/L37-windows-integration.md, docs/specs/codex-parity-37/L37-netcup-integration.md, docs/specs/codex-parity-37/L37-load-research.md, docs/specs/codex-parity-37/L37-windows-r5.md, docs/specs/codex-parity-37/L37-netcup-r6.md, docs/work/evidence/wr-2026-09-28-codex-parity.census.md, docs/work/evidence/wr-2026-09-28-codex-parity.spec-census.md, docs/work/evidence/wr-2026-09-28-codex-parity.four-read.md, docs/work/evidence/wr-2026-09-28-codex-parity.work-census.md, docs/specs/codex-parity-37/L37-native-proof-r4.md, docs/specs/codex-parity-37/L37-windows-r6.md, docs/specs/codex-parity-37/L37-netcup-r7.md, docs/specs/codex-parity-37/L37-main-merge-gate.md, docs/specs/codex-parity-37/L37-merge-research.md, docs/specs/codex-parity-37/L37-final-budget-fix.md
-Next: guarded re-acceptance at11a1023, then fresh main merge with history bullet and one exact-merge Windows gate before push, root close and guarded publication.
+Evidence: docs/work/evidence/wr-2026-09-28-codex-parity-opus-review.md, docs/specs/codex-parity-37/L37-builder-report.md, docs/specs/codex-parity-37/L37-tests-report.md, docs/specs/codex-parity-37/L37-native-proof-r2.md, docs/specs/codex-parity-37/L37-windows-integration.md, docs/specs/codex-parity-37/L37-netcup-integration.md, docs/specs/codex-parity-37/L37-load-research.md, docs/specs/codex-parity-37/L37-windows-r5.md, docs/specs/codex-parity-37/L37-netcup-r6.md, docs/work/evidence/wr-2026-09-28-codex-parity.census.md, docs/work/evidence/wr-2026-09-28-codex-parity.spec-census.md, docs/work/evidence/wr-2026-09-28-codex-parity.four-read-evidence.md, docs/work/evidence/wr-2026-09-28-codex-parity.work-census-evidence.md, docs/specs/codex-parity-37/L37-native-proof-r4.md, docs/specs/codex-parity-37/L37-windows-r6.md, docs/specs/codex-parity-37/L37-netcup-r7.md, docs/specs/codex-parity-37/L37-main-merge-gate.md, docs/specs/codex-parity-37/L37-merge-research.md, docs/specs/codex-parity-37/L37-final-budget-fix.md, docs/specs/codex-parity-37/L37-main-merge-r2-gate.md
+Next: none for this lane; source merged and record closed. Final peer RESULT carries the guarded publication receipt. Janitor record/apply is deferred to Lane36 until its implementation lands.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T19:03:14Z
@@ -40,6 +40,7 @@ Four numbers: Hours ask to accepted: 3.4h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 4 commit(s) touching build files within 7 days: aafc1d0 "docs: record Lane 37 merge gate rejection", 1841065 "test: preserve advisory through stalled codex route", 8b1f4bf "fix: preserve Codex advisory after route timeout", 325fb41 "docs(work): accept codex parity evidence"; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-37-1
 Log: 2026-09-28T22:58:55.152Z accepted skills-a artifact 11a1023e47aeb94d7646d21c1b4c9b4cdc0bc883
+Log: 2026-09-28T23:06:15.794Z closed skills-a merge 5d201f2973555d5a526bf6c053e4c69b30ece571
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37
 
@@ -47,7 +48,7 @@ Measure: work lost or stalled on Codex-led builds; DONE mixed handoff clause.
 
 Predicts: the next Codex-led lane record shows zero not-stated host coverage gaps.
 
-Observed: Opus approved11a1023; native Codex proofR4 and WindowsR6/NetcupR7 sealed suites pass. The final four-read retains unavailable complete tokens/stall attribution and shows4 post-acceptance build-file commits. Prior accepted66bd1b4 and failed local merge2bad23a remain preserved. No main push or closure yet.
+Observed: approved artifact11a1023 merged as5d201f2973555d5a526bf6c053e4c69b30ece571. Exact-merge Windows sealed gate passed2684 of2698 with0 failures and14 skips. Candidate Windows/Netcup/native gates and Opus review passed. Record closed through work-record close. Earlier rejected merge and post-acceptance rework remain in evidence; complete tokens and stall attribution remain unavailable.
 
 Historical continuation bind: native episode wjkOi7-mk-Up7QCia1QFaPAR was suspended; bind returned EPISODE_INACTIVE. Ordinary authorized work continues without claiming active continuation enforcement.
 
@@ -66,3 +67,7 @@ Current continuation: released plugin0.20.17 bind earlier confirmed active for e
 First acceptance measurement: native census PARTIAL from out-of-horizon and unverified discovery, so complete top-tier tokens and native stalled classification are unavailable. Actual four-read gives3.4h ask-to-accept,0 rework commits/0 re-accept logs at an immature acceptance-time snapshot,0 API gaps over30min (heuristic only), and1 unanswered initial dispatch ASK pending final RESULT. It reports2 conversational lead turns and169 verified top-tier API responses; these are different measures, not proof of cheap execution. Claude spec slice is counted separately and the external mixed reviewer is not a native descendant.
 
 Re-acceptance measurement at 2026-09-28T22:58:55.152Z: the existing four-read selects the first accepted Log, so its hours line remains3.4h. It now reports4 commits touching build files after that acceptance, and0 prior re-accept Log entries before this second acceptance is written. Native coverage remains PARTIAL and top-tier tokens/stall classification unavailable; the companion API-message count is also unavailable because its census window extends beyond the first accepted timestamp. These reader limits are retained rather than replaced by hand totals. The new acceptance Log supplies the actual later instant.
+
+Closure: one plain lane bullet was appended in merge5d201f2. Current close validation required every Evidence item to begin VERDICT, so raw four-read/work-census outputs remain unchanged and separately linked format-only OBSERVED wrappers satisfy the report shape. Repository-aware validation passed and code-mediated close succeeded. No runtime source changed after Opus approval.
+
+Retained cleanup: integration C:/Users/benzh/orca/workspaces/claude-delegation/codex-parity-37; builder C:/Users/benzh/orca/workspaces/claude-delegation/codex-parity-37-builder; Windows scratch C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37 including both merge clones and failed proof evidence; Netcup scratch /tmp/01a0df4c-2809-7520-b1d7-876cc51a87ee/37. Post-close janitor record/apply is deferred to Lane36 because it remains unmerged in this main tree. Five astra-* trees have no local terminals but unmerged branches and in-progress cards, so none is classified SAFE or removed. Temporary native-proof auth copies were removed.
