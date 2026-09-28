@@ -1,9 +1,9 @@
 {
   "unsupported": [
-    { "script": "hooks/delegation-reminder.js", "event": "SessionStart", "reason": "Codex has no equivalent delegation reminder lifecycle." },
-    { "script": "hooks/delegation-reminder.js", "event": "UserPromptSubmit", "reason": "Codex has no equivalent delegation reminder lifecycle." },
+    { "script": "hooks/delegation-reminder.js", "event": "SessionStart", "reason": "Claude reminder requires input.agent_type state absent from Codex hooks." },
+    { "script": "hooks/delegation-reminder.js", "event": "UserPromptSubmit", "reason": "Claude reminder reads input.transcript_path to select a model tier." },
     { "script": "hooks/delegation-reminder.js", "event": "PostToolBatch", "reason": "Codex has no PostToolBatch event." },
     { "script": "hooks/knowledge-log.mjs", "event": "PostToolUse", "reason": "Codex payload has no file path." },
-    { "script": "hooks/agent-dispatch-guard.mjs", "event": "PreToolUse", "reason": "Codex agent dispatch has no equivalent guarded tool payload." }
+    { "script": "hooks/agent-dispatch-guard.mjs", "event": "PreToolUse", "reason": "Guard requires Agent or SendMessage tool_name with tool_input prompt schema." }
   ]
 }

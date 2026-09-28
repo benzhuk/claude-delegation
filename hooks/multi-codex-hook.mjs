@@ -63,7 +63,9 @@ function appendGoalContext(result, event, text, systemMessage) {
   return next;
 }
 
-const ROUTE_TIMEOUT_MS = 900;
+// This stays below the 700 ms native PostToolUse ceiling. A route is advisory and must never consume
+// the time the peer-delivery path needs to surface a note.
+const ROUTE_TIMEOUT_MS = 400;
 
 /**
  * Run one existing Claude hook as a bounded native-context producer.  The Claude entrypoints already
@@ -82,8 +84,9 @@ export function runRoute(script, args, input, cwd, env, timeoutMs = ROUTE_TIMEOU
       resolve(value);
     };
     const timer = setTimeout(() => {
-      try { child?.kill(); } catch {}
-      finish('');
+      // Resolve only after close: returning before the child exits lets main's immediate native exit
+      // orphan it on Windows. kill() bounds the route; close confirms it was reaped.
+      try { child?.kill(); } catch { finish(''); }
     }, timeoutMs);
     timer.unref?.();
     try {
