@@ -340,6 +340,23 @@ test("closeoutRecord: origin-branch refuses a branch not under build/ (main, doc
   assert.match(steps["origin-branch"].detail, /not under build\//);
 });
 
+// M6: the "not under build/" check was previously tested with only one fixture ("main") - these
+// two round out the regex with the two other named examples from the finding (docs/*, feat/*).
+for (const name of ["docs/some-file", "feat/some-feature"]) {
+  test(`closeoutRecord: origin-branch refuses a branch not under build/ - ${name} (M6)`, () => {
+    const env = fixtureEnv();
+    const { repo } = buildRepo(env);
+    const { scratchPath, by } = mkScratchFixture();
+    const recordRel = writeClosedRecord(repo, {
+      work: `wr-2026-09-27-ob-notbuild-${name.replace("/", "-")}`, worktree: name, artifact: `docs/mandate-template.md@${git(["rev-parse", "HEAD"], repo, env).trim()}`, leadSession: by, scratch: scratchPath,
+    });
+    const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+    const steps = stepsOf(result);
+    assert.equal(steps["origin-branch"].result, "refused");
+    assert.match(steps["origin-branch"].detail, /not under build\//);
+  });
+}
+
 test("closeoutRecord: origin-branch refuses a branch that is not this record's own (another record, of ANY status, already claims the same branch)", () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
@@ -644,6 +661,34 @@ test("closeoutRecord: scratch step refuses a symlinked target, and never follows
   assert.equal(steps.scratch.result, "refused");
   assert.match(steps.scratch.detail, /symlink/);
   assert.equal(fs.existsSync(realTarget), true, "the symlink's real target must survive");
+});
+
+// M6: a symlinked ANCESTOR (not the target itself) that changes the real path is a distinct
+// refusal branch from "target is a symlink" above - this pins that one directly.
+test("closeoutRecord: scratch step refuses a target whose ANCESTOR (not the target itself) is a symlink, changing its real path", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const by = `closeout-test-by-ancestorlink-${++scratchCounter}`;
+  const realBase = mkTmp("closeout-symlink-realbase-");
+  const realLane = path.join(realBase, "lane-1");
+  fs.mkdirSync(realLane, { recursive: true });
+  const sessionLink = path.join(os.tmpdir(), by);
+  try {
+    fs.symlinkSync(realBase, sessionLink, "dir");
+  } catch (err) {
+    assert.ok(err, "symlink creation refused by the environment - ancestor-symlink case skipped");
+    return;
+  }
+  tracked.push(sessionLink);
+  const scratchPath = path.join(sessionLink, "lane-1");
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-sc-ancestorlink", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.scratch.result, "refused");
+  assert.match(steps.scratch.detail, /symlinked ancestor/);
+  assert.equal(fs.existsSync(realLane), true, "the real directory behind the symlinked ancestor must survive");
 });
 
 test("closeoutRecord: scratch step refuses the repo root, and refuses a path in git worktree list", () => {
