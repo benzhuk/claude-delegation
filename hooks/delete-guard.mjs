@@ -72,29 +72,48 @@
 //   (`echo "rm -rf x" | sh`), or the double-quoted span itself contains a command
 //   substitution (`"...$(rm -rf x)..."` or a backtick form) — both of those really execute,
 //   so they are excluded from the exemption rather than trusted.
-//   Here-doc exception (lane 36 / C2 ruling, round 2 — `findHeredocSafeSpans`): a here-doc
-//   body is exempt ONLY when the whole command (apart from the body itself) is exactly one
-//   of four shapes, with a PLAIN `<<` (never `<<-`) and a QUOTED delimiter (`<<'EOF'` or
-//   `<<"EOF"` — an unquoted delimiter lets `$( )`/backtick substitution run inside the body,
-//   so it is never exempt): `cat > <file>` / `cat >> <file>` (the redirect before or after
-//   the `<<`), `tee [-a] <file>` (not piped), `note-send …`, or `git commit -F -` (reading
-//   the commit message from stdin — the earlier `git commit -m "$(cat <<'EOF' … )"` nested-
-//   substitution shape is NOT exempt: a `$( )` anywhere outside the body disqualifies the
-//   whole command, full stop). Nothing may precede the command or follow the closing
-//   delimiter line except whitespace — no `|`, `;`, `&&`, `||`, `&`, a second heredoc, `<( )`
-//   / `>( )`, or `$( )`/backtick anywhere outside the body. A quoted delimiter makes the body
-//   itself immune to re-checking (bash disables all expansion inside it), which is also what
-//   keeps this scan a single bounded pass even on an adversarially large input. A here-doc
-//   written to a FILE (by `tee`, or now by `cat > file`) and executed by a LATER, SEPARATE
-//   tool call is still out of scope for this file the same way any other write-then-run
-//   split is (this hook only ever sees one command string at a time) — only same-call
-//   execution after the body is refused, via the empty-trailer requirement above.
-//   Condition 5 (round 3, N1): a `cat`/`tee` target whose name ends — final suffix,
-//   case-insensitive — in `.sh`, `.bash`, `.zsh`, `.ps1`, `.psm1`, `.cmd`, `.bat`, `.py`,
-//   `.js`, `.mjs` or `.cjs` is never exempt, even with a quoted delimiter and no other
-//   disqualifier: writing a script-shaped file is exactly the write-then-run split the
-//   exemption otherwise leaves out of scope, so this closes that gap at the write step
-//   itself. `x.md.sh` refuses (final suffix `.sh`); `x.sh.md` passes (final suffix `.md`).
+//   Here-doc exception (lane 36 / C2 ruling, round 4, "Ruling W" — `heredocWhitelistBodyStart`):
+//   round 2 and round 3 PARSED the command to decide whether a here-doc body was exempt, and
+//   round 3's review (N2-N5) found that JS's `\S`/`\s` classes read line 1 differently than
+//   bash's own word/line splitting in four separate ways (a quote or `#` inside a target, a
+//   second `<<` glued onto a target, non-blank whitespace bash treats as part of a word, and
+//   normalization joining a body line's trailing backslash/backtick into the closing line) —
+//   each one let real, executed text end up inside the "exempt" span. Round 4 replaces the
+//   parser outright with an exact WHITELIST, matched against the RAW, un-normalized command:
+//   the whole input is exempt only when line 1 matches one of three fixed shapes, character
+//   for character, with no parsing step in between —
+//     `cat >file <<'DELIM'` / `cat > file <<'DELIM'` / `cat >>file <<'DELIM'` (append, same
+//       optional single space before the target),
+//     `tee file <<'DELIM'` / `tee -a file <<'DELIM'`,
+//     `note-send <args> --packet-file - <<'DELIM'` (`<args>` excludes `<`, `>`, `|`, `;`,
+//       `&`, `$`, a backtick, `(`, `)`, `#`, and any whitespace character other than a
+//       literal ASCII space or tab),
+//     or exactly `git commit -F - <<'DELIM'`.
+//   The target (`cat`/`tee` only) is restricted to `[A-Za-z0-9._/-]` — no quote, `#`, `$`,
+//   backslash, `<`, `>`, or any whitespace can appear in it at all, so there is no character
+//   left that could reopen a string, start a comment, or hide a second redirect. The
+//   delimiter is `[A-Za-z_][A-Za-z0-9_]*`, single-quoted only (round 3 also allowed a
+//   double-quoted delimiter; round 4 drops that — nothing in this repo needs it). Only ONE
+//   redirect is ever allowed (round 3 N5: two redirects hid the real write target from the
+//   suffix check) and there is exactly one `<<` in the whole shape, by construction — a
+//   second, glued-on heredoc (`cat >f<<A <<'EOF'`) simply does not match any of the three
+//   shapes, so the whole command falls through to the base checked-as-normal path instead of
+//   being silently narrowed. The body is bounded by scanning the RAW string (never the
+//   normalized one) for the first line that equals the captured delimiter by strict `===` —
+//   no leading or trailing whitespace of any kind, so a line-continuation trick that only
+//   fools the normalizer (round 3 N4) never fools this scan, because this scan never sees the
+//   normalized text at all. Nothing may follow that delimiter line except one optional final
+//   `\n`; an unterminated here-doc (no line ever equals the delimiter) is not exempt. `\r` or
+//   any non-ASCII-space/tab whitespace character anywhere on line 1 or the delimiter line
+//   breaks the exact-match / exact-equality checks above and so is never exempt either.
+//   Condition 5 (round 3, N1; unchanged in shape, now read off the whitelist's own target
+//   capture): a `cat`/`tee` target whose name ends — final suffix, case-insensitive — in
+//   `.sh`, `.bash`, `.zsh`, `.ps1`, `.psm1`, `.cmd`, `.bat`, `.py`, `.js`, `.mjs` or `.cjs` is
+//   never exempt. `x.md.sh` refuses (final suffix `.sh`); `x.sh.md` passes (final suffix
+//   `.md`). `note-send`/`git commit -F -` name no target file, so this is a no-op for them.
+//   A here-doc written to a FILE (by `tee`, or `cat > file`) and executed by a LATER,
+//   SEPARATE tool call is still out of scope for this file the same way any other
+//   write-then-run split is (this hook only ever sees one command string at a time).
 //   ssh (lane 36 / C2 ruling, round 2): there is no ssh-specific re-parse here. `ssh host
 //   "grep -n 'rm -rf' file"` is exempt through the ordinary quoted-argument rule above (the
 //   word `grep` is found in command position, and the quoted span inside its window is
@@ -290,78 +309,86 @@ function findSafeQuoteSpans(command) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Here-doc bodies that go to a non-executing consumer (lane 36 / C2 ruling, round 2 —
-// see the header comment above for the full rule). A heredoc body is exempt ONLY when the
-// whole command, apart from the body, is exactly one of the four whole-line shapes below,
-// with a plain `<<` and a quoted delimiter. No `|`, `;`, `&&`, `||`, `&`, a second heredoc,
-// process substitution, or `$( )`/backtick may appear anywhere outside the body — checked
-// by anchoring each pattern to the ENTIRE first line (`^…$`) and requiring the text after
-// the closing delimiter line to be pure whitespace. Because the delimiter is always quoted,
-// the body itself needs no separate substitution check (bash disables all expansion inside
-// a quoted-delimiter heredoc), so this is a single bounded pass: one `indexOf('\n')`, one
-// anchored regex try against each of four patterns, one regex search for the closing line.
-// No detector here ever rescans a body, so there is no quadratic-scan shape (lane 36 F3).
+// Here-doc bodies that go to a non-executing consumer (lane 36 / C2 ruling, round 4,
+// "Ruling W" — see the header comment above for the full rule). This is a WHITELIST, not a
+// parser: the whole input is exempt only when line 1 matches one of the three shapes below
+// EXACTLY (anchored `^…$`, plain-word charsets only — no quote, `#`, `$`, backslash, `<`,
+// `>`, or non-ASCII-space/tab whitespace can appear anywhere the charsets allow a target or
+// note-send argument to sit), and the body is bounded by the first line that equals the
+// captured delimiter by strict `===` against the RAW command, with nothing after it but one
+// optional trailing `\n`. No detector here ever rescans a body, so there is no quadratic-scan
+// shape (lane 36 F3); `heredocWhitelistBodyStart` is a single bounded pass: one
+// `indexOf('\n')`, up to three anchored regex tries against line 1, then one linear `split`
+// over the remainder to find the closing line.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CAT_LINE_RE = /^\s*cat(?:\s+(>{1,2})\s*(\S+))?\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\3(?:\s+(>{1,2})\s*(\S+))?\s*$/;
-const TEE_LINE_RE = /^\s*tee(?:\s+-a)?\s+(\S+)\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\2\s*$/;
-const NOTE_SEND_LINE_RE = /^\s*note-send(?:\s+\S+)*\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
-const GIT_COMMIT_F_LINE_RE = /^\s*git\s+commit\s+-F\s+-\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
-
-// Defense in depth: the filename/arg groups above use `\S+`/greedy repeats, which could in
-// principle smuggle a metacharacter through an unquoted, space-free target (`cat > f$(rm
-// -rf x)<<'EOF'`). Any of these anywhere on the first line disqualifies the whole command
-// outright, on top of the anchored shape checks.
-const HEREDOC_DISQUALIFY_RE = /\|\||&&|[|;&`]|\$\(|<\(|>\(/;
+// `cat >file`, `cat > file`, `cat >>file`, `cat >> file` (exactly one redirect: round 3 N5
+// — two redirects hid the real write target from the suffix check below, so a second
+// redirect anywhere on the line, before OR after the `<<`, simply does not match this
+// shape at all) or `tee file` / `tee -a file` (not piped) — a single ASCII space separates
+// every fixed token, and the target charset (`[A-Za-z0-9._/-]`) has no character left that
+// could reopen a quote, start a comment, or glue on a second `<<`.
+const CAT_TEE_LINE_RE = /^(?:cat >>? ?|tee (?:-a )?)([A-Za-z0-9._/-]+) <<'([A-Za-z_][A-Za-z0-9_]*)'$/;
+// `note-send <args> --packet-file - <<'DELIM'` — `<args>` may hold any run of characters
+// that are each either NOT `\s`-matching (so no `\r`, tab-that-isn't-a-literal-tab, or any
+// unicode space survives) or a literal ASCII space/tab, and also not one of the shell
+// metacharacters that could turn a "safe" argument into something that really executes.
+const NOTE_SEND_LINE_RE = /^note-send ((?:[^\s<>|;&$`()#]|[ \t])*) --packet-file - <<'([A-Za-z_][A-Za-z0-9_]*)'$/;
+// `git commit -F - <<'DELIM'`, exactly — no variation.
+const GIT_COMMIT_F_LINE_RE = /^git commit -F - <<'([A-Za-z_][A-Za-z0-9_]*)'$/;
 
 // R1 condition 5: the target's name must not end (final suffix, case-insensitive) in one
 // of these script/executable extensions. Only `cat`/`tee` name a target file at all; a
-// disqualifying suffix here refuses the whole command, same as any other condition-5 miss.
+// disqualifying suffix here refuses the whole command, same as any other whitelist miss.
 const HEREDOC_DISALLOWED_SUFFIX_RE = /\.(sh|bash|zsh|ps1|psm1|cmd|bat|py|js|mjs|cjs)$/i;
 
-function findHeredocSafeSpans(command) {
+/** Line 1 (a single line, no `\n` in it) against the whitelist. Returns `{ target, delim }`
+ * or null. `target` is null for note-send/git-commit-F: they name no target file, so R1
+ * condition 5 is a no-op for them. */
+function matchHeredocLine1(line1) {
+  let m = CAT_TEE_LINE_RE.exec(line1);
+  if (m) return { target: m[1], delim: m[2] };
+  m = NOTE_SEND_LINE_RE.exec(line1);
+  if (m) return { target: null, delim: m[2] };
+  m = GIT_COMMIT_F_LINE_RE.exec(line1);
+  if (m) return { target: null, delim: m[1] };
+  return null;
+}
+
+/** Ruling W (round 4). Returns the byte offset, in the RAW (un-normalized) `command`,
+ * where the exempt here-doc body begins — or null when the whole input does not match the
+ * one exempt shape, in which case the heredoc exemption does not apply at all and the
+ * whole input is checked as at base. Operates ONLY on the raw string: normalizing first
+ * (backslash/backtick-newline joining) is exactly the round-3 N4 bug, where a joined body
+ * line could move where bash's own closing line actually is. */
+function heredocWhitelistBodyStart(command) {
   const nl = command.indexOf('\n');
-  if (nl === -1) return []; // no body at all: nothing to exempt
+  if (nl === -1) return null; // no body at all: nothing to exempt
   const line1 = command.slice(0, nl);
-  if (HEREDOC_DISQUALIFY_RE.test(line1)) return [];
+  const shape = matchHeredocLine1(line1);
+  if (!shape) return null;
+  if (shape.target && HEREDOC_DISALLOWED_SUFFIX_RE.test(shape.target)) return null;
 
-  let consumer = null;
-  let delim = null;
-  let target = null;
-  let m = CAT_LINE_RE.exec(line1);
-  if (m && (m[1] || m[5])) {
-    // `cat` is exempt only writing to a FILE (round 2: bare `cat <<EOF` with no redirect
-    // at all is no longer on the exempt list — see the header comment).
-    consumer = 'cat';
-    delim = m[4];
-    target = m[2] || m[6];
-  } else if ((m = TEE_LINE_RE.exec(line1))) {
-    consumer = 'tee';
-    delim = m[3];
-    target = m[1];
-  } else if ((m = NOTE_SEND_LINE_RE.exec(line1))) {
-    consumer = 'note-send';
-    delim = m[2];
-  } else if ((m = GIT_COMMIT_F_LINE_RE.exec(line1))) {
-    consumer = 'git-commit-F';
-    delim = m[2];
-  }
-  if (!consumer) return [];
-  // R1 condition 5: refuse when `cat`/`tee`'s target ends in a script/executable suffix.
-  if (target && HEREDOC_DISALLOWED_SUFFIX_RE.test(target)) return [];
-
-  // Plain `<<` closing-line rule: the closing delimiter line must match EXACTLY (no
-  // leading whitespace at all — that is `<<-`'s rule, and `<<-` is never exempt here).
-  const closeRe = new RegExp(`^${delim}$`, 'm');
+  // The delimiter is unquoted here (this project's own quote/backtick charset already
+  // excludes it from ever containing one), so bash disables all expansion inside the body
+  // — no separate substitution check is needed, and the body itself is never rescanned.
   const bodyStart = nl + 1;
-  const rest = command.slice(bodyStart);
-  const closeMatch = closeRe.exec(rest);
-  if (!closeMatch) return []; // unterminated here-doc: unparseable, fails closed
+  const lines = command.slice(bodyStart).split('\n');
+  let delimLineStart = bodyStart;
+  let closeIdx = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    // Strict equality: no leading or trailing whitespace of any kind (space, tab, `\r`, or
+    // any unicode space) lets a line count as the closer — bash's own rule for a plain
+    // (non-`<<-`) here-doc with a quoted delimiter.
+    if (lines[i] === shape.delim) { closeIdx = i; break; }
+    delimLineStart += lines[i].length + 1; // + the '\n' the split consumed
+  }
+  if (closeIdx === -1) return null; // unterminated here-doc: unparseable, fails closed
 
-  const bodyEnd = bodyStart + closeMatch.index;
-  const trailer = command.slice(bodyStart + closeMatch.index + closeMatch[0].length);
-  if (!/^\s*$/.test(trailer)) return []; // anything after the closing line disqualifies
-  return [[bodyStart, bodyEnd]];
+  const afterDelim = delimLineStart + shape.delim.length;
+  const trailer = command.slice(afterDelim);
+  if (trailer !== '' && trailer !== '\n') return null; // nothing may follow but one optional \n
+  return bodyStart;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -472,10 +499,21 @@ export function detectDelete(command) {
   // hides a flag on the next line from every window scan above, which stops at `\n`
   // (m3) — collapse it to a single space so the whole logical command is one line.
   const normalized = command.replace(/[\\`]\r?\n/g, ' ');
-  const safeSpans = [
-    ...findSafeQuoteSpans(normalized),
-    ...findHeredocSafeSpans(normalized),
-  ];
+  const safeSpans = [...findSafeQuoteSpans(normalized)];
+  // Ruling W (round 4): matched against the RAW command (see heredocWhitelistBodyStart) —
+  // never the normalized one, so a joined line can't move where the real body starts. When
+  // the whole input matches the one exempt shape, nothing follows the delimiter line but an
+  // optional trailing `\n`, so the safe span always runs to the end of the (normalized)
+  // string. The slice-equality guard only accepts the offset when normalization has not
+  // touched anything before the body — it always holds given this shape's charsets (no
+  // backslash or backtick can reach line 1), and costs nothing to check.
+  const heredocBodyStart = heredocWhitelistBodyStart(command);
+  if (
+    heredocBodyStart !== null
+    && command.slice(0, heredocBodyStart) === normalized.slice(0, heredocBodyStart)
+  ) {
+    safeSpans.push([heredocBodyStart, normalized.length]);
+  }
   for (const detector of DETECTORS) {
     const found = detector(normalized, safeSpans);
     if (found) return found;
