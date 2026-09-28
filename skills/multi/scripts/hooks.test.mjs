@@ -215,7 +215,7 @@ test('M3: a missing packet is surfaced in the injected context, not just on stde
   // fixture's cwd (`home`, passed as the hook's `input.cwd`) must be a real, git-initialized
   // checkout for the packet to be genuinely absent from a CHECKED repo, not merely "not checked
   // here". `git init` alone needs no commit identity.
-  execFileSync('git', ['init', '-q', home]);
+  execFileSync('git', ['init', '-q', home], { env: childEnv(home) });
   mirror(home, [`astra → taxonomy, ${STAMP} ${CLOCK} NYC [astra-gone-1] ASK: See the packet. Details: docs/notes/astra-gone-1.md`]);
   const out = runHook('UserPromptSubmit', home);
   assert.match(out.hookSpecificOutput.additionalContext, /packet MISSING: docs\/notes\/astra-gone-1\.md/);

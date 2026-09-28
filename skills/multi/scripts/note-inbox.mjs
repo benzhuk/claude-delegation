@@ -335,21 +335,16 @@ export async function runNoteInbox(argv, deps = {}) {
  * still needs somewhere to put a file. A READER must never inherit that fallback: treating an unproven
  * directory as a checked repo is exactly how a packet that is really in the main checkout gets reported
  * MISSING (lane 47, P7: a start git cannot place in any repo, e.g. a cwd outside every checkout, is
- * never "checked"). So this probes with the SAME git call `mainCheckout` starts from,
- * and only calls `mainCheckout` when that direct probe itself succeeds.
+ * never "checked"). So this probes with the SAME git call `mainCheckout` itself would make, and
+ * only ever answers `mainCheckout`'s own normalisation of that ONE probe's result — never a second
+ * spawn — when the probe itself succeeds.
  */
 function resolveRealRepo(dir, git) {
   if (!dir) return null;
-  try {
-    git(['rev-parse', '--git-common-dir'], dir);
-  } catch {
-    return null;
-  }
-  try {
-    return mainCheckout(dir, git);
-  } catch {
-    return null;
-  }
+  let common;
+  try { common = git(['rev-parse', '--git-common-dir'], dir); } catch { return null; }
+  if (!String(common ?? '').trim()) return null;
+  return mainCheckout(dir, () => common); // same answer, one spawn
 }
 
 /** Is the packet the `Details:` path names actually on disk? Checked in every repo we scanned. */
