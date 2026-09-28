@@ -122,7 +122,7 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
 });
 
 // L-C7: run-tests.mjs adds no new wiring of its own - `runSealed` already forwards the WHOLE
-// `env` object `makeTempHome` returns to both spawnSync calls, so once `makeTempHome` sets
+// `env` object `makeTempHome` returns to both child launches, so once `makeTempHome` sets
 // FIXTURE_ROOT the sealed child gets it for free. This proves that end-to-end through the real
 // `runSealed`, not just that `makeTempHome`'s own return shape has the field.
 //
@@ -134,7 +134,7 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
 // Confirmed by direct check: with a deliberately-failing probe and NODE_TEST_CONTEXT left in
 // place, runSealed() returned 0 (skipped) instead of 1; stripping it, the same failing probe
 // correctly returned 1.
-test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", () => {
+test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", async () => {
   const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-tests-fixture-root-probe-"));
   cleanups.push(() => fs.rmSync(probeDir, { recursive: true, force: true }));
   const probeFile = path.join(probeDir, "fixture-root-probe.test.mjs");
@@ -153,7 +153,7 @@ test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed chil
   delete process.env.NODE_TEST_CONTEXT;
   let code;
   try {
-    code = runSealed({ files: [probeFile] });
+    code = await runSealed({ files: [probeFile] });
   } finally {
     if (savedTestContext !== undefined) process.env.NODE_TEST_CONTEXT = savedTestContext;
   }
