@@ -488,3 +488,7 @@ that carries one, such as this repo's own checkout; a scratch directory with no 
 (round-1 review, MAJOR 2).
 
 Codex: the read counter is unsupported on Codex, because Codex hook payloads carry no file path, so Codex sessions' reads are never counted. The SessionStart line still renders in Codex sessions, and its read count there covers Claude sessions on the same host only.
+
+## Counted markers
+
+- `stale session:`: the stale-session guard's marker; the guard logs it as rule `R0-stale` (with `hard_deny: true`); wiring-check `--line` prints the same text.
