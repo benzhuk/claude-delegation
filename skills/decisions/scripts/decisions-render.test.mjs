@@ -196,6 +196,11 @@ test('normalize: Lane48 meaningful changes and fenced literals remain unequal', 
     normalize('<details>\n````md\n```\n</details>\nnext\n````\n</details>'),
     'a shorter backtick run cannot close a longer fence around a literal closing tag',
   );
+  assert.notEqual(
+    normalize('<details>\n```md\n```still-code\n</details>\n\nnext\n```\n</details>'),
+    normalize('<details>\n```md\n```still-code\n</details>\nnext\n```\n</details>'),
+    'a fence delimiter with a non-whitespace suffix cannot close a fence around a literal closing tag',
+  );
 });
 
 test('normalize: Lane48 structural separator collapse is idempotent for an existing blank run', () => {
