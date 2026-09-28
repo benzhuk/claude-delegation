@@ -122,7 +122,7 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
 });
 
 // L-C7: run-tests.mjs adds no new wiring of its own - `runSealed` already forwards the WHOLE
-// `env` object `makeTempHome` returns to both spawnSync calls, so once `makeTempHome` sets
+// `env` object `makeTempHome` returns to both child launches, so once `makeTempHome` sets
 // FIXTURE_ROOT the sealed child gets it for free. This proves that end-to-end through the real
 // `runSealed`, not just that `makeTempHome`'s own return shape has the field.
 //
@@ -134,7 +134,7 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
 // Confirmed by direct check: with a deliberately-failing probe and NODE_TEST_CONTEXT left in
 // place, runSealed() returned 0 (skipped) instead of 1; stripping it, the same failing probe
 // correctly returned 1.
-test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", () => {
+test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", async () => {
   const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-tests-fixture-root-probe-"));
   cleanups.push(() => fs.rmSync(probeDir, { recursive: true, force: true }));
   const probeFile = path.join(probeDir, "fixture-root-probe.test.mjs");
@@ -153,7 +153,7 @@ test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed chil
   delete process.env.NODE_TEST_CONTEXT;
   let code;
   try {
-    code = runSealed({ files: [probeFile] });
+    code = await runSealed({ files: [probeFile] });
   } finally {
     if (savedTestContext !== undefined) process.env.NODE_TEST_CONTEXT = savedTestContext;
   }
@@ -447,6 +447,43 @@ test(
     assert.equal(gotSignal, "SIGTERM");
     assert.ok(fs.existsSync(home), "a kept home must survive the signal handler's sweep");
     fs.rmSync(home, { recursive: true, force: true }); // manual: no longer registered, no longer auto-cleaned
+  },
+);
+
+// F4: this child installs its listener before makeTempHome installs ours.  The first SIGTERM
+// must therefore invoke it once; it owns the eventual normal exit.  The timer is a bounded
+// sentinel, so the old unconditional re-raise records two deliveries instead of passing by
+// exiting from the foreign listener before test-home's handler runs.
+test(
+  "an existing SIGTERM listener receives one delivery and owns the eventual exit (F4, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const fixture = tempHome();
+    const script = [
+      `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+      "let deliveries = 0;",
+      "setInterval(() => {}, 1000);",
+      "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`deliveries=${deliveries}\\n`); process.exit(0); }, 250); });",
+      "const { home } = makeTempHome();",
+      "process.stdout.write(home + '\\n');",
+    ].join("\n");
+    const child = spawn(NODE, ["--input-type=module", "-e", script], {
+      env: childEnv(fixture.home), stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { home, stdout, code } = await new Promise((resolve, reject) => {
+      let output = "";
+      let sent = false;
+      const timeout = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} reject(new Error("F4 child did not exit within 4s")); }, 4000);
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        if (!sent && output.includes("\n")) { sent = true; child.kill("SIGTERM"); }
+      });
+      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\n")[0].trim(), stdout: output, code: exitCode }); });
+    });
+    assert.equal(code, 0, "the existing listener, not a re-raised default action, owns exit");
+    assert.match(stdout, /deliveries=1/, "the existing listener must receive SIGTERM exactly once");
+    assert.equal(fs.existsSync(home), false, "our handler must still remove its registered home");
   },
 );
 

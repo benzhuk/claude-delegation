@@ -10,7 +10,7 @@
 //
 // Usage: `node scripts/run-tests.mjs` (walks the repo for every *.test.mjs, node_modules/.claude/.git
 // excluded) or `node scripts/run-tests.mjs <file> [file...]` (an explicit list, relative or absolute).
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -119,7 +119,38 @@ function canarySource(testHomeModuleUrl) {
   );
 }
 
-export function runSealed({ files, cwd = REPO_ROOT } = {}) {
+function runChild(args, options) {
+  return new Promise((resolve) => {
+    const child = spawn(NODE, args, options);
+    let finished = false;
+    const signals = ["SIGINT", "SIGTERM"];
+    if (process.platform !== "win32") signals.push("SIGHUP");
+
+    function forwardSignal(signal) {
+      try {
+        child.kill(signal);
+      } catch {
+        // The child may have exited in the interval before its close event reaches us.
+      }
+      for (const handled of signals) process.removeListener(handled, forwardSignal);
+      if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+    }
+
+    for (const signal of signals) process.on(signal, forwardSignal);
+
+    function finish(result) {
+      if (finished) return;
+      finished = true;
+      for (const signal of signals) process.removeListener(signal, forwardSignal);
+      resolve(result);
+    }
+
+    child.once("error", (error) => finish({ error }));
+    child.once("close", (status, signal) => finish({ status, signal }));
+  });
+}
+
+export async function runSealed({ files, cwd = REPO_ROOT } = {}) {
   const { home, env, cleanup, keep } = makeTempHome({ gitIdentity: true });
   // Round 2 (N2 review MAJOR 2): a caller may itself be running inside `node --test` (this
   // runner is importable, not just a CLI - see test-home.test.mjs's wiring test). Node's own
@@ -136,8 +167,7 @@ export function runSealed({ files, cwd = REPO_ROOT } = {}) {
 
   let code = 1;
   try {
-    const canary = spawnSync(
-      NODE,
+    const canary = await runChild(
       ["--input-type=module", "-e", canarySource(pathToFileURL(TEST_HOME_MODULE).href)],
       { cwd, env, stdio: "inherit" },
     );
@@ -157,7 +187,7 @@ export function runSealed({ files, cwd = REPO_ROOT } = {}) {
       return code;
     }
 
-    const result = spawnSync(NODE, ["--test", ...targets], { cwd, env, stdio: "inherit" });
+    const result = await runChild(["--test", ...targets], { cwd, env, stdio: "inherit" });
     if (result.error) {
       console.error(`run-tests: suite failed to start: ${result.error.message}`);
       return code;
@@ -170,14 +200,8 @@ export function runSealed({ files, cwd = REPO_ROOT } = {}) {
     if (code === 0) {
       cleanup();
     } else {
-      // Lane 24 (sealed-home-leak): unregister from the exit/signal leak-fix registry FIRST - it
-      // holds every still-registered home, and without this the process's own `exit` handler would
-      // remove the very home this branch is deliberately leaving for inspection, the moment this
-      // CLI run calls `process.exit` below. Keep-on-failure is otherwise unchanged (RT-18/F6).
-      // Deferred one loop turn: a SIGINT/SIGTERM/SIGHUP that arrived while spawnSync blocked is
-      // delivered on that turn first, and test-home's handler removes this still-registered home and
-      // re-raises. With no signal, keep() runs and the failed home survives the exit handler (RT-18/F6).
-      setImmediate(keep);
+      // Unregister from the exit/signal leak-fix registry before retaining this failed run's home.
+      keep();
       console.error(`run-tests: leaving the sealed home for inspection: ${home}`);
     }
   }
@@ -203,7 +227,7 @@ function parseArgv(argv) {
  * stub `sweep`, instead of either touching the real temp dir/home or spawning a child process for
  * every case - see run-tests.test.mjs. Returns an exit code rather than calling `process.exit`
  * itself, for the same reason. */
-export function main(argv = process.argv.slice(2), { sweep = sweepStaleHomes } = {}) {
+export async function main(argv = process.argv.slice(2), { sweep = sweepStaleHomes } = {}) {
   const parsed = parseArgv(argv);
   if (parsed.error) {
     console.error("run-tests: flags are not supported");
@@ -213,12 +237,11 @@ export function main(argv = process.argv.slice(2), { sweep = sweepStaleHomes } =
   // Resolved against the REAL invocation directory here, not inside runSealed (whose own
   // `cwd` default is REPO_ROOT, correct for a programmatic/test caller but wrong for argv).
   const files = parsed.files.map((f) => path.resolve(process.cwd(), f));
-  return runSealed({ files });
+  return await runSealed({ files });
 }
 
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] ?? "")) {
-  process.exitCode = main();
-  // One loop turn even when nothing is scheduled: signal handles are unref'd, so without this a
-  // signal that arrived during spawnSync is never delivered and the run exits with the suite's code.
-  setImmediate(() => {});
+  main().then((code) => {
+    process.exitCode = code;
+  });
 }

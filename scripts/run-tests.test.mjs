@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { runSealed, sweepStaleHomes, main } from "./run-tests.mjs";
 // N2 (windows-r1-f8aa816.log, skills/multi/scripts/hooks.test.mjs:429): every spawned child's env
@@ -66,11 +66,11 @@ function writeProbe(passes) {
  * `node --test` spawn inside `runSealed` would silently SKIP the probe as a "recursive" run and
  * report success no matter what the probe actually asserts (see test-home.test.mjs's own note on
  * the same trap). Every test below that calls `runSealed`/`main` strips it first. */
-function withoutNodeTestContext(fn) {
+async function withoutNodeTestContext(fn) {
   const saved = process.env.NODE_TEST_CONTEXT;
   delete process.env.NODE_TEST_CONTEXT;
   try {
-    return fn();
+    return await fn();
   } finally {
     if (saved !== undefined) process.env.NODE_TEST_CONTEXT = saved;
   }
@@ -78,12 +78,12 @@ function withoutNodeTestContext(fn) {
 
 /** Captures the lines `fn` writes with `console.log` (restoring it after, even on throw) - used to
  * read the sealed home path `runSealed` prints on its own first line. */
-function captureLog(fn) {
+async function captureLog(fn) {
   const lines = [];
   const orig = console.log;
   console.log = (...args) => lines.push(args.join(" "));
   try {
-    const result = fn();
+    const result = await fn();
     return { result, lines };
   } finally {
     console.log = orig;
@@ -94,18 +94,18 @@ function captureLog(fn) {
 // keep-on-failure / removed-on-success (RT-18/F6, unchanged by this lane's fix)
 // ---------------------------------------------------------------------------
 
-test("runSealed removes the sealed home when the suite passes", () => {
+test("runSealed removes the sealed home when the suite passes", async () => {
   const probe = writeProbe(true);
-  const { result: code, lines } = withoutNodeTestContext(() => captureLog(() => runSealed({ files: [probe] })));
+  const { result: code, lines } = await withoutNodeTestContext(() => captureLog(() => runSealed({ files: [probe] })));
   assert.equal(code, 0);
   const home = lines[0];
   assert.ok(home, "the sealed home path must have been printed on the first line");
   assert.equal(fs.existsSync(home), false, "a passing suite must remove its sealed home");
 });
 
-test("runSealed keeps the sealed home when the suite fails (and it survives this process's own bookkeeping)", () => {
+test("runSealed keeps the sealed home when the suite fails (and it survives this process's own bookkeeping)", async () => {
   const probe = writeProbe(false);
-  const { result: code, lines } = withoutNodeTestContext(() => captureLog(() => runSealed({ files: [probe] })));
+  const { result: code, lines } = await withoutNodeTestContext(() => captureLog(() => runSealed({ files: [probe] })));
   assert.notEqual(code, 0);
   const home = lines[0];
   assert.ok(fs.existsSync(home), "a failing suite must keep its sealed home");
@@ -294,10 +294,10 @@ test(
 // main(): --no-sweep gates the sweep call; the rest of the CLI contract is unchanged.
 // ---------------------------------------------------------------------------
 
-test("main() calls sweep by default, before running the suite", () => {
+test("main() calls sweep by default, before running the suite", async () => {
   const probe = writeProbe(true);
   let sweepCalls = 0;
-  const code = withoutNodeTestContext(() =>
+  const code = await withoutNodeTestContext(() =>
     main([probe], {
       sweep: () => {
         sweepCalls += 1;
@@ -308,10 +308,10 @@ test("main() calls sweep by default, before running the suite", () => {
   assert.equal(code, 0);
 });
 
-test("main() does not call sweep when --no-sweep is passed", () => {
+test("main() does not call sweep when --no-sweep is passed", async () => {
   const probe = writeProbe(true);
   let sweepCalls = 0;
-  const code = withoutNodeTestContext(() =>
+  const code = await withoutNodeTestContext(() =>
     main(["--no-sweep", probe], {
       sweep: () => {
         sweepCalls += 1;
@@ -322,13 +322,13 @@ test("main() does not call sweep when --no-sweep is passed", () => {
   assert.equal(code, 0);
 });
 
-test("main() still rejects an unsupported flag", () => {
+test("main() still rejects an unsupported flag", async () => {
   const errors = [];
   const orig = console.error;
   console.error = (...args) => errors.push(args.join(" "));
   let code;
   try {
-    code = main(["--bogus-flag"], { sweep: () => {} });
+    code = await main(["--bogus-flag"], { sweep: () => {} });
   } finally {
     console.error = orig;
   }
@@ -336,9 +336,9 @@ test("main() still rejects an unsupported flag", () => {
   assert.ok(errors.some((line) => line.includes("flags are not supported")));
 });
 
-test("the real CLI honours --no-sweep end to end (spawned process, real exit code)", () => {
+test("the real CLI honours --no-sweep end to end (spawned process, real exit code)", async () => {
   const probe = writeProbe(true);
-  const out = withoutNodeTestContext(() =>
+  const out = await withoutNodeTestContext(() =>
     execFileSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { encoding: "utf8" }),
   );
   assert.ok(!/^swept /m.test(out), "no 'swept n stale sealed homes' line must appear under --no-sweep");
@@ -364,7 +364,7 @@ test("the real CLI keeps a failed suite's home after the process has exited (RT-
 });
 
 // F1 (review r1): a probe that runs long enough for a signal to arrive to the whole process group
-// WHILE the runner is blocked inside spawnSync - a Ctrl-C, a closed pane, or a dropped ssh session
+// WHILE a previous synchronous runner was blocked - a Ctrl-C, a closed pane, or a dropped ssh session
 // all send the signal to the group, not just the runner pid. Before the F1 fix this test fails:
 // `node --test` (the sealed suite child) catches the signal itself and exits 1, which the runner's
 // `finally` reads as a plain failed suite - it calls keep() and leaves ITS OWN sealed home behind,
@@ -394,6 +394,148 @@ function writeSlowProbe() {
   );
   return { file, ready };
 }
+
+function waitForMarker(marker, label, timeoutMs = 4000) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const timer = setInterval(() => {
+      if (fs.existsSync(marker)) { clearInterval(timer); resolve(fs.readFileSync(marker, "utf8").trim()); }
+      else if (Date.now() >= deadline) { clearInterval(timer); reject(new Error(`${label} was not observed within ${timeoutMs}ms`)); }
+    }, 20);
+  });
+}
+
+function waitForExit(child, label, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} did not exit within ${timeoutMs}ms`)), timeoutMs);
+    child.once("error", (error) => { clearTimeout(timer); reject(error); });
+    child.once("exit", (code, signal) => { clearTimeout(timer); resolve({ code, signal }); });
+  });
+}
+
+function writeForwardProbe() {
+  const dir = scratchDir("run-tests-forward-probe-");
+  const file = path.join(dir, "forward.test.mjs");
+  const ready = path.join(dir, "ready");
+  fs.writeFileSync(file, [
+    "import test from 'node:test';", "import fs from 'node:fs';",
+    `test('forward', async () => { fs.writeFileSync(${JSON.stringify(ready)}, String(process.ppid)); await new Promise((r) => setTimeout(r, 10000)); });`, "",
+  ].join("\n"));
+  return { file, ready };
+}
+
+function waitForOwnedPidGone(pid, label, timeoutMs = 1000) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const timer = setInterval(() => {
+      try { process.kill(pid, 0); }
+      catch (error) {
+        clearInterval(timer);
+        if (error.code === "ESRCH") resolve(); else reject(error);
+        return;
+      }
+      if (Date.now() >= deadline) { clearInterval(timer); reject(new Error(`${label} (${pid}) is still alive`)); }
+    }, 20);
+  });
+}
+
+async function startForwardRunner(probe) {
+  const tmp = scratchDir("run-tests-forward-tmp-");
+  const fixtureHome = scratchDir("run-tests-forward-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
+  delete env.NODE_TEST_CONTEXT;
+  const runner = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe.file], { env, stdio: ["ignore", "pipe", "inherit"] });
+  const home = await new Promise((resolve, reject) => {
+    let text = ""; const timeout = setTimeout(() => reject(new Error("runner did not print its home within 4s")), 4000);
+    runner.once("error", (error) => { clearTimeout(timeout); reject(error); });
+    runner.stdout.on("data", (chunk) => { text += chunk; if (text.includes("\n")) { clearTimeout(timeout); resolve(text.split("\n")[0].trim()); } });
+  });
+  const suitePid = Number(await waitForMarker(probe.ready, "suite ready marker"));
+  assert.ok(Number.isInteger(suitePid) && suitePid > 0, "ready marker must identify runner's immediate suite child");
+  return { runner, suitePid, home };
+}
+
+async function startForeignListenerRunner(probe) {
+  const tmp = scratchDir("run-tests-foreign-listener-tmp-");
+  const fixtureHome = scratchDir("run-tests-foreign-listener-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
+  delete env.NODE_TEST_CONTEXT;
+  const script = [
+    `import { runSealed } from ${JSON.stringify(pathToFileURL(RUN_TESTS_MODULE).href)};`,
+    "let deliveries = 0;",
+    "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`foreign-deliveries=${deliveries}\\n`); process.exit(73); }, 250); });",
+    `runSealed({ files: [${JSON.stringify(probe.file)}] }).then((code) => { process.exitCode = code; });`,
+  ].join("\n");
+  const runner = spawn(NODE, ["--input-type=module", "-e", script], { env, stdio: ["ignore", "pipe", "inherit"] });
+  let stdout = "";
+  const home = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("foreign-listener runner did not print its home within 4s")), 4000);
+    runner.once("error", (error) => { clearTimeout(timeout); reject(error); });
+    runner.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.includes("\n")) { clearTimeout(timeout); resolve(stdout.split("\n")[0].trim()); }
+    });
+  });
+  const suitePid = Number(await waitForMarker(probe.ready, "foreign-listener suite ready marker"));
+  assert.ok(Number.isInteger(suitePid) && suitePid > 0, "ready marker must identify runner's immediate suite child");
+  return { runner, suitePid, home, stdout: () => stdout };
+}
+
+test(
+  "SIGTERM to a runSealed wrapper with a foreign listener delivers once and removes its home (R1, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const probe = writeForwardProbe();
+    const { runner, suitePid, home, stdout } = await startForeignListenerRunner(probe);
+    cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} try { process.kill(suitePid, "SIGKILL"); } catch {} });
+    const exited = waitForExit(runner, "foreign-listener runner");
+    const sentAt = Date.now();
+    process.kill(runner.pid, "SIGTERM");
+    const { code } = await exited;
+    assert.ok(Date.now() - sentAt < 5000, "the wrapper must not wait for the 10s fixture");
+    assert.equal(code, 73, "the foreign listener owns the wrapper's bounded exit");
+    assert.match(stdout(), /foreign-deliveries=1/, "the foreign listener must receive SIGTERM exactly once");
+    assert.equal(fs.existsSync(home), false, "the wrapper's registered home must be removed on SIGTERM");
+    await waitForOwnedPidGone(suitePid, "foreign-listener immediate suite controller");
+  },
+);
+
+test(
+  "SIGTERM to only the runner terminates its immediate suite controller and removes the runner home (R1, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const probe = writeForwardProbe();
+    const { runner, suitePid, home } = await startForwardRunner(probe);
+    cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} try { process.kill(suitePid, "SIGKILL"); } catch {} });
+    const exited = waitForExit(runner, "runner");
+    const sentAt = Date.now();
+    process.kill(runner.pid, "SIGTERM");
+    const { code, signal } = await exited;
+    assert.ok(Date.now() - sentAt < 5000, "the runner must not wait for the 10s fixture");
+    assert.ok(signal === "SIGTERM" || code === 143, `runner must preserve SIGTERM outcome, got code=${code} signal=${signal}`);
+    assert.equal(fs.existsSync(home), false, "runner home must be removed on its own SIGTERM");
+    await waitForOwnedPidGone(suitePid, "immediate suite controller");
+  },
+);
+
+test(
+  "taskkill of only the suite child keeps the runner home after its nonzero exit (R1, win32 only)",
+  { skip: process.platform === "win32" ? false : "Windows taskkill contract" },
+  async () => {
+    const probe = writeForwardProbe();
+    const { runner, suitePid, home } = await startForwardRunner(probe);
+    cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} });
+    const exited = waitForExit(runner, "runner after taskkill");
+    const killed = new Promise((resolve, reject) => {
+      const killer = spawn("taskkill.exe", ["/PID", String(suitePid), "/F"], { windowsHide: true, stdio: "ignore" });
+      killer.once("error", reject); killer.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`taskkill failed: ${code}`)));
+    });
+    await killed;
+    const { code } = await exited;
+    assert.notEqual(code, 0, "a killed suite is a failed suite");
+    assert.equal(fs.existsSync(home), true, "kept-on-failure retains the runner home");
+  },
+);
 
 test(
   "a SIGTERM sent to the whole process group re-raises on the runner and removes its own sealed home (F1, POSIX only)",

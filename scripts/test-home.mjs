@@ -66,7 +66,7 @@ function onProcessExit() {
 function onProcessSignal(signal) {
   removeRegisteredHomes();
   process.removeListener(signal, onProcessSignal);
-  process.kill(process.pid, signal);
+  if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
 }
 
 function installHandlersOnce() {
