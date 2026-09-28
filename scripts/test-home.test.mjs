@@ -462,10 +462,11 @@ test(
     const script = [
       `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
       "let deliveries = 0;",
+      "setInterval(() => {}, 1000);",
       "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`deliveries=${deliveries}\\n`); process.exit(0); }, 250); });",
       "const { home } = makeTempHome();",
       "process.stdout.write(home + '\\n');",
-    ].join("\\n");
+    ].join("\n");
     const child = spawn(NODE, ["--input-type=module", "-e", script], {
       env: childEnv(fixture.home), stdio: ["ignore", "pipe", "pipe"],
     });
@@ -476,9 +477,9 @@ test(
       child.once("error", (error) => { clearTimeout(timeout); reject(error); });
       child.stdout.on("data", (chunk) => {
         output += chunk;
-        if (!sent && output.includes("\\n")) { sent = true; child.kill("SIGTERM"); }
+        if (!sent && output.includes("\n")) { sent = true; child.kill("SIGTERM"); }
       });
-      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\\n")[0].trim(), stdout: output, code: exitCode }); });
+      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\n")[0].trim(), stdout: output, code: exitCode }); });
     });
     assert.equal(code, 0, "the existing listener, not a re-raised default action, owns exit");
     assert.match(stdout, /deliveries=1/, "the existing listener must receive SIGTERM exactly once");
