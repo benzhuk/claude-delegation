@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-pickup-binding
 Scope: docs/specs/pickup-binding-1/spec.md (lane 34, skills-fable's bundle spec at dc16de3 on origin/docs/lane-specs-0925) with docs/specs/pickup-binding-1/lead-ruling.md
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/pickup-binding-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; clear pickup round 3 and publish the decisions page once from wt-ws-mainbase; the Netcup registration file is not changed
 Next: accept, merge into main, publish --clear-done from wt-ws-mainbase to clear round 3, close, RESULT to skills-fable
 Artifact: 26c61ad66543bb84f91d3aac79bb85acea04dfc4
@@ -56,6 +56,8 @@ Four numbers: Hours ask to accepted: 0.6h; largest gap 14.7min at 2026-09-28T19:
 Four numbers: Rework after acceptance: 1 commit(s) touching build files within 7 days: 386c84c "docs(work): pickup-binding stall paragraph"; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n
 Log: 2026-09-28T19:50:47.000Z accepted skills-n artifact 26c61ad66543bb84f91d3aac79bb85acea04dfc4
+Log: 2026-09-28T19:52:23.000Z merged skills-n into main at b015f60aabf96e87ded171db1a6a5273abd52ca2 under the standing grant; main suite 2588 of 2594 (main's known GOALS test); round 3 cleared by one publish --clear-done from wt-ws-mainbase at 8aeca91 (page DECISIONS 0, DONE false) after the tick was quoted verbatim at 44ed7a9, then accounted (ACCOUNTED)
+Log: 2026-09-28T19:52:23.000Z closed skills-n merge b015f60aabf96e87ded171db1a6a5273abd52ca2
 
 Observed: at 26c61ad a linked worktree's pickup identity is its main checkout's, so the live round 3, bound to /home/ben/Code/claude-delegation, reads RECORDED from /home/ben/Code/wt-ws-mainbase. The reviewer ran this read-only in both rounds, where the old code gave PENDING_MANUAL_HANDOFF. A main checkout's projectScope is unchanged, so no receipt migration is needed. A bare-backed worktree and a separate clone stay separate projects. A registration naming a worktree still reads that worktree's config. F3 (an inherited GIT_DIR rebinds identity, in the shared transport gitRunner) is left for a follow-up lane.
 
