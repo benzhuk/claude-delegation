@@ -261,6 +261,17 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.16 — the lanes closed on Sep 27 and 28:
+  - The Windows janitor task XML is UTF-16LE (windows-task, da6b9f6).
+  - Work records gain a closed status, and the collector lists it.
+  - note-send refuses a note no session on this machine can read (multi-cross-host, 854784c).
+  - The decisions page is rendered from docs/decisions (a4ae147), and publish refuses uncommitted sources (render-guard, 1f6b749).
+  - The Goals page is one line per goal (goals-one-line, 3dbe935).
+  - Inbox reads tell a packet not checked from an absent one (83b0966).
+  - A killed suite no longer leaks its sealed home (sealed-home-leak, 71f8351), and the sealed runner forwards signals at once (sealed-signal, 5bf0564).
+  - The collector asks the owning lead once per stall (stall-nudge, 1839481).
+  - The timer installer keeps --stale-hours for collect-status, and closed is a terminal collector state (collect-followups, 4608419).
+  - The autolink guard (321bb3a).
 - 0.20.15 — collect-status: scripts/collect-status.mjs writes one lane-status
   file per repo (~/.agents/collect/<repo>/status.md, attention first) from
   collect-from-origin and sends one RESULT to the lead only when lane state
