@@ -330,6 +330,17 @@ test("checkScratchField: an absolute Scratch: value never refuses or warns, rega
   assert.deepEqual(result, { refusal: null, warning: null });
 });
 
+// F9 (C1 round 2, MAJOR): a Windows-shaped Scratch: value (`C:\...`) is a valid record anywhere
+// it is READ - checkScratchField accepts either OS's absolute convention, since the record may
+// have been written on a different host than the one validating it. Only the actual delete
+// (removeScratchDirectory, tested in work-record-closeout.test.mjs) refuses a value in the wrong
+// convention for the CURRENT host.
+test("checkScratchField: a Windows-shaped absolute Scratch: value (C:\\...) never refuses or warns on any host", () => {
+  const r = parseRecord(mkRecordText({ "Spec-from": "2099-06-01T00:00:00Z", Scratch: "C:\\Users\\lead\\AppData\\Local\\Temp\\sess-1\\lane" }));
+  const result = checkScratchField(r, { scratchFrom: "2026-09-28T00:00:00Z" });
+  assert.deepEqual(result, { refusal: null, warning: null });
+});
+
 test("checkScratchField uses the real SCRATCH_FROM export by default, when opts.scratchFrom is not given", () => {
   const r = parseRecord(mkRecordText({ "Spec-from": "2099-06-01T00:00:00Z", Scratch: undefined }));
   const result = checkScratchField(r);
@@ -2563,13 +2574,73 @@ test("closeoutRecord: --by is required", () => {
   assert.throws(() => closeoutRecord({ repoRoot: f.repo, recordPath: f.record }), (err) => err.code === "by-missing");
 });
 
+// F11 (C1 round 2, MEDIUM): --by must be a single token, 1-64 non-space characters, or it is
+// refused cleanly here - not left to silently produce a malformed Log: line (MALFORMED_RECORD
+// downstream in continuation.mjs).
+test("closeoutRecord: --by containing whitespace is refused (by-malformed), never reaches the Log: write", () => {
+  const f = makeAcceptanceFixture();
+  assert.throws(
+    () => closeoutRecord({ repoRoot: f.repo, recordPath: f.record, closeoutBy: "two tokens" }),
+    (err) => err.code === "by-malformed",
+  );
+});
+
+// L3 (C1 round 2 ruling): --by gates the WHOLE closeout, not just the scratch step - refused
+// before step 1 (close) itself ever runs, on BOTH a live and a --dry-run call, with no field of
+// the record touched either way.
+test("closeoutRecord: L3 - a --by that does not match Lead-session: refuses all four steps before step 1 (close) ever runs, live and dry-run alike", () => {
+  const f = makeAcceptanceFixture();
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  for (const dryRun of [false, true]) {
+    const result = closeoutRecord({
+      repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD",
+      at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z"),
+      closeoutBy: "some-other-session", dryRun,
+    });
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.ok, false);
+    assert.match(result.lines[0], /^close: refused \(--by some-other-session does not match this record's Lead-session:/);
+    for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
+      const row = result.steps.find((s) => s.step === step);
+      assert.equal(row.result, "refused", `step ${step}`);
+      assert.match(row.detail, /does not match this record's Lead-session:/, `step ${step}`);
+    }
+    // the record itself (Status:, every field) is completely untouched by the refused attempt:
+    assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+  }
+});
+
+// L9 (C1 round 2 ruling): plain `close` (no --closeout), INCLUDING `close --dry-run`, behaves
+// exactly as base, which throws on an argv it does not recognize - round 1's acceptanceMain
+// silently accepted and ignored --dry-run/--by without --closeout, letting `close --dry-run`
+// perform a REAL close.
+test("acceptanceMain: plain 'close --dry-run' (no --closeout) is refused (closeout-flag-without-closeout), and performs no close - pins base's own throw-on-unrecognized-argv behavior", () => {
+  const f = makeAcceptanceFixture();
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const stdout = [];
+  const stderr = [];
+  const io = { stdout: { write: (s) => stdout.push(s) }, stderr: { write: (s) => stderr.push(s) } };
+  const code = acceptanceMain([
+    "close", "--record", f.record, "--repo", f.repo, "--merge", f.sha, "--main", "HEAD",
+    "--at", "2026-09-24T10:01:00Z", "--dry-run",
+  ], io);
+  assert.equal(code, 1);
+  assert.equal(stdout.length, 0);
+  assert.match(stderr.join(""), /\[closeout-flag-without-closeout\]/);
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
 test("closeoutRecord: runs the existing close, then a failed merge proof (git fetch origin fails, no origin remote) refuses every one of the four cleanup steps with the same UNVERIFIABLE reason, and still writes the closeout Log: line", () => {
   const f = makeAcceptanceFixture();
   acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture" });
+  // L3 (C1 round 2): --by must equal the record's own Lead-session: (makeAcceptanceFixture's
+  // default, via mkRecordText) or the whole closeout is refused before step 1 ever runs.
   const result = closeoutRecord({
     repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD",
     at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z"),
-    closeoutBy: "closeout-session-1",
+    closeoutBy: "fixture-lead-session-1",
   });
   assert.equal(result.exitCode, 2);
   assert.equal(result.ok, false);
@@ -2582,7 +2653,10 @@ test("closeoutRecord: runs the existing close, then a failed merge proof (git fe
   const parsed = parseRecord(fs.readFileSync(path.join(f.repo, f.record), "utf8"));
   assert.equal(parsed.fields.status, "closed");
   assert.equal(parsed.log.at(-1).status, "closeout");
-  assert.equal(parsed.log.at(-1).owner, "closeout-session-1");
+  // F6 (C1 round 2): the Log: owner slot is the record's own Owner: ("lead", here), never the
+  // closeout session id - the session id is still recorded, in the note text.
+  assert.equal(parsed.log.at(-1).owner, "lead");
+  assert.match(parsed.log.at(-1).note, /^by fixture-lead-session-1 /);
 });
 
 test("closeoutRecord: --dry-run on an already-closed record changes nothing on disk and reports 'close: closed (already)'", () => {
@@ -2591,7 +2665,7 @@ test("closeoutRecord: --dry-run on an already-closed record changes nothing on d
   closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") });
   const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   const result = closeoutRecord({
-    repoRoot: f.repo, recordPath: f.record, closeoutBy: "closeout-session-1", dryRun: true,
+    repoRoot: f.repo, recordPath: f.record, closeoutBy: "fixture-lead-session-1", dryRun: true,
   });
   assert.equal(result.lines[0], "close: closed (already)");
   assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before, "--dry-run must change nothing on disk");

@@ -118,7 +118,11 @@ export function checkScratchField(record, opts = {}) {
   const scratchFromMs = Date.parse(scratchFrom);
   const scratch = typeof record.fields.scratch === "string" ? record.fields.scratch.trim() : "";
   if (scratch) {
-    if (!path.isAbsolute(scratch)) {
+    // F9 (C1 round 2): a record can be written on either host - accept a value absolute on
+    // EITHER path convention (posix or win32), not just this reader's own `path.isAbsolute`,
+    // so a Windows-authored `Scratch: C:/...` is never `scratch-invalid` merely for being read
+    // back on Linux (or the reverse).
+    if (!(path.posix.isAbsolute(scratch) || path.win32.isAbsolute(scratch))) {
       return {
         refusal: { code: "scratch-invalid", message: `Scratch: "${scratch}" is not an absolute directory path` },
         warning: null,
@@ -1717,18 +1721,99 @@ function noWriteFs(fsImpl) {
   });
 }
 
-/** The branch name step 4 (and sweep-origin) work from: "taken from Worktree: or the
- * Artifact: ref" (C1 ruling b item 4) - Worktree: read as a bare branch name when it isn't an
- * absolute path (the real shape this repo's own records use, e.g. `Worktree:
- * build/goals-one-line-1`), else the text before Artifact:'s trailing `@<sha>`. Never resolves
- * anything on disk or in git - a pure, cheap string derivation so it can also be run against
- * every OTHER record under docs/work/ for the ownership checks below. */
-function deriveRecordBranch(record) {
+/** F4/F10 (C1 round 2): strips ref-qualifier prefixes and a trailing slash, so
+ * "origin/build/x", "refs/heads/build/x", "refs/remotes/origin/build/x", "build/x/" and
+ * "build/x" all compare equal. */
+function normalizeBranchName(name) {
+  let s = String(name ?? "").trim().replace(/\/+$/, "");
+  s = s.replace(/^refs\/heads\//, "").replace(/^refs\/remotes\/origin\//, "").replace(/^origin\//, "");
+  return s;
+}
+
+/** F4/F7 (C1 round 2): `path` -> branch name, from `listWorktrees(root)`, keyed by BOTH the
+ * literal and realpath-normalized/case-folded form of each entry's own path, so a `Worktree:`
+ * absolute path resolves to its branch even across a symlinked ancestor or win32 case folding.
+ * `null` when `listWorktrees` itself failed (caller must treat that as fail-closed, not "no
+ * match"). */
+function buildWorktreesByPath(root) {
+  const worktrees = listWorktrees(root);
+  if (worktrees === null) return null;
+  const winCase = process.platform === "win32";
+  const key = (p) => {
+    let r = path.resolve(p);
+    try { r = realpathSync.native(r); } catch { /* best effort */ }
+    return winCase ? r.toLowerCase() : r;
+  };
+  const map = new Map();
+  for (const w of worktrees) {
+    if (w.path && w.branch) map.set(key(w.path), w.branch);
+  }
+  return map;
+}
+
+/** F4 (C1 round 2, MAJOR): the branch step 4 (and sweep-origin) work from: "taken from
+ * Worktree: or the Artifact: ref" - Worktree: read as a bare branch name when it isn't an
+ * absolute path (POSIX or win32 - a Windows-authored path is a path on any host, never a
+ * literal branch name), else resolved through `worktreesByPath` (built from `git worktree
+ * list`) when Worktree: IS a path, else the text before Artifact:'s trailing `@<sha>`. Every
+ * result is normalized (see normalizeBranchName). */
+function deriveRecordBranch(record, worktreesByPath) {
   const wt = typeof record.fields.worktree === "string" ? record.fields.worktree.trim() : "";
-  if (wt && !path.isAbsolute(wt)) return wt;
+  if (wt) {
+    const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
+    if (!isPath) return normalizeBranchName(wt);
+    if (worktreesByPath) {
+      const resolved = path.resolve(wt);
+      const found = worktreesByPath.get(resolved) ?? worktreesByPath.get(resolved.toLowerCase());
+      if (found) return normalizeBranchName(found);
+    }
+  }
   const artifact = typeof record.fields.artifact === "string" ? record.fields.artifact : "";
   const m = /^(.*)@[0-9a-fA-F]{4,64}$/.exec(artifact);
-  return m ? m[1] : null;
+  return m ? normalizeBranchName(m[1]) : null;
+}
+
+/** F4 (C1 round 2, MAJOR): the FULL set of branch names a record can be read as claiming -
+ * every one of these is "this record's own branch" for the "not this record's own"/"named by
+ * an active record" checks below, not just whichever one `deriveRecordBranch` happens to
+ * prefer: the normalized Worktree: (when not a path), the branch `worktreesByPath` resolves
+ * Worktree: to (when it IS a path), and the normalized Artifact: ref - real records
+ * occasionally carry more than one of these, and an open record usually has no Artifact: yet,
+ * so relying on only one form let three of the four E10 name variants slip through undetected. */
+function recordBranchNames(record, worktreesByPath) {
+  const names = new Set();
+  const wt = typeof record.fields.worktree === "string" ? record.fields.worktree.trim() : "";
+  if (wt) {
+    const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
+    if (!isPath) {
+      names.add(normalizeBranchName(wt));
+    } else if (worktreesByPath) {
+      const resolved = path.resolve(wt);
+      const found = worktreesByPath.get(resolved) ?? worktreesByPath.get(resolved.toLowerCase());
+      if (found) names.add(normalizeBranchName(found));
+    }
+  }
+  const artifact = typeof record.fields.artifact === "string" ? record.fields.artifact : "";
+  const m = /^(.*)@[0-9a-fA-F]{4,64}$/.exec(artifact);
+  if (m) names.add(normalizeBranchName(m[1]));
+  return names;
+}
+
+/** L1 (C1 round 2 ruling): a CONDITIONAL delete, never a force - `--force-with-lease` only ever
+ * deletes origin's ref for `name` when it is still exactly `tip`, the sha this run evaluated
+ * right after its own fetch. A branch that moved since (another push landed in the window
+ * between the fetch and this delete) fails the lease; that failure is reported `moved`, never
+ * retried as a force, and nothing is deleted. */
+function deleteOriginBranchWithLease(execImpl, repoRoot, name, tip) {
+  const ref = `refs/heads/${name}`;
+  try {
+    execImpl("git", ["push", `--force-with-lease=${ref}:${tip}`, "origin", `:${ref}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+    return { ok: true };
+  } catch (error) {
+    const msg = String((error.stderr || error.message || error)).trim();
+    const moved = /stale info|rejected|fetch first|failed to push some refs/i.test(msg);
+    return { ok: false, moved, error: msg };
+  }
 }
 
 /** show-ref (never rev-parse's DWIM order - see janitor.mjs's own long note on this) - existence
@@ -1771,10 +1856,11 @@ function tipBehindMergeCommit(root, tip, mainRef, spawnImpl) {
  * -> { verdict: "delete"|"keep", reason, tip? }
  */
 function evaluateOriginBranch(name, tipOrNull, opts) {
-  const { root, mainRef, mainBranch, spawnImpl, records, ownWorkId, exclude } = opts;
-  if (exclude && exclude.has(name)) return { verdict: "keep", reason: "excluded" };
-  if (!/^build\//.test(name)) return { verdict: "keep", reason: "not under build/" };
-  const tip = tipOrNull ?? resolveRefSha(root, `refs/remotes/origin/${name}`, spawnImpl);
+  const { root, mainRef, mainBranch, spawnImpl, records, ownWorkId, exclude, worktreesByPath } = opts;
+  const normName = normalizeBranchName(name);
+  if (exclude && exclude.has(normName)) return { verdict: "keep", reason: "excluded" };
+  if (!/^build\//.test(normName)) return { verdict: "keep", reason: "not under build/" };
+  const tip = tipOrNull ?? resolveRefSha(root, `refs/remotes/origin/${normName}`, spawnImpl);
   if (!tip) return { verdict: "keep", reason: "not found on origin" };
   // The status-scoped check runs BEFORE the any-status "not this record's own" check: an other
   // record that is still active (neither closed nor withdrawn) gets its own, more specific
@@ -1783,9 +1869,12 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
   // positive proof the branch is THIS record's own. Running these in the other order would make
   // the status-scoped reason unreachable for close --closeout (ownWorkId is always set there):
   // any other claimant, active or not, would already have matched the any-status check first.
+  // F4 (C1 round 2): matched against the FULL set of name forms a record can claim
+  // (recordBranchNames), not just one preferred derivation - a record's Worktree: given as
+  // "origin/build/x", "refs/heads/build/x", "build/x/", or an absolute path all now count.
   const activeOther = (records || []).find((r) => {
     if (ownWorkId !== undefined && r.fields.work === ownWorkId) return false;
-    if (deriveRecordBranch(r) !== name) return false;
+    if (!recordBranchNames(r, worktreesByPath).has(normName)) return false;
     return r.fields.status !== "closed" && r.fields.status !== "withdrawn";
   });
   if (activeOther) {
@@ -1796,7 +1885,7 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
     };
   }
   if (ownWorkId !== undefined) {
-    const otherOwn = (records || []).find((r) => r.fields.work !== ownWorkId && deriveRecordBranch(r) === name);
+    const otherOwn = (records || []).find((r) => r.fields.work !== ownWorkId && recordBranchNames(r, worktreesByPath).has(normName));
     if (otherOwn) return { verdict: "keep", reason: "not this record's own", tip };
   }
   const ancestor = spawnImpl("git", ["merge-base", "--is-ancestor", tip, mainRef], { cwd: root, encoding: "utf8", stdio: "pipe" });
@@ -1806,7 +1895,7 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
   if (!tipBehindMergeCommit(root, tip, mainRef, spawnImpl)) {
     return { verdict: "keep", reason: "tip is not on the mainline behind a merge commit", tip };
   }
-  if (!isRemoteBranchMergedIntoOrigin(root, name, mainBranch)) {
+  if (!isRemoteBranchMergedIntoOrigin(root, normName, mainBranch)) {
     return { verdict: "keep", reason: "isRemoteBranchMergedIntoOrigin does not report this branch as merged", tip };
   }
   return { verdict: "delete", reason: "merged into origin/main via a merge commit, tip proven safe", tip };
@@ -1816,7 +1905,49 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
  * plugin has. `record`/`by` gate the `--by` == `Lead-session:` check; `root` (the target repo)
  * supplies the repo-root/worktree-list checks. Returns a step row; performs `fs.rmSync` itself
  * only when every check passed and `dryRun` is false. */
-function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl }) {
+const GIT_ENTRY_WALK_MAX_DEPTH = 8;
+/** L5 (C1 round 2, F3): true (fail-closed) if a `.git` entry (a real repo's is a directory; a
+ * linked worktree's is a FILE) exists anywhere under `dir`, walked to a bounded depth so a huge
+ * or cyclic tree can never hang this check - hitting the bound counts as "found", never as
+ * "clean". `lstatSync`, never `existsSync`, so a dangling `.git` symlink still counts. A read
+ * failure anywhere in the walk (permissions, a vanished entry) is also "found": this check may
+ * only ever say yes-there-is-one or refuse to say, never no-there-isn't when it could not look. */
+function hasGitEntryBelow(fsImpl, dir, depth = 0) {
+  let entries;
+  try {
+    entries = fsImpl.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return { found: true, reason: `could not read ${dir}: ${error.message || error}` };
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.name === ".git") return { found: true, reason: `.git entry at ${full}` };
+    let isDir = entry.isDirectory ? entry.isDirectory() : false;
+    if (entry.isSymbolicLink && entry.isSymbolicLink()) isDir = false; // never follow a symlink into the walk
+    if (isDir) {
+      if (depth + 1 >= GIT_ENTRY_WALK_MAX_DEPTH) return { found: true, reason: `walk depth bound reached under ${dir}` };
+      const sub = hasGitEntryBelow(fsImpl, full, depth + 1);
+      if (sub.found) return sub;
+    }
+  }
+  return { found: false };
+}
+
+/** C1 round 2 rewrite (F3, F8, F9, M3): every named check from the pinned scratch sentence's own
+ * contract. F9: a value recorded on the OTHER OS's path convention (e.g. `C:/...` read on Linux)
+ * is refused outright rather than resolved against this host's own cwd - `checkScratchField`
+ * accepts either convention (the record is valid wherever it was written); only the actual
+ * delete has to be this host's own kind of absolute. F8/L6: the `--by` session id is a whole
+ * path segment strictly between the root and the target, at ANY depth - matching the real
+ * `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout, where the session id is
+ * not the first segment under `/tmp`. F3/L5: containment, not just equality, against a
+ * registered worktree or the repo root refuses, and a `.git` entry anywhere below the target
+ * (not just its direct child) refuses; `listWorktrees` failing is fail-CLOSED. M3: only ENOENT
+ * is `absent`; anything else `lstat` reports (EACCES, ...) is refused, not silently "nothing to
+ * remove", and a target that is a file, not a directory, is refused rather than removed.
+ * `platform` is test-only, defaulting to the real `process.platform` (same convention used
+ * elsewhere in this file). */
+function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl, platform }) {
   if (!scratchPath) return { step: "scratch", result: "absent" };
   if (record.fields.leadSession !== by) {
     return {
@@ -1824,8 +1955,15 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl 
       detail: `--by ${by} does not match this record's Lead-session: ${record.fields.leadSession ?? "<missing>"}`,
     };
   }
-  const winCase = process.platform === "win32";
+  const plat = platform ?? process.platform;
+  const winCase = plat === "win32";
+  const hostAbsolute = winCase ? path.win32.isAbsolute(scratchPath) : path.posix.isAbsolute(scratchPath);
+  if (!hostAbsolute) {
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: "not absolute on this host (recorded on another OS)" };
+  }
   const cmp = (a, b) => (winCase ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
+  const normSep = (p) => String(p).replace(/\\/g, "/");
+  const forCompare = (p) => (winCase ? normSep(p).toLowerCase() : normSep(p));
   const resolved = path.resolve(scratchPath);
 
   const roots = [];
@@ -1839,7 +1977,7 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl 
   if (envRoots) {
     for (const entry of envRoots.split(path.delimiter)) {
       const t = entry.trim();
-      if (t) roots.push(t);
+      if (t && path.isAbsolute(t)) roots.push(t);
     }
   }
 
@@ -1848,9 +1986,11 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl 
     const rel = path.relative(scratchRoot, resolved);
     if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
     const segments = rel.split(path.sep).filter(Boolean);
-    // The --by session id must be a whole path segment STRICTLY between the root and the
-    // target: segments.length < 2 is the session directory itself (or shallower) - refused.
-    if (segments.length < 2 || !cmp(segments[0], by)) continue;
+    // F8/L6: the session id is a whole path segment strictly between the root and the target, at
+    // ANY depth - not only the first segment directly under the root, which never matched this
+    // project's own real scratch layout (the session id sits several segments deep under `/tmp`).
+    const idx = segments.findIndex((s) => cmp(s, by));
+    if (idx === -1 || idx >= segments.length - 1) continue;
     underRoot = true;
     break;
   }
@@ -1864,11 +2004,15 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl 
   let lst;
   try {
     lst = fsImpl.lstatSync(resolved);
-  } catch {
-    return { step: "scratch", result: "absent", ref: scratchPath };
+  } catch (error) {
+    if (error && error.code === "ENOENT") return { step: "scratch", result: "absent", ref: scratchPath };
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: `could not stat: ${error.message || error}` };
   }
   if (lst.isSymbolicLink()) {
     return { step: "scratch", result: "refused", ref: scratchPath, detail: "target is a symlink or junction" };
+  }
+  if (!lst.isDirectory()) {
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: "target is not a directory" };
   }
   let real;
   try {
@@ -1885,23 +2029,33 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl 
   if (cmp(path.resolve(os.homedir()), resolved)) {
     return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the home directory" };
   }
-  if (root && cmp(path.resolve(root), resolved)) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the repo root" };
-  }
+  const inside = (p) => {
+    const rel = path.relative(forCompare(resolved), forCompare(path.resolve(p)));
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
   if (root) {
-    const worktrees = listWorktrees(root) || [];
-    if (worktrees.some((w) => cmp(path.resolve(w.path), resolved))) {
+    const repoResolved = path.resolve(root);
+    if (cmp(repoResolved, resolved)) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the repo root" };
+    }
+    const worktrees = listWorktrees(root);
+    if (worktrees === null) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "could not read git worktree list" };
+    }
+    const exactWt = worktrees.find((w) => cmp(path.resolve(w.path), resolved));
+    if (exactWt) {
       return { step: "scratch", result: "refused", ref: scratchPath, detail: "is a path in git worktree list" };
     }
+    if (inside(repoResolved)) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "contains the repo root" };
+    }
+    if (worktrees.some((w) => inside(w.path))) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "contains a path in git worktree list" };
+    }
   }
-  let hasGitEntry = false;
-  try {
-    hasGitEntry = fsImpl.existsSync(path.join(resolved, ".git"));
-  } catch {
-    hasGitEntry = false;
-  }
-  if (hasGitEntry) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "directory contains a .git entry" };
+  const gitWalk = hasGitEntryBelow(fsImpl, resolved);
+  if (gitWalk.found) {
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: `directory contains a .git entry (${gitWalk.reason})` };
   }
 
   if (!dryRun) fsImpl.rmSync(resolved, { recursive: true });
@@ -1936,6 +2090,11 @@ export function closeoutRecord(opts = {}) {
   const dryRun = Boolean(opts.dryRun);
   const by = typeof opts.closeoutBy === "string" ? opts.closeoutBy.trim() : "";
   if (!by) throw acceptanceError("--by is required with --closeout (the session id running the closeout)", "by-missing");
+  // F11 (C1 round 2, MEDIUM): a `--by` containing whitespace produces a malformed `Log:` line
+  // (MALFORMED_RECORD downstream, in continuation.mjs) rather than a clean refusal here.
+  if (!/^\S{1,64}$/.test(by)) {
+    throw acceptanceError(`--by must be a single token, 1-64 non-space characters: "${by}"`, "by-malformed");
+  }
 
   let repoRoot;
   let repoReal;
@@ -1949,6 +2108,17 @@ export function closeoutRecord(opts = {}) {
   let text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
   let record = parseRecord(text);
   let closeLine;
+
+  // L3 (C1 round 2 ruling): `--by` gates the WHOLE closeout, not just the scratch step - refuse
+  // before any step runs, including step 1 (close) itself and the dry run's own `would` lines,
+  // when it does not equal this record's Lead-session:. Nothing is read, closed or written past
+  // this point on that path.
+  if (record.fields.leadSession !== by) {
+    const detail = `--by ${by} does not match this record's Lead-session: ${record.fields.leadSession ?? "<missing>"}`;
+    const steps = ["worktree", "branch", "origin-branch", "scratch"].map((step) => ({ step, result: "refused", detail }));
+    const lines = [`close: refused (${detail})`, ...steps.map((r) => formatCloseoutLine(r, dryRun))];
+    return { lines, ok: false, exitCode: 2, steps };
+  }
 
   // 1. Close (or accept an already-closed record).
   if (record.fields.status === "closed") {
@@ -1967,7 +2137,9 @@ export function closeoutRecord(opts = {}) {
   const mainRef = "refs/remotes/origin/main";
 
   // 2. Merge proof.
-  const fetchResult = spawnImpl("git", ["fetch", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+  // M2: --prune too, so a branch already deleted on origin drops its stale local tracking ref
+  // instead of being evaluated against a sha that no longer exists there.
+  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
   const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
   let blockedReason = null;
   if (fetchFailed) {
@@ -2000,29 +2172,31 @@ export function closeoutRecord(opts = {}) {
 
     // 4. Origin branch.
     const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
-    const branchName = deriveRecordBranch(record);
+    const worktreesByPath = buildWorktreesByPath(repoRoot);
+    const branchName = deriveRecordBranch(record, worktreesByPath);
     if (!branchName) {
       results.push({ step: "origin-branch", result: "refused", detail: "no branch name could be derived from Worktree:/Artifact:" });
     } else {
       const verdict = evaluateOriginBranch(branchName, null, {
-        root: repoRoot, mainRef, mainBranch, spawnImpl, records, ownWorkId: record.fields.work,
+        root: repoRoot, mainRef, mainBranch, spawnImpl, records, ownWorkId: record.fields.work, worktreesByPath,
       });
       if (verdict.verdict !== "delete") {
         results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: verdict.reason });
       } else if (dryRun) {
         results.push({ step: "origin-branch", result: "removed", ref: branchName, sha: verdict.tip });
       } else {
-        try {
-          execImpl("git", ["push", "origin", "--delete", branchName], { cwd: repoRoot, encoding: "utf8" });
+        // L1 (C1 round 2 ruling): a lease, not a force - see deleteOriginBranchWithLease.
+        const del = deleteOriginBranchWithLease(execImpl, repoRoot, branchName, verdict.tip);
+        if (del.ok) {
           results.push({ step: "origin-branch", result: "removed", ref: branchName, sha: verdict.tip });
-        } catch (error) {
-          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: String(error.message || error) });
+        } else {
+          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: del.moved ? "moved" : del.error });
         }
       }
     }
 
     // 5. Scratch directory.
-    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl }));
+    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform }));
   }
 
   const lines = [closeLine, ...results.map((r) => formatCloseoutLine(r, dryRun))];
@@ -2032,13 +2206,22 @@ export function closeoutRecord(opts = {}) {
   if (!dryRun) {
     const summary = results.map((r) => `${r.step}=${r.result}`).join(" ");
     const at = new Date().toISOString();
-    const logLine = formatLogLine(at, "closeout", by, summary);
+    // F6 (C1 round 2, MAJOR): the Log: owner slot is the record's own Owner: slug, never the
+    // closeout session id - a session id there reads to validateRecord as an owner CHANGE after
+    // the newest artifact note, which is exactly its own `stale-result-candidate` signal, turning
+    // every successfully closed-out record invalid. The session id that actually ran this is
+    // still recorded, in the note text, never dropped.
+    const logLine = formatLogLine(at, "closeout", record.fields.owner ?? by, `by ${by} ${summary}`);
+    // M5: preserve the record's own line ending (a CRLF file must not come back out as LF), and
+    // write through the same realpath-confined path the read above resolved, not a second,
+    // independently-resolved `path.resolve` that a symlink swapped underneath could disagree with.
+    const eol = /\r\n/.test(text) ? "\r\n" : "\n";
     const closedLines = text.split(/\r?\n/);
     const blankIdx = closedLines.findIndex((l) => l.trim() === "");
     const insertAt = blankIdx === -1 ? closedLines.length : blankIdx;
     closedLines.splice(insertAt, 0, logLine);
-    const absPath = path.resolve(repoRoot, opts.recordPath);
-    fsImpl.writeFileSync(absPath, closedLines.join("\n"));
+    const realAbsPath = fsImpl.realpathSync(path.resolve(repoRoot, opts.recordPath));
+    fsImpl.writeFileSync(realAbsPath, closedLines.join(eol));
   }
 
   return { lines, ok, exitCode, steps: results };
@@ -2058,47 +2241,74 @@ export function sweepOrigin(opts = {}) {
   if (!opts.repoRoot) throw acceptanceError("--repo is required");
   const repoRoot = path.resolve(opts.repoRoot);
   const apply = Boolean(opts.apply);
+  // F10 (C1 round 2): every --exclude entry is normalized (see normalizeBranchName) the same way
+  // an origin/build/* name and a record's own claimed name are, so "origin/build/x", "build/x/"
+  // etc. all match the same excluded branch, not just its one literal spelling.
   const exclude = new Set(
     (typeof opts.exclude === "string" ? opts.exclude.split(",") : [])
-      .map((s) => s.trim())
+      .map((s) => normalizeBranchName(s.trim()))
       .filter(Boolean),
   );
   const mainBranch = "main";
   const mainRef = `refs/remotes/origin/${mainBranch}`;
+
+  // L2 (C1 round 2, F2 CRITICAL): fetch first, ALWAYS - dry run included - so every verdict here
+  // is read against origin's CURRENT tip, never a stale local tracking ref left over from
+  // whenever this repo last happened to fetch. A fetch that fails refuses every branch outright
+  // (exit 2), rather than silently falling back to whatever refs are on disk.
+  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+  if (fetchResult.error || fetchResult.status !== 0) {
+    return { rows: [], lines: ["refused UNVERIFIABLE: fetch failed"], apply, applied: [], exitCode: 2 };
+  }
+
   const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
+  const worktreesByPath = buildWorktreesByPath(repoRoot);
 
   const list = spawnImpl("git", ["for-each-ref", "refs/remotes/origin/build", "--format=%(refname)"], {
     cwd: repoRoot, encoding: "utf8", stdio: "pipe",
   });
-  const names = list.error || list.status !== 0
-    ? []
-    : String(list.stdout ?? "").trim().split(/\r?\n/).filter(Boolean).map((r) => r.replace(/^refs\/remotes\/origin\//, ""));
+  // M4: a for-each-ref that itself fails must not read as "there are no branches" - that silently
+  // reported nothing to the caller rather than the truth, that the list could not be read at all.
+  if (list.error || list.status !== 0) {
+    return { rows: [], lines: ["refused UNVERIFIABLE: could not list origin/build/* branches"], apply, applied: [], exitCode: 2 };
+  }
+  const names = String(list.stdout ?? "").trim().split(/\r?\n/).filter(Boolean).map((r) => r.replace(/^refs\/remotes\/origin\//, ""));
 
   const rows = names.map((name) => {
-    const verdict = evaluateOriginBranch(name, null, { root: repoRoot, mainRef, mainBranch, spawnImpl, records, exclude });
+    const verdict = evaluateOriginBranch(name, null, { root: repoRoot, mainRef, mainBranch, spawnImpl, records, exclude, worktreesByPath });
     return { name, tip: verdict.tip ?? null, verdict: verdict.verdict, reason: verdict.reason };
   });
 
   const lines = rows.map((r) => (r.verdict === "delete"
     ? `delete ${r.name} ${r.tip}`
     : `keep ${r.name} ${r.tip ?? "-"} ${r.reason}`));
+  // F10: warn about a --exclude entry that matched nothing, rather than silently accepting a
+  // typo as if it had done its job.
+  for (const ex of exclude) {
+    if (!names.some((n) => normalizeBranchName(n) === ex)) lines.push(`warn exclude ${ex} matches no origin/build/* branch`);
+  }
 
   const applied = [];
+  let anyFailed = false;
   if (apply) {
     for (const r of rows) {
       if (r.verdict !== "delete") continue;
-      try {
-        execImpl("git", ["push", "origin", "--delete", r.name], { cwd: repoRoot, encoding: "utf8" });
+      // L1: a lease, not a force - see deleteOriginBranchWithLease.
+      const del = deleteOriginBranchWithLease(execImpl, repoRoot, r.name, r.tip);
+      if (del.ok) {
         applied.push({ name: r.name, tip: r.tip, ok: true });
         lines.push(`deleted ${r.name} ${r.tip} restore: git push origin ${r.tip}:refs/heads/${r.name}`);
-      } catch (error) {
-        applied.push({ name: r.name, tip: r.tip, ok: false, error: String(error.message || error) });
-        lines.push(`delete-failed ${r.name} ${String(error.message || error)}`);
+      } else {
+        anyFailed = true;
+        const detail = del.moved ? "moved" : del.error;
+        applied.push({ name: r.name, tip: r.tip, ok: false, error: detail });
+        lines.push(`delete-failed ${r.name} ${detail}`);
       }
     }
   }
 
-  return { rows, lines, apply, applied };
+  // M4: exit 2 whenever any delete failed, never a blanket 0 that hides it.
+  return { rows, lines, apply, applied, exitCode: anyFailed ? 2 : 0 };
 }
 
 export function parseWithdrawArgs(argv) {
@@ -2178,7 +2388,9 @@ export function parseSweepOriginArgs(argv) {
     }
     const key = names.get(argv[i]);
     if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
-    opts[key] = argv[i + 1];
+    // F10 (C1 round 2): a repeated --exclude accumulates (comma-joined) instead of the last
+    // one silently overwriting the previous ones.
+    opts[key] = key === "exclude" && opts.exclude !== undefined ? `${opts.exclude},${argv[i + 1]}` : argv[i + 1];
     i += 2;
   }
   return opts;
@@ -2203,6 +2415,13 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
         for (const line of result.lines) io.stdout.write(`${line}\n`);
         return result.exitCode;
       }
+      // F5 (C1 round 2, MAJOR): plain `close` (no `--closeout`) must stay byte-identical to base,
+      // which throws on an argv it does not recognize - `--dry-run`/`--by` are only meaningful
+      // together with `--closeout`; silently accepting and ignoring them here would let a plain
+      // `close --dry-run` perform a REAL close (base refused that argv outright).
+      if (opts.dryRun || opts.closeoutBy !== undefined) {
+        throw acceptanceError("--dry-run and --by are only valid with --closeout", "closeout-flag-without-closeout");
+      }
       const result = closeRecord(opts);
       io.stdout.write(`${JSON.stringify(result)}\n`);
       return 0;
@@ -2211,7 +2430,7 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
       const { command, ...opts } = parseSweepOriginArgs(argv);
       const result = sweepOrigin(opts);
       for (const line of result.lines) io.stdout.write(`${line}\n`);
-      return 0;
+      return result.exitCode ?? 0;
     }
     const { command, ...opts } = parseAcceptanceArgs(argv);
     const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);

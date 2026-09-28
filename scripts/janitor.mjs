@@ -1213,10 +1213,26 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
   if (entry.main) {
     return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the main worktree" }] };
   }
-  const cwdReal = path.resolve(cwd);
-  const entryWithSep = entry.path.replace(/[/\\]+$/, "") + path.sep;
-  if (samePath(entry.path, cwdReal) || (cwdReal + path.sep).startsWith(entryWithSep)) {
+  // F7 (C1 round 2, MAJOR): realpath-normalized, win32-case-folded containment. A plain
+  // path.resolve comparison of git's forward-slash paths against process.cwd()'s (backslash, on
+  // win32) paths never matched on that platform, and nothing at all refused the entry that IS, or
+  // CONTAINS, `root` (--repo) itself - closeoutWorktree can be called with `root` set to a linked
+  // worktree, whose own `entry.main` is always false, so the main-worktree check above never
+  // catches this case.
+  const normPath = (p) => {
+    let r = path.resolve(p);
+    try { r = realpathSync.native(r); } catch { /* unreadable/missing still compares by its resolved form */ }
+    return process.platform === "win32" ? r.toLowerCase() : r;
+  };
+  const within = (child, parent) => {
+    const rel = path.relative(normPath(parent), normPath(child));
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
+  if (within(cwd, entry.path)) {
     return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the worktree containing process.cwd()" }] };
+  }
+  if (within(root, entry.path)) {
+    return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the worktree that is (or contains) --repo" }] };
   }
 
   const branch = entry.branch;
@@ -1230,6 +1246,17 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
         ? { step: "branch", ref: branch, result: "removed" }
         : { step: "branch", ref: branch, result: "refused", detail: "worktree removal did not report success" });
     }
+    return { steps };
+  }
+
+  // F1 (C1 round 2, CRITICAL): the live path must refuse on the same `clean` the dry run above
+  // already computed - `isTreeClean`'s own contract counts ignored files exactly because `git
+  // worktree remove` deletes them (silently, never asking, never reporting it), so skipping this
+  // check here let a live run delete files a dry run of the identical state had just reported
+  // `dirty` for.
+  if (!clean) {
+    steps.push({ step: "worktree", ref: entry.path, result: "dirty", detail: "untracked, modified or ignored files present (git worktree remove would delete ignored files)" });
+    if (branch) steps.push({ step: "branch", ref: branch, result: "refused", detail: "worktree left in place (dirty)" });
     return { steps };
   }
 

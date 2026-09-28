@@ -2405,6 +2405,52 @@ test("closeoutWorktree: a dirty worktree is reported 'dirty', left in place, and
   assert.notEqual(git(["branch", "--list", branch], root).trim(), "");
 });
 
+// F1/L4 (C1 round 2, CRITICAL): an ignored file (never untracked/modified) still makes the
+// worktree 'dirty' on the LIVE path, not only the dry-run path - `git worktree remove` (unforced)
+// silently deletes ignored files even though it refuses on untracked/modified ones.
+test("closeoutWorktree: an ignored-only file (no untracked/modified) is 'dirty' live, not just on --dry-run, and the file survives", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-ignored-1";
+  const wt = addWorktree(root, branch);
+  fs.writeFileSync(path.join(wt, ".gitignore"), "secret-file\n");
+  git(["add", ".gitignore"], wt);
+  git(["commit", "-q", "-m", "gitignore"], wt);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  fs.writeFileSync(path.join(wt, "secret-file"), "x\n");
+  const status = git(["status", "--porcelain", "--ignored"], wt).trim();
+  assert.match(status, /^!! secret-file$/m, "fixture sanity: reported ignored, not untracked");
+  const dry = closeoutWorktree({ root, worktreeField: branch, cwd: root, dryRun: true });
+  assert.equal(Object.fromEntries(dry.steps.map((s) => [s.step, s])).worktree.result, "dirty");
+  const live = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(live.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "dirty");
+  assert.match(steps.worktree.detail, /ignored/);
+  assert.equal(fs.existsSync(wt), true, "the worktree must survive");
+  assert.equal(fs.existsSync(path.join(wt, "secret-file")), true, "the ignored file must survive - unforced `git worktree remove` would otherwise silently delete it");
+});
+
+// F7 (C1 round 2, MAJOR): --repo (root) equal to, or containing, the worktree entry being
+// considered is refused - the reviewer's own repro (e13-repo-is-wt.mjs) called closeoutWorktree
+// with root === the linked worktree's own path.
+test("closeoutWorktree: F7 - refuses a worktree entry that IS (or contains) --repo, distinct from the main-worktree and cwd-containment checks", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "close-repo-is-wt-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  const dry = closeoutWorktree({ root: wt, worktreeField: branch, cwd: root, dryRun: true });
+  assert.equal(dry.steps[0].result, "refused");
+  assert.match(dry.steps[0].detail, /--repo/);
+  const live = closeoutWorktree({ root: wt, worktreeField: branch, cwd: root });
+  assert.equal(live.steps[0].result, "refused");
+  assert.match(live.steps[0].detail, /--repo/);
+  assert.equal(fs.existsSync(wt), true);
+  assert.equal(fs.existsSync(path.join(wt, ".git")), true, "the worktree's own .git link must survive - this is exactly what an unguarded live removal would delete");
+});
+
 test("closeoutWorktree: refuses the main worktree, and refuses the worktree containing cwd", () => {
   const root = initRepo();
   writeProjectConfig(root);

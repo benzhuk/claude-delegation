@@ -188,6 +188,39 @@ test("closeoutRecord: a dirty worktree is reported 'dirty' and left in place - n
   assert.equal(result.exitCode, 2);
 });
 
+// F1/L4 (C1 round 2, CRITICAL): an IGNORED file (never untracked or modified) must still make the
+// worktree 'dirty' - round 1's isTreeClean only gated the DRY-RUN path with this; the LIVE path
+// called `git worktree remove` (unforced) directly, which silently DELETES ignored files even
+// though it refuses on untracked/modified ones. The reviewer's own repro (e1-ignored.mjs) is what
+// found this.
+test("closeoutRecord: F1 - a worktree with ONLY an ignored file (no untracked/modified) is still 'dirty', left in place, and the ignored file survives", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/wt-ignored-1";
+  const { wt, tip } = cutBranch(repo, env, branch);
+  fs.writeFileSync(path.join(wt, ".gitignore"), "ignored-file\n");
+  git(["add", ".gitignore"], wt, env);
+  git(["commit", "-q", "-m", "gitignore"], wt, env);
+  const finalTip = git(["rev-parse", "HEAD"], wt, env).trim();
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  fs.writeFileSync(path.join(wt, "ignored-file"), "secret\n"); // matched by .gitignore above, never staged
+  const status = git(["status", "--porcelain", "--ignored"], wt, env).trim();
+  assert.match(status, /^!! ignored-file$/m, "fixture sanity: the file must actually be reported ignored, not untracked");
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-wt-ignored", worktree: branch, artifact: `${branch}@${finalTip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.worktree.result, "dirty");
+  assert.match(steps.worktree.detail, /ignored/);
+  assert.equal(fs.existsSync(wt), true, "the worktree must survive");
+  assert.equal(fs.existsSync(path.join(wt, "ignored-file")), true, "the ignored file itself must survive - this is exactly what `git worktree remove` (unforced) would otherwise silently delete");
+  assert.equal(result.exitCode, 2);
+});
+
 test("closeoutRecord: refuses the main worktree", () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
@@ -443,7 +476,9 @@ test("closeoutRecord/sweepOrigin: origin-branch's evaluateOriginBranch calls isR
   const fnMatch = /function evaluateOriginBranch\([\s\S]*?\n\}\n/.exec(src);
   assert.ok(fnMatch, "evaluateOriginBranch must be found in the source");
   const body = fnMatch[0];
-  assert.match(body, /if \(!isRemoteBranchMergedIntoOrigin\(root, name, mainBranch\)\)/);
+  // C1 round 2 F4: evaluateOriginBranch compares against normName (normalizeBranchName(name)),
+  // not the raw name, so "origin/build/x"/"refs/heads/build/x"/"build/x/" all match the same way.
+  assert.match(body, /if \(!isRemoteBranchMergedIntoOrigin\(root, normName, mainBranch\)\)/);
   assert.match(body, /isRemoteBranchMergedIntoOrigin does not report this branch as merged/);
   // and it is the LAST check before the "delete" verdict:
   const idx = body.indexOf("isRemoteBranchMergedIntoOrigin does not report");
@@ -509,6 +544,81 @@ test("closeoutRecord: scratch step refuses the session directory itself (--by is
   assert.equal(steps.scratch.result, "refused");
   assert.match(steps.scratch.detail, /whole path segment strictly between/);
   assert.equal(fs.existsSync(sessionDir), true);
+});
+
+// L6/F8 (C1 round 2, MAJOR): the real scratch layout is
+// `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` - the session id (--by) sits
+// several segments BELOW the root, not directly under it. Round 1 only matched `segments[0] ===
+// by`, which never matched this project's own real layout at all.
+test("closeoutRecord: scratch step accepts the REAL scratch layout - <root>/<project>/<session-id>/scratchpad/<lane>, --by several segments below the root", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const by = `closeout-test-by-deeplayout-${++scratchCounter}`;
+  const root = mkTmp("closeout-scratch-root-");
+  const target = path.join(root, "-home-ben-Code-claude-delegation", by, "scratchpad", "lane-closeout");
+  fs.mkdirSync(target, { recursive: true });
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-sc-deeplayout", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: target,
+  });
+  const prevRoots = process.env.DELEGATION_SCRATCH_ROOTS;
+  process.env.DELEGATION_SCRATCH_ROOTS = root;
+  let result;
+  try {
+    result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  } finally {
+    if (prevRoots === undefined) delete process.env.DELEGATION_SCRATCH_ROOTS;
+    else process.env.DELEGATION_SCRATCH_ROOTS = prevRoots;
+  }
+  const steps = stepsOf(result);
+  assert.equal(steps.scratch.result, "removed");
+  assert.equal(fs.existsSync(target), false);
+});
+
+// L6/F8: the SESSION directory itself (one level above scratchpad/<lane>) is still refused even
+// under this deep, real layout - --by must be a segment STRICTLY between the root and the target,
+// at any depth, never the target's own last segment.
+test("closeoutRecord: scratch step refuses the session directory itself even under the deep real layout (--by still not strictly between root and target)", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const by = `closeout-test-by-deeplayout-selfdir-${++scratchCounter}`;
+  const root = mkTmp("closeout-scratch-root-");
+  const sessionDir = path.join(root, "-home-ben-Code-claude-delegation", by);
+  fs.mkdirSync(sessionDir, { recursive: true });
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-sc-deeplayout-selfdir", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: sessionDir,
+  });
+  const prevRoots = process.env.DELEGATION_SCRATCH_ROOTS;
+  process.env.DELEGATION_SCRATCH_ROOTS = root;
+  let result;
+  try {
+    result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  } finally {
+    if (prevRoots === undefined) delete process.env.DELEGATION_SCRATCH_ROOTS;
+    else process.env.DELEGATION_SCRATCH_ROOTS = prevRoots;
+  }
+  const steps = stepsOf(result);
+  assert.equal(steps.scratch.result, "refused");
+  assert.match(steps.scratch.detail, /whole path segment strictly between/);
+  assert.equal(fs.existsSync(sessionDir), true);
+});
+
+// F9 (C1 round 2, MAJOR): a Scratch: value recorded on the OTHER OS's path convention is refused
+// OUTRIGHT at delete time (never resolved against this host's own cwd), even though
+// checkScratchField (validation) accepts it. Driven through the test-only `platform` param, the
+// same convention this codebase already uses elsewhere (codex-hook-trust.test.mjs,
+// install-janitor-timer.test.mjs) instead of monkeypatching process.platform.
+test("closeoutRecord: scratch step refuses a value in the WRONG OS's path convention for the current host, via the test-only platform param", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const by = `closeout-test-by-otheros-${++scratchCounter}`;
+  const winPath = `C:\\Users\\${by}\\AppData\\Local\\Temp\\lane-closeout`;
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-sc-otheros", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: winPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by, platform: "linux" });
+  const steps = stepsOf(result);
+  assert.equal(steps.scratch.result, "refused");
+  assert.match(steps.scratch.detail, /not absolute on this host/);
 });
 
 test("closeoutRecord: scratch step refuses a symlinked target, and never follows it", () => {
@@ -675,6 +785,76 @@ test("parseSweepOriginArgs: --repo/--exclude are name/value pairs, --apply is a 
   assert.equal(parsed.apply, true);
 });
 
+// F10 (C1 round 2, MEDIUM): a REPEATED --exclude accumulates (comma-joined), instead of the last
+// one silently overwriting every earlier one.
+test("parseSweepOriginArgs: F10 - a repeated --exclude accumulates, comma-joined, rather than the last one overwriting the rest", () => {
+  const parsed = parseSweepOriginArgs(["sweep-origin", "--repo", ".", "--exclude", "build/a", "--exclude", "build/b", "--exclude", "build/c"]);
+  assert.equal(parsed.exclude, "build/a,build/b,build/c");
+});
+
+// F10: an --exclude entry that matches no origin/build/* branch is called out with a warn line,
+// rather than silently accepted as if it had done its job (a typo would otherwise sweep the
+// branch the caller meant to protect).
+test("sweepOrigin: F10 - an --exclude entry matching no origin/build/* branch prints a warn line naming it", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/sweep-exclude-warn-1";
+  cutBranch(repo, env, branch);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  const result = sweepOrigin({ repoRoot: repo, exclude: "build/does-not-exist-at-all" });
+  assert.ok(result.lines.some((l) => l === "warn exclude build/does-not-exist-at-all matches no origin/build/* branch"));
+});
+
+// F4/L8 (C1 round 2, CRITICAL): an active record's Worktree: is matched in EVERY form it might be
+// recorded in (origin/build/x, refs/heads/build/x, build/x/, or an absolute worktree path) - not
+// only one preferred derivation. Round 1 compared against a single derived form, so 3 of these 4
+// real-world variants slipped through undetected as "not claimed by anyone".
+for (const [label, formOf] of [
+  ["origin/-prefixed", (name) => `origin/${name}`],
+  ["refs/heads/-prefixed", (name) => `refs/heads/${name}`],
+  ["a trailing slash", (name) => `${name}/`],
+]) {
+  test(`sweepOrigin: F4 - an active record's Worktree: given as ${label} (${formOf("build/x")}) still keeps the branch, exactly like the bare form`, () => {
+    const env = fixtureEnv();
+    const { repo } = buildRepo(env);
+    const branch = "build/sweep-multiform-1";
+    const { tip } = cutBranch(repo, env, branch);
+    mergeNoFF(repo, env, branch);
+    pushMain(repo, env);
+    pushBranch(repo, env, branch);
+    writeClosedRecord(repo, {
+      work: "wr-2026-09-27-sweep-multiform", worktree: formOf(branch), artifact: `${branch}@${tip}`, leadSession: "some-session", scratch: mkScratchFixture().scratchPath,
+      extra: { Status: "owned" },
+    });
+    const result = sweepOrigin({ repoRoot: repo });
+    const row = result.rows.find((r) => r.name === branch);
+    assert.equal(row.verdict, "keep");
+    assert.match(row.reason, /not closed\/withdrawn/);
+  });
+}
+
+// F4/L8: an active record's Worktree: given as the branch's own ABSOLUTE worktree path (resolved
+// through `git worktree list`, not a literal branch-name comparison) still keeps the branch.
+test("sweepOrigin: F4 - an active record's Worktree: given as the branch's absolute worktree path (resolved via git worktree list) still keeps the branch", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/sweep-multiform-abspath-1";
+  const { wt, tip } = cutBranch(repo, env, branch);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  writeClosedRecord(repo, {
+    work: "wr-2026-09-27-sweep-multiform-abs", worktree: wt, artifact: `${branch}@${tip}`, leadSession: "some-session", scratch: mkScratchFixture().scratchPath,
+    extra: { Status: "owned" },
+  });
+  const result = sweepOrigin({ repoRoot: repo });
+  const row = result.rows.find((r) => r.name === branch);
+  assert.equal(row.verdict, "keep");
+  assert.match(row.reason, /not closed\/withdrawn/);
+});
+
 test("sweepOrigin: dry run by default - lists every origin/build/* branch with its tip sha and a delete/keep verdict, deletes nothing", () => {
   const env = fixtureEnv();
   const { repo } = buildRepo(env);
@@ -768,6 +948,87 @@ test("sweepOrigin: --apply deletes only the branches marked delete, against the 
   assert.ok(result.lines.some((l) => l === `deleted ${toDelete} ${tip} restore: git push origin ${tip}:refs/heads/${toDelete}`));
   assert.equal(git(["ls-remote", "--heads", "origin", toDelete], repo, env).trim(), "", "the deletable branch must be gone from origin");
   assert.notEqual(git(["ls-remote", "--heads", "origin", toKeep], repo, env).trim(), "", "the kept branch must still be on origin");
+});
+
+// F2/L2 (C1 round 2, CRITICAL): sweep-origin must `git fetch --prune origin` before it evaluates
+// ANYTHING, in --apply mode too - otherwise a branch that WAS merged-and-safe when this repo last
+// fetched, but has since had new, unmerged work pushed to it by someone else, is still evaluated
+// against the STALE (old, merged) tip this repo remembers, and gets deleted with --apply even
+// though origin's CURRENT tip is unmerged work that would be lost. The reviewer's own repro
+// (e2-stale.mjs) is what found this.
+test("sweepOrigin: F2 - a branch merged-and-safe as of this repo's last fetch, but advanced with NEW unmerged work on origin since, is re-fetched and kept, never deleted from a stale tip", () => {
+  const env = fixtureEnv();
+  const { repo, origin } = buildRepo(env);
+  const branch = "build/sweep-stale-1";
+  cutBranch(repo, env, branch);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch); // this repo's local origin/build/sweep-stale-1 now == the merged, safe-to-delete tip
+
+  // Someone else clones the same origin and pushes NEW, unmerged work to the same branch - `repo`
+  // above never re-fetches, so its own tracking ref still remembers the old (merged) tip.
+  const other = mkTmp("closeout-clone-");
+  git(["clone", "-q", origin, other], repo, env);
+  git(["checkout", "-q", branch], other, env);
+  fs.writeFileSync(path.join(other, "new-work.txt"), "unmerged work\n");
+  git(["add", "."], other, env);
+  git(["commit", "-q", "-m", "new unmerged work"], other, env);
+  git(["push", "-q", "origin", branch], other, env);
+  const newTip = git(["rev-parse", "HEAD"], other, env).trim();
+
+  const result = sweepOrigin({ repoRoot: repo, apply: true });
+  const row = result.rows.find((r) => r.name === branch);
+  assert.equal(row.tip, newTip, "must be evaluated against origin's CURRENT tip, fetched fresh - never the stale local tracking ref");
+  assert.equal(row.verdict, "keep", "the new tip is unmerged work - must never be judged safe from a stale, already-superseded tip");
+  assert.equal(result.applied.length, 0);
+  // and the branch (with its new commit) is still on origin - nothing was deleted:
+  const ls = git(["ls-remote", "--heads", "origin", branch], repo, env).trim();
+  assert.notEqual(ls, "", "origin must still have the branch - its current, unmerged tip must never be deleted");
+});
+
+// L1 (C1 round 2 ruling): the origin delete is a LEASE (`--force-with-lease`), never a force - a
+// branch that moved on origin between sweepOrigin's own evaluation and the moment its delete push
+// actually runs fails that push outright ('moved'), rather than force-deleting whatever origin's
+// tip happens to be by then. Driven through sweepOrigin's real code path (its injectable
+// `execImpl`), racing the actual git push exactly at the point the delete fires - after
+// evaluation has already captured its (about-to-be-stale) tip.
+test("sweepOrigin: L1 - --apply's delete is a lease against the exact evaluated tip; a branch that moved since evaluation is refused 'moved', never force-deleted", () => {
+  const env = fixtureEnv();
+  const { repo, origin } = buildRepo(env);
+  const branch = "build/sweep-lease-moved-1";
+  cutBranch(repo, env, branch);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+
+  const other = mkTmp("closeout-clone-");
+  git(["clone", "-q", origin, other], repo, env);
+
+  const realExec = execFileSync;
+  let raced = false;
+  const execImpl = (cmd, args, opts) => {
+    if (!raced && args[0] === "push" && String(args[1]).startsWith("--force-with-lease=")) {
+      raced = true;
+      // Race a new, unmerged commit onto the SAME branch on origin, from a separate clone, right
+      // between sweepOrigin's evaluation (already captured the OLD tip in `args`) and this delete
+      // push actually running - exactly the window L1's lease exists to close.
+      git(["checkout", "-q", branch], other, env);
+      fs.writeFileSync(path.join(other, "race.txt"), "raced in after evaluation\n");
+      git(["add", "."], other, env);
+      git(["commit", "-q", "-m", "raced in"], other, env);
+      git(["push", "-q", "origin", branch], other, env);
+    }
+    return realExec(cmd, args, opts);
+  };
+
+  const result = sweepOrigin({ repoRoot: repo, apply: true, execImpl });
+  assert.equal(raced, true, "fixture sanity: the race must actually have fired during the delete push");
+  const row = result.applied.find((a) => a.name === branch);
+  assert.equal(row.ok, false);
+  assert.equal(row.error, "moved", "the moved-branch case must be flagged distinctly (never silently treated as a generic failure)");
+  assert.ok(result.lines.some((l) => l === `delete-failed ${branch} moved`));
+  const ls = git(["ls-remote", "--heads", "origin", branch], repo, env).trim();
+  assert.notEqual(ls, "", "the branch (with the raced-in commit) must survive a lease that no longer matches origin's current tip - a lease is conditional, never a force");
 });
 
 after(() => {

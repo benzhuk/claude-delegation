@@ -307,27 +307,59 @@ node <verified-plugin-root>/scripts/work-record.mjs close \
 
 Each of the five steps prints exactly one line: `removed`, `refused <reason>`, `absent`,
 or `dirty`. `--dry-run` prints the same lines prefixed `would ` and changes nothing on
-disk — including the close write itself and the `Log:` line below. Exit 0 only when every
-step is `removed` or `absent`; otherwise exit 2. On a real (non-dry-run) run, one `Log:`
-line is appended: `closeout <lead-session-id> <step>=<result> <step>=<result> ...`.
+disk — including the close write itself and the `Log:` line below — EXCEPT that it still
+runs `git fetch`, same as a live run: the local `refs/remotes/origin/*` tracking refs can
+move, since nothing here can prove a merge safe without a fresh fetch, dry run or not;
+nothing else changes. Exit 0 only when every step is `removed` or `absent`; otherwise exit
+2. On a real (non-dry-run) run, one `Log:`
+line is appended: `closeout <Owner> by <lead-session-id> <step>=<result> <step>=<result> ...` — the
+`Log:` owner slot is the record's own `Owner:` slug (never the closeout session id: a session id
+there reads as an owner CHANGE after the newest artifact note, which trips `validateRecord`'s
+own `stale-result-candidate` finding on every closed-out record); the session id that ran the
+closeout is still recorded, in the note text.
+
+`--by` gates the WHOLE closeout, not only the scratch step: when it does not equal the
+record's own `Lead-session:`, every one of the four cleanup steps is refused before any of
+them runs — including step 1 (close) itself, and the dry run's own `would` lines — and
+`--by` itself must be a single token of 1-64 non-space characters, or the call throws
+before that (a `--by` containing whitespace would otherwise write a malformed `Log:` line).
 
 A failed merge proof — `git fetch origin` fails, or the record's `Artifact:` sha is not an
 ancestor of `origin/main` — refuses every one of the four cleanup steps with that one
 reason (`UNVERIFIABLE: fetch failed`, or the ancestry failure), rather than attempting any
-of them. The worktree/branch step never forces: a dirty worktree is reported `dirty` and
-left exactly in place; the local branch is deleted with `-d`, never `-D`, so it too is
-merely refused (not forced) when git's own checkout-local merge judgment disagrees. The
-main worktree, and whichever worktree contains `process.cwd()`, are always refused. The
-origin branch (`build/<...>`, taken from `Worktree:` or the `Artifact:` ref) is deleted
-with `git push origin --delete`, printing its tip sha and a restore command (`git push
-origin <sha>:refs/heads/<name>`) — refused when it is not under `build/`, not this
-record's own, named by another record under `docs/work/` whose `Status:` is neither
-`closed` nor `withdrawn`, or its tip fails any of the three merge-safety proofs (ancestor
-of `origin/main`, not equal to `origin/main`'s own tip, reachable only through a `--no-ff`
-merge commit's second parent). The scratch directory is removed only when `--by` matches
-the record's own `Lead-session:`, and only after the full set of path-safety checks named
-in the pinned scratch sentence's own contract (a scratch root, `--by` as its own path
-segment, no symlink, never a drive root/home directory/repo root/worktree/`.git` entry).
+of them. The worktree step first requires `git status --porcelain --ignored` (run inside
+that worktree) to print nothing — untracked, modified, OR ignored files all make it
+`dirty` and leave the worktree exactly in place, because an unforced `git worktree remove`
+deletes ignored files itself without asking or reporting it, and the dry run reports this
+same check so the two never disagree. The local branch is deleted with `-d`, never `-D`,
+so it too is merely refused (not forced) when git's own checkout-local merge judgment
+disagrees. The main worktree, whichever worktree contains `process.cwd()`, and whichever
+worktree IS or CONTAINS `--repo` itself, are always refused (realpath-normalized, and
+case-folded on win32, so this holds across platforms and past a symlinked ancestor). The
+origin branch (`build/<...>`, taken from `Worktree:` or the `Artifact:` ref, every name
+form normalized — `origin/`, `refs/heads/`, `refs/remotes/origin/` prefixes and a trailing
+`/` all compare equal) is deleted with a lease, never a plain force: `git push
+--force-with-lease=refs/heads/<name>:<tip> origin :refs/heads/<name>`, where `<tip>` is
+the exact sha this run evaluated, immediately after its own fetch. A branch that moved on
+origin since that fetch fails the lease and is reported `refused moved` — never silently
+deleting whatever the name now points at — and the printed restore command
+(`git push origin <sha>:refs/heads/<name>`) always names that same evaluated sha. The
+branch is refused when it is not under `build/`, not this record's own (checked against
+every name form a record can claim: `Worktree:` as a bare name, `Artifact:`'s own ref, or
+— when `Worktree:` is a path — whichever branch `git worktree list` reports checked out
+there), named by another record under `docs/work/` whose `Status:` is neither `closed` nor
+`withdrawn`, or its tip fails any of the three merge-safety proofs (ancestor of
+`origin/main`, not equal to `origin/main`'s own tip, reachable only through a `--no-ff`
+merge commit's second parent). The scratch directory is removed only after the full set of
+path-safety checks named in the pinned scratch sentence's own contract: a `Scratch:` value
+must be absolute on THIS host's own path convention (a value recorded on the other OS is
+refused, not resolved against this host's cwd); the session id from `--by` must be a whole
+path segment strictly between a scratch root and the target, at ANY depth (matching the
+real `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout); no symlink
+anywhere in the resolved path; and the target must never be, or CONTAIN, a drive/filesystem
+root, the home directory, the repo root, a path in `git worktree list`, or a `.git` entry
+anywhere below it (walked to a bounded depth — hitting that bound refuses, same as finding
+one). A registered-worktree list that cannot be read fails CLOSED (refused), never open.
 
 `sweep-origin` runs a standing, repo-wide version of the same origin-branch rule, useful
 for a batch cleanup outside any one record's own closeout:
@@ -342,9 +374,22 @@ Dry run by default: lists every `origin/build/*` branch with its tip sha and a v
 `close --closeout`'s origin-branch step, with two changes: "not this record's own" is
 dropped (there is no one record to be the owner of here — sweep-origin only ever keeps a
 branch that some *other*, still-active record names), and branches listed in `--exclude`
-are added to the keep list outright. `--apply` deletes only the branches marked `delete`,
-against origin, printing each name and sha plus its own restore command — a dry run
-deletes nothing.
+are added to the keep list outright. A repeated `--exclude` accumulates (each one is
+appended, comma-joined, to the ones already given), never the last flag silently
+overwriting the earlier ones; every `--exclude` name is normalized the same way an
+origin/build/* name and a record's claimed name are, so `origin/build/x`, `build/x/`, and
+`build/x` are all the same entry; an `--exclude` name matching no `origin/build/*` branch
+prints `warn exclude <name> matches no origin/build/* branch` rather than being silently
+accepted as if it had done its job. `sweep-origin` fetches (`git fetch --prune origin`)
+before evaluating anything, in dry-run mode too — a fetch failure refuses every branch
+outright (`refused UNVERIFIABLE: fetch failed`, exit 2) rather than falling back to
+whatever refs happen to be on disk; a `for-each-ref` that itself fails is reported the
+same way, never silently read as "no branches". `--apply` deletes only the branches
+marked `delete`, against origin, with the same lease (never a plain force) `close
+--closeout`'s origin-branch step uses, printing each name and sha plus its own restore
+command — a dry run deletes nothing. Exit code is 2 whenever any delete fails (including a
+lease that lost its race, `delete-failed <name> moved`) or the fetch/list itself failed;
+0 otherwise.
 
 ## Full example record
 
