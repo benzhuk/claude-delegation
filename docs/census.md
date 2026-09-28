@@ -487,4 +487,13 @@ SessionStart line only rides with a rendering goal card — it is computed insid
 that carries one, such as this repo's own checkout; a scratch directory with no card shows none
 (round-1 review, MAJOR 2).
 
+## Counted markers
+
+- `stale session:` — the stale-session guard's deny/notice marker (spec:
+  docs/specs/stale-session-guard-1/spec.md P6/P8), printed by `hooks/agent-dispatch-guard.mjs`'s
+  R0-stale (its rule id in the guard's log) and by `scripts/wiring-check.mjs`'s `--line` (and so
+  its SessionStart `--hook` call) — both through the one shared builder,
+  `scripts/plugin-staleness.mjs`'s `staleSessionText()`, so the marker text can never drift
+  between the two call sites.
+
 Codex: the read counter is unsupported on Codex, because Codex hook payloads carry no file path, so Codex sessions' reads are never counted. The SessionStart line still renders in Codex sessions, and its read count there covers Claude sessions on the same host only.

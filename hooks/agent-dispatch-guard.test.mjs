@@ -12,6 +12,7 @@ import {
   R1_TEXT, R1B_TEXT, R2_TEXT_BASE, R3_NEG_TEXT, R3_REPORT_TEXT,
   checkResumeNotice, resumeNoticeText, RESUME_NOTICE_KIND,
 } from './agent-dispatch-guard.mjs';
+import { staleSessionText } from '../scripts/plugin-staleness.mjs';
 // Shared with skills/multi/scripts: a CLI-subprocess test must never spread process.env
 // itself (that is how the running session's own messaging token leaked into a fixture on
 // 2026-09-17 — see test-child-env.mjs). childEnv() is the one sanctioned way to build one.
@@ -52,6 +53,129 @@ const SEND = (over = {}) => ({
   cwd: process.cwd(),
   session_id: 'abcdefghijklmnop',
   ...over,
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R0-stale (docs/specs/stale-session-guard-1/spec.md P5) — a builder/reviewer/runner/
+// integrator spawn is denied outright when this session's own loaded plugin version is
+// strictly older than every readable installed entry. Fixture shape mirrors
+// scripts/plugin-staleness.test.mjs's cacheScriptPath()/writeManifest(): a scratch home
+// with a real `.claude/plugins/cache/<marketplace>/<name>/<version>/` directory and its own
+// `installed_plugins.json`, and a `scriptPath` standing in for `GUARD_SCRIPT_PATH` via
+// `ctx.scriptPath`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `{ home, scriptPath }` for a session that loaded `running` while `installedVersions` are
+ * the readable entries for `<name>@<marketplace>` in `installed_plugins.json`. */
+function staleFixture({ running, installedVersions, marketplace = 'benzhuk', name = 'delegation' }) {
+  const home = scratchHome();
+  const versionDir = path.join(home, '.claude', 'plugins', 'cache', marketplace, name, running);
+  fs.mkdirSync(versionDir, { recursive: true });
+  const scriptPath = path.join(versionDir, 'hooks', 'agent-dispatch-guard.mjs');
+  const pluginsDir = path.join(home, '.claude', 'plugins');
+  fs.writeFileSync(path.join(pluginsDir, 'installed_plugins.json'), JSON.stringify({
+    version: 2,
+    plugins: { [`${name}@${marketplace}`]: installedVersions.map((version) => ({ scope: 'user', version })) },
+  }), 'utf8');
+  return { home, scriptPath };
+}
+
+/** decide()'s ctx for a staleness fixture — `env: {}` so this suite never reads the real
+ * process's own CLAUDE_CONFIG_DIR, whatever the machine running it happens to have set. */
+function staleCtx({ home, scriptPath }, fsImpl = fs) {
+  return { home, fsImpl, scriptPath, env: {} };
+}
+
+test('R0-stale: a stale builder spawn denies with rule R0-stale and the exact P6 text, WITHOUT the enforce file present', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  const input = AGENT({ tool_input: { subagent_type: 'builder', prompt: 'do a thing' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.equal(result.action, 'deny');
+  assert.deepEqual(result.rule, ['R0-stale']);
+  assert.equal(result.hardDeny, true);
+  assert.equal(result.enforced, false, 'no dispatch-guard-enforce file exists in this fixture');
+  assert.equal(result.text, staleSessionText({ key: 'delegation@benzhuk', running: '0.20.9', installed: '0.20.16' }));
+  assert.match(result.text, /^stale session: /);
+});
+
+test('R0-stale: reviewer, runner and integrator subagent_types are also denied, case-insensitively and with a namespace prefix', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  for (const subagentType of ['reviewer', 'RUNNER', 'Integrator', 'team:builder']) {
+    const input = AGENT({ tool_input: { subagent_type: subagentType, prompt: 'x' } });
+    const result = decide(input, staleCtx(fixture));
+    assert.equal(result.action, 'deny', subagentType);
+    assert.deepEqual(result.rule, ['R0-stale'], subagentType);
+  }
+});
+
+test('R0-stale: a stale general-purpose spawn is NOT denied by R0 (other subagent types are untouched)', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  const input = AGENT({ tool_input: { subagent_type: 'general-purpose', prompt: 'x' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.notDeepEqual(result.rule, ['R0-stale']);
+  assert.equal(result.action, 'allow');
+});
+
+test('R0-stale: a stale builder spawn with no subagent_type at all is not denied by R0', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  const input = AGENT({ tool_input: { prompt: 'x' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.equal(result.action, 'allow');
+});
+
+test('R0-stale: ~/.agents/no-dispatch-guard skips it exactly like every other rule', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  fs.mkdirSync(path.join(fixture.home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(fixture.home, '.agents', 'no-dispatch-guard'), '', 'utf8');
+  const input = AGENT({ tool_input: { subagent_type: 'builder', prompt: 'x' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.equal(result.skip, true);
+  assert.equal(result.action, 'allow');
+});
+
+test('R0-stale: ~/.agents/ws-off does NOT disable it (unlike R1/R2, this deny is not gated by the enforce/observe split)', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  fs.mkdirSync(path.join(fixture.home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(fixture.home, '.agents', 'ws-off'), '', 'utf8');
+  const input = AGENT({ tool_input: { subagent_type: 'builder', prompt: 'x' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.equal(result.action, 'deny');
+  assert.deepEqual(result.rule, ['R0-stale']);
+});
+
+test('R0-stale: the dispatch-guard-enforce file present changes nothing for this rule — still denies, hardDeny stays true', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  fs.mkdirSync(path.join(fixture.home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(fixture.home, '.agents', 'dispatch-guard-enforce'), '', 'utf8');
+  const input = AGENT({ tool_input: { subagent_type: 'builder', prompt: 'x' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.equal(result.action, 'deny');
+  assert.equal(result.hardDeny, true);
+});
+
+test('R0-stale: NOT stale (running equal to the installed entry) falls through to the existing rules unchanged', () => {
+  const fixture = staleFixture({ running: '0.20.16', installedVersions: ['0.20.16'] });
+  const input = AGENT({ tool_input: { subagent_type: 'builder', model: 'opus', prompt: 'do a thing' } });
+  const result = decide(input, staleCtx(fixture));
+  // Not stale, so R0 never fires — this reaches R1 (opus, no review, no judgment) instead.
+  assert.equal(result.action, 'deny');
+  assert.deepEqual(result.rule, ['R1']);
+  assert.equal(result.text, R1_TEXT);
+});
+
+test('R0-stale: NOT stale (a non-cache script path — the real repo-checkout shape) falls through, allow when nothing else fires', () => {
+  const home = scratchHome();
+  const scriptPath = path.join(home, 'repo-checkout', 'hooks', 'agent-dispatch-guard.mjs');
+  const input = AGENT({ tool_input: { subagent_type: 'builder', prompt: 'do a thing' } });
+  const result = decide(input, { home, fsImpl: fs, scriptPath, env: {} });
+  assert.equal(result.action, 'allow');
+});
+
+test('R0-stale: SendMessage is never denied by R0 (Agent-only, like R1/R1b/R3)', () => {
+  const fixture = staleFixture({ running: '0.20.9', installedVersions: ['0.20.16'] });
+  const input = SEND({ tool_input: { to: 'someone', message: 'hi' } });
+  const result = decide(input, staleCtx(fixture));
+  assert.notDeepEqual(result.rule, ['R0-stale']);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

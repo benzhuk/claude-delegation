@@ -1237,6 +1237,147 @@ test("a check naming inboxes.json in ANY letter case is refused before any fs ca
 });
 
 // ---------------------------------------------------------------------------
+// P7 (docs/specs/stale-session-guard-1/spec.md) - the stale-session line. Same fact as
+// agent-dispatch-guard.mjs's R0-stale, read through THIS script's own path instead of the
+// guard's; `main()`'s `opts.scriptPath` stands in for `SELF_PATH` here exactly like
+// `opts.home`/`opts.fsImpl` already stand in for the real filesystem above.
+// ---------------------------------------------------------------------------
+
+/** A fake `.claude/plugins/cache/<marketplace>/<name>/<version>/` directory under `home`,
+ * plus its own `installed_plugins.json` - the exact shape `plugin-staleness.mjs` reads.
+ * Returns a `scriptPath` two directories below the version dir, mirroring this file's own
+ * `scripts/x.mjs` shape. */
+function staleFixture(home, { running, installedVersions, marketplace = "benzhuk", name = "delegation" }) {
+  const versionDir = path.join(home, ".claude", "plugins", "cache", marketplace, name, running);
+  fs.mkdirSync(versionDir, { recursive: true });
+  const scriptPath = path.join(versionDir, "scripts", "wiring-check.mjs");
+  write(home, ".claude/plugins/installed_plugins.json", JSON.stringify({
+    version: 2,
+    plugins: { [`${name}@${marketplace}`]: installedVersions.map((version) => ({ scope: "user", version })) },
+  }));
+  return scriptPath;
+}
+
+/** Runs `main()` in-process, capturing console.log - every P7 test below needs this, and
+ * every one pins `env: {}` so this suite never reads the real process's own
+ * CLAUDE_CONFIG_DIR. */
+function runMainCapturing(args, opts) {
+  const origLog = console.log;
+  let out = "";
+  console.log = (s) => { out += `${s}\n`; };
+  try {
+    return { code: main(args, { env: {}, ...opts }), out };
+  } finally {
+    console.log = origLog;
+  }
+}
+
+test("P7: --line prints the stale marker and the exit code goes red, even though checkWiring's own findings are all ok", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home); // checkWiring().ok === true on its own
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 1, "a stale session is a red exit even though every ordinary check is ok");
+  assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+});
+
+test("P7: --hook keeps exit 0 while stale, but the line still prints (same rule as any other flagged finding)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line", "--hook"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.match(out, /^stale session: /m);
+});
+
+test("P7: not stale (running equal to the installed entry) prints nothing extra and the exit stays green", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: not stale (running newer than every entry) prints nothing extra and the exit stays green", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.21.0", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: ws-off silences the printed line but the exit code stays red while stale (never silences the exit)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  write(home, ".agents/ws-off", "");
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 1, "ws-off silences the line, never the exit code - same rule as every other finding");
+  assert.equal(out, "");
+});
+
+test("P7: a non-cache scriptPath (the real repo-checkout shape) is not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = path.join(home, "repo-checkout", "scripts", "wiring-check.mjs");
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: with no scriptPath override at all, main() defaults to THIS repo's own real wiring-check.mjs - never stale in this suite", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const { code, out } = runMainCapturing(["--line"], { home });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: a staleness read that throws never crashes main() and is treated as not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const throwingFs = { ...fs, realpathSync() { throw new Error("boom"); } };
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath, fsImpl: throwingFs });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: CLI subprocess through the real file - copying this script into a fake cache dir proves the CLI wrapper (not just an injected opts.scriptPath) reads its own real location", () => {
+  const home = mkHome();
+  const versionDir = path.join(home, ".claude", "plugins", "cache", "benzhuk", "delegation", "0.20.9", "scripts");
+  fs.mkdirSync(versionDir, { recursive: true });
+  const copiedScript = path.join(versionDir, "wiring-check.mjs");
+  fs.copyFileSync(SCRIPT, copiedScript);
+  fs.copyFileSync(path.join(HERE, "plugin-staleness.mjs"), path.join(versionDir, "plugin-staleness.mjs"));
+  fs.copyFileSync(path.join(HERE, "required-wiring.default.json"), path.join(versionDir, "required-wiring.default.json"));
+  write(home, ".claude/plugins/installed_plugins.json", JSON.stringify({
+    version: 2,
+    plugins: { "delegation@benzhuk": [{ scope: "user", version: "0.20.16" }] },
+  }));
+  let out;
+  try {
+    out = execFileSync(NODE, [copiedScript, "--line"], {
+      encoding: "utf8",
+      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents") }),
+    });
+  } catch (err) {
+    out = err.stdout ?? ""; // this fixture's ordinary checks are red too (no --hook here) - fine, only the marker matters
+  }
+  assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+});
+
+// ---------------------------------------------------------------------------
 // Wired into hooks.json: SessionStart shows the wiring check on its own
 // ---------------------------------------------------------------------------
 
