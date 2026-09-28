@@ -41,6 +41,16 @@ Never: no writes under the repo, no git writes (collect-from-origin's own never-
 
 Tests (contract, not implementation): status.json shape against the bare-remote fixture that collect-from-origin.test.mjs already builds (reuse its helper, do not fork it); attention rules at each threshold boundary; change key equal means no note (inject the note-send exec; assert zero calls); change key different means exactly one call with kind RESULT and `--no-type`; `--quiet`; missing note-send; atomic write (temp never left behind); `previous.json` rotation; fetch failure still writes; the never-writes assertion.
 
+### Lane thirty addendum (stall-nudge, docs/specs/stall-nudge-1): one ASK per stall
+
+After status.md and the existing RESULT above, the collector sends ONE more note per row still stuck at `silent-over-N-h` (an `owned` row whose `hoursSinceLog` exceeds `--stale-hours`): an ASK, addressed to the row's own `Owner:` slug (read off the branch's own tip blob, the same way `status`/`artifact` already are — never `main`'s), never to `--to`. Argv shape (docs/specs/stall-nudge-1/contracts.md S1-S6):
+
+```
+note-send --from collect-<host> --to <row's Owner:> --kind ASK --no-type --recipient-repo <repo> --topic stall-<branch-slug>-<tipSha7> --text "<branch> has had no Log line for <H.h> h in state <status>. Reply with the lane state and a new ETA, or BLOCKED. A Log line on the record resets this." --needs review --by <HH:MM of now+30m, America/New_York>
+```
+
+No usable Owner (missing, `none`, or failing note-send's slug grammar) sends nothing, one stderr line, and leaves the attention row unchanged. Dedupe: before sending, the collector reads every `docs/ledger/*.md` file already sitting in `--recipient-repo` (the same ledger `note-send` itself writes into) for the literal id prefix `[collect-<host>-stall-<branch-slug>-<tipSha7>-`; a hit means this exact tip was already asked, so a later stall on the same tip sends nothing, while a NEW tip (a fresh commit, still idle past the threshold) asks again, because its sha7 differs. A ledger read error (not merely "no ledger yet") fails the whole round closed: no ASK, one stderr line. Kill switch: `~/.agents/collect/<repo basename>/no-nudge` (the same directory `status.json` lives in by default, regardless of `--out`) suppresses every ASK for a run; the attention row itself is unaffected and still shows in status.md either way. A note-send failure here is logged and never fails the run, same promise as the RESULT send above. A healthy multi-hour run that never once needed a stall ASK costs nothing beyond the one RESULT above it; a run that does stall costs exactly one ASK, and one `Log:` line on the record is what answers it (resets `hoursSinceLog`, so the next run's attention list no longer names that row). Known limit: the ASK lands wherever this collector's notes already land (the recipient repo's ledger/inbox); whether the owning lead's own hooks surface it on its own host is a follow-up, not this lane.
+
 ## C2: install-janitor-timer.mjs gains a job
 
 Add `--job janitor-record|collect-status` (default `janitor-record`, so every existing test and every installed janitor timer is unchanged byte for byte: keep the byte-stability tests green without editing their expectations). `--job collect-status`:

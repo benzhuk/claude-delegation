@@ -25,7 +25,11 @@ import {
   computeAttention,
   resolveNoteSend,
   buildStatusMd,
+  branchSlug,
+  buildStallTopic,
+  ownerSlugOrNull,
 } from "./collect-status.mjs";
+import { timeParts } from "../skills/multi/scripts/envelope.mjs";
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -507,6 +511,324 @@ test("status.md stays within the 60-line budget for a modest fixture", () => {
   const md = fs.readFileSync(path.join(out, "status.md"), "utf8");
   const lineCount = md.split("\n").filter((l) => l.length > 0).length;
   assert.ok(lineCount <= 60, `status.md is ${lineCount} lines`);
+});
+
+// ---------------------------------------------------------------------------
+// Lane thirty (stall-nudge, docs/specs/stall-nudge-1): pure helpers.
+// ---------------------------------------------------------------------------
+
+test("branchSlug: lowercases, collapses every run of non-[a-z0-9] to one '-', trims ends", () => {
+  assert.equal(branchSlug("Build/Foo_Bar!!"), "build-foo-bar");
+  assert.equal(branchSlug("--x--"), "x");
+  assert.equal(branchSlug(""), "");
+});
+
+test("buildStallTopic: stall-<branch-slug>-<sha7>; a long branch truncates only the slug, never the sha", () => {
+  assert.equal(buildStallTopic("build/foo", "abcdef0123456789"), "stall-build-foo-abcdef0");
+  const longBranch = `build/${"x".repeat(80)}`;
+  const topic = buildStallTopic(longBranch, "1234567890");
+  assert.ok(topic.endsWith("-1234567"), topic);
+  assert.ok(topic.length < 6 + branchSlug(longBranch).length + 8, topic);
+});
+
+test("ownerSlugOrNull: none/missing/mixed-case/spaced all null; a real slug passes through unchanged", () => {
+  assert.equal(ownerSlugOrNull(undefined), null);
+  assert.equal(ownerSlugOrNull(null), null);
+  assert.equal(ownerSlugOrNull("none"), null);
+  assert.equal(ownerSlugOrNull("None"), null);
+  assert.equal(ownerSlugOrNull("Not A Slug"), null);
+  assert.equal(ownerSlugOrNull("skills-fable"), "skills-fable");
+});
+
+// ---------------------------------------------------------------------------
+// Lane thirty: the stall ASK itself, against real bare-remote fixtures (spec's acceptance list).
+// ---------------------------------------------------------------------------
+
+function checkoutExisting(root, name) {
+  git(["checkout", "-q", name], root);
+}
+
+test("stall-nudge: one ASK for the 2.1h stale owned row; none for accepted-merged/accepted-unmerged/rejected/withdrawn/no-record or a 1.9h row; argv is exact", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const hoursAgoIso = (h) => new Date(NOW - h * 3_600_000).toISOString();
+
+  // accepted-merged: the artifact commit lands on main first, so it's trivially an ancestor.
+  fs.writeFileSync(path.join(root, "artifact-a.txt"), "a\n");
+  commitAll(root, "artifact A");
+  const artifactA = git(["rev-parse", "HEAD"], root).trim();
+  git(["push", "-q", "origin", "main"], root);
+
+  newBranch(root, "build/accepted-merged");
+  writeRecord(root, "wr-2026-09-27-am.record.md", [
+    "Work: wr-2026-09-27-am", "Owner: leadslug", "Status: accepted",
+    `Artifact: scripts/foo.mjs@${artifactA}`, "Log: 2026-09-27T01:00:00Z accepted leadslug note", "",
+  ]);
+  commitAll(root, "am record");
+  pushBranch(root, "build/accepted-merged");
+  backToMain(root);
+
+  // accepted-unmerged: never a "silent-over-" reason regardless of its own tipDate age, since
+  // computeAttention only ever gives it "accepted-unmerged-over-N-h".
+  newBranch(root, "build/accepted-unmerged");
+  fs.writeFileSync(path.join(root, "artifact-b.txt"), "b\n");
+  commitAll(root, "artifact B");
+  const artifactB = git(["rev-parse", "HEAD"], root).trim();
+  writeRecord(root, "wr-2026-09-27-au.record.md", [
+    "Work: wr-2026-09-27-au", "Owner: leadslug", "Status: accepted",
+    `Artifact: ${artifactB}`, "Log: 2026-09-27T01:00:00Z accepted leadslug note", "",
+  ]);
+  commitAll(root, "au record");
+  pushBranch(root, "build/accepted-unmerged");
+  backToMain(root);
+
+  newBranch(root, "build/rejected");
+  writeRecord(root, "wr-2026-09-27-rejected.record.md", [
+    "Work: wr-2026-09-27-rejected", "Owner: leadslug", "Status: rejected", "Artifact: none",
+    "Log: 2026-09-27T01:00:00Z rejected leadslug note", "",
+  ]);
+  commitAll(root, "rejected record");
+  pushBranch(root, "build/rejected");
+  backToMain(root);
+
+  newBranch(root, "build/withdrawn");
+  writeRecord(root, "wr-2026-09-27-withdrawn.record.md", [
+    "Work: wr-2026-09-27-withdrawn", "Owner: leadslug", "Status: withdrawn", "Artifact: none",
+    "Log: 2026-09-27T01:00:00Z withdrawn leadslug note", "",
+  ]);
+  commitAll(root, "withdrawn record");
+  pushBranch(root, "build/withdrawn");
+  backToMain(root);
+
+  newBranch(root, "build/no-record-branch");
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "unrelated\n");
+  commitAll(root, "no-record work");
+  pushBranch(root, "build/no-record-branch");
+  backToMain(root);
+
+  newBranch(root, "build/fresh-owned");
+  writeRecord(root, "wr-2026-09-27-fresh.record.md", [
+    "Work: wr-2026-09-27-fresh", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(1.9)} owned leadslug note`, "",
+  ]);
+  commitAll(root, "fresh record");
+  pushBranch(root, "build/fresh-owned");
+  backToMain(root);
+
+  newBranch(root, "build/stall-owned");
+  writeRecord(root, "wr-2026-09-27-stall.record.md", [
+    "Work: wr-2026-09-27-stall", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${hoursAgoIso(2.1)} owned leadslug note`, "",
+  ]);
+  commitAll(root, "stall record");
+  const stallTip = git(["rev-parse", "HEAD"], root).trim();
+  pushBranch(root, "build/stall-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(
+    ["--repo", root, "--no-fetch", "--out", out, "--host", "testhost", "--stale-hours", "2"],
+    { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home },
+  );
+
+  assert.equal(spawn.calls.length, 1, `expected exactly one ASK, got: ${JSON.stringify(spawn.calls.map((c) => c.args))}`);
+  const [{ args }] = spawn.calls;
+  const get = (flag) => args[args.indexOf(flag) + 1];
+  assert.equal(get("--kind"), "ASK");
+  assert.equal(get("--from"), "collect-testhost");
+  assert.equal(get("--to"), "leadslug");
+  assert.ok(args.includes("--no-type"));
+  assert.equal(get("--recipient-repo"), root);
+  assert.equal(get("--topic"), `stall-build-stall-owned-${stallTip.slice(0, 7)}`);
+  assert.equal(get("--needs"), "review");
+  assert.equal(get("--by"), timeParts(new Date(NOW + 30 * 60_000)).time);
+  assert.match(
+    get("--text"),
+    /^build\/stall-owned has had no Log line for 2\.1 h in state owned\. Reply with the lane state and a new ETA, or BLOCKED\. A Log line on the record resets this\.$/,
+  );
+});
+
+test("stall-nudge: dedupe - a second run on the same tip sends nothing; a new tip idle past the threshold asks again", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+
+  newBranch(root, "build/dedupe-owned");
+  writeRecord(root, "wr-2026-09-27-dedupe.record.md", [
+    "Work: wr-2026-09-27-dedupe", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "dedupe record");
+  const tip1 = git(["rev-parse", "HEAD"], root).trim();
+  pushBranch(root, "build/dedupe-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const opts = { spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home };
+
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 1, "first run: asks once");
+  const firstArgs = spawn.calls[0].args;
+  const from = firstArgs[firstArgs.indexOf("--from") + 1];
+  const topic = firstArgs[firstArgs.indexOf("--topic") + 1];
+
+  // fakeSpawnCounter never really runs note-send, so nothing writes the ledger line the real
+  // tool would have; write the same id prefix a real send would have produced (S2 dedupe reads
+  // docs/ledger/*.md, never re-derives an id from spawn.calls).
+  const ledgerDir = path.join(root, "docs", "ledger");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  fs.writeFileSync(path.join(ledgerDir, "2026-09-27.md"), `sent already [${from}-${topic}-1] ASK: stalled.\n`);
+
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 1, "second run, same tip: ledger hit, sends nothing more");
+
+  // A new tip, still idle past the threshold: an unrelated follow-up commit changes tipSha
+  // while the record (and its stale Log:) are untouched, so the topic's sha7 changes and the
+  // dedupe check does not fire.
+  checkoutExisting(root, "build/dedupe-owned");
+  fs.writeFileSync(path.join(root, "unrelated-2.txt"), "x\n");
+  commitAll(root, "unrelated follow-up commit");
+  const tip2 = git(["rev-parse", "HEAD"], root).trim();
+  assert.notEqual(tip2, tip1);
+  pushBranch(root, "build/dedupe-owned");
+  backToMain(root);
+
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], opts);
+  assert.equal(spawn.calls.length, 2, "new tip, still idle: asks again");
+});
+
+test("stall-nudge: S4 - the kill-switch file suppresses the ASK; the attention row stays in status.md", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/killed-owned");
+  writeRecord(root, "wr-2026-09-27-killed.record.md", [
+    "Work: wr-2026-09-27-killed", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "killed record");
+  pushBranch(root, "build/killed-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  fs.mkdirSync(path.join(home, ".agents", "collect", path.basename(root)), { recursive: true });
+  fs.writeFileSync(path.join(home, ".agents", "collect", path.basename(root), "no-nudge"), "");
+
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "kill switch: no ASK");
+
+  const status = JSON.parse(fs.readFileSync(path.join(out, "status.json"), "utf8"));
+  assert.deepEqual(status.summary.attention.map((a) => a.reason), ["silent-over-2-h"]);
+  const md = fs.readFileSync(path.join(out, "status.md"), "utf8");
+  assert.ok(md.includes("silent-over-2-h"), "attention row still in status.md despite the kill switch");
+});
+
+test("stall-nudge: S3 - no ASK when Owner is none, missing, or fails note-send's slug grammar", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+
+  newBranch(root, "build/owner-none");
+  writeRecord(root, "wr-2026-09-27-none.record.md", [
+    "Work: wr-2026-09-27-none", "Owner: none", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned t1 note`, "",
+  ]);
+  commitAll(root, "owner none record");
+  pushBranch(root, "build/owner-none");
+  backToMain(root);
+
+  newBranch(root, "build/owner-missing");
+  writeRecord(root, "wr-2026-09-27-missing.record.md", [
+    "Work: wr-2026-09-27-missing", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned t1 note`, "",
+  ]);
+  commitAll(root, "owner missing record");
+  pushBranch(root, "build/owner-missing");
+  backToMain(root);
+
+  newBranch(root, "build/owner-bad-grammar");
+  writeRecord(root, "wr-2026-09-27-bad.record.md", [
+    "Work: wr-2026-09-27-bad", "Owner: Not A Slug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned t1 note`, "",
+  ]);
+  commitAll(root, "owner bad grammar record");
+  pushBranch(root, "build/owner-bad-grammar");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "no usable Owner anywhere: no ASK");
+});
+
+test("stall-nudge: S2 - a ledger read error means no ASK this run (fail closed, not open)", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/ledger-err-owned");
+  writeRecord(root, "wr-2026-09-27-ledgererr.record.md", [
+    "Work: wr-2026-09-27-ledgererr", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "ledger err record");
+  pushBranch(root, "build/ledger-err-owned");
+  backToMain(root);
+
+  // Force a real (non-ENOENT) readdir failure: docs/ledger exists as a plain FILE, not a
+  // directory, so readdirSync throws ENOTDIR regardless of the runner's own privileges (a
+  // chmod-based test would pass as root and prove nothing).
+  fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(root, "docs", "ledger"), "not a directory\n");
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home,
+  });
+  assert.equal(spawn.calls.length, 0, "ledger read error: fail closed, no ASK");
+});
+
+test("stall-nudge: a failed fetch never sends an ASK either, same promise as the RESULT", () => {
+  const root = initRepoWithOrigin();
+  const NOW = Date.parse("2026-09-27T12:00:00Z");
+  const logAt = new Date(NOW - 2.1 * 3_600_000).toISOString();
+  newBranch(root, "build/fetchfail-owned");
+  writeRecord(root, "wr-2026-09-27-fetchfail.record.md", [
+    "Work: wr-2026-09-27-fetchfail", "Owner: leadslug", "Status: owned", "Artifact: none",
+    `Log: ${logAt} owned leadslug note`, "",
+  ]);
+  commitAll(root, "fetchfail record");
+  pushBranch(root, "build/fetchfail-owned");
+  backToMain(root);
+
+  const out = outTmp();
+  const home = mkTmp("cstatus-home-");
+  const spawn = fakeSpawnCounter();
+  const row = (b) => ({
+    branch: b, tipSha: "a".repeat(40), tipDate: "2026-09-27T00:00:00Z", recordPath: `docs/work/${b}.record.md`,
+    status: "owned", artifactSha: null, merged: null, hoursSinceLog: 2.1, state: "owned",
+  });
+  const collect = (argv, o) => {
+    o.warn("collect-from-origin: git fetch failed, proceeding with local refs: x");
+    o.write(JSON.stringify([row("fetchfail-owned")]));
+    return 0;
+  };
+  main(["--repo", root, "--out", out, "--stale-hours", "2"], {
+    spawnNoteSend: spawn, resolveNoteSend: alwaysNoteSend, now: NOW, home, collectMain: collect,
+  });
+  assert.equal(spawn.calls.length, 0, "a failed fetch never wakes anyone, ASK included");
 });
 
 after(() => {

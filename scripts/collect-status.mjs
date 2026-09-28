@@ -35,7 +35,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { main as collectFromOriginMain, fullRef, refExists, formatTable } from "./collect-from-origin.mjs";
-import { assertFieldSafe } from "../skills/multi/scripts/envelope.mjs";
+import { parseRecord } from "./work-record.mjs";
+import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/envelope.mjs";
 
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
 // names plus the no-record row); anything else is counted as "other", never named.
@@ -207,6 +208,163 @@ function sendNote({
   return { attempted: true, sent: true, reason, execPath, argv, result };
 }
 
+// ---------------------------------------------------------------------------
+// Lane thirty (stall-nudge, docs/specs/stall-nudge-1): after status.md and the existing RESULT,
+// send ONE ASK to the owning lead for every attention row still stuck at `silent-over-N-h`
+// (contracts.md S1-S6). Nothing here ever throws past its own function: a bad Owner, a missing
+// note-send, a kill switch or a ledger read error all degrade to "no ASK this round", never a
+// stopped run.
+// ---------------------------------------------------------------------------
+
+const STALL_REASON_RE = /^silent-over-/;
+
+// S2: the branch name lowercased, every run of characters outside [a-z0-9] collapsed to one "-",
+// ends trimmed.
+export function branchSlug(branch) {
+  return String(branch ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// S2: "if it is too long, truncate the branch-slug part, never the sha." No exact cap is pinned;
+// 40 mirrors sanitizeHost's own cap above and keeps the id comfortably inside note-send's 700-char
+// envelope line no matter how long a branch name gets.
+const BRANCH_SLUG_MAX = 40;
+
+export function buildStallTopic(branch, tipSha) {
+  const sha7 = String(tipSha ?? "").slice(0, 7).toLowerCase();
+  let slug = branchSlug(branch) || "branch";
+  if (slug.length > BRANCH_SLUG_MAX) slug = slug.slice(0, BRANCH_SLUG_MAX).replace(/-+$/, "");
+  return `stall-${slug}-${sha7}`;
+}
+
+// S3: `none`, missing, or anything that fails note-send's slug grammar (lowercase, [a-z0-9-]+)
+// yields null - never a guess at what the lead meant.
+export function ownerSlugOrNull(rawOwner) {
+  if (rawOwner === undefined || rawOwner === null) return null;
+  const s = String(rawOwner).trim();
+  if (!s || s.toLowerCase() === "none") return null;
+  if (s !== s.toLowerCase()) return null;
+  if (!SLUG_RE.test(s)) return null;
+  return s;
+}
+
+// The row's Owner: field, read straight off the branch's own tip blob (never main's) so a row's
+// ASK always names the owner the branch itself claims, matching how collect-from-origin already
+// reads Status:/Artifact: for the same row (collect-from-origin.mjs buildRow). Any read/parse
+// failure (missing blob, corrupt record) is swallowed here - S3 already treats "missing" as "no
+// usable owner", so a read error is just another way to reach the same outcome.
+function readOwnerField(repoAbs, row) {
+  if (!row || !row.tipSha || !row.recordPath) return null;
+  try {
+    const text = execFileSync("git", ["show", `${row.tipSha}:${row.recordPath}`], {
+      cwd: repoAbs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+    return parseRecord(text).fields.owner ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// S2: every docs/ledger/*.md file in the recipient repo, concatenated, read in process (never a
+// shell). No ledger directory at all means nothing has ever been sent there - that is not a read
+// error, so it returns "". Any OTHER failure (permission denied, docs/ledger existing as a plain
+// file, ...) is rethrown so the caller can fail closed for the whole round, per S2's "a ledger
+// read error means no ASK this run, with one stderr line".
+function readLedgerCorpus(repoAbs) {
+  const dir = path.join(repoAbs, "docs", "ledger");
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err && err.code === "ENOENT") return "";
+    throw err;
+  }
+  const parts = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    parts.push(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+  }
+  return parts.join("\n");
+}
+
+// S4: same directory `defaultOutDir` already computes for status.json/status.md, regardless of
+// whether --out overrides where THIS run actually writes - the switch is per repo, not per run.
+function killSwitchPath(home, repoAbs) {
+  return path.join(defaultOutDir(home, repoAbs), "no-nudge");
+}
+
+function buildStallNudgeArgv({ from, to, repo, text, topic, by }) {
+  return [
+    "--from", from, "--to", to, "--kind", "ASK", "--no-type",
+    "--recipient-repo", repo, "--topic", topic, "--text", text,
+    "--needs", "review", "--by", by,
+  ];
+}
+
+/**
+ * S1-S6: one note-send spawn per still-silent row, after status.md/the RESULT are already
+ * written. Never throws (every failure path here is a warn() and an early return); returns the
+ * per-row outcomes so a caller (or a test) can see what happened without re-deriving it.
+ */
+function sendStallNudges({
+  args, home, env, hostname, repoAbs, rows, attention, now, warn,
+  spawnNoteSend, resolveNoteSendFn,
+}) {
+  const stallRows = attention.filter((a) => STALL_REASON_RE.test(a.reason));
+  if (stallRows.length === 0) return [];
+
+  if (fs.existsSync(killSwitchPath(home, repoAbs))) {
+    warn("collect-status: stall-nudge skipped, kill switch present (no-nudge)");
+    return [];
+  }
+
+  const execPath = resolveNoteSendFn(home, env);
+  if (!execPath) {
+    warn("collect-status: stall-nudge skipped, note-send missing");
+    return [];
+  }
+
+  let ledgerCorpus;
+  try {
+    ledgerCorpus = readLedgerCorpus(repoAbs);
+  } catch (err) {
+    warn(`collect-status: stall-nudge skipped, ledger read failed: ${err && err.message ? err.message : err}`);
+    return [];
+  }
+
+  const from = `collect-${sanitizeHost(args.host ?? hostname)}`;
+  const outcomes = [];
+  for (const a of stallRows) {
+    const row = rows.find((r) => r.branch === a.branch && r.recordPath === a.recordPath && r.state === a.state);
+    if (!row) continue;
+    const owner = ownerSlugOrNull(readOwnerField(repoAbs, row));
+    if (!owner) {
+      warn(`collect-status: stall-nudge skipped for ${a.branch}, no usable Owner`);
+      outcomes.push({ branch: a.branch, sent: false, reason: "no usable owner" });
+      continue;
+    }
+    const topic = buildStallTopic(a.branch, row.tipSha);
+    const idPrefix = `[${from}-${topic}-`;
+    if (ledgerCorpus.includes(idPrefix)) {
+      outcomes.push({ branch: a.branch, sent: false, reason: "already asked" });
+      continue;
+    }
+    const hours = typeof row.hoursSinceLog === "number" ? row.hoursSinceLog.toFixed(1) : "unknown";
+    const text = `${a.branch} has had no Log line for ${hours} h in state ${a.state}. `
+      + "Reply with the lane state and a new ETA, or BLOCKED. A Log line on the record resets this.";
+    const by = timeParts(new Date(now + 30 * 60_000)).time;
+    const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by });
+    const result = spawnNoteSend(execPath, argv);
+    if (result && result.status !== 0) {
+      warn(`collect-status: stall-nudge send exit ${result.status ?? "unknown"} for ${a.branch}`);
+    }
+    outcomes.push({ branch: a.branch, sent: true, argv, result });
+  }
+  return outcomes;
+}
+
 function tempPathFor(filePath) {
   return path.join(
     path.dirname(filePath),
@@ -374,6 +532,22 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     if (fs.existsSync(statusPath)) fs.renameSync(statusPath, previousPath);
     fs.renameSync(statusTmp, statusPath);
     atomicWrite(mdPath, buildStatusMd({ status, fetchStatus, sendOutcome }));
+
+    // S5: the ASK goes after status.md and the existing RESULT - status is already durable by
+    // the time this runs, so a stall-nudge failure of any kind can never cost the write above.
+    // Same "a failed fetch never wakes anyone" promise as the RESULT above (sendNote's own
+    // `!fetchFailed` guard): a failed fetch means `rows` reflects stale local refs, never grounds
+    // for waking a lead.
+    if (!fetchFailed) {
+      try {
+        sendStallNudges({
+          args, home, env, hostname, repoAbs: repo, rows, attention, now, warn,
+          spawnNoteSend: spawnNoteSendFn, resolveNoteSendFn,
+        });
+      } catch (err) {
+        warn(`collect-status: stall-nudge failed: ${err && err.message ? err.message : err}`);
+      }
+    }
 
     write(mdPath);
     return 0;
