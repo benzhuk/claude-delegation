@@ -1,11 +1,11 @@
 Work: wr-2026-09-28-stall-nudge
 Scope: docs/specs/stall-nudge-1/spec.md (lane 30 of skills-fable's stall bundle, origin/docs/lane-specs-0925 at b159e9d) with lead rulings docs/specs/stall-nudge-1/contracts.md; territory scripts/collect-status.mjs, scripts/collect-status.test.mjs, docs/specs/collect-status-1/spec.md, the Netcup collect-status.service ExecStart line
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/stall-nudge-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; edit the Netcup collect-status.service ExecStart to add --stale-hours 2; create and then delete the origin branch build/stall-proof-1 for the live proof (authority: the spec)
 Next: census, four-read, accept, merge, unit --stale-hours 2, live ASK proof, render publish, RESULT
 Artifact: 65e6921cf28c2879f3ee31d6c982c63354cc0000
-Evidence: docs/work/evidence/wr-2026-09-28-stall-nudge-review.md, docs/work/evidence/wr-2026-09-28-stall-nudge-review-r1.md, docs/work/evidence/wr-2026-09-28-stall-nudge-suites.md
+Evidence: docs/work/evidence/wr-2026-09-28-stall-nudge-review.md, docs/work/evidence/wr-2026-09-28-stall-nudge-review-r1.md, docs/work/evidence/wr-2026-09-28-stall-nudge-suites.md, docs/work/evidence/wr-2026-09-28-stall-nudge-live.md
 Worktree: build/stall-nudge-1
 Opened: 2026-09-28T02:44:40.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -56,6 +56,8 @@ Four numbers: Hours ask to accepted: 0.9h; largest gap 21.8min at 2026-09-28T03:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n
 Log: 2026-09-28T03:40:05.000Z accepted skills-n artifact 65e6921cf28c2879f3ee31d6c982c63354cc0000
+Log: 2026-09-28T03:42:17.000Z accepted skills-n merged to main at 1839481 (merged-head suite on Netcup 2543 of 2547, 0 fail); live proof: hand run of the merged collector sent ASKs to skills-n (proof branch, 7.2 h) and skills-h (build/fresh-walk-1, 31.5 h), a second run sent none; proof branch deleted on origin; Netcup unit gains --stale-hours 2 (effective for ASKs only after a release)
+Log: 2026-09-28T03:42:17.000Z closed skills-n merge 1839481c5f0bf7c6d8f7e6758daf35c6dd40daec
 
 Observed: the collector now asks the owning lead once per stall. After status.md and its RESULT, every silent-over-N-h row whose record is not closed gets one ASK to the record Owner, --needs review --by now+30m, topic stall-<branch>-<tip7>. The dedupe reads the main checkout ledger note-send writes, so a worktree or subdirectory --repo no longer re-asks. --quiet and ~/.agents/collect/<repo>/no-nudge send nothing, and the attention row stays. Known limit: the ASK lands where the collector RESULT lands, the repo ledger on the collector host. Whether the owning lead sees it on another host is the live-proof question below.
 
