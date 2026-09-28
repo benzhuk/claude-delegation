@@ -675,12 +675,23 @@ test("quoted: ssh host 'grep -n \"rm -rf\" file' passes (single-quoted remote co
       "tee 'w3.sh' <<'EOF'" + NL + DEL + NL + 'EOF'],
     ["N5 #4 cat > w4.s'h' <<'EOF' (a partly-quoted target)",
       "cat > w4.s'h' <<'EOF'" + NL + DEL + NL + 'EOF'],
+    ['N7a note-send " --packet-file - <<\'EOF\' (an unbalanced double quote swallows the heredoc operator)',
+      'note-send " --packet-file - <<\'EOF\'' + NL + '"' + NL + DEL + NL + 'EOF'],
+    ["N7b note-send ' --packet-file - <<'EOF' (same, single quote)",
+      "note-send ' --packet-file - <<'EOF'" + NL + "'" + NL + DEL + NL + 'EOF'],
+    ['N7c note-send --to x" --packet-file - <<\'EOF\' (quote glued onto an argument)',
+      'note-send --to x" --packet-file - <<\'EOF\'' + NL + '"' + NL + DEL + NL + 'EOF'],
   ];
   for (const [name, cmd] of W_REPROS) {
     test(`Ruling W repro ${name}: must refuse`, () => {
       assert.ok(detectDelete(cmd), `expected a match for: ${JSON.stringify(cmd)}`);
     });
   }
+
+  test('Ruling W real note-send shape (--from/--to/--kind/--text) stays exempt', () => {
+    const cmd = "note-send --from a --to b --kind RESULT --text \"x y\" --packet-file - <<'EOF'" + NL + 'body text' + NL + 'EOF\n';
+    assert.strictEqual(detectDelete(cmd), null);
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

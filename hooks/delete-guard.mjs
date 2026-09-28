@@ -333,7 +333,7 @@ const CAT_TEE_LINE_RE = /^(?:cat >>? ?|tee (?:-a )?)([A-Za-z0-9._/-]+) <<'([A-Za
 // that are each either NOT `\s`-matching (so no `\r`, tab-that-isn't-a-literal-tab, or any
 // unicode space survives) or a literal ASCII space/tab, and also not one of the shell
 // metacharacters that could turn a "safe" argument into something that really executes.
-const NOTE_SEND_LINE_RE = /^note-send ((?:[^\s<>|;&$`()#]|[ \t])*) --packet-file - <<'([A-Za-z_][A-Za-z0-9_]*)'$/;
+const NOTE_SEND_LINE_RE = /^note-send ((?:[^\s<>|;&$`()#'"\\]|"(?:[^\s<>|;&$`()#"\\]|[ \t])*"|'(?:[^\s<>|;&$`()#'\\]|[ \t])*'|[ \t])*) --packet-file - <<'([A-Za-z_][A-Za-z0-9_]*)'$/;
 // `git commit -F - <<'DELIM'`, exactly — no variation.
 const GIT_COMMIT_F_LINE_RE = /^git commit -F - <<'([A-Za-z_][A-Za-z0-9_]*)'$/;
 
