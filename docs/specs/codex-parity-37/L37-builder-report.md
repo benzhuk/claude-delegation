@@ -1,6 +1,8 @@
 VERDICT: PASS
 
-Artifacts: `b078f2bdf802d0c9b59e7febd2c60216d74f1f17` and `51072e6942db072b44183dfc668329411a46d683` (base `fa29e134d1d669513a7fac142e6e5b32ec035f80`).
+Current artifact: `786d1d5592e1e40b141c72002814b8ab3bab5dc5` (base `fa29e134d1d669513a7fac142e6e5b32ec035f80`; prior implementation artifacts are retained in history).
+
+Review: Claude Opus review `C:/Users/benzh/orca/workspaces/claude-delegation/codex-parity-37/docs/specs/codex-parity-37/L37-opus-review-r1.md` required two text corrections. This artifact uses both suggested unsupported-reason sentences and documents the top-level Codex delete-guard limitation; the reviewer stated those fixes would approve.
 
 Gate: `node --test hooks/multi-codex-hook.test.mjs`; exit 0; tests 13, pass 13, fail 0, skipped 0. Raw output and immediate native exit: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/builder/multi-codex-r2.raw.{log,exit}`. Node syntax checks for `hooks/multi-codex-hook.mjs` and `scripts/codex-hook-trust.mjs`, plus both new/changed JSON parses, exit 0.
 
