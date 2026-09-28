@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
@@ -134,13 +135,18 @@ test('normalize: a real content change is never hidden', () => {
 });
 
 const RENDER_READBACK_48_FIXTURES = path.join(HERE, 'fixtures', 'render-readback-48');
-const lane48Intended = fs.readFileSync(
-  path.join(RENDER_READBACK_48_FIXTURES, 'main-merge-r2-decisions-intended-publish-render.md'),
-  'utf8',
+function lane48Snapshot(name, expectedHash) {
+  const bytes = fs.readFileSync(path.join(RENDER_READBACK_48_FIXTURES, name));
+  assert.equal(createHash('sha256').update(bytes).digest('hex').toUpperCase(), expectedHash);
+  return bytes.toString('utf8');
+}
+const lane48Intended = lane48Snapshot(
+  'main-merge-r2-decisions-intended-publish-render.md',
+  '535914342B07C360AB2FBC59699598C2012F547C3C7F501FCC5CC8EC8D755E1E',
 );
-const lane48Live = fs.readFileSync(
-  path.join(RENDER_READBACK_48_FIXTURES, 'main-merge-r2-decisions-live-after-exit5.md'),
-  'utf8',
+const lane48Live = lane48Snapshot(
+  'main-merge-r2-decisions-live-after-exit5.md',
+  '5E38CB6460AC8B4C7255E785716ED664A4C028DD3CB3C5A74A8EDFB90BBE6DB1',
 );
 
 test('normalize: Lane48 exact Notion readback differs only by the structural details separator', () => {
@@ -148,22 +154,31 @@ test('normalize: Lane48 exact Notion readback differs only by the structural det
 });
 
 test('normalize: Lane48 meaningful changes and fenced literals remain unequal', () => {
+  const bulletRemoved = lane48Live.replace(/\t- \[ \] Yes, release 0\.20\.18 now\r?\n/, '');
+  const tickChanged = lane48Live.replace(
+    '\t- [ ] Yes, release 0.20.18 now',
+    '\t- [x] Yes, release 0.20.18 now',
+  );
+  const lineMoved = lane48Live.replace(
+    /(\t- \[ \] Yes, release 0\.20\.18 now)\r?\n(\t- \[ \] Hold)/,
+    '$2\n$1',
+  );
+  assert.notEqual(bulletRemoved, lane48Live, 'bullet mutation must alter the pinned live snapshot');
+  assert.notEqual(tickChanged, lane48Live, 'tick mutation must alter the pinned live snapshot');
+  assert.notEqual(lineMoved, lane48Live, 'line-move mutation must alter the pinned live snapshot');
   assert.notEqual(
     normalize(lane48Intended),
-    normalize(lane48Live.replace('\t- [ ] Yes, release 0.20.18 now\n', '')),
+    normalize(bulletRemoved),
     'removing a bullet must remain visible',
   );
   assert.notEqual(
     normalize(lane48Intended),
-    normalize(lane48Live.replace('\t- [ ] Yes, release 0.20.18 now', '\t- [x] Yes, release 0.20.18 now')),
+    normalize(tickChanged),
     'changing a tick must remain visible',
   );
   assert.notEqual(
     normalize(lane48Intended),
-    normalize(lane48Live.replace(
-      '\t- [ ] Yes, release 0.20.18 now\n\t- [ ] Hold',
-      '\t- [ ] Hold\n\t- [ ] Yes, release 0.20.18 now',
-    )),
+    normalize(lineMoved),
     'moving a content line must remain visible',
   );
   assert.notEqual(
@@ -171,6 +186,23 @@ test('normalize: Lane48 meaningful changes and fenced literals remain unequal', 
     normalize('```md\n</details>\nnext\n```'),
     'a literal closing tag inside a fenced block must retain its blank line',
   );
+  assert.notEqual(
+    normalize('~~~md\n</details>\n\nnext\n~~~'),
+    normalize('~~~md\n</details>\nnext\n~~~'),
+    'a tilde-fenced literal closing tag must retain its blank line',
+  );
+  assert.notEqual(
+    normalize('<details>\n````md\n```\n</details>\n\nnext\n````\n</details>'),
+    normalize('<details>\n````md\n```\n</details>\nnext\n````\n</details>'),
+    'a shorter backtick run cannot close a longer fence around a literal closing tag',
+  );
+});
+
+test('normalize: Lane48 structural separator collapse is idempotent for an existing blank run', () => {
+  const withBlankRun = '<details>\n</details>\n\n\nnext\n</details>';
+  const normalized = normalize(withBlankRun);
+  assert.equal(normalized, normalize(normalized));
+  assert.equal(normalized, normalize('<details>\n</details>\nnext\n</details>'));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
