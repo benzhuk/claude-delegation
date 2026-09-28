@@ -16,17 +16,25 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { gitRunner, mainCheckout, toPosix } from './transport.mjs';
+// N2 (hooks.test.mjs): every child environment in this suite is built through childEnv(), never by
+// spreading process.env in a .test.mjs file directly — that is the one thing that leaked a live
+// session's messaging token into a fixture on 2026-09-17. scratchHome gives childEnv a fixture home
+// to stand in for HOME, exactly like note-send.test.mjs's runScript (its own only caller).
+import { childEnv, scratchHome } from './test-child-env.mjs';
 
 // The four names gitRunner strips, repeated rather than imported so this file still loads on base
 // 8b8c2f0 for the red run. mkRepo runs `git init` without them: an inherited GIT_DIR would otherwise
 // turn it into a re-init of the caller's own repository.
 const LOCATING = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE'];
+const tracked = [];
+const envHome = scratchHome(fs, 'transport-identity-env-');
+tracked.push(envHome);
+
 function cleanEnv() {
-  const env = { ...process.env };
+  const env = childEnv(envHome);
   for (const key of Object.keys(env)) if (LOCATING.includes(key.toUpperCase())) delete env[key];
   return env;
 }
-const tracked = [];
 
 function mkRepo(prefix) {
   const dir = toPosix(fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), prefix)));
