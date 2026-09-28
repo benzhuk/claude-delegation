@@ -114,15 +114,17 @@ export function checkProseLines(text, sourceLabel) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AUTOLINK_EXTENSIONS = ['md', 'sh', 'io', 'ai', 'co', 'me', 'so', 'py'];
-const AUTOLINK_FILENAME_RE = new RegExp(`[A-Za-z0-9_-]+\\.(?:${AUTOLINK_EXTENSIONS.join('|')})(?![A-Za-z0-9_-])`);
-const AUTOLINK_WWW_HTTP_RE = /www\.\S+|https?:\/\/\S+/;
+const AUTOLINK_FILENAME_RE = new RegExp(`[A-Za-z0-9_-]+\\.(?:${AUTOLINK_EXTENSIONS.join('|')})(?![A-Za-z0-9_-]|[./][A-Za-z0-9_-])`, 'i');
+const AUTOLINK_WWW_HTTP_RE = /www\.\S+|https?:\/\/\S+/i;
 
 /** Blanks (same length, so line/col accounting stays honest) the spans exempt from the autolink
  * rules below: inline code spans, whole `[text](url)` links (both the visible text and the
  * target — `stripExempt` above only ever blanks a link's target, and only for the hex rule;
- * never widened here), fenced code blocks, and `<...>` angle-bracket spans (markdown's own escape,
- * which Notion leaves alone). Runs on the whole text at once, never a single line, because a
- * fenced block's own fence lines are the only signal that its content is exempt. */
+ * never widened here), fenced code blocks, and `<http(s)://...>` / `<www....>` autolinks (markdown's
+ * own escape, which Notion leaves alone — NOT every `<...>` span: review r1 F1, a blanket blank
+ * there let ordinary prose like `x <- y, ~/.agents -> z` or `latency < 5s, see GOALS.md` through
+ * unchecked). Runs on the whole text at once, never a single line, because a fenced block's own
+ * fence lines are the only signal that its content is exempt. */
 export function stripAutolinkExempt(text) {
   const lines = String(text).split(/\r\n|\n/);
   const out = [];
@@ -141,7 +143,7 @@ export function stripAutolinkExempt(text) {
       line
         .replace(/\[[^\]]*\]\([^)]*\)/g, (m) => ' '.repeat(m.length))
         .replace(/`[^`]*`/g, (m) => ' '.repeat(m.length))
-        .replace(/<[^>]*>/g, (m) => ' '.repeat(m.length)),
+        .replace(/<(?:https?:\/\/|www\.)[^>\s]*>/gi, (m) => ' '.repeat(m.length)),
     );
   }
   return out.join('\n');
@@ -407,7 +409,7 @@ function buildSessionSection({ repo, readFile }) {
   const text = readRequired(readFile, full, 'session.md');
   const { since, bullets } = parseSessionSource(text);
   checkProseLines(bullets.join('\n'), 'session.md');
-  checkAutolinkLines(bullets.join('\n'), 'session.md');
+  checkAutolinkLines(text, 'session.md');
   if (bullets.length > SESSION_MAX_BULLETS) {
     throw new RefusedError(`session.md has ${bullets.length} bullets, more than the required ${SESSION_MAX_BULLETS}`);
   }

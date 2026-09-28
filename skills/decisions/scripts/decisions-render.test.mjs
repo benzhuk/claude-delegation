@@ -298,6 +298,76 @@ test('checkAutolinkLines: --done-line is scanned, and the message labels it --do
   );
 });
 
+// Review r1 F1: `<...>` is exempt from rule (c) (the URL rule) only, never a blanket exemption
+// for rules (a)/(b) — ordinary prose using `<`/`->` must still refuse.
+test('checkAutolinkLines F1: a < b, see GOALS.md -> c still refuses (ordinary prose, not an autolink)', () => {
+  assert.throws(() => checkAutolinkLines('a < b, see GOALS.md -> c', 'x'), (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message));
+});
+
+test('checkAutolinkLines F1: <GOALS.md> refuses (not a real http(s)/www autolink)', () => {
+  assert.throws(() => checkAutolinkLines('<GOALS.md>', 'x'), (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message));
+});
+
+test('checkAutolinkLines F1: <~/.agents> refuses (not a real http(s)/www autolink)', () => {
+  assert.throws(() => checkAutolinkLines('<~/.agents>', 'x'), (e) => e instanceof RefusedError && /bare ~/.test(e.message));
+});
+
+test('checkAutolinkLines F1: <https://example.com/x> (a real autolink) still passes', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('see <https://example.com/x> for detail', 'x'));
+});
+
+// Review r1 F2: the file-line number in a session.md refusal must be the TRUE file line, not a
+// bullet index (bullet 1 is file line 2, since line 1 is "since: <ISO>", already validated and
+// never itself a match).
+test('render refusal F2: a bare filename on session.md line 3 is reported as session.md:3', () => {
+  const { deps } = renderDeps({
+    [p('docs', 'decisions', 'session.md')]: 'since: 2026-09-27T18:16:00Z\n- a plain bullet first.\n- See GOALS.md for detail.',
+  });
+  assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError && /^session\.md:3 /.test(e.message));
+});
+
+// Review r1 F3: the filename check tests only the FINAL path segment — a following `/` or `.`
+// means the matched run was not actually the last segment.
+test('checkAutolinkLines F3: notes.md/x.mjs passes (notes.md is not the final segment)', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('see notes.md/x.mjs for detail', 'x'));
+});
+
+test('checkAutolinkLines F3: GOALS.md.bak passes (the real extension is .bak, not .md)', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('see GOALS.md.bak for detail', 'x'));
+});
+
+test('checkAutolinkLines F3: a bare filename at a sentence end still refuses', () => {
+  assert.throws(() => checkAutolinkLines('see GOALS.md.', 'x'), (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message));
+});
+
+// Review r1 F4: pin the exact extension list (kills dropSh/dropPy/dropIo/addJson) and case
+// insensitivity (kills caseI) with one table test each.
+test('checkAutolinkLines F4: exactly md/sh/io/ai/co/me/so/py refuse; none of the near-miss extensions do', () => {
+  for (const ext of ['md', 'sh', 'io', 'ai', 'co', 'me', 'so', 'py']) {
+    assert.throws(() => checkAutolinkLines(`x.${ext}`, 'x'), RefusedError, `x.${ext} should refuse`);
+  }
+  for (const ext of ['mjs', 'js', 'json', 'ts', 'toml', 'yaml', 'yml', 'txt', 'html', 'css']) {
+    assert.doesNotThrow(() => checkAutolinkLines(`x.${ext}`, 'x'), `x.${ext} should pass`);
+  }
+});
+
+test('checkAutolinkLines F4: the filename and URL rules are case-insensitive (Notion links a domain regardless of case)', () => {
+  assert.throws(() => checkAutolinkLines('see README.MD for detail', 'x'), RefusedError);
+  assert.throws(() => checkAutolinkLines('see GOALS.Md for detail', 'x'), RefusedError);
+  assert.throws(() => checkAutolinkLines('see HTTP://example.com for detail', 'x'), RefusedError);
+  assert.throws(() => checkAutolinkLines('see WWW.example.com for detail', 'x'), RefusedError);
+});
+
+// Review r1 "Survived: noFence": a fenced block's own content is exempt end to end, and scanning
+// resumes correctly right after the closing fence.
+test('checkAutolinkLines: a fenced GOALS.md is exempt, but a bare one right after the closing fence still refuses', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('```\nGOALS.md\n```', 'x'));
+  assert.throws(
+    () => checkAutolinkLines('```\nGOALS.md\n```\nGOALS.md', 'x'),
+    (e) => e instanceof RefusedError && /^x:4 /.test(e.message),
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Time formatting — must match pack/live-page.md exactly
 // ─────────────────────────────────────────────────────────────────────────────
