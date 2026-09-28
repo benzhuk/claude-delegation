@@ -1,3 +1,5 @@
+VERDICT: PASS be8028019245ea7aa7b5e374242d603ae5326c37 (lead-run suites and live count, supporting evidence, not the deciding review)
+
 # Lane 24 suites and live count (skills-n)
 
 Linux (Netcup), full suite at a26c5fc (scripts identical to be80280), real /tmp, one run:
