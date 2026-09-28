@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { withoutRepoLocatingGitEnv } from '../skills/multi/scripts/transport.mjs';
 // ── Record parsing (independent of scripts/work-record.mjs) ────────────────
 function fieldRegex(label) {
   return new RegExp(`^[ \\t*+-]{0,20}${label}:\\**[ \\t]{0,20}(.+)$`, 'mi');
@@ -516,7 +517,7 @@ export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapR
   return { value: `${hours.toFixed(1)}h; ${gapPart}`, openedMs, acceptedMs };
 }
 // ── Number 3 — rework after acceptance ──────────────────────────────────────────────────
-function runGit(repoDir, args) { return execFileSync('git', ['-C', repoDir, ...args], { encoding: 'utf8' }); }
+function runGit(repoDir, args) { return execFileSync('git', ['-C', repoDir, ...args], { env: withoutRepoLocatingGitEnv(process.env), encoding: 'utf8' }); }
 export function computeReworkAfterAcceptance(fields, logs, gitDir, branch = 'HEAD') {
   const accepted = logs.filter((l) => l.status.toLowerCase() === 'accepted');
   const reaccepts = accepted.slice(1);

@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument, formatText } from './decisions-read.mjs';
 import { parseTitle, canonicalPageId } from './decisions-title.mjs';
 import { normalize } from './decisions-render-core.mjs';
+import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
 
 // This module is deliberately skill-local: mirroring copies the entire skill directory. A failed
 // load remains BLIND, but there is no repository-relative fallback or second config parser.
@@ -580,7 +581,7 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
 export function run({
   argv = process.argv.slice(2),
   readFile = (f) => fs.readFileSync(f, 'utf8'),
-  execGit = (gitArgs, cwd) => execFileSync('git', gitArgs, { cwd, encoding: 'utf8' }),
+  execGit = (gitArgs, cwd) => execFileSync('git', gitArgs, { cwd, env: withoutRepoLocatingGitEnv(process.env), encoding: 'utf8' }),
   write = (s) => process.stdout.write(s),
   writeErr = (s) => process.stderr.write(s),
   env = process.env,

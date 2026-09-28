@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "closed", "blocked", "withdrawn"];
 // R2 (withdraw-status-1): the only statuses `withdrawRecord` may withdraw FROM. `withdrawn`
@@ -357,6 +358,7 @@ export function validateRecord(record, opts = {}) {
       try {
         const out = execImpl("git", ["-C", opts.gitDir, "log", "-1", "--format=%H", opts.ref, "--", scopePath], {
           encoding: "utf8",
+          env: withoutRepoLocatingGitEnv(process.env),
         }).trim();
         if (!out) {
           // git ran fine and answered "no history for this path at this ref" - an unresolvable
@@ -588,7 +590,7 @@ function effectiveOpenedMs(record, opts) {
     const result = spawnImpl(
       "git",
       ["-C", opts.repoRoot, "log", "--diff-filter=A", "--format=%aI", "--", opts.recordPath],
-      { encoding: "utf8", stdio: "pipe" },
+      { encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) },
     );
     if (result.error || result.status !== 0) return openedMs;
     const stamps = String(result.stdout ?? "")
@@ -790,6 +792,7 @@ function resolveCommit(repoRoot, revision, label, spawnImpl) {
     const result = spawnImpl("git", ["-C", repoRoot, "-c", "core.warnAmbiguousRefs=true", "rev-parse", "--verify", `${revision}^{commit}`], {
       encoding: "utf8",
       stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
     });
     if (result.error || result.status !== 0 || String(result.stderr ?? "").trim()) {
       throw result.error ?? new Error(String(result.stderr ?? "Git could not resolve revision").trim());
@@ -1206,6 +1209,7 @@ export function checkAcceptance(opts = {}) {
   const worktreeResult = spawnImpl("git", ["-C", worktreeGitDir, "rev-parse", "--verify", worktreeRev], {
     encoding: "utf8",
     stdio: "pipe",
+    env: withoutRepoLocatingGitEnv(process.env),
   });
   if (worktreeResult.error || worktreeResult.status !== 0 || String(worktreeResult.stderr ?? "").trim()) {
     throw acceptanceError(`sha-not-in-git: could not resolve HEAD in Worktree: ${worktreeField}`, "sha-not-in-git");
@@ -1234,6 +1238,7 @@ export function checkAcceptance(opts = {}) {
     const ancestry = spawnImpl("git", ["-C", worktreeGitDir, "merge-base", "--is-ancestor", artifact, worktreeHead], {
       encoding: "utf8",
       stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
     });
     if (ancestry.error || ancestry.status !== 0) {
       throw acceptanceError(
@@ -1589,13 +1594,13 @@ export function closeRecord(opts = {}) {
   }
   let fullMerge;
   try {
-    fullMerge = String(execImpl("git", ["rev-parse", "--verify", `${merge}^{commit}`], { cwd: repoRoot, encoding: "utf8" })).trim();
+    fullMerge = String(execImpl("git", ["rev-parse", "--verify", `${merge}^{commit}`], { cwd: repoRoot, encoding: "utf8", env: withoutRepoLocatingGitEnv(process.env) })).trim();
   } catch {
     throw acceptanceError(`--merge is not a commit available in --repo: ${merge}`, "merge-missing");
   }
   const main = opts.main ?? "origin/main";
   try {
-    execImpl("git", ["merge-base", "--is-ancestor", fullMerge, main], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    execImpl("git", ["merge-base", "--is-ancestor", fullMerge, main], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: withoutRepoLocatingGitEnv(process.env) });
   } catch {
     throw acceptanceError(`--merge ${fullMerge} is not an ancestor of --main ${main}`, "merge-not-ancestor");
   }

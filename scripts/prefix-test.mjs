@@ -30,6 +30,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
 
 function parseArgs(argv) {
   const out = {};
@@ -177,13 +178,13 @@ export function main(argv) {
       console.error(`prefix-test: refusing to remove ${worktreeDir}: does not look like the worktree this run created`);
       return;
     }
-    const r = run("git", ["worktree", "remove", "--force", worktreeDir], { cwd: repoAbs });
+    const r = run("git", ["worktree", "remove", "--force", worktreeDir], { cwd: repoAbs, env: withoutRepoLocatingGitEnv(process.env) });
     if (r.status !== 0) {
       console.error(`prefix-test: warning: failed to remove worktree ${worktreeDir}: ${(r.stderr ?? r.stdout ?? "").trim()}`);
       // Round-2 review ruling (e): don't leave a stale entry in the caller's repo behind
       // a failed removal. Reported, not swallowed — a prune failure is also printed, and
       // neither failure changes this run's exit code (that's decided by classification).
-      const p = run("git", ["worktree", "prune"], { cwd: repoAbs });
+      const p = run("git", ["worktree", "prune"], { cwd: repoAbs, env: withoutRepoLocatingGitEnv(process.env) });
       if (p.status !== 0) {
         console.error(`prefix-test: warning: git worktree prune also failed: ${(p.stderr ?? p.stdout ?? "").trim()}`);
       }
@@ -191,7 +192,7 @@ export function main(argv) {
   }
 
   try {
-    const addResult = run("git", ["worktree", "add", "--detach", worktreeDir, base], { cwd: repoAbs });
+    const addResult = run("git", ["worktree", "add", "--detach", worktreeDir, base], { cwd: repoAbs, env: withoutRepoLocatingGitEnv(process.env) });
     if (addResult.status !== 0) {
       console.error(`prefix-test: git worktree add failed: ${(addResult.stderr ?? addResult.stdout ?? "").trim()}`);
       return 2;

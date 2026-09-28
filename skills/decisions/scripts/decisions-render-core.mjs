@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseDocument, computeExitCode } from './decisions-read.mjs';
+import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
 
 /** exit 2 from the CLI: a source file breaks a rule this lane enforces before it ever writes. */
 export class RefusedError extends Error {}
@@ -233,7 +234,7 @@ export function defaultReaddir(d) {
   return fs.readdirSync(d);
 }
 export function defaultExecGit(args, cwd) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  return execFileSync('git', args, { cwd, env: withoutRepoLocatingGitEnv(process.env), encoding: 'utf8', windowsHide: true });
 }
 
 function readRequired(readFile, fullPath, label) {
