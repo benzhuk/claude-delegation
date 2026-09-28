@@ -178,15 +178,14 @@ test('L29: packet state distinguishes unchecked, absent, present, and no Details
   assert.match(formatInbox(checked), /packet MISSING: docs\/notes\/astra-gone-1\.md/);
 });
 
-// Lane 47, P6: a `git` that cannot answer for the hook's cwd (a hook cwd genuinely outside any
+// Lane 47, P7: a `git` that cannot answer for the hook's cwd (a hook cwd genuinely outside any
 // repo, git missing from PATH, or any other error — note-inbox cannot and must not try to tell
 // these apart) is not a real, checked repo. Before the fix, mainCheckout's own "not a repo: write
 // where we were told" fallback (correct for a WRITER) was reused as the READER's repo, so a packet
 // that really lives in a DIFFERENT directory (the actual repo git could not identify from `cwd`)
-// read as MISSING instead of "not checked here" — the false "not on this machine" miss reported
-// live (skills-fable's pane, docs/notes/skills-n-lane-44-2.md and friends). Must fail on base
+// read as MISSING instead of "not checked here". Must fail on base
 // d6f5c9d (red) before the fix, pass after it (green).
-test('L47/P6: a repo git could not identify from cwd is never treated as checked — the packet reads "not checked here", never MISSING', async () => {
+test('L47/P7: a repo git could not identify from cwd is never treated as checked — the packet reads "not checked here", never MISSING', async () => {
   const home = tmp();
   const repoRoot = tmp(); // the packet's REAL location — deliberately not `home`/`cwd`
   mirror(home, TODAY, [
@@ -207,7 +206,7 @@ test('L47/P6: a repo git could not identify from cwd is never treated as checked
 
 // The straightforward companion: when git CAN answer, the resolved repo is still checked exactly
 // as before (no regression from the P6 fix on the ordinary, working path).
-test('L47/P6: when git answers, the resolved repo is still checked as before', async () => {
+test('L47/P7: when git answers, the resolved repo is still checked as before', async () => {
   const home = tmp();
   mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md')]);
   const packet = path.join(home, 'docs/notes/astra-here-1.md');

@@ -334,8 +334,8 @@ export async function runNoteInbox(argv, deps = {}) {
  * exception either way) it deliberately falls back to "write where we were told", because a note-send
  * still needs somewhere to put a file. A READER must never inherit that fallback: treating an unproven
  * directory as a checked repo is exactly how a packet that is really in the main checkout gets reported
- * MISSING, when the hook's cwd for some reason left git unable to answer for it (lane 47, P6 — the
- * false "not on this machine" miss). So this probes with the SAME git call `mainCheckout` starts from,
+ * MISSING (lane 47, P7: a start git cannot place in any repo, e.g. a cwd outside every checkout, is
+ * never "checked"). So this probes with the SAME git call `mainCheckout` starts from,
  * and only calls `mainCheckout` when that direct probe itself succeeds.
  */
 function resolveRealRepo(dir, git) {

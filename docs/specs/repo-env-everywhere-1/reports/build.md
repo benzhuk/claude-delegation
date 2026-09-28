@@ -213,18 +213,19 @@ indistinguishable to `mainCheckout` from "not a repo"), the reader silently trea
 unproven directory as a checked repo, looked for the packet there, found nothing, and
 reported MISSING even though the packet was really sitting in the main checkout.
 
-Cause: a reader (`note-inbox.mjs`) reused a writer's (`mainCheckout`'s) "not a repo, use the
-given dir as-is" fallback, which is correct for a writer needing SOMEWHERE to write but wrong
-for a reader deciding whether a location was actually checked.
-Discriminating check: on the real Windows box, strip git's own directories from the hook
-process's PATH (so every `execFileSync('git', ...)` throws ENOENT) and run `note-inbox`
-against a repo where the packet genuinely exists — base reports it MISSING; the fix reports
-"not checked here".
-Fix location: `skills/multi/scripts/note-inbox.mjs`, new `resolveRealRepo(dir, git)` used in
-place of the raw `mainCheckout` + catch-swallow at the repo-resolution block.
-Simplification: one small probe function, reusing the exact git call `mainCheckout` itself
-starts from, so a reader only ever treats a directory as checked when git PROVES it, and
-never inherits the writer's fallback.
+Cause: skills-fable's long-running session executed plugin <=0.20.15 hook code (its
+CLAUDE_PLUGIN_ROOT predates the 17:48 install of 0.20.16/0.20.17); every live miss was a
+PostToolUse read, which always passes --no-repo, and <=0.20.15 packetLocation returned
+exists:false when no repo source was scanned, so an unchecked packet printed "which is not
+on this machine". Fixed upstream by c8c16be (in 0.20.16).
+Discriminating check: transcript 9c61c35a hits are all PostToolUse (17:51:51-18:16:13 EDT);
+installed 0.20.15 note-inbox.mjs:336 is exists:false vs 0.20.16 :339 exists: checked ? false
+: null; the installed 0.20.15 reader run from gudgeon with git present reports all four
+packets present on the repo path; reverting c8c16be's line turns L29 red.
+Fix location: none needed for the live symptom (c8c16be). skills/multi/scripts/note-inbox.mjs
+resolveRealRepo is P7 hardening for a start git cannot place in a repo (non-repo cwd), not
+the live cause.
+Simplification: one git spawn per resolve (see F5); no new mechanism for the live case.
 
 ### Windows repro, before and after
 
@@ -282,10 +283,10 @@ test, still green — is unaffected).
 ### Unit test
 
 `skills/multi/scripts/note-inbox.test.mjs`:
-- "L47/P6: a repo git could not identify from cwd is never treated as checked — the packet
+- "L47/P7: a repo git could not identify from cwd is never treated as checked — the packet
   reads 'not checked here', never MISSING" — red on base (asserted MISSING was wrongly
   produced), green at the fix.
-- "L47/P6: when git answers, the resolved repo is still checked as before" — regression
+- "L47/P7: when git answers, the resolved repo is still checked as before" — regression
   companion, confirms the normal (working) path is untouched.
 
 ## Part 3 (P8): the bearings notice keys on the worktree
