@@ -1,5 +1,13 @@
 # Waiting on you now
 <details>
+<summary>**Resolve Lane 31 history merge**</summary>
+	Evidence: accepted [Lane 31 record](https://github.com/benzhuk/claude-delegation/commit/668fe05df2b46a0afe1075f4bc1863aa27b50960) conflicts only with Lane 30's concurrent history bullet. The exact proposed preservation of both entries is [L31-proposed-history.md](https://github.com/benzhuk/claude-delegation/blob/44bfe1e2691f1504fb1ffce5b0f892254acd7d09/docs/specs/sealed-signal-1/reports/L31-proposed-history.md).
+	- [ ] Preserve both entries and complete gate/merge (recommended)
+	- [ ] Hold Lane 31 unmerged
+	No default: merge conflicts require explicit owner decision.
+	<empty-block/>
+</details>
+<details>
 <summary>**Release 0.20.16 and install it on the four machines**</summary>
 	It carries eight lanes closed today: the Windows cleanup task file, a closed status for finished lanes, sealed-run home cleanup, cross-host note refusal, this page rendered from repo files, the Goals page as one line per goal, the publish guard, and the inbox truth fix. The release commit also fixes the token baseline cell in the goals file. On yes, the installs go to Windows, Netcup and Hetzner tonight, the Windows daily cleanup task is enabled, and the Mac is retried until it answers.
 	- [ ] Yes, release 0.20.16 and install it everywhere
