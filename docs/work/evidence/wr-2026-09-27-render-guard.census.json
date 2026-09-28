@@ -1,10 +1,10 @@
 {
   "combined": {
     "claude-opus-5-5": {
-      "cache_creation_input_tokens": 398350,
-      "cache_read_input_tokens": 5399859,
-      "input_tokens": 108,
-      "output_tokens": 35573
+      "cache_creation_input_tokens": 427259,
+      "cache_read_input_tokens": 5964049,
+      "input_tokens": 114,
+      "output_tokens": 36913
     },
     "claude-sonnet-5": {
       "cache_creation_input_tokens": 210333,
@@ -18,9 +18,9 @@
     "coverageReason": null,
     "coverageSupported": true,
     "host": "claude",
-    "leadLastMessageAt": "2026-09-28T02:41:33.651Z",
-    "leadTurns": 8,
-    "leadTurnsTotal": 67,
+    "leadLastMessageAt": "2026-09-28T02:44:16.301Z",
+    "leadTurns": 9,
+    "leadTurnsTotal": 68,
     "markerFound": true,
     "nativeTurnCount": null,
     "nativeTurnCountWindow": null,
@@ -32,26 +32,26 @@
     "observedWindowByModel": null,
     "totalByModel": {
       "claude-opus-5-5": {
-        "cache_creation_input_tokens": 2182758,
-        "cache_read_input_tokens": 42950124,
-        "input_tokens": 532,
-        "output_tokens": 153315
+        "cache_creation_input_tokens": 2217956,
+        "cache_read_input_tokens": 44144739,
+        "input_tokens": 558,
+        "output_tokens": 157514
       }
     },
-    "totalTurns": 266,
-    "turnsPerHour": 4.725346869993675,
-    "wallClockHours": 3.8092441666666668,
+    "totalTurns": 279,
+    "turnsPerHour": 5.482875623214756,
+    "wallClockHours": 3.8301069444444447,
     "windowByModel": {
       "claude-opus-5-5": {
-        "cache_creation_input_tokens": 252550,
-        "cache_read_input_tokens": 4339651,
-        "input_tokens": 36,
-        "output_tokens": 10683
+        "cache_creation_input_tokens": 281459,
+        "cache_read_input_tokens": 4903841,
+        "input_tokens": 42,
+        "output_tokens": 12023
       }
     },
-    "windowEndAt": "2026-09-28T02:41:33.651Z",
+    "windowEndAt": "2026-09-28T02:42:48.757Z",
     "windowStartAt": "2026-09-27T22:53:00.372Z",
-    "windowTurns": 18
+    "windowTurns": 21
   },
   "leadPath": "C:/Users/benzh/.claude/projects/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/588290d9-ee43-400b-a808-cf44c407171c.jsonl",
   "marker": null,

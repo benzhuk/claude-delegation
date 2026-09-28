@@ -1,10 +1,10 @@
 {
-  "acceptAt": "2026-09-28T02:41:34Z",
+  "acceptAt": "2026-09-28T02:42:49Z",
   "companions": [
     {
       "key": "topTierAssistantMessagesPerBuild",
       "label": "Top-tier assistant messages per build",
-      "value": "53 messages; tokens: cache-read 5399859, cache-write 398350, input 108, output 35573"
+      "value": "56 messages; tokens: cache-read 5964049, cache-write 427259, input 114, output 36913"
     },
     {
       "key": "notesToLeadPerBuild",
@@ -21,7 +21,7 @@
     {
       "key": "topTierTokensPerBuild",
       "label": "Top-tier tokens per build",
-      "value": "5833890 tokens: build 5833890 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+      "value": "6428335 tokens: build 6428335 (claude-opus-5-5); partial (no spec slice): spec-census not run"
     },
     {
       "key": "hoursAskToAccepted",
@@ -36,7 +36,7 @@
     {
       "key": "workLostOrStalled",
       "label": "Work lost or stalled",
-      "value": "1 gap(s) over 30min stalled; 1 waiting-on-agents (205.3 min); agent afe1df2112b0684f9 silent 208.7 min from 2026-09-27T23:12:52.021Z; 0 unanswered ASKs to skills-o"
+      "value": "1 gap(s) over 30min stalled; 1 waiting-on-agents (205.3 min); agent afe1df2112b0684f9 silent 209.9 min from 2026-09-27T23:12:52.021Z; 0 unanswered ASKs to skills-o"
     }
   ],
   "record": "docs/work/wr-2026-09-27-render-guard.record.md"
