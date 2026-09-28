@@ -1,18 +1,20 @@
 Work: wr-2026-09-27-sealed-signal
 Scope: docs/specs/sealed-signal-1/spec.md@b159e9d2ff29e4abb7cbc8e58aabd2e22aca6c63, Lane 31
 Owner: root
-Status: owned
+Status: rejected
 Authority: skills-fable-lane-31-1 assigns Lane 31 under the standing merge grant. Only its four exclusive scripts may change. No release, install or other lane edits. Root owns this record.
-Artifact: none
+Artifact: c9e5029da51270fe59b29c8749f532c7ef8cde57
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/sealed-signal-1
-Evidence: none
-Next: scout the existing signal lifecycle, implement F4 and R1 as separate commits, independently review and prove bounded cleanup on Netcup.
+Evidence: docs/work/evidence/wr-2026-09-27-sealed-signal-review-r1.md
+Next: round 2 repairs the duplicate forwarding and independent regression fixtures, then delta review and admitted two-host proofs.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T02:40:00Z
 Base: 3dbe93567049ffc2fdd4fbe424226e57b7dc7ed0
 Opened: 2026-09-28T02:44:00Z
 Log: 2026-09-28T02:45:00Z owned root received Lane 31 and opened the bounded Codex-led build
+Log: 2026-09-28T03:04:28.615Z delivered root reconciled builder delivery c9e5029 with Windows focused 35 pass 8 skip and 0 failures
+Log: 2026-09-28T03:04:28.615Z rejected root accepted independent NEEDS_FIXES review at 219f7a9 for duplicate forwarding, invalid F4 fixture and Windows exit-observation race; root owns repair coordination
 
 Measure: work lost or stalled. A SIGTERM to the sealed runner must clean its home within five seconds on POSIX without delivering the signal twice to another listener. No goal improvement is claimed before evidence.
 
