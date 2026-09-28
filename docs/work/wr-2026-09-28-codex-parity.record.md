@@ -1,12 +1,12 @@
 Work: wr-2026-09-28-codex-parity
 Scope: docs/specs/codex-parity-37/pinned-spec.md@dc16de3ba767fe9762cde454b3483e1e3a5abd9a Lane 37
 Owner: skills-a
-Status: accepted
+Status: rejected
 Authority: Lane 37 assignment skills-fable-lane-37-1 under the standing build and merge grant. Exclusive lane territory only. No release or real-home installation. Lane34 cleared the earlier page-publication deferral on main; normal guarded renderer publication is authorized at closeout. Root alone writes this record.
 Artifact: 66bd1b428959002ceb5a0ff45cc6357b2d3533e7
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-parity-37
 Evidence: docs/work/evidence/wr-2026-09-28-codex-parity-opus-review.md, docs/specs/codex-parity-37/L37-builder-report.md, docs/specs/codex-parity-37/L37-tests-report.md, docs/specs/codex-parity-37/L37-native-proof-r2.md, docs/specs/codex-parity-37/L37-windows-integration.md, docs/specs/codex-parity-37/L37-netcup-integration.md, docs/specs/codex-parity-37/L37-load-research.md, docs/specs/codex-parity-37/L37-windows-r5.md, docs/specs/codex-parity-37/L37-netcup-r6.md, docs/work/evidence/wr-2026-09-28-codex-parity.census.md, docs/work/evidence/wr-2026-09-28-codex-parity.spec-census.md, docs/work/evidence/wr-2026-09-28-codex-parity.four-read.md, docs/work/evidence/wr-2026-09-28-codex-parity.work-census.md
-Next: final census and guarded acceptance of pinned artifact66bd1b4, then merge with closing history bullet and sealed Windows gate on the exact merge commit before push, closure and publication.
+Next: diagnose and repair the post-accept merged-tree timing assertion, then obtain fresh Opus delta approval and changed-artifact gates before re-acceptance. Main remains unpushed.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T19:03:14Z
@@ -31,6 +31,7 @@ Four numbers: Hours ask to accepted: 3.4h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-37-1
 Log: 2026-09-28T22:40:15.516Z accepted skills-a artifact 66bd1b428959002ceb5a0ff45cc6357b2d3533e7
+Log: 2026-09-28T22:47:49.044Z rejected skills-a post-acceptance merge2bad23a593d3c86bf808e6ee0da6a1dd61c21e09 gate failed slow-route advisory assertion; main unpushed, independent test and runtime diagnosis owned; docs/specs/codex-parity-37/L37-main-merge-gate.md
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37
 
@@ -38,7 +39,7 @@ Measure: work lost or stalled on Codex-led builds; DONE mixed handoff clause.
 
 Predicts: the next Codex-led lane record shows zero not-stated host coverage gaps.
 
-Observed: Claude Opus approved66bd1b4 with independent2/8/13/3 focused gates. Final Windows sealed2653pass0fail12skip native0; Netcup sealed2660pass0fail5skip native0 SSH0. Native Codex proof emits wiring and work lines and carries by production byte identity. Earlier failures and lock-admission mistakes are preserved. Census remains to be measured; no four-measure improvement claimed.
+Observed: candidate66bd1b4 passed both host gates and was accepted at22:40Z, but local merge2bad23a failed its Windows gate with2675pass1fail12skip. The slow-route test dropped ADVISORY-PRESERVED; cause is under independent test/runtime research. This is real post-acceptance rework, and no closure or main push occurred.
 
 Historical continuation bind: native episode wjkOi7-mk-Up7QCia1QFaPAR was suspended; bind returned EPISODE_INACTIVE. Ordinary authorized work continues without claiming active continuation enforcement.
 
