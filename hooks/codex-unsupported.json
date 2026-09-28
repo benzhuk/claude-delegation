@@ -1,7 +1,7 @@
 {
   "unsupported": [
-    { "script": "hooks/delegation-reminder.js", "event": "SessionStart", "reason": "Claude reminder requires input.agent_type state absent from Codex hooks." },
-    { "script": "hooks/delegation-reminder.js", "event": "UserPromptSubmit", "reason": "Claude reminder reads input.transcript_path to select a model tier." },
+    { "script": "hooks/delegation-reminder.js", "event": "SessionStart", "reason": "Reminder's card and tier logic parses a Claude transcript; a Codex rollout JSONL yields no model, so the notice would be wrong or empty." },
+    { "script": "hooks/delegation-reminder.js", "event": "UserPromptSubmit", "reason": "Tier selection parses the Claude transcript tail for the model name; Codex transcript_path points at a rollout JSONL with a different shape." },
     { "script": "hooks/delegation-reminder.js", "event": "PostToolBatch", "reason": "Codex has no PostToolBatch event." },
     { "script": "hooks/knowledge-log.mjs", "event": "PostToolUse", "reason": "Codex payload has no file path." },
     { "script": "hooks/agent-dispatch-guard.mjs", "event": "PreToolUse", "reason": "Guard requires Agent or SendMessage tool_name with tool_input prompt schema." }

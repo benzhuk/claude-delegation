@@ -55,6 +55,9 @@ this repository available to Codex as a native local marketplace package. It exp
 skills and selects `hooks/codex-hooks.json`, whose command handlers use Codex's installed-package
 `PLUGIN_ROOT` to invoke the same adapter on SessionStart, UserPromptSubmit, PostToolUse, Stop and
 Interrupt. Codex still requires review and trust of the hook definitions before it executes them.
+The delete guard is wired on Codex PreToolUse (matcher Bash) but denies only `spawn_agent` children,
+which carry `agent_id`; a top-level Codex session, including `codex exec`, passes and is logged
+`passed-lead`. See `docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md`.
 
 The mirror above remains a separate host integration for the existing Codex roles and shims. Do
 not install both hook routes automatically; duplicate handlers would deliver the same inbox twice.
