@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-collect-followups
 Scope: docs/specs/collect-followups-1/spec.md (lane 33, skills-fable's spec at 34ecdbe on origin/docs/lane-specs-0925); territory as pinned in the spec
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/collect-followups-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; live proof only against a scratch HOME with --force-root --dry-run --json, never the live Netcup unit
 Next: accept, merge into main, close, RESULT to skills-fable
 Artifact: 0523ec8e82bb48d8fa775f0c20bfa6559813b049
@@ -55,5 +55,7 @@ Four numbers: Hours ask to accepted: 0.6h; largest gap 14.4min at 2026-09-28T03:
 Four numbers: Rework after acceptance: 1 commit(s) touching build files within 7 days: 55ae08f "docs(work): wr-2026-09-28-collect-followups evidence paths"; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n
 Log: 2026-09-28T04:23:05.000Z accepted skills-n artifact 0523ec8e82bb48d8fa775f0c20bfa6559813b049
+Log: 2026-09-28T04:24:01.000Z merged skills-n into main at 4608419daabe538b926001d2b6366a777835694a under the standing grant of 2026-09-26, main suite 2554 pass 0 fail on Netcup
+Log: 2026-09-28T04:24:01.000Z closed skills-n merge 4608419daabe538b926001d2b6366a777835694a
 
 Observed: at 0523ec8 a collect-status reinstall keeps --stale-hours. The dry-run ExecStart ends with --stale-hours 2, and installed.json carries staleHours 2. --stale-hours is refused for the janitor job. computeState returns a terminal closed for a closed record; this is unit-tested, and mutant M3 was killed in review r2. No live closed row appears in collect-from-origin today, because every closed lane's branch is an ancestor of main and is filtered out first, by design (see the live evidence). One extra RESULT to skills-fable is expected after the next install, because the K2 change key now carries the closed state.
