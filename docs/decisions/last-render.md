@@ -10,6 +10,7 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 - The Goals page is being turned into one line per goal, detail collapsed, as you asked.
 - Today: fifteen lanes accepted, most in under two hours, one needed rework. My own cost is the measure still failing; tomorrow morning's bearings check it against a 40M budget.
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured now and is the next lane.
+- Publishing this page now refuses while any docs/decisions file is uncommitted, so the page can no longer drift from main (lane 28, merged 10:50 PM).
 # History {toggle="true"}
 	- [Sep 27](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-27.md) — lanes merged all day, including the delete guard, the knowledge count, the Windows janitor task and this page's renderer, and a second RE-PLAN reached your page.
 	- [Sep 26](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-26.md) — eleven lanes merged, including the four-number read and the merge-on-acceptance rule.
