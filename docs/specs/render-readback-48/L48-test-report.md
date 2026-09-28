@@ -2,7 +2,7 @@ VERDICT: PASS
 
 Base: `926c6f801ce21383b06bd5f92ffb18b5ca2603bc`.
 Regression commit: `be517dbb0dceb958f44adabf7996e351ff570644`.
-Tested production change: `skills/decisions/scripts/decisions-render-core.mjs` blob `6456ea5e48da0ee9146f977635b93e790762bbe6` (uncommitted at gate time); its diff adds only structural `</details>` separator handling, fence tracking, and idempotent blank-run consumption.
+Tested production change: `skills/decisions/scripts/decisions-render-core.mjs` blob `feda39eb9dcfa4e171bee06547846916afd10bb1` (uncommitted at final gate time); its diff adds only structural `</details>` separator handling, strict fence tracking, and idempotent blank-run consumption.
 
 Cause: Notion readback removes the separator blank line after a structural closing `</details>`, while the shared comparison retained it.
 Discriminating check: normalize the byte-pinned intended/live Lane37 snapshots through the production export; their sole separator delta fails on the base and passes with the production change.
@@ -15,4 +15,4 @@ Red command: `node --test skills/decisions/scripts/decisions-render.test.mjs ski
 
 An intermediate post-fix run exited `1` because an LF-only test mutation did not alter CRLF fixture bytes; it is retained at `lane48-green.raw.log`. The mutation was corrected to assert it changes the raw snapshot before normalization.
 
-Green command: `node --test skills/decisions/scripts/decisions-render.test.mjs skills/decisions/scripts/decisions-render-publish.test.mjs`; native exit `0`, 145 pass / 0 fail / 145 tests. Exact equality passes; removed bullet, changed tick, moved line, fenced literal (backtick, tilde, and longer-fence) controls remain unequal; structural blank-run normalization is idempotent. Raw: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48/lane48-final-green.raw.log`.
+Green command: `node --test skills/decisions/scripts/decisions-render.test.mjs skills/decisions/scripts/decisions-render-publish.test.mjs`; native exit `0`, 145 pass / 0 fail / 145 tests. Exact equality passes; removed bullet, changed tick, moved line, and fenced literals (backtick, tilde, longer fence, and a suffixed non-closing delimiter) remain unequal; structural blank-run normalization is idempotent. Final raw: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48/lane48-final-fence-green.raw.log`. The earlier 145/145 receipt remains at `lane48-final-green.raw.log`.
