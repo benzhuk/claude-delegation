@@ -21,7 +21,7 @@ diff --git a/scripts/run-tests.test.mjs b/scripts/run-tests.test.mjs
 +import { fileURLToPath, pathToFileURL } from "node:url";
 @@ -456,2 +456,47 @@ async function startForwardRunner(probe) {
  }
- 
+
 +async function startForeignListenerRunner(probe) {
 +  const tmp = scratchDir("run-tests-foreign-listener-tmp-");
 +  const fixtureHome = scratchDir("run-tests-foreign-listener-home-");
