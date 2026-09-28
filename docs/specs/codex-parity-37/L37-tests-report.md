@@ -1,4 +1,4 @@
-VERDICT: PASS — fix artifact 58170210871638726594cca8b9452cb7a6f1b3a8; scoped count 21 pass / 0 fail; native exit 0; negative controls proved removed and overlapping coverage fail.
+VERDICT: PASS — source artifact 58170210871638726594cca8b9452cb7a6f1b3a8; test artifact 52f8977ab5e486bcf0274a582f1b40640adfddeb; scoped counts 21/21 and 26/26 pass; exits 0/0; negative controls proved removed and overlapping coverage fail.
 
 # Lane 37 independent contract-test report
 
@@ -26,3 +26,8 @@ Test and report are ready for separate add/commit. No full suite was run. Scratc
 - Added a regression with a real `SessionStart` payload lacking `transcript_path`; it requires `wiring:` while retaining peer and continuation context. Existing focused source tests retain confirmed-child suppression.
 - Replaced the test's direct child environment spread with `childEnv(home, ...)`, addressing the sealed-suite hygiene finding at the former direct spawn line.
 - Ran only `node --test hooks/codex-unsupported.test.mjs hooks/multi-codex-hook.test.mjs` against `58170210871638726594cca8b9452cb7a6f1b3a8`: 21 passed, 0 failed, exit 0. Raw evidence: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-fixround.raw.log`.
+
+## Hygiene follow-up
+
+- Ran the exact previously failing constraint, `node --test skills/multi/scripts/hooks.test.mjs`, against test artifact `52f8977ab5e486bcf0274a582f1b40640adfddeb`: 26 passed, 0 failed, exit 0. The `N2: no test file in this suite inherits the runner environment on its own` assertion passed after the subprocess switched to `childEnv(home, ...)`.
+- Raw evidence: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-hygiene.raw.log`; immediate exit: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37/tests/codex-parity-hygiene.raw.exit`.
