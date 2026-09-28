@@ -1,24 +1,28 @@
 Work: wr-2026-09-28-render-readback
 Scope: docs/work/wr-2026-09-28-render-readback.record.md specification below, based on origin/main@926c6f801ce21383b06bd5f92ffb18b5ca2603bc and skills-fable-lane-48-1
 Owner: skills-a
-Status: owned
+Status: delivered
 Authority: Lane48 dispatch under the standing build/merge grant; normal renderer publication is the required live proof. Comparison function and tests only. No release, install, manual page write, pickup change or adoption workaround. Root alone writes this record.
-Artifact: 926c6f801ce21383b06bd5f92ffb18b5ca2603bc
+Artifact: 8c0af5601f60b54bcd74fc52a7cdb65916203b70
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/render-readback-48
 Evidence: docs/specs/render-readback-48/L48-spec-evidence.md
-Next: independent snapshot regression on the base, minimal comparison fix, focused gate and Opus review, sealed Windows/Netcup gates, census/accept, merge and normal live publish before close.
+Evidence: docs/specs/render-readback-48/L48-builder-report.md
+Evidence: docs/specs/render-readback-48/L48-test-report.md
+Next: pin final candidate and request Opus review, sealed Windows/Netcup gates, census/accept, merge and normal live publish before close.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:12:00Z
 Base: 926c6f801ce21383b06bd5f92ffb18b5ca2603bc
 Opened: 2026-09-28T23:13:00Z
 Log: 2026-09-28T23:14:00Z owned skills-a ACKed lane48 and assigned GPT-5.6-Terra scout; original dispatch clock retained
+Log: 2026-09-28T23:22:07.002Z owned skills-a dispatched independent GPT-5.6-Terra lane48_tests and GPT-5.6-Terra lane48_builder with disjoint file ownership; production waits for baseline-red evidence
+Log: 2026-09-28T23:31:00Z delivered skills-a resumed ownership after GPT-5.6-Terra builder and independent GPT-5.6-Terra test author reported final scoped 145/145 native exit0; exact snapshot regression first failed on unchanged source. Final production blob feda39eb9dcfa4e171bee06547846916afd10bb1. Opus review and host/live proof remain pending.
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48
 
 Measure: rework after acceptance, specifically manual recovery after normal decisions publication.
 Predicts: the required normal publish exits0 without adopt-live and records its pushed bookkeeping commit; the next three lane closes need zero whitespace-recovery publishes.
-Observed: Lane37 normal publish exited5 after writing correct content. Fresh read versus intended render differs only by one blank line after a closing details tag. No lane48 fix or efficacy result exists yet. Peer packet reports three prior recovery publishes as the attributed baseline, not a new measurement by this lane.
+Observed: Lane37 normal publish exited5 after writing correct content. Fresh read versus intended render differs only by one blank line after a closing details tag. Independent exact-snapshot regression failed before the comparison fix and passes after it; focused tests also retain removed-bullet, changed-tick, moved-line and fenced-literal differences. Normal live publication remains unproved. Peer packet reports three prior recovery publishes as the attributed baseline, not a new measurement by this lane.
 
 ## Specification and pinned contract
 
