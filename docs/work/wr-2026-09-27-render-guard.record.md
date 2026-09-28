@@ -14,6 +14,8 @@ Base: 53a77f79943aca31bb03bdad1553ba923bb06c6c
 Opened: 2026-09-27T22:52:57Z
 Log: 2026-09-27T22:52:57Z owned skills-o pack at C:/Users/benzh/Code/render-guard/pack
 Log: 2026-09-28T02:38:43Z stalled skills-o round-2 fix 1a493e2 pushed 23:11Z with Netcup 2488/2492 0 fail; the resumed Opus reviewer never wrote review-r2.md and the lead did not notice until skills-fable's status check at 02:38Z; fresh Opus reviewer launched 2026-09-28T02:38:43Z
+Log: 2026-09-28T02:41:54Z delivered skills-o Sonnet builder, two rounds: 7db6691 (r1), 1a493e21cc2bc240bfe694ade4fdde64cb32d459 (r2); gate 626/626
+Log: 2026-09-28T02:41:54Z reviewed skills-o Opus reviewer APPROVE 1a493e21cc2bc240bfe694ade4fdde64cb32d459 after Opus NEEDS_FIXES on 7db6691 (the CLI dry-run warning never reached stderr); Netcup 2488/2492 0 fail 4 skipped
 
 Observed: publish refuses a dirty docs/decisions tree with exit 7 before any write, including untracked files under status.showUntrackedFiles=no and renames on either side of last-render.md; --dry-run warns on stderr from the CLI; the note-send exit-6 hint names the ssh form and --local-ok. Open minor: the rename split applies to every status line (review-r2, fix in the report). The round-1 reviewer committed once in its own scratch repo with --no-gpg-sign, outside the reviewed tree.
 
