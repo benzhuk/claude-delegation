@@ -133,7 +133,7 @@ function runChild(args, options) {
         // The child may have exited in the interval before its close event reaches us.
       }
       for (const handled of signals) process.removeListener(handled, forwardSignal);
-      process.kill(process.pid, signal);
+      if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
     }
 
     for (const signal of signals) process.on(signal, forwardSignal);
