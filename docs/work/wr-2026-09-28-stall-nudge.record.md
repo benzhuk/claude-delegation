@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-stall-nudge
 Scope: docs/specs/stall-nudge-1/spec.md (lane 30 of skills-fable's stall bundle, origin/docs/lane-specs-0925 at b159e9d) with lead rulings docs/specs/stall-nudge-1/contracts.md; territory scripts/collect-status.mjs, scripts/collect-status.test.mjs, docs/specs/collect-status-1/spec.md, the Netcup collect-status.service ExecStart line
 Owner: skills-n
-Status: reviewed
+Status: accepted
 Authority: build, review, integrate, push build/stall-nudge-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; edit the Netcup collect-status.service ExecStart to add --stale-hours 2; create and then delete the origin branch build/stall-proof-1 for the live proof (authority: the spec)
 Next: census, four-read, accept, merge, unit --stale-hours 2, live ASK proof, render publish, RESULT
 Artifact: 65e6921cf28c2879f3ee31d6c982c63354cc0000
@@ -18,5 +18,45 @@ Log: 2026-09-28T03:08:43.000Z rejected skills-n Opus review r1 NEEDS_FIXES 255f3
 Log: 2026-09-28T03:31:28.000Z rejected skills-n fix-round-1 builder stalled from 03:15:27Z (transcript mtime) on a set -e compound command beginning rm -rf despite the brief's ban; the lead's 15-minute watch caught it; stopped at 2026-09-28T03:31:28.000Z; recovery builder spawned with mktemp-only scratch
 Log: 2026-09-28T03:35:55.000Z delivered skills-n recovery builder DONE 65e6921 (F1-F7; three mutants fail their tests), gate 63 of 63; Opus delta review r2 and Windows suite started
 Log: 2026-09-28T03:39:48.000Z reviewed skills-n Opus delta r2 APPROVE 65e6921 (reviewer claude-opus-5-5, subagent a3b98a27918c1f3f8); Netcup 2530 of 2534 and Windows 2526 of 2534, 0 fail. Process note: the recovery builder ran its gate with a scratch .gitconfig carrying a throwaway identity for fixture repos; no branch commit uses it (all by the configured identity), reported to Ben
+Census: - leadTurns: 9
+Census: - wallClockHours: 0.92
+Census: - by-model: claude-opus-5-5=10602382, claude-sonnet-5=11819598
+Census: - by-role: unassigned=16050445
+Census: - subagentFiles: 186
+Census: - Total assistant turns, deduped (whole file): **767**
+Census: - Window assistant turns, deduped: **32**
+Census: - leadTurns (conversational runs — see docs/census.md): **9**
+Census: - Window: 2026-09-28T02:44:40.682Z .. 2026-09-28T03:39:48.346Z
+Census: - Turns/hour in window: **34.83**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 1532 | 3045936 | 127208875 | 493934 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 64 | 38800 | 6313107 | 19564 |
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 94 | 273341 | 3912438 | 44974 |
+Census: | claude-sonnet-5 | 250 | 383478 | 11299548 | 136322 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 344 | 656819 | 15211986 | 181296 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 64538 | 10537844 |
+Census: | claude-sonnet-5 | 136322 | 11683276 |
+Four numbers: Top-tier tokens per build: 10602382 tokens: build 10602382 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 0.9h; largest gap 21.8min at 2026-09-28T03:09:20.671Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n
+Log: 2026-09-28T03:40:05.000Z accepted skills-n artifact 65e6921cf28c2879f3ee31d6c982c63354cc0000
 
 Observed: the collector now asks the owning lead once per stall. After status.md and its RESULT, every silent-over-N-h row whose record is not closed gets one ASK to the record Owner, --needs review --by now+30m, topic stall-<branch>-<tip7>. The dedupe reads the main checkout ledger note-send writes, so a worktree or subdirectory --repo no longer re-asks. --quiet and ~/.agents/collect/<repo>/no-nudge send nothing, and the attention row stays. Known limit: the ASK lands where the collector RESULT lands, the repo ledger on the collector host. Whether the owning lead sees it on another host is the live-proof question below.
+
+Stall: the fix-round-1 builder hung at a permission prompt from 03:15:27Z, after a compound command that began with rm -rf. The lead's 10-15 minute transcript watch caught it, and it was stopped at 03:31:28Z, a 16-minute gap. That is under the census' 30-minute stall threshold, so Work lost or stalled reads 0. A recovery builder finished the round in 4 minutes. No work was lost: the stopped builder's uncommitted edits were verified and kept.
