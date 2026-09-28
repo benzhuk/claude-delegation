@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-cross-host-nudge
 Scope: docs/specs/cross-host-nudge-1/packet.md (lane 43, skills-fable's pickup packet) and the "Lane 43" sentences of docs/specs/cross-host-nudge-1/spec.md (bundle spec at dc16de3 on origin/docs/lane-specs-0925)
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/cross-host-nudge-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; one live proof note to skills-h on Hetzner, labelled as a proof; the live Netcup collector unit is not changed
 Next: accept, merge into main, close, publish, RESULT to skills-fable; going live on Netcup needs a release and a reinstall of the collector timer from the new cache
 Artifact: 4cb22f16383e5ccb6d17b5e2e64d8c05a9cb900d
@@ -55,6 +55,8 @@ Four numbers: Hours ask to accepted: 0.6h; gap unavailable (no lead transcript)
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-lane-43-1
 Log: 2026-09-28T20:34:53.000Z accepted skills-n artifact 4cb22f16383e5ccb6d17b5e2e64d8c05a9cb900d
+Log: 2026-09-28T20:35:49.000Z merged skills-n build/cross-host-nudge-1 into main at c56a1aebe06a17be9d781b6abe8a699071d2f004 under the standing merge grant; merge suite 2601 of 2606, 0 fail
+Log: 2026-09-28T20:35:49.000Z closed skills-n merge c56a1aebe06a17be9d781b6abe8a699071d2f004
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-43
 
