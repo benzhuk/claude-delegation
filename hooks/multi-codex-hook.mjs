@@ -205,18 +205,22 @@ export async function runCodexHook(input = {}, deps = {}) {
   const me = deps.slug ? { slug: deps.slug, source: 'deps' } : codexSlug(env, home, fsImpl);
 
   const cwd = input.cwd ?? process.cwd();
-  // Goal/card work is advisory and raced separately from peer delivery, so an unresolved or rejected
-  // advisory promise (for example a slow dynamic import) drops only the goal context. The card read and
-  // bearings receipt/evidence reads are synchronous and are NOT preempted by this race: they still run
-  // on the event loop shared with peer delivery and main's BUDGET_MS.
+  // Goal/card work is advisory and raced separately from peer delivery and the native route, so an
+  // unresolved or rejected advisory promise (for example a slow dynamic import) drops only the goal
+  // context. The card read and bearings receipt/evidence reads are synchronous and are NOT preempted by
+  // this race: they still run on the event loop shared with peer delivery and main's BUDGET_MS.
   const advisoryFn = deps.goalContextForLead ?? goalContextForLead;
   // Tests inject every filesystem-facing dependency; keep those isolated unless they explicitly
   // opt into this native child-process route. The live CLI calls with no deps and always uses it.
   const routeFn = deps.nativeRouteForLead ?? (Object.keys(deps).length === 0 ? nativeRouteForLead : async () => null);
-  const advisoryWork = withBudget(Promise.all([
+  const advisoryWork = withBudget(
     Promise.resolve().then(() => advisoryFn(input, cwd, role, env)).catch(() => null),
+    ROUTE_TIMEOUT_MS + 50,
+  );
+  const routeWork = withBudget(
     Promise.resolve().then(() => routeFn(input, cwd, role, env)).catch(() => null),
-  ]), ROUTE_TIMEOUT_MS + 50);
+    ROUTE_TIMEOUT_MS + 50,
+  );
 
   // D2 (spec 2026-09-17): register this session's inbox — the on-disk queue Codex itself watches.
   // `session_id` from this payload IS the thread id `codex queue --thread` accepts (spiked live on
@@ -252,7 +256,7 @@ export async function runCodexHook(input = {}, deps = {}) {
     }
   } catch { /* continuation never suppresses peer delivery */ }
   const result = composeContinuationResult(peer, continuation, event);
-  const [advisory, route] = (await advisoryWork) ?? [];
+  const [advisory, route] = await Promise.all([advisoryWork, routeWork]);
   const withGoalContext = route ? appendGoalContext(result, event, route.text, route.systemMessage) : result;
   const withAdvisoryContext = advisory ? appendGoalContext(withGoalContext, event, advisory.text, advisory.systemMessage) : withGoalContext;
   if (!withAdvisoryContext) return null;
