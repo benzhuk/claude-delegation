@@ -4,6 +4,7 @@
 // guard's bounded shape: a [ \t]-only class with an explicit {0,20} bound, never \s.
 
 import fs from "node:fs";
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -1730,25 +1731,46 @@ function normalizeBranchName(name) {
   return s;
 }
 
-/** F4/F7 (C1 round 2): `path` -> branch name, from `listWorktrees(root)`, keyed by BOTH the
- * literal and realpath-normalized/case-folded form of each entry's own path, so a `Worktree:`
- * absolute path resolves to its branch even across a symlinked ancestor or win32 case folding.
- * `null` when `listWorktrees` itself failed (caller must treat that as fail-closed, not "no
- * match"). */
+/** R2-1 (C1 round 3, P6): the ONE realpath-normalized, win32-case-folded key both
+ * `buildWorktreesByPath`'s map AND every lookup against it must use - round 2 built the map with
+ * this key but looked it up with a plain `path.resolve`, so a `Worktree:` value that was itself a
+ * symlinked path (resolving to the same real worktree `git worktree list` reports by its real,
+ * already-resolved path) silently missed the map and fell through to "no match", exactly the
+ * "named by an open record" protection this key exists to provide. */
+function worktreePathKey(p) {
+  let r = path.resolve(p);
+  try { r = realpathSync.native(r); } catch { /* best effort */ }
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+
+/** F4/F7 (C1 round 2): `path` -> branch name, from `listWorktrees(root)`, keyed by
+ * `worktreePathKey` so a `Worktree:` absolute path resolves to its branch even across a
+ * symlinked ancestor or win32 case folding. `null` when `listWorktrees` itself failed (caller
+ * must treat that as fail-closed, not "no match" - see R2-2). */
 function buildWorktreesByPath(root) {
   const worktrees = listWorktrees(root);
   if (worktrees === null) return null;
-  const winCase = process.platform === "win32";
-  const key = (p) => {
-    let r = path.resolve(p);
-    try { r = realpathSync.native(r); } catch { /* best effort */ }
-    return winCase ? r.toLowerCase() : r;
-  };
   const map = new Map();
   for (const w of worktrees) {
-    if (w.path && w.branch) map.set(key(w.path), w.branch);
+    if (w.path && w.branch) map.set(worktreePathKey(w.path), w.branch);
   }
   return map;
+}
+
+/** R2-1 (C1 round 3, MAJOR ruling, L8 fallback): when a record's `Worktree:` IS a path but
+ * `worktreesByPath` cannot resolve it (a Windows path read on Linux, a missing directory, any
+ * path `git worktree list` no longer reports), the record still protects a branch whose OWN last
+ * path segment equals that path's basename, compared case-insensitively - the only signal left
+ * once the path itself can't be resolved. Returns the lowercased basename, or null when
+ * `Worktree:` isn't an unresolved path at all (nothing for this fallback to claim). */
+function unresolvedWorktreeBasename(record, worktreesByPath) {
+  const wt = typeof record.fields.worktree === "string" ? record.fields.worktree.trim() : "";
+  if (!wt) return null;
+  const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
+  if (!isPath) return null;
+  if (worktreesByPath && worktreesByPath.get(worktreePathKey(wt))) return null; // resolved fine, not a fallback case
+  const base = wt.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  return base ? base.toLowerCase() : null;
 }
 
 /** F4 (C1 round 2, MAJOR): the branch step 4 (and sweep-origin) work from: "taken from
@@ -1763,8 +1785,7 @@ function deriveRecordBranch(record, worktreesByPath) {
     const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
     if (!isPath) return normalizeBranchName(wt);
     if (worktreesByPath) {
-      const resolved = path.resolve(wt);
-      const found = worktreesByPath.get(resolved) ?? worktreesByPath.get(resolved.toLowerCase());
+      const found = worktreesByPath.get(worktreePathKey(wt));
       if (found) return normalizeBranchName(found);
     }
   }
@@ -1788,8 +1809,7 @@ function recordBranchNames(record, worktreesByPath) {
     if (!isPath) {
       names.add(normalizeBranchName(wt));
     } else if (worktreesByPath) {
-      const resolved = path.resolve(wt);
-      const found = worktreesByPath.get(resolved) ?? worktreesByPath.get(resolved.toLowerCase());
+      const found = worktreesByPath.get(worktreePathKey(wt));
       if (found) names.add(normalizeBranchName(found));
     }
   }
@@ -1811,7 +1831,12 @@ function deleteOriginBranchWithLease(execImpl, repoRoot, name, tip) {
     return { ok: true };
   } catch (error) {
     const msg = String((error.stderr || error.message || error)).trim();
-    const moved = /stale info|rejected|fetch first|failed to push some refs/i.test(msg);
+    // R2-6 (C1 round 3, MINOR): git's `--force-with-lease` failure text is ` ! [rejected] <ref>
+    // (stale info)` - that literal marker, and only that marker, is a genuinely lost race.
+    // `failed to push some refs` is printed on EVERY rejected push (denied deletes, a hook
+    // veto, ...), so matching it here reported "moved" - a race - even when origin simply
+    // forbids the delete outright, telling the lead the wrong story about what happened.
+    const moved = /\(stale info\)/.test(msg);
     return { ok: false, moved, error: msg };
   }
 }
@@ -1884,6 +1909,21 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
       tip,
     };
   }
+  // R2-1 (C1 round 3, MAJOR ruling, L8 fallback): an open record whose Worktree: path cannot be
+  // resolved through git worktree list still protects every origin branch whose last path
+  // segment equals that path's basename, case-insensitively - real records on this host carry
+  // Worktree: values written on a different OS (a Windows-authored path read on Linux), and such
+  // a record usually has Artifact: none yet, so without this fallback nothing at all protected
+  // its branch.
+  const basenameProtected = (records || []).find((r) => {
+    if (ownWorkId !== undefined && r.fields.work === ownWorkId) return false;
+    if (r.fields.status === "closed" || r.fields.status === "withdrawn") return false;
+    const base = unresolvedWorktreeBasename(r, worktreesByPath);
+    return base && base === normName.split("/").pop().toLowerCase();
+  });
+  if (basenameProtected) {
+    return { verdict: "keep", reason: `open-record-unresolved ${basenameProtected.fields.work}`, tip };
+  }
   if (ownWorkId !== undefined) {
     const otherOwn = (records || []).find((r) => r.fields.work !== ownWorkId && recordBranchNames(r, worktreesByPath).has(normName));
     if (otherOwn) return { verdict: "keep", reason: "not this record's own", tip };
@@ -1905,48 +1945,25 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
  * plugin has. `record`/`by` gate the `--by` == `Lead-session:` check; `root` (the target repo)
  * supplies the repo-root/worktree-list checks. Returns a step row; performs `fs.rmSync` itself
  * only when every check passed and `dryRun` is false. */
-const GIT_ENTRY_WALK_MAX_DEPTH = 8;
-/** L5 (C1 round 2, F3): true (fail-closed) if a `.git` entry (a real repo's is a directory; a
- * linked worktree's is a FILE) exists anywhere under `dir`, walked to a bounded depth so a huge
- * or cyclic tree can never hang this check - hitting the bound counts as "found", never as
- * "clean". `lstatSync`, never `existsSync`, so a dangling `.git` symlink still counts. A read
- * failure anywhere in the walk (permissions, a vanished entry) is also "found": this check may
- * only ever say yes-there-is-one or refuse to say, never no-there-isn't when it could not look. */
-function hasGitEntryBelow(fsImpl, dir, depth = 0) {
-  let entries;
-  try {
-    entries = fsImpl.readdirSync(dir, { withFileTypes: true });
-  } catch (error) {
-    return { found: true, reason: `could not read ${dir}: ${error.message || error}` };
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.name === ".git") return { found: true, reason: `.git entry at ${full}` };
-    let isDir = entry.isDirectory ? entry.isDirectory() : false;
-    if (entry.isSymbolicLink && entry.isSymbolicLink()) isDir = false; // never follow a symlink into the walk
-    if (isDir) {
-      if (depth + 1 >= GIT_ENTRY_WALK_MAX_DEPTH) return { found: true, reason: `walk depth bound reached under ${dir}` };
-      const sub = hasGitEntryBelow(fsImpl, full, depth + 1);
-      if (sub.found) return sub;
-    }
-  }
-  return { found: false };
-}
 
-/** C1 round 2 rewrite (F3, F8, F9, M3): every named check from the pinned scratch sentence's own
- * contract. F9: a value recorded on the OTHER OS's path convention (e.g. `C:/...` read on Linux)
- * is refused outright rather than resolved against this host's own cwd - `checkScratchField`
- * accepts either convention (the record is valid wherever it was written); only the actual
- * delete has to be this host's own kind of absolute. F8/L6: the `--by` session id is a whole
- * path segment strictly between the root and the target, at ANY depth - matching the real
- * `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout, where the session id is
- * not the first segment under `/tmp`. F3/L5: containment, not just equality, against a
- * registered worktree or the repo root refuses, and a `.git` entry anywhere below the target
- * (not just its direct child) refuses; `listWorktrees` failing is fail-CLOSED. M3: only ENOENT
- * is `absent`; anything else `lstat` reports (EACCES, ...) is refused, not silently "nothing to
- * remove", and a target that is a file, not a directory, is refused rather than removed.
- * `platform` is test-only, defaulting to the real `process.platform` (same convention used
- * elsewhere in this file). */
+/** C1 round 2 rewrite (F3, F8, F9, M3), L5 REPLACED in round 3: every named check from the
+ * pinned scratch sentence's own contract. F9: a value recorded on the OTHER OS's path convention
+ * (e.g. `C:/...` read on Linux) is refused outright rather than resolved against this host's own
+ * cwd - `checkScratchField` accepts either convention (the record is valid wherever it was
+ * written); only the actual delete has to be this host's own kind of absolute. F8/L6: the `--by`
+ * session id is a whole path segment strictly between the root and the target, at ANY depth -
+ * matching the real `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout, where
+ * the session id is not the first segment under `/tmp`. F3/L5 (round 3 ruling, replacing round
+ * 2's recursive `.git` walk): the walk is DROPPED - lanes keep fixture git repos in their own
+ * scratch, so it refused almost every real closeout (R2-5). The scratch step now refuses only
+ * when the target equals, contains, or lies inside any path from `git worktree list`, or the
+ * repo root/`--repo` (both directions - R2-4 closes the reverse case the walk used to catch by
+ * accident); `listWorktrees` failing is fail-CLOSED. An unregistered git repo inside the lead's
+ * own session scratch is throwaway by construction and is removed with the directory. M3: only
+ * ENOENT is `absent`; anything else `lstat` reports (EACCES, ...) is refused, not silently
+ * "nothing to remove", and a target that is a file, not a directory, is refused rather than
+ * removed. `platform` is test-only, defaulting to the real `process.platform` (same convention
+ * used elsewhere in this file). */
 function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl, platform }) {
   if (!scratchPath) return { step: "scratch", result: "absent" };
   if (record.fields.leadSession !== by) {
@@ -1957,7 +1974,13 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
   }
   const plat = platform ?? process.platform;
   const winCase = plat === "win32";
-  const hostAbsolute = winCase ? path.win32.isAbsolute(scratchPath) : path.posix.isAbsolute(scratchPath);
+  // R2-10 (C1 round 3, MINOR): `path.win32.isAbsolute` also accepts a bare POSIX `/tmp/...`
+  // value (it resolves that as `\tmp\...`, relative to the current drive) - on a win32 host that
+  // let a POSIX-shaped value silently pass the host-absolute gate instead of being refused as
+  // "recorded on another OS", which is what L7's own rule calls for.
+  const hostAbsolute = winCase
+    ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(scratchPath)
+    : path.posix.isAbsolute(scratchPath);
   if (!hostAbsolute) {
     return { step: "scratch", result: "refused", ref: scratchPath, detail: "not absolute on this host (recorded on another OS)" };
   }
@@ -2052,10 +2075,21 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
     if (worktrees.some((w) => inside(w.path))) {
       return { step: "scratch", result: "refused", ref: scratchPath, detail: "contains a path in git worktree list" };
     }
-  }
-  const gitWalk = hasGitEntryBelow(fsImpl, resolved);
-  if (gitWalk.found) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: `directory contains a .git entry (${gitWalk.reason})` };
+    // R2-4 (C1 round 3, MEDIUM): the REVERSE direction - the target lies INSIDE a registered
+    // worktree or inside the repo root, rather than containing it - was never checked: the walk
+    // only ever looked BELOW the target, so it could not see an enclosing worktree's `.git` file
+    // sitting above it, and with the walk dropped (L5 replaced) this direction needs its own
+    // explicit check, not an accidental side effect of one.
+    const liesInside = (p) => {
+      const rel = path.relative(forCompare(path.resolve(p)), forCompare(resolved));
+      return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    };
+    if (liesInside(repoResolved)) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "lies inside the repo root" };
+    }
+    if (worktrees.some((w) => liesInside(w.path))) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "lies inside a path in git worktree list" };
+    }
   }
 
   if (!dryRun) fsImpl.rmSync(resolved, { recursive: true });
@@ -2163,6 +2197,17 @@ export function closeoutRecord(opts = {}) {
       results.push({ step, result: "refused", detail: blockedReason });
     }
   } else {
+    // R2-2/R2-7 (C1 round 3, MAJOR blocker + MINOR): `worktreesByPath` (and the branch name it
+    // resolves) is built ONCE, here, BEFORE step 3 runs - step 3 can remove the very worktree a
+    // path-form Worktree: names, so deriving the branch name AFTER step 3 (round 2's order) made
+    // a live run disagree with its own dry run (R2-7), and building it without checking for
+    // `null` left every path-form "named by an open record" check silently fail OPEN the moment
+    // `git worktree list` itself failed (R2-2) - `buildWorktreesByPath`'s own doc comment already
+    // says a `null` result is fail-closed, not "no claims".
+    const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
+    const worktreesByPath = buildWorktreesByPath(repoRoot);
+    const ownBranchName = worktreesByPath === null ? null : deriveRecordBranch(record, worktreesByPath);
+
     // 3. Worktree and local branch.
     const wt = closeoutWorktree({
       root: repoRoot, worktreeField: record.fields.worktree, mainBranch, cwd: process.cwd(), dryRun,
@@ -2171,10 +2216,10 @@ export function closeoutRecord(opts = {}) {
     if (!wt.steps.some((s) => s.step === "branch")) results.push({ step: "branch", result: "absent" });
 
     // 4. Origin branch.
-    const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
-    const worktreesByPath = buildWorktreesByPath(repoRoot);
-    const branchName = deriveRecordBranch(record, worktreesByPath);
-    if (!branchName) {
+    const branchName = ownBranchName;
+    if (worktreesByPath === null) {
+      results.push({ step: "origin-branch", result: "refused", detail: "UNVERIFIABLE: could not read git worktree list" });
+    } else if (!branchName) {
       results.push({ step: "origin-branch", result: "refused", detail: "no branch name could be derived from Worktree:/Artifact:" });
     } else {
       const verdict = evaluateOriginBranch(branchName, null, {
@@ -2221,6 +2266,14 @@ export function closeoutRecord(opts = {}) {
     const insertAt = blankIdx === -1 ? closedLines.length : blankIdx;
     closedLines.splice(insertAt, 0, logLine);
     const realAbsPath = fsImpl.realpathSync(path.resolve(repoRoot, opts.recordPath));
+    // R2-9 (C1 round 3, MINOR): the realpath above resolves again (a concurrent-swap window
+    // since the read), but round 2 never actually checked the result against the repo root it
+    // claimed to be confined to - this is the check that makes it a real confinement, not just a
+    // second `realpathSync` call.
+    const relReal = path.relative(repoReal, realAbsPath);
+    if (relReal.startsWith("..") || path.isAbsolute(relReal)) {
+      throw acceptanceError(`path resolves outside repository: ${opts.recordPath}`);
+    }
     fsImpl.writeFileSync(realAbsPath, closedLines.join(eol));
   }
 
@@ -2262,7 +2315,14 @@ export function sweepOrigin(opts = {}) {
   }
 
   const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
+  // R2-2 (C1 round 3, MAJOR blocker): a failed `git worktree list` must refuse EVERYTHING here,
+  // not silently claim nothing for every path-form Worktree: (buildWorktreesByPath's own doc
+  // comment already says "caller must treat null as fail-closed" - round 2 built the map but
+  // never checked for null before using it).
   const worktreesByPath = buildWorktreesByPath(repoRoot);
+  if (worktreesByPath === null) {
+    return { rows: [], lines: ["refused UNVERIFIABLE: could not read git worktree list"], apply, applied: [], exitCode: 2 };
+  }
 
   const list = spawnImpl("git", ["for-each-ref", "refs/remotes/origin/build", "--format=%(refname)"], {
     cwd: repoRoot, encoding: "utf8", stdio: "pipe",

@@ -32,6 +32,7 @@ import {
   fetchOrigin,
   lastFetchAgeHours,
   closeoutWorktree,
+  pathWithin,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -2466,12 +2467,57 @@ test("closeoutWorktree: refuses the main worktree, and refuses the worktree cont
   assert.equal(fs.existsSync(wt), true);
 });
 
-test("closeoutWorktree: a Worktree: naming a branch never checked out anywhere is 'absent' for both worktree and branch, not an error", () => {
+// R2-8 (C1 round 3): superseded by the test below - an unmatched Worktree: is now refused
+// (worktree-unresolved), never silently "absent", so an unresolved match can never be read as a
+// harmless no-op.
+test("closeoutWorktree: R2-8 - a Worktree: naming a branch never checked out anywhere is refused 'worktree-unresolved' (never silently 'absent')", () => {
   const root = initRepo();
   writeProjectConfig(root);
   git(["branch", "close-absent-1"], root);
   const result = closeoutWorktree({ root, worktreeField: "close-absent-1", cwd: root });
-  assert.deepEqual(result.steps, [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }]);
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "absent" },
+  ]);
+});
+
+// R2-8 (C1 round 3, MINOR): kills the "entry lookup is not normalized" gap directly - a
+// Worktree: given as "origin/build/p9-1" (an origin-branch-shaped value, not a plain branch name)
+// against a REAL linked worktree on branch build/p9-1 now resolves (branchField normalization),
+// instead of falling through to worktree-unresolved and leaving a real worktree untouched.
+test("closeoutWorktree: R2-8 - a Worktree: given as an origin-branch-shaped value (origin/build/x) still resolves to the real linked worktree on that branch", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "build/p9-1";
+  const wt = addWorktree(root, branch);
+  const result = closeoutWorktree({ root, worktreeField: `origin/${branch}`, cwd: root, dryRun: true });
+  assert.equal(result.steps[0].step, "worktree");
+  assert.equal(result.steps[0].result, "removed");
+  assert.equal(result.steps[0].ref, wt);
+});
+
+// R2-3(j) (C1 round 3, blocker item): the win32 case/separator fold `closeoutWorktree`'s
+// containment check relies on had NO test at all, on any host, including the one host (win32)
+// where it matters - this is the exact check round-1's F7 found broken there. Exercised through
+// `path.win32` so it is pinned on every CI host, not only a Windows one.
+test("pathWithin: win32 fold - backslash separators and drive-letter case all compare equal, only a DIFFERENT path is not contained", () => {
+  assert.equal(
+    pathWithin("C:\\Users\\X\\wt\\scripts", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    true,
+  );
+  assert.equal(
+    pathWithin("c:\\users\\x\\wt", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    true,
+  );
+  assert.equal(
+    pathWithin("C:\\Users\\X\\wt2", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    false,
+  );
+});
+test("pathWithin: posix - equal paths and a real subdirectory are 'within'; a sibling directory sharing a name prefix is not", () => {
+  assert.equal(pathWithin("/a/b", "/a/b"), true);
+  assert.equal(pathWithin("/a/b/c", "/a/b"), true);
+  assert.equal(pathWithin("/a/b2", "/a/b"), false, "must not treat a prefix-sharing sibling as contained");
 });
 
 test("closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and reports the same verdicts a live run would", () => {

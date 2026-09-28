@@ -1196,6 +1196,29 @@ export function applySafe(state, log = []) {
  * reports the same verdicts (clean tree => "removed"/"removed", dirty => "dirty"/"refused")
  * that a live run would, computed from `isTreeClean` alone.
  */
+/** R2-3(j) (C1 round 3): the realpath-normalized, win32-case-folded containment check
+ * `closeoutWorktree` uses to refuse the worktree entry that IS, or CONTAINS, `root`/`cwd` -
+ * pulled out as its own pure, exported function so the win32 fold itself (the exact check
+ * round-1's F7 found broken on the host where it matters, and round 2 shipped with no test at
+ * all for it) can be pinned by a test running on ANY host, not only win32: pass `pathImpl:
+ * path.win32` and `platform: "win32"` to exercise the Windows separator/case rules without a
+ * live Windows filesystem. `platform`/`pathImpl`/`realpath` default to the real host. A `child`
+ * equal to `parent` counts as "within" (containment includes equality, matching the callers'
+ * own "IS, or CONTAINS" contract). */
+export function pathWithin(child, parent, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const pathImpl = opts.pathImpl ?? path;
+  const realpath = opts.realpath ?? ((p) => {
+    try { return realpathSync.native(p); } catch { return p; } // unreadable/missing still compares by its resolved form
+  });
+  const norm = (p) => {
+    const r = realpath(pathImpl.resolve(p));
+    return platform === "win32" ? r.toLowerCase() : r;
+  };
+  const rel = pathImpl.relative(norm(parent), norm(child));
+  return rel === "" || (!rel.startsWith("..") && !pathImpl.isAbsolute(rel));
+}
+
 export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd = process.cwd(), dryRun = false }) {
   if (!worktreeField) {
     return { steps: [{ step: "worktree", result: "refused", detail: "no Worktree: field" }] };
@@ -1204,11 +1227,26 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
   if (worktrees === null) {
     return { steps: [{ step: "worktree", result: "refused", detail: "could not read git worktree state" }] };
   }
+  // R2-8 (C1 round 3, MINOR): the same realpath-normalized, win32-case-folded key used for the
+  // containment checks below is used for THIS match too - a plain string `samePath` comparison
+  // never resolves a symlinked ancestor or win32 case/separator difference, so an unmatched
+  // `Worktree:` (a stale realpath, a `C:\Users\...` value read against git's `C:/Users/...`,
+  // an `origin/build/x`-shaped value read against the raw field) silently fell through to
+  // `absent` (exit 0) - the worktree and its local branch were left in place with no refusal at
+  // all, on the same class of value F4/L8 already had to normalize on the origin-branch side.
+  const normPath = (p) => {
+    let r = path.resolve(p);
+    try { r = realpathSync.native(r); } catch { /* unreadable/missing still compares by its resolved form */ }
+    return process.platform === "win32" ? r.toLowerCase() : r;
+  };
+  const within = (child, parent) => pathWithin(child, parent);
+  const branchField = String(worktreeField).trim().replace(/\/+$/, "")
+    .replace(/^refs\/heads\//, "").replace(/^refs\/remotes\/origin\//, "").replace(/^origin\//, "");
   const target = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(root, worktreeField);
-  let entry = worktrees.find((w) => samePath(w.path, target));
-  if (!entry) entry = worktrees.find((w) => w.branch === worktreeField);
+  let entry = worktrees.find((w) => normPath(w.path) === normPath(target));
+  if (!entry) entry = worktrees.find((w) => w.branch === branchField);
   if (!entry) {
-    return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }] };
+    return { steps: [{ step: "worktree", result: "refused", detail: "worktree-unresolved" }, { step: "branch", result: "absent" }] };
   }
   if (entry.main) {
     return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the main worktree" }] };
@@ -1219,15 +1257,6 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
   // CONTAINS, `root` (--repo) itself - closeoutWorktree can be called with `root` set to a linked
   // worktree, whose own `entry.main` is always false, so the main-worktree check above never
   // catches this case.
-  const normPath = (p) => {
-    let r = path.resolve(p);
-    try { r = realpathSync.native(r); } catch { /* unreadable/missing still compares by its resolved form */ }
-    return process.platform === "win32" ? r.toLowerCase() : r;
-  };
-  const within = (child, parent) => {
-    const rel = path.relative(normPath(parent), normPath(child));
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-  };
   if (within(cwd, entry.path)) {
     return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the worktree containing process.cwd()" }] };
   }

@@ -340,26 +340,45 @@ origin branch (`build/<...>`, taken from `Worktree:` or the `Artifact:` ref, eve
 form normalized — `origin/`, `refs/heads/`, `refs/remotes/origin/` prefixes and a trailing
 `/` all compare equal) is deleted with a lease, never a plain force: `git push
 --force-with-lease=refs/heads/<name>:<tip> origin :refs/heads/<name>`, where `<tip>` is
-the exact sha this run evaluated, immediately after its own fetch. A branch that moved on
-origin since that fetch fails the lease and is reported `refused moved` — never silently
-deleting whatever the name now points at — and the printed restore command
-(`git push origin <sha>:refs/heads/<name>`) always names that same evaluated sha. The
-branch is refused when it is not under `build/`, not this record's own (checked against
-every name form a record can claim: `Worktree:` as a bare name, `Artifact:`'s own ref, or
-— when `Worktree:` is a path — whichever branch `git worktree list` reports checked out
-there), named by another record under `docs/work/` whose `Status:` is neither `closed` nor
-`withdrawn`, or its tip fails any of the three merge-safety proofs (ancestor of
-`origin/main`, not equal to `origin/main`'s own tip, reachable only through a `--no-ff`
-merge commit's second parent). The scratch directory is removed only after the full set of
+the exact sha this run evaluated, immediately after its own fetch. A branch that lost that
+lease (git's own ` ! [rejected] ... (stale info)`) is reported `refused moved` — never
+silently deleting whatever the name now points at — and the printed restore command
+(`git push origin <sha>:refs/heads/<name>`) always names that same evaluated sha; any OTHER
+push rejection (a denied delete, a hook veto, ...) is reported by its own real reason, never
+mislabeled `moved`. The branch is refused when it is not under `build/`, not this record's
+own (checked against every name form a record can claim: `Worktree:` as a bare name,
+`Artifact:`'s own ref, or — when `Worktree:` is a path — whichever branch `git worktree
+list` reports checked out there), named by another record under `docs/work/` whose
+`Status:` is neither `closed` nor `withdrawn`, or its tip fails any of the three
+merge-safety proofs (ancestor of `origin/main`, not equal to `origin/main`'s own tip,
+reachable only through a `--no-ff` merge commit's second parent). An open record whose
+`Worktree:` is a path `git worktree list` cannot resolve (a Windows path read on Linux, a
+missing directory, ...) still protects every branch whose own last path segment equals
+that path's basename, compared case-insensitively, reported `keep open-record-unresolved
+<record>` — the only signal left once the path itself can't be read. A registered-worktree
+list that cannot itself be read fails CLOSED for the whole origin-branch step (`refused
+UNVERIFIABLE: could not read git worktree list`, exit 2), never silently claiming no open
+record protects anything. The worktree step of `close --closeout` uses the same
+realpath-normalized, win32-case-folded match for `Worktree:` against `git worktree list`,
+and reports an unmatched value `refused worktree-unresolved` (exit 2), never a silent
+`absent` — a record naming a branch genuinely never checked out anywhere and a record whose
+`Worktree:` failed to match a real, still-live worktree can no longer be told apart from
+the closeout's own point of view, so both now stop for a human rather than one of them
+completing silently. The scratch directory is removed only after the full set of
 path-safety checks named in the pinned scratch sentence's own contract: a `Scratch:` value
 must be absolute on THIS host's own path convention (a value recorded on the other OS is
 refused, not resolved against this host's cwd); the session id from `--by` must be a whole
 path segment strictly between a scratch root and the target, at ANY depth (matching the
 real `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout); no symlink
-anywhere in the resolved path; and the target must never be, or CONTAIN, a drive/filesystem
-root, the home directory, the repo root, a path in `git worktree list`, or a `.git` entry
-anywhere below it (walked to a bounded depth — hitting that bound refuses, same as finding
-one). A registered-worktree list that cannot be read fails CLOSED (refused), never open.
+anywhere in the resolved path; and the target must never be, contain, or (round 3 ruling)
+LIE INSIDE, a drive/filesystem root, the home directory, the repo root, or a path in `git
+worktree list` — checked in both directions, so a `Scratch:` a few levels below a linked
+worktree's own root is refused too, not just the reverse. There is deliberately no walk for
+a `.git` entry anywhere below the target: lanes keep fixture git repos in their own scratch
+directories, so that walk refused almost every real closeout; an unregistered git repo
+inside the lead's own session scratch is throwaway by construction and is removed WITH the
+directory. A registered-worktree list that cannot be read fails CLOSED (refused), never
+open.
 
 `sweep-origin` runs a standing, repo-wide version of the same origin-branch rule, useful
 for a batch cleanup outside any one record's own closeout:
