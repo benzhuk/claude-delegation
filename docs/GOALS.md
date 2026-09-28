@@ -12,7 +12,7 @@ A change to the harness is made only if it improves one of these four measures a
 
 | Measure | Definition | Baseline (2026-09-22) | Read from |
 |---|---|---|---|
-| Top-tier tokens per build | Fable and Opus tokens spent from spec to accepted, all roles | hand-run next-build: lead 152 turns (no source record; 2026-09-25 bearings O9); loop package-build: 19 orchestrator turns | build-census (per Workflow run id) |
+| Top-tier tokens per build | Fable and Opus tokens spent from spec to accepted, all roles | closed lanes 2026-09-26 to 2026-09-28: median 12.6M, range 2.8M to 54.7M over 14 records (four-number read); earlier hand-run builds have no token record | four-number read on each closed record (docs/work/*.record.md) |
 | Hours ask to accepted | wall clock from Ben's go to integrator PASS accepted | package-build 50 min through the loop; rename-build 3 h 40 with 29 percent lead dispatch latency | docs/work records |
 | Rework after acceptance | fix commits and review rounds on a shipped territory within 7 days; recurrence of a named failure class | Co-Authored-By trailer class recurred across 87 commits | git log, records |
 | Work lost or stalled | admitted work ids without a result; loud notes unread over 30 min; orchestrators idle awaiting a nudge | two RESULT notes waited 6 h 54 and 57 min; 3 of 7 loud notes logged no-inbox | flush log, ledger, records |
@@ -107,7 +107,7 @@ Ben's decisions live on one Notion page, in a shape the reader checks, never han
 In Ben's words: "any note from me in notion is a line prefaced with **, this should be in our skill already, and all the notes must be acted on and removed from the doc for when you next hand it to me." (9-22) "the decisions notion skill should make sure the goals are kept up to date!" (9-22) A "Done (timestamp when last cleared)" checkbox "to let the agent know that the builder is done answering questions and adding comments." (9-23, to Astra)
 
 Measure: the hand-back check passes (zero unanswered notes, zero page warnings, goals mirror at the current commit) before any link is given; zero decisions in chat.
-Status: PARTIAL. The reader, hand-back check and pickup shipped in 0.14.0 to 0.17.0; the scheduled pickup ran unattended on Windows at 8:25 AM on 2026-09-24 and returned PICKUP_NO_ACTION with Done false (docs/work/evidence/four-host-0206-and-live-pickup.md); a checked-Done handback has still never happened.
+Status: PARTIAL. The reader, hand-back check and pickup shipped in 0.14.0 to 0.17.0; the scheduled pickup ran unattended on Windows at 8:25 AM on 2026-09-24 and returned PICKUP_NO_ACTION with Done false (docs/work/evidence/four-host-0206-and-live-pickup.md); a checked-Done handback has happened: the flusher picked up Ben's submission at 8:19 AM on 2026-09-27 and Ben's tick at 2:51 PM on 2026-09-28 closed the 0.20.16 release item (docs/decisions/history/2026-09-27.md, 2026-09-28.md).
 
 ## What one session learns reaches every machine
 
@@ -125,4 +125,4 @@ Stale worktrees, branches and leftovers are removed by a mechanical janitor that
 In Ben's words: "The janitor may apply its safe class daily and show you the table. Yes." (9-20)
 
 Measure: the safe-class run scheduled daily, its table shown.
-Status: PARTIAL. Janitor reports (48 SAFE, 5 JUDGMENT on 2026-09-22) but is unscheduled and has never acted.
+Status: PARTIAL. Janitor reports (48 SAFE, 5 JUDGMENT on 2026-09-22) but is unscheduled; it has acted once: Ben chose to apply its safe class on 2026-09-26 and Windows went from 60 worktrees to 19 (docs/decisions/history/2026-09-26.md).
