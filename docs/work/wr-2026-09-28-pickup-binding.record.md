@@ -24,3 +24,5 @@ Observed: at 26c61ad a linked worktree's pickup identity is its main checkout's,
 Predicts: the next Done tick Ben makes on the decisions page is captured by the Netcup note-flush timer and cleared by one publish --clear-done from wt-ws-mainbase, with no hand step on the parked checkout. Read it from the receipts under ~/.agents/ws/decisions-pickup/ on Netcup (decisions-pickup.mjs status --page 3e1da11277a18174bccfea187d5c3972 --repo /home/ben/Code/wt-ws-mainbase reads RECORDED, then ACCOUNTED).
 
 Scratch directory for this lane (the bundle rule; the Scratch: header field arrives with lane 36, and today's parser refuses an unknown label): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-34
+
+Stall: none occurred. The word appears only in the 19:15:38Z Log line, "stall watcher on its transcript", which names the watcher that was started; no agent in this lane went silent past 600 s, and every report arrived on its own.
