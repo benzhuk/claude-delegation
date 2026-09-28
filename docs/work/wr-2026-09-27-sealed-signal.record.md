@@ -1,12 +1,12 @@
 Work: wr-2026-09-27-sealed-signal
 Scope: docs/specs/sealed-signal-1/spec.md@b159e9d2ff29e4abb7cbc8e58aabd2e22aca6c63, Lane 31
 Owner: root
-Status: delivered
+Status: reviewed
 Authority: skills-fable-lane-31-1 assigns Lane 31 under the standing merge grant. Only its four exclusive scripts may change. No release, install or other lane edits. Root owns this record.
-Artifact: 062a4a940c7fe31a15930270202fa197243663e5
+Artifact: b5341c71d9436427e31bdae11a6726ec798d1946
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/sealed-signal-1
-Evidence: docs/work/evidence/wr-2026-09-27-sealed-signal-review-r1.md
-Next: integrate round 2 and current main, obtain delta review, then run admitted two-host proofs and sealed gates.
+Evidence: docs/work/evidence/wr-2026-09-27-sealed-signal-review-r2.md
+Next: complete the separately rejected proof-artifact repairs and review, then admitted two-host live proofs and sealed gates.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T02:40:00Z
@@ -16,6 +16,7 @@ Log: 2026-09-28T02:45:00Z owned root received Lane 31 and opened the bounded Cod
 Log: 2026-09-28T03:04:28.615Z delivered root reconciled builder delivery c9e5029 with Windows focused 35 pass 8 skip and 0 failures
 Log: 2026-09-28T03:04:28.615Z rejected root accepted independent NEEDS_FIXES review at 219f7a9 for duplicate forwarding, invalid F4 fixture and Windows exit-observation race; root owns repair coordination
 Log: 2026-09-28T03:14:55.360Z delivered root received source062a4a9 and receiptfa102b4, Windows focused native0 35pass 9skip; independent delta review next
+Log: 2026-09-28T03:18:41.544Z reviewed root received independent source APPROVE at b5341c7 from /root/lane31_review; proof artifacts still NEEDS_FIXES and all live gates pending
 
 Measure: work lost or stalled. A SIGTERM to the sealed runner must clean its home within five seconds on POSIX without delivering the signal twice to another listener. No goal improvement is claimed before evidence.
 
