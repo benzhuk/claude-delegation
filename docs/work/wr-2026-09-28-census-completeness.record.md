@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-census-completeness
 Scope: docs/specs/2026-09-28-parallel-bundle.md@dc16de3 (origin/docs/lane-specs-0925), lane 38
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-38-1: build, review, second-host suite, merge (publish deferred to lane 34)
 Artifact: build/census-completeness-1@fb079b53356ecc872a8f46988fe16e57e7511aa7
 Worktree: build/census-completeness-1
@@ -59,7 +59,9 @@ Four numbers: Hours ask to accepted: 0.8h; largest gap 10.2min at 2026-09-28T21:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o
 Log: 2026-09-28T22:28:50.000Z accepted skills-o artifact fb079b53356ecc872a8f46988fe16e57e7511aa7
+Log: 2026-09-28T22:31:17.000Z closed skills-o merge e9889bdedf3b8629db278ddc08dd946741502294
 
 Observed: build-census counts wakes (note-flush and Done-tick envelope turns), Stop-blocks (multi-inbox block text, Codex HookPrompt stop:*) and stall nudges (collect-*-stall-* ledger ids to the lead slug) per lead file and window, for Claude and Codex leads, read-only. four-read prints all three in its Work lost or stalled row.
 
 Predicts: the 9/29 3:00 PM bundle check reads wakes, Stop-blocks and stall nudges for all four lanes (34, 36, 37, 38) from four-read with no hand count.
+Log: 2026-09-28T22:31:17Z verified skills-o merged-tree Windows suite 2668/2680 0 fail at e9889bd. Publish deferred to lane 34. Janitor deferred to lane 36 (not merged).
