@@ -1,4 +1,8 @@
 {
   "decisions_url": "3e1da11277a18174bccfea187d5c3972",
-  "goals_parent_page": "3e1da11277a1817db4c1f1038ccfdd5a"
+  "goals_parent_page": "3e1da11277a1817db4c1f1038ccfdd5a",
+  "owner_hosts": {
+    "skills-h": "zhuk-vps32",
+    "skills-n": "zhuk-netcup"
+  }
 }

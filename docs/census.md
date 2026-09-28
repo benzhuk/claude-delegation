@@ -466,6 +466,12 @@ this filter is introduced has a new row-only change key and therefore sends one 
 In `status.md` the rendered derived-state column is named `lane`; every non-terminal `Status:`
 renders as `owned` there. JSON retains the `state` field for callers.
 
+A stall nudge (`sendStallNudges`, work lost or stalled) is counted delivered when its id is in the
+OWNER's host notes mirror, `~/.agents/notes/<day>.md` (what `note-inbox` reads), and lost when it is
+only in the sender's `docs/ledger/<day>.md`: `grep -c 'collect-.*-stall-' ~/.agents/notes/<day>.md` on
+the owner's host (the note-send mirror for an `owner_hosts` entry, or the local write when owner and
+collector share a host) against the same grep on the collector host's `docs/ledger/<day>.md`.
+
 ## Knowledge read counting (not yet a census)
 
 Topic reads out of `~/.claude/knowledge/` are counted per host in `~/.agents/knowledge/read.log`
