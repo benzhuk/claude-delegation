@@ -26,7 +26,20 @@ export async function rejectionNotice(result) {
 export async function bearingsNotice(cwd, { env = process.env } = {}) {
   try {
     const { check: checkBearings } = await import('../../skills/bearings/scripts/bearings-state.mjs');
-    const checked = checkBearings({ repo: cwd, env });
+    // Lane 47, P8: the receipt is keyed on the project's MAIN checkout (bearings-state.mjs's own
+    // `goalLocation` walks up from `repo` to the nearest `.git`/`.agents/project.json` — a linked
+    // worktree has its OWN `.git` file, so it stops there and keys the receipt on the worktree
+    // instead). Resolve `cwd` to the main checkout the SAME way the receipt writer's own repo arg
+    // is expected to be given, so every worktree of a repository reads the one receipt written for
+    // it, never a worktree-keyed one that never matches. Optional, same as bearings-state itself
+    // above: a copied helper without skills/multi (or without git) must keep working with the
+    // given cwd, never throw.
+    let repo = cwd || process.cwd();
+    try {
+      const { mainCheckout, gitRunner } = await import('../../skills/multi/scripts/transport.mjs');
+      repo = mainCheckout(repo, gitRunner) ?? repo;
+    } catch { /* no transport.mjs here, or git could not answer: check against the given cwd as-is */ }
+    const checked = checkBearings({ repo, env });
     if (checked.status === 'due' && checked.reason === 'reviewer-not-independent') {
       return 'Bearings are due: the last receipt\'s reviewer was not independent of the lead. Run `/delegation:bearings` with a different reviewer.';
     }

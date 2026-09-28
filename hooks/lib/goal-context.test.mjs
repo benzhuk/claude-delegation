@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { childEnv, scratchHome } from '../../skills/multi/scripts/test-child-env.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const HELPER = path.join(REPO, 'hooks', 'lib', 'goal-context.mjs');
@@ -33,4 +35,54 @@ test('a copied helper keeps card rendering when its optional bearings module is 
   assert.equal(card.status, 'ok');
   assert.match(card.text ?? '', /GOAL: Preserve the card/);
   assert.equal(await copied.bearingsNotice(project, { env: { AGENTS_HOME: agentsHome } }), null);
+});
+
+// Lane 47, P8: a completion receipt is keyed on the project's MAIN checkout. bearingsNotice used to
+// pass a linked worktree's OWN path straight to bearings-state's `check`, which walks up from that
+// path and stops at the worktree's own `.git` — a different project root, and therefore a different
+// receipt file, than the one the main checkout resolves to. So a SessionStart notice run inside a
+// worktree pane said "Bearings are due" even seconds after an independent, current receipt was
+// published for that same repository. Must fail on base d6f5c9d (red) before the fix, pass after it
+// (green).
+test('bearings receipt written for the main checkout reads current from a linked worktree', async (t) => {
+  const bearingsHome = scratchHome(fs, 'goal-context-bearings-home-');
+  t.after(() => { try { fs.rmSync(bearingsHome, { recursive: true, force: true }); } catch {} });
+  const gitFixtureHome = scratchHome(fs, 'goal-context-bearings-gitconfig-');
+  t.after(() => { try { fs.rmSync(gitFixtureHome, { recursive: true, force: true }); } catch {} });
+  fs.writeFileSync(path.join(gitFixtureHome, '.gitconfig'), '[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n');
+  const gitEnv = childEnv(gitFixtureHome);
+
+  const parent = scratchHome(fs, 'goal-context-bearings-repo-');
+  t.after(() => { try { fs.rmSync(parent, { recursive: true, force: true }); } catch {} });
+  const main = path.join(parent, 'main');
+  fs.mkdirSync(main, { recursive: true });
+  execFileSync('git', ['init', '-q', main], { env: gitEnv });
+  fs.mkdirSync(path.join(main, 'docs', 'goals'), { recursive: true });
+  fs.writeFileSync(path.join(main, 'docs', 'goals', 'card.md'), 'GOAL: fixture\nNOT: nothing\nDONE: nothing\nKILL: nothing\n');
+  execFileSync('git', ['-C', main, 'add', '-A'], { env: gitEnv });
+  execFileSync('git', ['-C', main, 'commit', '-qm', 'seed'], { env: gitEnv });
+  execFileSync('git', ['-C', main, 'branch', '-q', 'feature'], { env: gitEnv });
+  const worktree = path.join(parent, 'wt');
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', worktree, 'feature'], { env: gitEnv });
+
+  const report = path.join(parent, 'report.md');
+  const response = path.join(parent, 'response.md');
+  fs.writeFileSync(report, 'review\n');
+  fs.writeFileSync(response, 'lead\n');
+
+  const { complete } = await import(pathToFileURL(path.join(REPO, 'skills', 'bearings', 'scripts', 'bearings-state.mjs')).href);
+  const bearingsEnv = { AGENTS_HOME: bearingsHome };
+  complete({
+    repo: main, report, leadResponse: response, publication: 'https://example.test/decision',
+    reviewerId: 'reviewer-a', leadId: 'lead-b', env: bearingsEnv,
+  });
+
+  // `bearings-state.mjs check --repo .` run from the MAIN checkout already agrees the receipt is
+  // current — this is the resolution goal-context.mjs's own bearingsNotice must now match.
+  const { check } = await import(pathToFileURL(path.join(REPO, 'skills', 'bearings', 'scripts', 'bearings-state.mjs')).href);
+  assert.equal(check({ repo: main, env: bearingsEnv }).status, 'current');
+
+  const { bearingsNotice } = await import(pathToFileURL(HELPER).href);
+  const notice = await bearingsNotice(worktree, { env: bearingsEnv });
+  assert.equal(notice, null, 'a current main-checkout receipt must silence the worktree pane\'s notice too');
 });
