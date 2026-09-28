@@ -14,6 +14,15 @@ import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { runSealed, sweepStaleHomes, main } from "./run-tests.mjs";
+// N2 (windows-r1-f8aa816.log, skills/multi/scripts/hooks.test.mjs:429): every spawned child's env
+// must be built by `childEnv`, never a bare object spread of the runner's own environment - that
+// spread is what the suite-wide "no test file inherits the runner environment" check scans for,
+// and a spawn that skips it can leak this session's messaging socket/token into a fixture (see
+// test-child-env.mjs's own note on the 2026-09-17 incident). `childEnv` also fixes the second
+// windows-r1 defect: it needs a fixture HOME anyway, and passing TEMP/TMP alongside TMPDIR (below)
+// is what makes `os.tmpdir()` honour the injected scratch dir on win32, which reads TEMP/TMP, never
+// TMPDIR.
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RUN_TESTS_MODULE = path.join(HERE, "run-tests.mjs");
@@ -210,6 +219,77 @@ test("sweepStaleHomes never throws when the temp dir can't be read - prints an e
   assert.ok(errors.some((line) => line.includes("run-tests: sweep error")), "the error must be printed");
 });
 
+// N2 (review-r2.md, optional per r1's F3 finding): the F3 fix (each removal in its own try/catch,
+// the count always printed) had no unit test of its own - only the patch was verified by hand in a
+// scratch copy. One unremovable stale directory (a subdirectory inside it made unwritable, the same
+// shape a foreign 0700 `sealed-home-*` on a shared /tmp produces) must not abort the rest of the
+// sweep, and the partial count must still be printed. Skipped on win32 (no POSIX permission bits)
+// and when running as root (root ignores the deny).
+test(
+  "F3: one unremovable stale entry does not abort the sweep, and the partial count is still printed",
+  {
+    skip:
+      process.platform === "win32"
+        ? "no POSIX permission bits on win32 - the sweep's own guarantee there is the 6h age check"
+        : process.getuid?.() === 0
+          ? "root ignores the chmod 500 deny this test relies on"
+          : false,
+  },
+  () => {
+    const { tmpDir, now, stale } = makeAgeSet();
+    const SEVEN_HOURS = 7 * 60 * 60 * 1000;
+
+    const locked = path.join(tmpDir, "sealed-home-locked");
+    const lockedSub = path.join(locked, "sub");
+    fs.mkdirSync(lockedSub, { recursive: true });
+    fs.writeFileSync(path.join(lockedSub, "file.txt"), "x");
+    fs.utimesSync(locked, new Date(now - SEVEN_HOURS), new Date(now - SEVEN_HOURS));
+    // Chmod the SUBdirectory, not `locked` itself: removing `sub/file.txt` needs write permission
+    // on `sub` (its immediate parent), not on `locked` - an empty chmod-500 dir with nothing inside
+    // it is still rmdir-able by its own parent's permission alone.
+    fs.chmodSync(lockedSub, 0o500);
+    cleanups.push(() => {
+      try {
+        fs.chmodSync(lockedSub, 0o700);
+      } catch {
+        // already gone
+      }
+    });
+
+    const removable = path.join(tmpDir, "sealed-home-removable");
+    fs.mkdirSync(removable);
+    fs.utimesSync(removable, new Date(now - SEVEN_HOURS), new Date(now - SEVEN_HOURS));
+
+    const homeDir = emptyHomeDir();
+    const errors = [];
+    const lines = [];
+    const origErr = console.error;
+    const origLog = console.log;
+    console.error = (...args) => errors.push(args.join(" "));
+    console.log = (...args) => lines.push(args.join(" "));
+    let result;
+    try {
+      result = sweepStaleHomes({ tmpDir, homeDir, now: () => now });
+    } finally {
+      console.error = origErr;
+      console.log = origLog;
+      // Restore immediately, not just in the suite-wide after-hook: makeAgeSet's own scratchDir
+      // cleanup removes the whole tmpDir recursively, and it was registered before this one.
+      fs.chmodSync(lockedSub, 0o700);
+    }
+
+    assert.equal(fs.existsSync(stale), false, "the ordinary stale dir must still be removed");
+    assert.equal(fs.existsSync(removable), false, "the removable stale dir must still be removed");
+    assert.equal(fs.existsSync(locked), true, "the locked stale dir must survive - it could not be removed");
+    assert.equal(result.swept, 2, "stale + removable, not the locked one");
+    assert.ok(
+      errors.some((line) => line.includes("sweep could not remove") && line.includes("sealed-home-locked")),
+      "an error line must name the locked dir",
+    );
+    assert.deepEqual(lines, ["swept 2 stale sealed homes"], "the partial count must still be printed");
+  },
+);
+
 // ---------------------------------------------------------------------------
 // main(): --no-sweep gates the sweep call; the rest of the CLI contract is unchanged.
 // ---------------------------------------------------------------------------
@@ -273,7 +353,8 @@ test("the real CLI honours --no-sweep end to end (spawned process, real exit cod
 test("the real CLI keeps a failed suite's home after the process has exited (RT-18/F6)", () => {
   const probe = writeProbe(false);
   const tmp = scratchDir("run-tests-keep-tmp-");
-  const env = { ...process.env, TMPDIR: tmp };
+  const fixtureHome = scratchDir("run-tests-keep-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
   delete env.NODE_TEST_CONTEXT;
   const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
   assert.notEqual(r.status, 0);
@@ -292,27 +373,36 @@ const WIN32_GROUP_SIGNAL_SKIP_REASON =
   "on win32, child.kill(signal) terminates the child directly without running any Node signal " +
   "handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler";
 
+// N1 (review-r2.md): a slow probe alone isn't enough - if the signal is sent as soon as the
+// runner's home path is printed, it arrives before the sealed `node --test` child even exists, that
+// child then runs the probe to a harmless pass, and `cleanup()` (not the keep()-on-a-killed-suite
+// path this test exists to guard) removes the home. The probe now drops a ready-marker file once
+// it is actually running, and the test waits for that marker before signalling - and asserts the
+// signal took effect quickly, not that the suite merely ran to completion.
 function writeSlowProbe() {
   const dir = scratchDir("run-tests-slow-probe-");
   const file = path.join(dir, "slow.test.mjs");
+  const ready = path.join(dir, "ready");
   fs.writeFileSync(
     file,
     [
       "import test from 'node:test';",
-      "test('slow', async () => { await new Promise((r) => setTimeout(r, 10000)); });",
+      "import fs from 'node:fs';",
+      `test('slow', async () => { fs.writeFileSync(${JSON.stringify(ready)}, ''); await new Promise((r) => setTimeout(r, 10000)); });`,
       "",
     ].join("\n"),
   );
-  return file;
+  return { file, ready };
 }
 
 test(
   "a SIGTERM sent to the whole process group re-raises on the runner and removes its own sealed home (F1, POSIX only)",
   { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
   async () => {
-    const slowProbe = writeSlowProbe();
+    const { file: slowProbe, ready } = writeSlowProbe();
     const tmp = scratchDir("run-tests-group-sigterm-tmp-");
-    const env = { ...process.env, TMPDIR: tmp };
+    const fixtureHome = scratchDir("run-tests-group-sigterm-home-");
+    const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
     delete env.NODE_TEST_CONTEXT;
 
     const child = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", slowProbe], {
@@ -342,9 +432,19 @@ test(
       child.on("exit", (code, signal) => resolve({ code, signal }));
     });
 
+    // Signal only once the sealed suite child is really running the probe: sent earlier, the
+    // signal lands before `node --test` exists, the suite then passes and cleanup() removes the
+    // home anyway, so the keep()-on-a-killed-suite path this test guards is never reached.
+    const deadline = Date.now() + 8000;
+    while (!fs.existsSync(ready)) {
+      if (Date.now() > deadline) throw new Error("the slow probe never started");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const sentAt = Date.now();
     process.kill(-child.pid, "SIGTERM"); // the whole group, as a closed pane / dropped ssh session does
 
     const { code, signal } = await exited;
+    assert.ok(Date.now() - sentAt < 5000, "the runner must die from the signal, not after the suite ran to completion");
     assert.ok(
       signal === "SIGTERM" || code === 143,
       `the runner must die from the re-raised signal (128+15), got code=${code} signal=${signal}`,
