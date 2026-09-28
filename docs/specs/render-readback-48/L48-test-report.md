@@ -13,6 +13,8 @@ Fixtures are byte-pinned by in-test SHA-256: intended `535914342B07C360AB2FBC596
 
 Review remediation: fixture-local `skills/decisions/scripts/fixtures/render-readback-48/.gitattributes` marks only these Markdown snapshots `-text`, and the original CRLF bytes were recopied before staging. This preserves the pinned incident bytes in committed blobs; the global text rule had previously stored LF-normalized blobs that fail the same in-test hashes from a fresh checkout.
 
+Fresh-checkout verification at `6a12e9cb7aa8d9f32e77073e9cf79920eafdc43e`: committed fixture blobs hash to the two pinned values above, and the focused command exits `0` with 145 pass / 0 fail / 145 tests. A direct comparison using base `926c6f801ce21383b06bd5f92ffb18b5ca2603bc`'s exported `normalize()` against those committed CRLF fixture bytes reports `BASE_NORMALIZE_EQUAL=false`, preserving reconstructible red evidence. Raw focused receipt: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48/fresh-fixture-6a12e9c-focused.raw.log`.
+
 Red command: `node --test skills/decisions/scripts/decisions-render.test.mjs skills/decisions/scripts/decisions-render-publish.test.mjs`; native exit `1`, 143 pass / 1 fail / 144 tests. The only failure was exact intended/live equality. Raw: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48/lane48-red.raw.log`.
 
 An intermediate post-fix run exited `1` because an LF-only test mutation did not alter CRLF fixture bytes; it is retained at `lane48-green.raw.log`. The mutation was corrected to assert it changes the raw snapshot before normalization.
