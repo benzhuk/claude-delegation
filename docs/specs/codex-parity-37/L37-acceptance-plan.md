@@ -1,12 +1,21 @@
-VERDICT: BLOCKED
+VERDICT: PARTIAL
+
+## Gate timing correction
+
+Netcup R4 and R5 did not start the suite or native Node process: the persistent
+`/tmp/claude-verify.lock` regular file made their `mkdir` acquisition fail. R5's direct SSH
+receipt is exit 46 and supersedes the earlier mistaken 30-second interruption claim; it is a
+bounded lock-admission result, not a test duration or a native exit. Preserve both raw reports;
+the next authorized gate must use an FD-held `flock -w 60` lock and capture its native exit
+immediately.
 
 ## Acceptance shape
 
-The current record parses with `errors: ["unknown label: Scratch"]`; `validateRecord()` alone returns no findings, which is why it is not the acceptance test. `checkAcceptance()` immediately calls `requireStrictRecordShape()`, which rejects any parser error before status, evidence, artifact, or census checks. Thus `Scratch:` is an actual current acceptance block, not merely a continuation-helper limitation.
+The `Scratch:` body-placement fix is applied. Root verified the record parses and binds with the exact Scratch path placed after the header/body blank, so it is no longer an acceptance block. `validateRecord()` alone is insufficient because `checkAcceptance()` calls `requireStrictRecordShape()` before status, evidence, artifact, or census checks; the root verification covered the strict parse/bind path.
 
-`origin/main` at `357fc15d5d2daaf47a9655246a16b852210f0117` contains no `Scratch` support in `scripts/work-record.mjs` or `docs/work-record.md`. The verified installed mirror is delegation `0.20.17` and likewise has no `Scratch` parser support. The compatible existing-record representation is to preserve the exact one `Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37` line immediately after the first header/body blank, rather than in the header: `parseRecord()` and `requireStrictRecordShape()` inspect only header lines, while `requireObservedBody()` permits body content before the existing later `Observed:` paragraph. This is a record-format change for root to make when otherwise ready; it neither drops metadata nor changes parser/source. No acceptance or check-acceptance command was run.
+`origin/main` at `357fc15d5d2daaf47a9655246a16b852210f0117` contains no `Scratch` support in `scripts/work-record.mjs` or `docs/work-record.md`. The verified installed mirror is delegation `0.20.17` and likewise has no `Scratch` parser support. The compatible representation preserves the exact one `Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-parity-37` line immediately after the first header/body blank, rather than in the header: `parseRecord()` and `requireStrictRecordShape()` inspect only header lines, while `requireObservedBody()` permits body content before the existing later `Observed:` paragraph. It changes no parser/source.
 
-The requested scratch-fixture verification was denied before execution with `CreateProcess ... rejected: blocked by policy`; it was not retried through another tool or shell. The compatibility conclusion above is source-derived from the current parser and acceptance checks.
+Historical receipt: the earlier requested scratch-fixture verification was denied before execution with `CreateProcess ... rejected: blocked by policy`; it was not retried through another tool or shell. That prior denial remains evidence only; root subsequently applied the body placement and verified actual strict parse/bind.
 
 ## Final census commands (do not run before the final review)
 

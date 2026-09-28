@@ -57,7 +57,7 @@ VERDICT: CONTINUE
 
 - Previous coordination STOP was resolved by the owner's collector choice, per the prior report. This is CONTINUE; no second ineffective RE-PLAN or new release/KILL trigger is established.
 - Lead response: pending the lead's own accounting; this reviewer does not write it on the lead's behalf.
-- Notion target: configured project decisions page, through the bundle's publishing owner.
-- Publication: PENDING. Bundle explicitly defers page publication to lane34 until owner tick cleared. No publication route attempted because that boundary is explicit; no completion receipt may be recorded on this pending evidence.
-- Completion inputs: assessment is `docs/specs/codex-parity-37/bearings-assessment.md`; lead response and verified publication URL remain pending.
+- Notion target: configured project Goals child page, `3e3da112-77a1-813c-b326-c42ed97a1d5d`.
+- Publication: PUBLISHED at 2026-09-28 6:31:59 PM America/New_York by a fresh anchored `notion.js edit --safe`; readback verified one dated section and both candidate permalinks. Receipt: [Goals page](https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d).
+- Completion inputs: assessment is `docs/specs/codex-parity-37/bearings-assessment.md`; lead response is `docs/specs/codex-parity-37/bearings-lead-response.md`; verified publication URL is the Goals page receipt above. Root attestation may record completion separately.
 

@@ -6,4 +6,4 @@ I will use current census behavior rather than the historical Lane31 diagnosis: 
 
 The dispatch-to-ACK delay remains in Opened rather than being hidden by restarting the clock. Lanes34,36,38 remain independently authorized; this assessment does not serialize them.
 
-Publication: PENDING. The pinned bundle explicitly defers all page publication to Lane34 while owner input is pending. No Notion write was attempted against that instruction and no completion receipt is claimed. Reviewer identity /root/lane37_bearings differs from native lead 01a0df4c-2809-7520-b1d7-876cc51a87ee; completion can be recorded only after verified publication.
+Publication: PUBLISHED September 28, 2026, 6:31:59 PM America/New_York on the configured Goals page, https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d. The prior lane34 deferral was cleared on main. Fresh anchored safe edit added the dated assessment without removing existing lines; readback verified the section and both pinned evidence links. Reviewer /root/lane37_bearings is distinct from lead01a0df4c-2809-7520-b1d7-876cc51a87ee.

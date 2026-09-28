@@ -6,6 +6,11 @@ VERDICT: READY
 
 Wait for the final test-fix SHA, the final independent Opus APPROVE for that SHA, the accepted `wr-2026-09-28-codex-parity` record, and both retained host gates. The existing Windows gate is `L37-windows-r3.md`; the second-host gate must name the same artifact and be copied into record evidence before acceptance. Do not edit the root-owned record.
 
+Netcup gate correction: `/tmp/claude-verify.lock` is a persistent zero-byte regular file, not a
+`mkdir` lock directory. R4 and R5 never started Node because `mkdir` could not acquire that
+path; a later gate must test it with `stat`/`-e`, lock an open file descriptor with
+`flock -w 60`, and capture the native suite exit immediately before closing that descriptor.
+
 Create an ordinary fresh Windows clone only at `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-parity-37\main-merge`; never use a canonical dirty checkout. Fetch `origin`, verify the pushed final branch tip and accepted-record SHA, then merge `origin/build/codex-parity-37` into an up-to-date `origin/main`. Any conflict other than the day-history append stops the merge and becomes a Waiting decision item. For a conflict confined to `docs/decisions/history/2026-09-28.md`, retain both bullets in commit order.
 
 The merge commit itself appends one plain history bullet: `Merged build/codex-parity-37 at <artifact>, <M-D>: <one-line changelog>; suite <pass> of <tests> on Windows.` Do not add it on the lane branch. If `origin/main` was not an ancestor of the branch tip, run one full sealed suite against the exact merge commit in a fresh tree before pushing; record that distinct gate and SHA.
