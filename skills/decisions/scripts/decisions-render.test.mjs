@@ -13,6 +13,7 @@ import { parseDocument, computeExitCode } from './decisions-read.mjs';
 import {
   render, normalize, RefusedError, BlindError,
   checkProseLines, countSentences, checkWaitingItem,
+  checkAutolinkLines,
   formatSinceHeading, formatClearedTimestamp, formatMonthDay,
   run, defaultReadPageWithCli, defaultReplaceMdWithCli,
 } from './decisions-render.mjs';
@@ -206,6 +207,95 @@ test('checkProseLines bold rule: a bullet starting with bold right after "- " is
 
 test('checkProseLines bold rule: a leading escaped \\*\\* (the page\'s own comment marker) is refused outside a real comment', () => {
   assert.throws(() => checkProseLines('\\*\\* a stray copied owner line', 'x'), (e) => e instanceof RefusedError && /starts with bold/.test(e.message));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// checkAutolinkLines() — Lane 32: refuse text Notion will rewrite on the way back (a bare
+// `word.TLD`-shaped filename's final path segment, a bare `~`, or an unwrapped www./http(s)://).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('checkAutolinkLines: a bare GOALS.md is refused', () => {
+  assert.throws(() => checkAutolinkLines('GOALS.md', 'x'), (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message));
+});
+
+test('checkAutolinkLines: GOALS.md in backticks passes', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('`GOALS.md`', 'x'));
+});
+
+test('checkAutolinkLines: [GOALS.md](https://github.com/...) as a whole link passes', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('[GOALS.md](https://github.com/benzhuk/claude-delegation/blob/main/docs/GOALS.md)', 'x'));
+});
+
+test('checkAutolinkLines: a bare history path refuses on its final path segment', () => {
+  assert.throws(
+    () => checkAutolinkLines('see docs/decisions/history/2026-09-27.md for detail', 'x'),
+    (e) => e instanceof RefusedError && /2026-09-27\.md/.test(e.message),
+  );
+});
+
+test('checkAutolinkLines: the same path as a link passes', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('see [docs/decisions/history/2026-09-27.md](https://github.com/x/y/blob/main/docs/decisions/history/2026-09-27.md)', 'x'));
+});
+
+test('checkAutolinkLines: a bare .mjs filename passes (not one of the eight extensions)', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('run scripts/collect-status.mjs now', 'x'));
+});
+
+test('checkAutolinkLines: a bare ~ refuses', () => {
+  assert.throws(() => checkAutolinkLines('~/.agents holds the state', 'x'), (e) => e instanceof RefusedError && /bare ~/.test(e.message));
+});
+
+test('checkAutolinkLines: ~/.agents in backticks passes', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('`~/.agents` holds the state', 'x'));
+});
+
+test('checkAutolinkLines: a version number, a full date-time, and "HTTP codes" all pass', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('Release 0.20.16 shipped', 'x'));
+  assert.doesNotThrow(() => checkAutolinkLines('Sep 27, 2026, 2:16 PM America/New_York', 'x'));
+  assert.doesNotThrow(() => checkAutolinkLines('the change is about HTTP codes', 'x'));
+});
+
+test('checkAutolinkLines: a bare www.example.com refuses', () => {
+  assert.throws(() => checkAutolinkLines('see www.example.com for detail', 'x'), (e) => e instanceof RefusedError && /www\.example\.com/.test(e.message));
+});
+
+test('checkAutolinkLines: a bare http(s):// URL refuses outside a link and outside <...>', () => {
+  assert.throws(() => checkAutolinkLines('see https://example.com/x for detail', 'x'), RefusedError);
+});
+
+test('checkAutolinkLines: a URL inside <...> passes', () => {
+  assert.doesNotThrow(() => checkAutolinkLines('see <https://example.com/x> for detail', 'x'));
+});
+
+// Review round-2/Lane-32: unlike the hex rule's stripExempt, there is no owner-quote exemption
+// here — Notion rewrites the text whoever wrote it, so a quoted filename still refuses.
+test('checkAutolinkLines: a quoted owner line containing a bare GOALS.md still refuses (no owner-quote exemption)', () => {
+  assert.throws(
+    () => checkAutolinkLines('- Your note, 9-27: "mentions GOALS.md in passing" — done', 'x'),
+    (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message),
+  );
+});
+
+test('checkAutolinkLines: render does not scan a history body line below the Summary line', () => {
+  const { deps } = renderDeps({
+    [p('docs', 'decisions', 'history', '2026-09-27.md')]: '# Sep 27, 2026\nSummary: five lanes merged today.\n- see ~/.agents/ws-off-sweep for detail\n',
+  });
+  assert.doesNotThrow(() => render({ repo: REPO }, deps));
+});
+
+test('checkAutolinkLines: a bare filename in a history Summary line refuses', () => {
+  const { deps } = renderDeps({
+    [p('docs', 'decisions', 'history', '2026-09-27.md')]: '# Sep 27, 2026\nSummary: see GOALS.md for detail.\n- a bullet\n',
+  });
+  assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message));
+});
+
+test('checkAutolinkLines: --done-line is scanned, and the message labels it --done-line', () => {
+  const { deps } = renderDeps();
+  assert.throws(
+    () => render({ repo: REPO, doneLine: '- [ ] Done (see GOALS.md)' }, deps),
+    (e) => e instanceof RefusedError && /^--done-line:/.test(e.message),
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -437,6 +527,24 @@ test('render refusal: a history file linked on the page is absent from git ls-tr
 test('render refusal: an archive file linked on the page is absent from git ls-tree origin/main', () => {
   const { deps } = renderDeps({}, ['docs/decisions/archive/decisions-page-2026-09-27.md']);
   assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError && /ls-tree/.test(e.message));
+});
+
+test('render refusal: a bare autolink-shaped filename in now.md', () => {
+  const { deps } = renderDeps({ [p('docs', 'decisions', 'now.md')]: 'See GOALS.md for detail. Second sentence here now. Third one too now.' });
+  assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError && /GOALS\.md/.test(e.message));
+});
+
+test('render refusal: a bare www. in a session.md bullet', () => {
+  const { deps } = renderDeps({
+    [p('docs', 'decisions', 'session.md')]: 'since: 2026-09-27T18:16:00Z\n- See www.example.com for detail.',
+  });
+  assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError && /www\.example\.com/.test(e.message));
+});
+
+test('render refusal: a bare ~ in a waiting item', () => {
+  const item = GOOD_ITEM.replace('Evidence: the queue outgrew memory twice this month.', 'Evidence: see ~/.agents for the queue depth.');
+  const { deps } = renderDeps({ [p('docs', 'decisions', 'waiting', 'a-item.md')]: item });
+  assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError && /bare ~/.test(e.message));
 });
 
 test('render refusal: a waiting item that fails decisions-read.mjs (SHAPELESS)', () => {

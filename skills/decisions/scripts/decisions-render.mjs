@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import {
   render, normalize, RefusedError, BlindError,
   checkProseLines, countSentences, checkWaitingItem,
+  checkAutolinkLines, stripAutolinkExempt,
   formatSinceHeading, formatClearedTimestamp, formatMonthDay, parseSessionSource,
   defaultReadFile, defaultReaddir, defaultExecGit,
 } from './decisions-render-core.mjs';
@@ -36,6 +37,7 @@ import {
 export {
   render, normalize, RefusedError, BlindError,
   checkProseLines, countSentences, checkWaitingItem,
+  checkAutolinkLines, stripAutolinkExempt,
   formatSinceHeading, formatClearedTimestamp, formatMonthDay, parseSessionSource,
   defaultReadFile, defaultReaddir, defaultExecGit,
   publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, describeMismatch,
