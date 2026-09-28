@@ -1112,15 +1112,31 @@ test('Defect 1: typed path, no inbox, no mirror, no --recipient-repo, pane not f
   );
   assert.equal(err.refused, 'no-local-recipient');
   assert.equal(err.to, 'nucleus');
-  assert.equal(err.hint, "run note-send on the recipient's machine over ssh, or pass --sender-host <this host>");
+  // Fix 2 (render-guard, pack/spec.md): the JSON hint must name a form that actually works — never
+  // "--sender-host <this host>" (wrong for a local run: --sender-host names the machine the sender
+  // came FROM, and only mirrors when note-send runs on another machine).
+  assert.equal(
+    err.hint,
+    "run note-send on the recipient's machine over ssh: ssh <user@host> '~/.local/bin/note-send ... "
+    + "--packet-file -' < packet.md; pass --local-ok if this machine's ledger is what the recipient reads",
+  );
+  assert.doesNotMatch(err.hint, /--sender-host <this host>/);
+  assert.match(err.hint, /--packet-file -/);
   assert.match(err.message, /NO ledger line was written/);
   assert.equal(fs.existsSync(path.join(home, '.agents', 'notes')), false, 'nothing under the mirror either');
   assert.equal(fs.existsSync(path.join(repo, 'docs')), false, 'nothing under the recipient repo either');
   const json = failureJson(err, err.exitCode);
   assert.deepEqual(
     { refused: json.refused, to: json.to, hint: json.hint },
-    { refused: 'no-local-recipient', to: 'nucleus', hint: "run note-send on the recipient's machine over ssh, or pass --sender-host <this host>" },
+    {
+      refused: 'no-local-recipient',
+      to: 'nucleus',
+      hint: "run note-send on the recipient's machine over ssh: ssh <user@host> '~/.local/bin/note-send ... "
+        + "--packet-file -' < packet.md; pass --local-ok if this machine's ledger is what the recipient reads",
+    },
   );
+  assert.doesNotMatch(json.hint, /--sender-host <this host>/);
+  assert.match(json.hint, /--packet-file -/);
 });
 
 test('Defect 1: the quiet (ledger-only) path is refused too, before any pane lookup is attempted', async () => {
