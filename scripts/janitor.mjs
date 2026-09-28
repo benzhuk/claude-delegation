@@ -1177,6 +1177,174 @@ export function applySafe(state, log = []) {
   return log;
 }
 
+/**
+ * (C1 ruling b, lane-closeout) The one new export this file gains for `work-record.mjs close
+ * --closeout`: given a record's `Worktree:` field (a path or a bare branch name), resolves it
+ * through `git worktree list --porcelain`, refuses the main worktree and the worktree
+ * containing `cwd`, and — when not a dry run — hands a state narrowed to exactly that one
+ * worktree (and NO branches) to `applySafe`, so the same unforced `git worktree remove` path is
+ * used here as for a routine sweep. `applySafe`'s own `-D` branch-delete path is never reached
+ * (`state.safe.branches` is always empty): the local branch is deleted separately below, with
+ * `-d`, never `-D` — the caller (close --closeout) has already proven the record's Artifact: is
+ * an ancestor of origin/main, but `-d` still re-derives its own merge judgment against THIS
+ * checkout's HEAD and simply refuses (never throws, never forces) when it disagrees, which is
+ * the right "reported and left in place" behavior for a branch not yet fast-forwarded locally.
+ *
+ * Never throws for an ordinary refusal: returns `{ steps: [{ step: "worktree"|"branch", ref?,
+ * result: "removed"|"refused"|"absent"|"dirty", detail? }] }` so a caller stepping through one
+ * record never has to wrap this in try/catch. Dry run performs no git mutation at all — it
+ * reports the same verdicts (clean tree => "removed"/"removed", dirty => "dirty"/"refused")
+ * that a live run would, computed from `isTreeClean` alone.
+ */
+/** R2-3(j) (C1 round 3): the realpath-normalized, win32-case-folded containment check
+ * `closeoutWorktree` uses to refuse the worktree entry that IS, or CONTAINS, `root`/`cwd` -
+ * pulled out as its own pure, exported function so the win32 fold itself (the exact check
+ * round-1's F7 found broken on the host where it matters, and round 2 shipped with no test at
+ * all for it) can be pinned by a test running on ANY host, not only win32: pass `pathImpl:
+ * path.win32` and `platform: "win32"` to exercise the Windows separator/case rules without a
+ * live Windows filesystem. `platform`/`pathImpl`/`realpath` default to the real host. A `child`
+ * equal to `parent` counts as "within" (containment includes equality, matching the callers'
+ * own "IS, or CONTAINS" contract). */
+export function pathWithin(child, parent, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const pathImpl = opts.pathImpl ?? path;
+  const realpath = opts.realpath ?? ((p) => {
+    try { return realpathSync.native(p); } catch { return p; } // unreadable/missing still compares by its resolved form
+  });
+  const norm = (p) => {
+    const r = realpath(pathImpl.resolve(p));
+    return platform === "win32" ? r.toLowerCase() : r;
+  };
+  const rel = pathImpl.relative(norm(parent), norm(child));
+  return rel === "" || (!rel.startsWith("..") && !pathImpl.isAbsolute(rel));
+}
+
+export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd = process.cwd(), dryRun = false }) {
+  if (!worktreeField) {
+    return { steps: [{ step: "worktree", result: "refused", detail: "no Worktree: field" }] };
+  }
+  const worktrees = listWorktrees(root);
+  if (worktrees === null) {
+    return { steps: [{ step: "worktree", result: "refused", detail: "could not read git worktree state" }] };
+  }
+  // R2-8 (C1 round 3, MINOR): the same realpath-normalized, win32-case-folded key used for the
+  // containment checks below is used for THIS match too - a plain string `samePath` comparison
+  // never resolves a symlinked ancestor or win32 case/separator difference, so an unmatched
+  // `Worktree:` (a stale realpath, a `C:\Users\...` value read against git's `C:/Users/...`,
+  // an `origin/build/x`-shaped value read against the raw field) silently fell through to
+  // `absent` (exit 0) - the worktree and its local branch were left in place with no refusal at
+  // all, on the same class of value F4/L8 already had to normalize on the origin-branch side.
+  const normPath = (p) => {
+    let r = path.resolve(p);
+    try { r = realpathSync.native(r); } catch { /* unreadable/missing still compares by its resolved form */ }
+    return process.platform === "win32" ? r.toLowerCase() : r;
+  };
+  const within = (child, parent) => pathWithin(child, parent);
+  const branchField = String(worktreeField).trim().replace(/\/+$/, "")
+    .replace(/^refs\/heads\//, "").replace(/^refs\/remotes\/origin\//, "").replace(/^origin\//, "");
+  const target = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(root, worktreeField);
+  let entry = worktrees.find((w) => normPath(w.path) === normPath(target));
+  if (!entry) entry = worktrees.find((w) => w.branch === branchField);
+  if (!entry) {
+    // Idempotent closeout (C1 round 4, the lead's ruling on the R2-8 observation): a re-run must
+    // be safe. `Worktree:` naming a path that simply does not exist on disk any more, with no
+    // registered worktree holding its branch either, is genuinely absent - not the same ambiguity
+    // R2-8 refused - and must not keep raising the exit code forever. A value this host cannot
+    // even resolve as a local path (foreign-OS-shaped, e.g. a `C:\...` value read on Linux) and a
+    // real directory that exists but simply is not a registered worktree both stay ambiguous,
+    // exactly as R2-8 ruled, and keep refusing.
+    const isForeignPath = (path.posix.isAbsolute(String(worktreeField)) || path.win32.isAbsolute(String(worktreeField)))
+      && !path.isAbsolute(String(worktreeField));
+    if (!isForeignPath && !existsSync(target)) {
+      const branchSha = branchField ? refSha(root, `refs/heads/${branchField}`) : null;
+      if (!branchSha) {
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }] };
+      }
+      // The worktree itself is genuinely gone, but its local branch survived - go on to the
+      // branch step as usual (a plain, unconditional `git branch -d`; there is no worktree
+      // directory left for a tree-clean check to run against).
+      if (dryRun) {
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "removed" }] };
+      }
+      try {
+        git(["branch", "-d", "--", branchField], root);
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "removed" }] };
+      } catch (err) {
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "refused", detail: String(err.message || err) }] };
+      }
+    }
+    return { steps: [{ step: "worktree", result: "refused", detail: "worktree-unresolved" }, { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" }] };
+  }
+  if (entry.main) {
+    return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the main worktree" }] };
+  }
+  // F7 (C1 round 2, MAJOR): realpath-normalized, win32-case-folded containment. A plain
+  // path.resolve comparison of git's forward-slash paths against process.cwd()'s (backslash, on
+  // win32) paths never matched on that platform, and nothing at all refused the entry that IS, or
+  // CONTAINS, `root` (--repo) itself - closeoutWorktree can be called with `root` set to a linked
+  // worktree, whose own `entry.main` is always false, so the main-worktree check above never
+  // catches this case.
+  if (within(cwd, entry.path)) {
+    return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the worktree containing process.cwd()" }] };
+  }
+  if (within(root, entry.path)) {
+    return { steps: [{ step: "worktree", ref: entry.path, result: "refused", detail: "refuses the worktree that is (or contains) --repo" }] };
+  }
+
+  const branch = entry.branch;
+  const clean = entry.bare ? true : isTreeClean(entry.path);
+  const steps = [];
+
+  if (dryRun) {
+    steps.push({ step: "worktree", ref: entry.path, result: clean ? "removed" : "dirty" });
+    if (branch) {
+      steps.push(clean
+        ? { step: "branch", ref: branch, result: "removed" }
+        : { step: "branch", ref: branch, result: "refused", detail: "worktree removal did not report success" });
+    }
+    return { steps };
+  }
+
+  // F1 (C1 round 2, CRITICAL): the live path must refuse on the same `clean` the dry run above
+  // already computed - `isTreeClean`'s own contract counts ignored files exactly because `git
+  // worktree remove` deletes them (silently, never asking, never reporting it), so skipping this
+  // check here let a live run delete files a dry run of the identical state had just reported
+  // `dirty` for.
+  if (!clean) {
+    steps.push({ step: "worktree", ref: entry.path, result: "dirty", detail: "untracked, modified or ignored files present (git worktree remove would delete ignored files)" });
+    if (branch) steps.push({ step: "branch", ref: branch, result: "refused", detail: "worktree left in place (dirty)" });
+    return { steps };
+  }
+
+  const state = {
+    safe: { worktrees: [{ ref: entry.path, branch }], branches: [] },
+    judgment: { worktrees: [], branches: [], untrackedFiles: [] },
+    fetch: { attempted: true, ok: true },
+    _raw: { root, mainBranch },
+  };
+  const log = applySafe(state, []);
+  const wtLog = log.find((l) => l.action === "worktree-remove" && samePath(l.ref, entry.path));
+  if (wtLog && wtLog.ok) {
+    steps.push({ step: "worktree", ref: entry.path, result: "removed" });
+  } else {
+    const dirty = Boolean(wtLog && /modified|untracked|locked|contains/i.test(wtLog.error || ""));
+    steps.push({ step: "worktree", ref: entry.path, result: dirty ? "dirty" : "refused", detail: wtLog ? wtLog.error : "worktree removal did not run" });
+  }
+  if (branch) {
+    if (wtLog && wtLog.ok) {
+      try {
+        git(["branch", "-d", "--", branch], root);
+        steps.push({ step: "branch", ref: branch, result: "removed" });
+      } catch (err) {
+        steps.push({ step: "branch", ref: branch, result: "refused", detail: String(err.message || err) });
+      }
+    } else {
+      steps.push({ step: "branch", ref: branch, result: "refused", detail: "worktree removal did not report success" });
+    }
+  }
+  return { steps };
+}
+
 // ---------- output ----------
 
 function table(rows, columns) {

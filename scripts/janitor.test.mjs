@@ -31,6 +31,8 @@ import {
   classify,
   fetchOrigin,
   lastFetchAgeHours,
+  closeoutWorktree,
+  pathWithin,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -2367,6 +2369,229 @@ test("J1 round 2 MINOR 5 (updated, lane nineteen J1): SKILL.md's origin-is-the-r
     "## Adapters",
   ]);
   assert.match(src, /Origin is the record of truth/, "the origin-truth content must still be present, just not under its own heading");
+});
+
+// ── C1 ruling b (lane-closeout): closeoutWorktree, the one new export this file gains ──────
+
+test("closeoutWorktree: removes a clean worktree and deletes its local branch with -d, never -D", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-clean-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  assert.deepEqual(result.steps.map((s) => s.step), ["worktree", "branch"]);
+  assert.equal(result.steps[0].result, "removed");
+  assert.equal(result.steps[1].result, "removed");
+  assert.equal(fs.existsSync(wt), false);
+  assert.equal(git(["branch", "--list", branch], root).trim(), "");
+});
+
+test("closeoutWorktree: a dirty worktree is reported 'dirty', left in place, and its branch is refused (never forced)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-dirty-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  fs.writeFileSync(path.join(wt, "uncommitted.txt"), "dirty\n");
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "dirty");
+  assert.equal(steps.branch.result, "refused");
+  assert.equal(fs.existsSync(wt), true);
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "");
+});
+
+// F1/L4 (C1 round 2, CRITICAL): an ignored file (never untracked/modified) still makes the
+// worktree 'dirty' on the LIVE path, not only the dry-run path - `git worktree remove` (unforced)
+// silently deletes ignored files even though it refuses on untracked/modified ones.
+test("closeoutWorktree: an ignored-only file (no untracked/modified) is 'dirty' live, not just on --dry-run, and the file survives", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-ignored-1";
+  const wt = addWorktree(root, branch);
+  fs.writeFileSync(path.join(wt, ".gitignore"), "secret-file\n");
+  git(["add", ".gitignore"], wt);
+  git(["commit", "-q", "-m", "gitignore"], wt);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  fs.writeFileSync(path.join(wt, "secret-file"), "x\n");
+  const status = git(["status", "--porcelain", "--ignored"], wt).trim();
+  assert.match(status, /^!! secret-file$/m, "fixture sanity: reported ignored, not untracked");
+  const dry = closeoutWorktree({ root, worktreeField: branch, cwd: root, dryRun: true });
+  assert.equal(Object.fromEntries(dry.steps.map((s) => [s.step, s])).worktree.result, "dirty");
+  const live = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(live.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "dirty");
+  assert.match(steps.worktree.detail, /ignored/);
+  assert.equal(fs.existsSync(wt), true, "the worktree must survive");
+  assert.equal(fs.existsSync(path.join(wt, "secret-file")), true, "the ignored file must survive - unforced `git worktree remove` would otherwise silently delete it");
+});
+
+// F7 (C1 round 2, MAJOR): --repo (root) equal to, or containing, the worktree entry being
+// considered is refused - the reviewer's own repro (e13-repo-is-wt.mjs) called closeoutWorktree
+// with root === the linked worktree's own path.
+test("closeoutWorktree: F7 - refuses a worktree entry that IS (or contains) --repo, distinct from the main-worktree and cwd-containment checks", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "close-repo-is-wt-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  const dry = closeoutWorktree({ root: wt, worktreeField: branch, cwd: root, dryRun: true });
+  assert.equal(dry.steps[0].result, "refused");
+  assert.match(dry.steps[0].detail, /--repo/);
+  const live = closeoutWorktree({ root: wt, worktreeField: branch, cwd: root });
+  assert.equal(live.steps[0].result, "refused");
+  assert.match(live.steps[0].detail, /--repo/);
+  assert.equal(fs.existsSync(wt), true);
+  assert.equal(fs.existsSync(path.join(wt, ".git")), true, "the worktree's own .git link must survive - this is exactly what an unguarded live removal would delete");
+});
+
+test("closeoutWorktree: refuses the main worktree, and refuses the worktree containing cwd", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const mainResult = closeoutWorktree({ root, worktreeField: root, cwd: root });
+  assert.equal(mainResult.steps[0].result, "refused");
+  assert.match(mainResult.steps[0].detail, /main worktree/);
+
+  const branch = "close-cwd-1";
+  const wt = addWorktree(root, branch);
+  const cwdResult = closeoutWorktree({ root, worktreeField: branch, cwd: wt });
+  assert.equal(cwdResult.steps[0].result, "refused");
+  assert.match(cwdResult.steps[0].detail, /process\.cwd\(\)/);
+  assert.equal(fs.existsSync(wt), true);
+});
+
+// R2-8 (C1 round 3), narrowed by the round-4 idempotent-closeout ruling: a Worktree: naming a
+// branch never checked out anywhere is no longer a blanket "refused worktree-unresolved" - the
+// branch it names genuinely exists (only the WORKTREE part is absent), so this now goes on to the
+// branch step as usual, same as the round-4 "directory gone, branch survives" case.
+test("closeoutWorktree: R2-8/round-4 - a Worktree: naming a branch never checked out anywhere reports the worktree absent and still removes the local branch", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  git(["branch", "close-absent-1"], root);
+  const result = closeoutWorktree({ root, worktreeField: "close-absent-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", ref: "close-absent-1", result: "removed" },
+  ]);
+  assert.equal(git(["branch", "--list", "close-absent-1"], root).trim(), "", "the local branch must actually be gone now");
+});
+
+// R2-8 (C1 round 3, MINOR): kills the "entry lookup is not normalized" gap directly - a
+// Worktree: given as "origin/build/p9-1" (an origin-branch-shaped value, not a plain branch name)
+// against a REAL linked worktree on branch build/p9-1 now resolves (branchField normalization),
+// instead of falling through to worktree-unresolved and leaving a real worktree untouched.
+test("closeoutWorktree: R2-8 - a Worktree: given as an origin-branch-shaped value (origin/build/x) still resolves to the real linked worktree on that branch", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "build/p9-1";
+  const wt = addWorktree(root, branch);
+  const result = closeoutWorktree({ root, worktreeField: `origin/${branch}`, cwd: root, dryRun: true });
+  assert.equal(result.steps[0].step, "worktree");
+  assert.equal(result.steps[0].result, "removed");
+  assert.equal(result.steps[0].ref, wt);
+});
+
+// R2-3(j) (C1 round 3, blocker item): the win32 case/separator fold `closeoutWorktree`'s
+// containment check relies on had NO test at all, on any host, including the one host (win32)
+// where it matters - this is the exact check round-1's F7 found broken there. Exercised through
+// `path.win32` so it is pinned on every CI host, not only a Windows one.
+test("pathWithin: win32 fold - backslash separators and drive-letter case all compare equal, only a DIFFERENT path is not contained", () => {
+  assert.equal(
+    pathWithin("C:\\Users\\X\\wt\\scripts", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    true,
+  );
+  assert.equal(
+    pathWithin("c:\\users\\x\\wt", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    true,
+  );
+  assert.equal(
+    pathWithin("C:\\Users\\X\\wt2", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    false,
+  );
+});
+test("pathWithin: posix - equal paths and a real subdirectory are 'within'; a sibling directory sharing a name prefix is not", () => {
+  assert.equal(pathWithin("/a/b", "/a/b"), true);
+  assert.equal(pathWithin("/a/b/c", "/a/b"), true);
+  assert.equal(pathWithin("/a/b2", "/a/b"), false, "must not treat a prefix-sharing sibling as contained");
+});
+
+test("closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and reports the same verdicts a live run would", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-dry-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root, dryRun: true });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "removed");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(fs.existsSync(wt), true, "--dry-run must not remove the worktree");
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "--dry-run must not delete the branch");
+});
+
+// C1 round 4 (idempotent closeout, the lead's ruling on the R2-3 review's O1 observation): a
+// Worktree: whose directory is genuinely gone from disk, with no registered worktree holding its
+// branch either, is `absent`, not a refusal - a re-run must be safe. But when the LOCAL BRANCH
+// still exists (only the directory is gone), closeout goes on to remove that branch as usual (a
+// plain `git branch -d`), rather than treating the missing directory as cover to skip it too.
+test("closeoutWorktree: idempotent - a genuinely absent Worktree: (no directory, no registered worktree, no local branch) is 'absent' on both steps, not a refusal", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const result = closeoutWorktree({ root, worktreeField: "idem-never-existed-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ]);
+});
+
+test("closeoutWorktree: idempotent - a Worktree: whose directory is genuinely gone, but whose local branch still exists, goes on to remove that branch as usual", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "idem-branch-survives-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch); // so a plain `git branch -d` (never -D) can succeed below
+  git(["worktree", "remove", "--force", wt], root); // the directory is gone; the local branch is not
+  assert.equal(fs.existsSync(wt), false, "fixture sanity");
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "fixture sanity: the local branch still exists");
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "absent");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(git(["branch", "--list", branch], root).trim(), "", "the local branch must actually be gone now");
+});
+
+// R2-8 still holds on this same re-run path: a value this host cannot resolve as a local path at
+// all (a Windows-shaped value read on Linux) stays ambiguous, even though it also never exists on
+// disk on this host - idempotency narrows ONLY the "the path is simply gone now" case.
+test("closeoutWorktree: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (never silently absent)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const result = closeoutWorktree({ root, worktreeField: "C:/Users/benzh/orca/workspaces/x/idem-foreign-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ]);
+});
+
+// R2-8 still holds: a real directory that exists on disk but simply is not a registered worktree
+// also stays ambiguous - only a target that is genuinely gone counts as absent.
+test("closeoutWorktree: idempotent - a Worktree: naming a real directory that exists but is not a registered worktree stays refused worktree-unresolved", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const notAWorktree = mkTmp("closeout-idem-not-a-worktree-");
+  const result = closeoutWorktree({ root, worktreeField: notAWorktree, cwd: root });
+  assert.equal(result.steps[0].result, "refused");
+  assert.equal(result.steps[0].detail, "worktree-unresolved");
+  assert.equal(fs.existsSync(notAWorktree), true, "an unregistered real directory must never be removed");
 });
 
 after(() => {
