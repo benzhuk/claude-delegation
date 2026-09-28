@@ -213,13 +213,14 @@ export async function runNoteInbox(argv, deps = {}) {
     // `--repo`, else this process's cwd, else the pane's own worktree from ORCA_WORKTREE_ID — a hook
     // can be invoked with a cwd that is not inside the repo the pane actually works in.
     const start = args.repo ? toPosix(args.repo) : (cwd || worktreePathFromEnv(env));
-    let repo = null;
-    try { repo = mainCheckout(start, git); } catch { repo = null; }
-    if (repo && !fsImpl.existsSync(ledgerDir(repo))) {
-      const fallback = worktreePathFromEnv(env);
-      if (fallback && toPosix(fallback) !== toPosix(start)) {
-        try { repo = mainCheckout(fallback, git) ?? repo; } catch { /* keep the first answer */ }
-      }
+    const fallbackStart = worktreePathFromEnv(env);
+    let repo = resolveRealRepo(start, git);
+    if (!repo && fallbackStart && toPosix(fallbackStart) !== toPosix(start)) {
+      repo = resolveRealRepo(fallbackStart, git);
+    }
+    if (repo && !fsImpl.existsSync(ledgerDir(repo)) && fallbackStart && toPosix(fallbackStart) !== toPosix(start)) {
+      const alt = resolveRealRepo(fallbackStart, git);
+      if (alt) repo = alt;
     }
     if (repo) sources.push({ dir: ledgerDir(repo), kind: 'repo', repo });
   }
@@ -325,6 +326,30 @@ export async function runNoteInbox(argv, deps = {}) {
     scanned: files.map((f) => f.file), days, coldStart, suppressed,
     count: notes.length, notes, problems,
   };
+}
+
+/**
+ * `dir` resolved as a repo ONLY when git itself proves it: `mainCheckout` is a WRITER's helper — when
+ * `dir` is not a repo (or git could not answer at all — no git on PATH, a transient failure, the same
+ * exception either way) it deliberately falls back to "write where we were told", because a note-send
+ * still needs somewhere to put a file. A READER must never inherit that fallback: treating an unproven
+ * directory as a checked repo is exactly how a packet that is really in the main checkout gets reported
+ * MISSING, when the hook's cwd for some reason left git unable to answer for it (lane 47, P6 — the
+ * false "not on this machine" miss). So this probes with the SAME git call `mainCheckout` starts from,
+ * and only calls `mainCheckout` when that direct probe itself succeeds.
+ */
+function resolveRealRepo(dir, git) {
+  if (!dir) return null;
+  try {
+    git(['rev-parse', '--git-common-dir'], dir);
+  } catch {
+    return null;
+  }
+  try {
+    return mainCheckout(dir, git);
+  } catch {
+    return null;
+  }
 }
 
 /** Is the packet the `Details:` path names actually on disk? Checked in every repo we scanned. */
