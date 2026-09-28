@@ -1,16 +1,12 @@
 Work: wr-2026-09-28-render-readback
 Scope: docs/work/wr-2026-09-28-render-readback.record.md specification below, based on origin/main@926c6f801ce21383b06bd5f92ffb18b5ca2603bc and skills-fable-lane-48-1
 Owner: skills-a
-Status: delivered
+Status: accepted
 Authority: Lane48 dispatch under the standing build/merge grant; normal renderer publication is the required live proof. Comparison function and tests only. No release, install, manual page write, pickup change or adoption workaround. Root alone writes this record.
-Artifact: 2e3cb7135fff6e5961c001bffc30e73829d4a011
+Artifact: d6e7fcc182da4c9a288c176872797aeb8bb9fa3c
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/render-readback-48
-Evidence: docs/specs/render-readback-48/L48-spec-evidence.md
-Evidence: docs/specs/render-readback-48/L48-builder-report.md
-Evidence: docs/specs/render-readback-48/L48-test-report.md
-Evidence: docs/specs/render-readback-48/L48-opus-r1.md
-Evidence: docs/specs/render-readback-48/L48-host-gates-r1.md
-Next: same-Opus delta review and fresh sealed host gates on the byte-preserving candidate, then census/accept, merge and normal live publish. Set Artifact to the exact approved candidate at acceptance.
+Evidence: docs/specs/render-readback-48/L48-spec-evidence.md, docs/specs/render-readback-48/L48-builder-report.md, docs/specs/render-readback-48/L48-test-report.md, docs/specs/render-readback-48/L48-opus-r1.md, docs/specs/render-readback-48/L48-host-gates-r1.md, docs/specs/render-readback-48/L48-opus-r2.md, docs/specs/render-readback-48/L48-host-gates-r2.md, docs/work/evidence/wr-2026-09-28-render-readback.census.md, docs/work/evidence/wr-2026-09-28-render-readback.spec-census.md, docs/work/evidence/wr-2026-09-28-render-readback.four-read-evidence.md, docs/work/evidence/wr-2026-09-28-render-readback.work-census-evidence.md
+Next: finish census and accept approved d6e7fcc, merge with history bullet, gate exact merge, then normal live publication before close. Both corrected-candidate host suites are green.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:12:00Z
@@ -22,12 +18,21 @@ Log: 2026-09-28T23:31:00Z delivered skills-a resumed ownership after GPT-5.6-Ter
 Log: 2026-09-28T23:35:00Z reviewed skills-a Claude Opus 5.5 reviewer lane48-review returned NEEDS_FIXES at 4d6c940849f4c48264e0f05071bfd2b667e745c3 via skills-fable-lane-48-4. Normalizer passed adversarial checks, but Git converted pinned CRLF fixtures to LF. Same reviewer will inspect the repaired artifact; no acceptance occurred.
 Log: 2026-09-28T23:38:00Z rejected skills-a both full host gates failed at 4d6c940849f4c48264e0f05071bfd2b667e745c3. Netcup reproduced fixture hash failure; Windows failed the unrelated backlog advisory assertion. Test author owns byte-preserving fixture attributes, integrator diagnoses Windows. Initial local WSL absence and remote Node PATH failures are retained setup errors, not test passes or permission denials.
 Log: 2026-09-28T23:42:00Z delivered skills-a resumed ownership from GPT-5.6-Terra test author. Fixture-local attributes now preserve the exact original CRLF Git blobs. Fresh checkout of 6a12e9cb7aa8d9f32e77073e9cf79920eafdc43e passed 145/145 with original hashes; base normalizer still reports unequal on these bytes. Remediation source commit79d08ef84054b6345256a9e1ed4c6172acd444a6, proof report2e3cb7135fff6e5961c001bffc30e73829d4a011. Same reviewer delta and both full hosts remain required.
+Log: 2026-09-28T23:44:00Z reviewed skills-a Claude Opus 5.5 reviewer lane48-review APPROVE d6e7fcc182da4c9a288c176872797aeb8bb9fa3c via skills-fable-lane-48-6, verified fresh checkout hashes and145/145. Optional unclosed-fence comment nit remains safe-direction under-normalization. Artifact updated to exact approved candidate. R1 Windows backlog failure remains an attributed load-sensitive hypothesis, preserved under skills-fable-lane-48-5 disposition; scoped next-candidate hook check passed8/8.
+Log: 2026-09-28T23:47:00Z delivered skills-a GPT-5.6-Terra integrator reported exact d6e7fcc182da4c9a288c176872797aeb8bb9fa3c Windows2687pass0fail14skip and Netcup2696pass0fail5skip, native exit0 on both. Scoped Windows hook8/8. All first-candidate failures and environment-prep errors remain retained; no unchanged failed candidate was rerun.
+Census: skipped — Native Codex census PARTIAL: unverified or out-of-contract discovery candidates and this Sep28 build outside the lead Sep26-27 default discovery horizon. Raw partial census retained; no complete token or stall claim.
+Four numbers: Top-tier tokens per build: unavailable (Codex census coverage is unavailable: unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon)
+Four numbers: Hours ask to accepted: 0.6h; largest native API response gap (heuristic) 3.1min at 2026-09-28T23:25:03.874Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-48-1; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
+Log: 2026-09-28T23:47:24.000Z accepted skills-a artifact d6e7fcc182da4c9a288c176872797aeb8bb9fa3c
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/render-readback-48
 
 Measure: rework after acceptance, specifically manual recovery after normal decisions publication.
 Predicts: the required normal publish exits0 without adopt-live and records its pushed bookkeeping commit; the next three lane closes need zero whitespace-recovery publishes.
-Observed: Lane37 normal publish exited5 after writing correct content. Fresh read versus intended render differs only by one blank line after a closing details tag. Independent exact-snapshot comparison is red before the fix and green after it, with substantive differences retained, but the first 145/145 receipt was from a working tree whose CRLF fixtures Git had stored as LF. Opus and Netcup exposed that packaging defect on fresh checkouts; repair is required before acceptance. Windows also failed a backlog advisory assertion, with a load-sensitive deadline the integrator's current hypothesis. Normal live publication remains unproved. Peer packet reports three prior recovery publishes as the attributed baseline, not a new measurement by this lane.
+
+Observed: Exact snapshots compare unequal on the base normalizer and equal after the fix, while substantive changes remain unequal. Opus exposed a Git CRLF-to-LF fixture packaging defect, now repaired with fixture-local attributes and fresh-checkout145/145 proof. Opus approved d6e7fcc; corrected candidate Windows2687pass0fail14skip and Netcup2696pass0fail5skip. The first Windows backlog failure is retained with load sensitivity an unproved hypothesis. Four-read reports0.6h to acceptance, zero post-acceptance rework at this point, and unavailable complete top-tier tokens/stall attribution due native census horizon. Normal live publication remains unproved. Peer-reported baseline is three prior recovery publishes; next-three-close efficacy remains future measurement.
 
 ## Specification and pinned contract
 
