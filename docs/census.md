@@ -12,7 +12,7 @@ file basenames.
 ## `build-census.mjs`
 
 ```
-node scripts/build-census.mjs --lead <session.jsonl> [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--from <iso>] [--to <iso>] [--out <path>] [--json <path>]
+node scripts/build-census.mjs --lead <session.jsonl> [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--from <iso>] [--to <iso>] [--ledger-dir <dir>] [--lead-slug <slug>] [--out <path>] [--json <path>]
 ```
 
 Worked example, run against the committed fixtures (this is gate-10's own invocation —
@@ -126,6 +126,12 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
 - `--json` (optional) — write the same report as deterministic JSON (object keys sorted
   recursively, so two runs over the same input are byte-identical) to this path,
   independently of `--out`.
+- `--ledger-dir` (optional) — the peer-note ledger directory the stall-nudge count reads. Default:
+  this repository's own `docs/ledger`, found from the script's location.
+- `--lead-slug` (optional) — the lead's note slug, whose `collect-*-stall-*` ASKs are counted.
+  Default: the recipient the lead transcript itself names most often (wake envelopes, Stop-block
+  and hook-context headers); the report says `slugSource: inferred`. A lead that was never sent a
+  note and gave no slug reports the stall-nudge count as unavailable, never zero.
 
 ### Roles
 
@@ -208,6 +214,91 @@ rejected parent is unverified evidence and makes coverage partial. Exact duplica
 for one logical identity are named and counted once; divergent copies are a permanent
 identity conflict regardless of discovery order.
 
+### Wakes, Stop-blocks, stall nudges
+
+The three counts the goal's "work lost or stalled" measure names beside the gaps: how often the
+lead was pulled back into work by a note, how often its stop was refused, and how often the
+collector had to chase its lane. All three are read-only over files that already exist (the lead
+transcript and the repo's ledger): no new log, no new hook. They print in the `## Summary` and
+`## Lead transcript` sections of the markdown, as `lead.wakes*`, `lead.stopBlocks*` and
+`stallNudges` in the JSON, and in `four-read.mjs`'s "Work lost or stalled" row (below). Each is
+counted inside the census window (`--marker`, `--from`/`--to`, else the whole file), with the
+whole-file total beside it (`wakesTotal`, `stopBlocksTotal`). None of the three reads a
+subagent transcript. A Codex lead is read for all three: wakes and Stop-blocks from its rollout
+(each below) and stall nudges from the ledger, which is host-agnostic. No Codex field is
+unavailable.
+
+**`wakes`** is the number of lead turns that start from a peer note delivered by note-flush, of
+which `wakesDoneTick` start from the Done-tick line and `wakesNoteFlush` from any other note
+(`wakes = wakesNoteFlush + wakesDoneTick`, disjoint). The marker is a top-level `user`
+transcript line, not tool_result-only, whose text **opens with** Claude Code's prefix
+`Another Claude session sent a message:` and a newline, followed by the plugin's own envelope
+line `<from> → <to>, <M.D.YY> <HH:MM> <TZ> [<id>...] <KIND>: <body>` (the shape of
+`ENVELOPE_RE`, `skills/multi/scripts/envelope.mjs:29-30`, built at `envelope.mjs` `buildEnvelope`),
+and whose `origin`, when the transcript records one, is `{kind: "peer", from: "note-flush"}`
+(the frame `skills/multi/scripts/inbox-claude.mjs:74-82` posts, `DEFAULT_FROM = 'note-flush'`
+at `:54`). The Done-tick is that same wake whose envelope id is
+`<from>-decisions-<64 hex>-<round>` and whose body is `Owner decisions pickup round <N> is
+ready.` — the note `skills/decisions/scripts/decisions-pickup.mjs` `sendInputs` (`:536-546`,
+text at `:539`) sends when the owner ticks Done. A note that arrives inside a turn already
+running (the UserPromptSubmit and PostToolUse hook context) is not a wake: it did not start
+the turn. The same holds for a note-flush delivery Claude Code queues into a running turn (an
+`attachment` of type `queued_command` whose `origin` is note-flush): it joins that turn and is
+not counted. The dispatching note that opens a build arrives before `Opened:` is set, so it falls
+outside the record window and is not counted.
+
+A Codex lead's wake is a `response_item` whose payload is a `message` with `role: "user"` and
+exactly one `input_text` part whose whole text is one envelope line (`ENVELOPE_LINE_RE`), counted
+inside the window like the tokens. A multi-line text, a text with more than one part, an
+assistant or developer message, tool output, and the `event_msg` `item_completed` `UserMessage`
+that echoes the same note are not wakes. The done-tick split is the same as above. This record
+shape was read on a live rollout that received a queued note
+(`01a0dab2-065e-7a31-bff4-9aecfe1fa833`, 2026-09-25T22:32:53Z), in the format
+`skills/multi/scripts/inbox-codex.mjs` delivers; the fixture
+`scripts/build-census.fixtures/completeness/codex-lead.jsonl` reproduces it.
+
+**`stopBlocks`** is the number of times the multi-inbox Stop hook refused a stop because peer
+notes were waiting. The marker is the hook's own reason sentence, verbatim,
+`STOP_REASON` at `hooks/multi-hook-core.mjs:144-145`:
+
+> Handle these before you stop: ACK what you are taking, answer what you can, or send BLOCKED with the reason. If none of it is for you, say so in one line and stop.
+
+produced by `handleStop` (`multi-hook-core.mjs`, called from `hooks/multi-inbox.js` for the
+`Stop` event) through `blockOutput` (`:136-142`). Claude Code records one block twice in the
+lead transcript: an `attachment` line of type `hook_blocking_error` for the `Stop` event whose
+command is `multi-inbox.js`, and a meta `user` line opening `Stop hook feedback:`. Each must
+contain the sentence above; a block is counted once (the larger of the two forms, never their
+sum), so a transcript that keeps only one form still counts it. The same sentence in assistant
+prose, a human prompt or a tool result, another hook's Stop reason, or the multi-inbox reason
+on a non-Stop event, is not a block. A test pins `STOP_BLOCK_REASON` in `build-census.mjs` to
+the hook's own export, so a reworded hook fails the suite instead of silently counting zero.
+
+A Codex lead records the same block once as an `event_msg` whose payload is an `item_completed`
+with `item.type: "HookPrompt"`; each item fragment carries the hook's `text` and a `hookRunId`
+that starts with the event name, `stop:`. It is counted when a fragment's `hookRunId` starts
+with `stop:` and its text contains the reason sentence above. The paired `response_item` user
+message `<hook_prompt hook_run_id="stop:...">` holds the same text and is not counted, or each
+block would count twice. A different Stop hook produces the same item shape (for example
+"Continuation accounting for the bound selected work: ..."), so the reason sentence, not
+`stop:` alone, decides. The sentence inside tool output (`CommandExecution`,
+`custom_tool_call_output`), or under a `hookRunId` for another event, is not a block. Shape
+verified live on rollout `01a0df4c-2809-7520-b1d7-876cc51a87ee` at 2026-09-28T03:56:33Z
+(`response_item` user message, then the `HookPrompt` `item_completed` 7 ms later); the fixture
+`scripts/build-census.fixtures/completeness/codex-lead.jsonl` reproduces it with lookalike
+negatives.
+
+**`stallNudges`** is the number of stall nudges the lead received: lines in
+`<ledger-dir>/*.md` (default `docs/ledger`) whose id matches `^collect-.+-stall-` — the ASK the
+collector sends per stuck lane (`scripts/collect-status.mjs`, `buildStallTopic`, id
+`collect-<host>-stall-<branch>-<sha7>-<n>`) — addressed to the lead's slug, with a timestamp
+inside the window. A line that merely names such an id in its text, and the RESULT that answers
+it, are not nudges. The JSON carries `count`, `ids`, `slug`, `slugSource` (`option` or
+`inferred`), `ledgerDir` and the window used; `count: null` with a `reason` means the ledger or
+the slug could not be read, which is never printed as zero. It counts only the ledger it is
+given: a nudge sent to an owner on another host lands in that host's ledger (the collector
+mirrors to the sender's host and, since lane 43, to the owner's), so a build led on another
+host is counted from that host's ledger.
+
 ### Header line
 
 Every report's markdown begins with a line whose literal PREFIX is **`VERDICT: COUNTED `**
@@ -258,9 +349,10 @@ transcripts are common — 65 of 145 in the reference corpus). When any file is 
 the VERDICT line and the `## Subagents` header say so, and the subagent token table and
 the combined split are **incomplete by an unknown amount** — do not quote them.
 
-Secrecy: the file never reads `message.content` except to test membership of `--marker`
-inside a parsed line (a boolean-only, bounded-depth/width search) — output is numbers,
-model names and file basenames only.
+Secrecy: the file never prints `message.content`. It reads it only to test membership of
+`--marker` inside a parsed line (a boolean-only, bounded-depth/width search) and to match the
+plugin's own wake and Stop-block markers, keeping a kind and a recipient slug, never the text —
+output is numbers, model names, slugs, ledger ids, the ledger directory and file basenames only.
 
 ## `four-read.mjs` — the four-number read
 
@@ -294,7 +386,18 @@ verbatim from `docs/specs/2026-09-25-four-number-read.md`:
    `docs/ledger/*.md` within the window that have no RESULT or BLOCKED naming them with
    `re <id>`. Each stalled gap prints its start time and length; each unanswered id
    prints. The leading integer is always the stalled count (`work-record.mjs`'s stall
-   check parses only that leading integer).
+   check parses only that leading integer). The row then ends with the three counts
+   `build-census.mjs` defines (see "Wakes, Stop-blocks, stall nudges"), after the leading
+   integer, as `; wakes <N> (<a> note-flush, <b> Done-tick); Stop-blocks <N>; stall nudges
+   <N> to <slug>: <ids>`. Wakes and Stop-blocks come from the census JSON and print only when
+   that census is the build's window (the same check as number 1: window start not before
+   `Opened:` minus 5 minutes, window end not after the last acceptance plus 5 minutes);
+   otherwise each says `unavailable (<reason>)`, as it does for a census that predates the
+   counts (no integer for wakes and Stop-blocks); a Codex census prints all three the same way.
+   Stall nudges are counted by `four-read.mjs` itself from
+   `--ledger` over `Opened:` to the first accepted `Log:`, for `--lead-slug`, and say
+   `unavailable (<reason>)` without either. Nothing is ever printed as a zero it did not
+   count.
 
 For a native Codex census, the verified response timeline supports response-gap
 measurement but does not establish Claude `Agent`/`Task`/`Workflow` spans or child stall

@@ -1077,7 +1077,7 @@ test('buildFourRead: lane10\'s real session gives exactly one agent stall (216.8
   fs.writeFileSync(censusPath, JSON.stringify(census));
   const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane10.md'), census: censusPath, ledger: null }, fs);
   const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
-  assert.equal(value, '1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a314563636ff6b931 silent 216.8 min from 2026-09-26T22:44:29.665Z; ASKs unavailable (no --lead-slug)');
+  assert.equal(value, '1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a314563636ff6b931 silent 216.8 min from 2026-09-26T22:44:29.665Z; ASKs unavailable (no --lead-slug); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)');
 });
 
 // lane16: lead 588290d9…, window 2026-09-27T06:20:18Z..2026-09-27T07:50:17Z. The lead gap of
@@ -1091,7 +1091,7 @@ test('buildFourRead: lane16\'s real session gives 0 stalled, 1 waiting-on-agents
   fs.writeFileSync(censusPath, JSON.stringify(census));
   const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane16.md'), census: censusPath, ledger: null }, fs);
   const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
-  assert.equal(value, '0 gap(s) over 30min stalled; 1 waiting-on-agents (41.8 min); ASKs unavailable (no --lead-slug)');
+  assert.equal(value, '0 gap(s) over 30min stalled; 1 waiting-on-agents (41.8 min); ASKs unavailable (no --lead-slug); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)');
 });
 
 // ── buildFourRead / formatJson / formatMarkdown (integration) ──────────────
@@ -1490,7 +1490,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '    {',
     '      "key": "workLostOrStalled",',
     '      "label": "Work lost or stalled",',
-    '      "value": "1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2"',
+    '      "value": "1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to test-lead"',
     '    }',
     '  ],',
     '  "record": "scripts/fixtures/four-read/record.md"',
@@ -1507,7 +1507,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '| Top-tier tokens per build | 193 tokens: build 193 (claude-opus-5-5); partial (no spec slice): spec-census not run |',
     '| Hours ask to accepted | 24.0h; largest gap 45.0min at 2026-09-01T00:15:00.000Z |',
     '| Rework after acceptance | unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00.000Z artifact abcdef01234567890123456789012345abcdef0 reaccepted for fix round |',
-    '| Work lost or stalled | 1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2 |',
+    '| Work lost or stalled | 1 gap(s) over 30min stalled: 2026-09-01T00:15:00.000Z (45.0min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to test-lead: fixture-ask-2; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to test-lead |',
     '',
     '## Companions',
     '',
