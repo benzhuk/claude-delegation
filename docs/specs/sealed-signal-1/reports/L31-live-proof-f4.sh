@@ -47,7 +47,7 @@ home=$(head -n 1 "$out")
 kill -TERM "$child"
 deadline=$((SECONDS + 4))
 while kill -0 "$child" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
-if kill -0 "$child" 2>/dev/null; then printf 'F4_CHILD_NOT_GONE retained=%s\n' "$scratch" >&2; exit 1; fi
+if kill -0 "$child" 2>/dev/null; then reap_child; printf 'F4_CHILD_NOT_GONE retained=%s\n' "$scratch" >&2; exit 1; fi
 wait "$child"; exit_code=$?
 test "$exit_code" -eq 0 || { printf 'F4_CHILD_EXIT=%s retained=%s\n' "$exit_code" "$scratch" >&2; exit 1; }
 grep -qx 'deliveries=1' "$out" || { printf 'F4_NOT_ONE_DELIVERY retained=%s\n' "$scratch" >&2; exit 1; }

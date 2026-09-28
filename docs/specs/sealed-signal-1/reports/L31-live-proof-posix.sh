@@ -64,9 +64,10 @@ deadline=$((SECONDS + 5))
 while kill -0 "$runner" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
 if kill -0 "$runner" 2>/dev/null; then fail RUNNER_NOT_GONE_5S; fi
 wait "$runner"; runner_exit=$?
+test "$runner_exit" -eq 143 || fail "RUNNER_NOT_SIGTERM_EXIT=$runner_exit"
+test ! -e "$home" || fail "RUNNER_HOME_REMAINS=$home"
 elapsed=$(( $(date +%s%3N) - sent_at ))
 test "$elapsed" -le 5000 || fail "RUNNER_ELAPSED_MS=$elapsed"
-test ! -e "$home" || fail "RUNNER_HOME_REMAINS=$home"
 deadline=$((SECONDS + 5))
 while kill -0 "$controller" 2>/dev/null && test "$SECONDS" -lt "$deadline"; do sleep 0.05; done
 if kill -0 "$controller" 2>/dev/null; then fail CONTROLLER_STILL_LIVE; fi

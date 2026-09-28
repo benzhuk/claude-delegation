@@ -65,9 +65,8 @@ The baseline must return non-zero with `RUNNER_NOT_GONE_5S`; its controlled 10-s
 shows that the old synchronous runner deferred SIGTERM handling. The failure path sends the
 controlled runner SIGTERM, waits up to 12 seconds, then sends SIGKILL only to that controlled
 runner before a bounded reap; it does not assume a Promise or leave that runner alive. The
-candidate must return `PASS` with raw runner exit, elapsed time at most five seconds, and a
-removed printed home checked immediately after that exit, before the separate five-second
-controller-reap bound.
+candidate must return `PASS` with `RUNNER_EXIT=143`, elapsed time at most five seconds including
+the removed printed-home observation, before the separate five-second controller-reap bound.
 
 Each command is one proof for its exact source revision. Preserve the printed `RETAINED=` scratch
 path and raw SSH exit status; do not rerun an unchanged command or run the sealed suite as part of
