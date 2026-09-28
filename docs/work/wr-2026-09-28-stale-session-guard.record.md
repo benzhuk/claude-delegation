@@ -11,5 +11,6 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T19:03:14Z
 Base: 2cc3c66b6977024f1df25327d4d4295578d482e9
 Log: 2026-09-28T20:39:06.000Z owned skills-n picked up skills-fable-lane-42-1, ACK sent; lead spec written with rulings P1 to P8 (P5: the R0-stale deny is not gated by the enforce file, absent on Netcup, so every other deny is observe-only there)
+Log: 2026-09-28T20:39:30.000Z owned skills-n Sonnet builder spawned on P1 to P8, ETA 45 min, transcript watcher running
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-42
