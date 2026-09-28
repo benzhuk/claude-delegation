@@ -1,6 +1,4 @@
-DONE PENDING-COMMIT-SHA
-
-(replaced below with the real sha after the commit — see the final line of this report)
+DONE aeb7f762395b7b2f0c1eee06abee4891b6f3344c
 
 ## Files changed
 
