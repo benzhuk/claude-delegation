@@ -72,20 +72,29 @@
 //   (`echo "rm -rf x" | sh`), or the double-quoted span itself contains a command
 //   substitution (`"...$(rm -rf x)..."` or a backtick form) — both of those really execute,
 //   so they are excluded from the exemption rather than trusted.
-//   Here-doc exception (lane 36 / C2 ruling, `findHeredocSafeSpans`): a here-doc body fed
-//   to `cat` with no output redirection, to `tee` (even though it writes a file — the real
-//   incidents were reviewers writing reports with `tee`), to `note-send`, or into a
-//   `git commit` message is not treated as a delete either. `cat <<EOF > script.sh … EOF`
-//   stays refused on purpose (see the pinned regression test below): writing the here-doc
-//   to a FILE is exactly the shape a later, separate command can go on to execute, so only
-//   a `cat` here-doc with no `>` redirect is exempt; piping the consumer onward into a
-//   shell (`cat <<EOF | sh`) also stays refused, same `pipesToShell` guard used above.
-//   ssh nested re-parse (`findSshSafeSpans`): `ssh host "…"`'s quoted argument is a
-//   SEPARATE command string the remote shell re-parses on its own, so it gets its own
-//   recursive `detectDelete` call rather than one opaque quoted span — `ssh host
-//   "grep -n 'rm -rf' file"` is exempt (the pattern sits inside a `grep` argument once
-//   re-parsed) while `ssh host "rm -rf x"` stays refused (the remote string, parsed on its
-//   own, really is a delete).
+//   Here-doc exception (lane 36 / C2 ruling, round 2 — `findHeredocSafeSpans`): a here-doc
+//   body is exempt ONLY when the whole command (apart from the body itself) is exactly one
+//   of four shapes, with a PLAIN `<<` (never `<<-`) and a QUOTED delimiter (`<<'EOF'` or
+//   `<<"EOF"` — an unquoted delimiter lets `$( )`/backtick substitution run inside the body,
+//   so it is never exempt): `cat > <file>` / `cat >> <file>` (the redirect before or after
+//   the `<<`), `tee [-a] <file>` (not piped), `note-send …`, or `git commit -F -` (reading
+//   the commit message from stdin — the earlier `git commit -m "$(cat <<'EOF' … )"` nested-
+//   substitution shape is NOT exempt: a `$( )` anywhere outside the body disqualifies the
+//   whole command, full stop). Nothing may precede the command or follow the closing
+//   delimiter line except whitespace — no `|`, `;`, `&&`, `||`, `&`, a second heredoc, `<( )`
+//   / `>( )`, or `$( )`/backtick anywhere outside the body. A quoted delimiter makes the body
+//   itself immune to re-checking (bash disables all expansion inside it), which is also what
+//   keeps this scan a single bounded pass even on an adversarially large input. A here-doc
+//   written to a FILE (by `tee`, or now by `cat > file`) and executed by a LATER, SEPARATE
+//   tool call is still out of scope for this file the same way any other write-then-run
+//   split is (this hook only ever sees one command string at a time) — only same-call
+//   execution after the body is refused, via the empty-trailer requirement above.
+//   ssh (lane 36 / C2 ruling, round 2): there is no ssh-specific re-parse here. `ssh host
+//   "grep -n 'rm -rf' file"` is exempt through the ordinary quoted-argument rule above (the
+//   word `grep` is found in command position, and the quoted span inside its window is
+//   marked safe) — no special-casing needed. `ssh host "echo '…'" | sh`, where the LOCAL
+//   shell executes ssh's remote output, stays refused: nothing here ever exempts a quoted
+//   span whose window pipes onward into a shell.
 //   Also out of scope, by the same "regex over a string" limit, not guessed at: a delete
 //   issued through a language runtime rather than a shell verb (`node -e
 //   "fs.rmSync(x,{recursive:true})"`, `python -c "shutil.rmtree(x)"`,
@@ -216,7 +225,13 @@ function hasRecurseFlag(window) {
  * is text being displayed or committed, not executed. Every quoted span within that same
  * sub-command's window counts (spec examples include `printf "%s" "rm -rf /"`, where the
  * matched text is the SECOND quoted argument, not the one immediately after the word). */
-const SAFE_CMD_RE = /\b(?:grep|rg|echo|printf|git\s+commit\s+-m|note-send\s+--text)\b/gi;
+// review r2 (lane 36) F4: `\bword\b` matched a user/path segment too (`sudo -u rg sh -c
+// '…'`, `/opt/rg/bin/sh -c '…'`), letting an unrelated executor's quoted argument through.
+// A lookbehind pins the word to COMMAND position — right after the start of the string, a
+// separator (`;&|`), a newline, an opening `(`/backtick, or a quote character (needed for
+// the ssh/grep-remote-string shape, where the safe word sits right after the remote
+// command's own opening quote) — rather than matching it anywhere in the string.
+const SAFE_CMD_RE = /(?<=(?:^|[;&|\n(`"'])\s*)(?:grep|rg|echo|printf|git\s+commit\s+-m|note-send\s+--text)\b/gi;
 // A quoted span within an already-bounded (<=300 char) window: negative lookahead per
 // character is linear here because the window itself is capped, not because the pattern
 // is bounded on its own.
@@ -269,108 +284,68 @@ function findSafeQuoteSpans(command) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Here-doc bodies that go to a non-executing consumer (lane 36 / C2 ruling): a here-doc
-// FED TO `cat` with no output redirection (a report printed to stdout, never written to a
-// file that could later be executed), `tee` (explicitly allowed even though it writes a
-// file — the real incidents were reviewers writing reports with `tee`), `note-send`, or a
-// `git commit` message. The pinned regression test (`cat <<EOF > script.sh … EOF …
-// bash script.sh`) MUST keep matching: that is exactly the "written to a file, executed
-// later" shape this exemption declines to cover for `cat` — the `>` redirect check below
-// is what keeps it refused. Piping the consumer onward into a shell (`cat <<EOF | sh`)
-// also keeps it refused, same `pipesToShell` guard used for quoted spans above.
+// Here-doc bodies that go to a non-executing consumer (lane 36 / C2 ruling, round 2 —
+// see the header comment above for the full rule). A heredoc body is exempt ONLY when the
+// whole command, apart from the body, is exactly one of the four whole-line shapes below,
+// with a plain `<<` and a quoted delimiter. No `|`, `;`, `&&`, `||`, `&`, a second heredoc,
+// process substitution, or `$( )`/backtick may appear anywhere outside the body — checked
+// by anchoring each pattern to the ENTIRE first line (`^…$`) and requiring the text after
+// the closing delimiter line to be pure whitespace. Because the delimiter is always quoted,
+// the body itself needs no separate substitution check (bash disables all expansion inside
+// a quoted-delimiter heredoc), so this is a single bounded pass: one `indexOf('\n')`, one
+// anchored regex try against each of four patterns, one regex search for the closing line.
+// No detector here ever rescans a body, so there is no quadratic-scan shape (lane 36 F3).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const HEREDOC_OPEN_RE = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g;
-const CMD_SEP_RE = /;|&&|\|\||\n|\|/g;
+const CAT_LINE_RE = /^\s*cat(?:\s+(>{1,2})\s*(\S+))?\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\3(?:\s+(>{1,2})\s*(\S+))?\s*$/;
+const TEE_LINE_RE = /^\s*tee(?:\s+-a)?\s+\S+\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
+const NOTE_SEND_LINE_RE = /^\s*note-send(?:\s+\S+)*\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
+const GIT_COMMIT_F_LINE_RE = /^\s*git\s+commit\s+-F\s+-\s+<<(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*$/;
 
-/** The text of the CURRENT sub-command ending at `endIdx` — everything back to (but not
- * including) the nearest preceding separator, capped at `cap` characters. The mirror
- * image of `commandWindow`, used to see what a here-doc redirection is attached to. */
-function commandWindowBefore(command, endIdx, cap = 200) {
-  const start = Math.max(0, endIdx - cap);
-  const slice = command.slice(start, endIdx);
-  CMD_SEP_RE.lastIndex = 0;
-  let lastSepEnd = 0;
-  let sm;
-  while ((sm = CMD_SEP_RE.exec(slice))) {
-    lastSepEnd = sm.index + sm[0].length;
-  }
-  return slice.slice(lastSepEnd);
-}
-
-/** Which non-executing consumer (if any) this here-doc feeds, from the text immediately
- * before the `<<` operator. Checked in this order only for readability — a command
- * naming more than one of these words is exempt either way. */
-function heredocConsumer(targetBefore) {
-  if (/\bgit\s+commit\b/i.test(targetBefore)) return 'git-commit';
-  if (/\btee\b/i.test(targetBefore)) return 'tee';
-  if (/\bnote-send\b/i.test(targetBefore)) return 'note-send';
-  if (/\bcat\b/i.test(targetBefore)) return 'cat';
-  return null;
-}
+// Defense in depth: the filename/arg groups above use `\S+`/greedy repeats, which could in
+// principle smuggle a metacharacter through an unquoted, space-free target (`cat > f$(rm
+// -rf x)<<'EOF'`). Any of these anywhere on the first line disqualifies the whole command
+// outright, on top of the anchored shape checks.
+const HEREDOC_DISQUALIFY_RE = /\|\||&&|[|;&`]|\$\(|<\(|>\(/;
 
 function findHeredocSafeSpans(command) {
-  const spans = [];
-  HEREDOC_OPEN_RE.lastIndex = 0;
-  let m;
-  while ((m = HEREDOC_OPEN_RE.exec(command))) {
-    const delim = m[2];
-    const openEnd = HEREDOC_OPEN_RE.lastIndex;
-    const nl = command.indexOf('\n', openEnd);
-    if (nl === -1) continue; // no body at all: nothing to exempt
-    const trailer = command.slice(openEnd, Math.min(nl, openEnd + 200));
-    const targetBefore = commandWindowBefore(command, m.index, 200);
-    const consumer = heredocConsumer(targetBefore);
-    if (!consumer) continue;
-    // `cat` writing its here-doc to a file (`cat <<EOF > script.sh`) is the exact shape
-    // that can be executed later by a separate command — stays refused, unlike a plain
-    // `cat <<EOF` report body.
-    if (consumer === 'cat' && />/.test(trailer)) continue;
-    if (pipesToShell(trailer)) continue; // the consumer's own output really executes
-    const escapedDelim = delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const closeRe = new RegExp(`^[ \\t]*${escapedDelim}[ \\t]*$`, 'm');
-    const bodyStart = nl + 1;
-    const closeMatch = closeRe.exec(command.slice(bodyStart));
-    if (!closeMatch) continue; // unterminated here-doc: unparseable, fails closed
-    spans.push([bodyStart, bodyStart + closeMatch.index]);
-  }
-  return spans;
-}
+  const nl = command.indexOf('\n');
+  if (nl === -1) return []; // no body at all: nothing to exempt
+  const line1 = command.slice(0, nl);
+  if (HEREDOC_DISQUALIFY_RE.test(line1)) return [];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// `ssh host "…"` / `ssh host '…'` (lane 36 / C2 ruling): the quoted argument is a
-// SEPARATE command string the remote shell re-parses on its own — so it gets its own
-// recursive `detectDelete` call rather than being treated as one opaque quoted span.
-// `ssh host "grep -n 'rm -rf' file"` is then exempt because the pattern sits inside a
-// `grep` argument once re-parsed; `ssh host "rm -rf x"` stays refused because the
-// remote string, parsed on its own, is a real delete. Recursion terminates because each
-// inner string is strictly shorter than the outer one (it excludes at least `ssh`, the
-// host token and the wrapping quotes), so there is no unbounded recursion shape here.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function findSshSafeSpans(command) {
-  const spans = [];
-  // A LOCAL regex instance, not a shared module-level one: this loop's body calls
-  // `detectDelete` recursively, which can re-enter `findSshSafeSpans` on an inner string
-  // before this iteration finishes. A shared `g`-flag regex's `lastIndex` is mutable
-  // state — two loops mid-iteration over the SAME object would stomp each other's
-  // position and could spin forever re-finding the same match. A fresh object per call
-  // has no state to collide over.
-  const sshRe = /\bssh\b/gi;
-  let m;
-  while ((m = sshRe.exec(command))) {
-    const windowStart = sshRe.lastIndex;
-    const window = commandWindow(command, windowStart, 500);
-    QUOTE_SPAN_RE.lastIndex = 0;
-    const qm = QUOTE_SPAN_RE.exec(window);
-    if (!qm) continue; // no complete quoted remote command found in this window
-    if (qm[1] === '"' && /\$\(|`/.test(qm[2])) continue; // really substitutes locally too
-    if (detectDelete(qm[2]) === null) {
-      const start = windowStart + qm.index + 1;
-      spans.push([start, start + qm[0].length - 2]);
-    }
+  let consumer = null;
+  let delim = null;
+  let m = CAT_LINE_RE.exec(line1);
+  if (m && (m[1] || m[5])) {
+    // `cat` is exempt only writing to a FILE (round 2: bare `cat <<EOF` with no redirect
+    // at all is no longer on the exempt list — see the header comment).
+    consumer = 'cat';
+    delim = m[4];
+  } else if ((m = TEE_LINE_RE.exec(line1))) {
+    consumer = 'tee';
+    delim = m[2];
+  } else if ((m = NOTE_SEND_LINE_RE.exec(line1))) {
+    consumer = 'note-send';
+    delim = m[2];
+  } else if ((m = GIT_COMMIT_F_LINE_RE.exec(line1))) {
+    consumer = 'git-commit-F';
+    delim = m[2];
   }
-  return spans;
+  if (!consumer) return [];
+
+  // Plain `<<` closing-line rule: the closing delimiter line must match EXACTLY (no
+  // leading whitespace at all — that is `<<-`'s rule, and `<<-` is never exempt here).
+  const closeRe = new RegExp(`^${delim}$`, 'm');
+  const bodyStart = nl + 1;
+  const rest = command.slice(bodyStart);
+  const closeMatch = closeRe.exec(rest);
+  if (!closeMatch) return []; // unterminated here-doc: unparseable, fails closed
+
+  const bodyEnd = bodyStart + closeMatch.index;
+  const trailer = command.slice(bodyStart + closeMatch.index + closeMatch[0].length);
+  if (!/^\s*$/.test(trailer)) return []; // anything after the closing line disqualifies
+  return [[bodyStart, bodyEnd]];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -484,7 +459,6 @@ export function detectDelete(command) {
   const safeSpans = [
     ...findSafeQuoteSpans(normalized),
     ...findHeredocSafeSpans(normalized),
-    ...findSshSafeSpans(normalized),
   ];
   for (const detector of DETECTORS) {
     const found = detector(normalized, safeSpans);

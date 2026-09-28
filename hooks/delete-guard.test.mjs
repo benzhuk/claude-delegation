@@ -492,50 +492,171 @@ test('quoted: a command substitution inside a quoted commit message is NOT exemp
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lane 36 / C2: the delete guard stops matching quoted text — heredoc bodies fed to a
-// non-executing consumer, `rg` added to the quoted-argument safe-command list, and an
-// ssh remote string that is itself quoted gets re-parsed on its own. Spec's three named
-// false-positive shapes: a heredoc report body, a quoted grep pattern (already covered
-// above), and a quoted ssh remote grep (below).
+// Lane 36 / C2 (round 2): the delete guard stops matching quoted text — heredoc bodies fed
+// to a non-executing consumer, `rg` added to the quoted-argument safe-command list. Spec's
+// three named false-positive shapes: a heredoc report body, a quoted grep pattern (already
+// covered above), and a quoted ssh remote grep (below) — the ssh shape needs no dedicated
+// code at all: it is exempt through the ordinary quoted-argument safe-command rule, the
+// same one `grep -n "rm -rf" file` uses, because `grep` sits in command position inside the
+// remote string's own quotes.
+//
+// Round 2 narrows the heredoc exemption to exactly one shape per consumer, all requiring a
+// QUOTED delimiter on a plain `<<` (never `<<-`), with nothing else anywhere in the command
+// but that one command and (after the closing line) whitespace: `cat > <file>` / `cat >>
+// <file>` (bare `cat` with no redirect is NO LONGER exempt — a heredoc printed to stdout,
+// not written anywhere, used to be exempt in round 1; round 2 drops that shape), `tee
+// [-a] <file>`, `note-send …`, and `git commit -F -` (replacing round 1's nested `git
+// commit -m "$(cat <<'EOF' … )"` substitution shape, which is no longer exempt either: a
+// `$( )` anywhere outside the body disqualifies the whole command).
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('quoted: rg -n "rm -rf" file passes (never a delete) — rg added to the safe-command list', () => {
   assert.equal(detectDelete('rg -n "rm -rf" file'), null);
 });
 
-test("false positive #1 (spec): a heredoc report body into cat passes — not written to a file, never executed", () => {
-  const cmd = 'cat <<EOF\n' + 'the incident report should never mention running rm -rf directly\n' + 'EOF\n';
+test("false positive #1 (spec, round 2 shape): cat redirected to a file, quoted delimiter, nothing after — passes", () => {
+  const cmd = "cat > report.md <<'EOF'\n" + 'the incident report should never mention running rm -rf directly\n' + 'EOF\n';
   assert.equal(detectDelete(cmd), null);
 });
 
-test('quoted: heredoc into tee (writing to a file) passes — the real incidents were reviewers writing reports with tee', () => {
-  const cmd = 'tee report.md <<EOF\n' + 'never run rm -rf again\n' + 'EOF\n';
+test('quoted: bare cat with NO redirect is no longer exempt in round 2 (dropped shape) — still refuses on real content', () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = "cat <<'EOF'" + NL + DEL + NL + 'EOF' + NL;
+  assert.ok(detectDelete(cmd), 'round 2 drops the bare-cat-no-redirect exemption entirely');
+});
+
+test('quoted: heredoc into tee (writing to a file), quoted delimiter, nothing after — passes', () => {
+  const cmd = "tee report.md <<'EOF'\n" + 'never run rm -rf again\n' + 'EOF\n';
   assert.equal(detectDelete(cmd), null);
 });
 
-test('quoted: heredoc into note-send passes', () => {
-  const cmd = 'note-send <<EOF\n' + 'warned peer about the rm -rf incident\n' + 'EOF\n';
+test('quoted: heredoc into note-send, quoted delimiter — passes', () => {
+  const cmd = "note-send <<'EOF'\n" + 'warned peer about the rm -rf incident\n' + 'EOF\n';
   assert.equal(detectDelete(cmd), null);
 });
 
-test('quoted: heredoc into a git commit message (git commit -F -) passes', () => {
-  const cmd = 'git commit -F - <<EOF\n' + 'fix: rm -rf handling in the closeout script\n' + 'EOF\n';
+test('quoted: heredoc into a git commit message (git commit -F -), quoted delimiter — passes', () => {
+  const cmd = "git commit -F - <<'EOF'\n" + 'fix: rm -rf handling in the closeout script\n' + 'EOF\n';
   assert.equal(detectDelete(cmd), null);
 });
 
-test('quoted: a heredoc fed to cat inside a git commit -m "$(...)" substitution passes (previously a known false refusal)', () => {
+test('quoted: a heredoc fed to cat inside a git commit -m "$(...)" substitution is NOT exempt in round 2 (a $( ) outside the body disqualifies the whole command; git commit -F - is the blessed shape instead)', () => {
   const cmd = 'git commit -m "$(cat <<\'EOF\'\n' + 'fix: never run rm -rf again\n' + 'EOF\n)"';
-  assert.equal(detectDelete(cmd), null);
+  assert.ok(detectDelete(cmd), 'round 2 drops the nested $(cat <<EOF ...) substitution shape entirely');
 });
 
-test("false positive #3 (spec): ssh host \"grep -n 'rm -rf' file\" passes — the remote string is re-parsed, and the pattern sits inside a grep argument there", () => {
+test("false positive #3 (spec): ssh host \"grep -n 'rm -rf' file\" passes — round 2: no ssh-specific code at all, this is the ordinary quoted-argument safe-command rule, because grep sits in command position right inside the remote string's own opening quote", () => {
   const cmd = "ssh host \"grep -n 'rm -rf' file\"";
   assert.equal(detectDelete(cmd), null);
 });
 
-test("quoted: ssh host 'grep -n \"rm -rf\" file' passes (single-quoted remote command, same re-parse)", () => {
+test("quoted: ssh host 'grep -n \"rm -rf\" file' passes (single-quoted remote command, same base quoted-argument rule)", () => {
   const cmd = 'ssh host \'grep -n "rm -rf" file\'';
   assert.equal(detectDelete(cmd), null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 2, F2: findSshSafeSpans is removed outright (it added no legitimate
+// exemption over the base quoted-argument rule above, and its only measurable effect was
+// a bypass). These two repros were refused at base and must stay refused — ssh's remote
+// output really executes once the LOCAL shell pipes it into sh/bash.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('F2: ssh host "echo \'rm -rf x\'" | sh is NOT exempted — the remote echo prints the delete and the local sh runs it', () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = 'ssh host "echo \'' + DEL + '\'" | sh';
+  assert.ok(detectDelete(cmd));
+});
+
+test('F2: ssh host "printf \'rm -rf x\'" | bash is NOT exempted (same shape, printf)', () => {
+  const DEL = 'rm -rf x';
+  const cmd = 'ssh host "printf \'' + DEL + '\'" | bash';
+  assert.ok(detectDelete(cmd));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 2, F4: SAFE_CMD_RE pinned to command position — a safe word matching
+// a username or a path segment must not count as the command itself.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("F4: sudo -u rg sh -c 'rm -rf x' is NOT exempted (rg here is a username, not the command)", () => {
+  const DEL = 'rm -rf x';
+  const cmd = "sudo -u rg sh -c '" + DEL + "'";
+  assert.ok(detectDelete(cmd));
+});
+
+test("F4: /opt/rg/bin/sh -c 'rm -rf x' is NOT exempted (rg here is a path segment, not the command)", () => {
+  const DEL = 'rm -rf x';
+  const cmd = "/opt/rg/bin/sh -c '" + DEL + "'";
+  assert.ok(detectDelete(cmd));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 2, F1: every repro from the review's bypass table (36 shapes, review
+// numbering). Each was refused at base and passed at the round-1 HEAD; each must refuse
+// again under the round-2 narrow exemption. Built with string concatenation per the
+// non-negotiable: never a literal recursive-delete command in this file either.
+// ─────────────────────────────────────────────────────────────────────────────
+
+{
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const F1_REPROS = [
+    ['#1 cat > x.sh <<EOF (redirect before <<, unquoted) then bash x.sh', 'cat > x.sh <<EOF' + NL + DEL + NL + 'EOF' + NL + 'bash x.sh'],
+    ["#2 cat >x.sh <<'EOF' (redirect before <<, quoted) then bash x.sh", "cat >x.sh <<'EOF'" + NL + DEL + NL + 'EOF' + NL + 'bash x.sh'],
+    ['#3 tee x.sh <<EOF then bash x.sh', 'tee x.sh <<EOF' + NL + DEL + NL + 'EOF' + NL + 'bash x.sh'],
+    ['#4 tee x.sh <<EOF >/dev/null then sh x.sh', 'tee x.sh <<EOF >/dev/null' + NL + DEL + NL + 'EOF' + NL + 'sh x.sh'],
+    ['#5 cat <<EOF |& bash', 'cat <<EOF |& bash' + NL + DEL + NL + 'EOF'],
+    ['#6 cat <<EOF | timeout 5 bash', 'cat <<EOF | timeout 5 bash' + NL + DEL + NL + 'EOF'],
+    ['#7 cat <<EOF | ... bash (pipeline continues after the body)', 'cat <<EOF |' + NL + DEL + NL + 'EOF' + NL + 'bash'],
+    ['#8 bash <(cat <<EOF ...)', 'bash <(cat <<EOF' + NL + DEL + NL + 'EOF' + NL + ')'],
+    ["#9 bash -c \"$(cat <<'EOF' ...)\"", "bash -c \"$(cat <<'EOF'" + NL + DEL + NL + 'EOF' + NL + ')"'],
+    ['#10 eval "$(cat <<EOF ...)"', 'eval "$(cat <<EOF' + NL + DEL + NL + 'EOF' + NL + ')"'],
+    ['#11 bash -s cat <<EOF (cat is an argument to bash -s, which reads stdin)', 'bash -s cat <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#12 CAT=1 bash <<EOF (consumer word-anywhere confusion)', 'CAT=1 bash <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#13 echo cat & bash <<EOF (bare & is not a separator)', 'echo cat & bash <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#14 tee >(bash) <<EOF (tee writes into a process substitution running bash)', 'tee >(bash) <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#15 cat <<EOF unquoted delimiter with $(rm ...) in the body', 'cat <<EOF' + NL + '$(' + DEL + ')' + NL + 'EOF'],
+    ['#16 cat <<EOF unquoted delimiter with a backtick substitution in the body', 'cat <<EOF' + NL + 'a `' + DEL + '` b' + NL + 'EOF'],
+    ['#17 bash <<A; cat <<B (bodies stack; the outer B span would cover A too)', 'bash <<A; cat <<B' + NL + DEL + NL + 'A' + NL + 'hello' + NL + 'B'],
+    ['#18 cat <<E"OF" (delimiter read as E, bash reads EOF, delete lands between)', 'cat <<E"OF"' + NL + 'hi' + NL + 'EOF' + NL + DEL + NL + 'E'],
+    ['#19 cat <<<"x" (here-string misread as a heredoc)', 'cat <<<"x"' + NL + DEL + NL + 'x'],
+    ['#20 grep -n "cat <<EOF" x.md then a real cat heredoc (a << inside quotes is not an operator)', 'grep -n "cat <<EOF" x.md' + NL + DEL + NL + 'cat <<EOF' + NL + 'report' + NL + 'EOF'],
+    ['#21 a comment containing cat <<EOF then a real cat heredoc', '# write it with cat <<EOF' + NL + DEL + NL + 'cat <<EOF' + NL + 'x' + NL + 'EOF'],
+    ["#22 quoted delimiter, line-continuation joins the body's EOF into the opener line", "cat <<'EOF'" + NL + 'x \\' + NL + 'EOF' + NL + DEL + NL + 'EOF'],
+    ['#23 cat $((1<<x)) (arithmetic shift misread as a heredoc opener)', 'cat $((1<<x))' + NL + DEL + NL + 'x'],
+    ['#24 ssh host "sh -s" cat <<EOF (remote sh -s executes stdin)', 'ssh host "sh -s" cat <<EOF' + NL + DEL + NL + 'EOF'],
+  ];
+  for (const [name, cmd] of F1_REPROS) {
+    test(`F1 repro ${name}: must refuse`, () => {
+      assert.ok(detectDelete(cmd), `expected a match for: ${JSON.stringify(cmd)}`);
+    });
+  }
+}
+
+test("quoted: cat > report.md <<-'EOF' (dashed heredoc) is NOT exempted — <<- is never exempt, only plain << (R1.1)", () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = "cat > report.md <<-'EOF'" + NL + '\t' + DEL + NL + '\tEOF' + NL;
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: an unterminated here-doc with a QUOTED delimiter still refuses (fails closed on unparseable quoting)', () => {
+  const cmd = "cat > report.md <<'EOF'\nrm -rf x\n";
+  assert.ok(detectDelete(cmd), 'a here-doc with no closing delimiter must never be treated as a safe span, quoted or not');
+});
+
+test('F3: a 320 KB adversarial heredoc-shaped input stays under 1s and still refuses the trailing delete', () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const command = ('cat <<A' + NL).repeat(40000) + DEL;
+  const t0 = performance.now();
+  const found = detectDelete(command);
+  const elapsed = performance.now() - t0;
+  assert.ok(elapsed < 1000, `expected under 1000ms, got ${elapsed}ms`);
+  assert.ok(found, 'the trailing real delete must still be refused');
 });
 
 // ── Stay refused: real executors of quoted/heredoc text (each C2-pinned shape) ────────
