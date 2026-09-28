@@ -168,6 +168,7 @@ export async function run({
         writeFile: (f, c) => fs.writeFileSync(f, c),
         titleSet: defaultTitleSet(opts.page),
         write,
+        writeErr,
         readLatestBackup: defaultReadLatestBackup(),
         ...(opts.reader ? { readPage: defaultReadPageWithCli(opts.reader), replaceMd: defaultReplaceMdWithCli(opts.reader) } : {}),
         ...deps,

@@ -534,7 +534,12 @@ export async function runNoteSend(argv, deps = {}) {
     + 'NO ledger line was written.',
     {
       refused: 'no-local-recipient', to: toRaw,
-      hint: 'run note-send on the recipient\'s machine over ssh, or pass --sender-host <this host>',
+      // Fix 2 (render-guard, pack/spec.md): the prior hint's "--sender-host <this host>" is wrong
+      // for a local run (--sender-host names the machine the sender came FROM, and only mirrors
+      // when note-send runs on another machine) — following it yields exit 6 again. Changed byte
+      // for byte to name a form that actually works: run on the recipient's machine over ssh.
+      hint: 'run note-send on the recipient\'s machine over ssh: ssh <user@host> \'~/.local/bin/note-send ... '
+        + '--packet-file -\' < packet.md; pass --local-ok if this machine\'s ledger is what the recipient reads',
     },
   );
   // Case A: the quiet kind or --no-type path never resolves a pane at all, so nothing downstream would

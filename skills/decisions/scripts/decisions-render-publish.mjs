@@ -18,7 +18,7 @@ import {
   formatClearedTimestamp, parseSessionSource,
 } from './decisions-render-core.mjs';
 
-/** Every non-zero publish exit named in the spec (3/4/5/6); `code` is the CLI exit code. */
+/** Every non-zero publish exit named in the spec (2/3/4/5/6/7); `code` is the CLI exit code. */
 export class PublishError extends Error {
   constructor(code, message) {
     super(message);
@@ -262,32 +262,95 @@ function verbatimAnswerPresent({
 
 /** Review round-2 F6: before any page write (a real publish OR `--adopt-live`), require an
  * up-to-date `main` checkout — nothing unpushed, nothing to fetch — so a stale or lane checkout
- * refuses before touching Notion rather than after, leaving `last-render.md` off `main`. */
-function checkOnMain(execGit, repo) {
-  const fail = (detail) => {
-    throw new PublishError(2, `push main first; publish runs from an up-to-date main checkout (${detail})`);
-  };
+ * refuses before touching Notion rather than after, leaving `last-render.md` off `main`.
+ *
+ * Split into a detail probe (`mainCheckDetail`, never throws) and the throwing wrapper
+ * (`checkOnMain`) so Fix 1 (render-guard, pack/spec.md) can fold the same detail into an exit-7
+ * message when a checkout is both dirty and off main, without running the up-to-date check twice
+ * for its own exit-2 message text. */
+function mainCheckDetail(execGit, repo) {
   try {
     execGit(['fetch', 'origin', 'main'], repo);
   } catch (e) {
-    fail(`git fetch origin main failed: ${e instanceof Error ? e.message : e}`);
+    return `git fetch origin main failed: ${e instanceof Error ? e.message : e}`;
   }
   let branch;
   try {
     branch = String(execGit(['rev-parse', '--abbrev-ref', 'HEAD'], repo)).trim();
   } catch (e) {
-    fail(`cannot determine the current branch: ${e instanceof Error ? e.message : e}`);
+    return `cannot determine the current branch: ${e instanceof Error ? e.message : e}`;
   }
-  if (branch !== 'main') fail(`currently on ${branch}, not main`);
+  if (branch !== 'main') return `currently on ${branch}, not main`;
   let head;
   let originMain;
   try {
     head = String(execGit(['rev-parse', 'HEAD'], repo)).trim();
     originMain = String(execGit(['rev-parse', 'origin/main'], repo)).trim();
   } catch (e) {
-    fail(`cannot compare HEAD to origin/main: ${e instanceof Error ? e.message : e}`);
+    return `cannot compare HEAD to origin/main: ${e instanceof Error ? e.message : e}`;
   }
-  if (head !== originMain) fail('HEAD is not origin/main — push or pull first');
+  if (head !== originMain) return 'HEAD is not origin/main — push or pull first';
+  return null;
+}
+
+function mainCheckMessage(detail) {
+  return `push main first; publish runs from an up-to-date main checkout (${detail})`;
+}
+
+function checkOnMain(execGit, repo) {
+  const detail = mainCheckDetail(execGit, repo);
+  if (detail) throw new PublishError(2, mainCheckMessage(detail));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix 1 (render-guard, pack/spec.md): publish refuses a dirty docs/decisions tree.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DIRTY_DECISIONS_MESSAGE = 'publish renders only what origin/main holds. Commit and push '
+  + 'the listed files if they are intended, otherwise git restore -- <files>, then rerun.';
+
+/** Parses `git status --porcelain` output into `{status, paths, rest}` entries. A rename line
+ * (`orig -> new`) keeps BOTH paths — `git restore -- <new>` alone does not undo a staged rename,
+ * the old path is needed too — and `rest` keeps the raw `orig -> new` text for the printed list. */
+function parsePorcelainEntries(output) {
+  const lines = String(output ?? '').split(/\r?\n/).filter((l) => l.length > 0);
+  return lines.map((line) => {
+    const status = line.slice(0, 2);
+    const rest = line.slice(3);
+    const arrow = rest.indexOf(' -> ');
+    const paths = arrow === -1 ? [rest] : [rest.slice(0, arrow), rest.slice(arrow + 4)];
+    return { status, paths, rest };
+  });
+}
+
+/** Pinned rule: right after step 1 (fresh read) and before step 2, ahead of any write, `publish`
+ * runs `git status --porcelain -- docs/decisions` in `--repo`. Any modified, staged or untracked
+ * path under `docs/decisions/` other than `docs/decisions/last-render.md` (exempt: step 8 writes
+ * it) is exit 7 with the list and the pinned message. A checkout that is both dirty and off main
+ * reports exit 7 with the list and then the exit-2 detail (never exit 2 itself — the dirty tree
+ * is the more actionable refusal). Under `--dry-run` the list is printed to stderr as `warning:`
+ * and the run continues, so a lead can preview an edit before committing. No bypass flag. */
+function checkDecisionsTreeClean(execGit, repo, { dryRun, writeErr }) {
+  let output;
+  try {
+    output = execGit(['status', '--porcelain', '--untracked-files=all', '--', 'docs/decisions'], repo);
+  } catch (e) {
+    throw new PublishError(7, `cannot check docs/decisions for a dirty tree: ${e instanceof Error ? e.message : e}`);
+  }
+  // A rename onto or from last-render.md still counts as dirty: drop an entry only when EVERY
+  // path it names (both sides of a rename) is last-render.md — step 8 writes that file in place,
+  // it never renames it away.
+  const entries = parsePorcelainEntries(output)
+    .filter((e) => !e.paths.every((path) => path === 'docs/decisions/last-render.md'));
+  if (entries.length === 0) return;
+  const list = entries.map((e) => `  ${e.status} ${e.rest}`).join('\n');
+  if (dryRun) {
+    writeErr(`warning: ${DIRTY_DECISIONS_MESSAGE}\n${list}\n`);
+    return;
+  }
+  const offMainDetail = mainCheckDetail(execGit, repo);
+  const suffix = offMainDetail ? `\n${mainCheckMessage(offMainDetail)}` : '';
+  throw new PublishError(7, `${DIRTY_DECISIONS_MESSAGE}\n${list}${suffix}`);
 }
 
 /** Step 8's push, with the one non-fast-forward retry the spec allows (fetch, rebase, push
@@ -328,7 +391,8 @@ function pushWithRebase(execGit, repo, nowIso) {
 /**
  * @param {{repo:string, page:string, clearDone?:boolean, adoptLive?:boolean, dryRun?:boolean, topic?:string|null}} opts
  * @param {object} deps injected IO: `readPage`, `replaceMd`, `titleSet`, `readPickupCapture`,
- *   `readLatestBackup`, `execGit`, `readFile`, `readdirSync`, `writeFile`, `now`, `write`.
+ *   `readLatestBackup`, `execGit`, `readFile`, `readdirSync`, `writeFile`, `now`, `write`,
+ *   `writeErr` (Fix 1's dry-run dirty-tree warning; defaults to a no-op, same as `write`).
  */
 export async function publish(opts, deps = {}) {
   const {
@@ -349,6 +413,7 @@ export async function publish(opts, deps = {}) {
   const execGit = deps.execGit ?? defaultExecGit;
   const writeFile = deps.writeFile;
   const write = deps.write ?? (() => {});
+  const writeErr = deps.writeErr ?? (() => {});
   const readPickupCapture = deps.readPickupCapture ?? defaultReadPickupCapture;
   const readLatestBackup = deps.readLatestBackup ?? (async () => null);
 
@@ -356,6 +421,10 @@ export async function publish(opts, deps = {}) {
 
   // Step 1: fresh read.
   const fresh = await deps.readPage(page);
+
+  // Fix 1 (render-guard, pack/spec.md): refuse a dirty docs/decisions tree before any owner-input
+  // check, drift compare or write — right after step 1, ahead of step 2.
+  checkDecisionsTreeClean(execGit, repo, { dryRun, writeErr });
 
   // Step 2: owner input on the fresh read.
   let doc;

@@ -1,15 +1,23 @@
 # Waiting on you now
-Nothing right now.
+<details>
+<summary>**Release 0.20.16 and install it on the four machines**</summary>
+	It carries eight lanes closed today: the Windows cleanup task file, a closed status for finished lanes, sealed-run home cleanup, cross-host note refusal, this page rendered from repo files, the Goals page as one line per goal, the publish guard, and the inbox truth fix. The release commit also fixes the token baseline cell in the goals file. On yes, the installs go to Windows, Netcup and Hetzner tonight, the Windows daily cleanup task is enabled, and the Mac is retried until it answers.
+	- [ ] Yes, release 0.20.16 and install it everywhere
+	- [ ] Hold the release; tell me why in a comment
+	No default: installs take your word per item
+	<empty-block/>
+</details>
 # What is going on
-The plugin now runs the whole loop by itself: a lane goes from spec to main in one to two hours with Sonnet building and Opus reviewing, your ticks on this page reach the right session within a minute, and a release reaches every machine the same day. The one cost still out of line is mine: my session spent 86M tokens in a day answering lane events one by one, which is why bearings said RE-PLAN twice and new lanes paused until you chose the collector. Knowledge sharing between machines still does nothing and is the next lane after the ones running now.
+The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Sun 2:16 PM)
-- Your choice (b) is live: the collector runs on Netcup every 15 minutes and I read lane state from its one file instead of from notes.
-- Release 0.20.15 is on Windows, Netcup and Hetzner. The Mac was unreachable again today; its cleanup timer and Codex hooks wait for it.
-- This page is now rendered from repo files by a command that refuses shas and long bullets and never drops a line you wrote unless it is saved in the history first.
-- Four small lanes ran from 4:30 PM and three closed within the hour: the Windows task file, a closed status for finished lanes, and notes that never left Hetzner. The leak lane still runs.
-- The Goals page is being turned into one line per goal, detail collapsed, as you asked.
-- Today: fifteen lanes accepted, most in under two hours, one needed rework. My own cost is the measure still failing; tomorrow morning's bearings check it against a 40M budget.
-- Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured now and is the next lane.
+- Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
+- Release 0.20.15 is on Windows, Netcup and Hetzner. The Mac was unreachable all day; its cleanup timer and Codex hooks wait for the next release.
+- This page is rendered from repo files, refuses to publish while any source is uncommitted, and never drops a line you wrote unless it is saved in the history first.
+- The Goals page is now one line per goal with detail collapsed, as you asked.
+- Eight lanes closed since 4:30 PM, two of them led from Codex end to end. The inbox no longer reports a packet missing when it never looked for it.
+- Two lanes stalled for hours today, one at a delete prompt, one on a reviewer that never reported. Two night lanes now running make the collector ask the lead after two silent hours.
+- Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
+- Release 0.20.16 carrying today's eight lanes waits on your word above; installs on the four machines follow it.
 # History {toggle="true"}
 	- [Sep 27](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-27.md) — lanes merged all day, including the delete guard, the knowledge count, the Windows janitor task and this page's renderer, and a second RE-PLAN reached your page.
 	- [Sep 26](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-26.md) — eleven lanes merged, including the four-number read and the merge-on-acceptance rule.
