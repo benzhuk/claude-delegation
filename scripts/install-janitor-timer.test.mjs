@@ -760,26 +760,30 @@ test("L1 review: a valueless/empty --repo/--host/--name, or a repeated value fla
 // C2: --job collect-status (docs/specs/collect-status-1/contracts.md K1/K3)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("C2: scheduledCommandArgv for --job collect-status is exactly <node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>, plus --host and --out when given", () => {
+test("C2: scheduledCommandArgv for --job collect-status is exactly <node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>, plus --host and --out when given, plus --stale-hours <n> always last (lane 33 F1, default 2)", () => {
   const base = scheduledCommandArgv({ node: "/n/node", pluginRoot: "/p", repo: "/r", job: "collect-status", to: "skills-fable" });
-  assert.deepEqual(base, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable"]);
+  assert.deepEqual(base, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable", "--stale-hours", 2]);
 
   const withHost = scheduledCommandArgv({ node: "/n/node", pluginRoot: "/p", repo: "/r", job: "collect-status", to: "skills-fable", host: "netcup" });
-  assert.deepEqual(withHost, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable", "--host", "netcup"]);
+  assert.deepEqual(withHost, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable", "--host", "netcup", "--stale-hours", 2]);
 
   const withOut = scheduledCommandArgv({ node: "/n/node", pluginRoot: "/p", repo: "/r", job: "collect-status", to: "skills-fable", host: "netcup", out: "/tmp/out" });
-  assert.deepEqual(withOut, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable", "--host", "netcup", "--out", "/tmp/out"]);
+  assert.deepEqual(withOut, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable", "--host", "netcup", "--out", "/tmp/out", "--stale-hours", 2]);
 
-  // The default job (no `job` argument at all, or `job: "janitor-record"` explicitly) is unaffected.
+  const withStaleHours = scheduledCommandArgv({ node: "/n/node", pluginRoot: "/p", repo: "/r", job: "collect-status", to: "skills-fable", staleHours: 0.5 });
+  assert.deepEqual(withStaleHours, ["/n/node", path.join("/p", "scripts", "collect-status.mjs"), "--repo", "/r", "--to", "skills-fable", "--stale-hours", 0.5]);
+
+  // The default job (no `job` argument at all, or `job: "janitor-record"` explicitly) is unaffected
+  // — janitor bytes stay identical (K1), --stale-hours is a collect-status-only flag.
   assert.deepEqual(
     scheduledCommandArgv({ node: "/n/node", pluginRoot: "/p", repo: "/r", job: "janitor-record" }),
     ["/n/node", path.join("/p", "scripts", "janitor.mjs"), "--record", "--repo", "/r"],
   );
 });
 
-test("C2: installedJsonText for --job collect-status is schema, repo, node, every, scheduler, name, to — key order exact, no hour field at all", () => {
-  const text = installedJsonText({ repo: "/r", node: "/n", scheduler: "systemd-user", name: "collect-status", job: "collect-status", every: 15, to: "skills-fable" });
-  assert.equal(text, '{"schema":1,"repo":"/r","node":"/n","every":15,"scheduler":"systemd-user","name":"collect-status","to":"skills-fable"}\n');
+test("C2: installedJsonText for --job collect-status is schema, repo, node, every, staleHours, scheduler, name, to — key order exact, no hour field at all (lane 33 F1)", () => {
+  const text = installedJsonText({ repo: "/r", node: "/n", scheduler: "systemd-user", name: "collect-status", job: "collect-status", every: 15, to: "skills-fable", staleHours: 2 });
+  assert.equal(text, '{"schema":1,"repo":"/r","node":"/n","every":15,"staleHours":2,"scheduler":"systemd-user","name":"collect-status","to":"skills-fable"}\n');
   // The default job's shape (schema, repo, node, hour, scheduler, name) is untouched.
   assert.equal(
     installedJsonText({ repo: "/r", node: "/n", hour: 6, scheduler: "systemd-user", name: "janitor-record" }),
@@ -791,7 +795,7 @@ test("C2: systemd unit and timer text for --job collect-status — exact bytes",
   const inputs = {
     node: "/usr/bin/node", pluginRoot: "/opt/plugin", repo: "/home/x/Code/claude-delegation",
     host: "hostA", logPath: "/home/x/.agents/collect/last-run.log", name: "collect-status",
-    job: "collect-status", to: "skills-fable", every: 15,
+    job: "collect-status", to: "skills-fable", every: 15, staleHours: 2,
   };
   const service = systemdServiceUnit(inputs);
   assert.equal(
@@ -804,7 +808,7 @@ test("C2: systemd unit and timer text for --job collect-status — exact bytes",
     "Type=oneshot\n" +
     "WorkingDirectory=/home/x/Code/claude-delegation\n" +
     "Environment=PATH=/usr/bin:/usr/bin:/bin\n" +
-    "ExecStart=/usr/bin/node /opt/plugin/scripts/collect-status.mjs --repo /home/x/Code/claude-delegation --to skills-fable --host hostA\n" +
+    "ExecStart=/usr/bin/node /opt/plugin/scripts/collect-status.mjs --repo /home/x/Code/claude-delegation --to skills-fable --host hostA --stale-hours 2\n" +
     "StandardOutput=truncate:/home/x/.agents/collect/last-run.log\n" +
     "StandardError=truncate:/home/x/.agents/collect/last-run.log\n",
   );
@@ -826,10 +830,10 @@ test("C2: systemd unit and timer text for --job collect-status — exact bytes",
   assert.ok(!service.includes("--apply") && !timer.includes("--apply"));
 });
 
-test("C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --job collect-status", () => {
+test("C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --job collect-status, both carrying --stale-hours (lane 33 F1)", () => {
   const inputs = {
     node: "C:\\node\\node.exe", pluginRoot: "C:\\plugin", repo: "C:\\repo", host: "hostA",
-    logPath: "C:\\log.txt", job: "collect-status", to: "skills-fable", every: 20,
+    logPath: "C:\\log.txt", job: "collect-status", to: "skills-fable", every: 20, staleHours: 0.5,
   };
   const xml = windowsTaskXml(inputs);
   assert.match(xml, /<TimeTrigger>/);
@@ -837,16 +841,62 @@ test("C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --
   assert.match(xml, /<StopAtDurationEnd>false<\/StopAtDurationEnd>/);
   assert.ok(!xml.includes("<CalendarTrigger>"));
   assert.ok(!xml.includes("--apply"));
+  assert.match(xml, /&quot;--stale-hours&quot; &quot;0\.5&quot;/, "the Windows task's own Arguments text carries --stale-hours");
 
   const plist = launchdPlist({ ...inputs, label: "com.delegation.collect-status" });
   assert.match(plist, /<key>StartInterval<\/key>\s*<integer>1200<\/integer>/);
   assert.ok(!plist.includes("StartCalendarInterval"));
   assert.ok(!plist.includes("--apply"));
+  assert.match(plist, /--stale-hours' '0\.5'/, "the launchd plist's own sh -c command carries --stale-hours");
 
   // The default job's XML/plist shapes are untouched.
   const defaultInputs = { node: "/usr/bin/node", pluginRoot: "/p", repo: "/r", host: "h", hour: 6, logPath: "/l" };
   assert.match(windowsTaskXml(defaultInputs), /<CalendarTrigger>/);
+  assert.ok(!windowsTaskXml(defaultInputs).includes("--stale-hours"), "the janitor job's own XML never carries --stale-hours");
   assert.match(launchdPlist({ ...defaultInputs, label: "com.delegation.janitor-record" }), /StartCalendarInterval/);
+  assert.ok(!launchdPlist({ ...defaultInputs, label: "com.delegation.janitor-record" }).includes("--stale-hours"), "the janitor job's own plist never carries --stale-hours");
+});
+
+test("C2: --stale-hours 0.5 appears in the systemd ExecStart too (all three generators, lane 33 F1)", { skip: process.platform === "win32" ? "the systemd generator runs only on linux hosts, and these fixtures are POSIX paths" : false }, () => {
+  const service = systemdServiceUnit({
+    node: "/usr/bin/node", pluginRoot: "/opt/plugin", repo: "/home/x/Code/claude-delegation",
+    host: "hostA", logPath: "/home/x/.agents/collect/last-run.log",
+    job: "collect-status", to: "skills-fable", staleHours: 0.5,
+  });
+  assert.match(service, /ExecStart=.*--stale-hours 0\.5\n/);
+});
+
+test("C2: --stale-hours bounds — 0.1 and 48 accepted, out of range or non-numeric refused (exit 1, nothing written), default is 2", () => {
+  for (const good of ["0.1", "48", "2", "0.5"]) {
+    const home = mkTmp("janitor-timer-home-stale-good-");
+    fixtureDefaultRepoGit(home);
+    const pluginRoot = fixturePluginRoot();
+    const env = { XDG_CONFIG_HOME: path.join(home, ".config") };
+    const cap = capture();
+    const code = main(["--force-root", "--json", "--job", "collect-status", "--to", "x", "--stale-hours", good], { home, env, platform: "linux", execPath: "/usr/bin/node", pluginRoot, ...cap });
+    assert.equal(code, 0, `--stale-hours ${good} should be accepted: ${cap.text()}`);
+    assert.equal(JSON.parse(cap.text()).staleHours, Number(good));
+  }
+  for (const bad of ["0", "99", "-1", "nope", "0x10", " "]) {
+    const home = mkTmp("janitor-timer-home-stale-bad-");
+    fixtureDefaultRepoGit(home);
+    const pluginRoot = fixturePluginRoot();
+    const env = { XDG_CONFIG_HOME: path.join(home, ".config") };
+    const cap = capture();
+    const code = main(["--force-root", "--json", "--job", "collect-status", "--to", "x", "--stale-hours", bad], { home, env, platform: "linux", execPath: "/usr/bin/node", pluginRoot, ...cap });
+    assert.equal(code, 1, `--stale-hours ${bad} must be refused`);
+    const result = JSON.parse(cap.text());
+    assert.ok(result.refusals.some((r) => r.includes("--stale-hours must be a number from 0.1 to 48")), JSON.stringify(result.refusals));
+    assert.ok(!fs.existsSync(path.join(home, ".agents")), `--stale-hours ${bad} must write nothing at all`);
+  }
+
+  // Default, when the flag is never given: 2 (matching lane 30's hand-edited live value).
+  const home = mkTmp("janitor-timer-home-stale-default-");
+  fixtureDefaultRepoGit(home);
+  const cap = capture();
+  const code = main(["--force-root", "--json", "--job", "collect-status", "--to", "x"], { home, platform: "linux", execPath: "/usr/bin/node", pluginRoot: fixturePluginRoot(), ...cap });
+  assert.equal(code, 0);
+  assert.equal(JSON.parse(cap.text()).staleHours, 2);
 });
 
 test("C2: a real install (--job collect-status) writes to ~/.agents/collect/, never ~/.agents/janitor/, with installed.json matching the pinned K1 shape", () => {
@@ -879,7 +929,7 @@ test("C2: a real install (--job collect-status) writes to ~/.agents/collect/, ne
   const installed = JSON.parse(fs.readFileSync(collectInstalledPath, "utf8"));
   const repo = path.join(home, "Code", "claude-delegation");
   assert.deepEqual(installed, {
-    schema: 1, repo, node: NODE, every: 15, scheduler: "systemd-user", name: "collect-status", to: "skills-fable",
+    schema: 1, repo, node: NODE, every: 15, staleHours: 2, scheduler: "systemd-user", name: "collect-status", to: "skills-fable",
   });
 
   // Never touches the janitor's own directory or installed.json.

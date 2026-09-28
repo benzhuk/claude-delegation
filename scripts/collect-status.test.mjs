@@ -141,6 +141,33 @@ test("parseArgs: defaults and every flag", () => {
   assert.equal(d.mergeHours, 4);
   assert.equal(d.staleHours, 6);
   assert.equal(d.quiet, false);
+  assert.equal(d.staleHoursError, undefined, "no --stale-hours given: no error");
+});
+
+test("parseArgs: --stale-hours range 0.1-48 — in range carries no error, 0 and 99 set staleHoursError (lane 33 F1)", () => {
+  for (const good of ["0.1", "48", "2", "6"]) {
+    const a = parseArgs(["--stale-hours", good]);
+    assert.equal(a.staleHours, Number(good));
+    assert.equal(a.staleHoursError, undefined, `--stale-hours ${good} should carry no error`);
+  }
+  for (const bad of ["0", "99", "nope"]) {
+    const a = parseArgs(["--stale-hours", bad]);
+    assert.ok(a.staleHoursError && a.staleHoursError.includes("--stale-hours must be a number from 0.1 to 48"), `--stale-hours ${bad} should carry an error, got ${JSON.stringify(a.staleHoursError)}`);
+  }
+});
+
+test("main: --stale-hours 0 or 99 is refused, exit 2, before computeAttention ever runs (lane 33 F1)", () => {
+  for (const bad of ["0", "99"]) {
+    const root = initRepoWithOrigin();
+    const out = outTmp();
+    const warnings = [];
+    const code = main(["--repo", root, "--no-fetch", "--out", out, "--stale-hours", bad], {
+      warn: (s) => warnings.push(s), home: mkTmp("cstatus-home-"),
+    });
+    assert.equal(code, 2, `--stale-hours ${bad} must exit 2`);
+    assert.ok(warnings.some((w) => w.includes("--stale-hours must be a number from 0.1 to 48")), JSON.stringify(warnings));
+    assert.ok(!fs.existsSync(path.join(out, "status.json")), `--stale-hours ${bad} must write nothing`);
+  }
 });
 
 test("defaultOutDir: ~/.agents/collect/<basename of repo>", () => {
@@ -159,6 +186,28 @@ test("sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host
 test("computeByState: counts rows per state", () => {
   const rows = [{ state: "owned" }, { state: "owned" }, { state: "no-record" }];
   assert.deepEqual(computeByState(rows), { owned: 2, "no-record": 1 });
+});
+
+test("computeByState: closed is counted under its own key, never folded into owned (lane 33 F2)", () => {
+  const rows = [{ state: "owned" }, { state: "closed" }, { state: "closed" }];
+  assert.deepEqual(computeByState(rows), { owned: 1, closed: 2 });
+});
+
+test("computeAttention: a closed row is never flagged, even with an enormous hoursSinceLog (lane 33 F2 - closed is terminal, computeAttention only ever flags state owned)", () => {
+  const rows = [{ branch: "b1", recordPath: "p1", state: "closed", tipDate: null, hoursSinceLog: 10_000 }];
+  assert.deepEqual(computeAttention(rows, 4, 6, Date.now()), []);
+});
+
+test("grep: 'closed' appears in collect-status.mjs only in NOTE_STATE_TOKENS and the legend line (lane 33 F2 acceptance)", () => {
+  const src = fs.readFileSync(new URL("./collect-status.mjs", import.meta.url), "utf8");
+  const codeLines = src.split("\n").filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("*"));
+  const hits = codeLines.filter((line) => line.includes("closed"));
+  for (const line of hits) {
+    assert.ok(
+      line.includes("NOTE_STATE_TOKENS") || line.includes("its own terminal lane"),
+      `unexpected "closed" reference outside NOTE_STATE_TOKENS/the legend: ${line}`,
+    );
+  }
 });
 
 test("computeChangeKey: order-independent (sorted), sensitive to any field change", () => {
@@ -234,7 +283,7 @@ test("buildStatusMd: header carries fetch: failed only on failure; attention fir
   assert.equal(lines[2], "- b1\tp\towned\tsilent-over-6-h");
   assert.ok(lines[3].startsWith("branch\ttipSha\t"));
   assert.ok(lines[3].endsWith("\tlane"));
-  assert.equal(lines[4], "lane: every non-terminal Status shows as owned");
+  assert.equal(lines[4], "lane: every non-terminal Status shows as owned; closed is its own terminal lane");
 
   const failedMd = buildStatusMd({ status, fetchStatus: "failed", sendOutcome: { attempted: false, sent: false, reason: null } });
   assert.ok(failedMd.split("\n")[0].includes("fetch: failed"));
@@ -634,8 +683,9 @@ test("stall-nudge: one ASK per stale owned/blocked row; none for accepted-merged
   pushBranch(root, "build/stall-owned");
   backToMain(root);
 
-  // F2: `closed` is a terminal Status (work-record.mjs STATUSES) that `computeState` still buckets
-  // as "owned" - a stale closed record must never be flagged silent or asked, even though it would
+  // F2, updated by lane 33 F2: `closed` is a terminal Status (work-record.mjs STATUSES) - computeState
+  // (collect-from-origin.mjs) now returns its own "closed" state for it, never folding it into
+  // "owned", so a stale closed record must never be flagged silent or asked, even though it would
   // pass every other test above's checks unchanged.
   newBranch(root, "build/closed-lane");
   writeRecord(root, "wr-2026-09-27-closed.record.md", [
