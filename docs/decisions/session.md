@@ -6,3 +6,4 @@ since: 2026-09-27T18:16:00Z
 - The Goals page is being turned into one line per goal, detail collapsed, as you asked.
 - Today: fifteen lanes accepted, most in under two hours, one needed rework. My own cost is the measure still failing; tomorrow morning's bearings check it against a 40M budget.
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured now and is the next lane.
+- Publishing this page now refuses while any docs/decisions file is uncommitted, so the page can no longer drift from main (lane 28, merged 10:50 PM).
