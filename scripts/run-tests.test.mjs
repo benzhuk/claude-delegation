@@ -13,7 +13,15 @@ import path from "node:path";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { runSealed, sweepStaleHomes, main } from "./run-tests.mjs";
+import {
+  runSealed,
+  sweepStaleHomes,
+  main,
+  LEAK_PREFIX_RE,
+  snapshotLeakNames,
+  describeLeak,
+  TEST_RUN_ROOT_PREFIX,
+} from "./run-tests.mjs";
 // N2 (windows-r1-f8aa816.log, skills/multi/scripts/hooks.test.mjs:429): every spawned child's env
 // must be built by `childEnv`, never a bare object spread of the runner's own environment - that
 // spread is what the suite-wide "no test file inherits the runner environment" check scans for,
@@ -73,6 +81,27 @@ async function withoutNodeTestContext(fn) {
     return await fn();
   } finally {
     if (saved !== undefined) process.env.NODE_TEST_CONTEXT = saved;
+  }
+}
+
+// Lane 46 (test-temp-hygiene): `main()` now mkdtemps its own per-run root directly under
+// `os.tmpdir()` - which, called IN-PROCESS (not spawned), is THIS test process's own real
+// `os.tmpdir()` unless overridden. Every in-process `main()` call below goes through this first,
+// so it always creates (and, at the end of the run, removes) that root under an injected scratch
+// dir instead - never the real `/tmp`.
+async function withInjectedTmp(fn) {
+  const dir = scratchDir("run-tests-main-tmp-");
+  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
+  process.env.TMPDIR = dir;
+  process.env.TEMP = dir;
+  process.env.TMP = dir;
+  try {
+    return await fn();
+  } finally {
+    for (const key of ["TMPDIR", "TEMP", "TMP"]) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
   }
 }
 
@@ -166,7 +195,7 @@ test("sweepStaleHomes removes only sealed-home-* dirs older than 6h, keeps young
   );
 });
 
-test("sweepStaleHomes prints exactly one 'swept n stale sealed homes' line", () => {
+test("sweepStaleHomes prints exactly one 'swept n stale sealed homes, m stale test-run roots' line", () => {
   const { tmpDir, now } = makeAgeSet();
   const homeDir = emptyHomeDir();
   const lines = [];
@@ -177,7 +206,7 @@ test("sweepStaleHomes prints exactly one 'swept n stale sealed homes' line", () 
   } finally {
     console.log = orig;
   }
-  assert.deepEqual(lines, ["swept 1 stale sealed homes"]);
+  assert.deepEqual(lines, ["swept 1 stale sealed homes, 0 stale test-run roots"]);
 });
 
 test("sweepStaleHomes is skipped when <homeDir>/.agents/ws-off exists (shared kill switch)", () => {
@@ -286,7 +315,11 @@ test(
       errors.some((line) => line.includes("sweep could not remove") && line.includes("sealed-home-locked")),
       "an error line must name the locked dir",
     );
-    assert.deepEqual(lines, ["swept 2 stale sealed homes"], "the partial count must still be printed");
+    assert.deepEqual(
+      lines,
+      ["swept 2 stale sealed homes, 0 stale test-run roots"],
+      "the partial count must still be printed",
+    );
   },
 );
 
@@ -297,12 +330,14 @@ test(
 test("main() calls sweep by default, before running the suite", async () => {
   const probe = writeProbe(true);
   let sweepCalls = 0;
-  const code = await withoutNodeTestContext(() =>
-    main([probe], {
-      sweep: () => {
-        sweepCalls += 1;
-      },
-    }),
+  const code = await withInjectedTmp(() =>
+    withoutNodeTestContext(() =>
+      main([probe], {
+        sweep: () => {
+          sweepCalls += 1;
+        },
+      }),
+    ),
   );
   assert.equal(sweepCalls, 1);
   assert.equal(code, 0);
@@ -311,12 +346,14 @@ test("main() calls sweep by default, before running the suite", async () => {
 test("main() does not call sweep when --no-sweep is passed", async () => {
   const probe = writeProbe(true);
   let sweepCalls = 0;
-  const code = await withoutNodeTestContext(() =>
-    main(["--no-sweep", probe], {
-      sweep: () => {
-        sweepCalls += 1;
-      },
-    }),
+  const code = await withInjectedTmp(() =>
+    withoutNodeTestContext(() =>
+      main(["--no-sweep", probe], {
+        sweep: () => {
+          sweepCalls += 1;
+        },
+      }),
+    ),
   );
   assert.equal(sweepCalls, 0);
   assert.equal(code, 0);
@@ -594,3 +631,236 @@ test(
     assert.equal(fs.existsSync(home), false, "the runner's own sealed home must not survive a group SIGTERM");
   },
 );
+
+// ---------------------------------------------------------------------------
+// Lane 46 (test-temp-hygiene): P1 (the per-run root), P2 (removal on exit 0 / trim on nonzero /
+// full removal on signal) and P3's extension of the sweep to `delegation-test-run-*` roots. Every
+// case below spawns the REAL CLI with TMPDIR/TEMP/TMP pointed at an injected scratch dir (never
+// the real /tmp) so `os.tmpdir()`, as `main()` itself sees it, resolves to that scratch dir.
+// ---------------------------------------------------------------------------
+
+/** A `.test.mjs` file that writes its own view of TMPDIR/TEMP/TMP to a marker file, and (when
+ * `mkdtempStray` is set) also mkdtemps ONE stray directory of its own under `os.tmpdir()` - the
+ * exact shape a P5 straggler leaves behind, planted here on purpose so the P2 "everything except
+ * the retained home is trimmed" test has something extra to prove gets removed. */
+function writeEnvProbe({ passes, mkdtempStray } = {}) {
+  const dir = scratchDir("run-tests-envprobe-");
+  const file = path.join(dir, "envprobe.test.mjs");
+  const marker = path.join(dir, "env.json");
+  fs.writeFileSync(
+    file,
+    [
+      "import test from 'node:test';",
+      "import assert from 'node:assert/strict';",
+      "import fs from 'node:fs';",
+      "import os from 'node:os';",
+      "import path from 'node:path';",
+      "test('envprobe', () => {",
+      `  fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({` +
+        "TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP, tmpdir: os.tmpdir()" +
+        "}));",
+      mkdtempStray ? "  fs.mkdtempSync(path.join(os.tmpdir(), 'run-tests-envprobe-stray-'));" : "",
+      `  assert.ok(${passes});`,
+      "});",
+      "",
+    ].join("\n"),
+  );
+  return { file, marker };
+}
+
+/** Spawns the real CLI against `probeFile`, TMPDIR/TEMP/TMP pointed at a fresh scratch dir (never
+ * the real /tmp), and resolves once it exits with `{ code, stdout, tmp }` - `tmp` is the injected
+ * scratch dir the run's own root must live directly under. */
+function spawnRunner(probeFile, { noSweep = true } = {}) {
+  const tmp = scratchDir("run-tests-root-tmp-");
+  const fixtureHome = scratchDir("run-tests-root-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
+  delete env.NODE_TEST_CONTEXT;
+  const args = noSweep ? [RUN_TESTS_MODULE, "--no-sweep", probeFile] : [RUN_TESTS_MODULE, probeFile];
+  const r = spawnSync(NODE, args, { env, encoding: "utf8" });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr, tmp };
+}
+
+test("P1: the root is created directly under the injected temp dir, exported as TMPDIR/TEMP/TMP to the child, and removed on exit 0", () => {
+  const { file, marker } = writeEnvProbe({ passes: true });
+  const { code, stdout, tmp } = spawnRunner(file);
+  assert.equal(code, 0);
+  const home = stdout.split("\n")[0].trim();
+  const root = path.dirname(home);
+  assert.ok(
+    path.basename(root).startsWith(TEST_RUN_ROOT_PREFIX),
+    `the sealed home's parent must be the per-run root, got ${root}`,
+  );
+  assert.ok(root.startsWith(fs.realpathSync(tmp)), "the root must be directly under the injected TMPDIR");
+
+  // The run has already exited and removed `root` by the time we get here (that's the very thing
+  // this test proves below) - so these can't be re-realpath'd against a path that no longer
+  // exists; `root` is already canonical (it's `path.dirname` of `home`, which `makeTempHome`
+  // realpath'd), so a plain `path.resolve` on the child's raw values is the right comparison.
+  const seen = JSON.parse(fs.readFileSync(marker, "utf8"));
+  assert.equal(path.resolve(seen.TMPDIR), root, "the child's TMPDIR must be the root");
+  assert.equal(path.resolve(seen.TEMP), root, "the child's TEMP must be the root");
+  assert.equal(path.resolve(seen.TMP), root, "the child's TMP must be the root");
+  assert.equal(path.resolve(seen.tmpdir), root, "os.tmpdir() inside the child must be the root");
+
+  assert.equal(fs.existsSync(root), false, "a passing run must remove the whole root");
+});
+
+test("P2: on a failing run, only the retained sealed home remains under the root - a stray dir the test itself made is trimmed away", () => {
+  const { file } = writeEnvProbe({ passes: false, mkdtempStray: true });
+  const { code, stdout } = spawnRunner(file);
+  assert.notEqual(code, 0);
+  const home = stdout.split("\n")[0].trim();
+  const root = path.dirname(home);
+  cleanups.push(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  assert.equal(fs.existsSync(home), true, "the retained sealed home must survive a failing run");
+  const remaining = fs.readdirSync(root);
+  assert.deepEqual(remaining, [path.basename(home)], "the root must hold nothing but the retained home");
+});
+
+test("P2: a child run killed with SIGTERM leaves no root at all (POSIX only)", { skip: WIN32_GROUP_SIGNAL_SKIP_REASON && process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false }, async () => {
+  const { file: slowProbe, ready } = writeSlowProbe();
+  const tmp = scratchDir("run-tests-root-sigterm-tmp-");
+  const fixtureHome = scratchDir("run-tests-root-sigterm-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
+  delete env.NODE_TEST_CONTEXT;
+
+  const child = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", slowProbe], { env, stdio: ["ignore", "pipe", "inherit"] });
+  cleanups.push(() => {
+    try {
+      process.kill(child.pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  });
+
+  const home = await new Promise((resolve, reject) => {
+    let buf = "";
+    child.stdout.on("data", (chunk) => {
+      buf += chunk.toString();
+      const nl = buf.indexOf("\n");
+      if (nl !== -1) resolve(buf.slice(0, nl).trim());
+    });
+    child.on("error", reject);
+  });
+  const root = path.dirname(home);
+
+  const exited = new Promise((resolve) => child.on("exit", (code, signal) => resolve({ code, signal })));
+
+  const deadline = Date.now() + 8000;
+  while (!fs.existsSync(ready)) {
+    if (Date.now() > deadline) throw new Error("the slow probe never started");
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  process.kill(child.pid, "SIGTERM");
+  await exited;
+
+  assert.equal(fs.existsSync(home), false, "the sealed home must not survive a SIGTERM");
+  assert.equal(fs.existsSync(root), false, "the whole per-run root must not survive a SIGTERM");
+});
+
+test("P3: sweepStaleHomes removes a stale test-run root with a dead pid, keeps a young one and one with a live pid", async () => {
+  const tmpDir = scratchDir("run-tests-root-sweep-tmp-");
+  const homeDir = emptyHomeDir();
+  const now = Date.now();
+  const TWENTY_FIVE_HOURS = 25 * 60 * 60 * 1000;
+  const TWENTY_HOURS = 20 * 60 * 60 * 1000;
+
+  // A genuinely dead pid: spawn a trivial child, wait for it to fully exit, then reuse its pid -
+  // never a made-up number, which could collide with something real on a shared host.
+  const dead = spawnSync(NODE, ["-e", "process.exit(0)"]);
+  const deadPid = dead.pid;
+
+  const stalePath = path.join(tmpDir, `${TEST_RUN_ROOT_PREFIX}${deadPid}-abcdef`);
+  fs.mkdirSync(stalePath);
+  fs.utimesSync(stalePath, new Date(now - TWENTY_FIVE_HOURS), new Date(now - TWENTY_FIVE_HOURS));
+
+  const youngPath = path.join(tmpDir, `${TEST_RUN_ROOT_PREFIX}${deadPid}-ghijkl`);
+  fs.mkdirSync(youngPath);
+  fs.utimesSync(youngPath, new Date(now - TWENTY_HOURS), new Date(now - TWENTY_HOURS));
+
+  const livePath = path.join(tmpDir, `${TEST_RUN_ROOT_PREFIX}${process.pid}-mnopqr`);
+  fs.mkdirSync(livePath);
+  fs.utimesSync(livePath, new Date(now - TWENTY_FIVE_HOURS), new Date(now - TWENTY_FIVE_HOURS));
+
+  const result = sweepStaleHomes({ tmpDir, homeDir, now: () => now });
+
+  assert.equal(result.sweptRoots, 1);
+  assert.equal(fs.existsSync(stalePath), false, "an old root with a dead pid must be swept");
+  assert.equal(fs.existsSync(youngPath), true, "a young root must survive even with a dead pid");
+  assert.equal(fs.existsSync(livePath), true, "an old root must survive while its pid is alive");
+});
+
+// ---------------------------------------------------------------------------
+// P4: the leak check. `snapshotLeakNames`/`describeLeak` are exercised directly against an
+// injected scratch dir, never the real /tmp.
+// ---------------------------------------------------------------------------
+
+test("LEAK_PREFIX_RE matches every pinned prefix and rejects an unrelated name", () => {
+  assert.ok(LEAK_PREFIX_RE.test("goal-abc123"));
+  assert.ok(LEAK_PREFIX_RE.test("dispatch-abc123"));
+  assert.ok(LEAK_PREFIX_RE.test("decisions-abc123"));
+  assert.ok(!LEAK_PREFIX_RE.test("sealed-home-abc123"), "sealed-home is deliberately excluded");
+  assert.ok(!LEAK_PREFIX_RE.test("unrelated-dir"));
+});
+
+test("the leak check is silent when clean and goes red on a planted leak, against an injected temp dir", () => {
+  const tmpDir = scratchDir("run-tests-leak-tmp-");
+  const before = snapshotLeakNames(tmpDir);
+  assert.equal(describeLeak(before, snapshotLeakNames(tmpDir)).leaked, false);
+  assert.equal(describeLeak(before, snapshotLeakNames(tmpDir)).line, "leak check: 0 new temp entries");
+
+  const leakDir = path.join(tmpDir, "goal-card-fixture-abc123");
+  fs.mkdirSync(leakDir);
+  const after = snapshotLeakNames(tmpDir);
+  const result = describeLeak(before, after);
+  assert.equal(result.leaked, true);
+  assert.equal(result.line, "leak check: 1 new temp entries: goal-card-fixture-abc123");
+
+  fs.rmSync(leakDir, { recursive: true, force: true });
+  assert.equal(describeLeak(before, snapshotLeakNames(tmpDir)).leaked, false, "removing the leak clears the check");
+});
+
+test("describeLeak reports at most 5 names even when more than 5 leaked", () => {
+  const before = new Set();
+  const after = new Set(["goal-1", "goal-2", "goal-3", "goal-4", "goal-5", "goal-6"]);
+  const result = describeLeak(before, after);
+  assert.equal(result.leaked, true);
+  assert.equal(result.line, "leak check: 6 new temp entries: goal-1, goal-2, goal-3, goal-4, goal-5");
+});
+
+test("the real CLI's leak check line is printed and forces exit 1 even when the suite itself passes, on a planted real leak", () => {
+  // Plants a leak DIRECTLY under the injected TMPDIR the runner treats as its "real" os.tmpdir()
+  // (never the genuine system /tmp) by writing a probe that mkdtemps a LEAK_PREFIX_RE name itself,
+  // bypassing TMPDIR the way a P5 straggler would (this probe deliberately imitates that defect
+  // rather than reading os.tmpdir(), to prove the check fires on exactly that shape).
+  const dir = scratchDir("run-tests-leak-cli-probe-");
+  const file = path.join(dir, "leaky.test.mjs");
+  fs.writeFileSync(
+    file,
+    [
+      "import test from 'node:test';",
+      "import fs from 'node:fs';",
+      "import path from 'node:path';",
+      "test('leaky', () => {",
+      "  fs.mkdirSync(path.join(process.env.REAL_TMP_FOR_LEAK_TEST, 'goal-leak-probe-abc123'));",
+      "});",
+      "",
+    ].join("\n"),
+  );
+  const tmp = scratchDir("run-tests-leak-cli-tmp-");
+  const fixtureHome = scratchDir("run-tests-leak-cli-home-");
+  const env = childEnv(fixtureHome, {
+    TMPDIR: tmp,
+    TEMP: tmp,
+    TMP: tmp,
+    REAL_TMP_FOR_LEAK_TEST: fs.realpathSync(tmp),
+  });
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", file], { env, encoding: "utf8" });
+  cleanups.push(() => fs.rmSync(path.join(tmp, "goal-leak-probe-abc123"), { recursive: true, force: true }));
+
+  assert.notEqual(r.status, 0, "a real leak must force a nonzero exit even though the probe itself passed");
+  assert.match(r.stdout, /^leak check: 1 new temp entries: goal-leak-probe-abc123$/m);
+});

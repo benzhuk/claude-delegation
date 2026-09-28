@@ -492,3 +492,4 @@ Codex: the read counter is unsupported on Codex, because Codex hook payloads car
 ## Counted markers
 
 - `stale session:`: the stale-session guard's marker; the guard logs it as rule `R0-stale` (with `hard_deny: true`); wiring-check `--line` prints the same text.
+- `leak check:`: `scripts/run-tests.mjs`'s own line, the reader for a test temp leak - `leak check: 0 new temp entries` when a run left nothing new directly under the real temp dir, otherwise the count and up to 5 names, and the run exits 1 even when the suite itself passed.

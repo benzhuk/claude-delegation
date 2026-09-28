@@ -99,15 +99,20 @@ function installHandlersOnce() {
  * @param {boolean} [opts.gitIdentity=true]  seed the fixture git identity scoped to `fixtureRoot`.
  *   `false` leaves `GIT_CONFIG_GLOBAL` pointed at an empty file: any commit under the seal then
  *   has no identity and git refuses it, on purpose.
+ * @param {string} [opts.tmpDir=os.tmpdir()]  where the sealed home itself is mkdtemp'd (lane 46,
+ *   test-temp-hygiene: `run-tests.mjs`'s CLI path passes its own per-run root here so the sealed
+ *   home lands INSIDE that root instead of directly under the real temp dir - see `runSealed`'s
+ *   `tmpRoot` option). Every other caller omits this and gets today's `os.tmpdir()` behaviour,
+ *   byte-for-byte.
  * @returns {{ home: string, agentsHome: string, env: object, fixtureRoot: string, cleanup: () => void,
  *   keep: () => void, unregister: () => void }} `keep`/`unregister` are the same function (alias):
  *   removes this directory from the per-process leak-fix registry (see above) WITHOUT deleting it -
  *   `run-tests.mjs` calls it to keep a failed suite's home around for inspection without the exit
  *   handler sweeping it out from under that intent.
  */
-export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
+export function makeTempHome({ files = {}, gitIdentity = true, tmpDir = os.tmpdir() } = {}) {
   installHandlersOnce();
-  const raw = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-home-"));
+  const raw = fs.mkdtempSync(path.join(tmpDir, "sealed-home-"));
   registeredHomes.add(raw);
   // realpath now: the includeIf glob below is matched against a realpath, and a mismatch here
   // (e.g. a symlinked temp dir) would silently widen or narrow which repos get the fixture identity.
