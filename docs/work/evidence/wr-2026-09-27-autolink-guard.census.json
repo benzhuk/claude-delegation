@@ -1,10 +1,10 @@
 {
   "combined": {
     "claude-opus-5-5": {
-      "cache_creation_input_tokens": 347534,
-      "cache_read_input_tokens": 4088982,
-      "input_tokens": 146,
-      "output_tokens": 55965
+      "cache_creation_input_tokens": 349013,
+      "cache_read_input_tokens": 4438042,
+      "input_tokens": 152,
+      "output_tokens": 57203
     },
     "claude-sonnet-5": {
       "cache_creation_input_tokens": 582498,
@@ -18,7 +18,7 @@
     "coverageReason": null,
     "coverageSupported": true,
     "host": "claude",
-    "leadLastMessageAt": "2026-09-28T10:27:58.541Z",
+    "leadLastMessageAt": "2026-09-28T10:28:18.919Z",
     "leadTurns": 9,
     "leadTurnsTotal": 77,
     "markerFound": true,
@@ -32,26 +32,26 @@
     "observedWindowByModel": null,
     "totalByModel": {
       "claude-opus-5-5": {
-        "cache_creation_input_tokens": 2463388,
-        "cache_read_input_tokens": 48767862,
-        "input_tokens": 668,
-        "output_tokens": 176466
+        "cache_creation_input_tokens": 2464867,
+        "cache_read_input_tokens": 49116922,
+        "input_tokens": 674,
+        "output_tokens": 177704
       }
     },
-    "totalTurns": 334,
-    "turnsPerHour": 3.128186982163214,
-    "wallClockHours": 7.352501666666667,
+    "totalTurns": 337,
+    "turnsPerHour": 3.5334910015272536,
+    "wallClockHours": 7.358162222222222,
     "windowByModel": {
       "claude-opus-5-5": {
-        "cache_creation_input_tokens": 221945,
-        "cache_read_input_tokens": 2180816,
-        "input_tokens": 46,
-        "output_tokens": 10035
+        "cache_creation_input_tokens": 223424,
+        "cache_read_input_tokens": 2529876,
+        "input_tokens": 52,
+        "output_tokens": 11273
       }
     },
-    "windowEndAt": "2026-09-28T10:27:58.541Z",
+    "windowEndAt": "2026-09-28T10:28:18.919Z",
     "windowStartAt": "2026-09-28T03:06:49.535Z",
-    "windowTurns": 23
+    "windowTurns": 26
   },
   "leadPath": "C:/Users/benzh/.claude/projects/C--Users-benzh-orca-workspaces-claude-delegation-gudgeon/588290d9-ee43-400b-a808-cf44c407171c.jsonl",
   "marker": null,
