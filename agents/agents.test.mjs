@@ -140,3 +140,34 @@ test('reviewer.md states a bug-fix review carries the four C4 fields', () => {
     assert.ok(reviewer.body.includes(field), `reviewer.md missing review field "${field}"`);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 seam: the pinned scratch sentence, byte-identical, on its own line in all
+// eight role files (the four Claude agents/*.md files above, plus the four Codex
+// codex/agents/*.toml files C1's docs/work-record.md may also quote it from).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PINNED_SCRATCH_SENTENCE = "Temp files go only under the directory named by the "
+  + "record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write "
+  + 'temp files into the repo and never delete them yourself: the lead\'s '
+  + "`work-record.mjs close --closeout` removes that directory.";
+
+const CODEX_TOML_DIR = path.join(HERE, '..', 'codex', 'agents');
+const CODEX_TOML_FILES = ['builder.toml', 'integrator.toml', 'reviewer.toml', 'runner.toml'];
+
+test('the pinned scratch sentence appears, verbatim and on its own line, in all eight role files', () => {
+  const mdFiles = AGENT_FILES.map((f) => ({ label: f, text: fs.readFileSync(path.join(HERE, f), 'utf8') }));
+  const tomlFiles = CODEX_TOML_FILES.map((f) => ({
+    label: `codex/agents/${f}`,
+    text: fs.readFileSync(path.join(CODEX_TOML_DIR, f), 'utf8'),
+  }));
+  const eight = [...mdFiles, ...tomlFiles];
+  assert.equal(eight.length, 8, 'expected exactly eight role files');
+  for (const { label, text } of eight) {
+    const lines = text.split(/\r?\n/).map((l) => l.trim().replace(/^-\s*/, ''));
+    assert.ok(
+      lines.includes(PINNED_SCRATCH_SENTENCE),
+      `${label} does not carry the pinned scratch sentence verbatim on its own line`,
+    );
+  }
+});

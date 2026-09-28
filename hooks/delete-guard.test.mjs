@@ -492,6 +492,389 @@ test('quoted: a command substitution inside a quoted commit message is NOT exemp
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 (round 2): the delete guard stops matching quoted text — heredoc bodies fed
+// to a non-executing consumer, `rg` added to the quoted-argument safe-command list. Spec's
+// three named false-positive shapes: a heredoc report body, a quoted grep pattern (already
+// covered above), and a quoted ssh remote grep (below) — the ssh shape needs no dedicated
+// code at all: it is exempt through the ordinary quoted-argument safe-command rule, the
+// same one `grep -n "rm -rf" file` uses, because `grep` sits in command position inside the
+// remote string's own quotes.
+//
+// Round 2 narrows the heredoc exemption to exactly one shape per consumer, all requiring a
+// QUOTED delimiter on a plain `<<` (never `<<-`), with nothing else anywhere in the command
+// but that one command and (after the closing line) whitespace: `cat > <file>` / `cat >>
+// <file>` (bare `cat` with no redirect is NO LONGER exempt — a heredoc printed to stdout,
+// not written anywhere, used to be exempt in round 1; round 2 drops that shape), `tee
+// [-a] <file>`, `note-send …`, and `git commit -F -` (replacing round 1's nested `git
+// commit -m "$(cat <<'EOF' … )"` substitution shape, which is no longer exempt either: a
+// `$( )` anywhere outside the body disqualifies the whole command).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('quoted: rg -n "rm -rf" file passes (never a delete) — rg added to the safe-command list', () => {
+  assert.equal(detectDelete('rg -n "rm -rf" file'), null);
+});
+
+test("false positive #1 (spec, round 2 shape): cat redirected to a file, quoted delimiter, nothing after — passes", () => {
+  const cmd = "cat > report.md <<'EOF'\n" + 'the incident report should never mention running rm -rf directly\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: bare cat with NO redirect is no longer exempt in round 2 (dropped shape) — still refuses on real content', () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = "cat <<'EOF'" + NL + DEL + NL + 'EOF' + NL;
+  assert.ok(detectDelete(cmd), 'round 2 drops the bare-cat-no-redirect exemption entirely');
+});
+
+test("R1 pinned: cat > report.md <<EOF with an UNQUOTED delimiter and $(rm ...) in the body is NOT exempted — the redirect alone is not enough, the delimiter must be quoted too", () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = 'cat > report.md <<EOF' + NL + '$(' + DEL + ')' + NL + 'EOF' + NL;
+  assert.ok(detectDelete(cmd), 'an unquoted delimiter lets $( ) substitution run in the body, so it must stay refused');
+});
+
+test('quoted: heredoc into tee (writing to a file), quoted delimiter, nothing after — passes', () => {
+  const cmd = "tee report.md <<'EOF'\n" + 'never run rm -rf again\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('round 4 (Ruling W) narrows this: bare note-send <<\'EOF\' with no --packet-file - is NO LONGER exempt', () => {
+  const cmd = "note-send <<'EOF'\n" + 'warned peer about the rm -rf incident\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd), 'Ruling W only whitelists note-send <args> --packet-file - <<\'DELIM\'');
+});
+
+test("quoted: heredoc into note-send --packet-file -, quoted delimiter — passes (Ruling W's actual note-send shape)", () => {
+  const cmd = "note-send --to x --packet-file - <<'EOF'\n" + 'warned peer about the rm -rf incident\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: heredoc into a git commit message (git commit -F -), quoted delimiter — passes', () => {
+  const cmd = "git commit -F - <<'EOF'\n" + 'fix: rm -rf handling in the closeout script\n' + 'EOF\n';
+  assert.equal(detectDelete(cmd), null);
+});
+
+test('quoted: a heredoc fed to cat inside a git commit -m "$(...)" substitution is NOT exempt in round 2 (a $( ) outside the body disqualifies the whole command; git commit -F - is the blessed shape instead)', () => {
+  const cmd = 'git commit -m "$(cat <<\'EOF\'\n' + 'fix: never run rm -rf again\n' + 'EOF\n)"';
+  assert.ok(detectDelete(cmd), 'round 2 drops the nested $(cat <<EOF ...) substitution shape entirely');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 3 (N1): R1 condition 5 — a cat/tee heredoc target whose name ends,
+// final suffix, case-insensitively, in a script/executable extension is never exempt, even
+// with an otherwise-blessed shape (quoted delimiter, no other disqualifier). One test per
+// suffix, each checking every head shape Ruling W (round 4) still whitelists: `cat > f`,
+// `cat >> f`, `tee f`. Round 4 drops the redirect-AFTER-`<<` shape (`cat <<'EOF' > f`)
+// entirely — see the dedicated pin test below — so it is no longer one of these heads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function heredocHeads(file) {
+  return [
+    "cat > " + file + " <<'EOF'",
+    "cat >> " + file + " <<'EOF'",
+    'tee ' + file + " <<'EOF'",
+  ];
+}
+
+const N1_DEL = 'rm -rf x';
+const N1_DISALLOWED_SUFFIXES = [
+  '.sh', '.bash', '.zsh', '.ps1', '.psm1', '.cmd', '.bat', '.py', '.js', '.mjs', '.cjs',
+];
+
+for (const suffix of N1_DISALLOWED_SUFFIXES) {
+  test(`R1 condition 5: cat/tee heredoc target ending in ${suffix} is refused, all three head shapes`, () => {
+    for (const head of heredocHeads('x' + suffix)) {
+      const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+      assert.ok(detectDelete(cmd), `expected refusal for: ${head}`);
+    }
+  });
+}
+
+test('R1 condition 5: the suffix check is case-insensitive (x.SH refused, all three head shapes)', () => {
+  for (const head of heredocHeads('x.SH')) {
+    const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+    assert.ok(detectDelete(cmd), `expected refusal for: ${head}`);
+  }
+});
+
+test('R1 condition 5: only the FINAL suffix counts — x.md.sh is refused (ends in .sh)', () => {
+  for (const head of heredocHeads('x.md.sh')) {
+    const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+    assert.ok(detectDelete(cmd), `expected refusal for: ${head}`);
+  }
+});
+
+test('R1 condition 5: only the FINAL suffix counts — x.sh.md passes (ends in .md, not a disallowed suffix)', () => {
+  for (const head of heredocHeads('x.sh.md')) {
+    const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+    assert.equal(detectDelete(cmd), null, `expected pass for: ${head}`);
+  }
+});
+
+test('R1 condition 5: report.md and x.txt still pass — no disallowed suffix, all whitelisted head shapes', () => {
+  for (const file of ['report.md', 'x.txt']) {
+    for (const head of heredocHeads(file)) {
+      const cmd = head + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+      assert.equal(detectDelete(cmd), null, `expected pass for: ${head}`);
+    }
+  }
+});
+
+test("round 4 (Ruling W) narrows this: cat <<'EOF' > report.md (target AFTER the <<) is NO LONGER exempt, even with a benign target and no other disqualifier — Ruling W's line-1 whitelist only has the redirect BEFORE the <<", () => {
+  const cmd = "cat <<'EOF' > report.md" + '\n' + N1_DEL + '\n' + 'EOF' + '\n';
+  assert.ok(detectDelete(cmd), 'the redirect-after-<< shape is dropped outright, not just suffix-checked');
+});
+
+test("false positive #3 (spec): ssh host \"grep -n 'rm -rf' file\" passes — round 2: no ssh-specific code at all, this is the ordinary quoted-argument safe-command rule, because grep sits in command position right inside the remote string's own opening quote", () => {
+  const cmd = "ssh host \"grep -n 'rm -rf' file\"";
+  assert.equal(detectDelete(cmd), null);
+});
+
+test("quoted: ssh host 'grep -n \"rm -rf\" file' passes (single-quoted remote command, same base quoted-argument rule)", () => {
+  const cmd = 'ssh host \'grep -n "rm -rf" file\'';
+  assert.equal(detectDelete(cmd), null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 4 (Ruling W): the 13 repros from reports/C2-review-r3.md (N2-N5) that
+// bypassed the round-3 parsing-based exemption. Each must refuse again under the round-4
+// whitelist. Built with string concatenation per the non-negotiable: never a literal
+// recursive-delete command in this file either. `NBSP` is U+00A0; `FF` is U+000C (form
+// feed, `\f`) — both are characters JS `\s` matches but bash's IFS does not split on, the
+// round-3 N2 gap.
+// ─────────────────────────────────────────────────────────────────────────────
+
+{
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const NBSP = ' ';
+  const FF = '\f';
+  const W_REPROS = [
+    ['N2 #1 cat > "c3 <<\'EOF\' (double-quoted target swallows the << as literal text)',
+      'cat > "c3 <<\'EOF\'' + NL + '"' + NL + DEL + NL + 'EOF'],
+    ["N2 #2 cat > 'c4 <<'EOF' (single-quoted target, same swallow)",
+      "cat > 'c4 <<'EOF'" + NL + "'" + NL + DEL + NL + 'EOF'],
+    ["N2 #3 tee #c <<'EOF' (a leading # in the tee argument starts a real bash comment)",
+      "tee #c <<'EOF'" + NL + DEL + NL + 'EOF'],
+    ["N2 #4 cat > c8.txt <<'EOF'<NBSP> (NBSP is part of bash's own delimiter word, not whitespace)",
+      "cat > c8.txt <<'EOF'" + NBSP + NL + 'EOF' + NBSP + NL + DEL + NL + 'EOF'],
+    ['N2 #5 the same with a form feed in place of the NBSP',
+      "cat > c8.txt <<'EOF'" + FF + NL + 'EOF' + FF + NL + DEL + NL + 'EOF'],
+    ["N3 #1 cat > c1.txt<<A <<'EOF' (a second, unquoted heredoc glued onto the target)",
+      "cat > c1.txt<<A <<'EOF'" + NL + '$(' + DEL + ')' + NL + 'A' + NL + 'x' + NL + 'EOF'],
+    ["N3 #2 tee c2.txt<<A <<'EOF' (same shape, tee)",
+      "tee c2.txt<<A <<'EOF'" + NL + '$(' + DEL + ')' + NL + 'A' + NL + 'x' + NL + 'EOF'],
+    ["N4 #1 quoted delimiter, a body line ending in \\ used to get joined into the opener by the normalizer",
+      "cat > c6.txt <<'EOF'" + NL + 'x \\' + NL + 'EOF' + NL + DEL + NL + 'EOF'],
+    ['N4 #2 the same with a trailing backtick on body line 1 instead of a backslash',
+      "cat > c6.txt <<'EOF'" + NL + 'x `' + NL + 'EOF' + NL + DEL + NL + 'EOF'],
+    ["N5 #1 cat > r1.md <<'EOF' > w1.sh (a second redirect hides the real write target from the suffix check)",
+      "cat > r1.md <<'EOF' > w1.sh" + NL + DEL + NL + 'EOF'],
+    ['N5 #2 cat > "w2.sh" <<\'EOF\' (a double-quoted target does not end in literal .sh)',
+      'cat > "w2.sh" <<\'EOF\'' + NL + DEL + NL + 'EOF'],
+    ["N5 #3 tee 'w3.sh' <<'EOF' (single-quoted target, same evasion)",
+      "tee 'w3.sh' <<'EOF'" + NL + DEL + NL + 'EOF'],
+    ["N5 #4 cat > w4.s'h' <<'EOF' (a partly-quoted target)",
+      "cat > w4.s'h' <<'EOF'" + NL + DEL + NL + 'EOF'],
+    ['N7a note-send " --packet-file - <<\'EOF\' (an unbalanced double quote swallows the heredoc operator)',
+      'note-send " --packet-file - <<\'EOF\'' + NL + '"' + NL + DEL + NL + 'EOF'],
+    ["N7b note-send ' --packet-file - <<'EOF' (same, single quote)",
+      "note-send ' --packet-file - <<'EOF'" + NL + "'" + NL + DEL + NL + 'EOF'],
+    ['N7c note-send --to x" --packet-file - <<\'EOF\' (quote glued onto an argument)',
+      'note-send --to x" --packet-file - <<\'EOF\'' + NL + '"' + NL + DEL + NL + 'EOF'],
+  ];
+  for (const [name, cmd] of W_REPROS) {
+    test(`Ruling W repro ${name}: must refuse`, () => {
+      assert.ok(detectDelete(cmd), `expected a match for: ${JSON.stringify(cmd)}`);
+    });
+  }
+
+  test('Ruling W real note-send shape (--from/--to/--kind/--text) stays exempt', () => {
+    const cmd = "note-send --from a --to b --kind RESULT --text \"x y\" --packet-file - <<'EOF'" + NL + 'body text' + NL + 'EOF\n';
+    assert.strictEqual(detectDelete(cmd), null);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 2, F2: findSshSafeSpans is removed outright (it added no legitimate
+// exemption over the base quoted-argument rule above, and its only measurable effect was
+// a bypass). These two repros were refused at base and must stay refused — ssh's remote
+// output really executes once the LOCAL shell pipes it into sh/bash.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('F2: ssh host "echo \'rm -rf x\'" | sh is NOT exempted — the remote echo prints the delete and the local sh runs it', () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = 'ssh host "echo \'' + DEL + '\'" | sh';
+  assert.ok(detectDelete(cmd));
+});
+
+test('F2: ssh host "printf \'rm -rf x\'" | bash is NOT exempted (same shape, printf)', () => {
+  const DEL = 'rm -rf x';
+  const cmd = 'ssh host "printf \'' + DEL + '\'" | bash';
+  assert.ok(detectDelete(cmd));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 2, F4: SAFE_CMD_RE pinned to command position — a safe word matching
+// a username or a path segment must not count as the command itself.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("F4: sudo -u rg sh -c 'rm -rf x' is NOT exempted (rg here is a username, not the command)", () => {
+  const DEL = 'rm -rf x';
+  const cmd = "sudo -u rg sh -c '" + DEL + "'";
+  assert.ok(detectDelete(cmd));
+});
+
+test("F4: /opt/rg/bin/sh -c 'rm -rf x' is NOT exempted (rg here is a path segment, not the command)", () => {
+  const DEL = 'rm -rf x';
+  const cmd = "/opt/rg/bin/sh -c '" + DEL + "'";
+  assert.ok(detectDelete(cmd));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 36 / C2 round 2, F1: every repro from the review's bypass table (36 shapes, review
+// numbering). Each was refused at base and passed at the round-1 HEAD; each must refuse
+// again under the round-2 narrow exemption. Built with string concatenation per the
+// non-negotiable: never a literal recursive-delete command in this file either.
+// ─────────────────────────────────────────────────────────────────────────────
+
+{
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const F1_REPROS = [
+    ['#1 cat > x.sh <<EOF (redirect before <<, unquoted) then bash x.sh', 'cat > x.sh <<EOF' + NL + DEL + NL + 'EOF' + NL + 'bash x.sh'],
+    ["#2 cat >x.sh <<'EOF' (redirect before <<, quoted) then bash x.sh", "cat >x.sh <<'EOF'" + NL + DEL + NL + 'EOF' + NL + 'bash x.sh'],
+    ['#3 tee x.sh <<EOF then bash x.sh', 'tee x.sh <<EOF' + NL + DEL + NL + 'EOF' + NL + 'bash x.sh'],
+    ['#4 tee x.sh <<EOF >/dev/null then sh x.sh', 'tee x.sh <<EOF >/dev/null' + NL + DEL + NL + 'EOF' + NL + 'sh x.sh'],
+    ['#5 cat <<EOF |& bash', 'cat <<EOF |& bash' + NL + DEL + NL + 'EOF'],
+    ['#6 cat <<EOF | timeout 5 bash', 'cat <<EOF | timeout 5 bash' + NL + DEL + NL + 'EOF'],
+    ['#7 cat <<EOF | ... bash (pipeline continues after the body)', 'cat <<EOF |' + NL + DEL + NL + 'EOF' + NL + 'bash'],
+    ['#8 bash <(cat <<EOF ...)', 'bash <(cat <<EOF' + NL + DEL + NL + 'EOF' + NL + ')'],
+    ["#9 bash -c \"$(cat <<'EOF' ...)\"", "bash -c \"$(cat <<'EOF'" + NL + DEL + NL + 'EOF' + NL + ')"'],
+    ['#10 eval "$(cat <<EOF ...)"', 'eval "$(cat <<EOF' + NL + DEL + NL + 'EOF' + NL + ')"'],
+    ['#11 bash -s cat <<EOF (cat is an argument to bash -s, which reads stdin)', 'bash -s cat <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#12 CAT=1 bash <<EOF (consumer word-anywhere confusion)', 'CAT=1 bash <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#13 echo cat & bash <<EOF (bare & is not a separator)', 'echo cat & bash <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#14 tee >(bash) <<EOF (tee writes into a process substitution running bash)', 'tee >(bash) <<EOF' + NL + DEL + NL + 'EOF'],
+    ['#15 cat <<EOF unquoted delimiter with $(rm ...) in the body', 'cat <<EOF' + NL + '$(' + DEL + ')' + NL + 'EOF'],
+    ['#16 cat <<EOF unquoted delimiter with a backtick substitution in the body', 'cat <<EOF' + NL + 'a `' + DEL + '` b' + NL + 'EOF'],
+    ['#17 bash <<A; cat <<B (bodies stack; the outer B span would cover A too)', 'bash <<A; cat <<B' + NL + DEL + NL + 'A' + NL + 'hello' + NL + 'B'],
+    ['#18 cat <<E"OF" (delimiter read as E, bash reads EOF, delete lands between)', 'cat <<E"OF"' + NL + 'hi' + NL + 'EOF' + NL + DEL + NL + 'E'],
+    ['#19 cat <<<"x" (here-string misread as a heredoc)', 'cat <<<"x"' + NL + DEL + NL + 'x'],
+    ['#20 grep -n "cat <<EOF" x.md then a real cat heredoc (a << inside quotes is not an operator)', 'grep -n "cat <<EOF" x.md' + NL + DEL + NL + 'cat <<EOF' + NL + 'report' + NL + 'EOF'],
+    ['#21 a comment containing cat <<EOF then a real cat heredoc', '# write it with cat <<EOF' + NL + DEL + NL + 'cat <<EOF' + NL + 'x' + NL + 'EOF'],
+    ["#22 quoted delimiter, line-continuation joins the body's EOF into the opener line", "cat <<'EOF'" + NL + 'x \\' + NL + 'EOF' + NL + DEL + NL + 'EOF'],
+    ['#23 cat $((1<<x)) (arithmetic shift misread as a heredoc opener)', 'cat $((1<<x))' + NL + DEL + NL + 'x'],
+    ['#24 ssh host "sh -s" cat <<EOF (remote sh -s executes stdin)', 'ssh host "sh -s" cat <<EOF' + NL + DEL + NL + 'EOF'],
+  ];
+  for (const [name, cmd] of F1_REPROS) {
+    test(`F1 repro ${name}: must refuse`, () => {
+      assert.ok(detectDelete(cmd), `expected a match for: ${JSON.stringify(cmd)}`);
+    });
+  }
+}
+
+test("quoted: cat > report.md <<-'EOF' (dashed heredoc) is NOT exempted — <<- is never exempt, only plain << (R1.1)", () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = "cat > report.md <<-'EOF'" + NL + '\t' + DEL + NL + '\tEOF' + NL;
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: an unterminated here-doc with a QUOTED delimiter still refuses (fails closed on unparseable quoting)', () => {
+  const cmd = "cat > report.md <<'EOF'\nrm -rf x\n";
+  assert.ok(detectDelete(cmd), 'a here-doc with no closing delimiter must never be treated as a safe span, quoted or not');
+});
+
+test('F3: a 320 KB adversarial heredoc-shaped input stays under 1s and still refuses the trailing delete', () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const command = ('cat <<A' + NL).repeat(40000) + DEL;
+  const t0 = performance.now();
+  const found = detectDelete(command);
+  const elapsed = performance.now() - t0;
+  assert.ok(elapsed < 1000, `expected under 1000ms, got ${elapsed}ms`);
+  assert.ok(found, 'the trailing real delete must still be refused');
+});
+
+// ── Stay refused: real executors of quoted/heredoc text (each C2-pinned shape) ────────
+
+test('quoted: bash -c "rm -rf x" is NOT exempted (bash -c is not on the safe-command list, and it really executes it)', () => {
+  assert.ok(detectDelete('bash -c "rm -rf x"'));
+});
+
+test('quoted: zsh -c "rm -rf x" is NOT exempted', () => {
+  assert.ok(detectDelete('zsh -c "rm -rf x"'));
+});
+
+test('quoted: eval "rm -rf x" is NOT exempted', () => {
+  assert.ok(detectDelete('eval "rm -rf x"'));
+});
+
+test('quoted: ssh host "rm -rf x" is NOT exempted (the remote string, re-parsed on its own, really is a delete)', () => {
+  assert.ok(detectDelete('ssh host "rm -rf x"'));
+});
+
+test("quoted: ssh host 'rm -rf x' is NOT exempted (single-quoted form)", () => {
+  assert.ok(detectDelete("ssh host 'rm -rf x'"));
+});
+
+test('quoted: ssh host <<EOF with the delete in the body is NOT exempted (ssh is not a recognized non-executing heredoc consumer)', () => {
+  const cmd = 'ssh host <<EOF\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: bash <<EOF with the delete in the body is NOT exempted', () => {
+  const cmd = 'bash <<EOF\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: sh -s <<EOF with the delete in the body is NOT exempted', () => {
+  const cmd = 'sh -s <<EOF\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('detectDelete: pwsh -Command "Remove-Item -Recurse ..." still matches (quoting is not exemption-eligible for pwsh)', () => {
+  const found = detectDelete('pwsh -Command "Remove-Item -Recurse ./x"');
+  assert.ok(found);
+  assert.match(found.verb, /Remove-Item -Recurse/);
+});
+
+test('detectDelete: find ... -exec rm -rf {} \\; still matches (the rm verb inside -exec is caught by the plain rm detector)', () => {
+  const found = detectDelete('find . -type f -exec rm -rf {} \\;');
+  assert.ok(found);
+});
+
+test('detectDelete: the pinned regression stays refused — cat <<EOF > script.sh ... EOF ... bash script.sh (written to a file, executed later)', () => {
+  const cmd = 'cat <<EOF > script.sh\nrm -rf SCRATCH/dg\nEOF\nbash script.sh';
+  const found = detectDelete(cmd);
+  assert.ok(found, 'a cat here-doc redirected to a FILE must stay refused even though a bare cat here-doc is now exempt');
+});
+
+test('quoted: a cat here-doc piped onward into sh is NOT exempted (cat <<EOF | sh)', () => {
+  const cmd = 'cat <<EOF | sh\n' + 'rm -rf x\n' + 'EOF\n';
+  assert.ok(detectDelete(cmd));
+});
+
+test('quoted: an unterminated quote after echo still refuses (fails closed on unparseable quoting)', () => {
+  const found = detectDelete('echo "rm -rf x');
+  assert.ok(found, 'an unterminated quote must never be treated as a safe span');
+});
+
+test('quoted: an unterminated here-doc (no closing EOF line) still refuses (fails closed on unparseable quoting)', () => {
+  const found = detectDelete('cat <<EOF\nrm -rf x\n');
+  assert.ok(found, 'a here-doc with no closing delimiter must never be treated as a safe span');
+});
+
+test('detectDelete stays fast (not exponential) on repeated ssh-quoted-grep segments, and still denies a trailing real delete', () => {
+  const command = `ssh host "grep -n 'rm -rf' file"; `.repeat(50) + 'rm -rf z';
+  const t0 = performance.now();
+  const found = detectDelete(command);
+  assert.ok(performance.now() - t0 < 500, 'must not blow up on repeated ssh/quote re-parsing');
+  assert.ok(found);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // decide() — agent_id scoping (spec item 4), kill switches, log verbs
 // ─────────────────────────────────────────────────────────────────────────────
 

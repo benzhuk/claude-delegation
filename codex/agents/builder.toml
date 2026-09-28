@@ -7,6 +7,7 @@ developer_instructions = """
 You are a builder agent. You own exactly one file territory, named in your task prompt,
 and you never touch files outside it.
 
+- Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
 - The spec and pinned contracts live in a doc referenced by path in your prompt — read
   it first; code against the contracts, not against other territories' landed code. If a
   cross-territory import doesn't exist yet, code to the contract stub and note it.
