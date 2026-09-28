@@ -1,9 +1,11 @@
 Work: wr-2026-09-28-pickup-binding
 Scope: docs/specs/pickup-binding-1/spec.md (lane 34, skills-fable's bundle spec at dc16de3 on origin/docs/lane-specs-0925) with docs/specs/pickup-binding-1/lead-ruling.md
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/pickup-binding-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; clear pickup round 3 and publish the decisions page once from wt-ws-mainbase; the Netcup registration file is not changed
-Next: fix round 1 on review-r1 F1 F2 F4 (fresh Sonnet builder), then Opus delta review
+Next: accept, merge into main, publish --clear-done from wt-ws-mainbase to clear round 3, close, RESULT to skills-fable
+Artifact: 26c61ad66543bb84f91d3aac79bb85acea04dfc4
+Evidence: docs/work/evidence/wr-2026-09-28-pickup-binding-review.md, docs/work/evidence/wr-2026-09-28-pickup-binding-review-r1.md, docs/work/evidence/wr-2026-09-28-pickup-binding-suites.md
 Worktree: build/pickup-binding-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-34
 Opened: 2026-09-28T19:13:30.000Z
@@ -16,3 +18,8 @@ Log: 2026-09-28T19:15:38.000Z owned skills-n Sonnet builder spawned on P1 and P3
 Log: 2026-09-28T19:31:19.000Z delivered skills-n Sonnet builder DONE bafd52d (P1 via durableTransportRepo, P3 two SKILL.md sentences, 3 new tests), decisions gate 490 of 490; full suite 1 fail is main's own since 7b00418 (work-record STALE GOALS test), reported to skills-fable
 Log: 2026-09-28T19:39:57.000Z rejected skills-n Opus review r1 NEEDS_FIXES bafd52d (Windows 2579 of 2592, the 1 fail is main's GOALS STALE test): F1 a registration naming a worktree reads the main checkout's config, F2 a bare-backed worktree takes a sibling clone's identity, F3 GIT_DIR inheritance, F4 SKILL.md wording, F5 path case. Rulings: F1 F2 F4a F4b in as patched; F3 is a follow-up (shared transport.mjs, outside territory); F5 informational, no change
 Log: 2026-09-28T19:46:48.000Z delivered skills-n fix builder DONE 26c61ad (F1 F2 F4a F4b as patched; F1 test fails on bafd52d with PICKUP_FAILED, F2 with RECORDED), decisions gate 492 of 492; Opus delta r2 and Windows suite started
+Log: 2026-09-28T19:50:19.000Z reviewed skills-n Opus reviewer a3419dc7f623522d7 delta r2 VERDICT: APPROVE 26c61ad (F1 F2 verified by fixtures and revert mutants); Windows 2581 of 2594 and Linux 2588 of 2594, the single failure on both is main's GOALS STALE test
+
+Observed: at 26c61ad a linked worktree's pickup identity is its main checkout's, so the live round 3, bound to /home/ben/Code/claude-delegation, reads RECORDED from /home/ben/Code/wt-ws-mainbase. The reviewer ran this read-only in both rounds, where the old code gave PENDING_MANUAL_HANDOFF. A main checkout's projectScope is unchanged, so no receipt migration is needed. A bare-backed worktree and a separate clone stay separate projects. A registration naming a worktree still reads that worktree's config. F3 (an inherited GIT_DIR rebinds identity, in the shared transport gitRunner) is left for a follow-up lane.
+
+Predicts: the next Done tick Ben makes on the decisions page is captured by the Netcup note-flush timer and cleared by one publish --clear-done from wt-ws-mainbase, with no hand step on the parked checkout. Read it from the receipts under ~/.agents/ws/decisions-pickup/ on Netcup (decisions-pickup.mjs status --page 3e1da11277a18174bccfea187d5c3972 --repo /home/ben/Code/wt-ws-mainbase reads RECORDED, then ACCOUNTED).
