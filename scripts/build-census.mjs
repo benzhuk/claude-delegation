@@ -212,6 +212,38 @@ export function classifyStopBlock(obj) {
   return { form, slug: m ? m[1] : null };
 }
 
+/**
+ * A Codex wake. `codex queue` (inbox-codex.mjs) starts the queued note as its own turn, and the rollout
+ * records that as a `response_item` whose payload is a `message` with role `user` and ONE `input_text`
+ * part holding exactly one plugin envelope line, with no prefix (read on a live rollout that received a
+ * queued note: 01a0dab2-065e-7a31-bff4-9aecfe1fa833, 2026-09-25T22:32:53Z). Returns null, or
+ * `{ to, doneTick }`. A typed prompt, a multi-line message and the `item_completed` echo of the same turn
+ * never match; a developer-role hook context ("N new peer note(s) for <slug>") is not a wake.
+ */
+export function classifyCodexWake(obj) {
+  if (!obj || obj.type !== 'response_item') return null;
+  const p = obj.payload;
+  if (!p || p.type !== 'message' || p.role !== 'user' || !Array.isArray(p.content) || p.content.length !== 1) return null;
+  const part = p.content[0];
+  if (!part || part.type !== 'input_text' || typeof part.text !== 'string') return null;
+  const text = part.text.trim();
+  if (text.includes('\n')) return null;
+  const m = ENVELOPE_LINE_RE.exec(text);
+  if (!m) return null;
+  return { to: m[2], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[4]) };
+}
+
+/** The slug a Codex developer-role hook context addresses. */
+function codexHookContextSlug(obj) {
+  if (!obj || obj.type !== 'response_item' || !obj.payload || obj.payload.type !== 'message' || obj.payload.role !== 'developer') return null;
+  for (const part of Array.isArray(obj.payload.content) ? obj.payload.content : []) {
+    if (!part || typeof part.text !== 'string') continue;
+    const m = PEER_HEADER_RE.exec(part.text);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 /** The slug a UserPromptSubmit / PostToolUse hook context addresses ("N new peer note(s) for <slug> ..."). */
 function hookContextSlug(obj) {
   if (!obj || obj.type !== 'attachment' || !obj.attachment || obj.attachment.type !== 'hook_additional_context') return null;
@@ -573,6 +605,9 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   let currentModel = null;
   const unknownModels = new Set();
   const invalidResponseTimestamps = new Set();
+  const wakes = { window: 0, windowDoneTick: 0, total: 0 };
+  const slugVotes = new Map();
+  const vote = (slug) => { if (slug) slugVotes.set(slug, (slugVotes.get(slug) || 0) + 1); };
 
   for await (const line of rl) {
     if (!line.trim()) continue;
@@ -606,6 +641,13 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
       const model = obj.payload && obj.payload.model;
       currentModel = normalizeCodexModel(model);
     }
+    const wake = classifyCodexWake(obj);
+    if (wake) {
+      wakes.total += 1;
+      if (inWindow) { wakes.window += 1; if (wake.doneTick) wakes.windowDoneTick += 1; }
+      vote(wake.to);
+    }
+    vote(codexHookContextSlug(obj));
     const started = nativeTaskStarted(obj);
     if (started && inWindow) windowNativeTurns.add(started);
     if (started) totalNativeTurns.add(started);
@@ -655,6 +697,8 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     nativeTurnCount: totalNativeTurns.size, nativeTurnCountWindow: windowNativeTurns.size,
     tokenRecordCount, windowTokenRecordCount,
     windowLastAt: (marker || fromMs !== null || toMs !== null) ? windowLastAt : lastAt,
+    wakes: wakes.window, wakesDoneTick: wakes.windowDoneTick, wakesTotal: wakes.total,
+    slugVotes: [...slugVotes.entries()],
     sessionId: meta.id,
     rootSessionId: meta.session_id,
     unknownModels: unknownModelList,
@@ -1047,6 +1091,9 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
  * opts: { lead, tasksDirs, marker, out, json, roleMap } — see parseArgs. fsImpl defaults
  * to real node:fs.
  */
+/** Why a Codex lead has no Stop-block count: no rollout on record holds the Stop hook's block. */
+export const CODEX_STOP_BLOCK_REASON = 'no Codex rollout record of a Stop-hook block is established; the Stop reason appears only inside tool output';
+
 async function runCodexCensus(opts, fsImpl) {
   const lead = await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker, from: opts.from, to: opts.to });
   const leadMeta = { id: lead.sessionId, session_id: lead.rootSessionId, timestamp: lead.firstAt };
@@ -1122,6 +1169,8 @@ async function runCodexCensus(opts, fsImpl) {
       coverageSupported, coverageReason: coverageSupported ? null : unavailable.join('; '),
       totalByModel: coverageSupported ? leadTotalByModel : null, windowByModel: coverageSupported ? leadWindowByModel : null,
       observedTotalByModel: leadTotalByModel, observedWindowByModel: leadWindowByModel,
+      wakes: lead.wakes, wakesNoteFlush: lead.wakes - lead.wakesDoneTick, wakesDoneTick: lead.wakesDoneTick, wakesTotal: lead.wakesTotal,
+      stopBlocks: null, stopBlocksUnavailable: CODEX_STOP_BLOCK_REASON,
       markerFound: lead.markerFound, windowStartAt: lead.windowStartAt, windowEndAt: endAt, leadLastMessageAt: lead.lastAt,
       turnsPerHour: wallClockHours ? lead.windowById.size / wallClockHours : null, wallClockHours,
       codex: {
@@ -1139,6 +1188,7 @@ async function runCodexCensus(opts, fsImpl) {
       roleFileCounts: coverageSupported ? roleFileCounts : null, perFile,
     },
     combined: coverageSupported ? observedCombined : null,
+    stallNudges: computeStallNudges(opts, lead, fsImpl),
     marker: opts.marker || null, leadPath: opts.lead, tasksPaths: [...(opts.tasksDirs || [])], defaultSubagentsDir: null,
   };
 }
@@ -1381,6 +1431,9 @@ function formatCodexText(report) {
   if (!supported) md.push(`- unavailable: ${unavailable.join('; ')}`);
   md.push(`- leadTurns: ${report.lead.leadTurns}`);
   md.push(`- wallClockHours: ${report.lead.wallClockHours === null ? 'n/a' : report.lead.wallClockHours.toFixed(2)}`);
+  md.push(`- wakes: ${report.lead.wakes} (${report.lead.wakesNoteFlush} note-flush, ${report.lead.wakesDoneTick} Done-tick)`);
+  md.push(`- stopBlocks: unavailable (${report.lead.stopBlocksUnavailable})`);
+  md.push(`- stallNudges: ${stallNudgesLabel(report.stallNudges)}`);
   md.push(`- by-model: ${supported ? Object.keys(report.combined).sort().map((model) => `${model}=${report.combined[model].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);
   md.push(`- by-role: ${supported ? Object.keys(report.subagents.totalByRole).sort().map((role) => `${role}=${report.subagents.totalByRole[role].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`, '');

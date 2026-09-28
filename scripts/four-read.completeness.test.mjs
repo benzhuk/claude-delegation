@@ -70,9 +70,20 @@ test('stall nudges are counted over the record window, not the census window', a
 test('a census that predates the counts, or a Codex census, is unavailable rather than zero', async () => {
   const old = await setup({ mutateCensus: (c) => { delete c.lead.wakes; delete c.lead.stopBlocks; return c; } });
   assert.match(row(buildFourRead({ record: old.record, census: old.censusPath, ledger: LEDGER, leadSlug: 'skills-o' }, fs)), /; wakes unavailable \(census predates wake\/Stop-block counts\); Stop-blocks unavailable \(census predates wake\/Stop-block counts\); stall nudges 1 to skills-o/);
-  const value = computeCompletenessSuffix({ lead: { host: 'codex' } }, null, null, { openedMs: null, acceptedMs: null, reason: 'no Opened:' }, null);
-  assert.match(value, /wakes unavailable \(the census does not read Codex wakes or Stop-blocks\)/);
   assert.match(computeCompletenessSuffix(null, null, null, { openedMs: null, acceptedMs: null }, null), /wakes unavailable \(no census\)/);
+});
+
+test('a Codex census prints its wakes and stall nudges, and Stop-blocks as unavailable with the stated reason', async () => {
+  const CODEX_FIXTURE = path.join(HERE, 'build-census.fixtures', 'completeness', 'codex-lead.jsonl');
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'four-read-codex-home-'));
+  tracked.push(codexHome);
+  const census = await runCensus({ lead: CODEX_FIXTURE, tasksDirs: [], marker: null, ledgerDir: LEDGER, leadSlug: 'skills-o', codexHome });
+  assert.equal(census.lead.host, 'codex');
+  const entries = collectLedgerEntries(LEDGER, fs);
+  const openedMs = Date.parse('2026-09-27T12:00:00.000Z');
+  const acceptedMs = Date.parse('2026-09-27T13:00:00.000Z');
+  const value = computeCompletenessSuffix(census, entries, 'skills-o', { openedMs, acceptedMs, reason: null }, acceptedMs);
+  assert.match(value, /^wakes 2 \(1 note-flush, 1 Done-tick\); Stop-blocks unavailable \(no Codex rollout record of a Stop-hook block is established; the Stop reason appears only inside tool output\); stall nudges 1 to skills-o: collect-netcup-stall-build-fixture-1-abc1234-1$/);
 });
 
 test('countStallNudges: collect-*-stall-* ids to the slug, inside the window, and nothing else', () => {
@@ -81,6 +92,7 @@ test('countStallNudges: collect-*-stall-* ids to the slug, inside the window, an
   const to = Date.parse('2026-09-27T13:00:00Z');
   assert.deepEqual(countStallNudges(entries, 'skills-o', from, to), { count: 1, ids: ['collect-netcup-stall-build-fixture-1-abc1234-1'] });
   assert.equal(countStallNudges(entries, 'skills-o', Date.parse('2026-09-27T09:00:00Z'), to).count, 2, 'the 10:00Z nudge joins when the window opens earlier');
+  assert.ok(!countStallNudges(entries, 'skills-o', from, to).ids.includes('skills-fable-stall-review-1'), 'a peer note whose topic merely contains stall is not a nudge (pins the ^collect-.+-stall- anchor)');
   assert.equal(countStallNudges(entries, 'skills-fable', from, to).count, 0, 'an ordinary note that names a stall id is not a stall nudge');
   assert.equal(countStallNudges(entries, 'collect-netcup', from, to).count, 0, 'the RESULT answering a nudge is not a nudge');
 });

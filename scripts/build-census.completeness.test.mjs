@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   parseArgs, runCensus, formatText, formatJson,
-  classifyWake, classifyStopBlock, WAKE_PREFIX, STOP_BLOCK_REASON, STOP_FEEDBACK_PREFIX,
+  classifyWake, classifyStopBlock, classifyCodexWake, CODEX_STOP_BLOCK_REASON, WAKE_PREFIX, STOP_BLOCK_REASON, STOP_FEEDBACK_PREFIX,
 } from './build-census.mjs';
 import { buildEnvelope } from '../skills/multi/scripts/envelope.mjs';
 import { inboxFrames, DEFAULT_FROM } from '../skills/multi/scripts/inbox-claude.mjs';
@@ -168,4 +168,62 @@ test('parseArgs takes --ledger-dir and --lead-slug', () => {
   const opts = parseArgs(['--lead', 'a.jsonl', '--ledger-dir', 'docs/ledger', '--lead-slug', 'skills-o']);
   assert.equal(opts.ledgerDir, 'docs/ledger');
   assert.equal(opts.leadSlug, 'skills-o');
+});
+
+test('a note-flush delivery queued into a running turn joins that turn and is not a wake', () => {
+  const lines = fs.readFileSync(LEAD, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const queued = lines.filter((o) => o.type === 'attachment' && o.attachment.type === 'queued_command');
+  assert.equal(queued.length, 1, 'the fixture holds the queued_command shape');
+  assert.equal(queued[0].attachment.origin.from, 'note-flush');
+  assert.equal(classifyWake(queued[0]), null);
+  assert.equal(classifyStopBlock(queued[0]), null);
+});
+
+// ── Codex leads: wakes and stall nudges are read; Stop-blocks are unavailable by a stated reason ──
+// The wake record shape was read on a live rollout that received a queued note
+// (01a0dab2-065e-7a31-bff4-9aecfe1fa833, 2026-09-25T22:32:53Z): a response_item / message / user whose one
+// input_text part is exactly the envelope line. codex-lead.jsonl reproduces that shape.
+const CODEX_LEAD = path.join(HERE, 'build-census.fixtures', 'completeness', 'codex-lead.jsonl');
+const codexBase = () => ({ lead: CODEX_LEAD, tasksDirs: [], marker: null, ledgerDir: LEDGER, leadSlug: 'skills-o', codexHome: mkTmp('census-codex-home-') });
+
+test('codex lead: one note-flush wake and one Done-tick wake, and one stall nudge; Stop-blocks unavailable with the stated reason', async () => {
+  const report = await runCensus(codexBase());
+  assert.equal(report.lead.host, 'codex');
+  assert.equal(report.lead.wakesNoteFlush, 1);
+  assert.equal(report.lead.wakesDoneTick, 1);
+  assert.equal(report.lead.wakes, 2);
+  assert.equal(report.lead.wakesTotal, 2);
+  assert.equal(report.lead.stopBlocks, null);
+  assert.equal(report.lead.stopBlocksUnavailable, CODEX_STOP_BLOCK_REASON);
+  assert.equal(report.stallNudges.count, 1);
+  assert.deepEqual(report.stallNudges.ids, ['collect-netcup-stall-build-fixture-1-abc1234-1']);
+  const text = formatText(report);
+  assert.match(text, /^- wakes: 2 \(1 note-flush, 1 Done-tick\)$/m);
+  assert.match(text, /^- stopBlocks: unavailable \(no Codex rollout record/m);
+  assert.match(text, /^- stallNudges: 1 to skills-o/m);
+});
+
+test('codex lead: the slug is inferred from the rollout, and the window narrows the wakes', async () => {
+  const inferred = await runCensus({ ...codexBase(), leadSlug: null });
+  assert.equal(inferred.stallNudges.slug, 'skills-o');
+  assert.equal(inferred.stallNudges.slugSource, 'inferred');
+  const late = await runCensus({ ...codexBase(), from: '2026-09-27T12:10:00Z' });
+  assert.equal(late.lead.wakes, 1);
+  assert.equal(late.lead.wakesDoneTick, 1);
+  assert.equal(late.lead.wakesTotal, 2);
+});
+
+test('codex lead: text that only resembles a wake is not counted', () => {
+  const env = buildEnvelope({ from: 'skills-fable', to: 'skills-o', id: 'skills-fable-neg-2', kind: 'ASK', body: 'Codex negative case', date: '9.27.26', time: '08:05', tz: 'NYC' });
+  const msg = (role, content) => ({ type: 'response_item', payload: { type: 'message', role, content } });
+  const part = (text, type = 'input_text') => ({ type, text });
+  assert.deepEqual(classifyCodexWake(msg('user', [part(env)])), { to: 'skills-o', doneTick: false });
+  assert.equal(classifyCodexWake(msg('user', [part(`Explain:\n${env}`)])), null);
+  assert.equal(classifyCodexWake(msg('user', [part(`${env}\nmore text`)])), null);
+  assert.equal(classifyCodexWake(msg('user', [part(env), part('second part')])), null);
+  assert.equal(classifyCodexWake(msg('user', [part('please look at the build')])), null);
+  assert.equal(classifyCodexWake(msg('assistant', [part(env, 'output_text')])), null);
+  assert.equal(classifyCodexWake(msg('developer', [part(env)])), null);
+  assert.equal(classifyCodexWake({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: env }] } } }), null);
+  assert.equal(classifyCodexWake({ type: 'response_item', payload: { type: 'function_call_output', output: env } }), null);
 });

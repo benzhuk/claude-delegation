@@ -683,15 +683,16 @@ export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug
 export function computeCompletenessSuffix(census, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, lastAcceptedMs) {
   const parts = [];
   const lead = census && census.lead ? census.lead : null;
-  const censusReason = !census ? 'no census'
-    : isCodexCensus(census) ? 'the census does not read Codex wakes or Stop-blocks'
-      : !Number.isInteger(lead.wakes) || !Number.isInteger(lead.stopBlocks) ? 'census predates wake/Stop-block counts'
-        : censusBuildWindowReason(census, { openedMs, acceptedMs, reason }, lastAcceptedMs);
-  if (censusReason) {
-    parts.push(`wakes unavailable (${censusReason})`, `Stop-blocks unavailable (${censusReason})`);
-  } else {
-    parts.push(`wakes ${lead.wakes} (${lead.wakesNoteFlush} note-flush, ${lead.wakesDoneTick} Done-tick)`, `Stop-blocks ${lead.stopBlocks}`);
-  }
+  const codex = isCodexCensus(census);
+  // The window check is shared; the wake and Stop-block fields differ by host (Codex has wakes, no Stop-blocks).
+  const windowReason = !census ? 'no census'
+    : !Number.isInteger(lead.wakes) ? 'census predates wake/Stop-block counts'
+      : censusBuildWindowReason(census, { openedMs, acceptedMs, reason }, lastAcceptedMs);
+  parts.push(windowReason
+    ? `wakes unavailable (${windowReason})`
+    : `wakes ${lead.wakes} (${lead.wakesNoteFlush} note-flush, ${lead.wakesDoneTick} Done-tick)`);
+  if (codex && census) parts.push(`Stop-blocks unavailable (${lead.stopBlocksUnavailable || 'no Codex rollout record of a Stop-hook block is established'})`);
+  else parts.push(windowReason ? `Stop-blocks unavailable (${windowReason})` : `Stop-blocks ${lead.stopBlocks}`);
   if (!leadSlug) parts.push('stall nudges unavailable (no --lead-slug)');
   else if (ledgerEntries === null) parts.push('stall nudges unavailable (no ledger dir)');
   else if (!ledgerHasSlug(ledgerEntries, leadSlug)) parts.push(`stall nudges unavailable (slug ${leadSlug} not in ledger)`);
