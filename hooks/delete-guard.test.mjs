@@ -526,6 +526,13 @@ test('quoted: bare cat with NO redirect is no longer exempt in round 2 (dropped 
   assert.ok(detectDelete(cmd), 'round 2 drops the bare-cat-no-redirect exemption entirely');
 });
 
+test("R1 pinned: cat > report.md <<EOF with an UNQUOTED delimiter and $(rm ...) in the body is NOT exempted — the redirect alone is not enough, the delimiter must be quoted too", () => {
+  const NL = '\n';
+  const DEL = 'rm -rf x';
+  const cmd = 'cat > report.md <<EOF' + NL + '$(' + DEL + ')' + NL + 'EOF' + NL;
+  assert.ok(detectDelete(cmd), 'an unquoted delimiter lets $( ) substitution run in the body, so it must stay refused');
+});
+
 test('quoted: heredoc into tee (writing to a file), quoted delimiter, nothing after — passes', () => {
   const cmd = "tee report.md <<'EOF'\n" + 'never run rm -rf again\n' + 'EOF\n';
   assert.equal(detectDelete(cmd), null);
