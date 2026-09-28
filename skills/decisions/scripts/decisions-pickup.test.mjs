@@ -1393,3 +1393,75 @@ test('a non-git directory keeps its realpath identity', async (t) => {
   assert.equal(recorded.receipt.project, fs.realpathSync(fx.repo));
   assert.equal(recorded.receipt.transportRepo, fs.realpathSync(fx.repo));
 });
+
+// Review r1 F1 (MEDIUM regression): `readRegistration` used to hand `pickupOnce` the main-checkout
+// identity as `entry.repo`, so the config got re-read from the main checkout instead of the checkout
+// named in the registration entry. Here the entry names a linked worktree whose main checkout has
+// no `.agents/project.json` at all (never committed there), so the old behaviour throws "project has
+// no registered decisions_url" for every registered run, while the entry's own worktree config is
+// valid throughout. Fails on bafd52d: PICKUP_FAILED instead of PICKUP_RECORDED.
+test('a registration entry naming a linked worktree is validated from the worktree, and its receipt still binds to the main checkout', async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const repo = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'git-main-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: repo, env: sealed.env });
+  fs.writeFileSync(path.join(repo, 'README.md'), 'root\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, env: sealed.env });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env: sealed.env });
+  const worktree = path.join(sealed.fixtureRoot, 'f1-worktree');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'lane34-f1', worktree], { cwd: repo, env: sealed.env });
+  const page = 'f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1';
+  fs.mkdirSync(path.join(worktree, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, '.agents', 'project.json'), JSON.stringify({ decisions_url: page }));
+  const reader = path.join(sealed.fixtureRoot, 'f1-reader.mjs');
+  fs.writeFileSync(reader, '#!/usr/bin/env node\n', 'utf8');
+  const registrationPath = path.join(sealed.agentsHome, 'ws', 'decisions-pickup', 'registrations.json');
+  fs.mkdirSync(path.dirname(registrationPath), { recursive: true });
+  const entry = { repo: worktree, page, from: 'pickup-host', owner: 'decision-owner', reader };
+  fs.writeFileSync(registrationPath, JSON.stringify({ version: 1, entries: [entry] }), 'utf8');
+
+  const result = await runRegisteredPickup({ registrationPath }, {
+    agentsHome: sealed.agentsHome,
+    selectIndex: () => 0,
+    now: NOW,
+    readPage: async () => PAGE,
+    send: async () => ({ id: 'saved-id', envelope: 'recorded' }),
+  });
+  assert.deepEqual(result, { code: 'PICKUP_RECORDED', ordinal: 0 });
+
+  const direct = status({ repo: worktree, page }, { agentsHome: sealed.agentsHome });
+  assert.equal(direct.status, 'RECORDED', JSON.stringify(direct));
+  assert.equal(direct.receipt.project, fs.realpathSync(repo), "the receipt binds to the worktree's main checkout");
+});
+
+// Review r1 F2 (MEDIUM misbinding): `mainCheckout`'s `/\/?\.git\/?$/` strip is happy to remove a
+// bare gitdir's own trailing `.git`, so a worktree of a separate bare clone `proj.git` used to take
+// the identity of an unrelated sibling clone `proj`. `git clone --bare`/`--shared` and
+// `git worktree add` make no commits; only the shared origin commit uses the sealed fixture identity.
+test("a worktree of a bare-backed clone stays its own project, never a sibling clone's", async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const origin = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'origin-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: origin, env: sealed.env });
+  const page = 'f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2';
+  fs.mkdirSync(path.join(origin, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(origin, '.agents', 'project.json'), JSON.stringify({ decisions_url: page }));
+  execFileSync('git', ['add', '-A'], { cwd: origin, env: sealed.env });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: origin, env: sealed.env });
+
+  const proj = path.join(sealed.fixtureRoot, 'proj');
+  execFileSync('git', ['clone', '--quiet', '--shared', origin, proj], { env: sealed.env });
+
+  const bareGitDir = path.join(sealed.fixtureRoot, 'proj.git');
+  execFileSync('git', ['clone', '--quiet', '--bare', origin, bareGitDir], { env: sealed.env });
+  const bwt = path.join(sealed.fixtureRoot, 'bwt');
+  execFileSync('git', ['worktree', 'add', '-q', '--detach', bwt, 'HEAD'], { cwd: bareGitDir, env: sealed.env });
+
+  const options = { repo: proj, page, from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js' };
+  const recorded = await pickupOnce(options, deps(sealed));
+  assert.equal(recorded.status, 'RECORDED');
+  assert.equal(recorded.receipt.project, fs.realpathSync(proj));
+
+  const fromBareWorktree = status({ repo: bwt, page }, { agentsHome: sealed.agentsHome });
+  assert.equal(
+    fromBareWorktree.status, 'PENDING_MANUAL_HANDOFF', JSON.stringify(fromBareWorktree),
+  );
+});

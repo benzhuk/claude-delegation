@@ -643,7 +643,20 @@ function registeredProject(repo, page, fsImpl = fs, git = gitRunner) {
   if (normalizedPage(loaded.config.decisions_url) !== normalizedPage(page)) {
     throw new PickupError('page is not this project\'s registered decisions_url');
   }
-  return durableTransportRepo(configCheckout, git, fsImpl);
+  return projectIdentity(configCheckout, git, fsImpl);
+}
+
+// Only a standard linked worktree (git common dir exactly `<main>/.git`) shares its main checkout's
+// identity. A bare-backed worktree, a separate-git-dir checkout or a submodule keeps its own realpath:
+// `mainCheckout` strips any `.git` suffix, so `proj.git` would otherwise resolve to a sibling `proj`.
+function projectIdentity(configCheckout, git = gitRunner, fsImpl = fs) {
+  const main = durableTransportRepo(configCheckout, git, fsImpl);
+  if (main === configCheckout) return main;
+  let common;
+  try { common = String(git(['rev-parse', '--git-common-dir'], configCheckout)).trim(); } catch { return configCheckout; }
+  const absolute = path.resolve(configCheckout, common);
+  if (path.basename(absolute) !== '.git') return configCheckout;
+  return canonicalProject(path.dirname(absolute), fsImpl) === main ? main : configCheckout;
 }
 
 function canonicalPathKey(value) {
@@ -724,7 +737,7 @@ function readRegistration(file, fsImpl = fs, git = gitRunner) {
     }
     pages.add(pageKey);
     repos.add(repoKey);
-    return { repo: boundRepo, page, from, owner, reader, topic };
+    return { repo, page, from, owner, reader, topic };
   });
 
   return entries.sort((left, right) => {

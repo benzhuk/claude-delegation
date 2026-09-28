@@ -1,5 +1,12 @@
 # Lane 34 (pickup-binding) — builder state
 
+## Fix round r1 (this pass)
+F1 and F2 patched exactly as review-r1.md specified (see `docs/specs/pickup-binding-1/reports/build-r1.md`).
+F4a/F4b SKILL.md wording applied verbatim/as-suggested. F3 and F5: no change, per lead
+ruling. Two new tests added (F1's registration-from-worktree case, F2's bare-backed-worktree
+case); both measured failing on bafd52d in a fresh `git archive` copy, both pass in the
+worktree. Gate: 492/492 (`skills/decisions/scripts/*.test.mjs`).
+
 ## Territory
 `skills/decisions/scripts/decisions-pickup.mjs` + `decisions-pickup.test.mjs` +
 `registered-pickup.contract.test.mjs`; `skills/decisions/SKILL.md` (P3 sentences only).

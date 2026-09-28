@@ -65,9 +65,9 @@ excepted — because that script is the ONLY way the page is ever written. Write
 by running `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
 <decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done` when the
 fresh read shows owner input, per "Reading answers" below). `publish` runs from any
-clean checkout on branch main of the registered repository, a worktree included; the
-pickup round is found through the repository's main checkout (Lane 34,
-pickup-binding).
+clean checkout on branch main of the registered repository; `--clear-done` finds the
+pickup round only from the registered checkout or one of its linked worktrees (`git
+worktree add`), never from a separate clone (Lane 34, pickup-binding).
 
 When the record on origin says accepted, its Opus verdicts are in its evidence, and the
 sealed suite is green on a second host from origin (a Windows host when built on Linux, a
@@ -81,7 +81,7 @@ never starting with bold — to `docs/decisions/history/<today>.md`:
 pushes; then runs `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
 <decisions-page-id> --reader ~/.claude/scripts/notion.js` (Lane 26), and only then
 sends its RESULT. No Waiting item is
-posted for an ordinary accepted merge. Any conflict when merging into main, of any kind,
+posted for an ordinary accepted merge. Any other conflict when merging into main, of any kind,
 means no merge: post a decision item under Waiting (template shape, with options) naming
 the conflicting paths instead. An append-only conflict on the day file is resolved by
 keeping both bullets in commit order; it is not a decision item. When
