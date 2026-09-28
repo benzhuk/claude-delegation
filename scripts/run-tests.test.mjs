@@ -375,9 +375,16 @@ test("main() still rejects an unsupported flag", async () => {
 
 test("the real CLI honours --no-sweep end to end (spawned process, real exit code)", async () => {
   const probe = writeProbe(true);
-  const out = await withoutNodeTestContext(() =>
-    execFileSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { encoding: "utf8" }),
-  );
+  // Lane 46 (test-temp-hygiene): its own TMPDIR/TEMP/TMP, like every other CLI-spawning test in
+  // this file - inheriting the OUTER sealed suite's env (no override) would put this inner run's
+  // per-run root INSIDE that outer root, shared concurrently with whichever sibling *.test.mjs
+  // files `node --test` happens to run alongside it, and the P4 leak check would then see THEIR
+  // mkdtemp traffic as this run's own "new" entries - a false red from concurrency, not a leak.
+  const tmp = scratchDir("run-tests-nosweep-tmp-");
+  const fixtureHome = scratchDir("run-tests-nosweep-home-");
+  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
+  delete env.NODE_TEST_CONTEXT;
+  const out = execFileSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
   assert.ok(!/^swept /m.test(out), "no 'swept n stale sealed homes' line must appear under --no-sweep");
 });
 
