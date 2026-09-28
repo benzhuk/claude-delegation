@@ -108,7 +108,10 @@ export function runRoute(script, args, input, cwd, env, timeoutMs = ROUTE_TIMEOU
 
 /** Native routes added to the established Codex adapter; all other events remain peer/continuation only. */
 export async function nativeRouteForLead(input, cwd, role, env) {
-  if (role !== 'lead') return null;
+  // Codex's live hook callback supplies cwd and session_id but no transcript_path, so its role is
+  // unknown even for a real CLI lead. Confirmed children already returned from runCodexHook above;
+  // unknown therefore remains eligible for these advisory-only host routes.
+  if (role === 'child') return null;
   const event = String(input.hook_event_name ?? '');
   try {
     if (event === 'SessionStart') {
