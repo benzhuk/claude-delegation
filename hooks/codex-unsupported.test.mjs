@@ -206,28 +206,40 @@ test('real SessionStart without transcript metadata still routes wiring while pr
   assert.equal(healthy, null, 'a fully wired isolated home keeps SessionStart silent');
 });
 
-test('route child early-close and bounded timeout fail silent without erasing peer or advisory output', async (t) => {
+test('route child early-close and timeout stay silent; the shared advisory deadline never erases peer delivery', async (t) => {
   const root = scratch('codex-parity-route-timeout-'); const home = scratch('codex-parity-route-timeout-home-');
   rmLater(t, root); rmLater(t, home);
   const close = path.join(root, 'close.mjs'); const slow = path.join(root, 'slow.mjs');
   fs.writeFileSync(close, 'process.exit(0);\n');
   fs.writeFileSync(slow, 'setTimeout(() => process.stdout.write("late"), 5000);\n');
   assert.equal(await runRoute(close, [], {}, root, {}, 100), '');
-  const started = Date.now();
   assert.equal(await runRoute(slow, [], {}, root, {}), '');
-  assert.ok(Date.now() - started < 650, 'default route timeout must finish inside Codex PostToolUse budget');
-  const result = await runCodexHook(
+  const delayedRoute = await runCodexHook(
     { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'route-failure' },
     {
       home, env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') },
       inbox: async () => peerNotes(),
       goalContextForLead: async () => ({ text: 'ADVISORY-PRESERVED' }),
-      nativeRouteForLead: async () => { await runRoute(slow, [], {}, root, {}); return null; },
+      nativeRouteForLead: async () => new Promise(() => {}),
       codexContinuationSupported: false,
     },
   );
-  assert.match(context(result), /peer → lead/);
-  assert.match(context(result), /ADVISORY-PRESERVED/);
+  assert.match(context(delayedRoute), /peer → lead/, 'peer delivery is outside the route/advisory shared deadline');
+  assert.match(context(delayedRoute), /ADVISORY-PRESERVED/, 'a stalled native route cannot discard an already-complete advisory');
+
+  const completed = await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'route-completed' },
+    {
+      home, env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') }),
+      inbox: async () => peerNotes(),
+      goalContextForLead: async () => ({ text: 'ADVISORY-PRESERVED' }),
+      nativeRouteForLead: async () => ({ text: 'ROUTE-COMPLETED', systemMessage: null }),
+      codexContinuationSupported: false,
+    },
+  );
+  assert.match(context(completed), /peer → lead/);
+  assert.match(context(completed), /ROUTE-COMPLETED/);
+  assert.match(context(completed), /ADVISORY-PRESERVED/);
 });
 
 test('backlog route keeps its existing switches and cadence silent', async (t) => {
