@@ -1,4 +1,4 @@
-STATUS: DONE (pending commit sha, see final report line)
+STATUS: DONE 0523ec8
 
 # Lane 33 (collect-followups-1), fix round 1
 
