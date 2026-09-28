@@ -640,6 +640,7 @@ export async function runCli(fsImpl = fs) {
     enforced: result.enforced,
   };
   if (result.roundMention) entry.round_mention = true;
+  if (result.hardDeny) entry.hard_deny = true;
   appendLog(home, fsImpl, entry);
 
   // Resume notice: its own branch, evaluated BEFORE the observe-only return below, so it is

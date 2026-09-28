@@ -1377,6 +1377,66 @@ test("P7: CLI subprocess through the real file - copying this script into a fake
   assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
 });
 
+/** Like runMainCapturing, but also captures process.stderr.write - MINOR 4 (review-r1.md)
+ * puts the stale line on stderr in --json mode so stdout's JSON stays exactly parseable. */
+function runMainCapturingBoth(args, opts) {
+  const origLog = console.log;
+  const origErr = process.stderr.write.bind(process.stderr);
+  let out = "";
+  let err = "";
+  console.log = (s) => { out += `${s}\n`; };
+  process.stderr.write = (s) => { err += s; return true; };
+  try {
+    return { code: main(args, { env: {}, ...opts }), out, err };
+  } finally {
+    console.log = origLog;
+    process.stderr.write = origErr;
+  }
+}
+
+test("MINOR 4: --json keeps stdout exactly parseable and puts the stale reason on stderr", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out, err } = runMainCapturingBoth(["--json"], { home, scriptPath });
+  assert.equal(code, 1, "a stale session is a red exit in --json mode too");
+  const parsed = JSON.parse(out); // must not throw: stdout is untouched by the stale line
+  assert.equal(parsed.ok, true, "checkWiring()'s own findings are unaffected by staleness");
+  assert.match(err, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+});
+
+test("MINOR 4: --json prints nothing extra to stderr and stays green when not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const { code, err } = runMainCapturingBoth(["--json"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(err, "");
+});
+
+test("MINOR 4: table mode (no flag) prints the stale line too, and goes red", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing([], { home, scriptPath });
+  assert.equal(code, 1);
+  assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+  assert.match(out, /^wiring check:/m, "the ordinary table is still printed alongside the stale line");
+});
+
+test("MINOR 4: table mode prints nothing extra and stays green when not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing([], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.doesNotMatch(out, /^stale session: /m);
+});
+
 // ---------------------------------------------------------------------------
 // Wired into hooks.json: SessionStart shows the wiring check on its own
 // ---------------------------------------------------------------------------

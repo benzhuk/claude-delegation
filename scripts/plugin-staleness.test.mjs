@@ -226,6 +226,19 @@ test('a throwing fsImpl.readFileSync (unreadable manifest) is fail-open, never t
   assert.equal(result.stale, false);
 });
 
+test('a symlinked HOME still resolves the cache dir (review-r1.md MINOR 2): the cache dir itself is realpath\'d too', () => {
+  const real = scratchBase();
+  const link = path.join(path.dirname(real), `${path.basename(real)}-link`);
+  fs.symlinkSync(real, link, process.platform === 'win32' ? 'junction' : 'dir');
+  tracked.push(link);
+  const scriptPath = cacheScriptPath(real, 'benzhuk', 'delegation', '0.20.9');
+  writeManifest(path.join(real, '.claude', 'plugins'), { version: 2, plugins: { 'delegation@benzhuk': [entry('0.20.16')] } });
+  const result = checkStaleness({ scriptPath, home: link, env: {} });
+  assert.equal(result.stale, true);
+  assert.equal(result.running, '0.20.9');
+  assert.equal(result.installed, '0.20.16');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // P2: CLAUDE_CONFIG_DIR
 // ─────────────────────────────────────────────────────────────────────────────

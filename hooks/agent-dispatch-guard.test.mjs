@@ -1368,3 +1368,36 @@ test('CLI: the notice never turns an allow into a deny — a deny decided for an
   const loggedKinds = logText.trim().split('\n').map((line) => JSON.parse(line).kind);
   assert.ok(!loggedKinds.includes(RESUME_NOTICE_KIND), 'no resume-big line should be logged when a deny wins');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R0-stale CLI-subprocess proof (review-r1.md MAJOR 1) — runCliProcess() above always
+// spawns this repo's own GUARD_PATH, which is never a cache install, so it can never
+// exercise R0-stale's "refuse, not observe" gate (`denyWins`'s `|| result.hardDeny` term).
+// This test copies the guard (and its one local import) into a fake cache install and
+// spawns THAT copy directly, so the CLI wrapper's own refuse-vs-observe wiring is proven,
+// not just decide()'s in-process return value.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('R0-stale CLI: a stale cache copy prints permissionDecision deny WITHOUT the enforce file, and logs R0-stale', () => {
+  const home = scratchHome();
+  const versionDir = path.join(home, '.claude', 'plugins', 'cache', 'benzhuk', 'delegation', '0.20.9');
+  fs.mkdirSync(path.join(versionDir, 'hooks'), { recursive: true });
+  fs.mkdirSync(path.join(versionDir, 'scripts'), { recursive: true });
+  for (const f of ['agent-dispatch-guard.mjs', 'resume-size.mjs']) fs.copyFileSync(path.join(HERE, f), path.join(versionDir, 'hooks', f));
+  fs.copyFileSync(path.join(HERE, '..', 'scripts', 'plugin-staleness.mjs'), path.join(versionDir, 'scripts', 'plugin-staleness.mjs'));
+  fs.writeFileSync(path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'delegation@benzhuk': [{ scope: 'user', version: '0.20.16' }] } }));
+  assert.equal(fs.existsSync(path.join(home, '.agents', 'dispatch-guard-enforce')), false);
+  const res = spawnSync(process.execPath, [path.join(versionDir, 'hooks', 'agent-dispatch-guard.mjs')], {
+    input: JSON.stringify({ tool_name: 'Agent', session_id: 'r0-cli', tool_input: { subagent_type: 'builder', prompt: 'x' } }),
+    env: childEnv(home),
+    encoding: 'utf8',
+  });
+  assert.equal(res.status, 0);
+  const out = JSON.parse(res.stdout.trim());
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(out.hookSpecificOutput.permissionDecisionReason,
+    staleSessionText({ key: 'delegation@benzhuk', running: '0.20.9', installed: '0.20.16' }));
+  assert.deepEqual(lastLogLine(home).rules, ['R0-stale']);
+  assert.equal(lastLogLine(home).hard_deny, true, 'MINOR 3: the log must distinguish a real refusal from an observe-only deny');
+});

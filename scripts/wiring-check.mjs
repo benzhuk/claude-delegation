@@ -505,7 +505,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   }
   const stale = staleness(opts);
 
-  if (argv.includes("--json")) printJson(result);
+  if (argv.includes("--json")) {
+    printJson(result);
+    if (stale.stale) process.stderr.write(`${staleSessionText(stale)}\n`);
+  }
   else if (argv.includes("--line")) {
     if (!wsOffActive(opts)) {
       printLine(result.results);
@@ -514,7 +517,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       if (stale.stale) console.log(staleSessionText(stale));
     }
   }
-  else printTable(result.results);
+  else {
+    printTable(result.results);
+    if (stale.stale) console.log(staleSessionText(stale));
+  }
 
   // J2: exit 1 when a required check is missing, stale, or could not be evaluated at all (any
   // state other than ok/info) - a wiring check can finally go red. `--json`/`--line`/table output

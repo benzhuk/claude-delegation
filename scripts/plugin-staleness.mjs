@@ -80,7 +80,8 @@ function resolveRunning(scriptPath, pluginsDir, fsImpl) {
   } catch {
     return null;
   }
-  const cacheDir = path.resolve(pluginsDir, 'cache');
+  let cacheDir = path.resolve(pluginsDir, 'cache');
+  try { cacheDir = fsImpl.realpathSync(cacheDir); } catch { /* keep the unresolved path; fail-open is preserved */ }
   const rel = path.relative(cacheDir, pluginRoot);
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
   const segments = rel.split(path.sep).filter((s) => s.length > 0);
