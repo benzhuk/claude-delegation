@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { runSealed, sweepStaleHomes, main } from "./run-tests.mjs";
@@ -263,3 +263,92 @@ test("the real CLI honours --no-sweep end to end (spawned process, real exit cod
   );
   assert.ok(!/^swept /m.test(out), "no 'swept n stale sealed homes' line must appear under --no-sweep");
 });
+
+// F2 (review r1): the in-process "keeps the sealed home when the suite fails" test above never
+// exercises the exit handler at all - it asserts the home still exists right after runSealed()
+// returns, in the SAME process, before any exit/signal handler could ever run. This test spawns the
+// real CLI as a child process and checks the home survives AFTER that child process has actually
+// exited, which is the only way to prove keep() really runs before the exit handler's sweep, not
+// just that keep() works in isolation (see test-home.test.mjs's own keep()-survives-signal test).
+test("the real CLI keeps a failed suite's home after the process has exited (RT-18/F6)", () => {
+  const probe = writeProbe(false);
+  const tmp = scratchDir("run-tests-keep-tmp-");
+  const env = { ...process.env, TMPDIR: tmp };
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
+  assert.notEqual(r.status, 0);
+  const home = r.stdout.split("\n")[0].trim();
+  assert.ok(home.startsWith(fs.realpathSync(tmp)), "the home must be under the injected TMPDIR");
+  assert.ok(fs.existsSync(home), "the exit handler must not delete a failed suite's kept home");
+});
+
+// F1 (review r1): a probe that runs long enough for a signal to arrive to the whole process group
+// WHILE the runner is blocked inside spawnSync - a Ctrl-C, a closed pane, or a dropped ssh session
+// all send the signal to the group, not just the runner pid. Before the F1 fix this test fails:
+// `node --test` (the sealed suite child) catches the signal itself and exits 1, which the runner's
+// `finally` reads as a plain failed suite - it calls keep() and leaves ITS OWN sealed home behind,
+// and the runner then exits 1 instead of dying from the signal (see review-r1.md, F1 BLOCKER).
+const WIN32_GROUP_SIGNAL_SKIP_REASON =
+  "on win32, child.kill(signal) terminates the child directly without running any Node signal " +
+  "handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler";
+
+function writeSlowProbe() {
+  const dir = scratchDir("run-tests-slow-probe-");
+  const file = path.join(dir, "slow.test.mjs");
+  fs.writeFileSync(
+    file,
+    [
+      "import test from 'node:test';",
+      "test('slow', async () => { await new Promise((r) => setTimeout(r, 10000)); });",
+      "",
+    ].join("\n"),
+  );
+  return file;
+}
+
+test(
+  "a SIGTERM sent to the whole process group re-raises on the runner and removes its own sealed home (F1, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const slowProbe = writeSlowProbe();
+    const tmp = scratchDir("run-tests-group-sigterm-tmp-");
+    const env = { ...process.env, TMPDIR: tmp };
+    delete env.NODE_TEST_CONTEXT;
+
+    const child = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", slowProbe], {
+      env,
+      detached: true,
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    cleanups.push(() => {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    });
+
+    const home = await new Promise((resolve, reject) => {
+      let buf = "";
+      child.stdout.on("data", (chunk) => {
+        buf += chunk.toString();
+        const nl = buf.indexOf("\n");
+        if (nl !== -1) resolve(buf.slice(0, nl).trim());
+      });
+      child.on("error", reject);
+    });
+
+    const exited = new Promise((resolve) => {
+      child.on("exit", (code, signal) => resolve({ code, signal }));
+    });
+
+    process.kill(-child.pid, "SIGTERM"); // the whole group, as a closed pane / dropped ssh session does
+
+    const { code, signal } = await exited;
+    assert.ok(
+      signal === "SIGTERM" || code === 143,
+      `the runner must die from the re-raised signal (128+15), got code=${code} signal=${signal}`,
+    );
+    assert.equal(fs.existsSync(home), false, "the runner's own sealed home must not survive a group SIGTERM");
+  },
+);

@@ -73,12 +73,17 @@ export function sweepStaleHomes({ tmpDir = os.tmpdir(), homeDir = os.homedir(), 
         continue; // vanished between readdir and stat - not this run's problem
       }
       if (stat.mtimeMs >= cutoff) continue; // younger than 6h - another suite may still own it
-      fs.rmSync(full, { recursive: true, force: true });
-      swept++;
+      try {
+        fs.rmSync(full, { recursive: true, force: true });
+        swept++;
+      } catch (e) {
+        console.error(`run-tests: sweep could not remove ${full}: ${e.code ?? e.message}`);
+      }
     }
   } catch (e) {
     // Fail open: a sweep error never blocks the suite, it's just reported.
     console.error(`run-tests: sweep error: ${e.message} - continuing without a full sweep`);
+    console.log(`swept ${swept} stale sealed homes`);
     return { swept, skipped: false, error: e.message };
   }
   console.log(`swept ${swept} stale sealed homes`);
@@ -169,7 +174,10 @@ export function runSealed({ files, cwd = REPO_ROOT } = {}) {
       // holds every still-registered home, and without this the process's own `exit` handler would
       // remove the very home this branch is deliberately leaving for inspection, the moment this
       // CLI run calls `process.exit` below. Keep-on-failure is otherwise unchanged (RT-18/F6).
-      keep();
+      // Deferred one loop turn: a SIGINT/SIGTERM/SIGHUP that arrived while spawnSync blocked is
+      // delivered on that turn first, and test-home's handler removes this still-registered home and
+      // re-raises. With no signal, keep() runs and the failed home survives the exit handler (RT-18/F6).
+      setImmediate(keep);
       console.error(`run-tests: leaving the sealed home for inspection: ${home}`);
     }
   }
@@ -209,5 +217,8 @@ export function main(argv = process.argv.slice(2), { sweep = sweepStaleHomes } =
 }
 
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] ?? "")) {
-  process.exit(main());
+  process.exitCode = main();
+  // One loop turn even when nothing is scheduled: signal handles are unref'd, so without this a
+  // signal that arrived during spawnSync is never delivered and the run exits with the suite's code.
+  setImmediate(() => {});
 }
