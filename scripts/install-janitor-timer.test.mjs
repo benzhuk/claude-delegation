@@ -897,6 +897,34 @@ test("C2: --stale-hours bounds — 0.1 and 48 accepted, out of range or non-nume
   const code = main(["--force-root", "--json", "--job", "collect-status", "--to", "x"], { home, platform: "linux", execPath: "/usr/bin/node", pluginRoot: fixturePluginRoot(), ...cap });
   assert.equal(code, 0);
   assert.equal(JSON.parse(cap.text()).staleHours, 2);
+
+  // --stale-hours is refused for --job janitor-record (lane 33 F4) — it is a collect-status-only flag.
+  const janitorHome = mkTmp("janitor-timer-home-stale-on-janitor-");
+  fixtureDefaultRepoGit(janitorHome);
+  const janitorCap = capture();
+  const janitorCode = main(["--force-root", "--json", "--stale-hours", "3"], { home: janitorHome, platform: "linux", execPath: "/usr/bin/node", pluginRoot: fixturePluginRoot(), ...janitorCap });
+  assert.equal(janitorCode, 1);
+  assert.ok(
+    JSON.parse(janitorCap.text()).refusals.some((r) => r.includes("--stale-hours is refused for --job janitor-record")),
+    JSON.stringify(JSON.parse(janitorCap.text()).refusals),
+  );
+  assert.ok(!fs.existsSync(path.join(janitorHome, ".agents")));
+});
+
+test("C2: --stale-hours 0.5 given to main reaches every platform's written command and installed.json (lane 33 F1)", () => {
+  const want = { linux: "--stale-hours 0.5", win32: "&quot;--stale-hours&quot; &quot;0.5&quot;", darwin: "'--stale-hours' '0.5'" };
+  for (const platform of ["linux", "win32", "darwin"]) {
+    const home = mkTmp(`janitor-timer-home-stale-${platform}-`);
+    fixtureDefaultRepoGit(home);
+    const cap = capture();
+    const code = main(["--force-root", "--json", "--dry-run", "--job", "collect-status", "--to", "x", "--stale-hours", "0.5"], { home, env: { XDG_CONFIG_HOME: path.join(home, ".config") }, platform, execPath: "/usr/bin/node", pluginRoot: fixturePluginRoot(), ...cap });
+    assert.equal(code, 0, cap.text());
+    const files = JSON.parse(cap.text()).files;
+    const cmdFile = files.find((f) => /\.(service|task\.xml|plist)$/.test(f.path));
+    assert.ok(cmdFile && cmdFile.content.includes(want[platform]), `${platform}: ${cmdFile && cmdFile.content}`);
+    const inst = files.find((f) => f.path.endsWith("installed.json"));
+    assert.equal(JSON.parse(inst.content).staleHours, 0.5, platform);
+  }
 });
 
 test("C2: a real install (--job collect-status) writes to ~/.agents/collect/, never ~/.agents/janitor/, with installed.json matching the pinned K1 shape", () => {

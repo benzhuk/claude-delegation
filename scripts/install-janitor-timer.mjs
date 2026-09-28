@@ -575,6 +575,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   if (job === "janitor-record" && argv.includes("--every")) {
     refusals.push("--every is refused for --job janitor-record; use --hour instead");
   }
+  if (job === "janitor-record" && argv.includes("--stale-hours")) {
+    refusals.push("--stale-hours is refused for --job janitor-record; it only applies to --job collect-status");
+  }
 
   // Lane 33 F1 (docs/specs/collect-followups-1/spec.md): --stale-hours is baked into the collect
   // job's own scheduled command (scheduledCommandArgv, last argument) so a reinstall never drops it

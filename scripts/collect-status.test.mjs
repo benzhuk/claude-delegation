@@ -202,12 +202,9 @@ test("grep: 'closed' appears in collect-status.mjs only in NOTE_STATE_TOKENS and
   const src = fs.readFileSync(new URL("./collect-status.mjs", import.meta.url), "utf8");
   const codeLines = src.split("\n").filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("*"));
   const hits = codeLines.filter((line) => line.includes("closed"));
-  for (const line of hits) {
-    assert.ok(
-      line.includes("NOTE_STATE_TOKENS") || line.includes("its own terminal lane"),
-      `unexpected "closed" reference outside NOTE_STATE_TOKENS/the legend: ${line}`,
-    );
-  }
+  assert.equal(hits.length, 2, `expected exactly the NOTE_STATE_TOKENS and legend lines, got:\n${hits.join("\n")}`);
+  assert.ok(hits.some((line) => /^const NOTE_STATE_TOKENS = new Set\(\[.*"closed".*\]\);$/.test(line)), "NOTE_STATE_TOKENS carries \"closed\"");
+  assert.ok(hits.some((line) => line.includes("closed is its own terminal lane")), "the legend names closed");
 });
 
 test("computeChangeKey: order-independent (sorted), sensitive to any field change", () => {
