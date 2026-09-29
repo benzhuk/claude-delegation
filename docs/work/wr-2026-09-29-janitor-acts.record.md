@@ -17,6 +17,7 @@ Log: 2026-09-29T22:13:36.000Z owned skills-n T2 Sonnet builder a4f2f55290ddcd52c
 Log: 2026-09-29T22:29:09.000Z owned skills-n Opus T2 reviewer aabb493b47a642151 NEEDS_FIXES (14: 1 HIGH idleHours reads one source, four live shapes read 48 h idle; 6 MEDIUM; 7 LOW); all adopted, docs/specs/janitor-acts-59/ruling-r1.md
 Log: 2026-09-29T23:01:09.000Z owned skills-n T2 Sonnet fix builder ac65bda2ed38d4aee DONE at 556f386 (14 of 14, each red on 1ce13f4; suite 3142 pass, 0 fail, 5 skip, 1 todo); fresh Opus delta re-review spawned
 Log: 2026-09-29T23:18:06.000Z owned skills-n Opus T2 delta reviewer a22ce43c99035fe00 NEEDS_FIXES (6: R2-1 an unreadable idle source still counts idle, R2-2 a Codex session over two days is invisible, four LOW); docs/specs/janitor-acts-59/t2-review-r2.md
+Log: 2026-09-29T23:29:31.000Z owned skills-n T1 Sonnet builder a96da4ee9794f0460 committed b3bb833, b523a5a and c12e190, then sat about 90 min on a banned rm -rf permission prompt and was stopped by the lead before its report; fresh Opus T1 review spawned as the gate
 
 ## Spec
 
