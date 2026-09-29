@@ -261,6 +261,12 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.18 — the lanes closed from Sep 28 evening to Sep 29:
+  - Each test run gets one temp folder, removed at the end (test-temp-hygiene, lane 46); plugin scripts drop repo-locating git env everywhere (repo-env-everywhere, lane 47); the notes transport runs git without inherited repo env (transport-identity, lane 44).
+  - The census counts per build and splits lead tokens (census-completeness, lane 38; fable-wave, lane 51); four-read refuses a census that is not build-census JSON (four-read-json, lane 54); Codex census rows restored (lane 55).
+  - A lane leaves nothing behind at close (lane-closeout, lane 36); decisions readback tolerates escapes and separators (lanes 48, 52).
+  - Codex parity and follow-ups: wiring, backlog, advisory deadlines and deterministic clock checks (lanes 37, 49, 56).
+  - review-run.mjs runs a high-tier Claude review as a claude -p child from any host, Codex included (review-run, lane 53).
 - 0.20.17 — the lanes closed on Sep 28 evening:
   - The Done pickup treats every worktree of a repository as one project, so a tick clears from a clean checkout (pickup-binding, b015f60).
   - A stall ask from the collector also lands on the owning lead's own host (cross-host-nudge, c56a1ae).
