@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-knowledge-triage-source
 Scope: docs/specs/knowledge-triage-40/builder-brief.md
 Owner: skills-a
-Status: rejected
+Status: owned
 Authority: parent wr-2026-09-29-knowledge-triage, spec APPROVE6fa1b4d and R4 PASS. Only assigned territory and scoped verification, no live installs or guard changes.
 Artifact: build/knowledge-triage-40-source@bac48499535c78fd6d3ec06a8f346be9526c7ba4
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40-source
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40/source
 Evidence: docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/probe-r4-report.md
-Next: after independent red delivery, third-round research before source edits under code-r2-adjudication.md. No live proof.
+Next: third-round research and F2-F4 source repair with integrated independent red tests at4eab4a5. Archive source unchanged.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z

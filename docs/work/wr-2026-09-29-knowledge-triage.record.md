@@ -49,6 +49,7 @@ Authority and supporting sources: docs/specs/knowledge-triage-40/rev4-intake.md,
 Installation update: skills-fable-lane-40-2 reports Ben's September29 17:11 America/New_York tick. No need to ask for that tick again. The task installs enabled after acceptance/merge via the next release and runs immediately; this does not waive the failed scratch-probe prerequisite.
 
 Log: 2026-09-29T23:47:33.8344672Z rejected skills-a independent Opus27395e06-59ed-4e3d-8a0c-27e3c9ac3fea NEEDS_FIXES4 at7cc858a, exit0 cleanup ok. Fresh independent bearings CONTINUE requires one bounded F1-F4 closure, prior prediction failed. Test-first red phase assigned, source held for red delivery. Native comparison308/308 supports role-marker diagnosis without changing guards.
+Log: 2026-09-29T23:55:14.0367627Z owned skills-a integrated independent tests5b08cc3:39pass3expected-fail, archive recovery cases green and both destructive mutants red. Warm Sonnet source receives third-round research mandate after red delivery. Publication of fresh bearings remains PENDING after full-page lint stop, no page edit.
 
 
 
