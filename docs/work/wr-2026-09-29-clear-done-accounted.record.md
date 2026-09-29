@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-clear-done-accounted
 Scope: the spec section of this record (lane 58), from skills-fable-decisions-pickup-legacy-1 (its option: a lane that lets publish clear the page), read at 1090978
 Owner: skills-n
-Status: rejected
+Status: delivered
 Authority: build, review, integrate, push build/clear-done-accounted-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; after the merge, run publish --clear-done once for the live page 3e1da11277a18174bccfea187d5c3972 from Netcup; no install, no release
-Next: apply review-r2's test-only patch verbatim (fresh Sonnet builder), then the same reviewer confirms
+Next: the same reviewer delta-verifies 59b6222
 Worktree: build/clear-done-accounted-1
 Scratch: /var/tmp/lane-58
 Opened: 2026-09-29T19:27:04.000Z
@@ -16,6 +16,7 @@ Log: 2026-09-29T19:33:51.000Z delivered skills-n Sonnet builder a3aa7c115a1a1fed
 Log: 2026-09-29T19:39:49.000Z rejected skills-n Opus reviewer a18b02d1ea14ed8f1 NEEDS_FIXES c73d472 (MAJOR, measured: after round N is accounted and cleared, a same-input re-check of Done is cleared by clear-done with round N's capture, and nothing accounts for it; MINOR, SKILL.md wording); the lead adopts the reviewer's measured patch; the same builder resumes
 Log: 2026-09-29T19:44:04.000Z delivered skills-n builder a3aa7c115a1a1fed4 fix round 1 DONE 14fc09d913d9149e7d5f6aa5533c18a6c5ad5f22 (Done label must match the capture; ACCOUNTED refused once an unchecked page was observed; SKILL.md reworded; regression red at c73d472, green after; full suite 3030 pass 0 fail); report docs/specs/clear-done-58/build-r1.md
 Log: 2026-09-29T19:46:21.000Z rejected skills-n Opus reviewer a18b02d1ea14ed8f1 NEEDS_FIXES 14fc09d (the code matches its patch, both re-check cases exit 3, the live round-5 shape clears, the observed-unchecked guard is live; MINOR, the observed-unchecked and NEEDS_RECONCILIATION tests pass even with their guard deleted); a fresh builder applies the ready test patch
+Log: 2026-09-29T19:50:26.000Z delivered skills-n Sonnet builder a16b5daa2d6c9e60c fix round 2 DONE 59b6222 (review-r2 test patch verbatim; guard-deleted and NEEDS_RECONCILIATION mutants each fail exactly their test; decisions scripts 509 pass; full suite 3030 pass 0 fail); report docs/specs/clear-done-58/build-r2.md
 
 ## Spec (lead)
 
