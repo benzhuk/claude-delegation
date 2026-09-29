@@ -508,7 +508,11 @@ test('N1 (ruling r3): an unrelated live process recorded as childPid survives th
     });
     sweepStaleRuns(scratch, 45);
     assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'an unrelated live pid must never be signalled, and its wt/ must be left in place');
-    assert.equal(isProcessAlive(victim.pid), true, 'the sweep must never have sent the victim any signal');
+    // A SIGKILLed child of this test process stays a zombie until the event loop reaps it, and
+    // kill(pid,0) succeeds on a zombie — so let the loop run, then ask the handle how it ended.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(victim.signalCode, null, 'the sweep must never have sent the victim any signal');
+    assert.equal(victim.exitCode, null, 'the victim must still be running');
   } finally {
     victim.kill('SIGTERM');
   }
@@ -523,7 +527,11 @@ test('N1 (ruling r3): an unrelated live process recorded as childPid survives th
     });
     sweepStaleRuns(scratch, 45);
     assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'a detached group-leader pid must never be signalled either, and its wt/ must be left in place');
-    assert.equal(isProcessAlive(victim.pid), true, 'the sweep must never have sent the victim any signal, group leader or not');
+    // A SIGKILLed child of this test process stays a zombie until the event loop reaps it, and
+    // kill(pid,0) succeeds on a zombie — so let the loop run, then ask the handle how it ended.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(victim.signalCode, null, 'the sweep must never have sent the victim any signal, group leader or not');
+    assert.equal(victim.exitCode, null, 'the victim must still be running');
   } finally {
     try { process.kill(-victim.pid, 'SIGTERM'); } catch { victim.kill('SIGTERM'); }
   }
