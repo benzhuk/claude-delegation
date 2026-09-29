@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-codex-clock
 Scope: docs/specs/codex-clock-56/spec.md@23031e0dad5a2b112abcbe95ab66fe460507d2f2
 Owner: skills-a
-Status: accepted
+Status: closed
 Authority: skills-fable-lane-56-1 small test-only lane and standing merge grant, sequence corrected by skills-fable-lane-55-8. Lane56 merges before55;55 stays reviewed atcd5fecc, then rebases and reruns Windows green. No production changes or gate waiver. Root alone writes record and handles review/acceptance/merge/publication.
 Artifact: build/codex-clock-56@08229f9d3461fa253ec857a451a44dfb89e4f214
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-clock-56
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-clock-56
-Evidence: docs/specs/codex-clock-56/root-ruling.md, docs/specs/codex-clock-56/builder-report.md, docs/specs/codex-clock-56/gate-setup.md, docs/specs/codex-clock-56/pending-review.md, docs/specs/codex-clock-56/review-r1-adjudication.md, docs/specs/codex-clock-56/review-r2.md, docs/specs/codex-clock-56/host-gates.md
-Next: fresh common-T census and four-read, strict pinned acceptance, accepted-tip merge/history bullet/exact-merge Windows gate, push, normal publish and code-mediated close; then55 integration and gates.
+Evidence: docs/specs/codex-clock-56/root-ruling.md, docs/specs/codex-clock-56/builder-report.md, docs/specs/codex-clock-56/gate-setup.md, docs/specs/codex-clock-56/pending-review.md, docs/specs/codex-clock-56/review-r1-adjudication.md, docs/specs/codex-clock-56/review-r2.md, docs/specs/codex-clock-56/host-gates.md, docs/specs/codex-clock-56/closeout.md
+Next: none for56; lane55 resumes against main containing56 under the standing sequence ruling.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:54:32Z
@@ -28,6 +28,7 @@ Four numbers: Hours ask to accepted: 2.0h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-56-1; wakes 6 (6 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
 Log: 2026-09-29T04:57:16.350Z accepted skills-a artifact 08229f9d3461fa253ec857a451a44dfb89e4f214
+Log: 2026-09-29T05:04:05.000Z closed skills-a merge 45aea1306fd1514917d698c3dbd0f5c2fc9957fa
 
 Measure: reduce gate false reds and full-suite reruns, moving work lost/stalled and rework after acceptance without weakening routing or deadline proof.
 
