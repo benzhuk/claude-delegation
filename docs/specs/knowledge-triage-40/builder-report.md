@@ -1,4 +1,4 @@
-VERDICT: READY 354307891fef3b091623c0bbc5b53095e6a61d8e
+VERDICT: READY bac48499535c78fd6d3ec06a8f346be9526c7ba4
 
 # Lane40 source builder report
 
@@ -52,3 +52,9 @@ Cause / Discriminating check / Fix location (all in `scripts/knowledge-gather.mj
 - F6-F10: `runProcess` timeout no longer double-kills after overflow; tar entries with a backslash or drive-letter name are `unsupported` residue instead of failing the host (`/`, `..`, links still fail); run.lock "already running" needs a live pid and an owner age in [0, 3 h), otherwise ATTENTION with no auto-removal (age measured on the injected clock).
 Simplification: one `attend()` helper replaces seven raise+done pairs. Gather 553 lines, triage 428.
 Gate (mutex, real clock 2026-09-29 19:11 -04:00): `node --check` 0; gather+triage+installer+counts tests: 104 tests, 100 pass, 1 fail, 3 skipped. Before the clock fix 2 fail (I fixed one myself: run.lock age used wall clock, not the injected clock). The remaining failure, `two consecutive curated-lock observations escalate...` (triage.test.mjs:427), asserts the `rmdir ...` recovery text inside the injected note; the ruling makes that note the short safe summary with the recovery text in the ATTENTION packet, so that assertion is stale (test author's). Unverified: the remote programs on real hosts (`mv`, `ln`, `rmdir`, sha tools). Limitation: a crash between claim `mv` and cleanup leaves `.claim-<sha>/note`; the next run reports `CLAIM_KEPT` for that origin only.
+
+
+## Fix round 2 completion (code-r2-completion.md, real clock 2026-09-29 19:22 -04:00)
+Delivered source SHA: `bac48499535c78fd6d3ec06a8f346be9526c7ba4` (supersedes the initial 3543078 named in older history below). Source-only change since 1317543: exported pure `buildNotificationInvocation(text, packetFile)` used by `defaultNoteSend`; managed set resolved before the baseline publication read (one chezmoi call on failure); undelivered notice worded `BLOCKED to Ben NOT delivered: ...`; no send when the ATTENTION write failed.
+Gate (4 files, mutex, 3 runs because two real defects were discriminated and fixed): final 114 tests, 109 pass, 2 fail, 3 skipped.
+Remaining failures, both fixture assumptions, source not bent: (1) `knowledge-gather.test.mjs:489` atomic replacement: `readdirSync(remoteInbox).sort()` yields `[name, "_archive"]` (digit sorts before underscore) but the fixture expects `["_archive", name]`; contents are correct. (2) `knowledge-triage.test.mjs:592` two consecutive locks: asserts `rmdir ...` inside the injected note, but the ruling makes that note the short safe summary with recovery text in ATTENTION.
