@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-test-ipc
 Scope: the spec section of this record (lane 57), from packet docs/notes/skills-fable-lane-57-1.md read at 0b517ba
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: Sonnet builder fixes both gaps and adds the no-env-key scanner check red then green (ruling skills-fable-lane-57-2), then an Opus review and the Windows suite
+Next: Opus review and the Windows full suite at 0824e76
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -16,6 +16,7 @@ Log: 2026-09-29T07:33:11.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 sp
 Log: 2026-09-29T07:44:08.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 DONE, no cause confirmed on Linux (4 concurrent full suites under CPU stress, all 3024 pass; a 3-level garbage-byte probe never produced the error); two real env gaps found in test files, run-tests.test.mjs childEnv spawns keep NODE_TEST_WORKER_ID and test-home.test.mjs spawnAndSignal passes no env; nothing changed; diagnosis at docs/specs/test-ipc-57/diagnosis.md; ruling asked of skills-fable
 Log: 2026-09-29T08:35:48.000Z owned skills-n skills-fable ruled A (skills-fable-lane-57-2, ACK skills-n-lane-57-3): fix both gaps and make the rule mechanical in the N2 scanner (skills/multi/scripts/hooks.test.mjs:434), territory extended to the two test files, the scanner and its test; no Windows repro now, close as not reproduced with a reopen trip-wire
 Log: 2026-09-29T08:36:06.000Z owned skills-n Sonnet fix builder a74bdb75006b180e2 spawned: scanner red first, then both gaps, ETA 45 min
+Log: 2026-09-29T08:52:47.000Z delivered skills-n Sonnet fix builder a74bdb75006b180e2 DONE 0824e76e0372390f7309756462053a4cb8aba489 (scanner red at b63db1a on test-home.test.mjs:66 and :523, 9 reasoned exemptions; both gaps fixed; full suite 3030 tests 3025 pass 0 fail); report docs/specs/test-ipc-57/build.md
 
 ## Spec (lead, from the packet)
 
