@@ -495,15 +495,24 @@ test('finding 8: a symlinked --repo pointing at the resolved plugin root still t
   // absolute, symlink-resolved path) — that relative form is exactly what makes
   // path.resolve(pluginRoot, rootCommon) sensitive to which literal string pluginRoot/repoTop
   // is, symlink or not.
-  const pluginAndRepoDir = scratchDir('review-run-plainrepo-');
+  // Under a sealed run (scripts/run-tests.mjs), FIXTURE_ROOT is the one directory whose
+  // `includeIf "gitdir/i:…/**"` already seeds a fixture identity (test-home.mjs) — a repo
+  // created there needs no explicit `git config user.*` at all. Outside a seal, FIXTURE_ROOT is
+  // unset and the repo just inherits the machine's own already-configured identity, same as
+  // every other real `git init` on this host.
+  const pluginAndRepoDir = fs.mkdtempSync(
+    path.join(process.env.FIXTURE_ROOT || os.tmpdir(), 'review-run-plainrepo-'),
+  );
   execFileSync('git', ['init', '-q'], { cwd: pluginAndRepoDir });
   fs.mkdirSync(path.join(pluginAndRepoDir, '.claude-plugin'), { recursive: true });
   fs.writeFileSync(path.join(pluginAndRepoDir, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '0.0.0-plain' }));
   fs.mkdirSync(path.join(pluginAndRepoDir, 'agents'), { recursive: true });
   fs.writeFileSync(path.join(pluginAndRepoDir, 'agents', 'reviewer.md'), ROLE_FIXTURE);
   execFileSync('git', ['add', '-A'], { cwd: pluginAndRepoDir });
-  // Never a synthetic -c user.email/user.name — the git-identity-guard hook refuses any commit
-  // that isn't the machine's own configured identity, test fixtures included.
+  // Never -c user.email/-c user.name, --author, or GIT_AUTHOR_*/GIT_COMMITTER_* — the
+  // git-identity-guard hook and this project's own hard rules forbid all four, test fixtures
+  // included. No explicit identity is set here at all: the FIXTURE_ROOT placement above already
+  // gets this repo a seeded identity under a seal, and the real machine identity otherwise.
   execFileSync('git', ['commit', '-q', '-m', 'x'], { cwd: pluginAndRepoDir });
   const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: pluginAndRepoDir, encoding: 'utf8' }).trim();
 
