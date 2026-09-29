@@ -467,6 +467,10 @@ A session whose environment carries `DELEGATION_REVIEW_RUN=1` (the marker review
 child runs under) is never registered and receives no notes from `multi-inbox.js`; a lead's
 own shell must never export that marker.
 
+review-run claims `<report>.identity.json` before it does anything else, so a run that stops on
+exit 1, 4 or 7 leaves that sidecar empty: retry with a fresh `--report` path, and never copy an
+empty sidecar as evidence.
+
 When accept-prep handles a Codex-led record, it runs the same census path and retires hand-written four-number inputs only when that report has a measured complete coverage result; a partial report remains explicitly unavailable, and lane fourteen may make refusal of hand-written Codex numbers effective after its own accept contract lands.
 
 **What breaks honestly**:

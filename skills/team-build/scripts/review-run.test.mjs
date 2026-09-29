@@ -385,6 +385,15 @@ test('M4: --report inside --scratch is refused', () => {
   assert.throws(() => validateReportPath(path.join(scratch, 'report.md'), scratch));
 });
 
+test('N6: SKILL.md documents that a failed run leaves an empty sidecar behind, and that a fresh --report is required', () => {
+  const skillMd = fs.readFileSync(path.join(HERE, '..', 'SKILL.md'), 'utf8');
+  assert.match(
+    skillMd,
+    /leaves that sidecar empty[\s\S]{0,80}fresh `--report` path/,
+    'SKILL.md must document that a run stopping on exit 1, 4 or 7 leaves an empty sidecar, and that a retry needs a fresh --report path',
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Finding 4: a relative --scratch must never leak a clone into the caller's cwd
 // (measured: it resolved against repoTop once and the run's own cwd a second time).
