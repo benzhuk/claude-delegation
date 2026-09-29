@@ -1,4 +1,4 @@
-VERDICT: READY a260ad3b229b0a1b515f142991f1d7722bfb44f4
+VERDICT: READY 9c9ebddeef443bbfe472552bc2891b2074ebf1ec
 
 # Lane40 independent contract-test report
 
@@ -8,9 +8,9 @@ Branch: `build/knowledge-triage-40-tests`
 
 Base: `9cad287a5a0567d1e4fbe9e1ccfc25117828b620`
 
-Test commits: `888729f`, `db88bbd`, `86d51a1`, and `a260ad3`
+Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, and `9c9ebdd`
 
-The four owned test paths contain 39 new contract cases. The two new files are below the 800-line limit (`knowledge-gather.test.mjs` 614 physical lines; `knowledge-triage.test.mjs` 447 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
+The four owned test paths contain 49 new contract cases. The two new files remain below the 800-line limit (`knowledge-gather.test.mjs` 745 physical lines; `knowledge-triage.test.mjs` 624 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
 
 ## Contract coverage
 
@@ -39,9 +39,20 @@ Structural verification passed with `node --check` and `git diff --check`. After
 
 The count file was not rerun after source integration in this child because root is performing the final sealed four-file gate. Its earlier pre-integration run had 16 pass / 1 expected fail for the then-unimplemented session exclusion.
 
+## Code review r1 regression delta
+
+Commit `9c9ebdd` adds one discriminating regression for each accepted finding in code review `42e356b`: envelope-safe notification plus the installed Node sender and visible packet/send failures; atomic archive replacement preservation; full-receipt terminal uniqueness; fail-closed managed-name discovery in the runner and standalone gather; publication precondition/reason/session hardening; the three-hour live-PID lock bound; preserved gather-phase unresolved totals; skipped deferral with nested evidence; a deterministic overflow-plus-timeout single-signal check; and mixed valid plus unsupported POSIX-backslash/drive-like tar entries.
+
+Against the reviewed source, the sealed red gates produced:
+
+- Gather: 16 pass / 4 expected fail. The failures are exactly managed discovery fail-closed, one process-tree signal, archive replacement preservation, and unsupported-name residue.
+- Runner: 12 pass / 8 expected fail. The failures map to notification seam/failure visibility, managed discovery, deferral status, aged live-PID ownership, terminal uniqueness and unresolved accounting. The hardened changed-DIGEST test passed its exact nested-exit and publication-reason assertions, proving it reaches the intended verification branches.
+
+These are intentional red receipts pending the source fix; they are not represented as a green integrated gate. The failed sealed runners left `%TEMP%\delegation-test-run-42424-sq9qz7` and `%TEMP%\delegation-test-run-53120-LfA8kJ`. An exact temp-only recursive cleanup was refused by `delete-guard`; no alternate deletion was attempted.
+
 ## Limitations and integration gate
 
-Root added the bounded test-only command/time seams in `test-seam-ruling.md` after dispatch. Those root-owned files are deliberately absent from the test commits. The source cherry-picks in this test branch exist only to run scoped verification; root should integrate the four test commits above rather than merge this branch wholesale. Root's final integrated gate should run exactly:
+Root added the bounded test-only command/time seams in `test-seam-ruling.md` after dispatch. Those root-owned files are deliberately absent from the test commits. The source cherry-picks in this test branch exist only to run scoped verification; root should integrate the five test commits above rather than merge this branch wholesale. After the source fix, root's final integrated gate should run exactly:
 
 ```text
 node --test scripts/knowledge-triage.test.mjs scripts/knowledge-gather.test.mjs scripts/install-janitor-timer.test.mjs scripts/knowledge-counts.test.mjs
