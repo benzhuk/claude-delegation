@@ -41,10 +41,14 @@ export async function bearingsNotice(cwd, { env = process.env } = {}) {
       repo = mainCheckout(given, gitRunner) ?? given;
     } catch { /* no transport.mjs here, or git could not answer: check against the given cwd as-is */ }
     let checked = checkBearings({ repo, env });
-    // A receipt completed from inside a worktree is keyed on that worktree: still honour it.
+    // A receipt completed from inside a worktree is keyed on that worktree: still honour it. The
+    // worktree's own answer also wins when the main checkout has nothing to say: no goal card there,
+    // or a card with no receipt at all (so a worktree-only card, or a worktree receipt's own reason,
+    // is never masked by the main checkout's silence).
     if (checked.status !== 'current' && repo !== given) {
       const own = checkBearings({ repo: given, env });
-      if (own.status === 'current') checked = own;
+      const mainSilent = checked.status === 'unconfigured' || checked.reason === 'no completion receipt';
+      if (own.status === 'current' || (mainSilent && own.status !== 'unconfigured')) checked = own;
     }
     if (checked.status === 'due' && checked.reason === 'reviewer-not-independent') {
       return 'Bearings are due: the last receipt\'s reviewer was not independent of the lead. Run `/delegation:bearings` with a different reviewer.';

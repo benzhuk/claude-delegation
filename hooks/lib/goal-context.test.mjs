@@ -134,3 +134,32 @@ test('bearings receipt completed from a linked worktree still reads current from
   const notice = await bearingsNotice(worktree, { env: bearingsEnv });
   assert.equal(notice, null, 'a current worktree-keyed receipt must silence that same worktree\'s notice');
 });
+
+// Review r2, R2-1: the F2 fallback only honours the worktree's own answer when it is exactly
+// `current`. When the main checkout has nothing to say at all (no goal card there, so `check`
+// answers `unconfigured`) and the card lives only in the worktree with no receipt, the worktree's
+// `due` answer was masked into silence. Must fail at 6ef609a (red) before this patch, pass after
+// it (green).
+test('a card only the worktree has is not masked by the main checkout having none', async (t) => {
+  const bearingsHome = scratchHome(fs, 'goal-context-bearings-home-');
+  t.after(() => { try { fs.rmSync(bearingsHome, { recursive: true, force: true }); } catch {} });
+
+  const parent = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), 'goal-context-bearings-repo-'));
+  t.after(() => { try { fs.rmSync(parent, { recursive: true, force: true }); } catch {} });
+  const main = path.join(parent, 'main');
+  fs.mkdirSync(main, { recursive: true });
+  const gitEnv = childEnv(os.homedir());
+  execFileSync('git', ['init', '-q', main], { env: gitEnv });
+  fs.writeFileSync(path.join(main, 'README.md'), 'fixture\n');
+  execFileSync('git', ['-C', main, 'add', '-A'], { env: gitEnv });
+  execFileSync('git', ['-C', main, 'commit', '-qm', 'seed'], { env: gitEnv });
+  execFileSync('git', ['-C', main, 'branch', '-q', 'feature'], { env: gitEnv });
+  const worktree = path.join(parent, 'wt');
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', worktree, 'feature'], { env: gitEnv });
+  fs.mkdirSync(path.join(worktree, 'docs', 'goals'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'docs', 'goals', 'card.md'), 'GOAL: fixture\nNOT: nothing\nDONE: nothing\nKILL: nothing\n');
+
+  const { bearingsNotice } = await import(pathToFileURL(HELPER).href);
+  const notice = await bearingsNotice(worktree, { env: { AGENTS_HOME: bearingsHome } });
+  assert.match(String(notice), /^Bearings are due\./, 'a card only the worktree has must not be masked by the main checkout having none');
+});
