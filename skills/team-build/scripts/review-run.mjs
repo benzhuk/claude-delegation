@@ -354,10 +354,18 @@ export function isProcessAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (err) { return err?.code === 'EPERM'; }
 }
 
-/** M5/finding 6: after a new run starts, kill any orphaned child of a dead review-run process
- * once that run's own deadline has passed, then reclaim its clone. finding 7: never follow a
- * symlinked `review-run-*` entry — only a real directory this script itself created is touched. */
-export function sweepStaleRuns(scratchDir, timeoutMin, fsImpl = fs, isAliveFn = isProcessAlive, killOrphanFn = defaultKillOrphan) {
+/** M5/finding 6/N1 (ruling r3): after a new run starts, reclaim a stale run's clone once that
+ * run's own deadline has passed. finding 7: never follow a symlinked `review-run-*` entry — only
+ * a real directory this script itself created is touched.
+ *
+ * N1 (ruling r3): the sweep NEVER signals anything. A recorded `owner.childPid` is never proof of
+ * identity — pids get reused, and `owner.json` sits in a directory the reviewed child can write
+ * to (forgery). If that childPid still answers `kill(pid,0)`, we cannot tell an own orphan apart
+ * from an unrelated (or forged-into) process, so the run's dir is left in place and one line is
+ * printed naming it, for a human to reap by hand. Only a dead or absent childPid gets the existing
+ * cleanup. This keeps finding 6's original fix (a live orphan's wt/ is never swept out from under
+ * it) without ever sending a signal to a pid this script cannot prove it owns. */
+export function sweepStaleRuns(scratchDir, timeoutMin, fsImpl = fs, isAliveFn = isProcessAlive) {
   let entries;
   try { entries = fsImpl.readdirSync(scratchDir); } catch { return; }
   for (const entry of entries) {
@@ -372,26 +380,15 @@ export function sweepStaleRuns(scratchDir, timeoutMin, fsImpl = fs, isAliveFn = 
     if (isAliveFn(owner.pid)) continue; // review-run itself is still running — never touch its dir
     const cutoffMs = (typeof owner.timeoutMin === 'number' ? owner.timeoutMin : timeoutMin) * 60 * 1000;
     const age = Date.now() - Date.parse(owner.startedAt);
-    const childAlive = typeof owner.childPid === 'number' && isAliveFn(owner.childPid);
-    if (childAlive) {
-      // finding 6: a detached child (the claude session) can outlive a SIGKILLed review-run.
-      // Only reap it once IT is past its own deadline — a live orphan still inside its own
-      // timeout is left alone, so its wt/ is never removed out from under it.
-      if (!(age > cutoffMs)) continue;
-      killOrphanFn(owner.childPid);
-    } else if (!(age > cutoffMs)) {
+    if (!(age > cutoffMs)) continue; // young: never touched, live orphan or not
+    if (typeof owner.childPid === 'number' && isAliveFn(owner.childPid)) {
+      process.stderr.write(
+        `review-run: leaving stale run ${runDir} in place — its recorded childPid ${owner.childPid} `
+        + 'still answers kill(pid,0), and a recorded pid is never proof of identity; reap it by hand if it is not yours\n',
+      );
       continue;
     }
     removeDirWithRetry(path.join(runDir, 'wt'), fsImpl);
-  }
-}
-
-/** finding 6: reap an orphaned child the same way runChild's own killTree does. */
-function defaultKillOrphan(pid) {
-  if (process.platform === 'win32') {
-    try { execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); } catch { /* already gone */ }
-  } else {
-    try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
   }
 }
 

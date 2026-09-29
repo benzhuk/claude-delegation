@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -433,8 +433,10 @@ test('finding 7: sweepStaleRuns does not follow a symlinked review-run-* entry i
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Finding 6: an orphaned detached child (the claude session) must survive a SIGKILL of
-// review-run, and a later sweep must reap IT, not just silently reclaim its live wt/.
+// Finding 6 / N1 (ruling r3): a recorded childPid is never proof of identity — pid reuse or a
+// forged owner.json could name any process. The sweep never signals anything. A live childPid
+// (whatever its age) means "leave this dir alone"; only a dead or absent childPid lets the sweep
+// reclaim a stale run's wt/.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function makeRunDirWithOwner(scratch, owner) {
@@ -446,27 +448,82 @@ function makeRunDirWithOwner(scratch, owner) {
   return runDir;
 }
 
-test('finding 6: a live orphaned child still within its own timeout is left alone — its wt/ survives, and it is never killed', () => {
+test('finding 6: a live orphaned child still within its own timeout is left alone — its wt/ survives', () => {
   const scratch = scratchDir('review-run-orphan-scratch-');
   const runDir = makeRunDirWithOwner(scratch, {
     pid: 424242, startedAt: new Date(Date.now() - 1000).toISOString(), childPid: 555555, timeoutMin: 45,
   });
-  let killed = null;
   // review-run's own pid (424242) is dead; the child (555555) is alive and young (age ~1s << 45min).
-  sweepStaleRuns(scratch, 45, fs, (pid) => pid === 555555, (pid) => { killed = pid; });
-  assert.equal(killed, null, 'a young orphan must never be killed');
+  sweepStaleRuns(scratch, 45, fs, (pid) => pid === 555555);
   assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'a young orphan\'s wt/ must survive');
 });
 
-test('finding 6: a live orphaned child PAST its own timeout is killed, then its wt/ is reclaimed', () => {
+test('N1 (ruling r3): a live childPid PAST its own recorded timeout is still left alone — the sweep never signals anything, so its wt/ survives', () => {
   const scratch = scratchDir('review-run-orphan-scratch-');
   const runDir = makeRunDirWithOwner(scratch, {
     pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: 555555, timeoutMin: 1,
   });
-  let killed = null;
-  sweepStaleRuns(scratch, 45, fs, (pid) => pid === 555555, (pid) => { killed = pid; });
-  assert.equal(killed, 555555, 'an orphan past its own owner.timeoutMin must be killed');
-  assert.equal(fs.existsSync(path.join(runDir, 'wt')), false, 'its wt/ must then be reclaimed');
+  sweepStaleRuns(scratch, 45, fs, (pid) => pid === 555555);
+  assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'a childPid that still answers kill(pid,0) is never proof of identity — it must never be killed, and its wt/ must be left in place, however old the run');
+});
+
+test('N1 (ruling r3): an unrelated live process recorded as childPid survives the sweep, non-detached', async () => {
+  const scratch = scratchDir('review-run-orphan-real-nd-');
+  const victim = spawn('sleep', ['30'], { stdio: 'ignore' });
+  try {
+    const runDir = makeRunDirWithOwner(scratch, {
+      pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: victim.pid, timeoutMin: 1,
+    });
+    sweepStaleRuns(scratch, 45);
+    assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'an unrelated live pid must never be signalled, and its wt/ must be left in place');
+    assert.equal(isProcessAlive(victim.pid), true, 'the sweep must never have sent the victim any signal');
+  } finally {
+    victim.kill('SIGTERM');
+  }
+});
+
+test('N1 (ruling r3): an unrelated live process recorded as childPid survives the sweep, detached (its own process group leader)', async () => {
+  const scratch = scratchDir('review-run-orphan-real-d-');
+  const victim = spawn('sleep', ['30'], { stdio: 'ignore', detached: true });
+  try {
+    const runDir = makeRunDirWithOwner(scratch, {
+      pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: victim.pid, timeoutMin: 1,
+    });
+    sweepStaleRuns(scratch, 45);
+    assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'a detached group-leader pid must never be signalled either, and its wt/ must be left in place');
+    assert.equal(isProcessAlive(victim.pid), true, 'the sweep must never have sent the victim any signal, group leader or not');
+  } finally {
+    try { process.kill(-victim.pid, 'SIGTERM'); } catch { victim.kill('SIGTERM'); }
+  }
+});
+
+test('N1 (ruling r3): a dead childPid still gets the existing cleanup', () => {
+  const scratch = scratchDir('review-run-orphan-dead-');
+  const deadPid = spawnSync('true', [], {}).pid; // already exited: kill(pid,0) now throws ESRCH
+  const runDir = makeRunDirWithOwner(scratch, {
+    pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: deadPid, timeoutMin: 1,
+  });
+  sweepStaleRuns(scratch, 45);
+  assert.equal(fs.existsSync(path.join(runDir, 'wt')), false, 'a dead (or absent) childPid must still let the stale run be reclaimed');
+});
+
+test('N1 (ruling r3): the sweep prints one line naming a stale run it left in place, and sends no signal', () => {
+  const scratch = scratchDir('review-run-orphan-print-');
+  const victim = spawn('sleep', ['30'], { stdio: 'ignore' });
+  const runDir = makeRunDirWithOwner(scratch, {
+    pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: victim.pid, timeoutMin: 1,
+  });
+  const origWrite = process.stderr.write;
+  let captured = '';
+  process.stderr.write = (chunk, ...rest) => { captured += chunk; return true; };
+  try {
+    sweepStaleRuns(scratch, 45);
+  } finally {
+    process.stderr.write = origWrite;
+    victim.kill('SIGTERM');
+  }
+  assert.match(captured, new RegExp(String(victim.pid)), 'the printed line must name the childPid it left alone');
+  assert.match(captured, new RegExp(runDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the printed line must name the run dir it left in place');
 });
 
 test('finding 6: owner.json is rewritten with the real childPid and timeoutMin right after spawn', async () => {
