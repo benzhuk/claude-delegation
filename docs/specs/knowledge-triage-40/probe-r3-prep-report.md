@@ -88,3 +88,11 @@ The init event alone is insufficient because it lists skill names without a cont
 A scratch project `.claude/skills/triage` overlay would preserve the live user configuration, but both it and the user skill would expose the same unqualified name. The available R2 init event did not expose a source path for skills, so it cannot establish which same-name skill wins. Do not rely on that precedence without a separate authoritative guarantee. The namespaced scratch-plugin method removes that ambiguity while keeping the guard-preserving user setting source.
 
 The R3 launch remains blocked until the builder refusal is adjudicated, a complete branch patch exists, its exact hash is supplied, and root gives a new explicit go.
+
+## Prepared R3 fixture after resume ruling
+
+After `lock-owner-resume.md` authorized preparation, a new fixture was created at `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40/probe/r3-20260929-180741`. It contains two synthetic pending notes, one exact selected filename, a plain INDEX/topic/digest baseline, the namespaced scratch plugin manifest, and a directory junction from `plugin/skills/triage` to the isolated branch skill directory.
+
+The prepared runner has a hard preflight before it writes manifests or spawns Claude. It refuses unless `expected-skill.json` exists with root's exact 40-character branch commit and 64-character skill SHA256; the source path and junction realpath equal the isolated branch path; both file hashes equal the approved hash; the live user skill retains its previously observed hash; standalone `KNOWLEDGE_LOCK_OWNER` and `knowledgeLockOwner` exist; legacy standalone names are absent; and the on-disk token, exclusive-create, random-owner, case-sensitive compare and release invariants remain present.
+
+Only `expected-skill.example.json` exists. `expected-skill.json` is deliberately absent, so the runner cannot launch before root supplies the ready patch identity and a new explicit go. Session UUID `0a8af337-ca7f-47d2-a6cb-eee262f593da` is reserved but unused. No source patch, Git/chezmoi operation, live configuration change, or Claude invocation occurred during preparation.
