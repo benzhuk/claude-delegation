@@ -431,6 +431,7 @@ test('no-byline: a name that only starts like an agent is not a byline', () => {
 
 test('lintPage: a leading BOM does not hide the goal callout from the first-block check', () => {
   assert.deepEqual(lintPage('\uFEFF' + doc(...GOAL, '# Plan'), { kind: 'spec' }), []);
+  assert.deepEqual(ids('\uFEFF\tBefore: a\n\tAfter: b\n', { kind: 'plain' }), ['before-after'], 'the BOM does not eat the first line indent');
 });
 
 test('read-status: off for a fragment, so a two-round fragment without a callout is clean', () => {
