@@ -216,6 +216,8 @@ identity conflict regardless of discovery order.
 
 ### Wakes, Stop-blocks, stall nudges
 
+Backlog-notice cadence is per native session id; hosts that omit an id share the `unknown` fallback, so independent per-pane nudges are unavailable for those sessions.
+
 The three counts the goal's "work lost or stalled" measure names beside the gaps: how often the
 lead was pulled back into work by a note, how often its stop was refused, and how often the
 collector had to chase its lane. All three are read-only over files that already exist (the lead

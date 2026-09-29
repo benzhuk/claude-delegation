@@ -7,9 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { performance } from 'node:perf_hooks';
+import { createRequire } from 'node:module';
 
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
-import { nativeRouteForLead, runCodexHook, runRoute } from './multi-codex-hook.mjs';
+import { NATIVE_ROUTES, nativeRouteForLead, runCodexHook, runRoute } from './multi-codex-hook.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const CLAUDE_MANIFEST = path.join(REPO, 'hooks', 'hooks.json');
@@ -17,15 +19,19 @@ const CODEX_MANIFEST = path.join(REPO, 'hooks', 'codex-hooks.json');
 const UNSUPPORTED = path.join(REPO, 'hooks', 'codex-unsupported.json');
 const INSTALLER = path.join(REPO, 'scripts', 'mirror-shared-skills.mjs');
 const WRAPPER = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
+const BACKLOG = path.join(REPO, 'hooks', 'backlog-notice.js');
 const LEAD = '01a0c5f8-1865-7d93-9ff3-38793062f1ee';
+const CLAUDE_SESSION = 'claude-l49-session';
+const CODEX_SESSION = 'codex-l49-session';
+const require = createRequire(import.meta.url);
+const { sentinelPathFor } = require('./backlog-notice.js');
 
 function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
 function rmLater(t, target) { t.after(() => fs.rmSync(target, { recursive: true, force: true })); }
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function key(pair) { return `${pair.script}\u0000${pair.event}`; }
 
-function claudePairs() {
-  const manifest = readJson(CLAUDE_MANIFEST);
+function manifestPairs(manifest) {
   const pairs = [];
   for (const [event, groups] of Object.entries(manifest.hooks ?? {})) {
     for (const group of groups ?? []) for (const hook of group.hooks ?? []) {
@@ -37,9 +43,55 @@ function claudePairs() {
   return pairs;
 }
 
-function nativeCommands(event) {
-  const groups = readJson(CODEX_MANIFEST).hooks?.[event] ?? [];
+function claudePairs(manifest = readJson(CLAUDE_MANIFEST)) { return manifestPairs(manifest); }
+
+function nativeCommands(event, manifest = readJson(CODEX_MANIFEST)) {
+  const groups = manifest.hooks?.[event] ?? [];
   return groups.flatMap((group) => group.hooks ?? []).map((hook) => String(hook.command ?? ''));
+}
+
+function commandNames(command) {
+  return [...String(command).matchAll(/((?:hooks|scripts)\/[A-Za-z0-9_.-]+)/g)].map((match) => match[1]);
+}
+
+function codexPairs(manifest) {
+  return manifestPairs(manifest).map((pair) => {
+    const [script] = commandNames(pair.script);
+    assert.ok(script, `Codex hook command must name a repo hook: ${pair.script}`);
+    return { script, event: pair.event };
+  });
+}
+
+function pairedRoutes(claudeManifest, codexManifest, nativeRoutes) {
+  const claude = claudePairs(claudeManifest);
+  const codex = codexPairs(codexManifest);
+  const routes = new Map();
+  const coveredCodex = new Set();
+  const claudeKeys = new Set(claude.map(key));
+  const codexWrapperEvents = new Set(codex.filter((pair) => pair.script === 'hooks/multi-codex-hook.mjs').map((pair) => pair.event));
+
+  for (const pair of claude) {
+    if (pair.script === 'hooks/multi-inbox.js' && codexWrapperEvents.has(pair.event)) routes.set(key(pair), pair.event);
+  }
+  for (const [event, scripts] of Object.entries(nativeRoutes)) {
+    assert.ok(Array.isArray(scripts) && scripts.length === 1, `NATIVE_ROUTES.${event} must declare exactly one script`);
+    assert.ok(codexWrapperEvents.has(event), `NATIVE_ROUTES.${event} must have an installed Codex wrapper event`);
+    const script = scripts[0];
+    assert.match(script, /^(?:hooks|scripts)\/[A-Za-z0-9_.-]+$/);
+    const pair = { script, event };
+    assert.ok(claudeKeys.has(key(pair)), `NATIVE_ROUTES must name an actual Claude pair: ${script}/${event}`);
+    routes.set(key(pair), event);
+  }
+  for (const pair of codex) {
+    if (pair.script === 'hooks/multi-codex-hook.mjs' && (claudeKeys.has(key({ script: 'hooks/multi-inbox.js', event: pair.event })) || Object.hasOwn(nativeRoutes, pair.event))) {
+      coveredCodex.add(key(pair));
+    }
+    if (pair.script !== 'hooks/delete-guard.mjs') continue;
+    assert.ok(claudeKeys.has(key(pair)), `native delete guard must map to a Claude pair: ${pair.script}/${pair.event}`);
+    routes.set(key(pair), pair.event);
+    coveredCodex.add(key(pair));
+  }
+  return { claude, codex, routes, coveredCodex };
 }
 
 function transcript(root) {
@@ -81,6 +133,11 @@ function peerNotes() {
 
 function context(result) { return result?.output?.hookSpecificOutput?.additionalContext ?? ''; }
 
+function deterministicBacklogRoute(input) {
+  const line = 'work: 1 runnable and unowned (wr-2026-09-28-parity), 0 delivered and unreviewed (), 0 rejected awaiting a fix round (). Pull one or say why not.';
+  return { text: line, systemMessage: input.hook_event_name === 'Stop' ? line : null };
+}
+
 function assertCoverage(inventory, nativeRoutes, unsupportedRows) {
   const inventoryKeys = new Set(inventory.map(key));
   assert.equal(inventoryKeys.size, inventory.length, 'the actual Claude manifest must not duplicate a script/event pair');
@@ -102,33 +159,43 @@ function assertCoverage(inventory, nativeRoutes, unsupportedRows) {
   }
 }
 
-test('every actual Claude manifest pair is covered once by an observed native route or strict unsupported entry', () => {
-  const nativeRoutes = new Map([
-    ['hooks/multi-inbox.js\u0000SessionStart', 'SessionStart'],
-    ['hooks/multi-inbox.js\u0000UserPromptSubmit', 'UserPromptSubmit'],
-    ['hooks/multi-inbox.js\u0000Stop', 'Stop'],
-    ['hooks/multi-inbox.js\u0000PostToolUse', 'PostToolUse'],
-    ['scripts/wiring-check.mjs\u0000SessionStart', 'SessionStart'],
-    ['hooks/backlog-notice.js\u0000UserPromptSubmit', 'UserPromptSubmit'],
-    ['hooks/backlog-notice.js\u0000Stop', 'Stop'],
-    ['hooks/backlog-notice.js\u0000PostToolUse', 'PostToolUse'],
-    ['hooks/delete-guard.mjs\u0000PreToolUse', 'PreToolUse'],
-  ]);
-  const inventory = claudePairs();
-  const unsupportedDoc = readJson(UNSUPPORTED);
+const INTERRUPT_ONLY_REASON = 'Codex has an Interrupt event, Claude Code has none.';
+
+function assertManifestParity(claudeManifest, codexManifest, unsupportedDoc, nativeRoutes = NATIVE_ROUTES) {
+  const { claude: inventory, codex, routes: derivedRoutes, coveredCodex } = pairedRoutes(claudeManifest, codexManifest, nativeRoutes);
   assert.deepEqual(Object.keys(unsupportedDoc).sort(), ['unsupported']);
   assert.ok(Array.isArray(unsupportedDoc.unsupported));
-  assertCoverage(inventory, nativeRoutes, unsupportedDoc.unsupported);
+  assertCoverage(inventory, derivedRoutes, unsupportedDoc.unsupported);
 
   for (const pair of inventory) {
-    const route = nativeRoutes.get(key(pair));
+    const route = derivedRoutes.get(key(pair));
     if (route === 'PreToolUse') {
-      assert.ok(nativeCommands(route).some((command) => command.includes('delete-guard.mjs')), 'delete guard must be native PreToolUse');
+      assert.ok(nativeCommands(route, codexManifest).some((command) => command.includes('delete-guard.mjs')), 'delete guard must be native PreToolUse');
     } else if (route) {
-      assert.ok(nativeCommands(route).some((command) => command.includes('multi-codex-hook.mjs')), `${pair.script}/${pair.event} must reach the native wrapper`);
+      assert.ok(nativeCommands(route, codexManifest).some((command) => command.includes('multi-codex-hook.mjs')), `${pair.script}/${pair.event} must reach the native wrapper`);
     }
   }
-  assert.ok(nativeCommands('Interrupt').some((command) => command.includes('multi-codex-hook.mjs')), 'Codex-only Interrupt remains permitted');
+  for (const pair of codex) {
+    if (coveredCodex.has(key(pair))) continue;
+    assert.deepEqual(pair, { script: 'hooks/multi-codex-hook.mjs', event: 'Interrupt' }, `Codex-only allowance: ${INTERRUPT_ONLY_REASON}`);
+  }
+  assert.ok(nativeCommands('Interrupt', codexManifest).some((command) => command.includes('multi-codex-hook.mjs')), 'Codex-only Interrupt remains permitted');
+}
+
+test('actual manifests derive complete bidirectional native coverage with only the reasoned Interrupt exception', () => {
+  assertManifestParity(readJson(CLAUDE_MANIFEST), readJson(CODEX_MANIFEST), readJson(UNSUPPORTED));
+});
+
+test('the same manifest-derived validator rejects fake Claude and Codex wrapper events', () => {
+  const claudeManifest = readJson(CLAUDE_MANIFEST);
+  const codexManifest = readJson(CODEX_MANIFEST);
+  const unsupportedDoc = readJson(UNSUPPORTED);
+  const fakeClaude = structuredClone(claudeManifest);
+  fakeClaude.hooks.FakeClaude = [{ hooks: [{ command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/fake-l49.mjs"' }] }];
+  const fakeCodex = structuredClone(codexManifest);
+  fakeCodex.hooks.FakeCodex = [{ hooks: [{ command: 'node "${PLUGIN_ROOT}/hooks/multi-codex-hook.mjs"' }] }];
+  assert.throws(() => assertManifestParity(fakeClaude, codexManifest, unsupportedDoc), /coverage must be exactly one/);
+  assert.throws(() => assertManifestParity(claudeManifest, fakeCodex, unsupportedDoc), /NATIVE_ROUTES\.FakeCodex|Codex-only allowance: Codex has an Interrupt event, Claude Code has none\./);
 });
 
 test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop output without erasing peer or continuation context', async (t) => {
@@ -150,11 +217,12 @@ test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop out
   assert.match(context(start), /peer → lead/, 'wiring must preserve peer context');
   assert.match(context(start), /CONTINUATION-PARITY-MARKER/, 'wiring must preserve continuation context');
 
-  // Backlog has one cadence sentinel shared by all three events. Use independent homes so each
-  // event is observed rather than silently suppressed by the previous event's successful output.
+  // This is a composition assertion: route output is injected through the existing runCodexHook seam
+  // so all three event shapes are deterministic under a loaded host. Actual child routing remains
+  // covered by the default-CLI and two-session route tests below.
   for (const event of ['UserPromptSubmit', 'PostToolUse', 'Stop']) {
     const eventHome = scratch(`codex-parity-${event}-`); rmLater(t, eventHome);
-    const result = await runCodexHook({ ...input, hook_event_name: event }, { ...deps, home: eventHome, env: { ...deps.env, AGENTS_HOME: path.join(eventHome, '.agents') } });
+    const result = await runCodexHook({ ...input, hook_event_name: event }, { ...deps, home: eventHome, env: { ...deps.env, AGENTS_HOME: path.join(eventHome, '.agents') }, nativeRouteForLead: deterministicBacklogRoute });
     const rendered = `${context(result)}\n${result?.output?.systemMessage ?? ''}\n${result?.output?.reason ?? ''}`;
     assert.match(rendered, /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/, `${event} must render actual backlog output`);
     assert.match(rendered, /peer → lead/, `${event} must preserve peer delivery`);
@@ -213,7 +281,10 @@ test('route child early-close and timeout stay silent; the shared advisory deadl
   fs.writeFileSync(close, 'process.exit(0);\n');
   fs.writeFileSync(slow, 'setTimeout(() => process.stdout.write("late"), 5000);\n');
   assert.equal(await runRoute(close, [], {}, root, {}, 100), '');
+  const childStarted = performance.now();
   assert.equal(await runRoute(slow, [], {}, root, {}), '');
+  assert.ok(performance.now() - childStarted < 2000, 'default runRoute kill must reap a real hung child well before the 5-second mutant');
+  const hookStarted = performance.now();
   const delayedRoute = await runCodexHook(
     { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'route-failure' },
     {
@@ -224,6 +295,7 @@ test('route child early-close and timeout stay silent; the shared advisory deadl
       codexContinuationSupported: false,
     },
   );
+  assert.ok(performance.now() - hookStarted < 2000, 'runCodexHook must bound an injected never-resolving native route');
   assert.match(context(delayedRoute), /peer → lead/, 'peer delivery is outside the route/advisory shared deadline');
   assert.match(context(delayedRoute), /ADVISORY-PRESERVED/, 'a stalled native route cannot discard an already-complete advisory');
 
@@ -240,6 +312,82 @@ test('route child early-close and timeout stay silent; the shared advisory deadl
   assert.match(context(completed), /peer → lead/);
   assert.match(context(completed), /ROUTE-COMPLETED/);
   assert.match(context(completed), /ADVISORY-PRESERVED/);
+});
+
+test('runCodexHook separately bounds an injected never-resolving native route while retaining peer and ready advisory output', async (t) => {
+  const root = scratch('codex-parity-outer-timeout-'); const home = scratch('codex-parity-outer-timeout-home-');
+  rmLater(t, root); rmLater(t, home);
+  const started = performance.now();
+  const result = await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'outer-timeout' },
+    {
+      home, env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') },
+      inbox: async () => peerNotes(),
+      goalContextForLead: async () => ({ text: 'OUTER-ADVISORY-PRESERVED' }),
+      nativeRouteForLead: async () => new Promise(() => {}),
+      codexContinuationSupported: false,
+    },
+  );
+  assert.ok(performance.now() - started < 2000, 'runCodexHook outer route budget must reject the 5-second timeout mutant');
+  assert.match(context(result), /peer → lead/, 'peer delivery survives the separately bounded route');
+  assert.match(context(result), /OUTER-ADVISORY-PRESERVED/, 'ready advisory survives the separately bounded route');
+});
+
+test('nativeRouteForLead consumes the production NATIVE_ROUTES declaration', async (t) => {
+  const root = scratch('codex-parity-route-declaration-'); const home = scratch('codex-parity-route-declaration-home-');
+  rmLater(t, root); rmLater(t, home); runnableRecord(root);
+  const original = NATIVE_ROUTES.UserPromptSubmit;
+  NATIVE_ROUTES.UserPromptSubmit = ['hooks/not-a-real-native-route.js'];
+  try {
+    const result = await nativeRouteForLead(
+      { hook_event_name: 'UserPromptSubmit', session_id: LEAD, cwd: root }, root, 'unknown',
+      childEnv(home, { AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
+    );
+    assert.equal(result, null, 'changing the declaration must change the route selection instead of leaving a handwritten backlog path');
+  } finally {
+    NATIVE_ROUTES.UserPromptSubmit = original;
+  }
+});
+
+test('Claude and Codex native session ids have independent exact backlog sentinels while the same id stays silent', async (t) => {
+  const root = scratch('codex-parity-session-project-'); const home = scratch('codex-parity-session-home-');
+  rmLater(t, root); rmLater(t, home); runnableRecord(root);
+  const agents = path.join(home, '.agents');
+  const env = childEnv(home, { AGENTS_HOME: agents, NOTE_SLUG: 'lead', CLAUDE_PLUGIN_ROOT: REPO });
+  const claudeInput = { hook_event_name: 'UserPromptSubmit', session_id: CLAUDE_SESSION, cwd: root };
+  const first = spawnSync(process.execPath, [BACKLOG, 'UserPromptSubmit'], {
+    cwd: root, input: JSON.stringify(claudeInput), encoding: 'utf8', env,
+  });
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /work: 1 runnable and unowned/);
+
+  const codex = await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', session_id: CODEX_SESSION, cwd: root, turn_id: 'two-session-native-route' },
+    { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) },
+  );
+  assert.match(context(codex), /work: 1 runnable and unowned/, 'a different supplied Codex session must emit in the same home and project');
+  const claudeSentinel = sentinelPathFor(agents, CLAUDE_SESSION);
+  const codexSentinel = sentinelPathFor(agents, CODEX_SESSION);
+  assert.ok(fs.existsSync(claudeSentinel), `Claude must write its exact sentinel ${claudeSentinel}`);
+  assert.ok(fs.existsSync(codexSentinel), `Codex must write its exact sentinel ${codexSentinel}`);
+  assert.notEqual(claudeSentinel, codexSentinel);
+
+  const repeated = spawnSync(process.execPath, [BACKLOG, 'UserPromptSubmit'], {
+    cwd: root, input: JSON.stringify(claudeInput), encoding: 'utf8', env,
+  });
+  assert.equal(repeated.status, 0, repeated.stderr);
+  assert.equal(repeated.stdout, '', 'the same supplied id keeps its existing cadence');
+});
+
+test('real native Stop route surfaces backlog text for Codex', { timeout: 2000 }, async (t) => {
+  const root = scratch('codex-parity-stop-route-'); const home = scratch('codex-parity-stop-route-home-');
+  rmLater(t, root); rmLater(t, home); runnableRecord(root);
+  const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents'), NOTE_SLUG: 'lead', CLAUDE_PLUGIN_ROOT: REPO });
+  const sessionId = 'stop-l49-session';
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const result = await nativeRouteForLead({ hook_event_name: 'Stop', session_id: sessionId, cwd: root }, root, 'unknown', env);
+  assert.match(result?.text ?? '', /work: 1 runnable and unowned/, 'Codex Stop must carry the real backlog line in additionalContext text');
+  assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'real Stop child must write its supplied-session backlog sentinel');
 });
 
 test('backlog route keeps its existing switches and cadence silent', async (t) => {

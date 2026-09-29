@@ -61,6 +61,8 @@ which carry `agent_id`; a top-level Codex session, including `codex exec`, passe
 
 The mirror above remains a separate host integration for the existing Codex roles and shims. Do
 not install both hook routes automatically; duplicate handlers would deliver the same inbox twice.
+Backlog notices are paced per supplied native `session_id`; when a host omits that id, its sessions
+share the existing `unknown` fallback cadence.
 
 Codex 0.156.1 installs a root Agent Plugins manifest but does not load its hooks, and a colocated
 compatibility manifest remains shadowed by that root file. The package therefore uses only the
