@@ -191,20 +191,24 @@ test('defaultReadPickupCapture: an ACCOUNTED wrapper (round accounted but Done n
 });
 
 test('defaultReadPickupCapture: a NEEDS_RECONCILIATION wrapper still yields null and never opens the private capture', async () => {
+  let opened = false;
   const pickup = {
     status: () => ({ status: 'NEEDS_RECONCILIATION', receipt: { state: 'NEEDS_RECONCILIATION', round: 4 } }),
-    openPrivateCapture: () => { throw new Error('must not be called once status is rejected'); },
+    openPrivateCapture: () => { opened = true; return Buffer.from(pageWithComment('hello'), 'utf8'); },
   };
   const capture = await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup });
   assert.equal(capture, null);
+  assert.equal(opened, false, 'the status filter, not a failed open, must reject it');
 });
 
 test('defaultReadPickupCapture: an ACCOUNTED round whose unchecked page was already observed yields null and never opens the capture', async () => {
+  let opened = false;
   const pickup = {
     status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 4, observedUncheckedAt: '2026-09-27T22:00:00Z' } }),
-    openPrivateCapture: () => { throw new Error('must not be called once the round was observed unchecked'); },
+    openPrivateCapture: () => { opened = true; return Buffer.from(pageWithComment('hello'), 'utf8'); },
   };
   assert.equal(await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup }), null);
+  assert.equal(opened, false, 'the observedUncheckedAt guard, not a failed open, must reject it');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
