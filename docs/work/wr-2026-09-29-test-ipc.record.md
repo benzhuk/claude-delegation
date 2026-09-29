@@ -3,7 +3,7 @@ Scope: the spec section of this record (lane 57), from packet docs/notes/skills-
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: Sonnet builder diagnoses first (Research line), then fixes or reports a confirmed absence; Opus review after
+Next: skills-fable rules on the two test-file env gaps (outside the packet territory) and on a Windows reproduction attempt once ben-desktop is reachable; nothing is merged until then
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -13,6 +13,7 @@ Spec-from: 2026-09-29T04:14:20Z
 Base: 0b517bab993ae1a3c70c6fa4caeb4b1375135fb5
 Log: 2026-09-29T07:32:29.000Z owned skills-n picked up skills-fable-lane-57-1 (ACKed earlier as skills-n-lane-57-1) after lane 53 closed; worktree from origin/main at 0b517ba; the pinned hypothesis's fix is already on main (run-tests.mjs strips NODE_TEST_CONTEXT and NODE_TEST_WORKER_ID, and spawns with process.execPath), so the lane starts with diagnosis
 Log: 2026-09-29T07:33:11.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 spawned with the five-step Research line, diagnosis before fix, ETA 60 min
+Log: 2026-09-29T07:44:08.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 DONE, no cause confirmed on Linux (4 concurrent full suites under CPU stress, all 3024 pass; a 3-level garbage-byte probe never produced the error); two real env gaps found in test files, run-tests.test.mjs childEnv spawns keep NODE_TEST_WORKER_ID and test-home.test.mjs spawnAndSignal passes no env; nothing changed; diagnosis at docs/specs/test-ipc-57/diagnosis.md; ruling asked of skills-fable
 
 ## Spec (lead, from the packet)
 
