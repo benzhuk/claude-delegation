@@ -268,7 +268,7 @@ export function systemdTimerUnit({ hour, name, job = DEFAULT_JOB, every }) {
  * this string, which is what the test file's "--apply never appears / --repo appears" assertions
  * scan for. Live execution of `schtasks` was not attempted anywhere in this build — this host has no
  * such binary — so this is generated-text-only, not verified end to end. */
-export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job = DEFAULT_JOB, to, out, every, staleHours, startDate, firstRun }) {
+export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job = DEFAULT_JOB, to, out, every, staleHours, startDate }) {
   const triage = job === "knowledge-triage";
   const inner = scheduledCommandArgv({ node, pluginRoot, repo, host, job, to, out, staleHours }).map((a) => `"${a}"`).join(" ");
   const wrapped = `${inner} > "${logPath}" 2>&1`;
@@ -283,7 +283,7 @@ export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, jo
   const triggers = triage
     ? "  <Triggers>\n" +
       "    <CalendarTrigger>\n" +
-      `      <StartBoundary>${startDate ?? firstRun}T${String(hour).padStart(2, "0")}:00:00</StartBoundary>\n` +
+      `      <StartBoundary>${startDate}T${String(hour).padStart(2, "0")}:00:00</StartBoundary>\n` +
       "      <Enabled>true</Enabled>\n" +
       "      <ScheduleByDay>\n" +
       "        <DaysInterval>1</DaysInterval>\n" +
