@@ -1,18 +1,19 @@
 Work: wr-2026-09-28-readback-escapes
-Scope: docs/specs/readback-escapes-52/preliminary-spec.md, pickup.md and pinned specification below; skills-fable-lane-52-1.
+Scope: docs/specs/readback-escapes-52/final-spec.md, pickup.md and pinned specification below; skills-fable-lane-52-1 and timestamp ruling skills-fable-lane-52-2.
 Owner: skills-a
 Status: owned
 Authority: lane52 standing build/merge grant. One named scratch-page publish/read/archive is explicitly authorized. Root owns spec and record, mid tier builds and tests, Opus independently reviews. Normal guarded publication after merge. No install, release, waiting-item edits, guard changes, recovery flag, or changes to lane39 files.
 Artifact: bb77a1d97f8dae420917bcaa3e82385451db0662
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/readback-escapes-52
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/readback-escapes-52
-Evidence: docs/specs/readback-escapes-52/L52-spec-evidence.md
-Next: finish scratch-page probe, resolve snapshot metadata mismatch, pin final spec and launch disjoint builder/test territories.
+Evidence: docs/specs/readback-escapes-52/L52-spec-evidence.md, docs/specs/readback-escapes-52/L52-probe-report.md
+Next: mid-tier source builder and independent test author implement the pinned comparison, prove exact-base red and integrated scoped green, then request Opus review.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T01:38:40Z
 Base: bb77a1d97f8dae420917bcaa3e82385451db0662
 Opened: 2026-09-29T01:39:00Z
+Log: 2026-09-29T01:53:51Z owned skills-a accepted scout and scratch-page probe evidence, pinned final-spec and existing normalize interface. The unsupported archive CLI verb was an ordinary diagnostic, resolved using the same exported authenticated request helper for the explicitly authorized archive, without source edits. Mirror sourcePath now names canonical checkout; continuation bind is active using that verified helper, after cached0.20.17 parser lacked Scratch support.
 Log: 2026-09-29T01:40:00Z owned skills-a ACKed skills-fable-lane-52-1 with45min ETA to scoped gate and Opus ASK. Admitted finite scope with readonly scout and authorized scratch-page probe.
 Log: 2026-09-29T01:45:00Z owned skills-a scout confirms two original snapshots differ in cleared-Done timestamp as well as escaping and already-normalized structural blanks. Requested a precise fixture-only metadata alignment ruling in skills-a-lane-52-2; timestamp normalization is excluded.
 
@@ -20,13 +21,13 @@ Measure: rework after acceptance, specifically publish recoveries caused by read
 
 Predicts: a live-probe-pinned escape equivalence fixes literal-character readback without accepting a removed bullet, changed tick, moved line, changed word or wildcard substitution.
 
-Observed: baseline snapshots preserve the reported star difference and a separate Done metadata difference. The escaped set remains unobserved until the scratch-page probe completes. No implementation or efficacy claim yet.
+Observed: one scratch-page roundtrip observed escapes before asterisk, square brackets, backtick, tilde, greater-than, pipe and less-than. Underscore/hash/minus/plus/exclamation were unchanged. Page3eada112-77a1-819a-88ae-c7d77fa1b3d7 was verified and archived with in_trash true, exit0. Snapshot timestamp mismatch is fixture-only per skills-fable-lane-52-2. No implementation or efficacy claim yet.
 
 ## Pinned specification
 
 Change only normalize in skills/decisions/scripts/decisions-render-core.mjs and its tests/fixtures. Preserve the existing exported normalize(text) string-returning interface and all current whitespace normalization. Determine the exact escaped literal-character set from the one authorized scratch-page roundtrip and retain raw request/readback/archive receipts and original incident snapshots with byte hashes. No generalized Markdown unescaping based on an assumed character set.
 
-Keep raw incident snapshots unchanged. Their unequal cleared-Done timestamp remains meaningful; its handling in the regression fixture awaits the peer ruling. Pin all deliberate derived-fixture steps and reject substantive mutants. The independent tests must fail on the base for the actual escape defect and pass after the fix; preserve source hashes and failure assertions, not only pass counts.
+Keep raw incident snapshots unchanged. Their unequal cleared-Done timestamp remains meaningful. Per skills-fable-lane-52-2, the derived regression fixture aligns only that one Done metadata line to the supplied live value, while asserting that the raw originals stay unequal; no production timestamp equivalence is allowed. Pin all deliberate derived-fixture steps and reject substantive mutants. The independent tests must fail on the base for the actual escape defect and pass after the fix; preserve source hashes and failure assertions, not only pass counts.
 
 Territory T1 is normalize and its directly explanatory comment. T2 owns existing render tests plus Lane52 fixtures and local byte-preserving attributes. Root alone owns this record and spec/review briefs. No edits to renderer guards, adopt-live semantics, notion.js, waiting items or skills/notion-writing. docs/census.md may change one line only if an actual marker changes. Lane39 owns its renderer import/call; inspect and incorporate current main before merge without rewriting published ancestry.
 
