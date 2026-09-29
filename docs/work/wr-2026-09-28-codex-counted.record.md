@@ -18,6 +18,7 @@ Log: 2026-09-29T02:42:20Z owned skills-a scout verifies183canonicalJSONL files,4
 Log: 2026-09-29T02:46:52Z owned skills-a Opus spec review is in progress on5d0b5dc via skills-fable-lane-55-2. Baseline, source scout, five-input manifest, dormant executor mandates and bothhost gate setup complete. No implementation or suite launched before the required spec ruling, no peer wait.
 Log: 2026-09-29T02:52:32.496253Z owned skills-a adopts all seven Opus spec findings per skills-fable-lane-55-3. Corrected contracts and comment-only t0 interface precede builder/test dispatch. Prior pending-review dependency resolved.
 Log: 2026-09-29T02:55:11.983842Z owned skills-a dispatched T1 lane55_builder high-tier for native accounting data integrity and independent mid-tier T2 lane55_tests; resumed mid-tier lane55_measure for T3 reread preparation. Root retains record/adjudication. Continuation bind reports EPISODE_INACTIVE and status suspended for current native epoch, so no enforced-binding claim; ordinary authorized work continues.
+Log: 2026-09-29T03:03:20.270226Z owned skills-a T1 beb7f9d delivered, main lane54 consumer merged clean at50a66a5. Root adjudicated equal-usage duplicate attribution: unsupported model/timeline instead of arbitrary ordering, refusal remains usage-only. Independent tests still red and incomplete; candidate rereads dispatched, no acceptance claim.
 
 Measure: feed top-tier tokens per build and the Codex portion of DONE with exact counts. This lane changes the reader, not the measured historical performance.
 
