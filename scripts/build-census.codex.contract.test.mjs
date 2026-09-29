@@ -150,10 +150,9 @@ test('Codex contract: each missing cache breakdown stays unavailable while deriv
     const home = fixtureHome();
     const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows({ missing, output: 5 }));
     const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-    const aggregate = report.combined[MODEL];
-    assert.equal(report.lead.coverageSupported, true, missing.join('+'));
-    assert.equal(aggregate.derived_total_tokens, 15, 'native input plus output remains independently known');
-    assert.equal(aggregate.input_tokens, null, 'inclusive input is not emitted as a Claude-style split');
+    const aggregate = report.lead.observedWindowByModel[MODEL];
+    assert.equal(report.lead.coverageSupported, false, missing.join('+'));
+    assert.equal(aggregate.derived_total_tokens, 15, 'native input plus output remains observed without a false complete aggregate');
     for (const field of missing) {
       assert.equal(aggregate[field.replace('cached_', 'cache_read_').replace('cache_write_', 'cache_creation_')], null);
       assert.ok(aggregate.unavailable.includes(field), `${field} is aggregate-unavailable`);
@@ -170,11 +169,9 @@ test('Codex contract: mixed complete and missing-cache responses derive 30 witho
     meta(ROOT), taskStarted(turn), context(turn), usage('complete', turn), usage('missing-cache-write', turn, { missing: ['cache_write_input_tokens'] }),
   ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-  assert.equal(report.lead.coverageSupported, true);
-  assert.equal(report.combined[MODEL].derived_total_tokens, 30);
-  assert.equal(report.combined[MODEL].input_tokens, null);
-  assert.equal(report.combined[MODEL].cache_creation_input_tokens, null);
-  assert.ok(report.combined[MODEL].unavailable.includes('cache_write_input_tokens'));
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.lead.observedWindowByModel[MODEL].derived_total_tokens, 30);
+  assert.equal(report.lead.codex.fields.cacheWriteTokens.status, 'UNSUPPORTED');
   assert.match(formatJson(report), /cache_write_input_tokens/);
   assert.match(formatText(report), /cache_write_input_tokens/);
 });
@@ -183,7 +180,7 @@ test('Codex contract: missing reasoning and raw total are named unavailable, not
   const home = fixtureHome();
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows({ missing: ['reasoning_output_tokens', 'total_tokens'], output: 5 }));
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.coverageSupported, false, 'raw snapshot has no terminal witness and remains PARTIAL');
   assert.equal(report.combined[MODEL].derived_total_tokens, 15);
   assert.ok(report.combined[MODEL].unavailable.includes('reasoning_output_tokens'));
   assert.ok(report.combined[MODEL].unavailable.includes('total_tokens'));
@@ -255,7 +252,7 @@ test('Codex contract: an exact repeated response is deduplicated once', async ()
   const home = fixtureHome();
   const turn = 'lead-turn';
   const row = usage('identical-repeat', turn, { output: 5, at: '2026-09-27T12:00:05.000Z' });
-  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [meta(ROOT), taskStarted(turn), context(turn), row, row]);
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [meta(ROOT), taskStarted(turn), context(turn), row, row, line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:06.000Z')]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.combined[MODEL].derived_total_tokens, 15);
@@ -267,13 +264,13 @@ test('Codex contract: a lead-only marker includes child responses at and after i
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
     meta(ROOT), taskStarted(turn), context(turn),
     line('event_msg', { type: 'marker', marker: 'start-build' }, '2026-09-27T12:00:10.000Z'),
-    usage('lead-after', turn, { output: 3, at: '2026-09-27T12:00:11.000Z' }),
+    usage('lead-after', turn, { output: 3, at: '2026-09-27T12:00:11.000Z' }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:12.000Z'),
   ]);
   writeRollout(home, DAY, 'rollout-child.jsonl', [
-    meta('marker-child', ROOT, ROOT, 1), context('child-turn'),
+    meta('marker-child', ROOT, ROOT, 1), taskStarted('child-turn'), context('child-turn'),
     usage('child-before', 'child-turn', { output: 4, at: '2026-09-27T12:00:09.000Z' }),
     usage('child-at', 'child-turn', { output: 5, at: '2026-09-27T12:00:10.000Z' }),
-    usage('child-after', 'child-turn', { output: 6, at: '2026-09-27T12:00:11.000Z' }),
+    usage('child-after', 'child-turn', { output: 6, at: '2026-09-27T12:00:11.000Z' }), line('event_msg', { type: 'task_complete', turn_id: 'child-turn' }, '2026-09-27T12:00:12.000Z'),
   ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: 'start-build', from: null, to: null, out: null });
   assert.equal(report.lead.coverageSupported, true);
