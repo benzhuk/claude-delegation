@@ -1,0 +1,63 @@
+Work: wr-2026-09-28-codex-followups
+Scope: specification below, skills-fable-lane-49-1 at base9c816fdd8ef906388c74d69263bb6b9935dc9221
+Owner: skills-a
+Status: owned
+Authority: lane49 dispatch under standing build/merge grant; normal guarded publication at close. No release/install, transport, render, janitor or Claude-side hook edits. Shared-hook changes require a peer territory ruling before implementation. Root alone writes the work record.
+Artifact: 9c816fdd8ef906388c74d69263bb6b9935dc9221
+Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-followups-49
+Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md
+Next: scout existing code and decide shared-timer disposition, create isolated worktree and independent builder/test briefs, red/green tests, Opus review and sealed hosts, census/accept/merge/publish/close.
+Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
+Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
+Spec-from: 2026-09-28T23:59:00Z
+Base: 9c816fdd8ef906388c74d69263bb6b9935dc9221
+Opened: 2026-09-29T00:00:00Z
+Log: 2026-09-29T00:01:00Z owned skills-a ACKed lane49 and requested correction of packet Spec-from, which postdates dispatch.
+
+Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-followups-49
+
+Measure: work lost or stalled, by closing the three known Codex parity review gaps with executable checks or an explicit evidenced design boundary.
+
+Predicts: the final tests reject a5-second hung route and a fake unpaired manifest event; backlog nudge suppression has an explicit tested scope rather than an unexamined cross-host assumption.
+
+Observed: scout confirmed missing elapsed checks and a handwritten parity map. The alleged cross-session backlog timer is absent on this base: backlog-notice.js already keys its sentinel by session_id, and Codex passes that input unchanged. Deterministic two-session evidence is still required. skills-fable-lane-49-2 corrected the packet's erroneous00:03Z Spec-from to2026-09-28T23:59:00Z; Opened retains00:00Z dispatch.
+
+## Pinned specification
+
+Use the current production hook and actual manifests. Restore a loose elapsed bound below2000ms on a never-resolving route, preserving the ready-advisory assertion. Mutate the actual governing deadline to5000ms in a scratch copy and retain native red before restoring green. Determine which existing test covers the400ms child kill versus the450ms outer promise deadline; verify both protections without inventing a test-only implementation or increasing production budgets. Windows assertions must survive ordinary host load while detecting the specified5-second mutant.
+
+Derive the parity inventory from hooks/hooks.json and hooks/codex-hooks.json. Every real script/event pair must resolve to the verified Codex adapter or shared command, or an explicit reason in hooks/codex-unsupported.json. Reverse inventory must reject an unexplained Codex-only event/pair. Do not merely compare event names or maintain a second handwritten list of expected pairs. Reuse existing route/matcher semantics as evidence; if manifests alone cannot encode adapter equivalence, state and resolve that limitation in the spec before implementation. Exercise fake events added separately to each manifest in isolated fixtures and demonstrate they fail the real parity check. Existing supported pairs and explicit unsupported reasons remain valid. No real installed hook manifests change.
+
+Read the shared backlog timer code, its callers, contract and tests. Root must decide defect versus intentional host-wide suppression from evidence. If defect, identify whether the fix requires a forbidden shared Claude hook change and ASK before that change. If design, codex/README.md gets the one-sentence rationale and docs/census.md gets the explicit unsupported per-session guarantee. A deterministic contract check must show the actual scope (two sessions, one shared timer) without relying on a live home or a wall-clock wait. No provider-specific alternative shared architecture, new timer service, state store or bypass.
+
+## Territory map and roles
+
+## Scout rulings and pinned interface
+
+The timer finding was a mistaken premise for distinct native session ids, not a defect requiring shared code or an intentional host-wide cadence. Record the supported per-session scope in codex/README.md. Missing ids use the shared unknown fallback; independent per-pane nudges without a native id are explicitly unsupported, documented in one census line. Same supplied id intentionally shares a cadence regardless of provider. Prove distinct Claude/Codex session ids in the same home/project each receive a nudge and that repeating the first is suppressed. A scratch-only Codex adapter mutant that drops session_id must make this check fail; tracked Claude-side files remain byte-identical. No shared-hook territory request is needed.
+
+Pin a production export NATIVE_ROUTES in hooks/multi-codex-hook.mjs with type Readonly<Record<string, readonly string[]>>: SessionStart maps to scripts/wiring-check.mjs; UserPromptSubmit, PostToolUse and Stop map to hooks/backlog-notice.js. The production nativeRouteForLead must read this export to choose the actual script path, not retain a parallel route list. Preserve existing one-advisory-per-event behavior, payload forwarding, child silence, output format and deadlines. No new controller or scheduling layer. Tests consume the export only as the bridge between generic Codex wrapper commands and concrete Claude scripts; both inventories still derive from their manifest contents.
+
+Parity identity remains (script,event), matching the accepted lane37 contract. Do not expand matcher identity. Derive peer-inbox pairs from the intersection of actual Claude multi-inbox entries and installed Codex wrapper events; shared delete guard pairs derive directly from the manifests. Reject every unexplained reverse Codex event/command. Codex-only Interrupt is the existing cancellation-native exception: keep one explicit reasoned allowance, not a general exemption. A fake event on either manifest must fail, including a fake wrapper event (not just an unknown command). Keep behavioral route checks so a declared mapping without actual forwarding cannot pass. The native-package test is not the parity owner and needs no changes.
+
+For timing, test runRoute on a real long-running child with its default400ms kill and separately test runCodexHook with a never-resolving injected native route under the450ms outer budget. Both must finish under2000ms measured monotonically and preserve existing output assertions. Isolated5-second mutants must prove the relevant elapsed checks fail; all scratch copies/timers/children are cleaned through existing test helpers. No production budget change.
+
+The existing runRoute/runCodexHook exports are unchanged. Every NATIVE_ROUTES array has exactly one script because the current adapter emits one native advisory per event; the contract test rejects a declaration with zero or multiple scripts rather than counting an ignored route as covered. The contract must be committed before builders start; the setup executor adds only this declared constant, leaving consumption to the implementation builder. This is a concrete source interface stub, not an implied API.
+
+The unchanged-goal independent CONTINUE bearings receipt was checked current at pickup (completed22:32Z Sep28 and published on Goals). No claim of a new assessment. Collector status is absent on this host, so this lane's packet supplies scoped admission evidence.
+
+## File ownership
+
+SCOUT reads only base checkout; writes scout-T1.md and scout-T2.md under this scratch root, each <=40lines, using the team-build scout brief.
+
+T1 builder (GPT-5.6-Terra): hooks/multi-codex-hook.mjs only if a production change is required by the evidence, codex/README.md, hooks/codex-unsupported.json reasons only, docs/census.md at most one line per changed marker, and L49-builder-report.md. Claude-side hook files remain byte-identical. The packet's codex/codex-unsupported.json resolves to the existing hooks/codex-unsupported.json; no new duplicate file.
+
+T2 independent contract-test author (GPT-5.6-Terra): hooks/multi-codex-hook.test.mjs, hooks/codex-unsupported.test.mjs (actual parity owner, subject to scout confirmation), scripts/native-package.test.mjs only if this is the actual assertion owner, and L49-test-report.md. Tests use existing production seams and hermetic fixtures. No shared test source or production edits outside ownership.
+
+Root: work record, spec/briefs, disposition of timer evidence, model-tier judgment, review request, final acceptance/merge decision. One Claude Opus reviewer requested through skills-fable after scoped green. This small follow-up uses the explicit contract plus final independent review rather than a separate spec-red-team stage. Existing exports are pinned; no new interface is authorized before scout resolution. Every report starts VERDICT: and bugfix reports include Cause:, Discriminating check:, Fix location:, Simplification:.
+
+## Gate and completion
+
+Use one lane scratch root per host; remote /tmp/01a0df4c-2809-7520-b1d7-876cc51a87ee/49. Windows process-owned Global\\claude-verify with one actual-suite preflight and <=60s lock acquisition. Netcup uses SSH ben@100.69.249.18, login-shell-resolved absolute Node, persistent regular /tmp/claude-verify.lock via flock -w60, short TMPDIR/TMP/TEMP. Do not invoke local WSL for Linux prep. Missing programs are diagnostic environment failures; an actual policy/permission denial stops the denied step without another route. Preserve every failed receipt; no unchanged failed full-suite reruns.
+
+Retain red/green mutation proof, exact-SHA Opus approval and sealed Windows plus second-host receipts. Perform actual native lead/spec census and four-read, preserving unavailable fields and horizon limitations. Code-mediated acceptance with a matching approval; no invented counts. Merge under grant with one plain history bullet inside the merge commit. Gate exact merged tree before main push, normal guarded renderer publish, then code-mediated close and one RESULT. No manual page write or recovery flag. A no-op bookkeeping result is recorded honestly, never converted into an invented commit.
