@@ -470,10 +470,22 @@ export async function runReviewRun(argv, deps = {}) {
       totalCostUsd: result.totalCostUsd ?? null, numTurns: result.numTurns ?? null,
       durationMs: result.durationMs ?? null, permissionDenials: result.permissionDenials ?? 0,
       cleanup: null, replyFallback: false,
+      // lane 53 diagnostics fix (found by probe P3's Call #5): a spawn failure or an
+      // early, no-stdout child exit both used to collapse into EXIT.BAD_REPORT with nothing
+      // to tell them apart from "the reviewer ran fine and just didn't write a report". These
+      // three fields, plus runDir/stderr.txt, are what a human reads instead of a 9th `claude -p`
+      // call.
+      childExitCode: result.childExitCode ?? null, childSignal: result.childSignal ?? null,
+      stderrCaptured: Boolean(result.stderrTail && result.stderrTail.length > 0),
     };
 
     if (result.timedOut) {
       exitCode = EXIT.TIMEOUT;
+    } else if (result.spawnError) {
+      exitCode = EXIT.HOST;
+      process.stderr.write(
+        `review-run: failed to start ${claudeBinResolved}: ${result.spawnErrorMessage ?? 'unknown spawn error'}\n`,
+      );
     } else if (!fsImpl.existsSync(options.report)) {
       exitCode = EXIT.BAD_REPORT;
       if (result.finalResultText) {
@@ -565,7 +577,18 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
         } catch { /* not every stdout line is JSON we care about */ }
       }
     });
-    child.stderr?.on('data', () => {});
+    // lane 53 diagnostics fix: a swallowed stderr made every early child failure (bad flag,
+    // ENOENT on claudeBin, a host rejecting a flag) indistinguishable from "the reviewer just
+    // didn't write a report" — both surfaced as EXIT.BAD_REPORT with zero information (found via
+    // probe P3's own Call #5: exit 2, an empty stream.jsonl, ~0.3s). Kept to a tail so a runaway
+    // child can't grow this unbounded; written to runDir/stderr.txt for a human to read, never to
+    // this script's own stdout/stderr (that would be printing the child's output, which the
+    // no-transcript-content rule this script itself exists under also binds its own diagnostics to).
+    let stderrBuf = '';
+    child.stderr?.on('data', (chunk) => {
+      stderrBuf += chunk;
+      if (stderrBuf.length > 8000) stderrBuf = stderrBuf.slice(-8000);
+    });
 
     try { fsImpl.mkdirSync(runDir, { recursive: true }); } catch { /* already exists */ }
     child.stdin?.write(prompt, () => { try { child.stdin.end(); } catch { /* already closed */ } });
@@ -601,24 +624,27 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
       signal?.removeEventListener?.('abort', onAbort);
     }
 
-    child.once('error', () => {
+    child.once('error', (err) => {
       if (settled) return;
       settled = true;
       cleanupListeners();
       try { fsImpl.writeFileSync(path.join(runDir, 'stream.jsonl'), stdoutBuf); } catch { /* best effort */ }
+      try { fsImpl.writeFileSync(path.join(runDir, 'stderr.txt'), stderrBuf); } catch { /* best effort */ }
       resolve({
         timedOut: false, usage, modelUsage, totalCostUsd, numTurns, durationMs, permissionDenials,
-        finalResultText, claudeVersion, spawnError: true,
+        finalResultText, claudeVersion, spawnError: true, spawnErrorMessage: err?.message ?? String(err),
+        stderrTail: stderrBuf,
       });
     });
-    child.once('close', () => {
+    child.once('close', (code, signal) => {
       if (settled) return;
       settled = true;
       cleanupListeners();
       try { fsImpl.writeFileSync(path.join(runDir, 'stream.jsonl'), stdoutBuf); } catch { /* best effort */ }
+      try { fsImpl.writeFileSync(path.join(runDir, 'stderr.txt'), stderrBuf); } catch { /* best effort */ }
       resolve({
         timedOut, usage, modelUsage, totalCostUsd, numTurns, durationMs, permissionDenials,
-        finalResultText, claudeVersion,
+        finalResultText, claudeVersion, childExitCode: code, childSignal: signal, stderrTail: stderrBuf,
       });
     });
   });

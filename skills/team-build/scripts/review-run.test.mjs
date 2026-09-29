@@ -110,11 +110,11 @@ function writeFakeClaude(dir) {
  * never a git identity of any kind. Returns {exitCode, output, runDirGuess}. */
 async function run({
   mode = 'approve', sha = FULLSHA, extraEnv = {}, reportExists = false, timeoutMin = 5,
-  pluginRoot: givenPluginRoot, home, spawnSpy, sessionId,
+  pluginRoot: givenPluginRoot, home, spawnSpy, sessionId, claudeBin: givenClaudeBin,
 } = {}) {
   const scratch = scratchDir('review-run-scratch-');
   const outDir = scratchDir('review-run-out-');
-  const claudeBin = writeFakeClaude(scratchDir('review-run-claude-'));
+  const claudeBin = givenClaudeBin ?? writeFakeClaude(scratchDir('review-run-claude-'));
   const pluginRoot = givenPluginRoot ?? makePluginRoot();
   const briefPath = path.join(scratchDir('review-run-brief-'), 'brief.md');
   fs.writeFileSync(briefPath, 'Review the fixture diff for one obvious defect.\n');
@@ -141,6 +141,21 @@ async function run({
 test('a malformed first line exits 2', async () => {
   const { exitCode } = await run({ mode: 'malformed' });
   assert.equal(exitCode, EXIT.BAD_REPORT);
+});
+
+test('lane 53 diagnostics fix (found by probe P3): a child that fails to spawn exits 4 (HOST), not 2 (BAD_REPORT), and its stderr is captured to runDir/stderr.txt', async () => {
+  // A file that exists (passes the earlier --claude-bin existsSync check) but has no execute
+  // permission: spawn() itself then fails at the exec syscall (EACCES), which is exactly the
+  // 'error' event path this test covers — indistinguishable, before this fix, from a reviewer
+  // that ran fine and simply wrote nothing.
+  const dir = scratchDir('review-run-badclaude-');
+  const badClaudeBin = path.join(dir, 'not-executable.mjs');
+  fs.writeFileSync(badClaudeBin, '#!/usr/bin/env node\nprocess.exit(0);\n', { mode: 0o644 });
+  const { exitCode, scratch } = await run({ claudeBin: badClaudeBin });
+  assert.equal(exitCode, EXIT.HOST, 'a spawn failure must be reported as EXIT.HOST, not EXIT.BAD_REPORT');
+  const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
+  assert.equal(runDirs.length, 1);
+  assert.ok(fs.existsSync(path.join(scratch, runDirs[0], 'stderr.txt')), 'stderr.txt must exist even on a spawn failure');
 });
 
 test('a missing report exits 2, and (m8) the inline reply is saved to reply.txt, never to --report', async () => {
