@@ -3,7 +3,7 @@ Scope: the spec section of this record (lane 57), from packet docs/notes/skills-
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: the same reviewer delta-verifies 486dbcb against lead-ruling-r4, and the Windows suite reruns
+Next: the builder applies review-r5 F1 to F3 patches verbatim, then a fresh Opus confirms the file equals the reviewer patched copy
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -30,6 +30,7 @@ Log: 2026-09-29T19:46:08.000Z rejected skills-n fresh Opus reviewer a8b20b656347
 Log: 2026-09-29T19:56:14.000Z delivered skills-n Sonnet builder a5d58c760806b036f fix round 3 DONE ae7dfce (N1 to N5 per lead-ruling-r3, each fixture red at 9e36a08 and green after; exemptions 15 sites in 10 files, zero offenders; three files 95 pass, full suite 3043 tests 3038 pass 0 fail); report docs/specs/test-ipc-57/build-r3.md
 Log: 2026-09-29T20:08:31.000Z rejected skills-n Opus reviewer a0f9c69898dd85c75 NEEDS_FIXES (8) ae7dfce (R4-1 a regex after => desyncs the scanner and passes an env-less node spawn silently, R4-2 an env key anywhere in the call seals it, R4-3 inheritance through a variable, R4-4 env undefined in an options variable, R4-5 and R4-6 design limits, R4-7 and R4-8 low); Windows suite at ae7dfce PASS 3043 tests 3010 pass 0 fail; the stop rule fires, ruling r4 ships with the limit documented, docs/specs/test-ipc-57/lead-ruling-r4.md
 Log: 2026-09-29T20:16:08.000Z delivered skills-n Sonnet builder af88a3280d2f0ec98 fix round 4 DONE 486dbcb (R4-1, R4-2, R4-4, R4-7 patches verbatim, Known limits paragraph, R4-3 left as a limit; the new test is red at ae7dfce and green after; real tree 15 sites in 10 files; three files 96 pass, full suite 3044 tests 3039 pass 0 fail); report docs/specs/test-ipc-57/build-r4.md
+Log: 2026-09-29T20:23:43.000Z rejected skills-n Opus reviewer a0f9c69898dd85c75 NEEDS_FIXES (3) 486dbcb, all LOW with exact patches measured together (F1 the regex and desync fixes lack a test that fails when either is reverted alone, F2 env (null) and void(0) pass, F3 the Known limits paragraph overstates wrapper coverage); the remaining silent passes all fall inside the documented limits; 115712 fuzzed desync programs gave 0 silent passes; Windows suite at 486dbcb PASS 3044 tests 3011 pass 0 fail
 
 ## Spec (lead, from the packet)
 
