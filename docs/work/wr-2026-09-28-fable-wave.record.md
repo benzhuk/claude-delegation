@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-fable-wave
 Scope: the spec section of this record (lane 51), from packet docs/notes/skills-fable-lane-51-1.md read at a6efbbe
 Owner: skills-n
-Status: reviewed
+Status: accepted
 Authority: build, review, integrate, push build/fable-wave-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; read transcripts and flush.log on ben-desktop read-only over ssh; live proof sends two FYI notes to skills-fable under a scratch notes home only; no write to any live wave.json or notes home, no release, no install
 Next: accept pinned at e7f5f25, merge, publish, close, RESULT (NO-BUILD)
 Artifact: e7f5f25c3e6f7b7351476358b311cbfb2d7d5d5b
@@ -21,6 +21,54 @@ Log: 2026-09-29T01:45:09.000Z delivered skills-n Sonnet fix round 1 builder DONE
 Log: 2026-09-29T01:54:52.000Z rejected skills-n Opus delta review by a6c493494c6afdf0f NEEDS_FIXES 6b95a2d (MAJOR: a straddling RESULT run coalesces into its own wave, so the re-read coalescable 1 is likely an artifact; 4 MINOR: pre-window chaining, post --to lines, ceiling guard can only lower a bound, unpinned mutants); ceiling a true bound and unaffected; same builder resumed for fix round 2
 Log: 2026-09-29T01:57:59.000Z delivered skills-n Sonnet fix round 2 builder DONE e7f5f25 (census 125 pass, full suite 2915 pass 0 fail); Sonnet runner a949108d8af9945c4 gap read at 6b95a2d: 8 RESULT rows sum to the ceiling 11172487 exactly, saved under the pre-registered 10 min rule 0 turns, 0.0 percent, NO-BUILD for step 2 (30 min hold would save 11.2 percent, context only, it sits at the GOALS 30 min unread limit); lead re-read at e7f5f25 on ben-desktop: coalescable 0, ceiling unchanged 8 turns 11172487; Opus delta review r3 resumed, Windows suite started
 Log: 2026-09-29T02:01:25.000Z reviewed skills-n Opus reviewer a6c493494c6afdf0f delta r3 VERDICT: APPROVE e7f5f25 (all r2 findings fixed as specified, 9 of 9 mutants killed, 0 findings); Windows suite at e7f5f25 2905 pass, the 1 fail a missing origin/main in the lead clone, 89 of 89 after the fetch
+Census: - leadTurns: 12
+Census: - wallClockHours: 1.06
+Census: - wakes: 1 (1 note-flush, 0 Done-tick)
+Census: - wakeSplit: wake 1, stopBlock 0, other 11 (coalescable 0 at hold 10m — see "Wake-opened turns" below)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-5-5=20501950, claude-sonnet-5=22239559
+Census: - by-role: unassigned=31676161
+Census: - subagentFiles: 221
+Census: - Total assistant turns, deduped (whole file): **1361**
+Census: - Window assistant turns, deduped: **67**
+Census: - leadTurns (conversational runs — see docs/census.md): **12**
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **1** (1 note-flush, 0 Done-tick)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0**
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-29T00:58:07.016Z .. 2026-09-29T02:01:27.009Z
+Census: - Turns/hour in window: **63.47**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 2720 | 4279334 | 226716699 | 898128 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 134 | 177385 | 10837276 | 50553 |
+Census: - wakeTurns: 1, stopBlockTurns: 0, otherTurns: 11
+Census: - cache_creation per turn (M6) — wake: claude-opus-5-5=13612.0; other: claude-opus-5-5=14888.5
+Census: - coalescable (W1b, hold 10m, RESULT wakes only, Done-tick excluded): turns 0, upper (none), lower (none); ceiling (every RESULT wake turn) turns 0, (none)
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 228 | 403514 | 8867046 | 165814 |
+Census: | claude-sonnet-5 | 390 | 544190 | 21508242 | 186737 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 618 | 947704 | 30375288 | 352551 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 216367 | 20285583 |
+Census: | claude-sonnet-5 | 186737 | 22052822 |
+Four numbers: Top-tier tokens per build: 20501950 tokens: build 20501950 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 1.1h; largest gap 17.8min at 2026-09-29T01:08:49.724Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to skills-n: skills-fable-lane-51-1; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
+Log: 2026-09-29T02:01:32.000Z accepted skills-n artifact e7f5f25c3e6f7b7351476358b311cbfb2d7d5d5b
 
 Observed: build-census now splits a Claude lead window into wake-opened, Stop-block and other turns, and prints a RESULT ceiling beside the W1b coalescable count. On the Fable lead 9c61c35a, 2026-09-28T19:00:00Z to 2026-09-29T01:26:54Z, read on ben-desktop at e7f5f25: wake-opened 22 turns carry 39.3 percent of claude-fable-5-1 (19196120 of 48886987), coalescable 0 at a 10 minute hold, and the RESULT ceiling is 8 turns, 11172487, 22.9 percent. The ceiling is over the 10 percent gate, so the pre-registered gap rule decided: 0 of 8 RESULT turns saved, 0.0 percent, NO-BUILD for step 2. A 30 minute hold would save 4 turns, 11.2 percent, but that sits at the GOALS 30 minute unread limit. The wakes are mostly ASKs (11 of 21, 10 from skills-a), so holding RESULTs is not the lever.
 
