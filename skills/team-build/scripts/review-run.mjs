@@ -108,7 +108,10 @@ export function parseArgs(argv) {
       case '--repo': out.repo = value; break;
       case '--model': out.model = value; break;
       case '--timeout-min': out.timeoutMin = Number(value); break;
-      case '--scratch': out.scratch = value; break;
+      // finding 4: a relative --scratch resolved twice against different cwds (repoTop for
+      // `git clone`, wtDir for `git -C wtDir`), so it leaked a clone into the reviewed repo and
+      // still exited 7 (measured). Resolve once, here, against the CLI process's own cwd.
+      case '--scratch': out.scratch = path.resolve(value); break;
       case '--claude-bin': out.claudeBin = value; break;
       case '--plugin-root': out.pluginRoot = value; break;
       default: break;

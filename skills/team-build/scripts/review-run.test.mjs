@@ -311,6 +311,56 @@ test('M4: --report inside --scratch is refused', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Finding 4: a relative --scratch must never leak a clone into the caller's cwd
+// (measured: it resolved against repoTop once and the run's own cwd a second time).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('finding 4: a relative --scratch is resolved against the CLI process cwd, not left relative (so repoTop/wtDir never re-resolve it twice)', () => {
+  const scratchParent = scratchDir('review-run-relscratch-parent-');
+  const savedCwd = process.cwd();
+  process.chdir(scratchParent);
+  try {
+    const parsed = parseArgs([
+      '--sha', FULLSHA, '--brief', 'b.md', '--report', '/abs/report.md', '--scratch', 'relscratch',
+    ]);
+    assert.equal(parsed.scratch, path.join(scratchParent, 'relscratch'), '--scratch must be resolved to an absolute path at parse time');
+  } finally {
+    process.chdir(savedCwd);
+  }
+});
+
+test('finding 4: a run given a relative --scratch never writes anything into the reviewed repo (git status stays clean), and still succeeds', async () => {
+  const scratchParent = scratchDir('review-run-relscratch-run-');
+  const workDir = path.join(scratchParent, 'work');
+  fs.mkdirSync(workDir, { recursive: true });
+  const outDir = scratchDir('review-run-relscratch-out-');
+  const claudeBin = writeFakeClaude(scratchDir('review-run-relscratch-claude-'));
+  const pluginRoot = makePluginRoot();
+  const briefPath = path.join(scratchDir('review-run-relscratch-brief-'), 'brief.md');
+  fs.writeFileSync(briefPath, 'Review the fixture diff.\n');
+  const reportPath = path.join(outDir, 'report.md');
+  const home = scratchDir('review-run-relscratch-home-');
+
+  const before = execFileSync('git', ['status', '--porcelain'], { cwd: REPO_TOP, encoding: 'utf8' });
+  const savedCwd = process.cwd();
+  process.chdir(workDir);
+  let exitCode;
+  try {
+    ({ exitCode } = await runReviewRun([
+      '--sha', FULLSHA, '--brief', briefPath, '--report', reportPath, '--repo', REPO_TOP,
+      '--scratch', 'relscratch', '--claude-bin', claudeBin, '--plugin-root', pluginRoot,
+      '--timeout-min', '5',
+    ], { env: { HOME: home, PATH: process.env.PATH, FAKE_MODE: 'approve' }, home }));
+  } finally {
+    process.chdir(savedCwd);
+  }
+  assert.equal(exitCode, EXIT.OK, 'a relative --scratch must not break the run');
+  assert.ok(fs.existsSync(path.join(workDir, 'relscratch')), 'the clone must land under the CLI process cwd, once resolved');
+  const after = execFileSync('git', ['status', '--porcelain'], { cwd: REPO_TOP, encoding: 'utf8' });
+  assert.equal(after, before, 'the reviewed repo must never gain an untracked clone from a relative --scratch');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pure unit coverage: argv, env, verdict regex, role parsing, plugin root
 // ─────────────────────────────────────────────────────────────────────────────
 
