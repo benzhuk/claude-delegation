@@ -225,6 +225,7 @@ test('Codex contract: equal-usage duplicate with conflicting model preserves usa
   assert.equal(report.lead.observedLeadTokens, 15);
   assert.equal(report.lead.codex.fields.model.status, 'UNSUPPORTED');
   assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.lead.codex.discovery.scope.complete, true, 'unknown model is field support, not temporal incompleteness');
 });
 
 test('Codex contract: equal-usage duplicate with conflicting timestamp preserves usage but makes time incomplete', async () => {
@@ -555,4 +556,67 @@ test('Lane55 temporal completeness includes open children and requires no in-win
   ]);
   const bounded = await runCensus({ lead: futureLead, leadSession: ROOT, codexHome: futureHome, tasksDirs: [], marker: null, from: '2026-09-27T12:00:00.000Z', to: '2026-09-27T12:00:10.000Z', out: null });
   assert.equal(bounded.lead.codex.discovery.scope.complete, false, 'future-file exception is invalid when the file contributes an in-window row');
+});
+
+test('Lane55 R1 corrupt verified children make descendant coverage PARTIAL with no complete aggregate', async () => {
+  for (const [label, mutate] of [
+    ['negative output', (row) => { row.payload.usage.output_tokens = -1; }],
+    ['string input', (row) => { row.payload.usage.input_tokens = '10'; }],
+    ['wrong usage session', (row) => { row.payload.session_id = 'foreign-root'; }],
+  ]) {
+    const home = fixtureHome();
+    const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+    const rows = childRows('bad-' + label, ROOT, 1, 'bad-response-' + label, 5);
+    mutate(rows.find((row) => row.type === 'token_usage_record'));
+    writeRollout(home, DAY, 'bad-' + label + '.jsonl', rows);
+    const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+    assert.equal(report.lead.codex.discovery.scope.complete, false, label);
+    assert.match(report.lead.codex.discovery.scope.reason, /child|candidate|usage|unreadable|incomplete/i, label);
+    assert.equal(report.lead.coverageSupported, false, label);
+    assert.equal(report.combined, null, label);
+    assert.match(formatText(report).split('\n')[0], /^VERDICT: PARTIAL/, label);
+  }
+});
+
+test('Lane55 R1 relevant zero-usage logical child is unavailable without breaking valid empty-window rules', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'zero-usage-child.jsonl', [
+    meta('zero-usage-child', ROOT, ROOT, 1), taskStarted('zero-turn'), context('zero-turn'),
+    line('event_msg', { type: 'task_complete', turn_id: 'zero-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child|usage|response/i);
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.combined, null);
+});
+
+test('Lane55 R1 lead segment terminal witness follows chronology when explicit --lead is the later segment', async () => {
+  const home = fixtureHome();
+  writeRollout(home, DAY, 'early-segment.jsonl', [
+    meta(ROOT), taskStarted('early-turn', '2026-09-27T11:00:00.500Z'), context('early-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('early-response', 'early-turn', { at: '2026-09-27T11:00:02.000Z' }),
+  ]);
+  const later = writeRollout(home, NEXT_DAY, 'explicit-later-segment.jsonl', [
+    meta(ROOT), taskStarted('later-turn', '2026-09-27T13:00:00.500Z'), context('later-turn', MODEL, '2026-09-27T13:00:01.000Z'),
+    usage('later-response', 'later-turn', { at: '2026-09-27T13:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'later-turn' }, '2026-09-27T13:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead: later, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.codex.discovery.scope.complete, true);
+  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.observedLeadRequests, 2);
+});
+
+test('Lane55 R1 explicit lead identity refusal names expected and found ids', async () => {
+  const home = fixtureHome();
+  const spoof = writeRollout(home, DAY, 'wrong-id.jsonl', [
+    meta('found-session', 'found-session'), taskStarted('t'), context('t'),
+    usage('r', 't', { sessionId: 'found-session' }), line('event_msg', { type: 'task_complete', turn_id: 't' }),
+  ]);
+  await assert.rejects(
+    () => runCensus({ lead: spoof, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
+    /expected root-session.*found found-session/i,
+  );
 });
