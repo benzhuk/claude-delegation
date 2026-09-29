@@ -391,6 +391,10 @@ export function sweepStaleRuns(scratchDir, timeoutMin, fsImpl = fs, isAliveFn = 
     const cutoffMs = (typeof owner.timeoutMin === 'number' ? owner.timeoutMin : timeoutMin) * 60 * 1000;
     const age = Date.now() - Date.parse(owner.startedAt);
     if (!(age > cutoffMs)) continue; // young: never touched, live orphan or not
+    const wtPath = path.join(runDir, 'wt');
+    // A completed run already removed its own wt/: nothing to reclaim, so nothing to report — its
+    // stale childPid (reused or not) is never even probed.
+    try { fsImpl.lstatSync(wtPath); } catch { continue; }
     if (typeof owner.childPid === 'number' && isAliveFn(owner.childPid)) {
       process.stderr.write(
         `review-run: leaving stale run ${runDir} in place — its recorded childPid ${owner.childPid} `

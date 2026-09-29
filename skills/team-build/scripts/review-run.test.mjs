@@ -537,6 +537,22 @@ test('N1 (ruling r3): an unrelated live process recorded as childPid survives th
   }
 });
 
+test('N1: a completed run whose wt/ is already gone is skipped silently, even when its old childPid now names a live process', () => {
+  const scratch = scratchDir('review-run-orphan-done-');
+  const victim = spawn('sleep', ['30'], { stdio: 'ignore' });
+  const runDir = path.join(scratch, 'review-run-abc1234-done0001');
+  fs.mkdirSync(runDir);
+  fs.writeFileSync(path.join(runDir, 'owner.json'), JSON.stringify({
+    pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: victim.pid, timeoutMin: 1,
+  }));
+  const origWrite = process.stderr.write;
+  let captured = '';
+  process.stderr.write = (chunk) => { captured += chunk; return true; };
+  try { sweepStaleRuns(scratch, 45); } finally { process.stderr.write = origWrite; victim.kill('SIGTERM'); }
+  assert.equal(captured, '', 'a run with nothing left to reclaim must not print a leave-in-place line');
+  assert.ok(fs.existsSync(path.join(runDir, 'owner.json')));
+});
+
 test('N1 (ruling r3): a dead childPid still gets the existing cleanup', () => {
   const scratch = scratchDir('review-run-orphan-dead-');
   const deadPid = spawnSync('true', [], {}).pid; // already exited: kill(pid,0) now throws ESRCH
