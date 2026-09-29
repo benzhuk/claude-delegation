@@ -451,7 +451,8 @@ test('S1: no hook child can register anything the fixture did not give it', () =
 function regexEnd(s, i) {
   let j = i - 1;
   while (j >= 0 && (s[j] === ' ' || s[j] === '\t')) j--;
-  if (j >= 0 && !'(,=:[!&|?{};\n'.includes(s[j])) return -1;
+  if (j >= 0 && !'(,=:[!&|?{};\n<>+-*%~^'.includes(s[j])
+    && !/(?:^|[^\w$.])(?:return|typeof|case|in|of|void|delete|throw|new|yield|await|else|do)$/.test(s.slice(Math.max(0, j - 9), j + 1))) return -1;
   let inClass = false;
   for (let k = i + 1; k < s.length; k++) {
     const c = s[k];
@@ -526,36 +527,68 @@ function resolveIdentHasEnvKey(fileText, ident) {
   if (decls.length !== 1) return null;
   const braceIdx = fileText.indexOf('{', decls[0].index);
   const obj = extractBalanced(fileText, braceIdx, '{', '}');
-  return /[{,]\s*env\s*[:,}]/.test(codeOnly(obj));
+  const c = codeOnly(obj);
+  return /[{,]\s*env\s*[:,}]/.test(c) && !/[{,]\s*env\s*:\s*(?:undefined|null|void\s+0)\s*[,}]/.test(c);
+}
+
+/** Structural check over a call's code (comments, strings and regexes blanked by `codeOnly`): `broken`
+ * when a `;` sits at the call's own top level or any depth goes negative - impossible in a correctly
+ * parsed call, so the extent swallowed later statements; `topEnvKey` when an `env` key sits at the
+ * top level of an argument object (paren 1, brace 1, bracket 0) - not inside an argv value, a payload,
+ * a nested object or a callback body. */
+function callShape(code) {
+  let p = 0; let b = 0; let k = 0; let broken = false; let topEnvKey = false;
+  const at = [];
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (c === '(') p++; else if (c === ')') p--;
+    else if (c === '{') b++; else if (c === '}') b--;
+    else if (c === '[') k++; else if (c === ']') k--;
+    else if (c === ';' && p === 1 && b === 0 && k === 0) broken = true;
+    if (p < 0 || b < 0 || k < 0) broken = true;
+    at.push(p === 1 && b === 1 && k === 0);
+  }
+  for (const m of code.matchAll(/[{,]\s*(env)\s*[:,}]/g)) if (at[m.index + m[0].indexOf('env')]) topEnvKey = true;
+  return { broken, topEnvKey };
 }
 
 /**
  * Finds every way a test file's spawn can inherit the runner's real environment:
  *  (a) a spawn/spawnSync/execFile/execFileSync/fork call, narrowed to one that can actually reach the
  *      runner's session - `process.execPath`, a local const bound to it, or the string `'node'`/
- *      `"node"` appears ANYWHERE in the call's own text, including behind a `sh -c` script (F3), or
- *      the call is fork itself, always node (F6) - that passes no `env` key at
- *      all - checked key-only, comment/string-safe (F1, F7), on comments stripped from the RAW call
- *      before the node-reachability scan (R3, fix round 2, so a comment mentioning "node" can't pull an
- *      unrelated call into scope). `undefined`/`null`/`process.env`(by name)/a bare `...process.env`
- *      spread on THIS call ALL count as no override (R1, fix round 2: (a) now owns every inheriting
- *      value for a call it judges whole, not just `undefined`/`null` - see the ownedSpans note below).
- *      A spawn of a fixed external binary with no node anywhere in its argv (`git`, `mkfifo`,
- *      `taskkill.exe`, a `sh -c` script that never runs node) has no code path that parses or forwards
- *      `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN`, so it cannot reach the session through inheritance alone
- *      and is out of scope, not "exempt". (Lane 57 fix round 1 dropped the earlier "inline `-e` literal
- *      that doesn't mention `process.env`" escape hatch (F5): it proved only one spelling among many
- *      ways a literal can still reach a module, a grandchild, or its own environment, for very little
- *      in return.) A call whose own extent never closes with `)`, or runs past 40 lines, is never
- *      judged at all - it fails loud instead, naming the site (R2, fix round 2).
+ *      `"node"` appears ANYWHERE in the call's own text, including behind a `sh -c` script, or the call
+ *      is fork itself, always node - that passes no top-level `env` key at all, or a top-level `env`
+ *      key whose value is an unconditional non-override (`undefined`, `null`, `void 0`, `process.env`
+ *      by name, or a bare `...process.env` spread) - checked key-only, comment/string-safe, on comments
+ *      stripped from the RAW call before the node-reachability scan, so a comment mentioning "node"
+ *      can't pull an unrelated call into scope. A spawn of a fixed external binary with no node
+ *      anywhere in its argv (`git`, `mkfifo`, `taskkill.exe`, a `sh -c` script that never runs node)
+ *      has no code path that parses or forwards the parent process's messaging socket or token, so it
+ *      cannot reach the session through inheritance alone and is out of scope, not "exempt". A call
+ *      whose own extent never closes with `)`, runs past 40 lines, or whose structural walk
+ *      (`callShape`) finds a top-level `;` or a negative depth, is never judged at all - it fails loud
+ *      instead, naming the site.
  *  (b) ANY line OUTSIDE a span (a) already judged, under any function name, that hands a child an
  *      explicitly inheriting `env` value - `undefined`, `null`, `process.env`, or a bare
- *      `...process.env` spread (F4). This half is NOT limited to the function names in (a): a wrapper
- *      like `runChild(...)` inherits the same way, and this is how it's still caught. Skipping (a)'s
- *      owned spans (R1, fix round 2) stops a line that BEGINS inside a multi-line template - closed on
- *      the SAME line as `env: process.env` - from inverting this half's fresh-per-line string state and
- *      blanking the inheriting value out from under it, which used to leave the call judged by neither
- *      half.
+ *      `...process.env` spread. This half is NOT limited to the function names in (a): a wrapper like
+ *      `runChild(...)` inherits the same way, and this is how it's still caught. Skipping (a)'s owned
+ *      spans stops a line that BEGINS inside a multi-line template - closed on the SAME line as
+ *      `env: process.env` - from inverting this half's fresh-per-line string state and blanking the
+ *      inheriting value out from under it, which used to leave the call judged by neither half.
+ *
+ * Known limits (text scanner; follow-up: simpler design):
+ *  - whole-environment inheritance through a variable, an alias, or a helper, carried into a later
+ *    call's options argument - an options object built with `Object.assign({}, process.env)`, a local
+ *    alias such as `const env = process.env` then `{ env }`, `process['env']`, an assignment to an
+ *    existing options object's `env` property, or a helper function that returns `process.env` - is
+ *    silent; only a call's own text and a wrapper's own env value are judged.
+ *  - node reached through `exec`/`execSync`, a renamed spawn import or destructure, `spawn.call(...)`,
+ *    `process.argv0`/`process.argv[0]`, a destructured `execPath`, or `node` held in a variable other
+ *    than the tracked ones is silent; reachability is allow-by-default on a fixed name and token set.
+ *  - `delete opts.env`, a later spread that may override an earlier `env` key, a function parameter
+ *    shadowing a sealed top-level `const` of the same name, `env: o.env ?? undefined`, and a wrapper's
+ *    `env: process.env` on a line that begins inside a multi-line template are silent; each needs a
+ *    mechanism this text scanner does not have.
  */
 function findEnvLessSpawns(text) {
   const found = [];
@@ -626,8 +659,10 @@ function findEnvLessSpawns(text) {
     // or `?.` means the WHOLE object is in play; `process.env.PATH` (a narrowed, named field) is not.
     ownedSpans.push([m.index, openParenIdx + call.length]); // N4: character range, not lines
     const code = codeOnly(call);
-    const hasEnvKey = /[{,]\s*env\s*[:,}]/.test(code);
-    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null)\s*[,}]/.test(code)
+    const shape = callShape(code);
+    if (shape.broken) { found.push({ line, fn: m[1], target: 'call extent not parsed - rewrite or split this call' }); continue; }
+    const hasEnvKey = shape.topEnvKey;
+    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null|void\s+0)\s*[,}]/.test(code)
       || /\bprocess\s*\.\s*env\b(?!\s*(?:\.|\[|\?\.))/.test(code);
     let hasEnv = hasEnvKey && !inheritsBare;
     if (!hasEnv && !inheritsBare) {
@@ -972,6 +1007,38 @@ test('N2 scanner: the offender message names each hit\'s own reason, not a blank
   assert.ok(exemptionOffenders('f.test.mjs', parseFail, exemptions, new Set())[0].includes('call extent not parsed'), 'a tripwire hit must name the parse failure');
   assert.ok(exemptionOffenders('f.test.mjs', inherits, exemptions, new Set())[0].includes('hands the child the runner environment'), 'an inheriting hit must say so, not "no env key"');
   assert.ok(exemptionOffenders('f.test.mjs', noKey, exemptions, new Set())[0].includes('passes no env key at all'), 'a genuine no-key hit keeps its message');
+});
+
+test('N2 scanner: r4 - a regex after => or an operator, a nested template, or an env key below the options top level never passes silently', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const EXEC_FILE = ['exec', 'File'].join('');
+  const PARENT = ['process', 'env'].join('.');
+  const N = 'const NODE = process.execPath;';
+  const SEAL = '  ' + SPAWN + "Sync(NODE, ['y'], { env: childEnv(h) });";
+  const arrowRegex = [N,
+    "test('t', (t, done) => {",
+    '  ' + EXEC_FILE + "(NODE, ['x'], (err, out) => {",
+    "    pick((l) => /won't/); // it's fine",
+    '    done();',
+    '  });',
+    SEAL,
+    '});'].join('\n');
+  const nestedTemplate = [N,
+    "test('t', () => {",
+    '  ' + SPAWN + "(NODE, ['-e', `${`'`}`], { stdio: 'ignore' });",
+    "  x(); // it's fine",
+    SEAL,
+    '});'].join('\n');
+  const flagged = (src) => findEnvLessSpawns(src).map((h) => h.line);
+  assert.deepEqual(flagged(arrowRegex), [3], 'a regex after => holding a quote must not stretch the call over a later env key');
+  assert.deepEqual(flagged(nestedTemplate), [3], 'a nested template holding a quote must not stretch the call over a later env key');
+  assert.deepEqual(flagged([N, SPAWN + "(NODE, [JSON.stringify({ env: 1 })]);"].join('\n')), [2], 'an env key inside an argv value is not the options env key');
+  assert.deepEqual(flagged([N, SPAWN + "Sync(NODE, ['x'], { input: JSON.stringify({ env: {} }) });"].join('\n')), [2], 'an env key inside an input payload is not the options env key');
+  assert.deepEqual(flagged([N, EXEC_FILE + "(NODE, ['x'], () => { " + SPAWN + "Sync(NODE, ['y'], { env: childEnv(h) }); });"].join('\n')), [2], 'a sealed spawn inside the callback does not seal the outer call');
+  assert.deepEqual(flagged([N, 'const opts = { env: undefined };', SPAWN + "(NODE, ['x'], opts);"].join('\n')), [3], 'an options variable with env: undefined inherits');
+  assert.deepEqual(flagged([N, SPAWN + "(NODE, ['x'], { env: void 0 });"].join('\n')), [2], 'env: void 0 inherits');
+  assert.deepEqual(flagged("runChild(NODE, [/'/.source], { env: " + PARENT + ' });'), [1], 'a regex holding a quote must not blank a later inheriting value on the same line (codeOnly half of N2)');
+  assert.deepEqual(flagged([N, SPAWN + "(NODE, ['x'], { env: childEnv(h) });"].join('\n')), [], 'control: a top-level env key still seals the call');
 });
 
 test('N2 scanner: exemption keys normalize backslash paths, and stay keyed by file (W1, F2)', () => {
