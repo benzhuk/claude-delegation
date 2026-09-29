@@ -41,11 +41,12 @@ Log: 2026-09-29T23:08:08.2185050Z owned skills-a assigned source Sonnet and inde
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
-Observed: exact candidate skill passed R4 plain-file probe. Source and independent tests integrated42e356b now pass sealed focused gate104 tests,101 pass,0 fail,3 skips,leak check0. First failed gate retained. Independent implementation review running. No live publication proof, install or acceptance yet.
+Observed: sealed focused42e356b passed104 tests (101 pass,0 fail,3 skips,leak0), then independent Opus code review found10 issues including notification failure, archive race and unresolved-managed fail-open. All causes assigned for source/test repair; green tests did not establish live readiness. No live publication, full-host gate, installation or acceptance yet.
 
 Authority and supporting sources: docs/specs/knowledge-triage-40/rev4-intake.md, install-authority.md, territories.md, scout-ruling.md, spec-r1-adjudication.md, spec-review-r1.identity.json and bearings-lead-response.md. These are source/adjudication/publication documents, not independent verdict reports.
 
 Installation update: skills-fable-lane-40-2 reports Ben's September29 17:11 America/New_York tick. No need to ask for that tick again. The task installs enabled after acceptance/merge via the next release and runs immediately; this does not waive the failed scratch-probe prerequisite.
+
 
 
 
