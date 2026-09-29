@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { makeTempHome, checkSeal } from "./test-home.mjs";
 import { runSealed } from "./run-tests.mjs";
-import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
+import { childEnv, scratchHome } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_URL = pathToFileURL(path.join(HERE, "test-home.mjs")).href;
@@ -63,7 +63,11 @@ function checkSealInChild(env) {
  */
 function spawnAndSignal(script, signal) {
   return new Promise((resolve, reject) => {
-    const child = spawn(NODE, ["--input-type=module", "-e", script], { stdio: ["ignore", "pipe", "pipe"] });
+    // N2 (lane 57): this ran with no `env` at all, so the child inherited the real environment
+    // unmodified - the script itself always calls makeTempHome() for its own, separate fixture home,
+    // so the `home` passed here is only what seals the messaging vars, never read by the script.
+    const env = childEnv(scratchHome(fs, "spawn-and-signal-"));
+    const child = spawn(NODE, ["--input-type=module", "-e", script], { env, stdio: ["ignore", "pipe", "pipe"] });
     const rl = readline.createInterface({ input: child.stdout });
     let settled = false;
     child.once("error", (e) => {
@@ -520,7 +524,10 @@ test("handler registration is idempotent: exactly one listener per event, even a
     "a.cleanup(); b.cleanup();",
     "console.log(JSON.stringify({ afterFirst, afterSecond }));",
   ].join("\n");
-  const out = execFileSync(NODE, ["--input-type=module", "-e", script]).toString().trim();
+  // N2 (lane 57): this ran with no `env` at all; the script itself calls makeTempHome() for its own
+  // fixture homes, so the `home` sealed here is only what blanks the messaging vars, never read by it.
+  const env = childEnv(scratchHome(fs, "handler-idempotent-"));
+  const out = execFileSync(NODE, ["--input-type=module", "-e", script], { env }).toString().trim();
   const { afterFirst, afterSecond } = JSON.parse(out.split("\n").pop());
   for (const event of events) {
     assert.equal(afterFirst[event], 1, `expected exactly one ${event} listener after the first home`);
