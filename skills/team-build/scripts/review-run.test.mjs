@@ -430,6 +430,61 @@ test('finding 6: owner.json is rewritten with the real childPid and timeoutMin r
   assert.equal(owner.timeoutMin, 0.05);
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 8: a symlinked --repo must not get past the "plugin root inside the reviewed repo"
+// exit-4 check (measured in the review: direct path exits 4, a symlink to the same repo exits 7
+// having reached clone).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('finding 8: a symlinked --repo pointing at the resolved plugin root still trips the inside-repo exit-4 check, before any clone', async () => {
+  if (process.platform === 'win32') return; // symlink creation needs elevation on some win32 setups
+  // A PLAIN (non-worktree) git repo: `git rev-parse --git-common-dir` returns the RELATIVE
+  // string ".git" here (unlike this suite's own linked-worktree checkout, where it's already an
+  // absolute, symlink-resolved path) — that relative form is exactly what makes
+  // path.resolve(pluginRoot, rootCommon) sensitive to which literal string pluginRoot/repoTop
+  // is, symlink or not.
+  const pluginAndRepoDir = scratchDir('review-run-plainrepo-');
+  execFileSync('git', ['init', '-q'], { cwd: pluginAndRepoDir });
+  fs.mkdirSync(path.join(pluginAndRepoDir, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(pluginAndRepoDir, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '0.0.0-plain' }));
+  fs.mkdirSync(path.join(pluginAndRepoDir, 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(pluginAndRepoDir, 'agents', 'reviewer.md'), ROLE_FIXTURE);
+  execFileSync('git', ['add', '-A'], { cwd: pluginAndRepoDir });
+  // Never a synthetic -c user.email/user.name — the git-identity-guard hook refuses any commit
+  // that isn't the machine's own configured identity, test fixtures included.
+  execFileSync('git', ['commit', '-q', '-m', 'x'], { cwd: pluginAndRepoDir });
+  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: pluginAndRepoDir, encoding: 'utf8' }).trim();
+
+  const repoLink = path.join(scratchDir('review-run-repolink-'), 'repo-link');
+  fs.symlinkSync(pluginAndRepoDir, repoLink, 'dir');
+
+  const home = scratchDir('review-run-symrepo-home-');
+  fs.mkdirSync(path.join(home, '.claude', 'plugins'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'delegation@benzhuk': [{ scope: 'user', installPath: pluginAndRepoDir }] } }),
+  );
+
+  const calls = [];
+  const gitRunner = (args, cwd) => {
+    calls.push(args[0]);
+    if (args[0] === 'clone') throw new Error('must not reach clone: the inside-repo check must fire first');
+    return execFileSync('git', args, { cwd, encoding: 'utf8' });
+  };
+  const scratch = scratchDir('review-run-symrepo-scratch-');
+  const reportPath = path.join(scratchDir('review-run-symrepo-out-'), 'report.md');
+  const briefPath = path.join(scratchDir('review-run-symrepo-brief-'), 'brief.md');
+  fs.writeFileSync(briefPath, 'x');
+
+  const { exitCode } = await runReviewRun([
+    // --repo is a SYMLINK to the very directory installed_plugins.json resolves as the plugin root.
+    '--sha', sha, '--brief', briefPath, '--report', reportPath, '--repo', repoLink,
+    '--scratch', scratch, '--claude-bin', 'irrelevant-claude-bin',
+  ], { env: { HOME: home, PATH: process.env.PATH }, home, gitRunner });
+  assert.equal(exitCode, EXIT.HOST, 'a symlinked --repo pointing at the resolved plugin root must still exit 4');
+  assert.ok(!calls.includes('clone'), 'clone must never be reached once the check correctly fires');
+});
+
 test('finding 7: isProcessAlive treats EPERM (a process owned by another user) as alive, not dead', () => {
   // pid 1 (init/systemd) exists but is not signalable by a non-root user: process.kill(1, 0)
   // raises EPERM on every POSIX host this runs on. On win32 this test is skipped: there is no

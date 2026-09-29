@@ -440,7 +440,13 @@ export async function runReviewRun(argv, deps = {}) {
       try {
         const rootCommon = String(gitRunner(['-C', pluginRoot, 'rev-parse', '--git-common-dir'], pluginRoot)).trim();
         const repoCommon = String(gitRunner(['-C', repoTop, 'rev-parse', '--git-common-dir'], repoTop)).trim();
-        if (path.resolve(pluginRoot, rootCommon) === path.resolve(repoTop, repoCommon)) {
+        // finding 8: git-common-dir is often a RELATIVE ".git", so path.resolve falls back to
+        // joining it onto whichever literal string (symlink or real path) pluginRoot/repoTop
+        // happen to be — a symlinked --repo then compares unequal to the real plugin root even
+        // though both name the same on-disk repo. realpath both sides first.
+        const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+        const norm = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
+        if (norm(path.resolve(pluginRoot, rootCommon)) === norm(path.resolve(repoTop, repoCommon))) {
           hostError('resolved plugin root is inside the reviewed repo\'s own worktree set');
         }
       } catch (err) {
