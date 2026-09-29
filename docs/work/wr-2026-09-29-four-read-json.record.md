@@ -1,9 +1,11 @@
 Work: wr-2026-09-29-four-read-json
 Scope: the spec section of this record (lane 54), from packet docs/notes/skills-fable-lane-53-1.md "Queued behind it: lane 54" read at 7ab59db
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/four-read-json-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; rerun build-census and four-read read-only against lead transcripts and merged records; no release, no install
-Next: Opus delta review r2 of 63996a6 and the Windows suite, then accept, merge, publish, close, RESULT
+Next: census, four-read and accept pinned at 63996a6, then merge, publish, close, RESULT
+Artifact: 63996a6b35eb2a143092bb354f58e026f9981f77
+Evidence: docs/work/evidence/wr-2026-09-29-four-read-json-review.md, docs/work/evidence/wr-2026-09-29-four-read-json-review-r1.md, docs/work/evidence/wr-2026-09-29-four-read-json-suites.md
 Worktree: build/four-read-json-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-54
 Opened: 2026-09-29T02:24:00.000Z
@@ -15,6 +17,13 @@ Log: 2026-09-29T02:24:05.000Z owned skills-n picked up lane 54 from the skills-f
 Log: 2026-09-29T02:35:51.000Z delivered skills-n Sonnet builder DONE 02c2535, report 48c879b (four-read refuses a non-JSON census with exit 2, 10 new tests, four-read suites 117 pass, full suite 2928 pass 0 fail; lanes 42, 43, 44, 46, 47 rerun with the census JSON, no lane 45 record); Opus code review and Windows suite started
 Log: 2026-09-29T02:41:28.000Z rejected skills-n Opus code review by a04896a79a9e5e130 NEEDS_FIXES (4) 84e643e (F-1 the gate requires stallNudges and refuses 34 of 40 committed older census JSONs, F-2 --spec-census markdown still silent, F-3 appendix cells drop two unavailable parts, F-4 lead check untested); all four adopted, F-2 in scope; Windows suite at 84e643e 2918 pass, 1 fail the hooks/codex-unsupported load flake, 13 of 13 twice alone; fresh builder spawned
 Log: 2026-09-29T02:48:03.000Z delivered skills-n fresh Sonnet fix round 1 builder DONE b13f448 and 63996a6, report eb2a2af (F-1 to F-4 applied, each new test red first, four-read suites 119 pass, full suite 2930 pass 0 fail); same Opus reviewer resumed for delta r2, Windows suite started
+Log: 2026-09-29T02:52:30.000Z reviewed skills-n Opus delta review r2 by a04896a79a9e5e130 APPROVE 63996a6 (all four r1 findings verified fixed, each revert fails exactly one new test, four-read suites 119 pass); Windows suite at 63996a6 2920 pass, 1 fail the hooks/codex-unsupported load flake, 13 of 13 twice alone
+
+Observed: four-read now refuses a --census or --spec-census file that is not build-census --json output, with exit 2, a message naming the flag and no output written. At 7ab59db the census markdown was read silently as no census, with exit 0. All 40 committed census JSON files in the repo pass the gate, older pre-lane-38 ones included. The rerun of lanes 42, 43, 44, 46 and 47 with the census JSON fills their token, gap and wake cells in the census-0928 appendix, with the unavailable parts shown verbatim. Two Opus reviews, the second APPROVE 63996a6.
+
+Predicts: the next four-read on any record gives either a full reading or exit 2, never a blank census row. The next census of a lane accepted through this plugin shows no "no census" cell caused by a markdown input.
+
+Stall: nothing stalled. The word "silent" in the Log describes the defect (a markdown census read silently), not an agent. Builders and reviewers each reported within their ETA.
 
 ## Spec (lead, from the packet)
 
