@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-knowledge-triage-tests
 Scope: docs/specs/knowledge-triage-40/tests-brief.md
 Owner: skills-a
-Status: delivered
+Status: owned
 Authority: parent wr-2026-09-29-knowledge-triage, spec APPROVE6fa1b4d and R4 PASS. Only assigned territory and scoped verification, no live installs or guard changes.
 Artifact: build/knowledge-triage-40-tests@27b384620dd9d22b24e9dd508190437a8889aaf6
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40-tests
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40/tests
 Evidence: docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/probe-r4-report.md
-Next: five-file native comparison after verification slot is free, then final test-only review delta. N2 fixture repair delivered; source unchanged since7cc858a.
+Next: F1-F4 independent red tests under code-r2-adjudication.md, including authorized fixture helper extraction. Source waits for this delivery.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
