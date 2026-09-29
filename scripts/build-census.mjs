@@ -149,8 +149,14 @@ function isToolResultOnlyUser(obj) {
 
 /** Claude Code's own prefix on a peer turn; the envelope line the plugin wrote follows it. */
 export const WAKE_PREFIX = 'Another Claude session sent a message:';
-/** The plugin's envelope line (skills/multi/scripts/envelope.mjs ENVELOPE_RE, without the tail groups). */
-const ENVELOPE_LINE_RE = /^([a-z0-9-]+) → ([a-z0-9-]+), \d{1,2}\.\d{1,2}\.\d{2} \d{2}:\d{2} [A-Z]{2,5} \[([a-z0-9-]+-\d+)(?: re [a-z0-9-]+-\d+)?(?: supersedes [a-z0-9-]+-\d+)?\] (?:ASK|ACK|RESULT|BLOCKED|FYI): (.+)$/u;
+/**
+ * The plugin's envelope line (skills/multi/scripts/envelope.mjs ENVELOPE_RE, without the tail groups).
+ * Group 4 (lane 51, M4) captures the envelope's own kind — ASK/ACK/RESULT/BLOCKED/FYI — so a wake can
+ * be told apart by kind (the W1b coalescable simulation holds RESULT only); group 5 is the body.
+ */
+const ENVELOPE_LINE_RE = /^([a-z0-9-]+) → ([a-z0-9-]+), \d{1,2}\.\d{1,2}\.\d{2} \d{2}:\d{2} [A-Z]{2,5} \[([a-z0-9-]+-\d+)(?: re [a-z0-9-]+-\d+)?(?: supersedes [a-z0-9-]+-\d+)?\] (ASK|ACK|RESULT|BLOCKED|FYI): (.+)$/u;
+/** Lane 51 (M4): the fixed hold used by W1b's coalescable simulation, in minutes. */
+export const WAKE_SPLIT_HOLD_MINUTES = 10;
 /** The decisions pickup's note (decisions-pickup.mjs sendInputs): id `<from>-decisions-<64 hex>-<round>`. */
 const DONE_TICK_ID_RE = /^[a-z0-9-]+-decisions-[0-9a-f]{64}-\d+$/;
 const DONE_TICK_BODY_RE = /^Owner decisions pickup round \d+ is ready\./;
@@ -170,8 +176,9 @@ function userText(obj) {
 /**
  * A wake: a top-level user turn that opens with the peer prefix and then the plugin's envelope line,
  * delivered by note-flush (origin `{kind:'peer', from:'note-flush'}` when the transcript records one).
- * Returns null, or `{ to, doneTick }`. Text that merely quotes an envelope mid-message never matches:
- * the prefix must be the first thing in the turn.
+ * Returns null, or `{ to, kind, doneTick }` — `kind` (lane 51, M4) is the envelope's own ASK/ACK/
+ * RESULT/BLOCKED/FYI, read off `ENVELOPE_LINE_RE`'s group 4. Text that merely quotes an envelope
+ * mid-message never matches: the prefix must be the first thing in the turn.
  */
 export function classifyWake(obj) {
   if (!obj || obj.type !== 'user' || isToolResultOnlyUser(obj)) return null;
@@ -185,7 +192,7 @@ export function classifyWake(obj) {
   const line = rest.slice(nl[0].length).split(/\r?\n/, 1)[0].trim();
   const m = ENVELOPE_LINE_RE.exec(line);
   if (!m) return null;
-  return { to: m[2], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[4]) };
+  return { to: m[2], kind: m[4], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[5]) };
 }
 
 /**
@@ -217,8 +224,9 @@ export function classifyStopBlock(obj) {
  * records that as a `response_item` whose payload is a `message` with role `user` and ONE `input_text`
  * part holding exactly one plugin envelope line, with no prefix (read on a live rollout that received a
  * queued note: 01a0dab2-065e-7a31-bff4-9aecfe1fa833, 2026-09-25T22:32:53Z). Returns null, or
- * `{ to, doneTick }`. A typed prompt, a multi-line message and the `item_completed` echo of the same turn
- * never match; a developer-role hook context ("N new peer note(s) for <slug>") is not a wake.
+ * `{ to, kind, doneTick }` (`kind`, lane 51 M4, is the envelope's own ASK/ACK/RESULT/BLOCKED/FYI). A
+ * typed prompt, a multi-line message and the `item_completed` echo of the same turn never match; a
+ * developer-role hook context ("N new peer note(s) for <slug>") is not a wake.
  */
 export function classifyCodexWake(obj) {
   if (!obj || obj.type !== 'response_item') return null;
@@ -230,7 +238,7 @@ export function classifyCodexWake(obj) {
   if (text.includes('\n')) return null;
   const m = ENVELOPE_LINE_RE.exec(text);
   if (!m) return null;
-  return { to: m[2], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[4]) };
+  return { to: m[2], kind: m[4], doneTick: DONE_TICK_ID_RE.test(m[3]) && DONE_TICK_BODY_RE.test(m[5]) };
 }
 
 /**
@@ -313,6 +321,7 @@ function resolveAndStore(idMap, aliasByMsgId, obj, uniqueCounter, entry) {
     canonicalKey = `line:${uniqueCounter.n++}`;
   }
   idMap.set(canonicalKey, entry); // last-line-wins
+  return canonicalKey; // lane 51 (M4): callers tracking a run's first deduped request need this key
 }
 
 /**
@@ -360,6 +369,26 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   let leadTurnsTotal = 0; // runs in the whole file, always, regardless of windowing
   let inRun = false;
   let inWindowRun = false;
+
+  // Lane 51 (m2): a wake line sets a pending flag; the next assistant line that starts a
+  // (windowed) run tags that run wake-opened and clears the flag; a Stop-block feedback
+  // line does the same for `stopBlock`; any other run is `other`. Only windowed runs are
+  // tagged — the split (W1) is a window-only measure.
+  let pendingTag = null; // 'wake' | 'stopBlock' | null, decided by the LAST qualifying top-level user line
+  let pendingWakeAt = null; // that line's own timestamp, when pendingTag === 'wake'
+  let pendingWakeKind = null;
+  let pendingWakeDoneTick = false;
+  let currentRunTag = null; // the tag of the CURRENTLY OPEN windowed run
+  let currentRunWakeRecord = null; // set only while currentRunTag === 'wake'; see wakeRunRecords below
+  let wakeTurns = 0;
+  let stopBlockTurns = 0;
+  let otherTurns = 0;
+  // One record per wake-opened windowed run, built up as its own deduped id map (last-line-
+  // wins, same shape as totalById/windowById) so the W1b coalescable simulation (M4) can read
+  // both a run's full usage (the upper bound) and its FIRST deduped request alone (the lower
+  // bound) without re-deriving dedup semantics.
+  const wakeRunRecords = [];
+  const wakeRunAliasCounter = { n: 0 };
 
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
   const stops = { window: { attachment: 0, feedback: 0 }, total: { attachment: 0, feedback: 0 } };
@@ -422,23 +451,115 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
       if (inWindowNow && !inWindowRun) {
         leadTurns += 1;
         inWindowRun = true;
+        // Lane 51 (m2): this run opens now — consume whatever pending tag the last
+        // qualifying user line left, then clear it so a later run starts fresh as `other`.
+        currentRunTag = pendingTag || 'other';
+        if (currentRunTag === 'wake') {
+          wakeTurns += 1;
+          currentRunWakeRecord = {
+            at: pendingWakeAt, kind: pendingWakeKind, doneTick: pendingWakeDoneTick,
+            ids: new Map(), aliasByMsgId: new Map(), firstKey: null,
+          };
+          wakeRunRecords.push(currentRunWakeRecord);
+        } else {
+          currentRunWakeRecord = null;
+          if (currentRunTag === 'stopBlock') stopBlockTurns += 1;
+          else otherTurns += 1;
+        }
+        pendingTag = null;
+        pendingWakeAt = null;
+        pendingWakeKind = null;
+        pendingWakeDoneTick = false;
       }
     } else if (obj.type === 'user') {
       if (!isToolResultOnlyUser(obj)) {
         inRun = false;
         inWindowRun = false;
+        // Lane 51 (m2): recompute the pending tag fresh off THIS line — a wake wins, else
+        // a Stop-block feedback line, else this line clears any stale pending tag (an
+        // ordinary human message between a wake and the next run means that run is
+        // `other`, not wake-opened).
+        if (wake) {
+          pendingTag = 'wake';
+          pendingWakeAt = obj.timestamp || lastAt;
+          pendingWakeKind = wake.kind;
+          pendingWakeDoneTick = Boolean(wake.doneTick);
+        } else if (stop && stop.form === 'feedback') {
+          pendingTag = 'stopBlock';
+          pendingWakeAt = null;
+          pendingWakeKind = null;
+          pendingWakeDoneTick = false;
+        } else {
+          pendingTag = null;
+          pendingWakeAt = null;
+          pendingWakeKind = null;
+          pendingWakeDoneTick = false;
+        }
       }
       // a tool_result-only user line is transparent: the run continues through it.
     }
 
     if (obj.type !== 'assistant' || !obj.message || !obj.message.usage) continue;
 
-    const entry = { model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt };
+    const entry = {
+      model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt,
+      bucket: inWindowNow ? currentRunTag : null, // lane 51 (m2): 'wake' | 'stopBlock' | 'other' | null (outside window)
+    };
     resolveAndStore(totalById, totalAlias, obj, uniqueCounter, entry);
     if (windowed && inWindowNow) resolveAndStore(windowById, windowAlias, obj, uniqueCounter, entry);
+    if (inWindowNow && currentRunWakeRecord) {
+      const key = resolveAndStore(currentRunWakeRecord.ids, currentRunWakeRecord.aliasByMsgId, obj, wakeRunAliasCounter, entry);
+      if (currentRunWakeRecord.firstKey === null) currentRunWakeRecord.firstKey = key;
+    }
   }
 
   if (!marker && !from) windowStartAt = firstAt; // unwindowed or --to-only: window starts at the file's start (MAJOR 2, r2)
+
+  // Lane 51 (m2/M4): split windowById by the run tag each entry carried, then simulate the
+  // W1b hold over the wake-opened runs. `wakeById`/`stopBlockById`/`otherById` partition
+  // windowById exactly (every windowed entry has a bucket), so byModel columns sum back to
+  // windowByModel per model — the invariant W2 pins.
+  const wakeById = new Map();
+  const stopBlockById = new Map();
+  const otherById = new Map();
+  for (const [key, entry] of windowById) {
+    if (entry.bucket === 'wake') wakeById.set(key, entry);
+    else if (entry.bucket === 'stopBlock') stopBlockById.set(key, entry);
+    else otherById.set(key, entry); // 'other', or a stray unset bucket (defensive: never expected)
+  }
+  const wakeSplitByModel = { wake: aggByModel(wakeById), stopBlock: aggByModel(stopBlockById), other: aggByModel(otherById) };
+
+  // W1b (M4): only RESULT wakes that are not the Done-tick are coalescable. In wake-line
+  // timestamp order, a wave starts at its first wake and absorbs every later one arriving
+  // less than WAKE_SPLIT_HOLD_MINUTES after the wave's own start; `coalescableTurns` is
+  // those wakes minus the waves they started.
+  const holdMs = WAKE_SPLIT_HOLD_MINUTES * 60000;
+  const eligible = wakeRunRecords
+    .filter((r) => r.kind === 'RESULT' && !r.doneTick && r.at && !Number.isNaN(Date.parse(r.at)))
+    .map((r) => ({ ...r, atMs: Date.parse(r.at) }))
+    .sort((a, b) => a.atMs - b.atMs);
+  let waveStartMs = null;
+  const coalescableRecords = [];
+  for (const rec of eligible) {
+    if (waveStartMs === null || rec.atMs - waveStartMs >= holdMs) {
+      waveStartMs = rec.atMs; // this wake starts a new wave; it is not itself coalescable
+    } else {
+      coalescableRecords.push(rec);
+    }
+  }
+  const upperByModel = {};
+  const lowerByModel = {};
+  for (const rec of coalescableRecords) {
+    for (const entry of rec.ids.values()) {
+      if (!upperByModel[entry.model]) upperByModel[entry.model] = newAgg();
+      addUsage(upperByModel[entry.model], entry.usage);
+    }
+    const firstEntry = rec.firstKey !== null ? rec.ids.get(rec.firstKey) : null;
+    if (firstEntry) {
+      if (!lowerByModel[firstEntry.model]) lowerByModel[firstEntry.model] = newAgg();
+      addUsage(lowerByModel[firstEntry.model], firstEntry.usage);
+    }
+  }
 
   return {
     totalById, windowById, markerFound: windowStarted, windowStartAt, firstAt, lastAt, leadTurns, leadTurnsTotal,
@@ -449,6 +570,11 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
     stopBlocks: Math.max(stops.window.attachment, stops.window.feedback),
     stopBlocksTotal: Math.max(stops.total.attachment, stops.total.feedback),
     slugVotes: [...slugVotes.entries()],
+    wakeSplit: {
+      wakeTurns, stopBlockTurns, otherTurns,
+      byModel: wakeSplitByModel,
+      coalescable: { holdMinutes: WAKE_SPLIT_HOLD_MINUTES, turns: coalescableRecords.length, upperByModel, lowerByModel },
+    },
   };
 }
 
@@ -1198,6 +1324,7 @@ async function runCodexCensus(opts, fsImpl) {
       coverageSupported, coverageReason: coverageSupported ? null : unavailable.join('; '),
       totalByModel: coverageSupported ? leadTotalByModel : null, windowByModel: coverageSupported ? leadWindowByModel : null,
       observedTotalByModel: leadTotalByModel, observedWindowByModel: leadWindowByModel,
+      wakeSplit: null, wakeSplitUnavailable: 'codex lead', // lane 51 (W1): the Claude-only wake split is out of scope for a Codex lead
       wakes: lead.wakes, wakesNoteFlush: lead.wakes - lead.wakesDoneTick, wakesDoneTick: lead.wakesDoneTick, wakesTotal: lead.wakesTotal,
       stopBlocks: lead.stopBlocks, stopBlocksTotal: lead.stopBlocksTotal,
       markerFound: lead.markerFound, windowStartAt: lead.windowStartAt, windowEndAt: endAt, leadLastMessageAt: lead.lastAt,
@@ -1373,6 +1500,19 @@ export async function runCensus(opts, fsImpl = realFs()) {
   const observedWindowTokens = codex && lead.windowTokenRecordCount > 0
     ? Object.values(leadWindowByModel).reduce((n, a) => n + totalTokens(a), 0)
     : null;
+  // Lane 51 (m2/M6): the wake/stopBlock/other split's per-model share of this window's
+  // top-tier tokens, and the wake and other sides' cache_creation per turn (M6 — a hold can
+  // turn a warm cache read into a cold cache_creation write, which the raw token sum alone
+  // cannot see).
+  const wakeSplit = codex ? null : {
+    wakeTurns: lead.wakeSplit.wakeTurns,
+    stopBlockTurns: lead.wakeSplit.stopBlockTurns,
+    otherTurns: lead.wakeSplit.otherTurns,
+    byModel: lead.wakeSplit.byModel,
+    shareByModel: shareByModelFor(lead.wakeSplit.byModel, leadWindowByModel),
+    cacheCreationPerTurn: cacheCreationPerTurnFor(lead.wakeSplit.byModel, lead.wakeSplit.wakeTurns, lead.wakeSplit.otherTurns),
+    coalescable: lead.wakeSplit.coalescable,
+  };
   return {
     lead: {
       host: leadHost,
@@ -1380,6 +1520,8 @@ export async function runCensus(opts, fsImpl = realFs()) {
       windowTurns: codex ? null : lead.windowById.size,
       leadTurns: lead.leadTurns,
       leadTurnsTotal: lead.leadTurnsTotal,
+      wakeSplit,
+      wakeSplitUnavailable: codex ? 'codex lead' : null,
       wakes: lead.wakes,
       wakesNoteFlush: lead.wakes - lead.wakesDoneTick,
       wakesDoneTick: lead.wakesDoneTick,
@@ -1430,6 +1572,34 @@ function tokenRow(label, a) {
   return `| ${label} | ${a.input_tokens} | ${a.cache_creation_input_tokens} | ${a.cache_read_input_tokens} | ${a.output_tokens} |`;
 }
 
+// Lane 51 (W1/m2/M4/M6): the "Wake-opened turns against the rest" markdown block. Lines only
+// (no leading/trailing blanks); the caller spreads them into its own md array.
+function formatWakeSplitSection(wakeSplit) {
+  const md = [];
+  md.push('### Wake-opened turns against the rest (window)');
+  md.push('');
+  md.push(`- wakeTurns: ${wakeSplit.wakeTurns}, stopBlockTurns: ${wakeSplit.stopBlockTurns}, otherTurns: ${wakeSplit.otherTurns}`);
+  md.push('');
+  md.push('| bucket | model | input | cache_creation | cache_read | output | sum | share |');
+  md.push('|---|---|---|---|---|---|---|---|');
+  for (const bucket of ['wake', 'stopBlock', 'other']) {
+    for (const model of Object.keys(wakeSplit.byModel[bucket]).sort()) {
+      const a = wakeSplit.byModel[bucket][model];
+      const share = wakeSplit.shareByModel[model] ? wakeSplit.shareByModel[model][bucket] : 0;
+      md.push(`| ${bucket} | ${model} | ${a.input_tokens} | ${a.cache_creation_input_tokens} | ${a.cache_read_input_tokens} | ${a.output_tokens} | ${totalTokens(a)} | ${share.toFixed(1)}% |`);
+    }
+  }
+  md.push('');
+  const ccpt = wakeSplit.cacheCreationPerTurn;
+  const ccptLine = (side) => Object.keys(ccpt[side]).sort()
+    .map((m) => `${m}=${ccpt[side][m] === null ? 'n/a' : ccpt[side][m].toFixed(1)}`).join(', ') || '(none)';
+  md.push(`- cache_creation per turn (M6) — wake: ${ccptLine('wake')}; other: ${ccptLine('other')}`);
+  const c = wakeSplit.coalescable;
+  const byModelSum = (byModel) => Object.keys(byModel).sort().map((m) => `${m}=${totalTokens(byModel[m])}`).join(', ') || '(none)';
+  md.push(`- coalescable (W1b, hold ${c.holdMinutes}m, RESULT wakes only, Done-tick excluded): turns ${c.turns}, upper ${byModelSum(c.upperByModel)}, lower ${byModelSum(c.lowerByModel)}`);
+  return md;
+}
+
 function codexTokenCell(value) {
   return value === null ? 'unavailable' : value;
 }
@@ -1444,6 +1614,35 @@ function sumAgg(a) {
 
 function totalTokens(a) {
   return sumAgg(a) + a.output_tokens;
+}
+
+// Lane 51 (m2): each model's wake/stopBlock/other share of ITS OWN window total tokens
+// (never hardcoding a model name — R2 reads whichever model it names off this object).
+// Percent, one decimal (Math.round(x * 1000) / 10); a model absent from a bucket is 0.
+function shareByModelFor(byModelBuckets, windowByModel) {
+  const out = {};
+  for (const model of Object.keys(windowByModel)) {
+    const denom = totalTokens(windowByModel[model]);
+    const pct = (bucket) => {
+      const a = byModelBuckets[bucket][model];
+      if (!a || denom <= 0) return 0;
+      return Math.round((totalTokens(a) / denom) * 1000) / 10;
+    };
+    out[model] = { wake: pct('wake'), stopBlock: pct('stopBlock'), other: pct('other') };
+  }
+  return out;
+}
+
+// Lane 51 (M6): cache_creation_input_tokens per turn, wake side and other side only (a
+// stopBlock turn is note-driven but untouched by any hold, so M6's cost concern does not
+// apply to it). `null` when that side has no turns, never a division by zero.
+function cacheCreationPerTurnFor(byModelBuckets, wakeTurns, otherTurns) {
+  const perTurn = (byModel, turns) => {
+    const out = {};
+    for (const [model, a] of Object.entries(byModel)) out[model] = turns > 0 ? a.cache_creation_input_tokens / turns : null;
+    return out;
+  };
+  return { wake: perTurn(byModelBuckets.wake, wakeTurns), other: perTurn(byModelBuckets.other, otherTurns) };
 }
 
 function formatCodexText(report) {
@@ -1461,6 +1660,7 @@ function formatCodexText(report) {
   md.push(`- leadTurns: ${report.lead.leadTurns}`);
   md.push(`- wallClockHours: ${report.lead.wallClockHours === null ? 'n/a' : report.lead.wallClockHours.toFixed(2)}`);
   md.push(`- wakes: ${report.lead.wakes} (${report.lead.wakesNoteFlush} note-flush, ${report.lead.wakesDoneTick} Done-tick)`);
+  md.push('- wakeSplit: unavailable (codex lead)');
   md.push(`- stopBlocks: ${report.lead.stopBlocks}`);
   md.push(`- stallNudges: ${stallNudgesLabel(report.stallNudges)}`);
   md.push(`- by-model: ${supported ? Object.keys(report.combined).sort().map((model) => `${model}=${report.combined[model].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);
@@ -1536,6 +1736,8 @@ export function formatText(report) {
   }
   md.push(`- wallClockHours: ${report.lead.wallClockHours !== null ? report.lead.wallClockHours.toFixed(2) : 'n/a'}`);
   md.push(`- wakes: ${report.lead.wakes} (${report.lead.wakesNoteFlush} note-flush, ${report.lead.wakesDoneTick} Done-tick)`);
+  md.push(`- wakeSplit: wake ${report.lead.wakeSplit.wakeTurns}, stopBlock ${report.lead.wakeSplit.stopBlockTurns}, other ${report.lead.wakeSplit.otherTurns}`
+    + ` (coalescable ${report.lead.wakeSplit.coalescable.turns} at hold ${report.lead.wakeSplit.coalescable.holdMinutes}m — see "Wake-opened turns" below)`);
   md.push(`- stopBlocks: ${report.lead.stopBlocks}`);
   md.push(`- stallNudges: ${stallNudgesLabel(report.stallNudges)}`);
   const modelLine = codexTokensUnsupported
@@ -1593,6 +1795,8 @@ export function formatText(report) {
   md.push('| model | input | cache_creation | cache_read | output |');
   md.push('|---|---|---|---|---|');
   for (const m of Object.keys(report.lead.windowByModel).sort()) md.push(tokenRow(m, report.lead.windowByModel[m]));
+  md.push('');
+  md.push(...formatWakeSplitSection(report.lead.wakeSplit));
   md.push('');
   md.push(`## Subagents (${report.subagents.fileCount} files${unread ? `, ${unread} unreadable` : ''}, ${report.subagents.totalTurns} turns total, deduped)`);
   if (unread) md.push(`\n_Incomplete: ${unread} subagent file(s) could not be read; their tokens are absent from this table and from the combined split below._`);
