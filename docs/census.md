@@ -287,7 +287,7 @@ verified live on rollout `01a0df4c-2809-7520-b1d7-876cc51a87ee` at 2026-09-28T03
 `scripts/build-census.fixtures/completeness/codex-lead.jsonl` reproduces it with lookalike
 negatives.
 
-**`wakeSplit`** (lane 51, W1/m2/M4/M6; `null` with `wakeSplitUnavailable: "codex lead"` for a Codex lead) splits `leadTurns` into wake/stopBlock/other by what opened each run, with tokens by model, each model's percent share, cache_creation per turn (wake and other), and a W1b coalescable-hold simulation over RESULT-only wakes — see `### Wake-opened turns against the rest (window)` below.
+**`wakeSplit`** (lane 51, W1/m2/M4/M6; `null` with `wakeSplitUnavailable: "codex lead"` for a Codex lead) splits `leadTurns` into wake/stopBlock/other by what opened each run, with tokens by model, each model's percent share, cache_creation per turn (wake and other), and a W1b coalescable-hold simulation over RESULT-only wakes, plus the ceiling (every RESULT wake turn's tokens, the bound for any RESULT-only hold) — printed in the census markdown under `### Wake-opened turns against the rest (window)`. A run opened by a wake before the window start and still running at it counts as wake-opened, so `wakeTurns` can exceed `wakes` by one.
 
 **`stallNudges`** is the number of stall nudges the lead received: lines in
 `<ledger-dir>/*.md` (default `docs/ledger`) whose id matches `^collect-.+-stall-` — the ASK the

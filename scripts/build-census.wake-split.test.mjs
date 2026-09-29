@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  censusLeadFile, runCensus, formatText, formatJson, WAKE_SPLIT_HOLD_MINUTES,
+  censusLeadFile, runCensus, formatText, formatJson, WAKE_SPLIT_HOLD_MINUTES, WAKE_PREFIX,
 } from './build-census.mjs';
 import { buildEnvelope } from '../skills/multi/scripts/envelope.mjs';
 
@@ -138,6 +138,8 @@ test('W1b/M4: only RESULT, non-Done-tick wakes coalesce; D (4 minutes after A) i
     turns: 1,
     upperByModel: { [MODEL]: agg(120, 12, 6, 24) },
     lowerByModel: { [MODEL]: agg(80, 8, 4, 16) },
+    resultTurns: 2,
+    resultByModel: { [MODEL]: agg(270, 27, 13, 54) },
   });
 });
 
@@ -152,7 +154,7 @@ test('runCensus/formatJson: shareByModel sums to 100.0 per model, cacheCreationP
   assert.deepEqual(wakeSplit.cacheCreationPerTurn, { wake: { [MODEL]: 11 }, other: { [MODEL]: 20 } });
 
   const json = JSON.parse(formatJson(report));
-  assert.deepEqual(json.lead.wakeSplit.coalescable, { holdMinutes: 10, turns: 1, upperByModel: { [MODEL]: agg(120, 12, 6, 24) }, lowerByModel: { [MODEL]: agg(80, 8, 4, 16) } });
+  assert.deepEqual(json.lead.wakeSplit.coalescable, { holdMinutes: 10, turns: 1, upperByModel: { [MODEL]: agg(120, 12, 6, 24) }, lowerByModel: { [MODEL]: agg(80, 8, 4, 16) }, resultTurns: 2, resultByModel: { [MODEL]: agg(270, 27, 13, 54) } });
 
   const text = formatText(report);
   assert.match(text, /^- wakeSplit: wake 3, stopBlock 1, other 1 \(coalescable 1 at hold 10m/m);
@@ -160,7 +162,7 @@ test('runCensus/formatJson: shareByModel sums to 100.0 per model, cacheCreationP
   assert.match(text, /^- wakeTurns: 3, stopBlockTurns: 1, otherTurns: 1$/m);
   assert.match(text, new RegExp(`^\\| wake \\| ${MODEL} \\| 330 \\| 33 \\| 16 \\| 66 \\| 445 \\| 58\\.9% \\|$`, 'm'));
   assert.match(text, new RegExp(`^- cache_creation per turn \\(M6\\) — wake: ${MODEL}=11\\.0; other: ${MODEL}=20\\.0$`, 'm'));
-  assert.match(text, new RegExp(`^- coalescable \\(W1b, hold 10m, RESULT wakes only, Done-tick excluded\\): turns 1, upper ${MODEL}=162, lower ${MODEL}=108$`, 'm'));
+  assert.match(text, new RegExp(`^- coalescable \\(W1b, hold 10m, RESULT wakes only, Done-tick excluded\\): turns 1, upper ${MODEL}=162, lower ${MODEL}=108; ceiling \\(every RESULT wake turn\\) turns 2, ${MODEL}=364$`, 'm'));
 });
 
 test('a Codex lead reports wakeSplit unavailable and prints the fixed sentence', async () => {
@@ -190,4 +192,47 @@ test('a wake line whose next run starts after an intervening plain human message
   assert.equal(census.wakeSplit.wakeTurns, 0);
   assert.equal(census.wakeSplit.otherTurns, 1);
   assert.deepEqual(census.wakeSplit.byModel.other[MODEL], agg(10, 1, 1, 1));
+});
+
+// R1 fix round: MINOR 2, MINOR 3, MINOR 5's own small fixtures. `wake`/`asst`/`toolResult`/`run`
+// build a RESULT wake, a 1-token assistant line, and a tool-result-only user line respectively,
+// without the full fixture's other kinds.
+const M = 60000;
+const envR = (n) => buildEnvelope({ from: 'skills-a', to: 'skills-o', id: `skills-a-w-${n}`, kind: 'RESULT', body: 'x', ...AT });
+const wake = (ms, n) => ({ type: 'user', timestamp: iso(ms), isMeta: true, origin: { kind: 'peer', from: 'note-flush' }, message: { role: 'user', content: `${WAKE_PREFIX}\n${envR(n)}` } });
+const asst = (ms, rid) => assistantLine(ms, rid, agg(1, 0, 0, 0));
+const toolResult = (ms) => ({ type: 'user', timestamp: iso(ms), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'ok' }] } });
+async function run(lines, opts = {}) {
+  const dir = mkTmp('build-census-wake-edge-');
+  const p = path.join(dir, 'lead.jsonl');
+  fs.writeFileSync(p, lines.map((o) => JSON.stringify(o)).join('\n') + '\n');
+  return censusLeadFile(p, opts);
+}
+
+test('W1/--from: a run opened by a wake before --from and still running at --from is wake-opened, so wakeTurns can exceed the window wake lines by one', async () => {
+  const c = await run([wake(-M, 1), asst(-50000, 'a'), toolResult(100), asst(5000, 'b')], { from: iso(0) });
+  assert.equal(c.leadTurns, 1);
+  assert.equal(c.wakes, 0);
+  assert.equal(c.wakeSplit.wakeTurns, 1);
+});
+
+test('W1b/window edge (straddle2): a RESULT wave that starts just before the window still absorbs an in-window RESULT less than N minutes later', async () => {
+  const c = await run([
+    wake(-M, 1), asst(-55000, 'r1'),
+    userPlain(-40000, 'anything'), asst(-35000, 'r2'),
+    wake(3 * M, 2), asst(3 * M + 1000, 'r3'),
+  ], { from: iso(0) });
+  assert.equal(c.wakeSplit.coalescable.turns, 1);
+});
+
+test('W1b: a wave is measured from its START, not from the previous wake (0, 6, 12 min -> 1 coalescable)', async () => {
+  const c = await run([wake(0, 1), asst(1000, 'a'), wake(6 * M, 2), asst(6 * M + 1000, 'b'), wake(12 * M, 3), asst(12 * M + 1000, 'c')]);
+  assert.equal(c.wakeSplit.coalescable.turns, 1);
+});
+
+test('W1b: a wake exactly N minutes after the wave start starts a new wave (less than N coalesces)', async () => {
+  const c = await run([wake(0, 1), asst(1000, 'a'), wake(10 * M, 2), asst(10 * M + 1000, 'b')]);
+  assert.equal(c.wakeSplit.coalescable.turns, 0);
+  const d = await run([wake(0, 1), asst(1000, 'a'), wake(10 * M - 1, 2), asst(10 * M + 1000, 'b')]);
+  assert.equal(d.wakeSplit.coalescable.turns, 1);
 });

@@ -389,6 +389,12 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   // bound) without re-deriving dedup semantics.
   const wakeRunRecords = [];
   const wakeRunAliasCounter = { n: 0 };
+  // MINOR 3 (R1): a RESULT, non-Done-tick wake LINE that lands before the window starts, but
+  // close enough that an in-window wake could still be within its hold window, must be able to
+  // start a wave even though its own run (if any) never becomes a wakeRunRecords entry (that
+  // list is windowed-runs-only). Recorded here regardless of window state; filtered to the ones
+  // within WAKE_SPLIT_HOLD_MINUTES of windowStartAt once that timestamp is known, below.
+  const preWindowResultAts = [];
 
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
   const stops = { window: { attachment: 0, feedback: 0 }, total: { attachment: 0, feedback: 0 } };
@@ -480,6 +486,9 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
         // ordinary human message between a wake and the next run means that run is
         // `other`, not wake-opened).
         if (wake) {
+          if (!inWindowNow && wake.kind === 'RESULT' && !wake.doneTick) {
+            preWindowResultAts.push(obj.timestamp || lastAt);
+          }
           pendingTag = 'wake';
           pendingWakeAt = obj.timestamp || lastAt;
           pendingWakeKind = wake.kind;
@@ -534,30 +543,58 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   // less than WAKE_SPLIT_HOLD_MINUTES after the wave's own start; `coalescableTurns` is
   // those wakes minus the waves they started.
   const holdMs = WAKE_SPLIT_HOLD_MINUTES * 60000;
-  const eligible = wakeRunRecords
-    .filter((r) => r.kind === 'RESULT' && !r.doneTick && r.at && !Number.isNaN(Date.parse(r.at)))
-    .map((r) => ({ ...r, atMs: Date.parse(r.at) }))
-    .sort((a, b) => a.atMs - b.atMs);
+  // MINOR 3 (R1): pre-window RESULT wake lines within holdMs of windowStartAt may start a
+  // wave (so an in-window RESULT less than holdMs after one is coalescable, not a wave
+  // starter itself), but they are never pushed into coalescableRecords — they have no
+  // in-window run of their own to attribute tokens to.
+  const windowStartMsForHold = windowStartAt ? Date.parse(windowStartAt) : NaN;
+  const preWindowEligible = preWindowResultAts
+    .map((at) => Date.parse(at))
+    .filter((atMs) => !Number.isNaN(atMs) && !Number.isNaN(windowStartMsForHold) && windowStartMsForHold - atMs < holdMs)
+    .map((atMs) => ({ atMs, preWindow: true }));
+  const eligible = [
+    ...preWindowEligible,
+    ...wakeRunRecords
+      .filter((r) => r.kind === 'RESULT' && !r.doneTick && r.at && !Number.isNaN(Date.parse(r.at)))
+      .map((r) => ({ ...r, atMs: Date.parse(r.at) })),
+  ].sort((a, b) => a.atMs - b.atMs);
   let waveStartMs = null;
   const coalescableRecords = [];
   for (const rec of eligible) {
     if (waveStartMs === null || rec.atMs - waveStartMs >= holdMs) {
       waveStartMs = rec.atMs; // this wake starts a new wave; it is not itself coalescable
-    } else {
+    } else if (!rec.preWindow) {
       coalescableRecords.push(rec);
     }
   }
   const upperByModel = {};
   const lowerByModel = {};
+  // MINOR 4 (R1): an id a later run re-used is counted there (last line wins in windowById),
+  // never here as well. Declared above both loops that need it (this one and the ceiling's).
+  const liveWindowEntries = new Set(windowById.values());
   for (const rec of coalescableRecords) {
     for (const entry of rec.ids.values()) {
+      if (!liveWindowEntries.has(entry)) continue;
       if (!upperByModel[entry.model]) upperByModel[entry.model] = newAgg();
       addUsage(upperByModel[entry.model], entry.usage);
     }
     const firstEntry = rec.firstKey !== null ? rec.ids.get(rec.firstKey) : null;
-    if (firstEntry) {
+    if (firstEntry && liveWindowEntries.has(firstEntry)) {
       if (!lowerByModel[firstEntry.model]) lowerByModel[firstEntry.model] = newAgg();
       addUsage(lowerByModel[firstEntry.model], firstEntry.usage);
+    }
+  }
+
+  // The ceiling (M4 follow-up): every RESULT, non-Done-tick wake-opened turn. No RESULT-only hold can
+  // save more than these turns, whatever its release rule (leading-edge wave, trailing debounce, or a
+  // held RESULT surfaced by hooks inside a loud note's turn); the wave count above is one model of it.
+  const resultRecords = wakeRunRecords.filter((r) => r.kind === 'RESULT' && !r.doneTick);
+  const resultByModel = {};
+  for (const rec of resultRecords) {
+    for (const entry of rec.ids.values()) {
+      if (!liveWindowEntries.has(entry)) continue;
+      if (!resultByModel[entry.model]) resultByModel[entry.model] = newAgg();
+      addUsage(resultByModel[entry.model], entry.usage);
     }
   }
 
@@ -573,7 +610,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
     wakeSplit: {
       wakeTurns, stopBlockTurns, otherTurns,
       byModel: wakeSplitByModel,
-      coalescable: { holdMinutes: WAKE_SPLIT_HOLD_MINUTES, turns: coalescableRecords.length, upperByModel, lowerByModel },
+      coalescable: { holdMinutes: WAKE_SPLIT_HOLD_MINUTES, turns: coalescableRecords.length, upperByModel, lowerByModel, resultTurns: resultRecords.length, resultByModel },
     },
   };
 }
@@ -1596,7 +1633,7 @@ function formatWakeSplitSection(wakeSplit) {
   md.push(`- cache_creation per turn (M6) — wake: ${ccptLine('wake')}; other: ${ccptLine('other')}`);
   const c = wakeSplit.coalescable;
   const byModelSum = (byModel) => Object.keys(byModel).sort().map((m) => `${m}=${totalTokens(byModel[m])}`).join(', ') || '(none)';
-  md.push(`- coalescable (W1b, hold ${c.holdMinutes}m, RESULT wakes only, Done-tick excluded): turns ${c.turns}, upper ${byModelSum(c.upperByModel)}, lower ${byModelSum(c.lowerByModel)}`);
+  md.push(`- coalescable (W1b, hold ${c.holdMinutes}m, RESULT wakes only, Done-tick excluded): turns ${c.turns}, upper ${byModelSum(c.upperByModel)}, lower ${byModelSum(c.lowerByModel)}; ceiling (every RESULT wake turn) turns ${c.resultTurns}, ${byModelSum(c.resultByModel)}`);
   return md;
 }
 
