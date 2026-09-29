@@ -7,8 +7,8 @@ Authority: skills-fable-lane-40-1 rev4 build and manual proof, standing reviewed
 Artifact: build/knowledge-triage-40@42e356b
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40
-Evidence: docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
-Next: independent Opus review at42e356b, then adjudicate findings or authorize bounded live proof. Both territory deliveries integrated and focused gate green. Naming regression belongs to Lane60.
+Evidence: docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
+Next: code fix round2 under code-r1-adjudication.md. Source and independent tests repair all ten review findings, then integrated focused gate and independent delta. Live proof held.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
@@ -36,6 +36,8 @@ Log: 2026-09-29T22:23:46.305Z owned skills-a R4 PASS22e738d0-ff7f-4215-997e-73c5
 Log: 2026-09-29T22:34:27.841Z owned skills-a reconciled skills-fable-lane-40-9 delivery of dotfiles727e60d on Windows/Netcup/Hetzner and lane-40-10 scope transfer of naming regression to Lane60. The proposed Node reroute is withdrawn, refusal remains. Main source/tests continue; no live publication proof or acceptance claimed.
 Log: 2026-09-29T22:48:50.4834653Z owned skills-a integrated initial source/tests5e21529, retained failed sealed evidence and assigned independent source/fixture fixes. No gate waiver.
 Log: 2026-09-29T22:55:00.5317684Z owned skills-a integrated source8f71404 and testsa260ad3, sealed focused PASS at42e356b. Started independent Opus review-run code-review-r1 on that exact SHA. Live proof held for review.
+Log: 2026-09-29T23:08:08.2185050Z rejected skills-a independent Opus8332e65d-0df0-44aa-97f4-9292c067576b NEEDS_FIXES(10)42e356b, review-run exit0 cleanup ok. All causes adopted, packet safety and atomic archive claim patches adjudicated explicitly.
+Log: 2026-09-29T23:08:08.2185050Z owned skills-a assigned source Sonnet and independent tests code fix round2, no live proof or waiver. Netcup one-shot slot busy, no suite ran.
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
@@ -44,5 +46,6 @@ Observed: exact candidate skill passed R4 plain-file probe. Source and independe
 Authority and supporting sources: docs/specs/knowledge-triage-40/rev4-intake.md, install-authority.md, territories.md, scout-ruling.md, spec-r1-adjudication.md, spec-review-r1.identity.json and bearings-lead-response.md. These are source/adjudication/publication documents, not independent verdict reports.
 
 Installation update: skills-fable-lane-40-2 reports Ben's September29 17:11 America/New_York tick. No need to ask for that tick again. The task installs enabled after acceptance/merge via the next release and runs immediately; this does not waive the failed scratch-probe prerequisite.
+
 
 
