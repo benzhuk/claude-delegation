@@ -1,29 +1,39 @@
 # Waiting on you now
 <details>
-<summary>**Schedule knowledge triage on this desktop**</summary>
-	The knowledge store's goal reads NONE, and 74 notes wait in this desktop's inbox, the oldest from July 28. The triage skill has everything a run needs and last ran August 1. Lane 40 installs a daily Windows task that runs it with a Sonnet session capped at 40 notes and 40 minutes, and reports tokens and results in the janitor-style record. Nothing else changes and no other host is touched.
-	Ticking yes decides these nine things:
-	- Triage becomes unattended, and the triage skill and the 09-24 README each gain one sentence saying a scheduled capped run counts as Ben asking.
-	- Each run ends in an unattended commit and push to the dotfiles repo, touching only `INDEX.md`, topic files and `DIGEST.md`, the skill's existing allowlist with `--secrets error`.
-	- Only this desktop's inbox is covered for now, and Netcup's 103 and Hetzner's 16 notes wait for a later lane.
-	- The first run confounds the Oct 4 read-count check from lane 18, so the second option delays it.
-	- Cost is one Sonnet run a day, with tokens reported.
-	- The goal card's "In Ben's words" line is still empty, and one sentence from Ben fills it.
-	- Sonnet makes the merge and reject calls per note, which the tiering rule normally reserves for Opus, so say if Opus is required, at about five times the tokens.
-	- A stuck lock is cleared by Ben with two commands shown in the run's ATTENTION file, never by an agent.
-	- The task runs only while Ben is logged on, and a day without logon is a skipped run.
-	- [ ] Yes, daily on this desktop, first run as soon as the lane lands (recommended)
+<summary>**Janitor reclaims the safe class daily, every host**</summary>
+	You asked twice yesterday that sessions stop asking you to delete things. Today the janitor runs daily on every host in record mode: its 6:01 AM run on this desktop listed 16 worktrees and 18 branches as safe to remove and removed none. The sweep you ticked removes them once. This item switches the daily run to act on the safe class every day: merged branches and clean worktrees of finished lanes, each deletion listed in the run record with its name and tip so it can be restored. The judgment class stays listed and untouched, and every run still reports drift.
+	- [ ] Yes, reclaim the safe class daily on every host (recommended)
+	- [ ] Hold, record only
+	No default: nothing is deleted unattended without your tick
+	<empty-block/>
+</details>
+<details>
+<summary>**Temp deletes without prompts: one allowlisted deleter**</summary>
+	Every session that runs rm hits your permission prompt, because rm is ask-first and the delete guard denies it to subagents. Making rm itself prompt-free is not safe. The fix is one deleter script in the plugin that deletes only inside known classes: session scratchpads, the plugin's temp folders under the OS temp directory, finished lane worktrees, and merged branches. It refuses any other path and lists what it removed. One allow line in each machine's local Claude settings names that script, so every session and subagent calls it without a prompt while rm stays gated. Sessions then stop asking you to delete.
+	- [ ] Yes, build the deleter and add the allow line on all four machines (recommended)
+	- [ ] Hold
+	No default: sessions keep asking until you tick
+	<empty-block/>
+</details>
+<details>
+<summary>**Knowledge triage, rev 4 per your 9/29 note**</summary>
+	You said: daily, on notes from all machines together in one session, and why Sonnet rather than Opus. You are right that triage is judgment, so rev 4 is Opus. Cost is about five times the Sonnet run, still far below one build, and every run reports its tokens.
+	What lane 40 now builds: a daily task on this desktop that first gathers the inbox notes from Netcup, Hetzner and the Mac over the tailnet (a host that is asleep or unreachable is skipped and named in the run record), triages the union in one Opus session capped at 60 notes and 60 minutes, archives each processed note on the host it came from, and commits the curated files to the dotfiles repo once, with the skill's credential check on.
+	Still true from rev 3: the run counts as you asking, the task runs only while you are logged on, a stuck lock is yours to clear with the two commands in the ATTENTION file, and the first run confounds the Oct 4 read-count check from lane 18.
+	The lane builds now on your note. The install on this desktop waits for your tick here.
+	- [ ] Yes, install when it lands, first run right away (recommended)
 	- [ ] Yes, but the first run waits until after Oct 4
-	- [ ] Hold, not yet
+	- [ ] Hold
 	No default: installs take your word per item
 	<empty-block/>
 </details>
 <details>
-<summary>**Release 0.20.18**</summary>
-	Main since 0.20.17 carries lane 46 (the plugin's test suites no longer leak temp directories; on 9/28 they had filled Netcup's temp space to 99.8 percent of its inodes, and every checkout still on 0.20.17 keeps leaking until this installs), lane 44 (a git environment inherited from a parent process can no longer rebind which project a note, pickup or collector acts on) and lane 38 (the census counts wakes, Stop-blocks and stall nudges for Claude and Codex leads alike). Lanes 36 and 37 are in flight and ride along if merged when your tick lands. Ticking yes to release means the release owner (skills-n) cuts it from main at that moment, reinstalls the Netcup collector timer and the Windows janitor task, installs on the four machines per this tick, and retries the Mac with this release.
-	- [ ] Yes, release 0.20.18 now
+<summary>**Lead coordination: the Fable pane's cost, your call**</summary>
+	The 9/28 bearings kept the Fable pane as lead on one condition: its daily cost must not rise. It rose. In the 24 hours to 3 PM on 9/29 the pane used 72.7M tokens against a 65M bound, 91 turns, 47 percent of the tokens in turns that a peer note woke. The 9/29 bearings says the reason is not the pane but the loop: seventeen lanes merged in a day and none installed, so the change that removes most of those wakes (a Codex lead running its own Opus review, lane 53) runs nowhere yet. It is in 0.20.18, which you ticked today.
+	- [ ] Keep the Fable pane as lead through one 24-hour census after 0.20.18 is installed here, then decide on that reading (recommended)
+	- [ ] Move day-to-day coordination to an Opus pane now, Fable only for bearings and rulings
 	- [ ] Hold
-	No default: installs take your word per item
+	No default: the pane keeps leading until you tick
 	<empty-block/>
 </details>
 <details>
@@ -38,13 +48,13 @@
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Mon 5:42 PM)
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
-- Release 0.20.17 is on Windows, Netcup and Hetzner (installed Sep 28 about 5:50 PM NY). The Mac did not answer again; it is retried at the next release.
+- Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
+- Bearings 9/29 said RE-PLAN: we merged seventeen lanes and installed none. No new lane opens until one 24-hour census has read 0.20.18. Two items below ask for your call.
 - This page is rendered from repo files, refuses to publish while any source is uncommitted, and never drops a line you wrote unless it is saved in the history first.
-- The Goals page is now one line per goal with detail collapsed, as you asked.
 - Eight lanes closed since 4:30 PM, two of them led from Codex end to end. The inbox no longer reports a packet missing when it never looked for it.
 - Two lanes stalled for hours today, one at a delete prompt, one on a reviewer that never reported. Two night lanes now running make the collector ask the lead after two silent hours.
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
-- The Windows daily cleanup task and the Netcup collector timer now run from 0.20.17, with the two-hour stall ask kept.
+- The Windows daily cleanup task and the Netcup collector timer now run from 0.20.18, with the two-hour stall ask kept.
 # History {toggle="true"}
 	- [Sep 29](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-29.md) — Lane56 made Codex advisory-route tests deterministic while retaining real-clock deadline coverage, and Lane55 restored COUNTED historical Codex token and lead-turn rows.
 	- [Sep 28](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-28.md) — the collector follow-ups landed, so a reinstall keeps --stale-hours and a closed lane stays closed.
@@ -61,5 +71,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Sep 28, 2026, 5:50 PM America/New_York)
+- [ ] Done (last cleared: Sep 29, 2026, 3:57 PM America/New_York)
 <empty-block/>
