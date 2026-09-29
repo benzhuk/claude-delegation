@@ -10,9 +10,10 @@ in `hooks/lib/goal-context.mjs` (P8), and the tests of all of these.
 GOAL line served: "work lost or stalled" — a hook/agent/timer with a stale inherited
 `GIT_DIR` silently pointing writes/reads at the wrong repo, or a packet falsely reported
 missing, or a stale bearings notice, are all ways work looks lost or wrongly blocked even
-though it exists and is current. Nearest NOT: "a symptom fix" — P6/P8 both went to the
-actual resolution-path cause (an unproven directory treated as checked; a worktree path used
-as project identity), not to reformatting a message.
+though it exists and is current. Nearest NOT: "a symptom fix" — P8 went to the actual
+resolution-path cause (a worktree path used as project identity). Part 2's r0 cause (an
+unproven directory treated as checked) is the r0 hypothesis, disproved by review r1; see the
+Part 2 fields. Neither change reformats a message.
 
 Base: d6f5c9d. Branch: build/repo-env-everywhere-1.
 
@@ -195,19 +196,19 @@ under this lane's own scratch dir. With `GIT_DIR` pointed at `other-repo`:
 
 ## Part 2 (P6-P7): the packet lookup miss
 
-### Root cause, found by reproduction (not assumed)
+### r0 hypothesis, disproved by review r1 (the corrected cause is in the fields below)
 
 The lead's own hypothesis (a hook cwd outside the repo) was investigated and ruled out by the
 report's own facts: skills-fable's Orca pane's `git rev-parse --git-common-dir` DID resolve
 to the main checkout, and `GIT_DIR`/`GIT_WORK_TREE` were unset there — so the false miss was
 not P1's bug and not a plain "wrong cwd" case.
 
-The actual cause: `mainCheckout` is a WRITER's helper — when `dir` is not a repo, OR when git
+The r0 hypothesis (disproved by review r1, F1): `mainCheckout` is a WRITER's helper — when `dir` is not a repo, OR when git
 itself could not answer AT ALL (no git on PATH, a transient failure — the same exception
 either way), it deliberately falls back to "write where we were told" (`start` as-is), so
 `note-send` always has somewhere to put a file. `note-inbox.mjs`'s reader reused that same
 `mainCheckout` call directly and inherited its writer fallback: when the hook's own process
-could not run git for its cwd (confirmed on the real Windows box — a PATH that does not
+could not run git for its cwd (reproduced on the Windows box only by stripping Git from PATH, never observed live; review r1 found git reachable there — a PATH that does not
 include `git.exe`'s directory throws ENOENT for every `execFileSync('git', ...)` call,
 indistinguishable to `mainCheckout` from "not a repo"), the reader silently treated that
 unproven directory as a checked repo, looked for the packet there, found nothing, and
@@ -237,7 +238,7 @@ addressed to `testslug` referencing that packet written into the `~/.agents/note
 (matching the live bug's own description: "the ledger lines still arrive through the
 ~/.agents/notes mirror"). Driven via `repro2.mjs`, which strips `...\Git\cmd` /
 `...\Git\bin` from the hook process's own PATH (so every git call throws ENOENT — the
-mechanism found above) and calls `runNoteInbox` with `cwd: wt`, exactly as the real hook
+r0 hypothesis above, not the live cause) and calls `runNoteInbox` with `cwd: wt`, exactly as the real hook
 invokes it.
 
 Before (base `d6f5c9d`):
