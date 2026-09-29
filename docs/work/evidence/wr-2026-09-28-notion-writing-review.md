@@ -1,3 +1,5 @@
+VERDICT: APPROVE 0f968192d809b43d9fdef8d36740155366c16617
+
 # wr-2026-09-28-notion-writing evidence
 
 - Review: Opus r1 NEEDS_FIXES, all findings fixed. Opus r2 APPROVE at 27ecce3 with one LOW (a leading BOM could hide a tab-indented before-after pair). Fixed by one test assertion at 0f968192d809b43d9fdef8d36740155366c16617, and Opus r3 confirmed with APPROVE 0f968192d809b43d9fdef8d36740155366c16617.
