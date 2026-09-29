@@ -603,7 +603,7 @@ test('Lane55 R1 lead segment terminal witness follows chronology when explicit -
     usage('later-response', 'later-turn', { at: '2026-09-27T13:00:02.000Z' }),
     line('event_msg', { type: 'task_complete', turn_id: 'later-turn' }, '2026-09-27T13:00:03.000Z'),
   ]);
-  const report = await runCensus({ lead: later, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  const report = await runCensus({ lead: later, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: '2026-09-27T10:00:00.000Z', to: '2026-09-27T14:00:00.000Z', out: null });
   assert.equal(report.lead.codex.discovery.scope.complete, true);
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.lead.observedLeadRequests, 2);
