@@ -248,6 +248,7 @@ Every `unread` cell in the table above, and what is missing to make it read:
    `--json` output mode that `four-read.mjs --census` can consume, or the accept-prep step that
    runs both scripts needs to wire the markdown census's numbers into four-read's own input before
    four-read runs.
+   Lead-side correction (Opus verdict): the cause above is wrong. `build-census.mjs` does write a JSON census with `--json <path>` (`scripts/build-census.mjs:1675`, `:1709-1711`), and the lead ran it that way; the miss is that `four-read.mjs --census` was handed the markdown `-census.md`, which `loadJson` (`scripts/four-read.mjs:47`, `:787`) fails to parse and silently turns into no census, so the token cell and, through the missing `census.leadPath` (`:789`), the gap, stall, wake and Stop-block cells print unavailable; the fix is to pass the `.json` file, as `docs/census.md:492-494` already says, and to make a non-JSON `--census` an error.
 5. **Wakes/Stop-blocks, lanes 47 (repo-env-everywhere) and 42/43/44/46 (stale-session-guard,
    cross-host-nudge, transport-identity, test-temp-hygiene):** `unavailable (no census)` in 4 of
    the 5, and simply absent from the printed row (no wakes/Stop-blocks clause at all) in the other.
@@ -269,4 +270,54 @@ Every `unread` cell in the table above, and what is missing to make it read:
    readback defect. Missing: a correction to the packet's wording, or a pointer to whichever
    evidence file actually uses the words "false red" for lane 37, if one exists off this host.
 
-## Verdict (Opus, pending)
+## Verdict (Opus)
+
+Written on 9/28 from the table above, with each figure used here reopened at its cited file and line. The baseline is the measure table in `docs/GOALS.md:13-18`, not only the 152-turn line quoted in the table's first row. S3 asked for every number GOALS.md pins, and lines 15 to 18 pin at least one per measure. Where a line pins nothing comparable, this section says so and makes no comparison.
+
+Finding 4b is wrong, and the correction is under it. `build-census.mjs` does emit a JSON census (`--json`, `scripts/build-census.mjs:1675`, `:1709-1711`). The miss is that `four-read.mjs` was given the markdown file and silently read it as no census (`scripts/four-read.mjs:47`, `:787`). The same miss also blanks the gap and stall cells for lanes 42 to 47 (`:789`), so part of finding 4 and all of finding 5 have the same cause.
+
+### The four measures
+
+Top-tier tokens per build: no comparison with the hand-run baseline is possible, because it has no token number: "earlier hand-run builds have no token record" (`docs/GOALS.md:15`). The same line pins a plugin baseline instead: closed lanes from 9/26 to 9/28, median 12.6M over 14 records, range 2.8M to 54.7M. Today's nine readable lanes are the Claude-led ones, all with census verdict COUNTED. Their median is 11.6M (lane 43, `wr-2026-09-28-cross-host-nudge-census.md:9`) and they run from 4.8M (lane 32, `wr-2026-09-27-autolink-guard-census.md:9`) to 35.7M (lane 47, `wr-2026-09-28-repo-env-everywhere-census.md:12`). That is level with the plugin baseline, not a gain. These figures are also smaller than the measure itself, which counts "all roles" from spec to accepted, for three reasons:
+- No lane carries its Fable spec work. The Fable lead spent 40,270,919 claude-fable-5-1 tokens from 19:00Z to 00:19Z (`fable-lead-census.md:40`). Nine of these lanes closed in that window, and none of those tokens is in any lane's figure.
+- The three Codex-led lanes (31, 37, 48) are unread.
+- Lanes 46 and 47 ran from the same lead session, and their census windows overlap from 22:17Z to 22:47Z (`wr-2026-09-28-test-temp-hygiene-census.md:20`, `wr-2026-09-28-repo-env-everywhere-census.md:26`). That half hour's subagent tokens are counted in both lanes.
+
+Hours ask to accepted: beat, though on a shorter clock. `docs/GOALS.md:16` pins two builds: package-build at 50 minutes and rename-build at 3 h 40. Across the 12 lanes the median is 0.7 h, about 42 minutes. Seven lanes took 0.7 h or less, under the 50-minute build, and lane 38 at 0.8 h is level with it. Eleven of 12 finished under 3 h 40. Lane 32 did not: it took 7.4 h (`wr-2026-09-27-autolink-guard.four-read.md:8`), most of it one builder silent for 413 minutes. Lane 37 took 3.4 h, with three rejections before acceptance (`wr-2026-09-28-codex-parity.record.md:21`, `:23`, `:25`). The two clocks start at different points. The reader starts at the record's Opened, which comes after the Fable spec; the baseline starts at Ben's go. Adding the spec time can only lengthen today's figures, so the gain is real at the median but smaller than it looks.
+
+Rework after acceptance: per build, no comparison is possible, because `docs/GOALS.md:17` pins no per-build count. What it pins is one failure class recurring: "Co-Authored-By trailer class recurred across 87 commits". On that class the plugin beat the baseline. None of the 216 commits on origin/main dated 9/28 in New York carries the trailer; this verdict ran `git log origin/main --since=2026-09-28T04:00:00Z --until=2026-09-29T04:00:00Z -i --grep=co-authored-by` and got 0 lines. Per build, 1 of 12 lanes had a fix round after acceptance: lane 37. It was accepted at 6:40 PM, its merge gate failed at 6:47 PM (`wr-2026-09-28-codex-parity.record.md:34`), fix 8b1f4bf and test 1841065 followed, and it was accepted again at 6:58 PM (`:42`). The reader also counts one commit each for lanes 33 (55ae08f) and 34 (386c84c), but each of those edits only the lane's own record and evidence files, so neither is a fix. Every lane's 7-day window runs to 10/5, so this reading is early.
+
+Work lost or stalled: did not beat. `docs/GOALS.md:18` pins two RESULT notes that waited 6 h 54 and 57 minutes, and 3 of 7 loud notes logged no-inbox. Today the plugin lanes still have stalls of the same size:
+- Lane 32's agent a356bf87ac505c39d went silent for 413.3 minutes, about 6 h 53, from 11:15 PM on 9/27 (`wr-2026-09-27-autolink-guard.four-read.md:10`).
+- From about 6:50 PM, each Notion publish exited 5 on readback and needed `--adopt-live`, three times, until lane 48's fix published clean at 7:56 PM (`docs/specs/render-readback-48/pickup.md:5`, `L48-result.md:9`).
+- In each lane's accept-time read, the reader counts 8 unanswered ASKs across lanes 31, 37, 43, 44, 46, 47 and 48; 7 of them are distinct.
+
+Only lanes 33, 34 and 38 read clean on every part: 0 gaps over 30 minutes, 0 waiting on agents, 0 unanswered ASKs. Lanes 42 to 47 have no gap reading, because of the miss under 4b. The three Codex lanes have no stall classification. Nothing today counts loud notes logged no-inbox, the baseline's second number.
+
+### DONE, part by part
+
+- Led once from Claude: met, by lane 33. Lead f6c8ae21, census COUNTED (`wr-2026-09-28-collect-followups-census.md:1`), and eight other Claude-led lanes pass as well.
+- Led once from Codex with a mixed handoff, both ids on record: partly, by lane 48. Lanes 31, 37 and 48 were led by Codex session 01a0df4c from specs written by the Claude Fable session 9c61c35a. Each record carries both ids (`wr-2026-09-28-render-readback.record.md:10-11`), and Claude Opus reviewed each lane through ledger asks. That makes a mixed handoff with both ids on record, so this verdict differs from S5's "not yet", which also asked for the Claude reviewer's own session id. It is still only partly met: the Codex census is PARTIAL (`wr-2026-09-28-render-readback.census.md:1`), so the run cannot be scored with numbers, and DONE is a test with numbers.
+- Lead under 20 turns: met, by lane 33 with 7 (`wr-2026-09-28-collect-followups-census.md:7`). Every Claude-led lane is under 20, the highest being lane 47 at 19 (`wr-2026-09-28-repo-env-everywhere-census.md:7`), against 152 for the hand-run build (`docs/GOALS.md:56`). No lane counts the Fable spec session, which took 39 turns in its 5.3-hour window (`fable-lead-census.md:7`) while nine lanes closed.
+- Nothing lost or stalled, with the count: partly, by lane 33. Its count is 0 gaps over 30 minutes, 0 waiting on agents and 0 unanswered ASKs (`wr-2026-09-28-collect-followups-four-read.md:10`), and lanes 34 and 38 match it. The day as a whole does not: lane 32's 413-minute silence, the readback exit 5s, no reading for lanes 42 to 47, and no stall count at all for the Codex half of the DONE pair.
+
+### The one change next
+
+Stop waking the Fable lead for each note. Let lane results wait in the ledger until the lead's next planned turn, so it wakes once per wave rather than once per note. The measure it should move is top-tier tokens per build, through the Fable share that today sits outside every lane's figure.
+
+The numbers point here. The Fable lead's 40.3M in 5.3 hours is larger than any lane's figure and 3.5 times the median lane. 97.7 percent of it is cache reads (39,357,584 of 40,270,919, `fable-lead-census.md:40`), so each of its 39 turns costs about 1.03M whatever it does. Note-flush wakes opened 15 of those 39 turns (`fable-lead-census.md:9`).
+
+The next Fable lead census checks the change: wakes per hour should fall, and so should claude-fable-5-1 per lane closed. Hours ask to accepted must not rise, because a batched read can delay the next dispatch.
+
+The reader miss under 4b is a finding for lane 38's owner, not this change.
+
+### Prediction to check at 3:00 PM NY on 9/29
+
+Part (b) of the 9/28 bearings (`docs/decisions/history/2026-09-28.md:34`) holds if the lead census for 19:00Z on 9/28 to 19:00Z on 9/29 shows at most 65M claude-fable-5-1 tokens, summed over every Fable lead session.
+
+Steps to check it:
+1. At 3:00 PM NY on 9/29, run the second command in the S4 section above on ben-desktop, with `--to 2026-09-29T19:00:00Z`. Run it from a fresh detached worktree of origin/main, as the bearings reader asks (`:35`); this report's read used a checkout at 9435161.
+2. Read the claude-fable-5-1 row of "Lead tokens by model — window (deduped)" and sum its four columns. With `--json`, read `lead.windowByModel`, the same numbers.
+3. The command covers session 9c61c35a only. Run any other Fable lead session active in the window the same way and add its total.
+
+At 8:19 PM NY on 9/28 the total stood at 40,270,919, which is 62 percent of the bound after 5.3 of the 24 hours. To stay under the bound, the remaining 18.7 hours must use less than 24.7M, about 24 more lead turns at today's 1.03M each. At the evening's rate of about 7.6M an hour, the bound would pass around 11:30 PM NY on 9/28. The prediction holds only if the lead stays mostly idle overnight and through the morning.
