@@ -3,7 +3,7 @@ Scope: the spec section of this record (lane 53), from packet docs/notes/skills-
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
-Next: Sonnet scout verifies the packet's sources, then the lead writes the spec here, then an Opus red-team of the spec before any builder
+Next: Opus red-team of the spec, then the Sonnet builder with the probes
 Worktree: build/review-run-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53
 Opened: 2026-09-29T02:05:00.000Z
@@ -12,7 +12,117 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:04:06Z
 Base: 7ab59dbd496c062f1cbb8eb259dd5a95aa9f9088
 Log: 2026-09-29T02:05:18.000Z owned skills-n picked up skills-fable-lane-53-1 (ACK skills-n-lane-53-1); worktree from origin/main at 7ab59db; Sonnet scout spawned to verify the packet's sources before the spec
+Log: 2026-09-29T02:09:33.000Z owned skills-n scout DONE (lane 40 triage doc absent, scripts\/ not mirrored, no agent-by-path flag, no subprocess recursion guard); spec written with the script in skills\/team-build\/scripts so the mirror is unchanged; Opus spec red-team spawned
 
 ## Spec (lead, from the packet)
 
-Pending the scout.
+Measure: top-tier tokens per build (the Fable relay turns: 10 of 11 ASK wakes in the lane 51 window were skills-a asking for a reviewer spawn) and hours ask to accepted (no relay wait). Must not worsen: review quality (same reviewer role file, same model tier, same report contract) and work lost or stalled.
+
+Scout: docs/specs/review-run-53/scout.md. Corrections to the packet, adopted here:
+- The lane 40 triage doc does not exist. The five probe checks are the packet's own list, P1 to P5 below.
+- `scripts/` is not mirrored today; `skills/<name>/` is, scripts folder included. So the script lives in the team-build skill, and the mirror script is unchanged. That is fewer parts than a new mirror source kind.
+- No `claude` flag loads an agent file by path. The role is passed as `--agents` JSON built from agents/reviewer.md at run time, or through `--append-system-prompt` if the probe shows `--agents` does not apply it.
+- No recursion guard for a subprocess spawn exists today. It is new here.
+- Prior art: scripts/native-continuation-smoke.mjs:29,141-142 (the `cleanEnv` allowlist and the pinned `claude -p` argv).
+
+### S1. The script
+
+`skills/team-build/scripts/review-run.mjs`. The mirror publishes it as `~/.agents/skills/team-build/scripts/review-run.mjs`.
+
+Usage:
+```
+node review-run.mjs --sha <commit> --brief <path> --report <path> [--repo <checkout>] [--model opus] [--timeout-min 45] [--scratch <dir>]
+```
+- `--repo` defaults to the cwd's git top level.
+- `--scratch` defaults to the OS temp dir.
+- `--sha` is resolved to the full 40-hex id with `git rev-parse --verify <sha>^{commit}`.
+
+Steps, in order:
+1. Kill switch. If `<AGENTS_HOME or ~/.agents>/no-review-run` exists, exit 5 and print on stderr: "review-run is switched off (no-review-run); ask a Claude lead to run the reviewer".
+2. Recursion. If the environment carries `DELEGATION_REVIEW_RUN=1`, exit 6: "review-run refuses to run inside a review-run child".
+3. Resolve the role file. It is `<plugin root>/agents/reviewer.md`, where the plugin root is the first found of:
+   - `--plugin-root`;
+   - walking up from the script to a directory holding `.claude-plugin/plugin.json`;
+   - the `installPath` of `delegation@benzhuk` in `~/.claude/plugins/installed_plugins.json` (the mirrored copy's path).
+   If none is found, exit 4. The role is always the installed or checked-out plugin's own file, never a copy. Its sha256 goes into the identity sidecar.
+4. Resolve `claude`, from `--claude-bin` (a test seam) or PATH. If it is missing, exit 4 and name the host.
+5. Create the worktree with `git -C <repo> worktree add --detach <scratch>/review-run-<sha7>-<random> <fullsha>`.
+6. Run the child. Its cwd is the worktree, it gets the pinned argv (S2), and the prompt is the brief file's text plus one line: "Write your report to <absolute report path>. Its first line must be `VERDICT: APPROVE <fullsha>` or `VERDICT: NEEDS_FIXES <fullsha>`."
+   - The child's environment is `cleanEnv` plus `DELEGATION_REVIEW_RUN=1` and `AGENTS_HOME=<worktree-sibling scratch>/agents-home`.
+   - So its multi hooks, if they load, write only into scratch. `NOTE_SLUG`, `ORCA_*` and session-name variables are never passed.
+   - Timeout is `--timeout-min`. On timeout, kill the child's process tree and exit 3.
+7. Validate the report. It must exist, and line 1 must match `^VERDICT: (APPROVE|NEEDS_FIXES) <40hex or a prefix of at least 7 chars of fullsha>$`.
+   - A missing report, a different sha, or any other first line exits 2.
+   - The verdict is the report's own. The script never writes into the report: evidence keeps its original bytes.
+8. Identity. The script writes `<report>.identity.json`, holding `sha`, `verdict` (or null), `exit`, `session` (the `--session-id` uuid the script generated), `model`, `role` (path and sha256), `pluginVersion`, `claudeVersion`, `host`, `startedAt` and `endedAt`. This is the reviewer identity block. A record names the session uuid as the reviewer id.
+9. Always remove the worktree with `git worktree remove --force` and `git worktree prune`, on every exit path after step 5, timeout and crash included.
+10. Output. Print one JSON line on stdout: `{exit, report, identity, verdict, sha, session}`.
+
+Exit codes:
+| code | meaning |
+|---|---|
+| 0 | a well-formed report, whatever its verdict |
+| 1 | usage error |
+| 2 | malformed or missing report |
+| 3 | timeout |
+| 4 | unsupported host, or no claude or plugin root |
+| 5 | kill switch |
+| 6 | recursion refused |
+
+Only exit 0 carries a verdict.
+
+### S2. The pinned `claude -p` invocation (pinned by probe)
+
+Starting point:
+```
+claude -p --output-format stream-json --verbose --model <opus> --session-id <uuid> --permission-mode dontAsk --allowedTools <reviewer tools from frontmatter> --agents <json file> --agent reviewer
+```
+The builder runs P1 to P5 on Netcup against a known-good sha (d7625e0 with a small brief). It commits the final argv as a constant, with a comment naming the probe run. Each probe records pass or fail in the build report.
+
+- **P1, the role loads.** The stream-json init event shows the model resolved to an Opus id, and a tool set equal to the reviewer frontmatter's tools, with no Agent tool. The report follows the reviewer's report contract.
+- **P2, the guard hooks stay active in the child.** A child asked to run a command the user-level delete guard or git-identity guard denies gets that denial. Setting sources keep `user`, so the user's PreToolUse guards load. A child that loads no guard fails P2.
+- **P3, no recursion.** A child told to run review-run gets exit 6 (the env marker), and the child has no Agent tool.
+- **P4, no transport writes.** Hashes and mtimes of the real `~/.agents/notes/` tree, `inboxes.json`, `panes.json` and the repo's `docs/ledger/` are identical before and after a full run.
+- **P5, zero permission denials** in a full run on the known-good sha. Count them in the stream-json.
+
+If `--agents` with `--agent` does not satisfy P1, use `--append-system-prompt <role body>` with `--tools`/`--allowedTools` from the frontmatter, and record why. `bypassPermissions` and `--dangerously-skip-permissions` are never used.
+
+The model comes from `--model`, default `opus`, the high-tier alias per docs/model-tiers.md:9.
+
+### S3. The contract paragraph
+
+Goes in skills/team-build/SKILL.md, directly after the "**Codex**: no Workflow tool" paragraph, where the Codex-lead rule lives. The scout found nothing about it in docs/subagent-contract.md.
+
+A Codex-led lane obtains its high-tier review by running `review-run` itself, and records the report and the identity sidecar as evidence, with the sidecar's session uuid as the reviewer id. It asks a Claude lead for a reviewer only when review-run exits nonzero, and quotes the exit code. The Claude-led path is unchanged.
+
+docs/census.md gets one line: a review-run child's transcript lands under the worktree path's project folder and is not in the lead's subagents folder. So a Codex lead's census counts its review tokens only through the identity sidecar's session. Name that gap rather than hide it.
+
+### S4. Efficacy tests
+
+Test file: skills/team-build/scripts/review-run.test.mjs. It uses a fake `claude` through `--claude-bin`, a node script driven by an env knob. Each test must fail without the code it covers.
+- A malformed first line exits 2.
+- A missing report exits 2.
+- A report for a different sha exits 2.
+- A timeout exits 3, and the fake's child process is gone.
+- The kill switch exits 5, and the fake is never started.
+- The recursion marker exits 6.
+- APPROVE and NEEDS_FIXES both pass through with exit 0, and the verdict appears in the stdout JSON and the sidecar.
+- The worktree is removed on every one of those paths: `git worktree list` is back to its before count.
+- The child's environment has `DELEGATION_REVIEW_RUN=1`, a scratch `AGENTS_HOME`, and no `NOTE_SLUG`/`ORCA_*`.
+- The role passed to the child is byte-derived from agents/reviewer.md: its sha256 is in the sidecar.
+- The mirror test asserts that the mirrored team-build copy contains scripts/review-run.mjs.
+
+Live proof:
+- (a) The lead runs review-run on Netcup and on ben-desktop on d7625e0 with lane 49's brief, and quotes each report's first line and the sidecar.
+- (b) skills-a runs it once from its Codex session on the same sha, and the RESULT quotes the report's first two lines. This goes through an ASK to skills-a after the code review; it is not a gate on accept.
+
+Measure after: in the next Fable lead census, ASK wakes from skills-a per Codex lane, against 5 for lane 49 and 3 for lane 52.
+
+### Territory
+
+- skills/team-build/scripts/review-run.mjs and review-run.test.mjs.
+- One assertion in scripts/mirror-shared-skills.test.mjs.
+- skills/team-build/SKILL.md, one paragraph.
+- docs/census.md, one line.
+
+NOT agents/reviewer.md, hooks/, note-send, note-inbox, the flusher, scripts/four-read.mjs (lane 54), or scripts/mirror-shared-skills.mjs itself.
