@@ -1,9 +1,11 @@
 Work: wr-2026-09-28-repo-env-everywhere
 Scope: docs/specs/repo-env-everywhere-1/spec.md (lane 47 lead spec, rulings P1 to P8) from packet docs/specs/repo-env-everywhere-1/packet.md (skills-fable-lane-47-1, plus skills-fable-lane-47-2 for P8)
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/repo-env-everywhere-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; live proofs run read-only commands under a scratch GIT_DIR and a scratch notes home; no release, no install, no change to live note state
-Next: delta r3 by the r2 reviewer and the Windows suite at 9435161
+Next: accept pinned at 9435161, merge into main under the standing grant, publish, close, RESULT to skills-fable
+Artifact: 9435161e0997b5cde2e42b8a481c6e07f547d077
+Evidence: docs/work/evidence/wr-2026-09-28-repo-env-everywhere-review.md, docs/work/evidence/wr-2026-09-28-repo-env-everywhere-review-r1.md, docs/work/evidence/wr-2026-09-28-repo-env-everywhere-review-r2.md, docs/work/evidence/wr-2026-09-28-repo-env-everywhere-suites.md, docs/work/evidence/wr-2026-09-28-repo-env-everywhere-live.md
 Worktree: build/repo-env-everywhere-1
 Opened: 2026-09-28T22:17:00.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -16,5 +18,10 @@ Log: 2026-09-28T23:45:37.000Z rejected skills-n Opus review r1 NEEDS_FIXES 1b6a5
 Log: 2026-09-28T23:53:47.000Z delivered skills-n fix builder DONE 6ef609a (F1 fields and comments corrected, F2 worktree receipt honoured, F3 class (a) and (c) tests red on base, F4 fixtures sealed, F5 one git spawn); full 2697 of 2702, 0 fail, leak check 0; no denials this round; fresh Opus delta r2 (r1 reviewer context past the resume threshold) and Windows suite started
 Log: 2026-09-29T00:03:12.000Z rejected skills-n review r2 by a4a42ea240cc29011 NEEDS_FIXES 6ef609a (R2-1 MEDIUM a worktree-only card is masked by a silent main checkout, R2-2 LOW build.md narrative residue, R2-3 LOW new F3 fixtures unsealed); lead suites green at 6ef609a on Linux 2697 of 2702 and Windows 2688 of 2702, live proofs pass; fix round 2 per lead-ruling-r2.md
 Log: 2026-09-29T00:08:27.000Z delivered skills-n fix builder round 2 DONE 9435161 (R2-1 fallback condition plus test red at 6ef609a, R2-2 build.md narrative, R2-3 fixtures sealed, NIT 1); full 2698 pass, 0 fail, leak check 0; no denials; delta r3 by the r2 reviewer and Windows suite started
+Log: 2026-09-29T00:11:53.000Z reviewed skills-n Opus reviewer a4a42ea240cc29011 delta r3 VERDICT: APPROVE 9435161 (R2-1 probes G and A to D2 rerun at 9435161, R2-3 victim repo untouched, R2-2 residue gone); Windows 2689 and Netcup 2698 of 2703, 0 fail, leak check 0 on both; live proofs janitor under a foreign GIT_DIR and note-inbox from a Windows worktree cwd pass
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-47
+
+Observed: with GIT_DIR exported to a scratch repo, janitor from base resolved the scratch repo (0 worktrees, 0 branches), and janitor from the branch resolved claude-delegation (18 worktrees, 21 branches). On Windows, note-inbox run from a linked worktree cwd printed packet: <main checkout path> for a packet that exists only in the main checkout. A standalone node --test of the touched test files with GIT_DIR exported left the target repo untouched. Base committed into it. The bearings notice from a worktree now agrees with bearings-state check in all eight probe cases. Both hosts passed with 0 fail and a clean leak check. The packet misses skills-fable reported were traced to its stale pre-0.20.16 session hooks, not to this code.
+
+Predicts: after the next release, no plugin script or test resolves the wrong repository when an agent or git hook has GIT_DIR exported, so no wrong-repo janitor reports or commits land in the wrong repo (rework after acceptance). A Windows worktree pane stops seeing a false "Bearings are due" when the receipt is current on the main checkout. A packet the reader could not check reads not checked here, never MISSING.
