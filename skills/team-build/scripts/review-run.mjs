@@ -279,28 +279,53 @@ export function validateReportPath(reportPath, scratchDir, fsImpl = fs) {
   }
 }
 
-function isProcessAlive(pid, fsImpl = fs) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+/** finding 7: EPERM (a process owned by another user, which this process cannot signal) must
+ * count as ALIVE, never as dead — otherwise a live process owned by another user gets treated as
+ * a dead run and its wt/ gets swept. A reused pid is already fail-safe the other way (counts as
+ * alive, so the run is only ever skipped, never wrongly swept). fsImpl is no longer accepted:
+ * process.kill has no fs-backed test seam to inject. */
+export function isProcessAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (err) { return err?.code === 'EPERM'; }
 }
 
-/** M5: before a new run starts, remove the clone of any prior run whose owner pid is dead and
- * whose startedAt is older than the timeout. Only ever removes a `wt/` under a `review-run-*`
- * dir this script itself created. */
-export function sweepStaleRuns(scratchDir, timeoutMin, fsImpl = fs, isAliveFn = isProcessAlive) {
+/** M5/finding 6: after a new run starts, kill any orphaned child of a dead review-run process
+ * once that run's own deadline has passed, then reclaim its clone. finding 7: never follow a
+ * symlinked `review-run-*` entry — only a real directory this script itself created is touched. */
+export function sweepStaleRuns(scratchDir, timeoutMin, fsImpl = fs, isAliveFn = isProcessAlive, killOrphanFn = defaultKillOrphan) {
   let entries;
   try { entries = fsImpl.readdirSync(scratchDir); } catch { return; }
-  const cutoffMs = timeoutMin * 60 * 1000;
   for (const entry of entries) {
     if (!/^review-run-[0-9a-f]{7}-[a-z0-9]+$/.test(entry)) continue;
     const runDir = path.join(scratchDir, entry);
+    // finding 7: lstat, not stat — a symlink here must never be traversed into a foreign dir.
+    try { if (!fsImpl.lstatSync(runDir).isDirectory()) continue; } catch { continue; }
     const ownerPath = path.join(runDir, 'owner.json');
     let owner;
     try { owner = JSON.parse(fsImpl.readFileSync(ownerPath, 'utf8')); } catch { continue; }
     if (!owner || typeof owner.pid !== 'number' || typeof owner.startedAt !== 'string') continue;
-    if (isAliveFn(owner.pid, fsImpl)) continue;
+    if (isAliveFn(owner.pid)) continue; // review-run itself is still running — never touch its dir
+    const cutoffMs = (typeof owner.timeoutMin === 'number' ? owner.timeoutMin : timeoutMin) * 60 * 1000;
     const age = Date.now() - Date.parse(owner.startedAt);
-    if (!(age > cutoffMs)) continue;
+    const childAlive = typeof owner.childPid === 'number' && isAliveFn(owner.childPid);
+    if (childAlive) {
+      // finding 6: a detached child (the claude session) can outlive a SIGKILLed review-run.
+      // Only reap it once IT is past its own deadline — a live orphan still inside its own
+      // timeout is left alone, so its wt/ is never removed out from under it.
+      if (!(age > cutoffMs)) continue;
+      killOrphanFn(owner.childPid);
+    } else if (!(age > cutoffMs)) {
+      continue;
+    }
     removeDirWithRetry(path.join(runDir, 'wt'), fsImpl);
+  }
+}
+
+/** finding 6: reap an orphaned child the same way runChild's own killTree does. */
+function defaultKillOrphan(pid) {
+  if (process.platform === 'win32') {
+    try { execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); } catch { /* already gone */ }
+  } else {
+    try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
   }
 }
 

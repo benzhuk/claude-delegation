@@ -14,7 +14,7 @@ import {
   EXIT, RECURSION_ENV_VAR, VERDICT_RE, DISALLOWED_TOOLS,
   parseArgs, normalizeFirstLine, validateVerdict, parseRoleFile, sha256Hex,
   buildAgentsJson, buildArgv, buildChildEnv, validateReportPath, resolvePluginRoot,
-  stripGitLocatingEnv, runReviewRun,
+  stripGitLocatingEnv, sweepStaleRuns, isProcessAlive, runReviewRun,
 } from './review-run.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -358,6 +358,34 @@ test('finding 4: a run given a relative --scratch never writes anything into the
   assert.ok(fs.existsSync(path.join(workDir, 'relscratch')), 'the clone must land under the CLI process cwd, once resolved');
   const after = execFileSync('git', ['status', '--porcelain'], { cwd: REPO_TOP, encoding: 'utf8' });
   assert.equal(after, before, 'the reviewed repo must never gain an untracked clone from a relative --scratch');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 7: the sweep must not follow a symlinked run dir, and EPERM must count as alive
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('finding 7: sweepStaleRuns does not follow a symlinked review-run-* entry into a foreign directory', () => {
+  const scratch = scratchDir('review-run-sweep-scratch-');
+  const canary = scratchDir('review-run-sweep-canary-');
+  fs.mkdirSync(path.join(canary, 'wt'), { recursive: true });
+  fs.writeFileSync(path.join(canary, 'wt', 'canary.txt'), 'still here');
+  fs.writeFileSync(path.join(canary, 'owner.json'), JSON.stringify({
+    pid: 999999, startedAt: new Date(Date.now() - 999_999_999).toISOString(),
+  }));
+  const linkName = 'review-run-abc1234-deadbeef';
+  fs.symlinkSync(canary, path.join(scratch, linkName), 'dir');
+
+  sweepStaleRuns(scratch, 1, fs, () => false);
+
+  assert.ok(fs.existsSync(path.join(canary, 'wt', 'canary.txt')), 'a symlinked review-run-* entry must never have its target\'s wt/ removed');
+});
+
+test('finding 7: isProcessAlive treats EPERM (a process owned by another user) as alive, not dead', () => {
+  // pid 1 (init/systemd) exists but is not signalable by a non-root user: process.kill(1, 0)
+  // raises EPERM on every POSIX host this runs on. On win32 this test is skipped: there is no
+  // pid-1-equivalent EPERM case to probe the same way.
+  if (process.platform === 'win32' || process.getuid?.() === 0) return;
+  assert.equal(isProcessAlive(1), true, 'EPERM must count as alive, never as dead');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
