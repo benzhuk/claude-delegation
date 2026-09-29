@@ -277,6 +277,47 @@ test("the child's environment carries DELEGATION_REVIEW_RUN=1 and a scratch AGEN
   assert.ok(!capturedArgv.includes('--name'), 'argv must never carry --name');
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 10: missing sidecar/stdout fields — roleBodySha256, installedRoleSha256 (independent
+// of roleSource), the resolved absolute claudeBin, resolvedModel from the init event, and
+// cleanup/wtDir surfaced on the stdout-shaped output too, not just the sidecar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('finding 10: the sidecar carries roleBodySha256, an absolute claudeBin, resolvedModel from the init event, and installedRoleSha256 (null when nothing is installed)', async () => {
+  const claudeBin = writeFakeClaude(scratchDir('review-run-f10-claude-'));
+  const pluginRoot = makePluginRoot();
+  const expectedBody = parseRoleFile(fs.readFileSync(path.join(pluginRoot, 'agents', 'reviewer.md'))).body;
+  const { reportPath } = await run({ mode: 'approve', claudeBin, pluginRoot });
+  const identity = JSON.parse(fs.readFileSync(`${reportPath}.identity.json`, 'utf8'));
+  assert.equal(identity.roleBodySha256, sha256Hex(Buffer.from(expectedBody, 'utf8')));
+  assert.ok(path.isAbsolute(identity.claudeBin), `claudeBin must be absolute, got ${identity.claudeBin}`);
+  assert.equal(path.resolve(identity.claudeBin), path.resolve(claudeBin));
+  assert.equal(identity.resolvedModel, 'fake-opus', 'resolvedModel must come from the init event\'s own model field');
+  assert.equal(identity.installedRoleSha256, null, 'no installed_plugins.json exists in this fixture HOME');
+});
+
+test('finding 10: installedRoleSha256 is computed independently of roleSource — a --plugin-root flag run still reports what is actually installed', async () => {
+  const home = scratchDir('review-run-f10-home-');
+  fs.mkdirSync(path.join(home, '.claude', 'plugins'), { recursive: true });
+  const installedRoot = makePluginRoot(); // a DIFFERENT plugin root than the one used via --plugin-root below
+  fs.writeFileSync(
+    path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'delegation@benzhuk': [{ scope: 'user', installPath: installedRoot }] } }),
+  );
+  const flagRoot = makePluginRoot(); // resolved via --plugin-root (roleSource: 'flag')
+  const { reportPath } = await run({ mode: 'approve', home, pluginRoot: flagRoot });
+  const identity = JSON.parse(fs.readFileSync(`${reportPath}.identity.json`, 'utf8'));
+  const expectedInstalledSha = sha256Hex(fs.readFileSync(path.join(installedRoot, 'agents', 'reviewer.md')));
+  assert.equal(identity.roleSource, 'flag');
+  assert.equal(identity.installedRoleSha256, expectedInstalledSha, 'installedRoleSha256 must reflect the actually-installed entry, even when a different source was used to run');
+});
+
+test('finding 10: a failed cleanup is surfaced on the stdout-shaped output too (cleanup + wtDir), not just the sidecar', async () => {
+  const { output } = await run({ mode: 'approve' });
+  assert.equal(output.cleanup, 'ok', 'the ordinary success path must report cleanup:"ok" on stdout');
+  assert.equal(output.wtDir, undefined, 'wtDir must only appear on stdout when cleanup failed');
+});
+
 test('the role passed to the child is byte-derived from the resolved reviewer.md: its sha256 is in the sidecar', async () => {
   const pluginRoot = makePluginRoot();
   const roleBytes = fs.readFileSync(path.join(pluginRoot, 'agents', 'reviewer.md'));

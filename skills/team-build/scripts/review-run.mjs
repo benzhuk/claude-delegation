@@ -492,6 +492,10 @@ export async function runReviewRun(argv, deps = {}) {
     if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(claudeBinResolved)) {
       hostError('claude.cmd shim unsupported; install the native claude.exe');
     }
+    // finding 10: the sidecar's claudeBin is always the resolved absolute path, never the bare
+    // "claude" the argv or --claude-bin may carry (m1: never hardcode it — it varies by host, e.g.
+    // an fnm multishell path).
+    const claudeBinAbsolute = resolveAbsoluteClaudeBin(claudeBinResolved);
 
     // M5: sweep stale runs from prior crashes before creating this one.
     try { fsImpl.mkdirSync(options.scratch, { recursive: true }); } catch { /* best effort */ }
@@ -542,6 +546,13 @@ export async function runReviewRun(argv, deps = {}) {
       claudeVersion: result.claudeVersion ?? null, host: os.hostname(),
       startedAt: startedAt.toISOString(), endedAt: nowFn().toISOString(),
       roleSource, pluginRoot,
+      // finding 10: roleBodySha256 (M3's "sha256 of the body bytes and of the whole file" — role.sha256
+      // above is the whole-file hash), installedRoleSha256 (independent of roleSource), the resolved
+      // absolute claudeBin, and resolvedModel from the child's own init event.
+      roleBodySha256: sha256Hex(Buffer.from(role.body, 'utf8')),
+      installedRoleSha256: computeInstalledRoleSha256({ home, claudeConfigDir: env.CLAUDE_CONFIG_DIR, fsImpl }),
+      claudeBin: claudeBinAbsolute,
+      resolvedModel: result.resolvedModel ?? null,
       transcriptGlob: '<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<mangled run wt path>/<session>.jsonl',
       usage: result.usage ?? null, modelUsage: result.modelUsage ?? null,
       totalCostUsd: result.totalCostUsd ?? null, numTurns: result.numTurns ?? null,
@@ -591,7 +602,10 @@ export async function runReviewRun(argv, deps = {}) {
     const identityPath = `${options.report}.identity.json`;
     writeSidecarAtomic(identityPath, JSON.stringify(identity, null, 2), fsImpl);
 
-    const output = { exit: exitCode, report: options.report, identity: identityPath, verdict, sha: fullsha, session: sessionId };
+    const output = { exit: exitCode, report: options.report, identity: identityPath, verdict, sha: fullsha, session: sessionId, cleanup: identity.cleanup };
+    // finding 10 (M5): "set cleanup:failed and the path in the stdout JSON and the sidecar" — the
+    // sidecar already carries wtDir implicitly via pluginRoot/paths; stdout needs it named explicitly.
+    if (identity.cleanup === 'failed') output.wtDir = wtDir;
     return { exitCode, output };
   } catch (err) {
     if (runDir && wtDir) removeDirWithRetry(wtDir, fsImpl);
@@ -608,6 +622,32 @@ function readPluginVersion(pluginRoot, fsImpl) {
   try {
     const raw = JSON.parse(fsImpl.readFileSync(path.join(pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8'));
     return typeof raw.version === 'string' ? raw.version : null;
+  } catch { return null; }
+}
+
+/** finding 10: resolve --claude-bin to an absolute path once, so the sidecar records what
+ * actually ran, not the bare "claude" that PATH resolution hides (m1: this varies by host — an
+ * fnm multishell path on Netcup, not /usr/local/bin/claude). */
+function resolveAbsoluteClaudeBin(claudeBin) {
+  if (path.isAbsolute(claudeBin)) return claudeBin;
+  try {
+    const finder = process.platform === 'win32' ? 'where' : 'which';
+    const out = execFileSync(finder, [claudeBin], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/)[0].trim();
+    return out || claudeBin;
+  } catch { return claudeBin; }
+}
+
+/** finding 10 (M7): installedRoleSha256, computed independently of roleSource — so the sidecar
+ * always shows what the delegation@benzhuk user-scope entry ACTUALLY carries, even when this run
+ * used --plugin-root or walk-up instead. null when nothing is installed or nothing resolves. */
+function computeInstalledRoleSha256({ home, claudeConfigDir, fsImpl }) {
+  try {
+    const configDir = claudeConfigDir || path.join(home, '.claude');
+    const data = JSON.parse(fsImpl.readFileSync(path.join(configDir, 'plugins', 'installed_plugins.json'), 'utf8'));
+    const entries = data?.plugins?.['delegation@benzhuk'] ?? [];
+    const userEntry = entries.find((e) => e.scope === 'user');
+    if (!userEntry?.installPath) return null;
+    return sha256Hex(fsImpl.readFileSync(path.join(userEntry.installPath, 'agents', 'reviewer.md')));
   } catch { return null; }
 }
 
@@ -639,6 +679,7 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
     let permissionDenials = 0;
     let finalResultText = null;
     let claudeVersion = null;
+    let resolvedModel = null;
 
     child.stdout?.on('data', (chunk) => {
       stdoutBuf += chunk;
@@ -656,6 +697,9 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
           // in case an older CLI build used that name.
           if (row.type === 'system' && row.subtype === 'init') {
             claudeVersion = row.claude_code_version ?? row.claude_version ?? claudeVersion;
+            // finding 10: the init event's own model field is the actually-resolved model (an
+            // Opus id, not the "opus" alias this script passed on argv).
+            resolvedModel = row.model ?? resolvedModel;
           }
           if (Array.isArray(row.permission_denials)) permissionDenials += row.permission_denials.length;
           if (row.type === 'result') {
@@ -724,8 +768,8 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
       try { fsImpl.writeFileSync(path.join(runDir, 'stderr.txt'), stderrBuf); } catch { /* best effort */ }
       resolve({
         timedOut: false, usage, modelUsage, totalCostUsd, numTurns, durationMs, permissionDenials,
-        finalResultText, claudeVersion, spawnError: true, spawnErrorMessage: err?.message ?? String(err),
-        stderrTail: stderrBuf,
+        finalResultText, claudeVersion, resolvedModel, spawnError: true, spawnErrorMessage: err?.message ?? String(err),
+        stderrTail: stderrBuf, childPid: child.pid ?? null,
       });
     });
     child.once('close', (code, signal) => {
@@ -736,7 +780,8 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
       try { fsImpl.writeFileSync(path.join(runDir, 'stderr.txt'), stderrBuf); } catch { /* best effort */ }
       resolve({
         timedOut, usage, modelUsage, totalCostUsd, numTurns, durationMs, permissionDenials,
-        finalResultText, claudeVersion, childExitCode: code, childSignal: signal, stderrTail: stderrBuf,
+        finalResultText, claudeVersion, resolvedModel, childExitCode: code, childSignal: signal,
+        stderrTail: stderrBuf, childPid: child.pid ?? null,
       });
     });
   });
