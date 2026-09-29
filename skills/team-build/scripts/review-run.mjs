@@ -274,8 +274,32 @@ export function validateReportPath(reportPath, scratchDir, fsImpl = fs) {
     usageError('--report must be outside --scratch');
   }
   if (fsImpl.existsSync(reportPath)) throw new ExitSignal(EXIT.USAGE, 'report path exists; pick a new one');
-  if (fsImpl.existsSync(`${reportPath}.identity.json`)) {
-    throw new ExitSignal(EXIT.USAGE, 'identity sidecar already exists; pick a new report path');
+  // finding 14: claim the sidecar ATOMICALLY here (not check-then-use), so two concurrent runs
+  // given the same --report can never both pass this validation and race on the same identity
+  // file. A run that fails after this point leaves an EMPTY sidecar behind on purpose — that is
+  // the documented signal that --report must be a fresh path, never proof a run happened.
+  const sidecarPath = `${reportPath}.identity.json`;
+  try {
+    fsImpl.writeFileSync(sidecarPath, '', { flag: 'wx' });
+  } catch (err) {
+    if (err?.code === 'EEXIST') {
+      throw new ExitSignal(EXIT.USAGE, 'identity sidecar already exists; pick a new report path');
+    }
+    throw err;
+  }
+}
+
+/** finding 14: the final sidecar write never follows a symlink the child may have planted at
+ * <report>.identity.json while it ran (the child can Write anywhere until finding 1(a) is in
+ * place, and even after, a stale symlink from a prior run's scratch could still be reused). Falls
+ * back to a plain write if O_NOFOLLOW isn't available (some platforms/mocked fsImpl). */
+function writeSidecarAtomic(sidecarPath, contents, fsImpl) {
+  const flags = fs.constants.O_WRONLY | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW ?? 0);
+  try {
+    const fd = fsImpl.openSync(sidecarPath, flags);
+    try { fsImpl.writeSync(fd, contents); } finally { fsImpl.closeSync(fd); }
+  } catch {
+    fsImpl.writeFileSync(sidecarPath, contents);
   }
 }
 
@@ -565,7 +589,7 @@ export async function runReviewRun(argv, deps = {}) {
     identity.cleanup = cleanupOk ? 'ok' : 'failed';
 
     const identityPath = `${options.report}.identity.json`;
-    fsImpl.writeFileSync(identityPath, JSON.stringify(identity, null, 2));
+    writeSidecarAtomic(identityPath, JSON.stringify(identity, null, 2), fsImpl);
 
     const output = { exit: exitCode, report: options.report, identity: identityPath, verdict, sha: fullsha, session: sessionId };
     return { exitCode, output };

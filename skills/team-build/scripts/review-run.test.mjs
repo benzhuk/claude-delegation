@@ -305,6 +305,17 @@ test('M4: --report must be absolute and its directory must exist', () => {
   assert.throws(() => validateReportPath(path.join(scratch, 'nope', 'report.md'), scratch));
 });
 
+test('finding 14: validateReportPath atomically claims the sidecar, so two concurrent runs given the same --report can never both pass', () => {
+  const scratch = scratchDir('review-run-scratch-');
+  const outDir = scratchDir('review-run-race-out-');
+  const reportPath = path.join(outDir, 'report.md');
+  // Run 1 "wins the race": passes validation, which must leave behind an (empty) claimed sidecar.
+  assert.doesNotThrow(() => validateReportPath(reportPath, scratch));
+  assert.ok(fs.existsSync(`${reportPath}.identity.json`), 'the sidecar must be claimed (even empty) as soon as validation passes');
+  // Run 2, given the identical --report a moment later, must be refused outright.
+  assert.throws(() => validateReportPath(reportPath, scratch), /identity sidecar already exists/);
+});
+
 test('M4: --report inside --scratch is refused', () => {
   const scratch = scratchDir('review-run-scratch-');
   assert.throws(() => validateReportPath(path.join(scratch, 'report.md'), scratch));
