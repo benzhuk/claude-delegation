@@ -8,6 +8,8 @@ Authority: rev4-intake.md, skills-fable-lane-40-1. Ben's quoted comment authoriz
 
 Revision after Opus red-team: spec-review-r1.md reviewed0a759de with NEEDS_FIXES. The normative corrections in spec-r1-adjudication.md below this document's contract take precedence where they replace a clause. This remains a draft pending probe resolution and a fresh Opus delta approval; no builder may start.
 
+Later authority: install-authority.md records skills-fable-lane-40-2 and Ben's September29 17:11 America/New_York tick. The installation wait below is satisfied by that reported decision. Install on the next release after acceptance/merge, enabled, then trigger the first run immediately rather than waiting for its daily clock slot. Cite the tick in the release item. Do not request it again. Existing probe/review/merge gates are not waived.
+
 ## Outcome and boundaries
 
 One Windows writer job gathers pending notes from the fixed hosts, invokes the existing triage skill once on the union, and reconciles successfully archived imported notes back to their origins. It feeds the existing store and publisher. Measure moved: work lost/stalled, measured by before/after pending, arrivals, per-host gather/archive counts, DIGEST entries and run tokens. No claim that overall DONE or comparative cost improvement is established by one run.
