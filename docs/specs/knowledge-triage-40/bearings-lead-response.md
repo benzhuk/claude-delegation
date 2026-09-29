@@ -6,4 +6,4 @@ Recovered Codex graph counts and a working review-run are capabilities, not proo
 
 This lane stays gated on the nested-session probe, independent spec and code reviews, host suites and one measured live proof. No task installation or live scheduled-run amendment before Ben's tick. The first proof will report tokens and note outcomes even if they are unfavorable.
 
-Publication: PENDING normal project publication with the lane's retained evidence. No completion receipt recorded yet. The continuation bind returned EPISODE_INACTIVE because the native episode is suspended; the on-disk work record remains authoritative and no epoch/state is edited to bypass that check.
+Publication: PUBLISHED September29 2026, 5:17 PM America/New_York on https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d. Fresh anchored safe edit added the dated assessment, removed zero lines, and a second read verified the heading and both pinned evidence links at eac8c77. The continuation bind returned EPISODE_INACTIVE because the native episode is suspended; the on-disk work record remains authoritative and no epoch/state is edited to bypass that check.

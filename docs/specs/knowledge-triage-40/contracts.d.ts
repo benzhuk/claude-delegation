@@ -8,6 +8,8 @@ export interface HostResult {
   alreadyPresent: number;
   archived: number;
   pending: number;
+  managed: number;
+  resurrected: number;
 }
 export interface ImportedNote {
   host: HostResult['host'];
@@ -24,7 +26,15 @@ export interface Options {
   inboxDir?: string;
   now?: () => Date;
   // Dependency injection is test-only; CLI never accepts arbitrary host endpoints.
-  deps?: Record<string, unknown>;
+  deps?: {
+    sshCommand?: string[]; // default ['ssh']; fake: [process.execPath, fakeSshPath]
+    claudeCommand?: string[]; // default ['claude']
+    hostname?: () => string;
+    endpoints?: Partial<Record<HostResult['host'], string | null>>; // test-only
+    noteSend?: (text: string) => Promise<void>;
+    dotfilesRepo?: string;
+    chezmoiSourceInbox?: string;
+  };
 }
 export declare function gatherKnowledge(options?: Options): Promise<Gathered>;
 export declare function reconcileKnowledge(options: Options, gathered: Gathered): Promise<HostResult[]>;

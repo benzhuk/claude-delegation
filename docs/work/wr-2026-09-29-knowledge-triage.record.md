@@ -1,20 +1,24 @@
 Work: wr-2026-09-29-knowledge-triage
 Scope: docs/specs/knowledge-triage-40/rev4.md
 Owner: skills-a
-Status: owned
+Status: blocked
 Authority: skills-fable-lane-40-1 rev4 build and one manual proof, standing reviewed merge grant. Installation and live scheduled-run amendments wait Ben tick. No hooks, janitor, other-host configuration, review-run or work-record production edits. Stop denied steps without bypass.
-Artifact: none
+Artifact: build/knowledge-triage-40@0a759de4f4971b70f15b90c946b13b5f354f61c5
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40
-Evidence: docs/specs/knowledge-triage-40/rev4-intake.md, docs/specs/knowledge-triage-40/territories.md
-Next: mid scout and scratch probe, pin flags, Opus spec red-team before builder
+Evidence: docs/specs/knowledge-triage-40/rev4-intake.md, docs/specs/knowledge-triage-40/territories.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/scout-ruling.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r1.identity.json, docs/specs/knowledge-triage-40/spec-r1-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/bearings-lead-response.md
+Next: skills-fable ruling on stopped scratch identity-guard step and denied scout reads. No retry or builder before the mandatory nested probe passes and revised spec receives Opus delta approval. Installation separately awaits Ben tick.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
 Base: e142f9a0490ec58bad62bd1ecc4e87a606b5308e
 Opened: 2026-09-29T19:17:00Z
 Log: 2026-09-29T21:04:00Z owned skills-a ACK skills-a-lane-40-1 after delayed inbox pickup. Fresh main checkout, rev3 preserved and rev4 intake pinned. Installation unticked.
+Log: 2026-09-29T21:11:00Z owned skills-a Sonnet scout01a2d0c0-0a7f-4fb8-a14c-1a9e90a10306 completed reports, two secret-guard refusals preserved without retry. Probe and review remained independently running.
+Log: 2026-09-29T21:16:00Z blocked skills-a high-tier probe runner stopped at active Git identity-guard refusal on scratch baseline commit. No nested Claude launch, no live triage, no copied allowlist or changed identity.
+Log: 2026-09-29T21:17:21Z rejected skills-a Opus spec review9352a523-6bed-42c0-8faf-e31ca286f9c4 NEEDS_FIXES(11)0a759de, review-run exit0 and cleanup ok. Root adopted problem statements with explicit adjudicated corrections, no delta re-review while probe remains blocked.
+Log: 2026-09-29T21:18:00Z blocked skills-a ownership retained. All implementation gates unfulfilled. Bearings CONTINUE published and read back on Goals page, not code approval.
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
-Observed: preparation only. No implementation, live triage, installation, amended live skill or accepted artifact yet. Initial goal-card says82 local pending and1 topic read in7days, unverified until live before snapshot. Review-run current Claude-default route has no --via CLI flag, documented equivalent invocation. Cap60/60minutes and Opus replace rev3 Sonnet40/40. Manual proof authorized separately from scheduled installation.
+Observed: scout verified82 local top-level notes but no live before/after triage proof ran. Mandatory scratch baseline commit was refused by git-identity-guard because redirected HOME lacks its allowlist; no retry, nested session, triage tokens, implementation, live amendments, installation or acceptance. Review-run successfully delivered Opus NEEDS_FIXES(11), actual model claude-opus-5-5 and one unrelated read denial retained. Reviewed spec remains0a759de; revised draft is unreviewed. Cap60/60minutes and Opus replace rev3 Sonnet40/40. Mac alias discovery is denied/unknown, not absent. Bearings CONTINUE is advisory and its manual-proof prediction remains untested.
