@@ -306,3 +306,24 @@ Steps to check it:
 3. The command covers session 9c61c35a only. Run any other Fable lead session active in the window the same way and add its total.
 
 At 8:19 PM NY on 9/28 the total stood at 40,270,919, which is 62 percent of the bound after 5.3 of the 24 hours. To stay under the bound, the remaining 18.7 hours must use less than 24.7M, about 24 more lead turns at today's 1.03M each. At the evening's rate of about 7.6M an hour, the bound would pass around 11:30 PM NY on 9/28. The prediction holds only if the lead stays mostly idle overnight and through the morning.
+
+## Appendix: lanes 42 to 47 rerun with the census JSON (lane 54)
+
+Finding 4b's own correction (the "Verdict (Opus)" section above) named the real cause: `four-read.mjs` was handed the `-census.md` markdown for these 5 lanes, `loadJson` (`scripts/four-read.mjs:47`) silently failed to parse it into "no census" (`:787`), and the missing `census.leadPath` then blanked the gap, stall, wake and Stop-block cells (`:789`). Lane 54 (`docs/work/wr-2026-09-29-four-read-json.record.md`) fixed `four-read.mjs` to refuse a non-JSON `--census` outright (exit 2), then reran the five lanes with a real `build-census.mjs --json` census against each lane's own `Opened:`..accepted window, over the shared lead transcript `f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e.jsonl` (the same session as all 5 records' `Lead-session:` field). Lane 45 is not one of these 5: no `wr-2026-09-28-*` record exists for it — it names the janitor.mjs/work-record.mjs git-runner work and the scratch-reaper (`docs/specs/repo-env-everywhere-1/spec.md:29`, `docs/specs/test-temp-hygiene-1/packet.md:3`), specced but not yet a closed lane in this window.
+
+Exact commands (run once per lane; `--lead` is the shared transcript above):
+
+```
+node scripts/build-census.mjs --lead ~/.claude/projects/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e.jsonl --from <Opened> --to <accepted Log time> --json <scratch>/laneNN.census.json
+node scripts/four-read.mjs --record docs/work/<record>.record.md --census <scratch>/laneNN.census.json --out <scratch>/laneNN.four-read.md --json <scratch>/laneNN.four-read.json
+```
+
+| Lane | Record | `--from` (Opened) | `--to` (accepted Log) | Hours ask→accepted (largest gap) | Work lost or stalled |
+|---|---|---|---|---|---|
+| 42 | `wr-2026-09-28-stale-session-guard` | 2026-09-28T20:37:43.000Z | 2026-09-28T21:12:39.000Z | 0.6h; largest gap 15.3min at 2026-09-28T20:39:39.994Z | 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0 |
+| 43 | `wr-2026-09-28-cross-host-nudge` | 2026-09-28T19:56:00.000Z | 2026-09-28T20:34:53.000Z | 0.6h; largest gap 12.7min at 2026-09-28T20:13:44.130Z | 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0 |
+| 44 | `wr-2026-09-28-transport-identity` | 2026-09-28T21:18:00.000Z | 2026-09-28T21:57:01.000Z | 0.7h; largest gap 7.7min at 2026-09-28T21:31:45.836Z | 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0 |
+| 46 | `wr-2026-09-28-test-temp-hygiene` | 2026-09-28T22:03:00.000Z | 2026-09-28T22:47:28.000Z | 0.7h; largest gap 10.1min at 2026-09-28T22:07:27.484Z | 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0 |
+| 47 | `wr-2026-09-28-repo-env-everywhere` | 2026-09-28T22:17:00.000Z | 2026-09-29T00:12:11.000Z | 1.9h; largest gap 40.9min at 2026-09-28T22:51:00.423Z | 0 gap(s) over 30min stalled; 1 waiting-on-agents (40.9 min); wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0 |
+
+Every rerun exited 0 and its top-tier tokens figure (8,917,860 / 11,623,981 / 18,248,547 / 14,735,966 / 35,706,699) matches the by-model figure already in the S3 table above, cited from each lane's own `-census.md`, confirming the rerun reads the same lead window. `--lead-slug`/`--ledger` were not passed, so the ASKs-unaddressed and stall-nudges cells in each rerun's own output print `unavailable (no --lead-slug)`, unchanged from before — outside this lane's territory. No lead transcript was missing and no rerun failed, so no line here reads `unread` or names an error.
