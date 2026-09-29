@@ -586,6 +586,18 @@ test('buildArgv: carries --effort and --tools always, disallows the M1 list, nev
   assert.ok(!argv.includes('--name'));
 });
 
+test('finding 3: PowerShell is dropped from both --tools and --allowedTools on every platform, even when the role frontmatter grants it (agents/reviewer.md lists it for win32)', () => {
+  const argv = buildArgv({
+    model: 'opus', effort: 'high', tools: ['Read', 'Grep', 'Glob', 'Write', 'Bash', 'PowerShell'],
+    sessionId: 'fixture-session', agentsPath: '/tmp/agents.json',
+  });
+  const toolsIdx = argv.indexOf('--tools');
+  const allowedIdx = argv.indexOf('--allowedTools');
+  assert.ok(!argv[toolsIdx + 1].split(',').includes('PowerShell'), '--tools must never carry PowerShell');
+  assert.ok(!argv[allowedIdx + 1].split(',').includes('PowerShell'), '--allowedTools must never carry PowerShell');
+  for (const tok of argv) assert.ok(!String(tok).includes('PowerShell'), `PowerShell must be absent from argv entirely, found in: ${tok}`);
+});
+
 test("buildArgv: permission mode defaults to dontAsk (M1's ruling, escalated by probe P7's Write-tool escape finding)", () => {
   const argv = buildArgv({
     model: 'opus', effort: 'high', tools: ['Read', 'Bash'], sessionId: 'fixture-session',

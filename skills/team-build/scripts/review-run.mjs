@@ -201,7 +201,11 @@ export function buildAgentsJson(role) {
  * shape is pinned against).
  */
 export function buildArgv({ model, effort, tools, sessionId, agentsPath, permissionMode }) {
-  const toolList = tools.join(',');
+  // finding 3: PowerShell is dropped from --tools/--allowedTools on every platform. Every
+  // DISALLOWED_TOOLS entry is Bash(...); a PowerShell(...) twin of each would be whack-a-mole
+  // (finding 1(b) already needs more of that for git's global options). The simpler fix: Bash IS
+  // Git Bash on win32 too, so one tool means one deny list everywhere.
+  const toolList = tools.filter((t) => t !== 'PowerShell').join(',');
   return [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-hook-events',
     '--setting-sources', 'user', '--strict-mcp-config',
