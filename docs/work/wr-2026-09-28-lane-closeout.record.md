@@ -1,11 +1,11 @@
 Work: wr-2026-09-28-lane-closeout
 Scope: docs/specs/lane-closeout-1/spec.md (the Lane 36 section of docs/specs/2026-09-28-parallel-bundle.md read at origin/docs/lane-specs-0925 dc16de3; full file copied as spec-full.md), rulings in docs/specs/lane-closeout-1/contracts.md; territories C1 (record, closeout, sweep-origin) and C2 (delete guard, scratch sentence)
 Owner: skills-h
-Status: delivered
+Status: reviewed
 Authority: build, review, push build/lane-closeout-1, merge into main on acceptance under the standing grant of 2026-09-26, without Ben. The one-time sweep (origin build/* deletes, janitor --apply on Hetzner, Netcup and Windows) only on Ben's Yes on a waiting item on the decisions page (skills-fable-lane-36-2). No release or install.
-Artifact: none
-Evidence: docs/specs/lane-closeout-1/spec.md
-Next: C1 round 5 (addendum-C1-r5.md), Opus delta review, Windows gate; then integrate, gate on Hetzner and Windows, accept, merge
+Artifact: build/lane-closeout-1@5bc082a6e50f4073e9f500abd39c233b466021ae
+Evidence: docs/specs/lane-closeout-1/spec.md, docs/work/evidence/wr-2026-09-28-lane-closeout-C1.md, docs/work/evidence/wr-2026-09-28-lane-closeout-C2.md, docs/work/evidence/wr-2026-09-28-lane-closeout-S1.md, docs/work/evidence/wr-2026-09-28-lane-closeout-win-suite-5bc082a.log, docs/work/evidence/wr-2026-09-28-lane-closeout-census.md, docs/work/evidence/wr-2026-09-28-lane-closeout-four-read.md
+Next: census, four-read, accept, merge into main; then the one-time sweep as a waiting item on the decisions page
 Opened: 2026-09-28T19:17:21.000Z
 Lead-session: ad389ae1-f992-4dd3-8a19-2b51176675c1
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
@@ -43,3 +43,7 @@ Log: 2026-09-29T00:31:40Z owned lead (opus) merged origin/main f7df941 into buil
 Log: 2026-09-29T00:39:09Z delivered S1 sonnet builder seam fix cfa1fc0: 13 calls wrapped, two-repo GIT_DIR test, mutant killed, full suite 2907/2902/0 fail/5 skipped (the GOALS.md STALE failure no longer reproduces after the main merge) (reports/S1-report.md)
 Log: 2026-09-29T00:40:16Z owned lead (opus) Opus seam review and Windows gate at af81181 running
 Log: 2026-09-29T00:48:35Z rejected S1 Opus reviewer NEEDS_FIXES af81181: production seam fix correct on all 19 calls, merge semantics intact; the two-repo test kills only 9 of 13 per-call mutants and its B-origin check cannot fail (reports/S1-review.md); Windows gate at af81181 2907/2893/0 fail/14 skipped; test-only replacement from the reviewer
+Log: 2026-09-29T00:52:01Z reviewed S1 Opus reviewer APPROVE 5bc082a6e50f4073e9f500abd39c233b466021ae: the replacement test kills all 13 per-call env mutants (reports/S1-review-r2.md); integrated lane artifact build/lane-closeout-1@5bc082a
+
+Observed: a lane now ends with nothing left behind, by one command. Every new record carries a `Scratch:` line, and `work-record.mjs close --closeout --by <lead session>` removes the lane's worktree, its local branch, its origin branch (a lease delete of the exact checked sha, so a branch that moved is refused) and its scratch dir. Every step is checked in-script: dirty or ignored files keep a worktree, an unresolvable or foreign-OS `Worktree:` is refused with exit 2, and a re-run exits 0 with every step absent. `sweep-origin` does the same for merged build/* branches, dry run by default. The delete guard no longer refuses a delete verb inside quoted text or an exact heredoc whitelist (`cat > x.md <<'EOF'`, note-send and git commit packets), and the pinned scratch sentence is in all eight role files. Rounds: C1 6 (18 findings in round 1, 2 critical), C2 5 (36 bypasses in round 1 fell to 0 under an exact whitelist), and 2 seam rounds after merging main: 13 new git calls lacked main's 7248ba5 repo-env wrapper, the origin delete among them. Every delete check is held by a test that fails when the check is removed. Suites at 5bc082a: Hetzner 2907/2902/0 fail/5 skipped, Windows 2907/2893/0 fail/14 skipped. Two Opus C2 reviewers were stopped by the safety classifier on delete-shaped probes, and the lead ran their saved harnesses. One Sonnet builder hung for 2 h in C1 round 5 before the lead noticed.
+Predicts: the first lane closed with `close --closeout` after this merge leaves no worktree, branch or scratch dir behind for it on the closing host (checked by `git worktree list`, `git ls-remote origin` and the scratch path), and the one-time sweep's dry run lists at least 20 merged build/* branches on origin.
