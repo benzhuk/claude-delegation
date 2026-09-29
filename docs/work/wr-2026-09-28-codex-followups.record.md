@@ -1,18 +1,20 @@
 Work: wr-2026-09-28-codex-followups
 Scope: specification below, skills-fable-lane-49-1 at base9c816fdd8ef906388c74d69263bb6b9935dc9221
 Owner: skills-a
-Status: owned
+Status: delivered
 Authority: lane49 dispatch under standing build/merge grant; normal guarded publication at close. No release/install, transport, render, janitor or Claude-side hook edits. Shared-hook changes require a peer territory ruling before implementation. Root alone writes the work record.
-Artifact: 9c816fdd8ef906388c74d69263bb6b9935dc9221
+Artifact: 1d0ba9f1fa5fd0dfd0e134efa402fad9801e2427
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-followups-49
-Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md
-Next: scout existing code and decide shared-timer disposition, create isolated worktree and independent builder/test briefs, red/green tests, Opus review and sealed hosts, census/accept/merge/publish/close.
+Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md, docs/specs/codex-followups-49/L49-builder-report.md, docs/specs/codex-followups-49/L49-test-report.md
+Next: integrate current main and revalidate scoped tests against its changed shared helpers, then Opus review and sealed hosts before census/accept/merge/publish/close.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:59:00Z
 Base: 9c816fdd8ef906388c74d69263bb6b9935dc9221
 Opened: 2026-09-29T00:00:00Z
 Log: 2026-09-29T00:01:00Z owned skills-a ACKed lane49 and requested correction of packet Spec-from, which postdates dispatch.
+Log: 2026-09-29T00:10:22Z owned skills-a dispatched GPT-5.6-Terra lane49_builder and independent GPT-5.6-Terra lane49_tests after committed interface stubd7a9eb44881f3b4074ba8714526c69212241af00 and pinned specb090aca15be70f3694a30605fb4a572838c5f9a7. Continuation binding confirmed active for this record and current epoch.
+Log: 2026-09-29T00:22:00Z delivered skills-a resumed ownership from GPT-5.6-Terra builder and independent test author. Scoped25/25 native exit0 at1d0ba9f1fa5fd0dfd0e134efa402fad9801e2427. Separate5000ms child/outer-route mutants, dropped-session-id mutant, and on-disk fake Claude/Codex manifest events failed their intended assertions. Root required one shared validator and explicit Interrupt reason before this delivery.
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-followups-49
 
@@ -20,7 +22,7 @@ Measure: work lost or stalled, by closing the three known Codex parity review ga
 
 Predicts: the final tests reject a5-second hung route and a fake unpaired manifest event; backlog nudge suppression has an explicit tested scope rather than an unexamined cross-host assumption.
 
-Observed: scout confirmed missing elapsed checks and a handwritten parity map. The alleged cross-session backlog timer is absent on this base: backlog-notice.js already keys its sentinel by session_id, and Codex passes that input unchanged. Deterministic two-session evidence is still required. skills-fable-lane-49-2 corrected the packet's erroneous00:03Z Spec-from to2026-09-28T23:59:00Z; Opened retains00:00Z dispatch.
+Observed: scoped25/25 tests passed. The5000ms child and outer-route mutants each failed the intended elapsed assertion; fake events in on-disk copies of each manifest failed actual parity validation; a dropped Codex session id failed its exact-sentinel assertion. The alleged cross-session backlog timer is absent for distinct supplied ids: deterministic shared-home/project proof confirms each session gets its nudge and a repeated id is suppressed. Missing ids share unknown as documented. Opus review, host suites and final efficacy measurement remain pending. skills-fable-lane-49-2 corrected the erroneous00:03Z Spec-from to2026-09-28T23:59:00Z; Opened retains00:00Z dispatch.
 
 ## Pinned specification
 
@@ -39,6 +41,8 @@ The timer finding was a mistaken premise for distinct native session ids, not a 
 Pin a production export NATIVE_ROUTES in hooks/multi-codex-hook.mjs with type Readonly<Record<string, readonly string[]>>: SessionStart maps to scripts/wiring-check.mjs; UserPromptSubmit, PostToolUse and Stop map to hooks/backlog-notice.js. The production nativeRouteForLead must read this export to choose the actual script path, not retain a parallel route list. Preserve existing one-advisory-per-event behavior, payload forwarding, child silence, output format and deadlines. No new controller or scheduling layer. Tests consume the export only as the bridge between generic Codex wrapper commands and concrete Claude scripts; both inventories still derive from their manifest contents.
 
 Parity identity remains (script,event), matching the accepted lane37 contract. Do not expand matcher identity. Derive peer-inbox pairs from the intersection of actual Claude multi-inbox entries and installed Codex wrapper events; shared delete guard pairs derive directly from the manifests. Reject every unexplained reverse Codex event/command. Codex-only Interrupt is the existing cancellation-native exception: keep one explicit reasoned allowance, not a general exemption. A fake event on either manifest must fail, including a fake wrapper event (not just an unknown command). Keep behavioral route checks so a declared mapping without actual forwarding cannot pass. The native-package test is not the parity owner and needs no changes.
+
+Authority correction: skills-fable-lane-49-3 confirms Interrupt as the sole reasoned reverse allowance in the validator, with the inline reason "Codex has an Interrupt event, Claude Code has none." No codex-unsupported.json schema extension. This resolves the packet's general JSON-entry wording within its reasons-only territory. Generalization waits for a second actual native-only event, not a hypothetical one.
 
 For timing, test runRoute on a real long-running child with its default400ms kill and separately test runCodexHook with a never-resolving injected native route under the450ms outer budget. Both must finish under2000ms measured monotonically and preserve existing output assertions. Isolated5-second mutants must prove the relevant elapsed checks fail; all scratch copies/timers/children are cleaned through existing test helpers. No production budget change.
 
