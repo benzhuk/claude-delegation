@@ -1,13 +1,13 @@
 Work: wr-2026-09-28-readback-escapes
 Scope: docs/specs/readback-escapes-52/final-spec.md, pickup.md and pinned specification below; skills-fable-lane-52-1 and timestamp ruling skills-fable-lane-52-2.
 Owner: skills-a
-Status: rejected
+Status: delivered
 Authority: lane52 standing build/merge grant. One named scratch-page publish/read/archive is explicitly authorized. Root owns spec and record, mid tier builds and tests, Opus independently reviews. Normal guarded publication after merge. No install, release, waiting-item edits, guard changes, recovery flag, or changes to lane39 files.
-Artifact: ee488fdf35dd72b3349277b1da566f66233813ed
+Artifact: c315eae6132a435d0b483358c756a991ab659864
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/readback-escapes-52
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/readback-escapes-52
-Evidence: docs/specs/readback-escapes-52/L52-spec-evidence.md, docs/specs/readback-escapes-52/L52-probe-report.md, docs/specs/readback-escapes-52/L52-builder-report.md, docs/specs/readback-escapes-52/L52-test-report.md, docs/specs/readback-escapes-52/L52-opus-r1.md
-Next: correct literal-region false green, independent red/green tests, same Opus delta review and changed-candidate host gates.
+Evidence: docs/specs/readback-escapes-52/L52-spec-evidence.md, docs/specs/readback-escapes-52/L52-probe-report.md, docs/specs/readback-escapes-52/L52-builder-report.md, docs/specs/readback-escapes-52/L52-test-report.md, docs/specs/readback-escapes-52/L52-opus-r1.md, docs/specs/readback-escapes-52/L52-host-gates-r1.md
+Next: same Opus delta review and changed-candidate sealed Windows/Netcup gates, then acceptance and guarded main closeout.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T01:38:40Z
@@ -18,12 +18,13 @@ Log: 2026-09-29T01:45:00Z owned skills-a scout confirms two original snapshots d
 Log: 2026-09-29T01:53:51Z owned skills-a accepted scout and scratch-page probe evidence, pinned final-spec and existing normalize interface. The unsupported archive CLI verb was an ordinary diagnostic, resolved using the same exported authenticated request helper for the explicitly authorized archive, without source edits. Mirror sourcePath now names canonical checkout; continuation bind is active using that verified helper, after cached0.20.17 parser lacked Scratch support.
 Log: 2026-09-29T01:54:47Z owned skills-a dispatched GPT-5.6-Terra lane52_builder and independent GPT-5.6-Terra lane52_tests against committed final specification339b3b3. Existing normalize API remains the unchanged committed interface. Requested peer host-slot facts without parking.
 Log: 2026-09-29T02:08:04Z rejected skills-a Claude Opus 5.5 lane52-review NEEDS_FIXES ee488fdf35dd72b3349277b1da566f66233813ed via skills-fable-lane-52-4. Prose unescape hides a literal code backslash change. Root pins fence and code-span protection in final-spec. Initial Windows2901pass0fail14skip native0 with4newtempentries reported; initial Netcup2909pass1fail5skip native1 because single-branch checkout lacks real origin/main. All receipts retained, no unchanged rerun or acceptance.
+Log: 2026-09-29T02:12:10Z delivered skills-a literal-region correction749ab25 plus comment-only2dfafbc. Independent ee488fd red101pass3intendedfail, corrected scoped153pass0fail. Current main7ab59db merged cleanly at c315eae6132a435d0b483358c756a991ab659864 including lane51 census changes, no renderer overlap. Prior Netcup checkout lacked origin/main and will be corrected before changed-candidate gate. Known structural-looking escaped bracket/quote and unprobed multiple-backslash roundtrip limits remain explicit.
 
 Measure: rework after acceptance, specifically publish recoveries caused by readback normalization. The baseline pickup reports four recoveries that day; this lane must produce one normal Windows main publication exit0 after the fix. That single proof is not a guarantee about every future Notion representation.
 
 Predicts: a live-probe-pinned escape equivalence fixes literal-character readback without accepting a removed bullet, changed tick, moved line, changed word or wildcard substitution.
 
-Observed: one scratch-page roundtrip observed escapes before asterisk, square brackets, backtick, tilde, greater-than, pipe and less-than. Underscore/hash/minus/plus/exclamation were unchanged. Page3eada112-77a1-819a-88ae-c7d77fa1b3d7 was verified and archived with in_trash true, exit0. Snapshot timestamp mismatch is fixture-only per skills-fable-lane-52-2. Exact-base red has only the two intended escaping failures; integrated focused green is149/149. Fresh-checkout raw fixture hashes match. No acceptance or main-publication efficacy claim yet.
+Observed: one scratch-page roundtrip observed escapes before asterisk, square brackets, backtick, tilde, greater-than, pipe and less-than. Underscore/hash/minus/plus/exclamation were unchanged. Page3eada112-77a1-819a-88ae-c7d77fa1b3d7 was verified and archived with in_trash true, exit0. Snapshot timestamp mismatch is fixture-only per skills-fable-lane-52-2. Exact-base red has only the two intended escaping failures; integrated focused green is149/149. Fresh-checkout raw fixture hashes match. First Opus review found a fenced-code false green before acceptance. Corrected literal protection has153/153focusedgreen with independent three-assertion red proof. No acceptance or main-publication efficacy claim yet.
 
 ## Pinned specification
 
