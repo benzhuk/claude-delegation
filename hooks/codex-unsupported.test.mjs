@@ -133,6 +133,11 @@ function peerNotes() {
 
 function context(result) { return result?.output?.hookSpecificOutput?.additionalContext ?? ''; }
 
+function deterministicBacklogRoute(input) {
+  const line = 'work: 1 runnable and unowned (wr-2026-09-28-parity), 0 delivered and unreviewed (), 0 rejected awaiting a fix round (). Pull one or say why not.';
+  return { text: line, systemMessage: input.hook_event_name === 'Stop' ? line : null };
+}
+
 function assertCoverage(inventory, nativeRoutes, unsupportedRows) {
   const inventoryKeys = new Set(inventory.map(key));
   assert.equal(inventoryKeys.size, inventory.length, 'the actual Claude manifest must not duplicate a script/event pair');
@@ -212,11 +217,12 @@ test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop out
   assert.match(context(start), /peer → lead/, 'wiring must preserve peer context');
   assert.match(context(start), /CONTINUATION-PARITY-MARKER/, 'wiring must preserve continuation context');
 
-  // Backlog has one cadence sentinel shared by all three events. Use independent homes so each
-  // event is observed rather than silently suppressed by the previous event's successful output.
+  // This is a composition assertion: route output is injected through the existing runCodexHook seam
+  // so all three event shapes are deterministic under a loaded host. Actual child routing remains
+  // covered by the default-CLI and two-session route tests below.
   for (const event of ['UserPromptSubmit', 'PostToolUse', 'Stop']) {
     const eventHome = scratch(`codex-parity-${event}-`); rmLater(t, eventHome);
-    const result = await runCodexHook({ ...input, hook_event_name: event }, { ...deps, home: eventHome, env: { ...deps.env, AGENTS_HOME: path.join(eventHome, '.agents') } });
+    const result = await runCodexHook({ ...input, hook_event_name: event }, { ...deps, home: eventHome, env: { ...deps.env, AGENTS_HOME: path.join(eventHome, '.agents') }, nativeRouteForLead: deterministicBacklogRoute });
     const rendered = `${context(result)}\n${result?.output?.systemMessage ?? ''}\n${result?.output?.reason ?? ''}`;
     assert.match(rendered, /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/, `${event} must render actual backlog output`);
     assert.match(rendered, /peer → lead/, `${event} must preserve peer delivery`);
