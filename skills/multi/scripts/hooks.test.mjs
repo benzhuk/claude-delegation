@@ -443,21 +443,47 @@ test('S1: no hook child can register anything the fixture did not give it', () =
 // keys (always written with `/`) still match a Windows scan's `\` paths (W1). These helpers make all
 // of it mechanical instead of remembered.
 
-/** `s` with every comment and string body blanked to spaces (same length), so a key test sees code
- * only - an apostrophe in a `//` comment, or the word "env" inside a string, can no longer corrupt
- * what looks like an object key (F1, measured false green on note-inbox.test.mjs:369). */
-function codeOnly(s) {
+/** Index of the closing `/` if `s[i]` opens a regex literal (the previous significant character is
+ * an operator or opener, and the literal closes on the same line), else -1 (N2, fix round 3): neither
+ * scanner below recognized a regex literal, so a `//` inside one (e.g. `/https?:\/\//`) used to read
+ * as a line comment, and a quote inside one could flip the string-tracking state - either way
+ * desyncing the scan past the regex, sometimes silently swallowing a real env key on a later line. */
+function regexEnd(s, i) {
+  let j = i - 1;
+  while (j >= 0 && (s[j] === ' ' || s[j] === '\t')) j--;
+  if (j >= 0 && !'(,=:[!&|?{};\n'.includes(s[j])) return -1;
+  let inClass = false;
+  for (let k = i + 1; k < s.length; k++) {
+    const c = s[k];
+    if (c === '\n') return -1;
+    if (c === '\\') { k++; continue; }
+    if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) return k;
+  }
+  return -1;
+}
+
+/** `s` with every comment blanked to spaces (same length); string BODIES are blanked too unless
+ * `keepStrings` (N3, fix round 3: used for the node-reachability scan, so a `//` inside a real string
+ * - e.g. a `sh -c` template running `node` after it - is read as string content, not a comment, and
+ * the node token inside it survives). A key test sees code only either way - an apostrophe in a `//`
+ * comment, or the word "env" inside a string, can no longer corrupt what looks like an object key
+ * (F1, measured false green on note-inbox.test.mjs:369). Regex-aware (N2): a `/.../ ` literal is
+ * recognized and passed through untouched, so its own `//` or quote can no longer desync this scan. */
+function codeOnly(s, keepStrings = false) {
   let out = '';
   let inStr = null;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (inStr) {
-      if (c === '\\') { out += '  '; i++; continue; }
-      if (c === inStr) { inStr = null; out += c; } else out += c === '\n' ? '\n' : ' ';
+      if (c === '\\') { out += keepStrings ? s.slice(i, i + 2) : '  '; i++; continue; }
+      if (c === inStr) { inStr = null; out += c; } else out += keepStrings || c === '\n' ? c : ' ';
       continue;
     }
     if (c === '/' && s[i + 1] === '/') { const nl = s.indexOf('\n', i); const end = nl === -1 ? s.length : nl; out += ' '.repeat(end - i); i = end - 1; continue; }
     if (c === '/' && s[i + 1] === '*') { const e = s.indexOf('*/', i + 2); const end = e === -1 ? s.length : e + 2; out += s.slice(i, end).replace(/[^\n]/g, ' '); i = end - 1; continue; }
+    if (c === '/') { const e = regexEnd(s, i); if (e !== -1) { out += ' '.repeat(e + 1 - i); i = e; continue; } }
     if (c === '"' || c === "'" || c === '`') { inStr = c; out += c; continue; }
     out += c;
   }
@@ -466,7 +492,8 @@ function codeOnly(s) {
 
 /** Balanced-delimiter slice of `text` starting at `openIdx` (which must be `openCh`), string- AND
  * comment-aware (F1): an apostrophe in a `//` comment used to be read as the start of a string,
- * stretching the slice into unrelated later code. */
+ * stretching the slice into unrelated later code. Regex-aware (N2, fix round 3): same reason as
+ * `codeOnly` above - a regex literal's own `//` or quote no longer desyncs this scan either. */
 function extractBalanced(text, openIdx, openCh, closeCh) {
   let depth = 0;
   let i = openIdx;
@@ -480,6 +507,7 @@ function extractBalanced(text, openIdx, openCh, closeCh) {
     }
     if (c === '/' && text[i + 1] === '/') { const nl = text.indexOf('\n', i); if (nl === -1) break; i = nl; continue; }
     if (c === '/' && text[i + 1] === '*') { const end = text.indexOf('*/', i + 2); if (end === -1) break; i = end + 1; continue; }
+    if (c === '/') { const e = regexEnd(text, i); if (e !== -1) { i = e; continue; } }
     if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
     if (c === openCh) depth++;
     else if (c === closeCh) { depth--; if (depth === 0) return text.slice(openIdx, i + 1); }
@@ -578,7 +606,7 @@ function findEnvLessSpawns(text) {
     // word only counts when it is a real string-literal argv element, never when it merely appears
     // inside a `//` or `/* */` comment (over-including a comment used to bring an unrelated call, e.g.
     // a git-only `sh -c` script, into scope for no reason).
-    const noComments = call.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+    const noComments = codeOnly(call, true); // comments blanked, string contents kept (N3, fix round 3)
     const reachesNode = m[1] === 'fork' || nodeTokenRes.some((re) => re.test(noComments));
     if (!reachesNode) continue;
 
@@ -592,11 +620,15 @@ function findEnvLessSpawns(text) {
     // every line inside it instead of judging it a second time (R1, fix round 2: a line that BEGINS
     // inside a multi-line template closed on the SAME line as `env: process.env` used to invert (b)'s
     // fresh-per-line string state and blank the inheriting value out from under it).
-    ownedSpans.push([line, line + call.split('\n').length - 1]);
+    // N1 (fix round 3): a whole-object reference to the environment, in ANY composite expression -
+    // `||`, `??`, a ternary, `Object.assign`, `structuredClone`, a bare spread - is still inheriting,
+    // not just the exact `env: process.env` form. `process.env` not immediately followed by `.`, `[`
+    // or `?.` means the WHOLE object is in play; `process.env.PATH` (a narrowed, named field) is not.
+    ownedSpans.push([m.index, openParenIdx + call.length]); // N4: character range, not lines
     const code = codeOnly(call);
-    const hasEnvKey = /[{,]\s*env\s*[:,}]/.test(code) || /\.\.\.\s*process\s*\.\s*env\b/.test(code);
-    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null|process\s*\.\s*env)\s*[,}]/.test(code)
-      || /\.\.\.\s*process\s*\.\s*env\b/.test(code);
+    const hasEnvKey = /[{,]\s*env\s*[:,}]/.test(code);
+    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null)\s*[,}]/.test(code)
+      || /\bprocess\s*\.\s*env\b(?!\s*(?:\.|\[|\?\.))/.test(code);
     let hasEnv = hasEnvKey && !inheritsBare;
     if (!hasEnv && !inheritsBare) {
       const lastArgMatch = call.match(/,\s*(\w+)\s*\)$/);
@@ -625,11 +657,20 @@ function findEnvLessSpawns(text) {
   // every inheriting value for its own calls, so this half shrinks to "wrapper calls only" - no call is
   // ever judged twice, and a line that BEGINS inside a multi-line template can no longer invert this
   // per-line scan and blank an inheriting value out from under it.
+  // N4 (fix round 3): `ownedSpans` now holds CHARACTER ranges, not whole-line ranges - a fake call
+  // shape written inside a string (e.g. a template literal holding `spawn(...)` as text, the same
+  // trick native-continuation-smoke.test.mjs's own real site uses) used to own its ENTIRE line, hiding
+  // a real wrapper call's `env: process.env` that happened to share that line. Matching per line with
+  // `matchAll` and comparing each match's own character offset against the owned ranges fixes that.
   const inheritRe = /\benv\s*:\s*process\s*\.\s*env\b|\.\.\.\s*process\s*\.\s*env\b/;
-  const textLines = text.split('\n');
-  for (let li = 0; li < textLines.length; li++) {
-    if (ownedSpans.some(([a, b]) => li + 1 >= a && li + 1 <= b)) continue; // (a) already judged this call whole
-    if (inheritRe.test(codeOnly(textLines[li]))) found.push({ line: li + 1, fn: 'inherits', target: 'process.env' });
+  let offset = 0;
+  for (const [li, raw] of text.split('\n').entries()) {
+    for (const hit of codeOnly(raw).matchAll(new RegExp(inheritRe.source, 'g'))) {
+      if (ownedSpans.some(([a, b]) => offset + hit.index >= a && offset + hit.index < b)) continue; // (a) judged this call
+      found.push({ line: li + 1, fn: 'inherits', target: 'process.env' });
+      break;
+    }
+    offset += raw.length + 1;
   }
 
   return found.sort((a, b) => a.line - b.line);
@@ -677,7 +718,13 @@ function exemptionOffenders(rel, hits, exemptions, seenExempt) {
   const allowed = exemptions.get(key);
   if (allowed) seenExempt?.add(key);
   if (allowed && hits.length === allowed.count) return [];
-  const offenders = hits.map((hit) => `${key}:${hit.line} [${hit.fn}] passes no env key at all`);
+  // N5 (fix round 3): the message names each hit's own reason, not a blanket "no env key at all" -
+  // a tripwire hit (a malformed extent) or an inheriting hit (a real env value handed straight
+  // through) used to print the genuine-no-key wording too, which told the author to add a key that
+  // either couldn't be judged, or was already there.
+  const why = (hit) => (/^call extent not parsed/.test(hit.target ?? '') ? hit.target
+    : hit.fn === 'inherits' ? 'hands the child the runner environment' : 'passes no env key at all');
+  const offenders = hits.map((hit) => `${key}:${hit.line} [${hit.fn}] ${why(hit)}`);
   if (allowed) offenders.push(`${key}: exemption allows ${allowed.count}, found ${hits.length} - fix the new site or lower the count`);
   return offenders;
 }
@@ -834,13 +881,17 @@ test('N2 scanner: a malformed call extent fails loud, naming the site, instead o
   assert.equal(unclosedHits.length, 1, 'an unclosed call must be flagged, not silently dropped');
   assert.match(unclosedHits[0].target, /call extent not parsed/, 'the flag must name the parse failure, not a fake env gap (unclosed call)');
 
+  // N2 (fix round 3, lead sign-off): a regex literal containing // now parses correctly (regexEnd,
+  // above), so this call's own extent is judged normally instead of tripping the wire - see the
+  // separate N2 test below for the case the tripwire alone used to miss (a desync that re-closes
+  // within the 40-line limit and silently swallows a later env key).
   const regexLiteral = [
     "const NODE = process.execPath;",
     SPAWN + "(NODE, ['-e', /https?:\\/\\//.source], { stdio: 'ignore' });",
   ].join('\n');
   const regexHits = findEnvLessSpawns(regexLiteral);
-  assert.equal(regexHits.length, 1, 'a regex literal containing // inside a call must not desync the call extent search into silence');
-  assert.match(regexHits[0].target, /call extent not parsed/, 'the flag must name the parse failure, not a fake env gap (regex literal)');
+  assert.equal(regexHits.length, 1, 'a regex literal containing // inside a call must still be flagged - correctly, as a real env-less call, not the tripwire');
+  assert.equal(regexHits[0].target, 'NODE', 'the regex literal must be recognized, so the call parses normally instead of tripping the extent wire');
 });
 
 test('N2 scanner: a bare node word only counts as a string literal argv element, never a comment or identifier (R3)', () => {
@@ -854,6 +905,73 @@ test('N2 scanner: a bare node word only counts as a string literal argv element,
     [],
     "the word node inside a comment must not bring a git-only call into node-reachable scope (R3)",
   );
+});
+
+test('N2 scanner: an inheriting env value inside a composite expression is not silent - ||, ??, ternary, Object.assign, structuredClone (N1)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const orForm = SPAWN + "(process.execPath, ['-e', '0'], { env: process.env || {}, stdio: 'ignore' });";
+  const nullishForm = SPAWN + "(process.execPath, ['-e', '0'], { env: process.env ?? {}, stdio: 'ignore' });";
+  const ternaryForm = SPAWN + "(process.execPath, ['-e', '0'], { env: c ? childEnv(h) : process.env, stdio: 'ignore' });";
+  const assignForm = SPAWN + "(process.execPath, ['-e', '0'], { env: Object.assign({}, process.env), stdio: 'ignore' });";
+  const cloneForm = SPAWN + "(process.execPath, ['-e', '0'], { env: structuredClone(process.env), stdio: 'ignore' });";
+  for (const [name, src] of [['|| {}', orForm], ['?? {}', nullishForm], ['ternary', ternaryForm], ['Object.assign', assignForm], ['structuredClone', cloneForm]]) {
+    assert.equal(findEnvLessSpawns(src).length, 1, `env: ${name} must count as inheriting the whole environment, even inside a composite expression (N1)`);
+  }
+
+  // A narrowed access must NOT count as inheriting - only PATH is handed over, by name.
+  const narrowed = SPAWN + "(process.execPath, ['-e', '0'], { env: childEnv(h, { PATH: process.env.PATH }), stdio: 'ignore' });";
+  assert.deepEqual(findEnvLessSpawns(narrowed), [], 'a narrowed process.env.PATH access must not count as inheriting the whole environment (N1)');
+});
+
+test('N2 scanner: a regex literal holding // or a quote does not desync the call extent, even when it re-closes within the tripwire limit (N2)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const EXEC_FILE = ['exec', 'File'].join('');
+  const regexLiteral = [
+    "const NODE = process.execPath;",
+    SPAWN + "(NODE, ['-e', /https?:\\/\\//.source], { stdio: 'ignore' });",
+    "test('t', (t, done) => {",
+    "  " + EXEC_FILE + "(NODE, ['x'], (err, out) => {",
+    "    assert.match(out, /won't/); // it's fine",
+    "    done();",
+    "  });",
+    "  " + SPAWN + "(NODE, ['y'], { env: childEnv(h) });",
+    "});",
+  ].join('\n');
+  assert.deepEqual(
+    findEnvLessSpawns(regexLiteral).map((h) => [h.line, h.target]),
+    [[2, 'NODE'], [4, 'NODE']],
+    'a regex literal holding // or a quote must neither end a line early nor stretch a call over a later env key (N2)',
+  );
+});
+
+test('N2 scanner: a // inside a string must not strip a later node token from the node-reachability scan (N3)', () => {
+  const EXEC_FILE_SYNC = ['execFile', 'Sync'].join('');
+  const slashInTemplate = EXEC_FILE_SYNC + "('sh', ['-c', `cd ${d}//sub && node x.mjs`]);";
+  assert.equal(
+    findEnvLessSpawns(slashInTemplate).length,
+    1,
+    'a // inside a template string must not be read as a comment that strips the later node token (N3)',
+  );
+});
+
+test('N2 scanner: ownership is a character range, not a whole line, so a wrapper sharing a line with spawn-shaped string text is still caught (N4)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const sameLineOwnership = "const src = `" + SPAWN + "(process.execPath, [], { env: {} })`; runChild(process.execPath, ['-e', src], { env: process.env });";
+  assert.equal(
+    findEnvLessSpawns(sameLineOwnership).length,
+    1,
+    'a real runChild(...) inheriting call must still be caught even when it shares a line with spawn-shaped text inside a string (N4)',
+  );
+});
+
+test('N2 scanner: the offender message names each hit\'s own reason, not a blanket "no env key" (N5)', () => {
+  const parseFail = [{ line: 5, fn: 'spawn', target: 'call extent not parsed - rewrite or split this call' }];
+  const inherits = [{ line: 9, fn: 'inherits', target: 'process.env' }];
+  const noKey = [{ line: 3, fn: 'execFileSync', target: 'NODE' }];
+  const exemptions = new Map();
+  assert.ok(exemptionOffenders('f.test.mjs', parseFail, exemptions, new Set())[0].includes('call extent not parsed'), 'a tripwire hit must name the parse failure');
+  assert.ok(exemptionOffenders('f.test.mjs', inherits, exemptions, new Set())[0].includes('hands the child the runner environment'), 'an inheriting hit must say so, not "no env key"');
+  assert.ok(exemptionOffenders('f.test.mjs', noKey, exemptions, new Set())[0].includes('passes no env key at all'), 'a genuine no-key hit keeps its message');
 });
 
 test('N2 scanner: exemption keys normalize backslash paths, and stay keyed by file (W1, F2)', () => {
