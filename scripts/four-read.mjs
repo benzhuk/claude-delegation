@@ -890,8 +890,37 @@ export function parseArgs(argv) {
   if (!opts.census) throw new Error('--census <census.json> is required');
   return opts;
 }
-export async function main(argv = process.argv.slice(2), { fsImpl = fs, write = (s) => console.log(s) } = {}) {
+// F1 (lane 54, docs/reports/census-0928/four-read.md "Finding 4b is wrong" ¶): --census must
+// be build-census.mjs's own `--json` data file, never the `-census.md` markdown report it
+// also writes. Handing four-read the markdown used to fail `JSON.parse` inside `loadJson`
+// (:47) and get silently swallowed into "no census" (:787) — a check that passes because it
+// isn't looking. These top-level keys are the exact shape build-census.mjs writes for every
+// lead host, Claude and Codex alike (scripts/build-census.mjs:1359-1390, :1558-1609).
+const CENSUS_JSON_TOP_LEVEL_KEYS = ['lead', 'subagents', 'combined', 'stallNudges', 'marker', 'leadPath', 'tasksPaths', 'defaultSubagentsDir'];
+export function isBuildCensusJsonShape(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!CENSUS_JSON_TOP_LEVEL_KEYS.every((k) => Object.prototype.hasOwnProperty.call(value, k))) return false;
+  return !!value.lead && typeof value.lead === 'object' && !Array.isArray(value.lead);
+}
+export const CENSUS_REFUSAL_MESSAGE = 'four-read: --census must be the build-census --json data file, not the census markdown';
+// Strict, LOUD read of the --census flag's own file, independent of loadJson's silent
+// try/fallback (used elsewhere for optional inputs). A file that cannot be read at all, that
+// is not valid JSON (the markdown case), or that parses but is not build-census's own shape,
+// is refused the same way: exit 2, before buildFourRead runs and before any output is written.
+export function validateCensusArg(fsImpl, filePath) {
+  let raw;
+  try { raw = fsImpl.readFileSync(filePath, 'utf8'); }
+  catch (err) { return { ok: false, message: `four-read: --census file not found or unreadable: ${filePath} (${err && err.message ? err.message : err})` }; }
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { return { ok: false, message: CENSUS_REFUSAL_MESSAGE }; }
+  if (!isBuildCensusJsonShape(parsed)) return { ok: false, message: CENSUS_REFUSAL_MESSAGE };
+  return { ok: true };
+}
+export async function main(argv = process.argv.slice(2), { fsImpl = fs, write = (s) => console.log(s), writeErr = (s) => process.stderr.write(s) } = {}) {
   const opts = parseArgs(argv);
+  const censusCheck = validateCensusArg(fsImpl, opts.census);
+  if (!censusCheck.ok) { writeErr(`${censusCheck.message}\n`); return 2; }
   const report = buildFourRead(opts, fsImpl);
   const wrote = [];
   if (opts.json) { fsImpl.writeFileSync(opts.json, `${formatJson(report)}\n`); wrote.push(opts.json); }
