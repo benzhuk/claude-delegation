@@ -58,7 +58,7 @@
 //
 // node --test scripts/build-census.test.mjs
 
-import nodeFs, { realpathSync } from 'node:fs';
+import fs, { realpathSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -343,7 +343,7 @@ function resolveAndStore(idMap, aliasByMsgId, obj, uniqueCounter, entry) {
 // A window covering the whole fixture is required to equal the unwindowed run (pinned by
 // test): windowStartAt still lands on the first in-range timestamp, exactly as the no-
 // window case falls back to firstAt below.
-export async function censusLeadFile(filePath, { fsImpl = nodeFs, marker, from, to } = {}) {
+export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to } = {}) {
   if (marker && (from || to)) throw new Error('--marker and --from/--to are mutually exclusive');
   const fromMs = from ? Date.parse(from) : NaN;
   const toMs = to ? Date.parse(to) : NaN;
@@ -779,7 +779,7 @@ function nativeTaskStarted(obj) {
   return event && event.type === 'task_started' && isUsableCodexString(event.turn_id) ? event.turn_id : null;
 }
 
-export async function censusCodexLeadFile(filePath, { fsImpl = nodeFs, marker, from, to, rootSessionId, expectedId, child = false } = {}) {
+export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from, to, rootSessionId, expectedId, child = false } = {}) {
   if (marker && (from || to)) throw new Error('--marker and --from/--to are mutually exclusive');
   const fromMs = from ? Date.parse(from) : null;
   const toMs = to ? Date.parse(to) : null;
@@ -973,7 +973,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = nodeFs, marker, f
  * Census one subagent .output/.jsonl file. Same last-line-wins de-dup, independently per
  * file. Returns { byId: Map<id, {model, usage, ts}>, firstAt, lastAt }.
  */
-export async function censusSubFile(filePath, { fsImpl = nodeFs } = {}) {
+export async function censusSubFile(filePath, { fsImpl = fs } = {}) {
   const rl = await openLines(fsImpl, filePath);
   const byId = new Map();
   const alias = new Map();
@@ -1010,12 +1010,12 @@ export async function censusSubFile(filePath, { fsImpl = nodeFs } = {}) {
 
 function realFs() {
   return {
-    readdirSync: nodeFs.readdirSync,
-    statSync: nodeFs.statSync,
-    writeFileSync: nodeFs.writeFileSync,
-    createReadStream: nodeFs.createReadStream,
-    readFileSync: nodeFs.readFileSync,
-    realpathSync: nodeFs.realpathSync,
+    readdirSync: fs.readdirSync,
+    statSync: fs.statSync,
+    writeFileSync: fs.writeFileSync,
+    createReadStream: fs.createReadStream,
+    readFileSync: fs.readFileSync,
+    realpathSync: fs.realpathSync,
   };
 }
 
@@ -1117,7 +1117,7 @@ function collectTaskFiles(dirSpecs, fsImpl) {
 // ALSO de-dup by inode (dev+ino), independently of the path key. Claude Code's own
 // `tasks/<id>.output` for a finished background/subagent task is a HARDLINK to
 // `<session>/subagents/agent-<id>.jsonl` — two distinct real paths, ONE inode.
-// `realpathSync` returns two different strings for a hardlink (it only resolves
+// `fs.realpathSync` returns two different strings for a hardlink (it only resolves
 // symlinks), so the path-only de-dup above cannot see this case at all: passing both the
 // default subagents dir and an explicit `--tasks <tasks dir>` (docs/census.md's own
 // recommended shape) silently double-counted every hardlinked file's tokens. A file that
@@ -1372,7 +1372,7 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
 /**
  * Runs the full census and returns a plain report object (no printing, no fs writes).
  * opts: { lead, tasksDirs, marker, out, json, roleMap } — see parseArgs. fsImpl defaults
- * to the real Node filesystem implementation.
+ * to real node:fs.
  */
 
 async function runCodexCensus(opts, fsImpl) {

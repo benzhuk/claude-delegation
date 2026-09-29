@@ -9,7 +9,7 @@ VERDICT: PASS
 - Additive interface: `leadSession`, `codexHome`; CLI `--lead-session`, `--codex-home`
 - Adjudicated correction: equal-usage duplicate model conflicts make model attribution unsupported; timestamp conflicts make temporal coverage partial; turn-id conflicts make the response timeline unsupported
 - False-completeness correction: child usage conflicts refuse; turn and nudge fields require actual evidence; child closure participates in bounded and unbounded temporal completeness
-- Final narrow correction: invalid timestamps keep response timelines incomplete; streaming and marker paths retain the injected filesystem boundary
+- Final narrow correction: invalid timestamps keep response timelines incomplete; original `fs` guard semantics restored; source normalized to repository-required LF bytes
 - Independent work remaining: T2 focused integrated gate, high-tier source review, consumer gates, sealed gates, acceptance and merge
 
 Cause: two-day discovery and blanket coverage could not support resumed native Codex graphs or honest partial fields.
