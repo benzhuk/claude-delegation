@@ -85,13 +85,19 @@ export function safeSummary(reason) {
   return text;
 }
 
+/** Pure: the production note-send launch (Node directly, no shell, no PATH lookup). */
+export function buildNotificationInvocation(text, packetFile) {
+  return {
+    cmd: [process.execPath],
+    args: [path.join(PLUGIN_ROOT, "skills", "multi", "scripts", "note-send.mjs"),
+      "--from", "knowledge-triage", "--to", "ben", "--kind", "BLOCKED", "--topic", "knowledge-triage", "--text", text,
+      "--packet-file", packetFile, "--sender-repo", PLUGIN_ROOT],
+  };
+}
+
 async function defaultNoteSend(ctx, text) {
-  const run = await runProcess({
-    cmd: [process.execPath, path.join(PLUGIN_ROOT, "skills", "multi", "scripts", "note-send.mjs")],
-    args: ["--from", "knowledge-triage", "--to", "ben", "--kind", "BLOCKED", "--topic", "knowledge-triage", "--text", text,
-      "--packet-file", ctx.attention, "--sender-repo", PLUGIN_ROOT],
-    env: process.env, timeoutMs: 30_000,
-  });
+  const { cmd, args } = buildNotificationInvocation(text, ctx.attention);
+  const run = await runProcess({ cmd, args, env: process.env, timeoutMs: 30_000 });
   if (run.error || run.timedOut || run.code !== 0) throw new Error(`note-send exit ${run.code ?? run.error?.code ?? "none"}`);
 }
 
@@ -104,11 +110,11 @@ async function raiseAttention(ctx, reason) {
   let suffix = "";
   try { fs.mkdirSync(ctx.stateDir, { recursive: true }); fs.writeFileSync(ctx.attention, `${ctx.now().toISOString()}\n${text}\n`); }
   catch (err) { suffix += ` [ATTENTION write failed: ${err.message}]`; }
-  try {
+  if (!suffix) try {
     const summary = safeSummary(reason);
     if (ctx.deps.noteSend) await ctx.deps.noteSend(summary);
     else await defaultNoteSend(ctx, summary);
-  } catch (err) { suffix += ` [BLOCKED to Ben not sent: ${err.message}]`; }
+  } catch (err) { suffix += ` [BLOCKED to Ben NOT delivered: ${err.message}]`; }
   if (suffix) { try { fs.appendFileSync(ctx.attention, `${suffix.trim()}\n`); } catch { /* receipt carries it */ } }
   return suffix;
 }
@@ -287,14 +293,14 @@ export async function runKnowledgeTriage(options = {}) {
     let holder = heldNow();
     if (holder) return await deferOnLock(holder);
 
+    const { set: managed, error: managedError } = await managedNames(opts);
+    if (managedError) return skip(`managed set unresolved: ${managedError}`);
+    opts.managedNames = managed;
     const baseline = await publicationState(opts);
     receipt.dotfilesBefore = baseline.head;
     const prevEnd = runState.lastEndedAt ? Date.parse(runState.lastEndedAt) : 0;
     receipt.notesArrived = describeInbox(opts).filter((r) => !r.imported && r.mtimeMs > prevEnd).length;
 
-    const { set: managed, error: managedError } = await managedNames(opts);
-    if (managedError) return skip(`managed set unresolved: ${managedError}`);
-    opts.managedNames = managed;
     const gathered = await gatherKnowledge(opts);
     const { eligible, selected } = selectNotes(ctx, opts, managed);
     receipt.notesEligible = eligible.length;
