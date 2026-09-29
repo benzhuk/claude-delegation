@@ -521,3 +521,34 @@ test('Lane55 unchanged four-read propagates unsupported token fields as unavaila
   const read = buildFourRead({ record: recordPath, census: censusPath });
   assert.match(read.numbers.find((row) => row.key === 'topTierTokensPerBuild').value, /^unavailable \(Codex census coverage is unavailable/);
 });
+
+test('Lane55 task-turn and stall-nudge support require actual native evidence', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'missing-turn.jsonl', [
+    meta(ROOT), line('event_msg', { type: 'task_started' }), context('t'), usage('r', 't'),
+    line('event_msg', { type: 'task_complete' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, ledgerDir: path.join(home, 'missing-ledger'), leadSlug: null, from: null, to: null, out: null });
+  assert.equal(report.lead.leadTurns, 0);
+  assert.equal(report.lead.codex.fields.leadTurns.status, 'UNSUPPORTED', 'malformed task_started.turn_id cannot prove an exact zero');
+  assert.equal(report.lead.codex.fields.stallNudges.status, 'UNSUPPORTED', 'no readable ledger/slug cannot prove zero nudges');
+});
+
+test('Lane55 temporal completeness includes open children and requires no in-window rows for the future-child exception', async () => {
+  const openHome = fixtureHome();
+  const openLead = writeRollout(openHome, DAY, 'lead.jsonl', leadRows());
+  writeRollout(openHome, DAY, 'open-child.jsonl', [meta('open-child', ROOT, ROOT, 1), taskStarted('ct'), context('ct'), usage('cr', 'ct')]);
+  const unbounded = await runCensus({ lead: openLead, leadSession: ROOT, codexHome: openHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(unbounded.lead.codex.discovery.scope.complete, false);
+  assert.match(unbounded.lead.codex.discovery.scope.reason, /child.*end-bound witness|open.*child/i);
+
+  const futureHome = fixtureHome();
+  const futureLead = writeRollout(futureHome, DAY, 'lead.jsonl', leadRows());
+  writeRollout(futureHome, NEXT_DAY, 'future-but-in-window.jsonl', [
+    meta('future-child', ROOT, ROOT, 1),
+    taskStarted('ft', '2026-09-28T12:00:00.500Z'), context('ft', MODEL, '2026-09-28T12:00:01.000Z'),
+    usage('backdated-in-window', 'ft', { at: '2026-09-27T12:00:05.000Z' }),
+  ]);
+  const bounded = await runCensus({ lead: futureLead, leadSession: ROOT, codexHome: futureHome, tasksDirs: [], marker: null, from: '2026-09-27T12:00:00.000Z', to: '2026-09-27T12:00:10.000Z', out: null });
+  assert.equal(bounded.lead.codex.discovery.scope.complete, false, 'future-file exception is invalid when the file contributes an in-window row');
+});
