@@ -1,4 +1,4 @@
-VERDICT: READY 8e8c65308a79b34bd1f59979ac6ee6222e56ebcc
+VERDICT: READY 27b384620dd9d22b24e9dd508190437a8889aaf6
 
 # Lane40 independent contract-test report
 
@@ -8,9 +8,9 @@ Branch: `build/knowledge-triage-40-tests`
 
 Base: `9cad287a5a0567d1e4fbe9e1ccfc25117828b620`
 
-Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, `9c9ebdd`, and `8e8c653`
+Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, `9c9ebdd`, `8e8c653`, and `27b3846`
 
-The four owned test paths contain 49 new contract cases. The two new files remain below the 800-line limit (`knowledge-gather.test.mjs` 745 physical lines; `knowledge-triage.test.mjs` 627 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
+The four owned test paths contain 49 new contract cases. The two new files remain below the 800-line limit (`knowledge-gather.test.mjs` 751 physical lines; `knowledge-triage.test.mjs` 630 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
 
 ## Contract coverage
 
@@ -56,6 +56,10 @@ Against source fixes `1317543` and `bac4849`, commit `8e8c653` applies the two r
 - Runner: 20 pass / 0 fail / 0 skip; Node duration 11,141 ms, command wall time 11.95 s, sealed leak check 0.
 
 Six focused scratch-copy mutants all exited nonzero and killed their intended assertion: writer precondition (166 ms), digest commit proof (808 ms), archive rename claim (731 ms), runner managed fail-closed (469 ms), standalone gather managed fail-closed (167 ms), and production sender consumption of `buildNotificationInvocation` (158 ms). The mutant copy remains at `%TEMP%\lane40-mutants-0f73682238ac4f94af1015ac1494dc3f` per the no-cleanup instruction. No full suite was run in this child.
+
+## Full-suite N2 fixture integration
+
+Commit `27b3846` repairs the two own-lane N2 findings from the Windows full suite. The generated SSH and Claude fixture programs now import the existing `test-child-env.mjs` helper and pass `childEnv(explicitFixtureHome)` to their grandchild spawns. No production file or guard marker changed. In this native Codex environment, `DELEGATION_REVIEW_RUN` was absent (presence check only; no environment dump). The requested five-file sealed scope was not run: immediate acquisition of `Global\claude-verify` returned busy, and the instruction required stopping that check rather than waiting or retrying. Syntax and `git diff --check` passed before the commit.
 
 ## Limitations and integration gate
 
