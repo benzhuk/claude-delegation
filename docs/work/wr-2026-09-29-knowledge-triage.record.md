@@ -7,8 +7,8 @@ Authority: skills-fable-lane-40-1 rev4 build and manual proof, standing reviewed
 Artifact: build/knowledge-triage-40@7cc858ad834f3958b45a0afd17f6879fcc4dd9bf
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40
-Evidence: docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
-Next: independent Opus delta at7cc858a and one-shot host gates. Live proof remains held for approval. Root owns integrated deliveries.
+Evidence: docs/specs/knowledge-triage-40/host-gates-r2-receipt.md, docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
+Next: receive Opus delta on7cc858a, run native hook/environment comparison and final host gate after slot free, review11-line test-only N2 delta, then authorized live proof if approved. No current passing full-host gate.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
@@ -42,11 +42,12 @@ Log: 2026-09-29T23:28:34.0949717Z delivered skills-a integrated final bounded re
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
-Observed: review causes repaired in sourcebac4849 and tests8e8c653. Integrated7cc858a sealed focused114tests111pass0fail3skip,leak0. Independent author reports six intended mutant reds. No live publication, successful full-host gates, installation or acceptance yet.
+Observed: repaired7cc858a focused114tests111pass0fail3skip and six intended mutant reds. Windows full gate3036pass30fail33skip at docs-only50c37ba. Two lane-owned fixture environments repaired;29 lead-classification failures have a role-marker hypothesis awaiting native comparison. Netcup slot busy, zero tests there. No live run or acceptance.
 
 Authority and supporting sources: docs/specs/knowledge-triage-40/rev4-intake.md, install-authority.md, territories.md, scout-ruling.md, spec-r1-adjudication.md, spec-review-r1.identity.json and bearings-lead-response.md. These are source/adjudication/publication documents, not independent verdict reports.
 
 Installation update: skills-fable-lane-40-2 reports Ben's September29 17:11 America/New_York tick. No need to ask for that tick again. The task installs enabled after acceptance/merge via the next release and runs immediately; this does not waive the failed scratch-probe prerequisite.
+
 
 
 
