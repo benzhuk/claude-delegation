@@ -389,11 +389,10 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   // bound) without re-deriving dedup semantics.
   const wakeRunRecords = [];
   const wakeRunAliasCounter = { n: 0 };
-  // MINOR 3 (R1): a RESULT, non-Done-tick wake LINE that lands before the window starts, but
-  // close enough that an in-window wake could still be within its hold window, must be able to
-  // start a wave even though its own run (if any) never becomes a wakeRunRecords entry (that
-  // list is windowed-runs-only). Recorded here regardless of window state; filtered to the ones
-  // within WAKE_SPLIT_HOLD_MINUTES of windowStartAt once that timestamp is known, below.
+  // MINOR 3 (R1): a RESULT, non-Done-tick wake LINE that lands before the window starts must be
+  // able to start a wave even though its own run (if any) never becomes a wakeRunRecords entry
+  // (that list is windowed-runs-only). Recorded only while the window has not started, so a line
+  // after a --to end is never one of them (R2).
   const preWindowResultAts = [];
 
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
@@ -486,7 +485,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
         // ordinary human message between a wake and the next run means that run is
         // `other`, not wake-opened).
         if (wake) {
-          if (!inWindowNow && wake.kind === 'RESULT' && !wake.doneTick) {
+          if (!windowStarted && wake.kind === 'RESULT' && !wake.doneTick) {
             preWindowResultAts.push(obj.timestamp || lastAt);
           }
           pendingTag = 'wake';
@@ -543,14 +542,19 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   // less than WAKE_SPLIT_HOLD_MINUTES after the wave's own start; `coalescableTurns` is
   // those wakes minus the waves they started.
   const holdMs = WAKE_SPLIT_HOLD_MINUTES * 60000;
-  // MINOR 3 (R1): pre-window RESULT wake lines within holdMs of windowStartAt may start a
-  // wave (so an in-window RESULT less than holdMs after one is coalescable, not a wave
-  // starter itself), but they are never pushed into coalescableRecords — they have no
-  // in-window run of their own to attribute tokens to.
-  const windowStartMsForHold = windowStartAt ? Date.parse(windowStartAt) : NaN;
+  // MINOR 3 (R1): pre-window RESULT wake lines may start a wave (so an in-window RESULT less
+  // than holdMs after one is coalescable, not a wave starter itself), but they are never pushed
+  // into coalescableRecords — they have no in-window run of their own to attribute tokens to.
+  // All of them, not only the last holdMs: waves chain, so an older line decides whether a later
+  // pre-window line starts a wave (R2). A line whose own run straddles the window start is that
+  // run's record already (same wake-line timestamp), so it is dropped here, or the record would
+  // coalesce into the wave it started itself (R2).
+  const resultRecordAtMs = new Set(wakeRunRecords
+    .filter((r) => r.kind === 'RESULT' && !r.doneTick && r.at)
+    .map((r) => Date.parse(r.at)));
   const preWindowEligible = preWindowResultAts
     .map((at) => Date.parse(at))
-    .filter((atMs) => !Number.isNaN(atMs) && !Number.isNaN(windowStartMsForHold) && windowStartMsForHold - atMs < holdMs)
+    .filter((atMs) => !Number.isNaN(atMs) && !resultRecordAtMs.has(atMs))
     .map((atMs) => ({ atMs, preWindow: true }));
   const eligible = [
     ...preWindowEligible,
@@ -570,7 +574,7 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   const upperByModel = {};
   const lowerByModel = {};
   // MINOR 4 (R1): an id a later run re-used is counted there (last line wins in windowById),
-  // never here as well. Declared above both loops that need it (this one and the ceiling's).
+  // never here as well. The ceiling below deliberately does not use it (R2).
   const liveWindowEntries = new Set(windowById.values());
   for (const rec of coalescableRecords) {
     for (const entry of rec.ids.values()) {
@@ -590,9 +594,10 @@ export async function censusLeadFile(filePath, { fsImpl = fs, marker, from, to }
   // held RESULT surfaced by hooks inside a loud note's turn); the wave count above is one model of it.
   const resultRecords = wakeRunRecords.filter((r) => r.kind === 'RESULT' && !r.doneTick);
   const resultByModel = {};
+  // No liveWindowEntries guard here (R2): a request first seen in a RESULT run was issued by that
+  // run, so a ceiling errs high and keeps it even when a later run's line wins it in windowById.
   for (const rec of resultRecords) {
     for (const entry of rec.ids.values()) {
-      if (!liveWindowEntries.has(entry)) continue;
       if (!resultByModel[entry.model]) resultByModel[entry.model] = newAgg();
       addUsage(resultByModel[entry.model], entry.usage);
     }

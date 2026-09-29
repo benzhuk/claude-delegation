@@ -214,6 +214,42 @@ test('W1/--from: a run opened by a wake before --from and still running at --fro
   assert.equal(c.leadTurns, 1);
   assert.equal(c.wakes, 0);
   assert.equal(c.wakeSplit.wakeTurns, 1);
+  assert.equal(c.wakeSplit.coalescable.turns, 0); // the straddling run never coalesces into its own wave
+  assert.equal(c.wakeSplit.coalescable.resultTurns, 1);
+});
+
+test('W1b/window edge: a straddling RESULT run starts the wave an in-window RESULT joins, once', async () => {
+  const c = await run([wake(-M, 1), asst(-50000, 'a'), toolResult(100), asst(5000, 'b'), wake(3 * M, 2), asst(3 * M + 1000, 'c')], { from: iso(0) });
+  assert.equal(c.wakeSplit.coalescable.turns, 1);
+});
+
+test('W1b/window edge: pre-window waves chain from their own start, so the windowed count matches the whole file', async () => {
+  const lines = [
+    wake(-15 * M, 1), asst(-15 * M + 1000, 'a'), wake(-8 * M, 2), asst(-8 * M + 1000, 'b'),
+    userPlain(-7 * M, 'x'), asst(-7 * M + 1000, 'p'), wake(M, 3), asst(M + 1000, 'c'),
+  ];
+  assert.equal((await run(lines)).wakeSplit.coalescable.turns, 1); // -8 joins -15's wave; +1 starts its own
+  assert.equal((await run(lines, { from: iso(0) })).wakeSplit.coalescable.turns, 0);
+});
+
+test('W1b/--to: a RESULT wake after the window ends never starts a wave, even stamped inside the window', async () => {
+  const c = await run([
+    wake(0, 1), asst(1000, 'a'), wake(15 * M, 2), asst(15 * M + 1000, 'b'),
+    userPlain(17 * M, 'x'), asst(17 * M + 1000, 'x'), wake(12 * M, 3), asst(12 * M + 1000, 'c'),
+  ], { to: iso(16 * M) });
+  assert.equal(c.wakeSplit.coalescable.turns, 0);
+});
+
+test('W1b/ceiling: a request a later run re-used leaves the W1b bounds but stays in the RESULT ceiling', async () => {
+  const c = await run([
+    wake(0, 1), assistantLine(1000, 'ra', agg(1, 0, 0, 0)),
+    wake(4 * M, 2), assistantLine(4 * M + 1000, 'rd1', agg(10, 0, 0, 0)), assistantLine(4 * M + 2000, 'rd2', agg(100, 0, 0, 0)),
+    userPlain(5 * M, 'x'), assistantLine(5 * M + 1000, 'rd1', agg(10, 0, 0, 0)),
+  ]);
+  assert.equal(c.wakeSplit.coalescable.turns, 1);
+  assert.deepEqual(c.wakeSplit.coalescable.upperByModel, { [MODEL]: agg(100, 0, 0, 0) });
+  assert.deepEqual(c.wakeSplit.coalescable.lowerByModel, {});
+  assert.deepEqual(c.wakeSplit.coalescable.resultByModel, { [MODEL]: agg(111, 0, 0, 0) });
 });
 
 test('W1b/window edge (straddle2): a RESULT wave that starts just before the window still absorbs an in-window RESULT less than N minutes later', async () => {
