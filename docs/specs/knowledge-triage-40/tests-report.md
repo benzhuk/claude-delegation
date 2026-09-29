@@ -1,4 +1,4 @@
-VERDICT: READY 27b384620dd9d22b24e9dd508190437a8889aaf6
+VERDICT: READY 5b08cc38a0bcff0ade5facf3e7d7da69ca14182d
 
 # Lane40 independent contract-test report
 
@@ -8,9 +8,9 @@ Branch: `build/knowledge-triage-40-tests`
 
 Base: `9cad287a5a0567d1e4fbe9e1ccfc25117828b620`
 
-Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, `9c9ebdd`, `8e8c653`, and `27b3846`
+Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, `9c9ebdd`, `8e8c653`, `27b3846`, and `5b08cc3`
 
-The four owned test paths contain 49 new contract cases. The two new files remain below the 800-line limit (`knowledge-gather.test.mjs` 751 physical lines; `knowledge-triage.test.mjs` 630 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
+The owned test paths contain 51 new named contract cases. The test files and authorized helper remain below the 800-line limit (`knowledge-gather.test.mjs` 625 physical lines; `knowledge-triage.test.mjs` 645; `knowledge-gather.test-fixtures.mjs` 136). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
 
 ## Contract coverage
 
@@ -70,6 +70,20 @@ node scripts/run-tests.mjs --no-sweep hooks/delete-guard.test.mjs hooks/multi-in
 Result: 308 tests / 308 pass / 0 fail / 0 skip, Node duration 11,622.1398 ms, command wall time 12.48 s, sealed leak check 0. The 29 lead-classification failures from the inherited mid-tier full gate did not reproduce. `DELEGATION_REVIEW_RUN` was absent in the native parent; lines exercising value `1` came from intentional child fixtures in the guard/hook tests.
 
 Raw-output provenance: direct `functions.exec` result chunk `4721cc` on 2026-09-29 America/New_York. The command was streamed to the tool result rather than redirected, so there is no filesystem raw-log path. Its successful sealed root was `%TEMP%\delegation-test-run-59940-8z1TnC\sealed-home-kE8twq`; `run-tests.mjs` removed that root on success. This report preserves the exact command, aggregate TAP receipt, wall time, Node duration and leak result without claiming a nonexistent log file.
+
+## Code review r2 independent red phase
+
+Commit `5b08cc3` adds the F1-F4 closure assertions from `code-r2-adjudication.md`. Root authorized extracting the existing reusable gather fixture machinery from `scripts/knowledge-gather.test.mjs` to `scripts/knowledge-gather.test-fixtures.mjs`; assertions stayed in the test file, and the N2 `childEnv(explicitFixtureHome)` grandchild spawn stayed visible in the scanned test file.
+
+The final sealed real-source gate under `Global\claude-verify` produced 42 tests / 39 pass / 3 expected fail / 0 skip, Node duration 11,424.4395 ms, command wall time 12.21 s, and leak check 0. The three failures are branch-specific:
+
+- F2 timeout-first signaling measured 2 tree signals instead of 1. The same test's overflow-first variant passed.
+- F3 the NBSP plus reserved-label publication error never reached the injected sender, proving `safeSummary` rejected it before delivery. The test also carries the U+2028 reserved-label variant.
+- F4 ATTENTION write failure did not attempt the fallback sender, so the receipt lacked the required visible BLOCKED-delivery failure. The same case also pins one attempt, envelope-safe fallback text, both exact recovery commands, and nullable helper argv without `--packet-file`.
+
+F1 is green on the real source: interrupted and busy claims both remain named unresolved evidence (814.6205 ms); changed bytes restore to a free name and changed bytes plus a new live occupant preserve both versions (1,225.3231 ms); the earlier successful replacement case also passes (617.6451 ms). Two destructive scratch mutants fail the intended assertions: removing the missing-source claim check exits 1 (528 ms; focused test 379.4321 ms), and deleting a changed claim instead of restoring it exits 1 (738 ms; focused test 614.5919 ms).
+
+Raw provenance is direct `functions.exec` chunk `ae918b` for the final red gate and the immediately following mutant tool result for the two focused mutants. No filesystem logs were claimed because output was streamed. Per the no-cleanup instruction, retained paths include `%TEMP%\delegation-test-run-15768-FIDO2Z`, `%TEMP%\delegation-test-run-49556-M5LkLo`, and `%TEMP%\lane40-r2-mutants-8d2d652bde2248c7b9f1d8a0629e0bd3`. F2-F4 remain intentionally red until the separately owned source repair is integrated; no full suite or live action ran.
 
 ## Limitations and integration gate
 
