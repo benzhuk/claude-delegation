@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-clear-done-accounted
 Scope: the spec section of this record (lane 58), from skills-fable-decisions-pickup-legacy-1 (its option: a lane that lets publish clear the page), read at 1090978
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build, review, integrate, push build/clear-done-accounted-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; after the merge, run publish --clear-done once for the live page 3e1da11277a18174bccfea187d5c3972 from Netcup; no install, no release
-Next: Sonnet builder, then Opus review
+Next: Opus review at c73d472
 Worktree: build/clear-done-accounted-1
 Scratch: /var/tmp/lane-58
 Opened: 2026-09-29T19:27:04.000Z
@@ -12,6 +12,7 @@ Spec-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
 Spec-from: 2026-09-29T19:27:04Z
 Base: 10909787e491e6aa8c327b7353eab33136c236c1
 Log: 2026-09-29T19:27:04.000Z owned skills-n opened after round 5 was accounted before publish --clear-done, which then refused (no captured pickup round); the page is stuck with owner input pending, and the desktop publish is blocked too
+Log: 2026-09-29T19:33:51.000Z delivered skills-n Sonnet builder a3aa7c115a1a1fed4 DONE c73d472cb (four tests red before, green after; decisions scripts 455 pass; full suite 3033 tests 3028 pass 0 fail); report docs/specs/clear-done-58/build.md
 
 ## Spec (lead)
 
