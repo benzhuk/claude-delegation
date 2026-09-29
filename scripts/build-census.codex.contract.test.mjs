@@ -135,7 +135,10 @@ test('Codex contract: explicit tasks adds eligible outside-home rollout and de-d
 
 test('Codex contract: a context before --from supplies the model for an in-window response', async () => {
   const home = fixtureHome();
-  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows({ tokenAt: '2026-09-27T12:10:00.000Z' }));
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    ...leadRows({ tokenAt: '2026-09-27T12:10:00.000Z' }),
+    line('event_msg', { type: 'heartbeat' }, '2026-09-27T12:16:00.000Z'),
+  ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: '2026-09-27T12:05:00.000Z', to: '2026-09-27T12:15:00.000Z', out: null });
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.combined[MODEL].output_tokens, 3);
