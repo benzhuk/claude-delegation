@@ -10,6 +10,8 @@ Revision after Opus red-team: spec-review-r1.md reviewed0a759de with NEEDS_FIXES
 
 Later authority: install-authority.md records skills-fable-lane-40-2 and Ben's September29 17:11 America/New_York tick. The installation wait below is satisfied by that reported decision. Install on the next release after acceptance/merge, enabled, then trigger the first run immediately rather than waiting for its daily clock slot. Cite the tick in the release item. Do not request it again. Existing probe/review/merge gates are not waived.
 
+Latest probe/gather ruling: probe-r2-authority.md (skills-fable-lane-40-3) replaces scratch Git publication with plain-file before/after digest manifests, no Git and no allowlist. Nested behavior is tested in scratch; real publication remains the later live gate. Mac is a named placeholder pending Ben's alias, and both denied searches remain stopped. These specific later rulings override the earlier probe and alias-discovery clauses below and in spec-r1-adjudication.md.
+
 ## Outcome and boundaries
 
 One Windows writer job gathers pending notes from the fixed hosts, invokes the existing triage skill once on the union, and reconciles successfully archived imported notes back to their origins. It feeds the existing store and publisher. Measure moved: work lost/stalled, measured by before/after pending, arrivals, per-host gather/archive counts, DIGEST entries and run tokens. No claim that overall DONE or comparative cost improvement is established by one run.

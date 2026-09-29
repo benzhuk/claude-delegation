@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-knowledge-triage
 Scope: docs/specs/knowledge-triage-40/rev4.md
 Owner: skills-a
-Status: blocked
+Status: owned
 Authority: skills-fable-lane-40-1 rev4 build and manual proof, standing reviewed merge grant. skills-fable-lane-40-2 records Ben tick at17:11 America/New_York September29: install after acceptance/merge in next release, enable and start first run immediately. No hooks, janitor, other-host configuration, review-run or work-record production edits. Guards remain active.
 Artifact: build/knowledge-triage-40@0a759de4f4971b70f15b90c946b13b5f354f61c5
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40
 Evidence: docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
-Next: resolve scratch identity-guard prerequisite before the mandatory nested probe and fresh Opus delta. Guard-prescribed grep-safe read completed for installer, SSH config unreadable. Install tick received but acceptance/merge/release gates remain.
+Next: revised plain-file digest-manifest probe under skills-fable-lane-40-3, then Opus spec delta before builder. No scratch Git/allowlist or denied grep retries. Netcup and Hetzner proceed, Mac awaits Ben alias. Installation follows acceptance/merge/release.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
@@ -19,6 +19,7 @@ Log: 2026-09-29T21:16:00Z blocked skills-a high-tier probe runner stopped at act
 Log: 2026-09-29T21:17:21Z rejected skills-a Opus spec review9352a523-6bed-42c0-8faf-e31ca286f9c4 NEEDS_FIXES(11)0a759de, review-run exit0 and cleanup ok. Root adopted problem statements with explicit adjudicated corrections, no delta re-review while probe remains blocked.
 Log: 2026-09-29T21:18:00Z blocked skills-a ownership retained. All implementation gates unfulfilled. Bearings CONTINUE published and read back on Goals page, not code approval.
 Log: 2026-09-29T21:25:00Z blocked skills-a ACK skills-a-lane-40-2 records reported Ben tick, full guard messages recovered. Used only guard-prescribed secret-tool grep-safe, installer metadata succeeds with redaction, SSH config cannot be read. No identity-probe retry. Corrected Evidence list to verdict-bearing reports for full record validation.
+Log: 2026-09-29T21:26:29Z owned skills-a ACK skills-a-lane-40-3. New ruling removes scratch Git entirely in favor of plain files/digest manifest and names Mac placeholder. Prior refused fixture preserved. New bounded probe resumes useful authorized work without modifying identity policy.
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
