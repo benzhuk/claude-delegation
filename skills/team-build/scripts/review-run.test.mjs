@@ -380,6 +380,56 @@ test('finding 7: sweepStaleRuns does not follow a symlinked review-run-* entry i
   assert.ok(fs.existsSync(path.join(canary, 'wt', 'canary.txt')), 'a symlinked review-run-* entry must never have its target\'s wt/ removed');
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 6: an orphaned detached child (the claude session) must survive a SIGKILL of
+// review-run, and a later sweep must reap IT, not just silently reclaim its live wt/.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeRunDirWithOwner(scratch, owner) {
+  const runId = 'review-run-abc1234-' + Math.random().toString(36).slice(2, 10);
+  const runDir = path.join(scratch, runId);
+  fs.mkdirSync(path.join(runDir, 'wt'), { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'wt', 'marker.txt'), 'present');
+  fs.writeFileSync(path.join(runDir, 'owner.json'), JSON.stringify(owner));
+  return runDir;
+}
+
+test('finding 6: a live orphaned child still within its own timeout is left alone — its wt/ survives, and it is never killed', () => {
+  const scratch = scratchDir('review-run-orphan-scratch-');
+  const runDir = makeRunDirWithOwner(scratch, {
+    pid: 424242, startedAt: new Date(Date.now() - 1000).toISOString(), childPid: 555555, timeoutMin: 45,
+  });
+  let killed = null;
+  // review-run's own pid (424242) is dead; the child (555555) is alive and young (age ~1s << 45min).
+  sweepStaleRuns(scratch, 45, fs, (pid) => pid === 555555, (pid) => { killed = pid; });
+  assert.equal(killed, null, 'a young orphan must never be killed');
+  assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')), 'a young orphan\'s wt/ must survive');
+});
+
+test('finding 6: a live orphaned child PAST its own timeout is killed, then its wt/ is reclaimed', () => {
+  const scratch = scratchDir('review-run-orphan-scratch-');
+  const runDir = makeRunDirWithOwner(scratch, {
+    pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString(), childPid: 555555, timeoutMin: 1,
+  });
+  let killed = null;
+  sweepStaleRuns(scratch, 45, fs, (pid) => pid === 555555, (pid) => { killed = pid; });
+  assert.equal(killed, 555555, 'an orphan past its own owner.timeoutMin must be killed');
+  assert.equal(fs.existsSync(path.join(runDir, 'wt')), false, 'its wt/ must then be reclaimed');
+});
+
+test('finding 6: owner.json is rewritten with the real childPid and timeoutMin right after spawn', async () => {
+  const pidFile = path.join(scratchDir('review-run-childpid-'), 'pid');
+  const { scratch } = await run({ mode: 'timeout', timeoutMin: 0.05, extraEnv: { FAKE_PID_FILE: pidFile } });
+  const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
+  assert.equal(runDirs.length, 1);
+  // The run only ever removes wt/, never runDir itself, so owner.json must still be readable.
+  const ownerPath = path.join(scratch, runDirs[0], 'owner.json');
+  const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'));
+  const fakePid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+  assert.equal(owner.childPid, fakePid, 'owner.json must carry the real spawned child pid');
+  assert.equal(owner.timeoutMin, 0.05);
+});
+
 test('finding 7: isProcessAlive treats EPERM (a process owned by another user) as alive, not dead', () => {
   // pid 1 (init/systemd) exists but is not signalable by a non-root user: process.kill(1, 0)
   // raises EPERM on every POSIX host this runs on. On win32 this test is skipped: there is no

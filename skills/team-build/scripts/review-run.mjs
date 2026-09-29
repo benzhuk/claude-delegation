@@ -501,6 +501,7 @@ export async function runReviewRun(argv, deps = {}) {
     const result = await runChild({
       claudeBin: claudeBinResolved, argv: argvForChild, cwd: wtDir, env: childEnv, prompt,
       timeoutMin: options.timeoutMin, spawnImpl, runDir, fsImpl, signal,
+      startedAt: startedAt.toISOString(),
     });
 
     let exitCode;
@@ -582,12 +583,21 @@ function readPluginVersion(pluginRoot, fsImpl) {
 
 /** Spawn the child, feed it the prompt on stdin, collect the stream-json result telemetry, and
  * enforce the timeout by killing the whole process tree (M5). */
-function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, runDir, fsImpl, signal }) {
+function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, runDir, fsImpl, signal, startedAt }) {
   return new Promise((resolve) => {
     const child = spawnImpl(claudeBin, argv, {
       cwd, env, windowsHide: true, detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    // finding 6: record the real spawned child pid (plus this run's own timeout) the moment it
+    // exists, so a LATER run's sweep can tell "review-run died, but the claude session it spawned
+    // is still going as an orphan" apart from "the whole run is simply gone", and reap only the
+    // former once it is past ITS OWN deadline — never a live orphan still inside it.
+    try {
+      fsImpl.writeFileSync(path.join(runDir, 'owner.json'), JSON.stringify({
+        pid: process.pid, startedAt, childPid: child.pid ?? null, timeoutMin,
+      }));
+    } catch { /* best effort — the pre-spawn owner.json (pid/startedAt only) is already on disk */ }
     let settled = false;
     let stdoutBuf = '';
     let pending = '';
