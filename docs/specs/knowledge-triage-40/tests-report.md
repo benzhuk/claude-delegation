@@ -61,6 +61,16 @@ Six focused scratch-copy mutants all exited nonzero and killed their intended as
 
 Commit `27b3846` repairs the two own-lane N2 findings from the Windows full suite. The generated SSH and Claude fixture programs now import the existing `test-child-env.mjs` helper and pass `childEnv(explicitFixtureHome)` to their grandchild spawns. No production file or guard marker changed. In this native Codex environment, `DELEGATION_REVIEW_RUN` was absent (presence check only; no environment dump). The requested five-file sealed scope was not run: immediate acquisition of `Global\claude-verify` returned busy, and the instruction required stopping that check rather than waiting or retrying. Syntax and `git diff --check` passed before the commit.
 
+After the reviewing lane released the mutex, the same native environment ran the requested comparison once with no role-marker change:
+
+```text
+node scripts/run-tests.mjs --no-sweep hooks/delete-guard.test.mjs hooks/multi-inbox.test.mjs skills/multi/scripts/hooks.test.mjs scripts/knowledge-gather.test.mjs scripts/knowledge-triage.test.mjs
+```
+
+Result: 308 tests / 308 pass / 0 fail / 0 skip, Node duration 11,622.1398 ms, command wall time 12.48 s, sealed leak check 0. The 29 lead-classification failures from the inherited mid-tier full gate did not reproduce. `DELEGATION_REVIEW_RUN` was absent in the native parent; lines exercising value `1` came from intentional child fixtures in the guard/hook tests.
+
+Raw-output provenance: direct `functions.exec` result chunk `4721cc` on 2026-09-29 America/New_York. The command was streamed to the tool result rather than redirected, so there is no filesystem raw-log path. Its successful sealed root was `%TEMP%\delegation-test-run-59940-8z1TnC\sealed-home-kE8twq`; `run-tests.mjs` removed that root on success. This report preserves the exact command, aggregate TAP receipt, wall time, Node duration and leak result without claiming a nonexistent log file.
+
 ## Limitations and integration gate
 
 Root added the bounded test-only command/time seams in `test-seam-ruling.md` after dispatch. Those root-owned files are deliberately absent from the test commits. The source cherry-picks in this test branch exist only to run scoped verification; root should integrate the six test commits above rather than merge this branch wholesale. Root's final integrated gate should run exactly:

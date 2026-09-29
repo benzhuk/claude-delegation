@@ -12,6 +12,7 @@ Updated: 2026-09-29 America/New_York
 - Code-review regressions have discriminating red evidence against reviewed source `42e356b` and scoped green evidence against fixes `1317543` plus `bac4849`.
 - Six planned scratch-copy mutants were killed; exact costs and the retained scratch path are recorded in `tests-report.md`.
 - N2 grandchild environments are sealed in test commit `27b3846`; the native review marker was absent.
-- The requested five-file sealed gate was not run because the global mutex was busy on the required immediate acquisition; no retry was attempted.
+- The first five-file gate attempt stopped because the global mutex was busy. After the reviewing lane released it, the native comparison passed 308/308 with 0 skips and leak check 0; the 29 inherited role-classification failures did not reproduce.
+- Native raw-output provenance is `functions.exec` chunk `4721cc`; no filesystem raw log exists because the completed command was streamed without redirection. Exact command and receipt are in `tests-report.md`.
 - Failed sealed-run fixture directories remain because `delete-guard` refused their recursive removal; paths are recorded in `tests-report.md`.
-- Next owner action: integrate test commit `27b3846` after the earlier Lane40 test commits, then run the requested sealed scope when root owns the global verification mutex.
+- Next owner action: retain the passing native comparison alongside the prior mid-tier full-gate failure when adjudicating the role-marker diagnosis and the pending review-r2 findings.
