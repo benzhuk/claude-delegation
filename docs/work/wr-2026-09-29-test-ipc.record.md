@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-test-ipc
 Scope: the spec section of this record (lane 57), from packet docs/notes/skills-fable-lane-57-1.md read at 0b517ba
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: Opus delta review and the Windows full suite at 1135839
+Next: fix round 2 per docs/specs/test-ipc-57/lead-ruling-r2.md, then the r2 reviewer re-runs its unmeasured checks
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -22,6 +22,7 @@ Log: 2026-09-29T09:02:31.000Z rejected skills-n Opus reviewer a6d6df3d585206a42 
 Log: 2026-09-29T09:02:49.000Z owned skills-n fresh Sonnet fix-round-1 builder af9f91cafc871abba spawned on lead-ruling-r1.md, ETA 60 min
 Log: 2026-09-29T09:27:15.000Z delivered skills-n fix-round-1 builder af9f91cafc871abba DONE 1135839b7dac29bb8520094aa982af07821aaab2 (W1 and F1 to F8; red at 0824e76 for W1, F1, F2 both ways, F4 and F7; 1167b9a red re-confirmed; 8 files and 14 sites exempted by count; full suite 3035 tests 3030 pass 0 fail); report docs/specs/test-ipc-57/build-r1.md
 Log: 2026-09-29T09:30:50.000Z delivered skills-n Windows full suite at 1135839: 3035 tests, 3002 pass, 0 fail, 33 skipped (the one printed probe failure is run-tests.test.mjs's intentional nested child); Opus delta review r2 sent to a6d6df3d585206a42
+Log: 2026-09-29T19:24:39.000Z rejected skills-n Opus delta reviewer a6d6df3d585206a42 NEEDS_FIXES 1135839 by static trace (R1 HIGH, an env key set to the parent process environment inside a multi-line template still slips; R2 MEDIUM, regex literals mis-extend a call, the fix is a loud tripwire; R3 LOW, false reds). Stall: from about 07:30 to 15:20 NY every shell on Netcup failed with ENOSPC because /tmp had 0 free inodes; the reviewer could not measure, and the lead could not record or spawn until /tmp was freed
 
 ## Spec (lead, from the packet)
 
