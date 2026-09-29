@@ -528,7 +528,7 @@ function resolveIdentHasEnvKey(fileText, ident) {
   const braceIdx = fileText.indexOf('{', decls[0].index);
   const obj = extractBalanced(fileText, braceIdx, '{', '}');
   const c = codeOnly(obj);
-  return /[{,]\s*env\s*[:,}]/.test(c) && !/[{,]\s*env\s*:\s*(?:undefined|null|void\s+0)\s*[,}]/.test(c);
+  return /[{,]\s*env\s*[:,}]/.test(c) && !/[{,]\s*env\s*:\s*[(\s]*(?:undefined|null|void[\s(]*0)[\s)]*[,}]/.test(c);
 }
 
 /** Structural check over a call's code (comments, strings and regexes blanked by `codeOnly`): `broken`
@@ -581,13 +581,17 @@ function callShape(code) {
  *    call's options argument - an options object built with `Object.assign({}, process.env)`, a local
  *    alias such as `const env = process.env` then `{ env }`, `process['env']`, an assignment to an
  *    existing options object's `env` property, or a helper function that returns `process.env` - is
- *    silent; only a call's own text and a wrapper's own env value are judged.
+ *    silent, as is `const { env } = process`. A wrapper call (any name outside the spawn family) is
+ *    judged only for the exact `env: process.env` value or a bare `...process.env` spread, so a
+ *    composite value there (`Object.assign`, a ternary) is silent as well.
  *  - node reached through `exec`/`execSync`, a renamed spawn import or destructure, `spawn.call(...)`,
  *    `process.argv0`/`process.argv[0]`, a destructured `execPath`, or `node` held in a variable other
  *    than the tracked ones is silent; reachability is allow-by-default on a fixed name and token set.
  *  - `delete opts.env`, a later spread that may override an earlier `env` key, a function parameter
  *    shadowing a sealed top-level `const` of the same name, `env: o.env ?? undefined`, and a wrapper's
- *    `env: process.env` on a line that begins inside a multi-line template are silent; each needs a
+ *    `env: process.env` on a line that begins inside a multi-line template, options chosen by a ternary
+ *    whose one branch is sealed, and an `env` key in an extra object argument the API ignores are
+ *    silent; each needs a
  *    mechanism this text scanner does not have.
  */
 function findEnvLessSpawns(text) {
@@ -662,7 +666,7 @@ function findEnvLessSpawns(text) {
     const shape = callShape(code);
     if (shape.broken) { found.push({ line, fn: m[1], target: 'call extent not parsed - rewrite or split this call' }); continue; }
     const hasEnvKey = shape.topEnvKey;
-    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null|void\s+0)\s*[,}]/.test(code)
+    const inheritsBare = /[{,]\s*env\s*:\s*[(\s]*(?:undefined|null|void[\s(]*0)[\s)]*[,}]/.test(code)
       || /\bprocess\s*\.\s*env\b(?!\s*(?:\.|\[|\?\.))/.test(code);
     let hasEnv = hasEnvKey && !inheritsBare;
     if (!hasEnv && !inheritsBare) {
@@ -1038,6 +1042,11 @@ test('N2 scanner: r4 - a regex after => or an operator, a nested template, or an
   assert.deepEqual(flagged([N, 'const opts = { env: undefined };', SPAWN + "(NODE, ['x'], opts);"].join('\n')), [3], 'an options variable with env: undefined inherits');
   assert.deepEqual(flagged([N, SPAWN + "(NODE, ['x'], { env: void 0 });"].join('\n')), [2], 'env: void 0 inherits');
   assert.deepEqual(flagged("runChild(NODE, [/'/.source], { env: " + PARENT + ' });'), [1], 'a regex holding a quote must not blank a later inheriting value on the same line (codeOnly half of N2)');
+  assert.deepEqual(flagged("runChild(NODE, [(s) => /'/.test(s)], { env: " + PARENT + ' });'), [1], 'a regex after => must not blank a later inheriting value on a wrapper line (regexEnd operator set)');
+  assert.deepEqual(flagged([N, EXEC_FILE + "(NODE, ['x'], { env: childEnv(h) }, (e, o) => {", "  assert.ok([o].some((l) => /won't/.test(l))); // it's", '});'].join('\n')), [], 'a sealed call whose callback holds a regex after => must parse cleanly, not trip (regexEnd operator set)');
+  assert.deepEqual(findEnvLessSpawns([N, 'wrap(() => {', '  ' + SPAWN + "(NODE, x, `${`'`}`); // it's", '  const o = { env: childEnv(h) };', '  run(o);', '});'].join('\n')).map((h) => [h.line, /call extent not parsed/.test(h.target)]), [[3, true]], 'a desync that swallows a later top-level env key must trip the structural check, not pass (callShape.broken)');
+  assert.deepEqual(flagged([N, SPAWN + "(NODE, ['x'], { env: (null) });"].join('\n')), [2], 'a parenthesized null inherits');
+  assert.deepEqual(flagged([N, SPAWN + "(NODE, ['x'], { env: void(0) });"].join('\n')), [2], 'void(0) inherits');
   assert.deepEqual(flagged([N, SPAWN + "(NODE, ['x'], { env: childEnv(h) });"].join('\n')), [], 'control: a top-level env key still seals the call');
 });
 
