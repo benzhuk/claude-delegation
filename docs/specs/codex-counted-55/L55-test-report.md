@@ -22,6 +22,12 @@ same-id segment union presently raises `Codex response_id conflict across segmen
 lead-response` on the logical-segment contract. No focused consumer gate was run while
 these failures remain.
 
+Post-merge contract run at `50a66a5339007664bd964f608050178afbd9a7f0`: 13 pass,
+8 fail. Two failures are production regressions sent to T1: a duplicate response with
+conflicting model/timestamp no longer refuses, and an exact same-id alias is treated as a
+response conflict. The other failures are T2 fixture expectations retained from the prior
+coverage rule and will be converted to final-spec temporal/PARTIAL or per-field assertions.
+
 ## Mandatory case map
 
 `build-census.codex.contract.test.mjs` covers verified/missing/spoofed identity;
