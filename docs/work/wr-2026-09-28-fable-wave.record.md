@@ -1,9 +1,9 @@
 Work: wr-2026-09-28-fable-wave
 Scope: the spec section of this record (lane 51), from packet docs/notes/skills-fable-lane-51-1.md read at a6efbbe
 Owner: skills-n
-Status: rejected
+Status: delivered
 Authority: build, review, integrate, push build/fable-wave-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; read transcripts and flush.log on ben-desktop read-only over ssh; live proof sends two FYI notes to skills-fable under a scratch notes home only; no write to any live wave.json or notes home, no release, no install
-Next: Sonnet fix round 2 on review-r2 (straddle dedupe, pre-window chaining, ceiling guard); re-read coalescable at the fix head; gap read decides step 2; delta review r3
+Next: NO-BUILD for step 2 by the pre-registered gap rule; Opus delta review r3 of e7f5f25 and the Windows suite, then accept, merge, publish, close, RESULT
 Worktree: build/fable-wave-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-51
 Opened: 2026-09-29T00:58:00.000Z
@@ -17,6 +17,7 @@ Log: 2026-09-29T01:27:41.000Z delivered skills-n Sonnet step 1 builder DONE 828d
 Log: 2026-09-29T01:38:23.000Z rejected skills-n Opus code review by ac577c0fc9f9dec6a NEEDS_FIXES 828dc30 (MAJOR: the W1b 0 is not an upper bound for the ruled design, a RESULT ceiling is the true gate; 4 MINOR, 1 NIT); Windows suite at 828dc30 2897 pass 1 fail, the fail a hooks/codex-unsupported load flake outside territory, 8 of 8 twice alone; Sonnet fix round 1 builder spawned
 Log: 2026-09-29T01:45:09.000Z delivered skills-n Sonnet fix round 1 builder DONE 6b95a2d (all 6 findings, census 121 pass, full suite 2911 pass 0 fail); lead re-read 9c61c35a on ben-desktop at 6b95a2d, same window: coalescable 1 turn (upper 0.73M, 1.5 percent), RESULT ceiling 8 turns 11.17M of 48.89M claude-fable-5-1, 22.9 percent, over the 10 percent gate, so the ceiling does not decide; rule fixed before the gap read: a RESULT wake is saved only when the previous post came under 10 min before it and another run opens, or another queued RESULT releases, before that post plus 10 min; saved over 10 percent builds step 2, else NO-BUILD; Sonnet gap-read runner and Opus delta review spawned
 Log: 2026-09-29T01:54:52.000Z rejected skills-n Opus delta review by a6c493494c6afdf0f NEEDS_FIXES 6b95a2d (MAJOR: a straddling RESULT run coalesces into its own wave, so the re-read coalescable 1 is likely an artifact; 4 MINOR: pre-window chaining, post --to lines, ceiling guard can only lower a bound, unpinned mutants); ceiling a true bound and unaffected; same builder resumed for fix round 2
+Log: 2026-09-29T01:57:59.000Z delivered skills-n Sonnet fix round 2 builder DONE e7f5f25 (census 125 pass, full suite 2915 pass 0 fail); Sonnet runner a949108d8af9945c4 gap read at 6b95a2d: 8 RESULT rows sum to the ceiling 11172487 exactly, saved under the pre-registered 10 min rule 0 turns, 0.0 percent, NO-BUILD for step 2 (30 min hold would save 11.2 percent, context only, it sits at the GOALS 30 min unread limit); lead re-read at e7f5f25 on ben-desktop: coalescable 0, ceiling unchanged 8 turns 11172487; Opus delta review r3 resumed, Windows suite started
 
 ## Spec (lead, from the packet)
 
