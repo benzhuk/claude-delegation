@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-test-ipc
 Scope: the spec section of this record (lane 57), from packet docs/notes/skills-fable-lane-57-1.md read at 0b517ba
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: fix round 1 per docs/specs/test-ipc-57/lead-ruling-r1.md, then an Opus delta review and a Windows suite
+Next: Opus delta review and the Windows full suite at 1135839
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -20,6 +20,7 @@ Log: 2026-09-29T08:52:47.000Z delivered skills-n Sonnet fix builder a74bdb75006b
 Log: 2026-09-29T08:56:21.000Z delivered skills-n Windows full suite at 0824e76: 3030 tests, 2996 pass, 1 fail (N2: all 9 exemptions miss on win32 because the keys use / and the scanner reports backslash paths); fix folded into the round after the Opus review; evidence docs/specs/test-ipc-57/win-0824e76-fail.md
 Log: 2026-09-29T09:02:31.000Z rejected skills-n Opus reviewer a6d6df3d585206a42 NEEDS_FIXES (8) 0824e76 (F1 a measured false green, the call extent is not comment-aware; F2 file:line exemption keys; F3 to F5 scope gaps); ruling docs/specs/test-ipc-57/lead-ruling-r1.md adds W1 (path separators) and removes the inert -e special case; a fresh Sonnet builder, the prior one being over 150k tokens
 Log: 2026-09-29T09:02:49.000Z owned skills-n fresh Sonnet fix-round-1 builder af9f91cafc871abba spawned on lead-ruling-r1.md, ETA 60 min
+Log: 2026-09-29T09:27:15.000Z delivered skills-n fix-round-1 builder af9f91cafc871abba DONE 1135839b7dac29bb8520094aa982af07821aaab2 (W1 and F1 to F8; red at 0824e76 for W1, F1, F2 both ways, F4 and F7; 1167b9a red re-confirmed; 8 files and 14 sites exempted by count; full suite 3035 tests 3030 pass 0 fail); report docs/specs/test-ipc-57/build-r1.md
 
 ## Spec (lead, from the packet)
 
