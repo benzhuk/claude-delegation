@@ -61,7 +61,8 @@ const argv = process.argv.slice(2);
 const endpoint = argv.find((arg) => Object.hasOwn(homes, arg));
 fs.appendFileSync(log, JSON.stringify({ argv, env: Object.keys(process.env).sort() }) + '\\n');
 if (!endpoint) process.exit(91);
-const command = argv.at(-1);
+const transported = argv.at(-1);
+const command = transported.startsWith("'") && transported.endsWith("'") ? transported.slice(1, -1) : transported;
 const input = fs.readFileSync(0);
 const child = spawnSync(shell, ['-c', command], {
   cwd: homes[endpoint], input,
@@ -81,7 +82,10 @@ process.exit(child.status ?? 92);
 
 function fixtureOptions({ localHome, stateDir, ssh, endpoints, now = new Date('2026-09-29T18:00:00Z') }) {
   const inboxDir = path.join(localHome, '.claude', 'knowledge', '_inbox');
+  const dotfilesRepo = path.join(localHome, 'dotfiles-fixture');
+  const sourceInbox = path.join(dotfilesRepo, 'source-inbox');
   fs.mkdirSync(inboxDir, { recursive: true });
+  fs.mkdirSync(path.join(sourceInbox, '_archive'), { recursive: true });
   return {
     home: localHome,
     stateDir,
@@ -91,9 +95,30 @@ function fixtureOptions({ localHome, stateDir, ssh, endpoints, now = new Date('2
       sshCommand: ssh.command,
       hostTimeoutMs: 10_000,
       endpoints,
-      chezmoiSourceInbox: path.join(localHome, 'managed-source-inbox'),
+      dotfilesRepo,
+      chezmoiSourceInbox: sourceInbox,
     },
   };
+}
+
+function seedVerifiedPublication(options, importedNames) {
+  const digest = path.join(options.deps.chezmoiSourceInbox, '_archive', 'DIGEST.md');
+  fs.writeFileSync(digest, `# fixture digest\n${importedNames.map((name) => `2026-09-29 · ${name.slice(0, -3)} → merged:fixture.md`).join('\n')}\n`);
+  const fakeGit = path.join(options.stateDir, 'fake-git.mjs');
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(fakeGit, `
+import fs from 'node:fs';
+const argv = process.argv.slice(2);
+const args = argv[0] === '-C' ? argv.slice(2) : argv;
+const head = 'a'.repeat(40);
+if (args[0] === 'rev-parse') console.log(head);
+else if (args[0] === 'symbolic-ref') console.log('main');
+else if (args[0] === 'ls-remote') console.log(head + '\\trefs/heads/main');
+else if (args[0] === 'show') process.stdout.write(fs.readFileSync(${JSON.stringify(digest.replaceAll('\\', '/'))}, 'utf8'));
+else if (args[0] === 'log') console.log(head);
+else process.exit(2);
+`);
+  options.deps.gitCommand = [process.execPath, fakeGit];
 }
 
 function octalField(buffer, offset, length, value) {
@@ -346,6 +371,7 @@ test('status-frontmatter mutation does not change original-byte identity during 
   fs.mkdirSync(localArchive, { recursive: true });
   fs.renameSync(path.join(options.inboxDir, item.importedName), path.join(localArchive, item.importedName));
   fs.writeFileSync(path.join(localArchive, item.importedName), sourceBytes.toString().replace('status: pending', 'status: merged:orca.md'));
+  seedVerifiedPublication(options, [item.importedName]);
 
   const rows = await reconcileKnowledge(options, gathered);
   const row = rows.find((entry) => entry.host === 'netcup');
@@ -379,6 +405,7 @@ test('changed origin and conflicting archive are preserved and reported unresolv
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       fs.writeFileSync(destination, 'different archived bytes\n');
     }
+    seedVerifiedPublication(options, [item.importedName]);
     const rows = await reconcileKnowledge(options, gathered);
     const row = rows.find((entry) => entry.host === 'netcup');
     assert.equal(row.archived, 0, mode);
@@ -404,16 +431,19 @@ test('origin missing and superseded versions become one-time terminal outcomes w
     const localArchive = path.join(options.inboxDir, '_archive', '2026-09');
     fs.mkdirSync(localArchive, { recursive: true });
     fs.renameSync(path.join(options.inboxDir, item.importedName), path.join(localArchive, item.importedName));
+    let superseding = null;
     if (mode === 'origin-missing') {
       fs.rmSync(source);
     } else {
       fs.writeFileSync(source, 'version two\n');
       const old = (Date.now() - 10 * 60_000) / 1000;
       fs.utimesSync(source, old, old);
-      await gatherKnowledge(options);
+      superseding = await gatherKnowledge(options);
+      assert.equal(hostRow(superseding, 'netcup').terminal, 1, 'superseded is first reported by the second gather');
     }
+    seedVerifiedPublication(options, [item.importedName]);
     const once = await reconcileKnowledge(options, first);
-    assert.equal(once.find((row) => row.host === 'netcup').terminal, 1, mode);
+    assert.equal(once.find((row) => row.host === 'netcup').terminal, mode === 'origin-missing' ? 1 : 0, mode);
     assert.ok(fs.existsSync(item.stagedPath), `${mode}: terminal evidence bytes retained`);
     const twice = await reconcileKnowledge(options, first);
     assert.equal(twice.find((row) => row.host === 'netcup').terminal, 0, `${mode}: terminal reported only once`);
@@ -439,6 +469,7 @@ test('source plus matching archive is resurrected residue, never counted as arch
   const remoteArchive = path.join(remote, '.claude', 'knowledge', '_inbox', '_archive', '2026-09', name);
   fs.mkdirSync(path.dirname(remoteArchive), { recursive: true });
   fs.writeFileSync(remoteArchive, bytes);
+  seedVerifiedPublication(options, [item.importedName]);
   const rows = await reconcileKnowledge(options, gathered);
   const row = rows.find((entry) => entry.host === 'netcup');
   assert.equal(row.archived, 0);

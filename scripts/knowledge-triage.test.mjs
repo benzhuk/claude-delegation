@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runKnowledgeTriage } from './knowledge-triage.mjs';
+import { importedNameFor, sha256 } from './knowledge-gather.mjs';
 
 const tracked = [];
 function tmp(prefix) {
@@ -58,17 +59,19 @@ function makeHarness() {
   const home = path.join(root, 'home');
   const store = path.join(home, '.claude', 'knowledge');
   const inboxDir = path.join(store, '_inbox');
+  const archiveDir = path.join(inboxDir, '_archive');
   const stateDir = path.join(home, '.agents', 'knowledge-triage');
   const dotfilesRepo = path.join(root, 'dotfiles');
-  const sourceInbox = path.join(root, 'source-inbox');
-  const sourceDigest = path.join(dotfilesRepo, 'home', 'dot_claude', 'knowledge', 'DIGEST.md');
+  const sourceInbox = path.join(dotfilesRepo, 'source-inbox');
+  const sourceDigest = path.join(sourceInbox, '_archive', 'DIGEST.md');
+  const storeDigest = path.join(archiveDir, 'DIGEST.md');
   const skill = path.join(home, '.claude', 'skills', 'triage', 'SKILL.md');
-  for (const dir of [inboxDir, stateDir, sourceInbox, path.dirname(sourceDigest), path.dirname(skill)]) {
+  for (const dir of [inboxDir, archiveDir, stateDir, sourceInbox, path.dirname(sourceDigest), path.dirname(skill)]) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(path.join(store, 'DIGEST.md'), '# Knowledge digest\n');
+  fs.writeFileSync(storeDigest, '# Knowledge digest\n');
   fs.writeFileSync(sourceDigest, '# Knowledge digest\n');
-  fs.writeFileSync(skill, '# Triage\n\n## Designated writer boundary\n\nOnly `BEN-DESKTOP` is the designated writer host.\n');
+  fs.writeFileSync(skill, '# Triage\n\n## Designated writer boundary\n\nCurated knowledge publication has one designated writer: Windows host\n`BEN-DESKTOP`.\n');
 
   const configPath = path.join(root, 'fixture-config.json');
   const gitStatePath = path.join(root, 'git-state.json');
@@ -92,10 +95,11 @@ const gitStatePath = ${JSON.stringify(gitStatePath.replaceAll('\\', '/'))};
 const logPath = ${JSON.stringify(claudeLog.replaceAll('\\', '/'))};
 const pidPath = ${JSON.stringify(grandchildPid.replaceAll('\\', '/'))};
 const inbox = ${JSON.stringify(inboxDir.replaceAll('\\', '/'))};
-const storeDigest = ${JSON.stringify(path.join(store, 'DIGEST.md').replaceAll('\\', '/'))};
+const storeDigest = ${JSON.stringify(storeDigest.replaceAll('\\', '/'))};
 const sourceDigest = ${JSON.stringify(sourceDigest.replaceAll('\\', '/'))};
 const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-fs.appendFileSync(logPath, JSON.stringify({ argv: process.argv.slice(2), env: Object.keys(process.env).sort() }) + '\\n');
+const prompt = fs.readFileSync(0, 'utf8');
+fs.appendFileSync(logPath, JSON.stringify({ argv: process.argv.slice(2), prompt, env: Object.keys(process.env).sort() }) + '\\n');
 if (cfg.spawnGrandchild) {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   fs.writeFileSync(pidPath, String(child.pid));
@@ -137,16 +141,17 @@ const statePath = ${JSON.stringify(gitStatePath.replaceAll('\\', '/'))};
 const logPath = ${JSON.stringify(gitLog.replaceAll('\\', '/'))};
 const digest = ${JSON.stringify(sourceDigest.replaceAll('\\', '/'))};
 const argv = process.argv.slice(2);
+const args = argv[0] === '-C' ? argv.slice(2) : argv;
 fs.appendFileSync(logPath, JSON.stringify(argv) + '\\n');
 const s = JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const head = s.phase === 'after' ? s.newHead : s.oldHead;
-if (argv[0] === 'rev-parse' && argv.includes('HEAD')) console.log(head);
-else if (argv[0] === 'rev-parse' && argv.includes('--abbrev-ref')) console.log('main');
-else if (argv[0] === 'branch') console.log('main');
-else if (argv[0] === 'ls-remote') console.log((s.remoteHead || head) + '\\trefs/heads/main');
-else if (argv[0] === 'log') { if (s.touchesDigest) console.log(s.newHead); }
-else if (argv[0] === 'show') process.stdout.write(fs.readFileSync(digest, 'utf8'));
-else if (argv[0] === 'diff') { if (s.phase === 'after' && s.touchesDigest) console.log(digest); }
+if (args[0] === 'rev-parse' && args.includes('HEAD')) console.log(head);
+else if (args[0] === 'rev-parse' && args.includes('--abbrev-ref')) console.log('main');
+else if (args[0] === 'symbolic-ref' || args[0] === 'branch') console.log('main');
+else if (args[0] === 'ls-remote') console.log((s.remoteHead || head) + '\\trefs/heads/main');
+else if (args[0] === 'log') { if (s.touchesDigest) console.log(s.newHead); }
+else if (args[0] === 'show') process.stdout.write(fs.readFileSync(digest, 'utf8'));
+else if (args[0] === 'diff') { if (s.phase === 'after' && s.touchesDigest) console.log(digest); }
 else console.log(head);
 `);
 
@@ -187,8 +192,8 @@ else process.exit(2);
 
 test('kill switches, nonwriter, missing skill, and pending Mac report honest skip reasons', async () => {
   const cases = [
-    ['no-knowledge-triage', {}, /no-knowledge-triage/],
-    ['ws-off', {}, /ws-off/],
+    ['no-knowledge-triage', {}, /kill switch present/i],
+    ['ws-off', {}, /kill switch present/i],
     [null, { hostname: () => 'OTHER-HOST' }, /not the writer host/i],
   ];
   for (const [switchName, deps, reason] of cases) {
@@ -206,7 +211,7 @@ test('kill switches, nonwriter, missing skill, and pending Mac report honest ski
   const result = await runKnowledgeTriage(h.options);
   assert.equal(result.exitCode, 0);
   assert.equal(result.receipt.status, 'skipped');
-  assert.match(result.receipt.reason, /missing.*triage skill/i);
+  assert.match(result.receipt.reason, /triage skill missing|missing.*triage skill/i);
 });
 
 test('existing ATTENTION and unavailable Claude CLI are explicit skips with no false success', async () => {
@@ -266,16 +271,16 @@ test('oversize and unsupported-name gather residue are named and never reach Cla
 
 test('selection is the deterministic oldest union capped at 60 and prompt pins exact slugs', async () => {
   const h = makeHarness();
-  for (let i = 0; i < 65; i++) writeNote(h, `2026-08-${String((i % 28) + 1).padStart(2, '0')}-${String(i).padStart(3, '0')}.md`);
+  for (let i = 0; i < 65; i++) writeNote(h, `2026-08-${String((i % 28) + 1).padStart(2, '0')}-${String(i).padStart(3, '0')}.md`, `unique body ${i}`);
   const result = await runKnowledgeTriage(h.options);
   assert.equal(result.receipt.notesEligible, 65);
   assert.equal(result.receipt.notesIn, 60);
   assert.equal(result.receipt.selected.length, 60);
   assert.deepEqual(result.receipt.selected, [...result.receipt.selected].sort((a, b) => a.localeCompare(b)));
   const calls = fs.readFileSync(h.claudeLog, 'utf8').trim().split('\n').map(JSON.parse);
-  const argvText = calls[0].argv.join('\n');
-  assert.match(argvText, /For each selected note, use its exact filename without `\.md` as the skill's note-slug\./);
-  for (const name of result.receipt.selected) assert.match(argvText, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const prompt = calls[0].prompt;
+  assert.match(prompt, /For each selected note, use its exact filename without `\.md` as the skill's note-slug\./);
+  for (const name of result.receipt.selected) assert.match(prompt, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
 test('two skill deferrals escalate, while unavailable usage is never invented as zero', async () => {
@@ -306,7 +311,7 @@ test('successful run requires committed digest identity and a fresh matching rem
   assert.equal(result.receipt.dotfilesBefore, '1'.repeat(40));
   assert.equal(result.receipt.dotfilesSha, '2'.repeat(40));
   const gitCalls = fs.readFileSync(h.gitLog, 'utf8').trim().split('\n').map(JSON.parse);
-  assert.ok(gitCalls.some((argv) => argv[0] === 'ls-remote'), 'fresh remote identity must be read');
+  assert.ok(gitCalls.some((argv) => argv.includes('ls-remote')), 'fresh remote identity must be read');
   assert.ok(gitCalls.some((argv) => argv.some((arg) => String(arg).includes('DIGEST'))), 'commit/digest identity must be checked');
   const sessions = readJson(path.join(h.stateDir, 'sessions.json'));
   assert.ok(sessions.length >= 1);
@@ -346,12 +351,13 @@ test('out-of-selection archive is ATTENTION and blocks origin reconciliation', a
   for (let i = 0; i < 61; i++) {
     const name = `2026-08-${String((i % 28) + 1).padStart(2, '0')}-${String(i).padStart(3, '0')}.md`;
     names.push(name);
-    writeNote(h, name);
+    writeNote(h, name, `unique body ${i}`);
   }
-  h.configure({ action: 'archive', selectedNames: names.slice(0, 60), extraNames: [names[60]] });
+  const ordered = [...names].sort((a, b) => a.localeCompare(b));
+  h.configure({ action: 'archive', selectedNames: ordered.slice(0, 60), extraNames: [ordered[60]] });
   const result = await runKnowledgeTriage(h.options);
   assert.equal(result.receipt.status, 'attention');
-  assert.deepEqual(result.receipt.outOfSelection, [names[60]]);
+  assert.deepEqual(result.receipt.outOfSelection, [ordered[60]]);
   assert.equal(result.exitCode, 1);
 });
 
@@ -397,7 +403,7 @@ test('real watchdog kills the owned child and grandchild and records timeout ATT
   const elapsed = Date.now() - started;
   assert.ok(elapsed >= 150 && elapsed < 10_000, `real timeout elapsed ${elapsed}ms`);
   assert.equal(result.receipt.status, 'attention');
-  assert.match(result.receipt.reason, /timed out|timeout/i);
+  assert.match(result.receipt.reason, /timed out|timeout|exceeded.*process tree killed/i);
   assert.ok(fs.existsSync(h.grandchildPid));
   const pid = Number(fs.readFileSync(h.grandchildPid, 'utf8'));
   const deadline = Date.now() + 4_000;
@@ -424,9 +430,18 @@ test('two consecutive curated-lock observations escalate without taking or clear
 test('archived note without its exact committed digest slug remains named residue', async () => {
   const h = makeHarness();
   const name = '2026-08-01-missing-digest.md';
-  writeNote(h, name);
-  h.configure({ action: 'archive', omitDigestFor: [name] });
-  const result = await runKnowledgeTriage(h.options);
+  const bytes = Buffer.alloc(4, 0x61);
+  const imported = importedNameFor('netcup', sha256(bytes), name);
+  h.configure({ action: 'archive', omitDigestFor: [imported] });
+  const result = await runKnowledgeTriage({
+    ...h.options,
+    deps: {
+      ...h.options.deps,
+      sshCommand: makeStaticSsh(h.root, fixtureTarEntry(name, bytes.length)),
+      endpoints: { netcup: 'fixture-netcup', hetzner: null, mac: null },
+    },
+  });
   assert.ok(result.receipt.residue.unresolved.some((item) => item.name === name && /digest entry missing/i.test(item.reason)));
-  assert.notEqual(result.receipt.status, 'success');
+  assert.equal(result.receipt.status, 'success');
+  assert.equal(result.receipt.hosts.find((host) => host.host === 'netcup').archived, 0);
 });
