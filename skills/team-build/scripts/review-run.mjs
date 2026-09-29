@@ -569,7 +569,13 @@ function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, ru
         pending = pending.slice(at + 1);
         try {
           const row = JSON.parse(line);
-          if (row.type === 'system' && row.subtype === 'init') claudeVersion = row.claude_version ?? claudeVersion;
+          // lane 53: the live CLI's init event names this field claude_code_version, not
+          // claude_version — found in probe evidence (identity.json's claudeVersion was always
+          // null across every real P1/P2a/P2b/P6/P7 run). claude_version is kept as a fallback
+          // in case an older CLI build used that name.
+          if (row.type === 'system' && row.subtype === 'init') {
+            claudeVersion = row.claude_code_version ?? row.claude_version ?? claudeVersion;
+          }
           if (Array.isArray(row.permission_denials)) permissionDenials += row.permission_denials.length;
           if (row.type === 'result') {
             usage = row.usage ?? usage;

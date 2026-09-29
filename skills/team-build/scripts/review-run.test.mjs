@@ -70,7 +70,7 @@ process.stdin.on('end', () => {
   const mode = process.env.FAKE_MODE || 'approve';
   function emit(obj) { process.stdout.write(JSON.stringify(obj) + '\\n'); }
   function writeReport(text) { if (reportPath) fs.writeFileSync(reportPath, text); }
-  emit({ type: 'system', subtype: 'init', claude_version: '0.0.0-fake', model: 'fake-opus' });
+  emit({ type: 'system', subtype: 'init', claude_code_version: '0.0.0-fake', model: 'fake-opus' });
   if (mode === 'timeout') {
     if (process.env.FAKE_PID_FILE) fs.writeFileSync(process.env.FAKE_PID_FILE, String(process.pid));
     process.on('SIGTERM', () => {});
@@ -211,6 +211,7 @@ test('APPROVE passes through with exit 0; the verdict is in the stdout-shaped ou
   assert.equal(identity.verdict, 'APPROVE');
   assert.equal(identity.exit, 0);
   assert.equal(identity.sha, FULLSHA);
+  assert.equal(identity.claudeVersion, '0.0.0-fake', 'the init event field is claude_code_version, not claude_version (found via probe evidence)');
 });
 
 test('NEEDS_FIXES (n) also passes through with exit 0 (B1: the reviewer role\'s own contract, not the packet\'s stricter regex)', async () => {
