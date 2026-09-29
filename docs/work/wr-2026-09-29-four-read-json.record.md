@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-four-read-json
 Scope: the spec section of this record (lane 54), from packet docs/notes/skills-fable-lane-53-1.md "Queued behind it: lane 54" read at 7ab59db
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build, review, integrate, push build/four-read-json-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; rerun build-census and four-read read-only against lead transcripts and merged records; no release, no install
-Next: Sonnet builder on the spec, then Opus code review, second-host suite, accept, merge, publish, close, RESULT
+Next: Opus code review of 02c2535 and the Windows suite, then accept, merge, publish, close, RESULT
 Worktree: build/four-read-json-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-54
 Opened: 2026-09-29T02:24:00.000Z
@@ -12,6 +12,7 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:04:06Z
 Base: 7ab59dbd496c062f1cbb8eb259dd5a95aa9f9088
 Log: 2026-09-29T02:24:05.000Z owned skills-n picked up lane 54 from the skills-fable-lane-53-1 packet while lane 53 waits on two decisions (disjoint territory); small lane, spec written by the lead, no spec red-team; Sonnet builder spawned
+Log: 2026-09-29T02:35:51.000Z delivered skills-n Sonnet builder DONE 02c2535, report 48c879b (four-read refuses a non-JSON census with exit 2, 10 new tests, four-read suites 117 pass, full suite 2928 pass 0 fail; lanes 42, 43, 44, 46, 47 rerun with the census JSON, no lane 45 record); Opus code review and Windows suite started
 
 ## Spec (lead, from the packet)
 
