@@ -507,20 +507,36 @@ function resolveIdentHasEnvKey(fileText, ident) {
  *      runner's session - `process.execPath`, a local const bound to it, or the string `'node'`/
  *      `"node"` appears ANYWHERE in the call's own text, including behind a `sh -c` script (F3), or
  *      the call is fork itself, always node (F6) - that passes no `env` key at
- *      all, checked key-only and comment/string-safe (F1, F7). A spawn of a fixed external binary with
- *      no node anywhere in its argv (`git`, `mkfifo`, `taskkill.exe`, a `sh -c` script that never runs
- *      node) has no code path that parses or forwards `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN`, so it
- *      cannot reach the session through inheritance alone and is out of scope, not "exempt". (Lane 57
- *      fix round 1 dropped the earlier "inline `-e` literal that doesn't mention `process.env`" escape
- *      hatch (F5): it proved only one spelling among many ways a literal can still reach a module, a
- *      grandchild, or its own environment, for very little in return.)
- *  (b) ANY line, under any function name, that hands a child an explicitly inheriting `env` value -
- *      `undefined`, `null`, `process.env`, or a bare `...process.env` spread (F4). This half is NOT
- *      limited to the function names in (a): a wrapper like `runChild(...)` inherits the same way,
- *      and this is how it's still caught.
+ *      all - checked key-only, comment/string-safe (F1, F7), on comments stripped from the RAW call
+ *      before the node-reachability scan (R3, fix round 2, so a comment mentioning "node" can't pull an
+ *      unrelated call into scope). `undefined`/`null`/`process.env`(by name)/a bare `...process.env`
+ *      spread on THIS call ALL count as no override (R1, fix round 2: (a) now owns every inheriting
+ *      value for a call it judges whole, not just `undefined`/`null` - see the ownedSpans note below).
+ *      A spawn of a fixed external binary with no node anywhere in its argv (`git`, `mkfifo`,
+ *      `taskkill.exe`, a `sh -c` script that never runs node) has no code path that parses or forwards
+ *      `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN`, so it cannot reach the session through inheritance alone
+ *      and is out of scope, not "exempt". (Lane 57 fix round 1 dropped the earlier "inline `-e` literal
+ *      that doesn't mention `process.env`" escape hatch (F5): it proved only one spelling among many
+ *      ways a literal can still reach a module, a grandchild, or its own environment, for very little
+ *      in return.) A call whose own extent never closes with `)`, or runs past 40 lines, is never
+ *      judged at all - it fails loud instead, naming the site (R2, fix round 2).
+ *  (b) ANY line OUTSIDE a span (a) already judged, under any function name, that hands a child an
+ *      explicitly inheriting `env` value - `undefined`, `null`, `process.env`, or a bare
+ *      `...process.env` spread (F4). This half is NOT limited to the function names in (a): a wrapper
+ *      like `runChild(...)` inherits the same way, and this is how it's still caught. Skipping (a)'s
+ *      owned spans (R1, fix round 2) stops a line that BEGINS inside a multi-line template - closed on
+ *      the SAME line as `env: process.env` - from inverting this half's fresh-per-line string state and
+ *      blanking the inheriting value out from under it, which used to leave the call judged by neither
+ *      half.
  */
 function findEnvLessSpawns(text) {
   const found = [];
+  // Spans of calls that part (a) below judged WHOLE, including their own env key (or lack of one) -
+  // recorded only when the call's own extent closed with `)` (R1, fix round 2). Part (b) skips every
+  // line inside one of these spans, so a call is never judged twice; a runaway extent (unclosed, or
+  // desynced by a regex literal) is never recorded here, so it can't suppress (b) for the rest of the
+  // file - it fails loud instead, at the extent-tripwire below (R2).
+  const ownedSpans = [];
   const nodeDirect = new Set(['process.execPath', "'node'", '"node"']);
   const constRe = /\b(?:const|let|var)\s+(\w+)\s*=\s*process\.execPath\b/g;
   let cm;
@@ -544,22 +560,43 @@ function findEnvLessSpawns(text) {
     const call = extractBalanced(text, openParenIdx, '(', ')');
     const line = text.slice(0, m.index).split('\n').length;
 
+    // R2 (fix round 2): a call extent that never closed with its own `)`, or that ran past 40 lines,
+    // means the string/comment scan desynced - most often a regex literal containing `//` (e.g.
+    // `/https?:\/\//`), which the scanner still reads as a line comment and so ends the line early.
+    // Fail loud, naming the site, instead of silently misjudging this call or letting its extent run
+    // on into a later, unrelated call. No span is recorded for it below, so (b) still covers every
+    // line inside it.
+    if (!call.endsWith(')') || call.split('\n').length > 40) {
+      found.push({ line, fn: m[1], target: 'call extent not parsed - rewrite or split this call' });
+      continue;
+    }
+
     // (a) node-reachable, per F3/F6: `fork` always runs node; anything else needs a node token
     // literally somewhere in its own call text (this deliberately scans the RAW call, not
     // `codeOnly(call)` - a node token can legitimately sit inside a quoted `sh -c` script or a bare
-    // `'node'` string argument, and over-including a comment's mention of "node" only means more
-    // scrutiny, never less).
-    const reachesNode = m[1] === 'fork' || nodeTokenRes.some((re) => re.test(call));
+    // `'node'` string argument), but with comments stripped first (R3, fix round 2): a bare `node`
+    // word only counts when it is a real string-literal argv element, never when it merely appears
+    // inside a `//` or `/* */` comment (over-including a comment used to bring an unrelated call, e.g.
+    // a git-only `sh -c` script, into scope for no reason).
+    const noComments = call.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+    const reachesNode = m[1] === 'fork' || nodeTokenRes.some((re) => re.test(noComments));
     if (!reachesNode) continue;
 
-    // hasEnv here means "this call's OWN env key, if any, is not an unconditional non-override" -
-    // `undefined`/`null` are scoped to THIS call only (an unrelated function's own same-named "env"
-    // parameter, e.g. a wiring-check test's `env: null` fixture, is not a child-process spawn and
-    // must not be read as one). `process.env`/a bare spread are deliberately left for (b) below,
-    // which is not restricted to these five function names - so they are not double-counted here.
+    // hasEnv here means "this call's OWN env key, if any, is not an unconditional non-override", and
+    // (a) now owns every inheriting value for a call it judged whole - `undefined`/`null`/
+    // `process.env` (by name) and a bare `...process.env` spread ALL count as no real override, scoped
+    // to THIS call only (an unrelated function's own same-named "env" parameter, e.g. a wiring-check
+    // test's `env: null` fixture, is not a child-process spawn and must not be read as one). A call
+    // whose extent closed with its own `)` is recorded into `ownedSpans` below, so (b) - which is not
+    // restricted to these five function names, and still catches a wrapper like `runChild(...)` - skips
+    // every line inside it instead of judging it a second time (R1, fix round 2: a line that BEGINS
+    // inside a multi-line template closed on the SAME line as `env: process.env` used to invert (b)'s
+    // fresh-per-line string state and blank the inheriting value out from under it).
+    ownedSpans.push([line, line + call.split('\n').length - 1]);
     const code = codeOnly(call);
     const hasEnvKey = /[{,]\s*env\s*[:,}]/.test(code) || /\.\.\.\s*process\s*\.\s*env\b/.test(code);
-    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null)\s*[,}]/.test(code);
+    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null|process\s*\.\s*env)\s*[,}]/.test(code)
+      || /\.\.\.\s*process\s*\.\s*env\b/.test(code);
     let hasEnv = hasEnvKey && !inheritsBare;
     if (!hasEnv && !inheritsBare) {
       const lastArgMatch = call.match(/,\s*(\w+)\s*\)$/);
@@ -578,18 +615,20 @@ function findEnvLessSpawns(text) {
 
   // (b): an explicit `process.env` handoff - the exact value, or a bare spread of it - under ANY
   // function name (F4): a wrapper like `runChild(...)` inherits the same way, and this half is what
-  // still catches it. `undefined`/`null` are deliberately NOT checked here (see (a) above) - read
-  // universally, "env: null" is common as an unrelated parameter to something that has nothing to do
-  // with spawning a child (measured: scripts/wiring-check.test.mjs's own `env: null` fixture), where
-  // "env: process.env" naming the real environment by name is specific enough not to false-positive
-  // that way. Checked one LINE at a time, not over the whole file: `codeOnly` tracks string/comment
-  // state as it scans, and a regex literal ELSEWHERE in the file holding a stray quote character
-  // (measured: hooks/codex-unsupported.test.mjs's own quote character class) can desync that state
-  // for everything after it in a whole-file pass. Resetting fresh at every line bounds a desync to
-  // that one line.
+  // still catches it. `undefined`/`null` are deliberately NOT checked here (see (a) above). Checked one
+  // LINE at a time, not over the whole file: `codeOnly` tracks string/comment state as it scans, and a
+  // regex literal ELSEWHERE in the file holding a stray quote character (measured: hooks/codex-
+  // unsupported.test.mjs's own quote character class) can desync that state for everything after it in
+  // a whole-file pass. Resetting fresh at every line bounds a desync to that one line.
+  //
+  // A line inside a span that (a) already judged whole is skipped here (R1, fix round 2): (a) now owns
+  // every inheriting value for its own calls, so this half shrinks to "wrapper calls only" - no call is
+  // ever judged twice, and a line that BEGINS inside a multi-line template can no longer invert this
+  // per-line scan and blank an inheriting value out from under it.
   const inheritRe = /\benv\s*:\s*process\s*\.\s*env\b|\.\.\.\s*process\s*\.\s*env\b/;
   const textLines = text.split('\n');
   for (let li = 0; li < textLines.length; li++) {
+    if (ownedSpans.some(([a, b]) => li + 1 >= a && li + 1 <= b)) continue; // (a) already judged this call whole
     if (inheritRe.test(codeOnly(textLines[li]))) found.push({ line: li + 1, fn: 'inherits', target: 'process.env' });
   }
 
@@ -768,6 +807,53 @@ test('N2 scanner: ambiguous one-hop resolution does not vouch for an env key (F7
     "}",
   ].join('\n');
   assert.equal(findEnvLessSpawns(twoDeclarations).length, 1, 'two same-named declarations must not resolve to whichever one has env');
+});
+
+test('N2 scanner: a call starting inside a multi-line string still owns its own env key (R1)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const multiLine = [
+    "const NODE = process.execPath;",
+    SPAWN + "(NODE, ['--input-type=module', '-e', `",
+    "  console.log(1);",
+    "`], { env: process.env, stdio: 'ignore' });",
+  ].join('\n');
+  assert.equal(
+    findEnvLessSpawns(multiLine).length,
+    1,
+    'env: process.env on a call whose extent spans a multi-line template must still be flagged, even though the line it sits on begins inside that template (R1)',
+  );
+});
+
+test('N2 scanner: a malformed call extent fails loud, naming the site, instead of silently misreading a later call (R2)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const unclosed = [
+    "const NODE = process.execPath;",
+    SPAWN + "(NODE, ['-e', script], { stdio: 'ignore' }",
+  ].join('\n');
+  const unclosedHits = findEnvLessSpawns(unclosed);
+  assert.equal(unclosedHits.length, 1, 'an unclosed call must be flagged, not silently dropped');
+  assert.match(unclosedHits[0].target, /call extent not parsed/, 'the flag must name the parse failure, not a fake env gap (unclosed call)');
+
+  const regexLiteral = [
+    "const NODE = process.execPath;",
+    SPAWN + "(NODE, ['-e', /https?:\\/\\//.source], { stdio: 'ignore' });",
+  ].join('\n');
+  const regexHits = findEnvLessSpawns(regexLiteral);
+  assert.equal(regexHits.length, 1, 'a regex literal containing // inside a call must not desync the call extent search into silence');
+  assert.match(regexHits[0].target, /call extent not parsed/, 'the flag must name the parse failure, not a fake env gap (regex literal)');
+});
+
+test('N2 scanner: a bare node word only counts as a string literal argv element, never a comment or identifier (R3)', () => {
+  const EXEC_FILE_SYNC = ['execFile', 'Sync'].join('');
+  const gitWithNodeComment = [
+    EXEC_FILE_SYNC + "('git', ['status'], { // the node process reads this output later",
+    "  cwd: repo, encoding: 'utf8' });",
+  ].join('\n');
+  assert.deepEqual(
+    findEnvLessSpawns(gitWithNodeComment),
+    [],
+    "the word node inside a comment must not bring a git-only call into node-reachable scope (R3)",
+  );
 });
 
 test('N2 scanner: exemption keys normalize backslash paths, and stay keyed by file (W1, F2)', () => {
