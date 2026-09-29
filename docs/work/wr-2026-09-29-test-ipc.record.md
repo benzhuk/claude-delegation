@@ -3,7 +3,9 @@ Scope: the spec section of this record (lane 57), from packet docs/notes/skills-
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: a fresh Opus confirms e28f4f7 equals the reviewer patched copy and approves
+Next: accept pinned at e28f4f7, merge into main, close as not reproduced with the trip-wire, RESULT to skills-fable
+Artifact: e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a
+Evidence: docs/work/evidence/wr-2026-09-29-test-ipc-review.md
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -32,6 +34,14 @@ Log: 2026-09-29T20:08:31.000Z rejected skills-n Opus reviewer a0f9c69898dd85c75 
 Log: 2026-09-29T20:16:08.000Z delivered skills-n Sonnet builder af88a3280d2f0ec98 fix round 4 DONE 486dbcb (R4-1, R4-2, R4-4, R4-7 patches verbatim, Known limits paragraph, R4-3 left as a limit; the new test is red at ae7dfce and green after; real tree 15 sites in 10 files; three files 96 pass, full suite 3044 tests 3039 pass 0 fail); report docs/specs/test-ipc-57/build-r4.md
 Log: 2026-09-29T20:23:43.000Z rejected skills-n Opus reviewer a0f9c69898dd85c75 NEEDS_FIXES (3) 486dbcb, all LOW with exact patches measured together (F1 the regex and desync fixes lack a test that fails when either is reverted alone, F2 env (null) and void(0) pass, F3 the Known limits paragraph overstates wrapper coverage); the remaining silent passes all fall inside the documented limits; 115712 fuzzed desync programs gave 0 silent passes; Windows suite at 486dbcb PASS 3044 tests 3011 pass 0 fail
 Log: 2026-09-29T20:28:15.000Z delivered skills-n Sonnet builder af88a3280d2f0ec98 fix round 5 DONE e28f4f7 (review-r5 patches verbatim, empty diff against the reviewer patched copy; reverting the regex fix or the desync check alone each turns hooks.test.mjs red; three files 96 pass, full suite 3044 tests 3039 pass 0 fail); report docs/specs/test-ipc-57/build-r5.md
+Log: 2026-09-29T20:35:01.000Z reviewed skills-n Opus reviewer a8f9b95a5207c89ee APPROVE e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a (hooks.test.mjs byte-identical to the review-r5 patched copy, each of four fixes red when reverted alone, real tree 15 sites in 10 files, 1167b9a flags :66 and :523, full suite 3044 tests 0 fail; the Known limits fixture spot-check was denied by the secret-guard hook and stopped, confirmed by reading and by review-r5's measurement of the identical text); evidence docs/work/evidence/wr-2026-09-29-test-ipc-review.md
+
+Observed: the Windows "Unable to deserialize cloned data" failure did not reproduce on Linux or Windows, and the pinned NODE_TEST_CONTEXT fix was already on main. Closed as not reproduced with a trip-wire. Two gaps were fixed: run-tests.test.mjs strips NODE_TEST_WORKER_ID through sealedEnv(), and test-home.test.mjs passes childEnv to its spawns. The N2 scanner in skills/multi/scripts/hooks.test.mjs now flags a node-reachable spawn that has no top-level env key or that inherits the parent process environment. It holds 15 exempted sites in 10 files, flags 1167b9a at :66 and :523, and fails loud on a desynced call. Six review rounds. The stop rule fired at review r4, so the scanner's known silent classes are documented in its doc comment (R4-3 inheritance through a variable or helper, R4-5 unrecognised node reach, R4-6 the remaining shapes) instead of being patched. Linux full suite 3044 tests 3039 pass 0 fail, and Windows at 486dbcb 3044 tests 3011 pass 0 fail. The e28f4f7 change is test-only and pin-only on top of that.
+Predicts: a new node-reachable test spawn without a sealed env fails the suite on every host, unless it takes a documented-limit shape. If the deserialize error recurs on Windows, the trip-wire reopens this lane with the failing log.
+
+Stall: /tmp ran out of inodes on Netcup from about 7:30 AM to 3:20 PM NY, which stalled review r2 (it ran static) and all agent shells. Otherwise the time went to review rounds, not waits.
+
+Gap: the Known limits paragraph was confirmed at e28f4f7 by reading, not by fixture, because the secret-guard hook denied the reviewer's spot-check. The identical text was measured by fixtures in review r5. Non-blocking follow-ups from review r6: two assertions for the keyword regex context and the (null) options-variable widening, a doc line for a ternary with an undefined branch, and the out-of-territory exemption sites (collect-from-origin.test.mjs:423, native-continuation-smoke.test.mjs:20 and others in the table). A follow-up replaces the text scanner with the simpler design (one top-level key-presence rule plus one comment-stripped whole-file rule) after the bearings hold lifts.
 
 ## Spec (lead, from the packet)
 
