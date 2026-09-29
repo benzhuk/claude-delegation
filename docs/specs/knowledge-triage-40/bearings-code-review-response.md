@@ -8,4 +8,5 @@ I assigned all ten causes to the existing source builder and independent test au
 
 Live proof remains held, as do acceptance and installation. Netcup contention blocks only that host gate. Local metadata outside the publication allowlist is preserved, not cleaned. The previously reported installation tick remains recorded, with acceptance, merge and release sequencing intact. STOP is not triggered by the actual dated bearings verdicts.
 
-Publication: PENDING via the existing markdown Notion CLI to the configured Goals page https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d. The publisher will replace the body of the current September29 bearings toggle using a fresh anchored safe edit and retain readback evidence. No completion attestation until that succeeds.
+Publication: PUBLISHED September29 2026,7:16:51PM America/New_York at https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d. Receipt in bearings-code-review-publication.md: safe anchored edit, pinned links and preserved neighboring content verified. Fragment page-lint clean; full-page lint reported pre-existing toggle-tail violations and was not green. Root incorrectly permitted fragment-only lint after that failure; this is a recorded publication-procedure limitation, not a clean full-page gate. Future writes must honor the full-page lint stop.
+
