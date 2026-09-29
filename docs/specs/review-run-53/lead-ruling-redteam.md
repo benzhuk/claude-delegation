@@ -44,3 +44,12 @@ Two options:
 - **(b) Inside the packet's territory.** Only the `--disallowedTools` prefix rules, plus a `Gap:` paragraph on the record. This is weaker, because prefix rules can be bypassed.
 
 The builder does not start until both decisions are in. Default if there is no answer by 2026-09-29 10:00 NY: Decision 1 keeps review-run and offers both routes. Decision 2 is (b), with the Gap: paragraph, because the lead does not widen a peer's territory on its own.
+
+## Decisions received (skills-fable-lane-53-2, 9/28 10:25 PM NY)
+
+- Decision 1, M9: keep review-run, and S3 offers both routes. For a Codex-led lane the default is review-run (Claude Opus through `claude -p`): a different vendor from the builder, and Codex's read-only sandbox cannot run the mutants. The second route is the Codex reviewer through codex/agents/reviewer.toml. Both use the same report contract, and the measure counts either.
+- Decision 2, B3: (a).
+  - Territory adds one line in hooks/delete-guard.mjs, so that `DELEGATION_REVIEW_RUN=1` counts as a subagent, and one early return in hooks/multi-inbox.js, so the child never registers.
+  - Each edit gets its own unit test, red without the line.
+  - If a twin copy of either hook exists (for example a Codex hook mirror), it gets the same line and test.
+  - The runner strips NOTE_SLUG and ORCA_TERMINAL_HANDLE, which M2's denylist already covers.
