@@ -15,6 +15,7 @@ Log: 2026-09-29T21:39:28.000Z owned skills-n opened after the sweep RESULT (d3b7
 Log: 2026-09-29T21:57:36.000Z delivered skills-n Sonnet builder af52da0a355e4d400 phase 1 DONE dotfiles ab4d67d (denial log with redaction, off switch, swallowed failures, modes 700 and 600, rotation; no test corpus existed, a new selftest holds 14 baseline cases plus 6 phase 1 cases, 16 of 20 pass before and 20 of 20 after); report docs/specs/secret-guard-60/p1-build.md
 Log: 2026-09-29T21:59:11.000Z delivered skills-n Opus reviewer spawned on phase 1 (dotfiles ab4d67d), report /var/tmp/lane-60/p1-review.md; desktop corpus not yet on main
 Log: 2026-09-29T22:08:09.000Z rejected skills-n Opus reviewer a367a2ba2b2f5efb9 NEEDS_FIXES (7: F1 field 5 is raw hook JSON and carries Write contents, F2 redaction misses split keys, base64 tails and PEM bodies and fails open, F3 a FIFO at the log path hangs the hook, F4 to F7 medium and low incl. four selftest cases not looking); docs/specs/secret-guard-60/p1-review.md
+Log: 2026-09-29T22:13:36.000Z rejected skills-n ruling r1 from the desktop corpus (205 refusals): phase 2 narrows the secret-file-reference and environment-dump patterns via quoted-heredoc and search-operand exclusions; env-file flag dropped (zero cases); docs/specs/secret-guard-60/ruling-r1.md
 
 ## Spec
 
