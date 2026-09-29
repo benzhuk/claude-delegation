@@ -1,0 +1,6 @@
+{
+  "lane52_builder": "builder",
+  "lane52_tests": "tests",
+  "lane52_scout": "scout",
+  "lane52_probe": "probe"
+}
