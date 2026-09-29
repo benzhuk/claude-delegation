@@ -29,7 +29,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 // lines to one, drop a blank separator after a structural closing `</details>`, drop one
 // trailing `<empty-block/>`; and, from the observed Notion readback probe, one backslash before
 // exactly `*`, `[`, `]`, backtick, `~`, `>`, `|`, or `<`; nothing else". The details exception
-// never applies inside a fenced literal. Used by every comparison in this lane (the drift check, the readback check,
+// and observed escape equivalence never apply inside fenced or matched inline-code literals. Used
+// by every comparison in this lane (the drift check, the readback check,
 // `--adopt-live`, and every test that compares two renders) so a real edit is never hidden and a
 // cosmetic one never blocks a publish.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,15 +39,76 @@ export function normalize(text) {
   const lines = String(text)
     .replace(/\r\n/g, '\n')
     .split('\n')
-    .map((l) => l.replace(/[ \t]+$/, '').replace(/\\([*[\]`~>|<])/g, '$1'));
+    .map((l) => l.replace(/[ \t]+$/, ''));
+  const escapedByNotion = '*[]`~>|<';
+  const hasMatchingInlineClose = (lineIndex, charIndex, delimiter) => {
+    for (let i = lineIndex; i < lines.length; i += 1) {
+      const candidate = lines[i];
+      if (i !== lineIndex && /^\s*(`{3,}|~{3,})/.test(candidate)) return false;
+      for (let j = i === lineIndex ? charIndex : 0; j < candidate.length;) {
+        if (candidate[j] !== '`') {
+          j += 1;
+          continue;
+        }
+        let end = j + 1;
+        while (candidate[end] === '`') end += 1;
+        if (end - j === delimiter) return true;
+        j = end;
+      }
+    }
+    return false;
+  };
+  const normalizeProseLine = (raw, lineIndex, inlineDelimiter) => {
+    let line = '';
+    for (let i = 0; i < raw.length;) {
+      if (inlineDelimiter) {
+        if (raw[i] !== '`') {
+          line += raw[i];
+          i += 1;
+          continue;
+        }
+        let end = i + 1;
+        while (raw[end] === '`') end += 1;
+        line += raw.slice(i, end);
+        if (end - i === inlineDelimiter) inlineDelimiter = null;
+        i = end;
+        continue;
+      }
+      if (raw[i] === '\\' && escapedByNotion.includes(raw[i + 1])) {
+        line += raw[i + 1];
+        i += 2;
+        continue;
+      }
+      if (raw[i] === '`') {
+        let end = i + 1;
+        while (raw[end] === '`') end += 1;
+        const delimiter = end - i;
+        line += raw.slice(i, end);
+        if (hasMatchingInlineClose(lineIndex, end, delimiter)) inlineDelimiter = delimiter;
+        i = end;
+        continue;
+      }
+      line += raw[i];
+      i += 1;
+    }
+    return { line, inlineDelimiter };
+  };
   const collapsed = [];
   let prevBlank = false;
   let fence = null;
+  let inlineDelimiter = null;
   let detailsDepth = 0;
   let detailsSeparatorPending = false;
-  for (const l of lines) {
-    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(l);
-    const isFenceClose = fence && new RegExp(`^\\s*${fence[0]}{${fence.length},}\\s*$`).test(l);
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const raw = lines[lineIndex];
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(raw);
+    const isFenceClose = fence && new RegExp(`^\\s*${fence[0]}{${fence.length},}\\s*$`).test(raw);
+    let l = raw;
+    if (!fence && !fenceMatch) {
+      ({ line: l, inlineDelimiter } = normalizeProseLine(raw, lineIndex, inlineDelimiter));
+    } else if (!fence) {
+      inlineDelimiter = null;
+    }
     if (!fence && l === '<details>') detailsDepth += 1;
     const isStructuralDetailsClose = !fence && detailsDepth > 0 && l === '</details>';
     const isBlank = l === '';
