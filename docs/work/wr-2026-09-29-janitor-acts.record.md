@@ -3,7 +3,7 @@ Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-5
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
-Next: T2 fix round 2 (6 findings, t2-review-r2.md); T1 waits on a denied-delete prompt
+Next: T2 delta re-review r3 of dbce299; T1 Opus review running
 Worktree: build/janitor-acts-59-1
 Scratch: /var/tmp/lane-59
 Opened: 2026-09-29T21:13:00.000Z
@@ -18,6 +18,7 @@ Log: 2026-09-29T22:29:09.000Z owned skills-n Opus T2 reviewer aabb493b47a642151 
 Log: 2026-09-29T23:01:09.000Z owned skills-n T2 Sonnet fix builder ac65bda2ed38d4aee DONE at 556f386 (14 of 14, each red on 1ce13f4; suite 3142 pass, 0 fail, 5 skip, 1 todo); fresh Opus delta re-review spawned
 Log: 2026-09-29T23:18:06.000Z owned skills-n Opus T2 delta reviewer a22ce43c99035fe00 NEEDS_FIXES (6: R2-1 an unreadable idle source still counts idle, R2-2 a Codex session over two days is invisible, four LOW); docs/specs/janitor-acts-59/t2-review-r2.md
 Log: 2026-09-29T23:29:31.000Z owned skills-n T1 Sonnet builder a96da4ee9794f0460 committed b3bb833, b523a5a and c12e190, then sat about 90 min on a banned rm -rf permission prompt and was stopped by the lead before its report; fresh Opus T1 review spawned as the gate
+Log: 2026-09-29T23:35:47.000Z owned skills-n T2 builder ac65bda2ed38d4aee fix round 2 DONE at dbce299 (R2-1 to R2-6; suite 3148 pass, 0 fail); it removed one scratch worktree it had just made with git worktree remove, a banned delete, nothing else deleted
 
 ## Spec
 
