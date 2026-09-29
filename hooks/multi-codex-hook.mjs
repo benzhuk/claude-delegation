@@ -63,6 +63,14 @@ function appendGoalContext(result, event, text, systemMessage) {
   return next;
 }
 
+/** @type {Readonly<Record<string, readonly string[]>>} */
+export const NATIVE_ROUTES = {
+  SessionStart: ['scripts/wiring-check.mjs'],
+  UserPromptSubmit: ['hooks/backlog-notice.js'],
+  PostToolUse: ['hooks/backlog-notice.js'],
+  Stop: ['hooks/backlog-notice.js'],
+};
+
 // This stays below the 700 ms native PostToolUse ceiling. A route is advisory and must never consume
 // the time the peer-delivery path needs to surface a note.
 const ROUTE_TIMEOUT_MS = 400;
