@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   PLUGIN_SKILLS, CLAUDE_SKILLS, collectSources, isNewerVersion, isDurablePath, isCodexRulesPathCertain,
+  isLinkedWorktree,
 } from './mirror-shared-skills.mjs';
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 
@@ -258,6 +259,41 @@ test('F12: the reclaim shim is gated by isDurablePath(REPO), targeting THIS repo
   }
 });
 
+test('review finding 6: isLinkedWorktree() tells a linked git worktree apart from the main checkout it came from', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-linked-worktree-'));
+  const main = path.join(scratch, 'main');
+  fs.mkdirSync(main, { recursive: true });
+  const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  git(['init', '-q'], main);
+  // No commit, and no git identity, is needed at all: `git worktree add -b` works fine off an unborn
+  // HEAD, and this test must never set user.email/user.name (no identity is configured, or assumed
+  // available, in the sealed/sandboxed environment a full test-suite run uses for every fixture).
+  const linked = path.join(scratch, 'linked');
+  git(['worktree', 'add', '-q', linked, '-b', 'lane59-linked'], main);
+
+  assert.equal(isLinkedWorktree(main), false, 'the main checkout is not a linked worktree');
+  assert.equal(isLinkedWorktree(linked), true, 'a `git worktree add`-created checkout is a linked worktree');
+  assert.equal(isLinkedWorktree(path.join(scratch, 'does-not-exist')), true, 'fail closed: an error from git counts as "linked"');
+
+  // Additive-only cleanup: this worktree is scratch this test itself created, never one the run started with.
+  git(['worktree', 'remove', linked, '--force'], main);
+});
+
+test('review finding 6: isLinkedWorktree(REPO) agrees with `git rev-parse --git-dir` vs `--git-common-dir` on THIS lane\'s own, real checkout', () => {
+  // A real-data companion to the synthetic fixture test above: whatever checkout is actually running
+  // this suite (main checkout or, as for every build lane, a `git worktree add` lane exactly like an
+  // Orca workspace), the two ways of asking must agree — nobody built this fixture for the test.
+  let gitDir; let commonDir;
+  try {
+    gitDir = execFileSync('git', ['-C', REPO, 'rev-parse', '--git-dir'], { encoding: 'utf8' }).trim();
+    commonDir = execFileSync('git', ['-C', REPO, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim();
+  } catch {
+    return; // not a git checkout at all here - nothing to compare
+  }
+  const expected = path.resolve(REPO, gitDir) !== path.resolve(REPO, commonDir);
+  assert.equal(isLinkedWorktree(REPO), expected);
+});
+
 test('F12: a run from this (non-durable) checkout prints "SKIP reclaim shim: <REPO> is not durable" and writes no reclaim shim file', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-reclaim-shim-'));
   const json = runFull([], home);
@@ -406,6 +442,27 @@ test('F11: --write-allow --dry-run writes nothing at all, but still reports the 
   assert.equal(fs.existsSync(path.join(home, '.agents', 'rollout-backups')), false);
 });
 
+test('review finding 7: --write-allow SKIPs with "backup failed" (never writes settings.json unbacked) when the backup dir cannot be created', () => {
+  const home = fixtureHomeWithSettings('mirror-write-allow-backupfail-', PLAIN_SETTINGS);
+  const settingsPath = path.join(home, '.claude', 'settings.json');
+  // `.agents/rollout-backups` is the backup dir itself; pre-creating it as a plain FILE (not a
+  // directory) makes `fs.mkdirSync(path.dirname(backupPath), {recursive:true})` fail (EEXIST: a
+  // non-directory already occupies that path) — main() itself needs `.agents` to stay a real
+  // directory (it unconditionally mkdirs `.agents/skills` before write-allow ever runs), so only the
+  // backups subdir is sabotaged here, the exact "can't create the backup dir" shape the review covers.
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', 'rollout-backups'), 'not a directory');
+  const before = fs.readFileSync(settingsPath, 'utf8');
+  const beforeMode = fs.statSync(settingsPath).mode & 0o777;
+  const json = runFull(['--write-allow'], home);
+  assert.ok(json.actions.some((a) => a === `SKIP ${settingsPath}: backup failed`), json.actions.join('\n'));
+  assert.equal(fs.readFileSync(settingsPath, 'utf8'), before, 'a failed backup must never let the write through unbacked');
+  assert.equal(fs.statSync(settingsPath).mode & 0o777, beforeMode);
+  // no stray temp file left behind from the aborted write
+  const claudeDirEntries = fs.readdirSync(path.join(home, '.claude'));
+  assert.deepEqual(claudeDirEntries, ['settings.json']);
+});
+
 // ── --write-allow: Codex rules file (F9's ruling r0 amendment) ──────────────
 
 function fixtureCodexHome(home, rulesText) {
@@ -487,6 +544,49 @@ test('F9: --write-allow prints a SKIP (print-only) for the codex line, never tou
   );
 });
 
+// ── manifest reconciliation (review finding 14) ──────────────────────────────
+
+test('review finding 14: a previously-managed reclaim shim entry survives manifest reconciliation on a run that skips it, instead of being silently dropped', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-manifest-reclaim-carry-'));
+  const localBin = path.join(home, '.local', 'bin');
+  fs.mkdirSync(localBin, { recursive: true });
+  const reclaimDest = path.join(localBin, 'reclaim');
+  // A dangling symlink is exactly what `publish()` leaves behind for a `kind: 'shim'` entry (MODE
+  // 'symlink'); it needs to still be there (and still be a symlink) for a real regression to show up
+  // as an actual unlink, not merely an entry silently vanishing from the manifest's JSON.
+  fs.symlinkSync(path.join(home, 'nonexistent-target'), reclaimDest);
+  const agentsSkills = path.join(home, '.agents', 'skills');
+  fs.mkdirSync(agentsSkills, { recursive: true });
+  const priorManifest = {
+    version: 3,
+    updatedAt: null,
+    mode: 'symlink',
+    pluginVersion: null,
+    sourcePath: null,
+    managed: [{
+      name: 'reclaim', kind: 'shim', mode: 'generated-file',
+      source: 'generated (target /some/old/repo/scripts/reclaim.mjs)',
+      dest: reclaimDest.split(path.sep).join('/'),
+    }],
+  };
+  fs.writeFileSync(path.join(agentsSkills, '.mirror-manifest.json'), `${JSON.stringify(priorManifest, null, 2)}\n`);
+
+  // This run's own REPO (the fixture-independent, real checkout under /var/tmp) never publishes the
+  // reclaim shim (F12: non-durable), so absent the finding-14 fix the reconciliation loop would treat
+  // the prior entry as stale and drop it.
+  const json = runFull([], home);
+
+  assert.ok(
+    !json.actions.some((a) => a.startsWith('drop no-longer-shared entry') && a.includes(reclaimDest)),
+    `the reclaim entry must never be reported as dropped, got:\n${json.actions.join('\n')}`,
+  );
+  assert.ok(fs.lstatSync(reclaimDest).isSymbolicLink(), 'the on-disk shim symlink itself must survive untouched');
+
+  const after = JSON.parse(fs.readFileSync(path.join(agentsSkills, '.mirror-manifest.json'), 'utf8'));
+  const carried = after.managed.find((e) => path.resolve(e.dest) === path.resolve(reclaimDest));
+  assert.ok(carried, `the reclaim entry must still be present in the reconciled manifest, got:\n${JSON.stringify(after.managed, null, 2)}`);
+});
+
 /**
  * F10 probe P-allow (ruling r0: "the compound-command case is recorded as documented behavior, not
  * as a claim") — run ONCE by hand against the real Claude Code CLI (2.1.285), never in the automated
@@ -513,6 +613,6 @@ test('F9: --write-allow prints a SKIP (print-only) for the codex line, never tou
  * So: 2/3/4/6 (the chained/substituted/env-prefixed forms) are blocked exactly as F10 predicted; 1 and
  * 5 (simple invocations, redirection included) run under the plain `Bash(reclaim *)` allow.
  */
-test('F10 probe P-allow: recorded as documented behavior above this test, not re-run here (needs a live claude CLI)', () => {
-  assert.ok(true);
-});
+// review round 1, finding 13: `assert.ok(true)` checked nothing and still counted as a pass in the
+// suite total. `test.todo` reports as pending, not passing, and still names what is outstanding.
+test.todo('F10 probe P-allow: recorded as documented behavior above this test, not re-run here (needs a live claude CLI)');

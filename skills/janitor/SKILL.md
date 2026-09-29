@@ -155,9 +155,14 @@ several separate asks.
 
 A daily `--apply` only ever removes a SAFE item that has been idle at least 24 hours
 (`idleHours()`, below) — newest of the worktree directory's own mtime, its git-admin
-`HEAD`/`index`/`logs/HEAD`, and any `~/.claude/projects/<slug>/` session transcript. A
-worktree a live session is still sitting in, however long ago it merged, survives every
-run until that idle floor passes.
+`HEAD`/`index`/`logs/HEAD`, and any matching Claude or Codex session activity: every
+`<home>/.claude*/projects/<slug or slug-*>/` this host has (not only the plain
+`~/.claude`), plus any Codex `rollout-*.jsonl` from today or yesterday whose own `cwd`
+is inside the worktree. A worktree whose git state changed, or whose session or shell
+wrote anything, in the last 24 hours is skipped. On top of the idle floor, a separate,
+cheap "is any process's cwd inside this worktree right now" probe (`/proc/*/cwd` on
+Linux, `lsof` on macOS, a rename probe on Windows) also runs immediately before removal,
+so an idle-but-still-open shell survives too.
 
 ## Installing the daily timer
 
@@ -172,7 +177,7 @@ flag to remove it), and it only ever removes the SAFE class, only once idle at l
 hours (see "Cadence" above). The one off switch is `~/.agents/ws-off-janitor-act`
 (below), checked by `janitor.mjs` itself at run time — while it exists, a scheduled
 `--apply` still writes its record and drift line, but removes nothing, and the report's
-first line says so. `--apply` typed by hand is unaffected either way.
+first line says so. The switch applies to every `--apply`, typed by hand or scheduled.
 
 - **Which repo it watches**: `~/Code/claude-delegation`, or the path in
   `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both. The installer
@@ -225,8 +230,11 @@ classified SAFE. `reclaim` is a second, narrow tool that covers exactly those fo
 classes and nothing else, so an agent can clean up without a raw `rm`:
 
 ```
-node scripts/reclaim.mjs [--dry-run] <path>... | --branch <name> --repo <dir>
+reclaim [--dry-run] <path>... | reclaim --branch <name> --repo <dir>
 ```
+
+Always the bare `reclaim` shim, never `node scripts/reclaim.mjs ...` or a path to the
+script — only the bare form matches the allow line below (F10).
 
 - **S, session scratch** — strictly inside the CALLING session's own
   `<tmpdir>/claude-<uid>/<project>/<session>/scratchpad/` (the session id must match
@@ -234,8 +242,7 @@ node scripts/reclaim.mjs [--dry-run] <path>... | --branch <name> --repo <dir>
   contents).
 - **T, plugin temp** — a directory named `delegation-<name>-XXXX` directly under
   `os.tmpdir()` or `/var/tmp` (POSIX: owned by the current uid), or anything inside one.
-  This is the naming convention every builder's own agent scratch already uses (see
-  `docs/subagent-contract.md`).
+  This is the agent-scratch convention (see `docs/subagent-contract.md`).
 - **W, finished worktree** — a path `git worktree list` names in its repo, that
   `janitor.mjs`'s own `classify()` marks SAFE, AND that has been idle at least 24 hours
   (`idleHours()`, the same floor the daily act uses) — removed through janitor's own

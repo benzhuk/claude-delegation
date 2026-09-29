@@ -216,7 +216,8 @@ function warnCrossSessionInbound() {
     'WARNING: crossSessionInbound is not "accept"',
     `${state.path} says ${state.value === null ? 'nothing' : JSON.stringify(state.value)}. Peer notes posted `
     + 'into this machine\'s Claude sessions will be HELD behind an approval dialog in the recipient\'s pane '
-    + 'instead of delivered (multi 0.5.0). Set it yourself - this installer never edits your settings.',
+    + 'instead of delivered (multi 0.5.0). Set it yourself - this installer never changes that key '
+    + '(only --write-allow adds the reclaim allow line).',
   );
   return state;
 }
@@ -304,7 +305,12 @@ function chezmoiManagedStatus(targetPath, { execImpl = execFileSync, home = HOME
  *     handle);
  *   - a backup of the ORIGINAL bytes, same mode, at `backupPath` — OUTSIDE the config dir, so a later
  *     `chezmoi add ~/.claude` (or ~/.codex) never sweeps a copy of secrets into the dotfiles repo.
- * Returns `{ok:true}` or `{ok:false, reason}`, `reason` always one of F11's fixed SKIP strings.
+ *     (review round 1, finding 7): a backup that cannot be written (or mode-narrowed) with
+ *     `COPYFILE_EXCL` stops the write entirely — `'backup failed'`, never a silent best-effort skip.
+ * Returns `{ok:true}` or `{ok:false, reason}`, `reason` always one of F11's fixed SKIP strings:
+ * `absent`, `not a regular file`, `not valid JSON`, `formatting would change`, `line present`,
+ * `chezmoi-managed`, `chezmoi check failed`, `changed during write`, `rename failed`, or (round 1
+ * finding 7) `backup failed`.
  */
 function writeAllowFile(file, newText, backupPath, mode) {
   const dir = path.dirname(file);
@@ -323,11 +329,20 @@ function writeAllowFile(file, newText, backupPath, mode) {
     try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
     return { ok: false, reason: 'changed during write' };
   }
+  // review round 1, finding 7: a failed backup used to be swallowed ("best effort") and the write
+  // went ahead anyway - ruling r0's own F11 condition list requires "a backup written outside the
+  // config dir" as one of the write's preconditions, not an afterthought. `COPYFILE_EXCL` refuses to
+  // clobber an existing backup from a same-second retry, and a mode that cannot be narrowed to the
+  // original's (a 600 settings file may carry an `env` block) refuses too, rather than shipping a
+  // backup a person could read past its owner's own permissions.
   try {
     fs.mkdirSync(path.dirname(backupPath), { recursive: true });
-    fs.copyFileSync(file, backupPath);
-    try { fs.chmodSync(backupPath, mode); } catch { /* best effort */ }
-  } catch { /* a failed backup never blocks the write itself; F11 names no SKIP reason for it */ }
+    fs.copyFileSync(file, backupPath, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(backupPath, mode);
+  } catch {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    return { ok: false, reason: 'backup failed' };
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       fs.renameSync(tmp, file);
@@ -553,7 +568,7 @@ export function collectSources() {
   // F12: the reclaim shim, only from a durable checkout (see RECLAIM_SHIM_SPECS's own comment). A
   // scratch/gate checkout leaves any existing shim untouched and says so, rather than repointing a
   // live PATH command at a directory about to be deleted.
-  if (isDurablePath(REPO)) {
+  if (isDurablePath(REPO) && !isLinkedWorktree(REPO)) {
     for (const spec of RECLAIM_SHIM_SPECS) {
       out.push({
         kind: 'shim', name: spec.name, flavour: spec.flavour, command: spec.command, target: spec.target,
@@ -561,7 +576,10 @@ export function collectSources() {
       });
     }
   } else {
-    say('SKIP reclaim shim', `${REPO} is not durable`);
+    // review round 1, finding 6: an Orca workspace is a perfectly durable-LOOKING path that is still
+    // a linked git worktree the daily act removes once idle and merged - the reclaim shim must never
+    // point at one.
+    say('SKIP reclaim shim', isDurablePath(REPO) ? `${REPO} is a linked git worktree` : `${REPO} is not durable`);
   }
   return out;
 }
@@ -958,6 +976,28 @@ export function isDurablePath(target, { tmpDir = os.tmpdir(), home = os.homedir(
 }
 
 /**
+ * Review round 1, finding 6 (F12 twin): `isDurablePath` only rules out path SHAPES that look
+ * temporary (a `/tmp`-ish segment) — it has nothing to say about an Orca workspace, which lives at a
+ * perfectly ordinary-looking, non-temp path (`~/orca/workspaces/<repo>/<pane>`,
+ * `C:/Users/.../orca/workspaces/...`) and is STILL a linked git worktree: the daily act this same
+ * lane ships removes it the moment its branch merges and it goes idle. `git rev-parse --git-dir`
+ * and `--git-common-dir` are equal for the main checkout (`.git` is a real directory there) and
+ * differ for every linked worktree (`--git-dir` is `<main>/.git/worktrees/<name>`); any git error
+ * (not a repo at all, git missing) fails CLOSED — true, "linked", the direction that skips the shim
+ * rather than pointing it at something removable.
+ */
+export function isLinkedWorktree(dir) {
+  try {
+    const gitDir = execFileSync('git', ['-C', dir, 'rev-parse', '--git-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const commonDir = execFileSync('git', ['-C', dir, 'rev-parse', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const abs = (p) => path.resolve(dir, p);
+    return abs(gitDir) !== abs(commonDir);
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Shared body for both Codex PreToolUse/note-delivery installers below — the merge/trust dance is
  * identical for either script; only the script, its event list, its marker and the log wording differ.
  * Extracted for delete-deny D2: a second script (hooks/delete-guard.mjs) now goes through this same
@@ -1184,6 +1224,12 @@ function main() {
       // Anything we managed before and no longer have a source for is stale: drop it.
       for (const old of prev.managed) {
         if (managed.some((m) => path.resolve(m.dest) === path.resolve(old.dest))) continue;
+        // review round 1, finding 14: collectSources() SKIPS the reclaim shim (never drops it) from
+        // a non-durable or linked-worktree checkout - the shim already on disk is left untouched, so
+        // its manifest entry has to be carried forward unchanged too. Without this, the very next run
+        // that forgot the shim would also forget it was ever ours: a later durable run refuses it as
+        // "not ours" (D11-style guard), and `--uninstall` stops removing it either way.
+        if (['reclaim', 'reclaim.cmd'].includes(path.basename(old.dest))) { managed.push(old); continue; }
         const st = lstat(old.dest);
         if (!st) continue;
         say('drop no-longer-shared entry', old.dest);
