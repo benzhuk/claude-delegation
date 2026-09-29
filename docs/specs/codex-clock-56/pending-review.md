@@ -1,8 +1,8 @@
-VERDICT: GATES_IN_PROGRESS
+VERDICT: PASS
 
 Independent Claude Opus 5.5 approved exact 08229f9d3461fa253ec857a451a44dfb89e4f214 via skills-fable-lane-56-5. The review and unchanged raw report are in review-r2.md and review-r2.raw.md. R1 rejected fb96de5 because its advisory-discard mutant passed; the exact correction and three discriminating mutant receipts are retained in builder-report.md and review-r1-adjudication.md.
 
-The first full Windows candidate run passed: 2943 tests, 2929 pass, zero failures, 14 skips, native exit 0 and leak check 0. Two more consecutive full Windows runs and one actual Netcup suite remain in progress. Netcup setup failures occurred before tests; their receipts are retained and do not count as test runs. No production files changed. Root retains integration and acceptance authority; the mid-tier integrator owns host gates.
+All required candidate gates passed: three consecutive Windows full runs each 2943 tests, 2929 pass, zero failures and 14 skips; one Netcup run 2943 tests, 2938 pass, zero failures and 5 skips. All native exits and leak checks are zero. Raw receipts and setup-only failures are retained in host-gates.md. No production files changed. Root retains integration and acceptance authority; the mid-tier integrator owns host gates.
 
 The explicit nonblocking limitation is that the CLI preload freezes exactly 400, 450 and 2500 ms parent deadlines. A production retune requires updating those literals or the functional tests can race again. Real child/session sentinels remain asserted, and deadline tests use the real clock with a 2 s bound.
 
