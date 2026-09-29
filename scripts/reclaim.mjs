@@ -1,0 +1,572 @@
+#!/usr/bin/env node
+// scripts/reclaim.mjs
+//
+// C2 (spec.md, amended by F3-F8, F10, F13, F16, F17 - ruling r0 adopts every finding). The one
+// allowlisted deleter: `reclaim [--dry-run] <path>... | --branch <name> --repo <dir>`.
+//
+// It validates every argument first. If any argument is refused, it removes nothing, prints one
+// `refused <arg>: <reason>` line per refusal, and exits 3. Usage errors exit 2. Success exits 0.
+//
+// Four classes, and nothing else:
+//   S - a caller's own session scratchpad (F5: CLAUDE_CODE_SESSION_ID must match), removed with
+//       fs after F3's mount-crossing/linked-worktree walk;
+//   T - an agent's own `delegation-<name>-XXXX` scratch dir, same removal path as S;
+//   W - a SAFE, idle-at-least-24h git worktree (F1/F17), removed through janitor.mjs's applySafe;
+//   B - a SAFE local branch (`--branch <name> --repo <dir>`), same applySafe path.
+//
+// No unlink path exists here that C1's path-safety.mjs and F3's walk have not both cleared first.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { checkRemovablePath } from "./path-safety.mjs";
+import {
+  gitToplevel, listWorktrees, gatherState, applySafe, pathWithin, idleHours, IDLE_FLOOR_HOURS, refSha,
+} from "./janitor.mjs";
+import { loadProjectConfig, switchedOff } from "./project-config.mjs";
+
+// ---------- small, pure helpers ----------
+
+function containsDotDot(raw) {
+  // F7: split on either separator - a raw argument crafted on one OS can still carry the other
+  // OS's separator, and the lexical `path.resolve` check alone does not see through a `..` that
+  // only resolves correctly once the kernel (not Node's own lexical resolver) walks a symlink.
+  return String(raw).split(/[\\/]/).some((seg) => seg === "..");
+}
+
+function isHostAbsolute(target, platform) {
+  return platform === "win32"
+    ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(target)
+    : path.posix.isAbsolute(target);
+}
+
+class WalkRefusal extends Error {}
+
+/**
+ * F3: before any S/T removal, walk the target (lstat only, never following a link) and refuse the
+ * whole invocation if any entry - the target included - crosses a mount point (a different
+ * st_dev than the target's own), is a `.git` FILE (a linked worktree), or is a `.git` DIRECTORY
+ * whose own `worktrees/` is non-empty (a repo with linked worktrees elsewhere). The same walk
+ * produces the entry count reclaim prints. A symlink is never followed (lstat reports it, but its
+ * `isDirectory()` is false, so the walk never recurses into what it points at) - this is what
+ * keeps a symlink INSIDE the tree safe without a dedicated rule for it.
+ */
+function walkForMountAndLinkedWorktrees(target, fsImpl) {
+  let rootStat;
+  try {
+    rootStat = fsImpl.lstatSync(target);
+  } catch (error) {
+    if (error && error.code === "ENOENT") return { ok: true, entryCount: 0, absent: true };
+    return { ok: false, reason: `could not stat: ${error.message || error}` };
+  }
+  const baseDev = rootStat.dev;
+  let entryCount = 0;
+  const visit = (p) => {
+    let st;
+    try {
+      st = fsImpl.lstatSync(p);
+    } catch {
+      return; // vanished mid-walk - nothing left here to protect or to count
+    }
+    entryCount += 1;
+    if (typeof st.dev === "number" && typeof baseDev === "number" && st.dev !== baseDev) {
+      throw new WalkRefusal(`crosses a mount point at ${p}`);
+    }
+    if (path.basename(p) === ".git") {
+      if (st.isFile()) throw new WalkRefusal(`contains a linked worktree's .git file at ${p}`);
+      if (st.isDirectory()) {
+        let names = [];
+        try {
+          names = fsImpl.readdirSync(path.join(p, "worktrees"));
+        } catch {
+          // no worktrees/ subdir - a standalone fixture repo, stays removable
+        }
+        if (names.length > 0) throw new WalkRefusal(`contains a repo with linked worktrees elsewhere at ${p}`);
+      }
+    }
+    if (st.isDirectory()) {
+      let children = [];
+      try {
+        children = fsImpl.readdirSync(p);
+      } catch {
+        children = [];
+      }
+      for (const child of children) visit(path.join(p, child));
+    }
+  };
+  try {
+    visit(target);
+  } catch (error) {
+    if (error instanceof WalkRefusal) return { ok: false, reason: error.message };
+    throw error;
+  }
+  return { ok: true, entryCount };
+}
+
+/** F6: the top scratch directory (S's `claude-<uid>`, T's `delegation-<name>-XXXX`) must be owned
+ * by the current uid and must not be group- or world-writable. POSIX only - win32 has no uid/mode
+ * model to check this against. */
+function checkOwnerNotWidelyWritable(topPath, ctx) {
+  if (ctx.platform === "win32") return { ok: true };
+  let st;
+  try {
+    st = ctx.fsImpl.statSync(topPath);
+  } catch (error) {
+    // F8: an absent top dir is not a refusal - it's `absent`, and the actual removability check
+    // (checkRemovablePath, reached via finishST right after this) is what turns ENOENT into that
+    // outcome. Skipping the ownership check here just lets that happen; any OTHER stat error still
+    // refuses, same as before.
+    if (error && error.code === "ENOENT") return { ok: true };
+    return { ok: false, reason: `could not stat: ${error.message || error}` };
+  }
+  if (typeof st.uid === "number" && st.uid !== ctx.uid) {
+    return { ok: false, reason: "not owned by the current user" };
+  }
+  if (typeof st.mode === "number" && (st.mode & 0o022) !== 0) {
+    return { ok: false, reason: "group- or world-writable" };
+  }
+  return { ok: true };
+}
+
+// ---------- class S: the caller's own session scratchpad ----------
+
+function sSpecRoot(ctx) {
+  if (ctx.platform === "win32") {
+    const expected = path.join(ctx.home, "AppData", "Local", "Temp");
+    if (String(ctx.tmpdir).toLowerCase() !== expected.toLowerCase()) return null;
+    return { path: ctx.tmpdir, kind: "win32" };
+  }
+  if (ctx.platform === "darwin") {
+    // F4: darwin's own scratchpad layout is unmeasured. Until a builder records one real Mac
+    // session's path, S refuses outright on darwin rather than guess at a layout.
+    let real;
+    try {
+      real = ctx.fsImpl.realpathSync(ctx.tmpdir);
+    } catch {
+      return null;
+    }
+    if (!real.startsWith("/private/var/folders/")) return null;
+    return { path: real, kind: "darwin-unmeasured" };
+  }
+  let real;
+  try {
+    real = ctx.fsImpl.realpathSync(ctx.posixTmpRoot);
+  } catch {
+    real = ctx.posixTmpRoot;
+  }
+  return { path: real, kind: "posix" };
+}
+
+function checkS(resolved, ctx) {
+  const root = sSpecRoot(ctx);
+  if (!root) return null;
+  const rel = path.relative(root.path, resolved);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  if (root.kind === "darwin-unmeasured") {
+    return { ok: false, reason: "S class unmeasured on darwin" };
+  }
+  const segments = rel.split(path.sep).filter(Boolean);
+  if (root.kind === "win32") {
+    if (!(segments[0] && segments[0].toLowerCase() === "claude")) return null; // not S-shaped at all
+  } else if (segments[0] !== `claude-${ctx.uid}`) {
+    return null; // not S-shaped at all (e.g. a claude-verify.lock sibling) - let T/W have a look
+  }
+  if (segments.length < 4 || segments[3] !== "scratchpad") {
+    return { ok: false, reason: "does not match the session scratchpad layout" };
+  }
+  if (segments.length === 4) {
+    return { ok: false, reason: "is the scratchpad directory itself" };
+  }
+  if (root.kind !== "win32") {
+    const owner = checkOwnerNotWidelyWritable(path.join(root.path, segments[0]), ctx);
+    if (!owner.ok) return owner;
+  }
+  const session = segments[2];
+  if (!ctx.sessionId) {
+    return { ok: false, reason: "S needs CLAUDE_CODE_SESSION_ID (own session only)" };
+  }
+  const same = root.kind === "win32"
+    ? String(session).toLowerCase() === String(ctx.sessionId).toLowerCase()
+    : session === ctx.sessionId;
+  if (!same) {
+    return { ok: false, reason: "S needs CLAUDE_CODE_SESSION_ID (own session only)" };
+  }
+  // NOTE: the root handed to checkRemovablePath's membership check must be the S BASE (root.path),
+  // not the `claude-<uid>` directory - a target inside `scratchpad/` is always several segments
+  // below the base either way (segments.length > 4 is already enforced above), so this is just the
+  // base itself, kept explicit rather than re-derived.
+  return { ok: true, root: root.path };
+}
+
+// ---------- class T: an agent's own delegation-<name>-XXXX scratch dir ----------
+
+function tRoots(ctx) {
+  if (ctx.platform === "win32") {
+    const expected = path.join(ctx.home, "AppData", "Local", "Temp");
+    if (String(ctx.tmpdir).toLowerCase() !== expected.toLowerCase()) return [];
+    return [ctx.tmpdir];
+  }
+  const roots = [];
+  for (const base of [ctx.posixTmpRoot, ctx.posixVarTmpRoot]) {
+    try {
+      roots.push(ctx.fsImpl.realpathSync(base));
+    } catch {
+      roots.push(base);
+    }
+  }
+  if (ctx.platform === "darwin") {
+    try {
+      const real = ctx.fsImpl.realpathSync(ctx.tmpdir);
+      if (real.startsWith("/private/var/folders/")) roots.push(real);
+    } catch {
+      // no extra darwin root available
+    }
+  }
+  return roots;
+}
+
+function checkT(resolved, ctx) {
+  for (const root of tRoots(ctx)) {
+    const rel = path.relative(root, resolved);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    const segments = rel.split(path.sep).filter(Boolean);
+    const topName = segments[0];
+    const prefixOk = ctx.platform === "win32" ? /^delegation-/i.test(topName) : topName.startsWith("delegation-");
+    if (!prefixOk) {
+      return { ok: false, reason: "T dir must be named delegation-<name>-XXXX, directly under a scratch root" };
+    }
+    const topPath = path.join(root, topName);
+    const owner = checkOwnerNotWidelyWritable(topPath, ctx);
+    if (!owner.ok) return owner;
+    // NOTE: `root` (the T BASE, e.g. /var/tmp), not `topPath`, goes to checkRemovablePath's
+    // membership check - the common T removal target IS the whole delegation-<name>-XXXX
+    // directory itself, which must resolve STRICTLY under something; using topPath as the root
+    // would make that exact, ordinary case fail its own membership check.
+    return { ok: true, root };
+  }
+  return null; // not under any T root at all
+}
+
+/** gatherState, with `minAgeHours` only overridden when a caller (a test - production never sets
+ * this) explicitly supplies one; otherwise janitor.mjs's own default age floor applies, exactly
+ * as the daily act itself gets it. */
+function gatherStateFor(root, config, ctx) {
+  const extra = ctx.minAgeHours === undefined ? {} : { minAgeHours: ctx.minAgeHours };
+  return gatherState({ root, config, now: ctx.now, ...extra });
+}
+
+// ---------- repo protection shared by S and T (C1's repoRoots, F17's "repo containing cwd") ----------
+
+function getCwdRepoRoots(ctx) {
+  if (ctx._repoRootsCache) return ctx._repoRootsCache;
+  let result;
+  const toplevel = gitToplevel(ctx.cwd);
+  if (!toplevel) {
+    result = { ok: true, repoRoots: [] };
+  } else {
+    const worktrees = listWorktrees(toplevel);
+    if (worktrees === null) {
+      result = { ok: false, reason: "could not read git worktree list" };
+    } else {
+      result = {
+        ok: true,
+        repoRoots: [
+          { path: toplevel, kind: "the repo root" },
+          ...worktrees.map((w) => ({ path: w.path, kind: "a path in git worktree list" })),
+        ],
+      };
+    }
+  }
+  ctx._repoRootsCache = result;
+  return result;
+}
+
+function finishST(cls, resolved, classResult, ctx) {
+  const repoRoots = getCwdRepoRoots(ctx);
+  if (!repoRoots.ok) return { ok: false, reason: repoRoots.reason };
+  const check = checkRemovablePath(resolved, {
+    roots: [{ path: classResult.root }],
+    repoRoots: repoRoots.repoRoots,
+    home: ctx.home,
+    platform: ctx.platform,
+    allowFile: true,
+    fsImpl: ctx.fsImpl,
+    notAbsoluteReason: "not absolute on this host",
+    underRootReason: "internal: outside its own class root",
+  });
+  if (!check.ok) {
+    if (check.absent) return { ok: false, absent: true, class: cls };
+    return { ok: false, reason: check.reason };
+  }
+  const walk = walkForMountAndLinkedWorktrees(resolved, ctx.fsImpl);
+  if (!walk.ok) return { ok: false, reason: walk.reason };
+  if (walk.absent) return { ok: false, absent: true, class: cls };
+  return { ok: true, class: cls, resolved, entryCount: walk.entryCount };
+}
+
+// ---------- class W: a SAFE, idle worktree (F1, F17) ----------
+
+function samePathResolved(a, b) {
+  return pathWithin(a, b) && pathWithin(b, a);
+}
+
+/**
+ * Whether W CLAIMS this path at all - i.e. `git worktree list`, run from the path itself, both
+ * succeeds and lists an entry whose own path is this one. Tried before S/T's purely positional
+ * (directory-name-shaped) rules: a worktree that happens to live inside a session scratchpad or a
+ * `delegation-*` scratch dir (the real, measured layout - scout.md item D, F3's evidence) is still
+ * a worktree, and git's own SAFE+idle judgment is a stronger safety net than either positional
+ * class's own rule. A path merely INSIDE a repo, but not itself a registered worktree's own root
+ * (a file, a build artifact, a nested unregistered `.git`), is not claimed here at all - S/T's
+ * checks, including F3's mount/linked-worktree walk, are what catch that case instead.
+ */
+function claimW(resolved) {
+  let worktrees;
+  try {
+    worktrees = listWorktrees(resolved);
+  } catch {
+    worktrees = null;
+  }
+  if (!worktrees || worktrees.length === 0) return null;
+  const entry = worktrees.find((w) => samePathResolved(w.path, resolved));
+  if (!entry) return null;
+  return { worktrees, entry };
+}
+
+function validateW(resolved, claim, ctx) {
+  const { worktrees, entry } = claim;
+  const root = worktrees[0].path; // git worktree list --porcelain always lists the main one first
+  if (entry.main) return { ok: false, reason: "is the main worktree" };
+
+  const { config } = loadProjectConfig(root);
+  const state = gatherStateFor(root, config, ctx);
+  if (state.__blind) return { ok: false, reason: state.reason };
+  const safeMatch = state.safe.worktrees.find((w) => samePathResolved(w.ref, resolved));
+  if (!safeMatch) {
+    const judgMatch = state.judgment.worktrees.find((w) => samePathResolved(w.ref, resolved));
+    return { ok: false, reason: judgMatch ? judgMatch.reason : "not SAFE" };
+  }
+  // F1: the idle floor applies to reclaim's W class too, not only the daily act.
+  const hrs = idleHours(resolved, { home: ctx.home, now: ctx.now });
+  if (!(hrs >= IDLE_FLOOR_HOURS)) {
+    return { ok: false, reason: "active in last 24h" };
+  }
+  return {
+    ok: true,
+    root,
+    mainBranch: config.main_branch || "main",
+    safeMatch,
+    fetch: state.fetch,
+    tipSha: refSha(root, `refs/heads/${safeMatch.branch}`),
+  };
+}
+
+// ---------- class B: a SAFE local branch (F17) ----------
+
+function validateB(name, repoDir, ctx) {
+  const root = gitToplevel(repoDir);
+  if (!root) return { ok: false, reason: "not a git repository" };
+  const { config } = loadProjectConfig(root);
+  const state = gatherStateFor(root, config, ctx);
+  if (state.__blind) return { ok: false, reason: state.reason };
+  const safeMatch = state.safe.branches.find((b) => b.ref === name);
+  if (!safeMatch) {
+    const judgMatch = state.judgment.branches.find((b) => b.ref === name);
+    return { ok: false, reason: judgMatch ? judgMatch.reason : "not SAFE" };
+  }
+  return { ok: true, root, mainBranch: config.main_branch || "main", safeMatch, fetch: state.fetch };
+}
+
+// ---------- per-argument dispatch ----------
+
+function validateArg(rawArg, ctx) {
+  if (containsDotDot(rawArg)) return { ok: false, reason: "contains .." };
+  if (!isHostAbsolute(rawArg, ctx.platform)) return { ok: false, reason: "not absolute on this host" };
+  const resolved = path.resolve(rawArg);
+
+  // F8: every class refuses a target that equals or contains process.cwd() - the one thing that
+  // is always still running right now.
+  if (pathWithin(ctx.cwd, resolved)) {
+    return { ok: false, reason: "equals process.cwd() or contains it" };
+  }
+
+  // W is tried first, by CLAIM (an actual `git worktree list` match), ahead of S/T's purely
+  // positional rules - see claimW()'s own note.
+  const claim = claimW(resolved);
+  if (claim) {
+    const wResult = validateW(resolved, claim, ctx);
+    if (!wResult.ok) return wResult;
+    return { ok: true, class: "W", resolved, ...wResult };
+  }
+
+  const sResult = checkS(resolved, ctx);
+  if (sResult) {
+    if (!sResult.ok) return sResult;
+    return finishST("S", resolved, sResult, ctx);
+  }
+  const tResult = checkT(resolved, ctx);
+  if (tResult) {
+    if (!tResult.ok) return tResult;
+    return finishST("T", resolved, tResult, ctx);
+  }
+  return { ok: false, reason: "not S, T, or a live worktree - unrecognized" };
+}
+
+// ---------- argv parsing ----------
+
+function parseArgv(argv) {
+  let dryRun = false;
+  let branch = null;
+  let repo = null;
+  const paths = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (a === "--branch") {
+      branch = argv[i + 1];
+      i += 1;
+      continue;
+    }
+    if (a === "--repo") {
+      repo = argv[i + 1];
+      i += 1;
+      continue;
+    }
+    if (String(a).startsWith("--")) return { error: `unknown flag ${a}` };
+    paths.push(a);
+  }
+  if (branch !== null || repo !== null) {
+    if (!branch || !repo) return { error: "--branch needs both --branch <name> and --repo <dir>" };
+    if (paths.length > 0) return { error: "--branch cannot be combined with path arguments" };
+    return { dryRun, mode: "branch", branch, repo };
+  }
+  if (paths.length === 0) return { error: "no path given" };
+  return { dryRun, mode: "paths", paths };
+}
+
+// ---------- main ----------
+
+export function main(argv = process.argv.slice(2), opts = {}) {
+  const ctx = {
+    cwd: opts.cwd ?? process.cwd(),
+    home: opts.home ?? os.homedir(),
+    platform: opts.platform ?? process.platform,
+    uid: opts.uid ?? (typeof process.getuid === "function" ? process.getuid() : 0),
+    tmpdir: opts.tmpdir ?? os.tmpdir(),
+    posixTmpRoot: opts.posixTmpRoot ?? "/tmp",
+    posixVarTmpRoot: opts.posixVarTmpRoot ?? "/var/tmp",
+    sessionId: Object.prototype.hasOwnProperty.call(opts, "sessionId") ? opts.sessionId : process.env.CLAUDE_CODE_SESSION_ID,
+    now: opts.now ?? new Date(),
+    minAgeHours: opts.minAgeHours,
+    fsImpl: opts.fsImpl ?? fs,
+    print: opts.print ?? ((line) => process.stdout.write(`${line}\n`)),
+    switchedOffImpl: opts.switchedOffImpl ?? switchedOff,
+  };
+
+  const parsed = parseArgv(argv);
+  if (parsed.error) {
+    process.stderr.write(`reclaim: ${parsed.error}\n`);
+    return 2;
+  }
+
+  // F14: reclaim's own kill switch, checked before anything else.
+  if (ctx.switchedOffImpl("reclaim")) {
+    const items = parsed.mode === "branch" ? [parsed.branch] : parsed.paths;
+    for (const item of items) ctx.print(`refused ${item}: reclaim switched off`);
+    return 3;
+  }
+
+  if (parsed.mode === "branch") {
+    const result = validateB(parsed.branch, parsed.repo, ctx);
+    if (!result.ok) {
+      ctx.print(`refused ${parsed.branch}: ${result.reason}`);
+      return 3;
+    }
+    if (parsed.dryRun) {
+      ctx.print(`would-remove B ${parsed.branch} ${result.safeMatch.sha || ""}`.trimEnd());
+      return 0;
+    }
+    const narrowed = {
+      safe: { worktrees: [], branches: [result.safeMatch] },
+      judgment: { worktrees: [], branches: [], untrackedFiles: [] },
+      fetch: result.fetch,
+      act: true,
+      _raw: { root: result.root, mainBranch: result.mainBranch },
+    };
+    const log = applySafe(narrowed, [], { home: ctx.home, now: ctx.now });
+    const row = log.find((l) => l.action === "branch-delete");
+    if (row && row.ok) {
+      ctx.print(`removed B ${parsed.branch} ${row.sha || ""}`.trimEnd());
+      return 0;
+    }
+    process.stderr.write(`reclaim: ${parsed.branch}: ${row ? row.error : "branch-delete did not run"}\n`);
+    return 1;
+  }
+
+  // Paths mode. Validate every argument first - nothing is removed until every one has cleared.
+  const validations = parsed.paths.map((rawArg) => ({ rawArg, result: validateArg(rawArg, ctx) }));
+  const refusals = validations.filter((v) => v.result.ok === false && !v.result.absent);
+  if (refusals.length > 0) {
+    for (const v of refusals) ctx.print(`refused ${v.rawArg}: ${v.result.reason}`);
+    return 3;
+  }
+
+  let runtimeFailure = false;
+  for (const { rawArg, result } of validations) {
+    if (result.absent) {
+      ctx.print(`absent ${rawArg}`);
+      continue;
+    }
+    if (parsed.dryRun) {
+      const tag = result.class === "S" || result.class === "T" ? String(result.entryCount) : (result.tipSha || "");
+      ctx.print(`would-remove ${result.class} ${rawArg} ${tag}`.trimEnd());
+      continue;
+    }
+    if (result.class === "S" || result.class === "T") {
+      ctx.fsImpl.rmSync(result.resolved, { recursive: true, force: false });
+      ctx.print(`removed ${result.class} ${rawArg} ${result.entryCount}`);
+      continue;
+    }
+    // class W
+    const narrowed = {
+      safe: { worktrees: [result.safeMatch], branches: [] },
+      judgment: { worktrees: [], branches: [], untrackedFiles: [] },
+      fetch: result.fetch,
+      act: true,
+      _raw: { root: result.root, mainBranch: result.mainBranch },
+    };
+    const log = applySafe(narrowed, [], { home: ctx.home, now: ctx.now });
+    const row = log.find((l) => l.action === "worktree-remove");
+    if (row && row.ok) {
+      ctx.print(`removed W ${rawArg} ${row.sha || ""}`.trimEnd());
+    } else {
+      runtimeFailure = true;
+      process.stderr.write(`reclaim: ${rawArg}: ${row ? (row.error || row.skipped) : "worktree-remove did not run"}\n`);
+    }
+  }
+  return runtimeFailure ? 1 : 0;
+}
+
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const canon = (p) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const self = real(fileURLToPath(import.meta.url));
+  const argv1 = real(entry);
+  return canon(self) === canon(argv1);
+}
+
+if (isMainModule()) {
+  process.exit(main());
+}
