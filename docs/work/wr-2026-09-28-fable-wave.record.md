@@ -1,16 +1,18 @@
 Work: wr-2026-09-28-fable-wave
 Scope: the spec section of this record (lane 51), from packet docs/notes/skills-fable-lane-51-1.md read at a6efbbe
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/fable-wave-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; read transcripts and flush.log on ben-desktop read-only over ssh; live proof sends two FYI notes to skills-fable under a scratch notes home only; no write to any live wave.json or notes home, no release, no install
-Next: NO-BUILD for step 2 by the pre-registered gap rule; Opus delta review r3 of e7f5f25 and the Windows suite, then accept, merge, publish, close, RESULT
+Next: accept pinned at e7f5f25, merge, publish, close, RESULT (NO-BUILD)
+Artifact: e7f5f25c3e6f7b7351476358b311cbfb2d7d5d5b
+Evidence: docs/work/evidence/wr-2026-09-28-fable-wave-review.md, docs/work/evidence/wr-2026-09-28-fable-wave-review-r1.md, docs/work/evidence/wr-2026-09-28-fable-wave-review-r2.md, docs/work/evidence/wr-2026-09-28-fable-wave-redteam.md, docs/work/evidence/wr-2026-09-28-fable-wave-suites.md, docs/reports/fable-wave-51/gap-read.md
 Worktree: build/fable-wave-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-51
 Opened: 2026-09-29T00:58:00.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T00:57:08Z
-Base: a6efbbe
+Base: a6efbbe97e21bc0f49f995ed5b4e9f4a2259bd8d
 Log: 2026-09-29T00:59:03.000Z owned skills-n picked up skills-fable-lane-51-1 (ACK skills-n-lane-51-1); spec written into this record; Opus red-team of the spec before any builder
 Log: 2026-09-29T01:08:24.000Z owned skills-n Opus spec red-team by ac5a812f7f22dc663 NEEDS_FIXES da0e0e1 (3 blockers: most wakes are note-send direct posts that never reach the drain, a held entry would count as an attempt and dead-letter, a dead timer would strand held notes; 6 major incl. the gate measures wake share not saving); all adopted, gate is the coalescable upper bound under 10 percent, step 2 if built is a trailing debounce; Sonnet step 1 builder spawned
 Log: 2026-09-29T01:27:41.000Z delivered skills-n Sonnet step 1 builder DONE 828dc30 (wake split and W1b in build-census, red at a6efbbe, 2907 pass 0 fail); the lead read 9c61c35a on ben-desktop from 19:00Z to 01:26:54Z at 828dc30: wake-opened 22 turns carry 39.3 percent of claude-fable-5-1 (19.2M of 48.9M), coalescable RESULT turns at a 10-minute hold 0, so the upper bound is 0 percent, under the 10 percent gate: NO-BUILD for step 2; lead cross-check lists 21 wakes, 7 RESULT (nearest pair 13.8 min apart), 11 ASK (10 from skills-a), 3 BLOCKED; Opus code review and Windows suite started
@@ -18,6 +20,13 @@ Log: 2026-09-29T01:38:23.000Z rejected skills-n Opus code review by ac577c0fc9f9
 Log: 2026-09-29T01:45:09.000Z delivered skills-n Sonnet fix round 1 builder DONE 6b95a2d (all 6 findings, census 121 pass, full suite 2911 pass 0 fail); lead re-read 9c61c35a on ben-desktop at 6b95a2d, same window: coalescable 1 turn (upper 0.73M, 1.5 percent), RESULT ceiling 8 turns 11.17M of 48.89M claude-fable-5-1, 22.9 percent, over the 10 percent gate, so the ceiling does not decide; rule fixed before the gap read: a RESULT wake is saved only when the previous post came under 10 min before it and another run opens, or another queued RESULT releases, before that post plus 10 min; saved over 10 percent builds step 2, else NO-BUILD; Sonnet gap-read runner and Opus delta review spawned
 Log: 2026-09-29T01:54:52.000Z rejected skills-n Opus delta review by a6c493494c6afdf0f NEEDS_FIXES 6b95a2d (MAJOR: a straddling RESULT run coalesces into its own wave, so the re-read coalescable 1 is likely an artifact; 4 MINOR: pre-window chaining, post --to lines, ceiling guard can only lower a bound, unpinned mutants); ceiling a true bound and unaffected; same builder resumed for fix round 2
 Log: 2026-09-29T01:57:59.000Z delivered skills-n Sonnet fix round 2 builder DONE e7f5f25 (census 125 pass, full suite 2915 pass 0 fail); Sonnet runner a949108d8af9945c4 gap read at 6b95a2d: 8 RESULT rows sum to the ceiling 11172487 exactly, saved under the pre-registered 10 min rule 0 turns, 0.0 percent, NO-BUILD for step 2 (30 min hold would save 11.2 percent, context only, it sits at the GOALS 30 min unread limit); lead re-read at e7f5f25 on ben-desktop: coalescable 0, ceiling unchanged 8 turns 11172487; Opus delta review r3 resumed, Windows suite started
+Log: 2026-09-29T02:01:25.000Z reviewed skills-n Opus reviewer a6c493494c6afdf0f delta r3 VERDICT: APPROVE e7f5f25 (all r2 findings fixed as specified, 9 of 9 mutants killed, 0 findings); Windows suite at e7f5f25 2905 pass, the 1 fail a missing origin/main in the lead clone, 89 of 89 after the fetch
+
+Observed: build-census now splits a Claude lead window into wake-opened, Stop-block and other turns, and prints a RESULT ceiling beside the W1b coalescable count. On the Fable lead 9c61c35a, 2026-09-28T19:00:00Z to 2026-09-29T01:26:54Z, read on ben-desktop at e7f5f25: wake-opened 22 turns carry 39.3 percent of claude-fable-5-1 (19196120 of 48886987), coalescable 0 at a 10 minute hold, and the RESULT ceiling is 8 turns, 11172487, 22.9 percent. The ceiling is over the 10 percent gate, so the pre-registered gap rule decided: 0 of 8 RESULT turns saved, 0.0 percent, NO-BUILD for step 2. A 30 minute hold would save 4 turns, 11.2 percent, but that sits at the GOALS 30 minute unread limit. The wakes are mostly ASKs (11 of 21, 10 from skills-a), so holding RESULTs is not the lever.
+
+Predicts: the next Fable lead census shows a wake-opened share between 30 and 45 percent with coalescable 0 and a RESULT ceiling under 25 percent. If the wake share rises past 45 percent, ASK wakes from skills-a are the lever to measure, not a RESULT hold.
+
+Stall: no builder or reviewer stalled. The word match in the Log is "change", not a hang. Background watchers exited on report arrival each time. One review watcher exited on the first report of two it covered, which was harmless, and it was restarted for the second.
 
 ## Spec (lead, from the packet)
 
