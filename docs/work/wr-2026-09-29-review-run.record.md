@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-review-run
 Scope: the spec section of this record (lane 53), from packet docs/notes/skills-fable-lane-53-1.md read at 7ab59db
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
-Next: fresh Opus delta review r3 of 1b62edb and the Windows suite, then Windows live probe, the a2 quality check, a Codex-launched run, accept, merge, close, RESULT
+Next: fresh Sonnet fix round 3 (the cap) applying review-r3 F1 to F3 verbatim, then a narrow Opus delta r4, the Windows suite and live probe, the a2 quality check, a Codex-launched run, accept, merge, close, RESULT
 Worktree: build/review-run-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53
 Opened: 2026-09-29T02:05:00.000Z
@@ -20,6 +20,7 @@ Log: 2026-09-29T03:32:15.000Z rejected skills-n Opus code review by a1e775d21bce
 Log: 2026-09-29T04:34:05.000Z delivered skills-n fresh Sonnet fix round 1 builder a1d842159340fc53c DONE cb66b71, report 7291e4e (all 14 findings, gate 294 pass, full suite 2980 pass 0 fail; 8 of 10 live runs: dontAsk cannot write its own report, auto passes P5, P1 none, P3 exit 6, P4 clean; auto still lets a classifier-approved write and the git --git-dir= form out); lead-ruling-r2 keeps auto, re-scopes P7 to parity and requires the equals forms closed; logs untracked at 0d7b614; fresh Opus delta reviewer spawned
 Log: 2026-09-29T05:06:26.000Z rejected skills-n fresh Opus delta review r2 by ac24989e022c3620e NEEDS_FIXES (6) cb66b71 (blocker: the fix-round sweep SIGKILLs a reused or forged childPid, measured; the git equals forms are still undenied; the sidecar write still follows a planted link; the Write rule is inert, Edit(//abs) is the documented form; 9 of 14 r1 fixes hold); lead-ruling-r3 adopts all, the sweep never signals; fresh builder spawned for fix round 2 of 3
 Log: 2026-09-29T05:25:33.000Z delivered skills-n fresh Sonnet fix round 2 builder a5ece5b1da3b029cb DONE 1b62edb, report b17095f (N1 the sweep never signals, N2 equals forms denied, N3 rename write, N4 Edit(//abs), N5 sweep tests, N6 doc; gate 305 pass, full suite 2991 pass 0 fail; 3 of 6 live runs, all four equals and space forms denied, P5 pass under auto, dontAsk with Edit(//abs) delivers the report, P4 unchanged apart from an unrelated flush-last.json); fresh Opus delta reviewer and Windows suite started
+Log: 2026-09-29T05:59:55.000Z rejected skills-n fresh Opus delta review r3 by a7ee3a035a2e55a69 NEEDS_FIXES (3) 1b62edb (F1 the victim-survives tests read a zombie as alive, so a reintroduced sweep kill passes 65 of 65, measured; F2 the win32 Edit rule and the glob refusal have no red test; F3 a completed run prints a false stale-run line once its childPid is reused); all three mechanical with verified patches, adopted verbatim; fix round 3 of 3
 
 ## Spec (lead, from the packet)
 
