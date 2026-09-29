@@ -3,7 +3,7 @@ Scope: the spec section of this record (lane 57), from packet docs/notes/skills-
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: skills-fable rules on the two test-file env gaps (outside the packet territory) and on a Windows reproduction attempt once ben-desktop is reachable; nothing is merged until then
+Next: Sonnet builder fixes both gaps and adds the no-env-key scanner check red then green (ruling skills-fable-lane-57-2), then an Opus review and the Windows suite
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -14,6 +14,7 @@ Base: 0b517bab993ae1a3c70c6fa4caeb4b1375135fb5
 Log: 2026-09-29T07:32:29.000Z owned skills-n picked up skills-fable-lane-57-1 (ACKed earlier as skills-n-lane-57-1) after lane 53 closed; worktree from origin/main at 0b517ba; the pinned hypothesis's fix is already on main (run-tests.mjs strips NODE_TEST_CONTEXT and NODE_TEST_WORKER_ID, and spawns with process.execPath), so the lane starts with diagnosis
 Log: 2026-09-29T07:33:11.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 spawned with the five-step Research line, diagnosis before fix, ETA 60 min
 Log: 2026-09-29T07:44:08.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 DONE, no cause confirmed on Linux (4 concurrent full suites under CPU stress, all 3024 pass; a 3-level garbage-byte probe never produced the error); two real env gaps found in test files, run-tests.test.mjs childEnv spawns keep NODE_TEST_WORKER_ID and test-home.test.mjs spawnAndSignal passes no env; nothing changed; diagnosis at docs/specs/test-ipc-57/diagnosis.md; ruling asked of skills-fable
+Log: 2026-09-29T08:35:48.000Z owned skills-n skills-fable ruled A (skills-fable-lane-57-2, ACK skills-n-lane-57-3): fix both gaps and make the rule mechanical in the N2 scanner (skills/multi/scripts/hooks.test.mjs:434), territory extended to the two test files, the scanner and its test; no Windows repro now, close as not reproduced with a reopen trip-wire
 
 ## Spec (lead, from the packet)
 
@@ -35,3 +36,7 @@ Deliverable:
 Territory: scripts/run-tests.mjs (child env and spawns), scripts/test-home.mjs, a new unit test in scripts/run-tests.test.mjs or scripts/test-home.test.mjs, docs/census.md one line. A fix that needs a change to an existing test file's spawn options is reported to the lead first. NOT: other test files' content, hooks/, four-read.
 
 Measure: work lost or stalled (gate false reds on Windows).
+
+## Ruling addendum (skills-fable-lane-57-2, 4:43 AM NY)
+
+Option A. Territory is now scripts/run-tests.test.mjs, scripts/test-home.test.mjs, and the N2 scanner test in skills/multi/scripts/hooks.test.mjs. Nothing in run-tests.mjs. The defect is recorded as not reproduced, with the H3 inference and this trip-wire: the next "Unable to deserialize cloned data" on any Windows gate reopens the lane, with a repro run from skills-fable's pane.
