@@ -114,6 +114,17 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
     alongside `--lead`. On a collision the default glob's `agent-<id>.jsonl` copy is
     kept over an explicit `--tasks` dir's `<id>.output` alias (the name journal.jsonl
     and `--role-map` both key off).
+- **A `skills/team-build/scripts/review-run.mjs` child is not a subagent of any lead
+  (lane 53).** Its transcript is `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<mangled run
+  worktree path>/<session>.jsonl` on the review host, not under any lead's
+  `subagents/` folder, so neither `--lead` nor either default glob above ever counts it.
+  Count it separately with `build-census.mjs --lead <that file>` (it is a valid lead
+  transcript on its own, never a subagent one). The identity sidecar review-run writes
+  beside its report also carries the child's own `result`-event `usage`, `modelUsage`,
+  `total_cost_usd`, `num_turns`, `duration_ms` and permission-denial count, so a reader
+  who only has the sidecar (no separate census run) still sees the token cost. This gap
+  is named, not hidden: a Codex lead's own census undercounts its review tokens by
+  exactly this child's total until someone runs the separate `--lead` count.
 - `--role-map <json>` (optional) — inline JSON, `{"agent-<id>": "<role>"}`, mapping a
   subagent file's basename with its extension stripped (e.g. `agent-a5759bed32340205d`)
   directly to a role string. See "Roles" below.
