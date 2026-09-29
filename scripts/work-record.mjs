@@ -1832,7 +1832,7 @@ function recordBranchNames(record, worktreesByPath) {
 function deleteOriginBranchWithLease(execImpl, repoRoot, name, tip) {
   const ref = `refs/heads/${name}`;
   try {
-    execImpl("git", ["push", `--force-with-lease=${ref}:${tip}`, "origin", `:${ref}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+    execImpl("git", ["push", `--force-with-lease=${ref}:${tip}`, "origin", `:${ref}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     return { ok: true };
   } catch (error) {
     const msg = String((error.stderr || error.message || error)).trim();
@@ -1849,7 +1849,7 @@ function deleteOriginBranchWithLease(execImpl, repoRoot, name, tip) {
 /** show-ref (never rev-parse's DWIM order - see janitor.mjs's own long note on this) - existence
  * plus the tip, in one call, or null when the ref is absent. */
 function resolveRefSha(root, fullRef, spawnImpl) {
-  const r = spawnImpl("git", ["show-ref", "--verify", fullRef], { cwd: root, encoding: "utf8", stdio: "pipe" });
+  const r = spawnImpl("git", ["show-ref", "--verify", fullRef], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
   if (r.error || r.status !== 0) return null;
   const out = String(r.stdout ?? "").trim();
   return out.split(/\s+/)[0] || null;
@@ -1860,19 +1860,19 @@ function resolveRefSha(root, fullRef, spawnImpl) {
  * tip was merged in through some --no-ff merge's SECOND parent, never picked up as a first-parent
  * fast-forward or an unmerged, dangling ancestor of main's own mainline. */
 function tipBehindMergeCommit(root, tip, mainRef, spawnImpl) {
-  const merges = spawnImpl("git", ["rev-list", "--first-parent", "--merges", mainRef], { cwd: root, encoding: "utf8", stdio: "pipe" });
+  const merges = spawnImpl("git", ["rev-list", "--first-parent", "--merges", mainRef], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
   if (merges.error || merges.status !== 0) return false;
   const shas = String(merges.stdout ?? "").trim().split(/\r?\n/).filter(Boolean);
   for (const m of shas) {
-    const p2 = spawnImpl("git", ["rev-parse", `${m}^2`], { cwd: root, encoding: "utf8", stdio: "pipe" });
+    const p2 = spawnImpl("git", ["rev-parse", `${m}^2`], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     if (p2.error || p2.status !== 0) continue;
     const p2sha = String(p2.stdout ?? "").trim();
-    const p1 = spawnImpl("git", ["rev-parse", `${m}^1`], { cwd: root, encoding: "utf8", stdio: "pipe" });
+    const p1 = spawnImpl("git", ["rev-parse", `${m}^1`], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     if (p1.error || p1.status !== 0) continue;
     const p1sha = String(p1.stdout ?? "").trim();
-    const reachP2 = spawnImpl("git", ["merge-base", "--is-ancestor", tip, p2sha], { cwd: root, encoding: "utf8", stdio: "pipe" });
+    const reachP2 = spawnImpl("git", ["merge-base", "--is-ancestor", tip, p2sha], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     if (reachP2.error || reachP2.status !== 0) continue;
-    const reachP1 = spawnImpl("git", ["merge-base", "--is-ancestor", tip, p1sha], { cwd: root, encoding: "utf8", stdio: "pipe" });
+    const reachP1 = spawnImpl("git", ["merge-base", "--is-ancestor", tip, p1sha], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     const onFirstParent = !(reachP1.error || reachP1.status !== 0);
     if (!onFirstParent) return true;
   }
@@ -1933,7 +1933,7 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
     const otherOwn = (records || []).find((r) => r.fields.work !== ownWorkId && recordBranchNames(r, worktreesByPath).has(normName));
     if (otherOwn) return { verdict: "keep", reason: "not this record's own", tip };
   }
-  const ancestor = spawnImpl("git", ["merge-base", "--is-ancestor", tip, mainRef], { cwd: root, encoding: "utf8", stdio: "pipe" });
+  const ancestor = spawnImpl("git", ["merge-base", "--is-ancestor", tip, mainRef], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
   if (ancestor.error || ancestor.status !== 0) return { verdict: "keep", reason: "tip is not an ancestor of origin/main", tip };
   const mainTip = resolveRefSha(root, mainRef, spawnImpl);
   if (mainTip && tip === mainTip) return { verdict: "keep", reason: "tip equals origin/main's current sha", tip };
@@ -2179,7 +2179,7 @@ export function closeoutRecord(opts = {}) {
   // 2. Merge proof.
   // M2: --prune too, so a branch already deleted on origin drops its stale local tracking ref
   // instead of being evaluated against a sha that no longer exists there.
-  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
   const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
   let blockedReason = null;
   if (fetchFailed) {
@@ -2192,7 +2192,7 @@ export function closeoutRecord(opts = {}) {
       blockedReason = error.message;
     }
     if (!blockedReason) {
-      const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+      const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
       if (anc.error || anc.status !== 0) blockedReason = `Artifact ${artifactSha} is not an ancestor of origin/main`;
     }
   }
@@ -2240,7 +2240,7 @@ export function closeoutRecord(opts = {}) {
         // missing refs/remotes/origin/<name> tracking ref, which a narrow fetch refspec (a
         // single-branch clone) never creates even when the branch is genuinely still on origin -
         // confirm absence against the remote itself with one `ls-remote` before calling it absent.
-        const ls = spawnImpl("git", ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branchName}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+        const ls = spawnImpl("git", ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branchName}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
         if (!ls.error && ls.status === 2) {
           results.push({ step: "origin-branch", result: "absent", ref: branchName });
         } else {
@@ -2336,7 +2336,7 @@ export function sweepOrigin(opts = {}) {
   // is read against origin's CURRENT tip, never a stale local tracking ref left over from
   // whenever this repo last happened to fetch. A fetch that fails refuses every branch outright
   // (exit 2), rather than silently falling back to whatever refs are on disk.
-  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
   if (fetchResult.error || fetchResult.status !== 0) {
     return { rows: [], lines: ["refused UNVERIFIABLE: fetch failed"], apply, applied: [], exitCode: 2 };
   }
@@ -2352,7 +2352,7 @@ export function sweepOrigin(opts = {}) {
   }
 
   const list = spawnImpl("git", ["for-each-ref", "refs/remotes/origin/build", "--format=%(refname)"], {
-    cwd: repoRoot, encoding: "utf8", stdio: "pipe",
+    cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env),
   });
   // M4: a for-each-ref that itself fails must not read as "there are no branches" - that silently
   // reported nothing to the caller rather than the truth, that the list could not be read at all.

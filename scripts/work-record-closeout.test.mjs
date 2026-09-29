@@ -1655,6 +1655,72 @@ test("closeoutRecord: R4-5 - a failed git ls-remote on the absent path refuses U
   assert.equal(result.exitCode, 2);
 });
 
+// S1 (addendum-S1-seam, seam fix after merging main): main's 7248ba5 wraps every direct git
+// child call's env with withoutRepoLocatingGitEnv so an inherited GIT_DIR/GIT_WORK_TREE/
+// GIT_COMMON_DIR (e.g. from inside a git hook) can never point a call at a different repo.
+// Modeled on work-record.test.mjs's "checkAcceptance resolves against repoRoot, not an inherited
+// GIT_DIR pointed at another repo" - here against sweepOrigin and closeoutRecord's own git calls
+// (fetch, show-ref, rev-list, rev-parse, merge-base, ls-remote, for-each-ref, and the
+// --force-with-lease origin delete itself), using two wholly separate fixture repos (A and B),
+// each with its own local bare origin, so a leak is provable as "B's origin ref set changed",
+// not just "A's own effect looked right".
+test("sweepOrigin and closeoutRecord never let an inherited GIT_DIR redirect their git calls at a different repo", () => {
+  const envA = fixtureEnv();
+  const { repo: repoA } = buildRepo(envA);
+  // A deletable branch for sweepOrigin: merged via --no-ff, safe by every evaluateOriginBranch check.
+  const sweepBranch = "build/gitdir-leak-sweep-1";
+  const { tip: sweepTip } = cutBranch(repoA, envA, sweepBranch);
+  mergeNoFF(repoA, envA, sweepBranch);
+  // A second, closeoutRecord-owned branch, with its own worktree and closed record.
+  const closeBranch = "build/gitdir-leak-close-1";
+  const { wt: closeWt, tip: closeTip } = cutBranch(repoA, envA, closeBranch);
+  mergeNoFF(repoA, envA, closeBranch);
+  pushMain(repoA, envA);
+  pushBranch(repoA, envA, sweepBranch);
+  pushBranch(repoA, envA, closeBranch);
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repoA, {
+    work: "wr-2026-09-28-gitdir-leak-close", worktree: closeBranch, artifact: `${closeBranch}@${closeTip}`, leadSession: by, scratch: scratchPath,
+  });
+
+  // A wholly separate repo B, with its own local bare origin and one branch that must survive
+  // untouched - never merged into B's main, so it would never be an eligible delete/close target
+  // even if a leaked GIT_DIR did redirect a call at B.
+  const envB = fixtureEnv();
+  const { repo: repoB, origin: originB } = buildRepo(envB);
+  const branchB = "build/gitdir-leak-b-1";
+  cutBranch(repoB, envB, branchB);
+  pushBranch(repoB, envB, branchB);
+  const beforeB = git(["for-each-ref"], originB, envB);
+
+  const hadGitDir = Object.prototype.hasOwnProperty.call(process.env, "GIT_DIR");
+  const prevGitDir = process.env.GIT_DIR;
+  let sweepResult;
+  let closeResult;
+  try {
+    process.env.GIT_DIR = path.join(repoB, ".git");
+    sweepResult = sweepOrigin({ repoRoot: repoA, apply: true, exclude: closeBranch });
+    closeResult = closeoutRecord({ repoRoot: repoA, recordPath: recordRel, closeoutBy: by });
+  } finally {
+    if (hadGitDir) process.env.GIT_DIR = prevGitDir;
+    else delete process.env.GIT_DIR;
+  }
+
+  // Repo A's own effect: both branches actually left A's origin.
+  assert.ok(sweepResult.applied.some((a) => a.name === sweepBranch && a.tip === sweepTip && a.ok === true), `sweepOrigin must have deleted ${sweepBranch} on A's own origin`);
+  assert.equal(git(["ls-remote", "--heads", "origin", sweepBranch], repoA, envA).trim(), "");
+  const closeSteps = stepsOf(closeResult);
+  assert.equal(closeSteps["origin-branch"].result, "removed");
+  assert.equal(closeSteps["origin-branch"].sha, closeTip);
+  assert.equal(git(["ls-remote", "--heads", "origin", closeBranch], repoA, envA).trim(), "");
+  assert.equal(fs.existsSync(closeWt), false);
+
+  // Repo B's proof: its bare origin's own ref set is byte-identical before and after - nothing
+  // from either call above ever reached it, even though GIT_DIR pointed straight at it throughout.
+  const afterB = git(["for-each-ref"], originB, envB);
+  assert.equal(afterB, beforeB, "repo B's origin refs must be untouched by calls whose repoRoot/cwd was repo A");
+});
+
 after(() => {
   for (const dir of tracked) {
     try {
