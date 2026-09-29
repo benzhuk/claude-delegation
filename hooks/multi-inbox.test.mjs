@@ -361,6 +361,21 @@ test('(l) positive child agent_id preserves populated lead state across every de
   }
 });
 
+test('(l2) lane 53 decision 2a: DELEGATION_REVIEW_RUN=1 with no agent_id is treated as a child too, preserving populated lead state', () => {
+  for (const event of ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']) {
+    const home = fixtureHome();
+    const notes = seedPopulatedLeadState(home);
+    const before = snapshotTree(notes);
+    const output = runHook(home, event, {}, {
+      NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: 'term_fixture',
+      CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+      DELEGATION_REVIEW_RUN: '1',
+    });
+    assert.equal(output.trim(), '', `${event}: a review-run child receives no lead context`);
+    assert.deepEqual(snapshotTree(notes), before, `${event}: a review-run child (main thread, no agent_id) must never register, poll, or acknowledge the lead's inbox`);
+  }
+});
+
 test('(m) a positive child agent_id leaves absent lead state untouched, so the lead receives its pending note', () => {
   const home = fixtureHome();
   const notes = path.join(home, '.agents', 'notes');
