@@ -1,37 +1,13 @@
 # Waiting on you now
-<details>
-<summary>**Goal card gate: no project builds until you have edited its card**</summary>
-	You asked that every project you start writes a goal card and waits for you to edit it before anything proceeds. The pieces exist: the card reader, the dispatch guard that already blocks agent spawns, the decisions page, and bearings. The lane wires them: a session in a repo with no card drafts one from the repo and your first prompt, publishes it to that project decisions page as an item, and the dispatch guard refuses every agent or workflow spawn until you tick or edit that item. After that, opening a work record requires naming a measure from the card, and bearings keeps reading it. One new rule, three existing mechanisms.
-	- [ ] Yes, open the goal card gate lane after the census read (recommended)
-	- [ ] Hold
-	No default: projects keep starting without a gate until you tick
-	<empty-block/>
-</details>
-<details>
-<summary>**Hand-run baseline: the data is aging out**</summary>
-	The DONE line needs the census to beat a hand-run build on all four measures. Today we record enough for plugin builds: work records carry ask, accepted and merged times, and the census reads tokens per build from transcripts. For past hand-run sessions only tokens and wall clock are recoverable; ask to accepted and rework need a person to mark the ask and the acceptance in three to five past builds, once. Two problems: transcripts are deleted after 30 days on every machine (this desktop now starts at 8/31), and each day erases more of the baseline. Proposed: raise the retention setting to 365 days on all four machines today, then a lane that picks five past hand-run builds, marks them with Opus adjudication, and stores the baseline file the census compares against.
-	- [ ] Yes, raise retention now and open the baseline lane (recommended)
-	- [ ] Raise retention only
-	- [ ] Hold
-	No default: transcripts keep expiring at 30 days
-	<empty-block/>
-</details>
-<details>
-<summary>**Continue: retire it or keep it**</summary>
-	The continue skill and its continuation hooks came from the Astra era, when a session had to be kept working across turns without waste. Today three other things do that job: the peer note hooks wake a session, the backlog notice at every prompt says what is runnable, and bearings sets direction. Two continue pilot records have sat rejected since 9/23 and every prompt still carries a continuation epoch line nobody reads. Proposed: a census of real continue invocations across all hosts first (a day of Sonnet work); if it is near zero, remove the skill, the epoch line and the two records in one lane, keeping only the completion boundary if the census shows it fires.
-	- [ ] Yes, census first, then retire if unused (recommended)
-	- [ ] Keep it as is
-	No default: it stays until you tick
-	<empty-block/>
-</details>
+Nothing right now.
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Tue 5:21 PM)
+- Three ticks read 5:51 PM: goal card gate queued behind the 10/1 census read; transcript retention is 365 days on three machines now; lane 61 opened for the hand-run baseline and the continue census.
+- Lanes 39, 57 and 58 closed since 4:30 PM; sweep done. Running: 59 janitor acts, 60 secret guard, 40 knowledge triage, 61 baseline. Nothing waits on you.
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
 - Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
-- Bearings 9/29 said RE-PLAN: we merged seventeen lanes and installed none. No new lane opens until one 24-hour census has read 0.20.18. Two items below ask for your call.
 - This page is rendered from repo files, refuses to publish while any source is uncommitted, and never drops a line you wrote unless it is saved in the history first.
-- Eight lanes closed since 4:30 PM, two of them led from Codex end to end. The inbox no longer reports a packet missing when it never looked for it.
 - Two lanes stalled for hours today, one at a delete prompt, one on a reviewer that never reported. Two night lanes now running make the collector ask the lead after two silent hours.
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
 - The Windows daily cleanup task and the Netcup collector timer now run from 0.20.18, with the two-hour stall ask kept.
@@ -51,5 +27,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Sep 29, 2026, 5:21 PM America/New_York)
+- [ ] Done (last cleared: Sep 29, 2026, 5:54 PM America/New_York)
 <empty-block/>

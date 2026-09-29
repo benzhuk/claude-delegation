@@ -1,4 +1,4 @@
-since: 2026-09-29T21:21:01.199Z
+since: 2026-09-29T21:48:12.876Z
 - Three ticks read 5:51 PM: goal card gate queued behind the 10/1 census read; transcript retention is 365 days on three machines now; lane 61 opened for the hand-run baseline and the continue census.
 - Lanes 39, 57 and 58 closed since 4:30 PM; sweep done. Running: 59 janitor acts, 60 secret guard, 40 knowledge triage, 61 baseline. Nothing waits on you.
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
