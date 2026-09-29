@@ -42,17 +42,23 @@ const ARCHIVE_SCRIPT = [
   'root="$HOME/.claude/knowledge/_inbox"; src="$root/$n"; dst="$root/_archive/$m/$n"',
   'hashof() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d" " -f1; else shasum -a 256 "$1" | cut -d" " -f1; fi; }',
   'okdst() { [ -f "$dst" ] && [ ! -L "$dst" ] && [ "$(hashof "$dst")" = "$h" ]; }',
+  // Rename-claim: the live source name is never removed after a check. The note is first moved into an
+  // exclusive per-hash claim dir, and the bytes actually claimed are the ones hashed and archived.
+  'claim="$root/.claim-$h"; cf="$claim/note"',
+  'restore() { if ln "$cf" "$src" 2>/dev/null; then rm -f "$cf"; rmdir "$claim" 2>/dev/null; echo "$1"; else echo "CLAIM_KEPT $cf"; fi; }',
   'if [ -L "$src" ]; then echo SYMLINK; exit 0; fi',
   'if [ -e "$src" ]; then',
   '  [ -f "$src" ] || { echo CHANGED_SOURCE; exit 0; }',
   '  [ "$(hashof "$src")" = "$h" ] || { echo CHANGED_SOURCE; exit 0; }',
   '  if [ -e "$dst" ] || [ -L "$dst" ]; then if okdst; then echo RESURRECTED; else echo DEST_MISMATCH; fi; exit 0; fi',
   '  mkdir -p "$root/_archive/$m" || { echo MOVE_FAILED; exit 0; }',
-  '  ln "$src" "$dst" 2>/dev/null || { echo MOVE_FAILED; exit 0; }',
-  '  if [ "$src" -ef "$dst" ]; then rm -f -- "$src"; else echo POSTCHECK_MISMATCH; exit 0; fi',
-  '  if [ ! -e "$src" ] && okdst; then echo MOVED; else echo POSTCHECK_MISMATCH; fi',
+  '  mkdir "$claim" 2>/dev/null || { echo "CLAIM_BUSY $claim"; exit 0; }',
+  '  mv "$src" "$cf" 2>/dev/null || { rmdir "$claim" 2>/dev/null; echo MOVE_FAILED; exit 0; }',
+  '  if [ -f "$cf" ] && [ ! -L "$cf" ] && [ "$(hashof "$cf")" = "$h" ]; then :; else restore CHANGED_SOURCE; exit 0; fi',
+  '  ln "$cf" "$dst" 2>/dev/null || { restore MOVE_FAILED; exit 0; }',
+  '  if okdst; then rm -f "$cf"; rmdir "$claim" 2>/dev/null; echo MOVED; else echo "CLAIM_KEPT $cf"; fi',
   "else",
-  "  if okdst; then echo ALREADY; else echo ORIGIN_MISSING; fi",
+  '  if [ -e "$claim" ] || [ -L "$claim" ]; then echo "CLAIM_KEPT $cf"; elif okdst; then echo ALREADY; else echo ORIGIN_MISSING; fi',
   "fi",
 ].join("\n");
 
@@ -107,7 +113,7 @@ export function runProcess({ cmd, args = [], input = null, env, cwd, timeoutMs, 
     child.stdin.end(input ?? undefined);
     if (timeoutMs) {
       handle = setT(() => {
-        timedOut = true; killTree(child.pid);
+        timedOut = true; if (!overflow) killTree(child.pid);
         setT(() => finish({}), 2000).unref?.();
       }, timeoutMs);
     }
@@ -286,9 +292,11 @@ export function parseTar(buf) {
     const data = buf.subarray(off, off + size);
     off += padded;
     if (name.startsWith("./")) name = name.slice(2);
-    if (name === "" || name.startsWith("/") || /^[A-Za-z]:/.test(name) || name.split(/[\\/]/).includes("..") || /[\\/]/.test(name)) {
+    if (name === "" || name.startsWith("/") || name.split("/").includes("..") || name.includes("/")) {
       throw new Error(`unsafe tar entry path ${JSON.stringify(name)}`);
     }
+    // A POSIX filename may legally contain a backslash or start like a drive letter; never a path here, so skip it, don't fail the host.
+    if (/[\\]|^[A-Za-z]:/.test(name)) { unsupported.push(name); continue; }
     if (name.startsWith(".")) { skippedMeta++; continue; }
     if (/[\0\n]/.test(name) || !name.toLowerCase().endsWith(".md")) { unsupported.push(name); continue; }
     if (size > MAX_NOTE_BYTES) { oversize.push(name); continue; }
@@ -314,13 +322,13 @@ const CHEZMOI_ATTRS = /^(?:(?:private|readonly|executable|exact|literal|empty|en
 
 async function managedSet(ctx) {
   const set = new Set();
-  const { sourcePath } = await resolveDigestSource(ctx);
-  if (!sourcePath) return set;
+  const { sourcePath, error } = await resolveDigestSource(ctx);
+  if (!sourcePath) return { set, error: error ?? "digest source path unresolved" };
   const sourceInbox = path.dirname(path.dirname(sourcePath));
   try {
     for (const n of fs.readdirSync(sourceInbox)) { set.add(n); set.add(n.replace(CHEZMOI_ATTRS, "")); }
-  } catch { /* nothing listed */ }
-  return set;
+  } catch (err) { return { set, error: `chezmoi source inbox unreadable: ${err.code ?? err.message}` }; }
+  return { set, error: null };
 }
 
 // ---------- read-only publication identity (never commits, pushes or applies) ----------
@@ -424,8 +432,14 @@ const pendingFor = (state, host) => Object.values(state.notes).reduce((n, e) => 
 export async function gatherKnowledge(options = {}) {
   const ctx = makeCtx(options);
   const state = loadState(ctx);
-  const managed = await managedSet(ctx);
+  const found = options.managedNames instanceof Set ? { set: options.managedNames, error: null } : await managedSet(ctx);
+  const managed = found.set;
   const residue = emptyResidue();
+  if (found.error) {
+    // Fail closed: without the managed set a managed note could be imported and later archived. No ssh, no import.
+    const hosts = HOSTS.map((host) => ({ ...emptyRow(host), status: "skipped", reason: `managed set unresolved: ${found.error}`, pending: pendingFor(state, host) }));
+    return withResidue({ hosts, imports: [] }, residue);
+  }
   const local = listInbox(ctx.inboxDir);
   const localBySha = new Map();
   for (const l of local) { try { localBySha.set(sha256(fs.readFileSync(path.join(ctx.inboxDir, l.name))), l.name); } catch { /* vanished */ } }
@@ -487,11 +501,12 @@ async function remoteArchive(ctx, endpoint, sha, month, name) {
     cmd: ctx.ssh, args: [...SSH_OPTIONS, endpoint, "/bin/sh", "-c", `'${ARCHIVE_SCRIPT}'`], input: `${sha}\n${month}\n${name}\n`, env: sshEnv(), timeoutMs: ctx.hostTimeoutMs, timers: ctx.timers,
   });
   if (r.timedOut || r.error || r.code !== 0) return { token: null, reason: r.timedOut ? "timed out" : r.error ? String(r.error.code ?? r.error.message) : `ssh exit ${r.code}` };
-  const token = r.stdout.toString("utf8").trim().split(/\s+/)[0] || null;
-  return { token, reason: token ? null : "empty answer" };
+  const [token = null, ...rest] = r.stdout.toString("utf8").trim().split(/\s+/);
+  return { token: token || null, detail: rest.join(" "), reason: token ? null : "empty answer" };
 }
 
 const UNRESOLVED_REASONS = {
+  CLAIM_KEPT: "remote claim kept for inspection", CLAIM_BUSY: "remote claim dir already exists",
   CHANGED_SOURCE: "origin changed since gather", SYMLINK: "origin is a symlink", DEST_MISMATCH: "conflicting archive destination",
   POSTCHECK_MISMATCH: "origin or archive changed during move", MOVE_FAILED: "move failed", BADNAME: "unsupported origin name", BADARG: "unsupported argument",
 };
@@ -501,7 +516,7 @@ export async function reconcileKnowledge(options = {}, gathered = { hosts: [], i
   const state = loadState(ctx);
   const residue = gathered.residue ?? emptyResidue();
   const pub = await publicationState(options);
-  const rows = gathered.hosts.map((r) => ({ ...r, archived: 0, unresolved: 0, resurrected: r.resurrected }));
+  const rows = gathered.hosts.map((r) => ({ ...r, archived: 0 }));
   for (const row of rows) {
     const endpoint = ctx.endpoints[row.host];
     const reachable = row.status === "gathered" && typeof endpoint === "string" && endpoint !== "pending";
@@ -526,7 +541,7 @@ export async function reconcileKnowledge(options = {}, gathered = { hosts: [], i
         } else if (res.token === "RESURRECTED") {
           o.reason = "source reappeared beside a matching archive"; row.resurrected++; residue.resurrected.push({ host: row.host, name: o.originalName });
         } else {
-          o.reason = UNRESOLVED_REASONS[res.token] ?? `unexpected remote answer ${res.token}`; row.unresolved++; residue.unresolved.push({ host: row.host, name: o.originalName, reason: o.reason });
+          o.reason = `${UNRESOLVED_REASONS[res.token] ?? `unexpected remote answer ${res.token}`}${res.detail ? `: ${res.detail}` : ""}`; row.unresolved++; residue.unresolved.push({ host: row.host, name: o.originalName, reason: o.reason });
         }
       }
       if (row.status === "failed" && row.reason?.startsWith("reconciliation pending")) break;

@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assertFieldSafe } from "../skills/multi/scripts/envelope.mjs";
 import {
   describeInbox, digestCommitSince, digestHasSlug, gatherKnowledge, killTree, managedNames, noteSlug, publicationState,
   reconcileKnowledge, recordLocalOriginal, runProcess, sha256, writeFileAtomic,
@@ -72,21 +73,44 @@ function recoveryText(problem) {
   ].join("\n");
 }
 
-async function defaultNoteSend(ctx, text) {
-  await runProcess({
-    cmd: ["note-send"], args: ["--from", "knowledge-triage", "--to", "ben", "--kind", "BLOCKED", "--topic", "knowledge-triage", "--text", text, "--sender-repo", path.resolve(HERE, "..")],
-    env: process.env, timeoutMs: 30_000,
-  });
+const RUN_LOCK_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+const PLUGIN_ROOT = path.resolve(HERE, "..");
+
+/** One line the envelope validator accepts: no control chars, shell payload or reserved words, under the line cap. */
+export function safeSummary(reason) {
+  const flat = `knowledge-triage: ${reason}`.replace(/[\r\n\t]+/g, " ").replace(/[`;|$]/g, "'").replace(/&&/g, "and")
+    .replace(/ (Goal|Details|Needs):/g, " $1 -").replace(/\s+/g, " ").trim();
+  const text = flat.length > 400 ? `${flat.slice(0, 397)}...` : flat;
+  assertFieldSafe("text", text);
+  return text;
 }
 
-/** Write ATTENTION and post exactly one BLOCKED to Ben. Only the outer job ever does this. */
+async function defaultNoteSend(ctx, text) {
+  const run = await runProcess({
+    cmd: [process.execPath, path.join(PLUGIN_ROOT, "skills", "multi", "scripts", "note-send.mjs")],
+    args: ["--from", "knowledge-triage", "--to", "ben", "--kind", "BLOCKED", "--topic", "knowledge-triage", "--text", text,
+      "--packet-file", ctx.attention, "--sender-repo", PLUGIN_ROOT],
+    env: process.env, timeoutMs: 30_000,
+  });
+  if (run.error || run.timedOut || run.code !== 0) throw new Error(`note-send exit ${run.code ?? run.error?.code ?? "none"}`);
+}
+
+/**
+ * Write ATTENTION (the detail packet) first, then post exactly one BLOCKED to Ben. Only the outer job
+ * does this. Returns a visible suffix ("" when everything worked) naming any failed leg.
+ */
 async function raiseAttention(ctx, reason) {
   const text = recoveryText(reason);
-  try { fs.mkdirSync(ctx.stateDir, { recursive: true }); fs.writeFileSync(ctx.attention, `${ctx.now().toISOString()}\n${text}\n`); } catch { /* receipt still records it */ }
+  let suffix = "";
+  try { fs.mkdirSync(ctx.stateDir, { recursive: true }); fs.writeFileSync(ctx.attention, `${ctx.now().toISOString()}\n${text}\n`); }
+  catch (err) { suffix += ` [ATTENTION write failed: ${err.message}]`; }
   try {
-    if (ctx.deps.noteSend) await ctx.deps.noteSend(`BLOCKED knowledge-triage: ${text}`);
-    else await defaultNoteSend(ctx, `knowledge-triage: ${text}`);
-  } catch { /* a failed notification never masks the run's own status */ }
+    const summary = safeSummary(reason);
+    if (ctx.deps.noteSend) await ctx.deps.noteSend(summary);
+    else await defaultNoteSend(ctx, summary);
+  } catch (err) { suffix += ` [BLOCKED to Ben not sent: ${err.message}]`; }
+  if (suffix) { try { fs.appendFileSync(ctx.attention, `${suffix.trim()}\n`); } catch { /* receipt carries it */ } }
+  return suffix;
 }
 
 // ---------- the nested call (argv pinned by the R3/R4 probes; see builder-report.md) ----------
@@ -221,6 +245,7 @@ export async function runKnowledgeTriage(options = {}) {
     return { receipt, exitCode };
   };
   const skip = (reason) => done("skipped", reason, 0);
+  const attend = async (why, shown = why) => done("attention", `${shown}${await raiseAttention(ctx, why)}`, 1);
 
   try {
     if (exists(path.join(ctx.home, ".agents", "no-knowledge-triage")) || exists(path.join(ctx.home, ".agents", "ws-off"))) return skip("kill switch present");
@@ -228,8 +253,7 @@ export async function runKnowledgeTriage(options = {}) {
     try { skillText = fs.readFileSync(ctx.skillPath, "utf8"); } catch { return skip("triage skill missing"); }
     const writer = parseWriterHost(skillText);
     if (!writer) {
-      await raiseAttention(ctx, "writer host not found in triage skill");
-      return done("attention", "writer host not found in triage skill", 1);
+      return await attend("writer host not found in triage skill");
     }
     const hostname = (ctx.deps.hostname ?? os.hostname)();
     if (hostname.toLowerCase() !== writer.toLowerCase()) return skip(`not the writer host: ${writer}`);
@@ -246,10 +270,9 @@ export async function runKnowledgeTriage(options = {}) {
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
       const owner = readJson(path.join(ctx.runLock, "owner.json"), null);
-      if (owner && Number.isInteger(owner.pid) && isAlive(owner.pid)) return skip("job already running");
-      const why = "stale or unverifiable run.lock; never removed automatically (inspect ~/.agents/knowledge-triage/run.lock)";
-      await raiseAttention(ctx, why);
-      return done("attention", why, 1);
+      const ownerAge = owner ? ctx.now().getTime() - Date.parse(owner.started) : NaN;
+      if (owner && Number.isInteger(owner.pid) && isAlive(owner.pid) && ownerAge >= 0 && ownerAge < RUN_LOCK_MAX_AGE_MS) return skip("job already running");
+      return await attend("stale or unverifiable run.lock; never removed automatically (inspect ~/.agents/knowledge-triage/run.lock)");
     }
 
     const heldNow = () => lockHolder(ctx);
@@ -257,8 +280,7 @@ export async function runKnowledgeTriage(options = {}) {
       receipt.deferredConsecutive = (runState.consecutiveDeferred ?? 0) + 1;
       if (receipt.deferredConsecutive >= 2) {
         const why = `curated lock held on ${receipt.deferredConsecutive} consecutive runs (lock held by ${holder})`;
-        await raiseAttention(ctx, why);
-        return done("attention", why, 1);
+        return await attend(why);
       }
       return done("skipped", `lock held by ${holder}`, 0);
     };
@@ -270,8 +292,10 @@ export async function runKnowledgeTriage(options = {}) {
     const prevEnd = runState.lastEndedAt ? Date.parse(runState.lastEndedAt) : 0;
     receipt.notesArrived = describeInbox(opts).filter((r) => !r.imported && r.mtimeMs > prevEnd).length;
 
+    const { set: managed, error: managedError } = await managedNames(opts);
+    if (managedError) return skip(`managed set unresolved: ${managedError}`);
+    opts.managedNames = managed;
     const gathered = await gatherKnowledge(opts);
-    const managed = await managedNames(opts);
     const { eligible, selected } = selectNotes(ctx, opts, managed);
     receipt.notesEligible = eligible.length;
     receipt.notesIn = selected.length;
@@ -323,8 +347,7 @@ export async function runKnowledgeTriage(options = {}) {
       if (run.timedOut) {
         nestedOk = false;
         const why = `nested triage exceeded ${Math.round(timeoutMs / 60000)} minutes; process tree killed, curated lock left as the skill's rule says`;
-        await raiseAttention(ctx, why);
-        return done("attention", why, 1);
+        return await attend(why);
       }
       if (run.error || run.code !== 0) {
         nestedOk = false;
@@ -332,8 +355,7 @@ export async function runKnowledgeTriage(options = {}) {
       }
       if (receipt.outOfSelection.length > 0) {
         const why = `nested run archived ${receipt.outOfSelection.length} note(s) outside the selection; no origin reconciliation`;
-        await raiseAttention(ctx, why);
-        return done("attention", why, 1);
+        return await attend(why);
       }
     }
 
@@ -346,8 +368,7 @@ export async function runKnowledgeTriage(options = {}) {
       const problem = !pub.verified ? pub.reason : !commit ? "DIGEST changed but no commit touching its source path since the run began" : null;
       if (problem) {
         receipt.publication = { ...receipt.publication, verified: false, reason: problem };
-        await raiseAttention(ctx, `publication not verified: ${problem}`);
-        return done("attention", `publication not verified: ${problem}`, 1);
+        return await attend(`publication not verified: ${problem}`);
       }
     }
     let reason = null;
@@ -355,8 +376,7 @@ export async function runKnowledgeTriage(options = {}) {
       reason = "skill deferred";
       receipt.deferredConsecutive = (runState.consecutiveDeferred ?? 0) + 1;
       if (receipt.deferredConsecutive >= 2) {
-        await raiseAttention(ctx, `skill deferred on ${receipt.deferredConsecutive} consecutive runs with no DIGEST change`);
-        return done("attention", "skill deferred repeatedly", 1);
+        return await attend(`skill deferred on ${receipt.deferredConsecutive} consecutive runs with no DIGEST change`, "skill deferred repeatedly");
       }
     } else {
       receipt.deferredConsecutive = 0;
@@ -367,9 +387,9 @@ export async function runKnowledgeTriage(options = {}) {
     const rec = hosts.residue ?? {};
     residue.resurrected.push(...(rec.resurrected ?? []).filter((r) => !residue.resurrected.some((x) => x.host === r.host && x.name === r.name)));
     residue.unresolved.push(...(rec.unresolved ?? []).filter((r) => !residue.unresolved.some((x) => x.host === r.host && x.name === r.name)));
-    for (const t of rec.terminal ?? []) terminal.push(t);
+    for (const t of rec.terminal ?? []) if (!terminal.includes(t)) terminal.push(t);
     receipt.hosts = [...hosts];
-    return done("success", reason, 0);
+    return done(reason === "skill deferred" ? "skipped" : "success", reason, 0);
   } catch (err) {
     return done("failed", `unexpected error: ${err && err.message ? err.message : err}`, 1);
   } finally {
