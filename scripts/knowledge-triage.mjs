@@ -74,12 +74,13 @@ function recoveryText(problem) {
 }
 
 const RUN_LOCK_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+const PACKET_MISSING = "ATTENTION packet NOT written";
 const PLUGIN_ROOT = path.resolve(HERE, "..");
 
 /** One line the envelope validator accepts: no control chars, shell payload or reserved words, under the line cap. */
 export function safeSummary(reason) {
-  const flat = `knowledge-triage: ${reason}`.replace(/[\r\n\t]+/g, " ").replace(/[`;|$]/g, "'").replace(/&&/g, "and")
-    .replace(/ (Goal|Details|Needs):/g, " $1 -").replace(/\s+/g, " ").trim();
+  const flat = `knowledge-triage: ${reason}`.replace(/\s+/g, " ").replace(/[`;|$]/g, "'").replace(/&&/g, "and")
+    .replace(/ (Goal|Details|Needs):/g, " $1 -").trim();
   const text = flat.length > 400 ? `${flat.slice(0, 397)}...` : flat;
   assertFieldSafe("text", text);
   return text;
@@ -91,12 +92,12 @@ export function buildNotificationInvocation(text, packetFile) {
     cmd: [process.execPath],
     args: [path.join(PLUGIN_ROOT, "skills", "multi", "scripts", "note-send.mjs"),
       "--from", "knowledge-triage", "--to", "ben", "--kind", "BLOCKED", "--topic", "knowledge-triage", "--text", text,
-      "--packet-file", packetFile, "--sender-repo", PLUGIN_ROOT],
+      ...(packetFile ? ["--packet-file", packetFile] : []), "--sender-repo", PLUGIN_ROOT],
   };
 }
 
-async function defaultNoteSend(ctx, text) {
-  const { cmd, args } = buildNotificationInvocation(text, ctx.attention);
+async function defaultNoteSend(ctx, text, packetFile) {
+  const { cmd, args } = buildNotificationInvocation(text, packetFile);
   const run = await runProcess({ cmd, args, env: process.env, timeoutMs: 30_000 });
   if (run.error || run.timedOut || run.code !== 0) throw new Error(`note-send exit ${run.code ?? run.error?.code ?? "none"}`);
 }
@@ -110,10 +111,12 @@ async function raiseAttention(ctx, reason) {
   let suffix = "";
   try { fs.mkdirSync(ctx.stateDir, { recursive: true }); fs.writeFileSync(ctx.attention, `${ctx.now().toISOString()}\n${text}\n`); }
   catch (err) { suffix += ` [ATTENTION write failed: ${err.message}]`; }
-  if (!suffix) try {
-    const summary = safeSummary(reason);
+  // Without a packet the note still goes out, with a short fixed label so both recovery commands survive the line cap.
+  const written = !suffix;
+  try {
+    const summary = safeSummary(written ? reason : recoveryText(PACKET_MISSING));
     if (ctx.deps.noteSend) await ctx.deps.noteSend(summary);
-    else await defaultNoteSend(ctx, summary);
+    else await defaultNoteSend(ctx, summary, written ? ctx.attention : null);
   } catch (err) { suffix += ` [BLOCKED to Ben NOT delivered: ${err.message}]`; }
   if (suffix) { try { fs.appendFileSync(ctx.attention, `${suffix.trim()}\n`); } catch { /* receipt carries it */ } }
   return suffix;

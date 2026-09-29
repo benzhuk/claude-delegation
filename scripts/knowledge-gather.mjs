@@ -89,7 +89,8 @@ export function runProcess({ cmd, args = [], input = null, env, cwd, timeoutMs, 
   const clearT = timers?.clearTimeout ?? clearTimeout;
   return new Promise((resolve) => {
     const out = []; const err = []; let size = 0;
-    let timedOut = false; let overflow = false; let done = false; let handle = null; let child;
+    let timedOut = false; let overflow = false; let killed = false; let done = false; let handle = null; let child;
+    const killOnce = () => { if (!killed) { killed = true; killTree(child.pid); } };
     const finish = (extra) => {
       if (done) return;
       done = true;
@@ -104,7 +105,7 @@ export function runProcess({ cmd, args = [], input = null, env, cwd, timeoutMs, 
     child.on("error", (error) => finish({ error }));
     child.stdout.on("data", (d) => {
       size += d.length;
-      if (size > maxBytes) { if (!overflow) { overflow = true; killTree(child.pid); } return; }
+      if (size > maxBytes) { if (!overflow) { overflow = true; killOnce(); } return; }
       out.push(d);
     });
     child.stderr.on("data", (d) => { if (err.length < 64) err.push(d); });
@@ -113,7 +114,7 @@ export function runProcess({ cmd, args = [], input = null, env, cwd, timeoutMs, 
     child.stdin.end(input ?? undefined);
     if (timeoutMs) {
       handle = setT(() => {
-        timedOut = true; if (!overflow) killTree(child.pid);
+        timedOut = true; killOnce();
         setT(() => finish({}), 2000).unref?.();
       }, timeoutMs);
     }
