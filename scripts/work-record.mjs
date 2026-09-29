@@ -17,6 +17,7 @@ import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs
 // file - a circular import, deliberately: both directions only ever touch the other's bindings
 // inside function bodies, at call time, well after both modules finish evaluating.
 import { closeoutWorktree, isRemoteBranchMergedIntoOrigin, listWorktrees } from "./janitor.mjs";
+import { checkRemovablePath } from "./path-safety.mjs";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "closed", "blocked", "withdrawn"];
 // R2 (withdraw-status-1): the only statuses `withdrawRecord` may withdraw FROM. `withdrawn`
@@ -1969,6 +1970,12 @@ function evaluateOriginBranch(name, tipOrNull, opts) {
  * "nothing to remove", and a target that is a file, not a directory, is refused rather than
  * removed. `platform` is test-only, defaulting to the real `process.platform` (same convention
  * used elsewhere in this file). */
+// C1 (spec.md, factored to scripts/path-safety.mjs): removeScratchDirectory keeps its own
+// scratch-root rule (a scratch root, with --by as a whole path segment strictly between the root
+// and the target) and its own wording, but every check that is not specific to that rule -
+// host-absolute, symlink, realpath-ancestor, drive/fs root, home, repo-root/worktree-list
+// containment - now runs through path-safety.mjs's checkRemovablePath, byte-identical in
+// behavior and in every refusal string this file's own tests pin.
 function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl, platform, listWorktreesImpl = listWorktrees }) {
   if (!scratchPath) return { step: "scratch", result: "absent" };
   if (record.fields.leadSession !== by) {
@@ -1979,125 +1986,57 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
   }
   const plat = platform ?? process.platform;
   const winCase = plat === "win32";
-  // R2-10 (C1 round 3, MINOR): `path.win32.isAbsolute` also accepts a bare POSIX `/tmp/...`
-  // value (it resolves that as `\tmp\...`, relative to the current drive) - on a win32 host that
-  // let a POSIX-shaped value silently pass the host-absolute gate instead of being refused as
-  // "recorded on another OS", which is what L7's own rule calls for.
-  const hostAbsolute = winCase
-    ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(scratchPath)
-    : path.posix.isAbsolute(scratchPath);
-  if (!hostAbsolute) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "not absolute on this host (recorded on another OS)" };
-  }
-  const cmp = (a, b) => (winCase ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
-  const normSep = (p) => String(p).replace(/\\/g, "/");
-  const forCompare = (p) => (winCase ? normSep(p).toLowerCase() : normSep(p));
-  const resolved = path.resolve(scratchPath);
 
-  const roots = [];
+  const rootStrings = [];
   try {
-    roots.push(fsImpl.realpathSync(os.tmpdir()));
+    rootStrings.push(fsImpl.realpathSync(os.tmpdir()));
   } catch {
     // tmpdir unreadable - no root from this source
   }
-  if (!winCase) roots.push("/tmp");
+  if (!winCase) rootStrings.push("/tmp");
   const envRoots = process.env.DELEGATION_SCRATCH_ROOTS;
   if (envRoots) {
     for (const entry of envRoots.split(path.delimiter)) {
       const t = entry.trim();
-      if (t && path.isAbsolute(t)) roots.push(t);
+      if (t && path.isAbsolute(t)) rootStrings.push(t);
     }
   }
-
-  let underRoot = false;
-  for (const scratchRoot of roots.map((r) => path.resolve(r))) {
-    const rel = path.relative(scratchRoot, resolved);
-    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
-    const segments = rel.split(path.sep).filter(Boolean);
-    // F8/L6: the session id is a whole path segment strictly between the root and the target, at
-    // ANY depth - not only the first segment directly under the root, which never matched this
-    // project's own real scratch layout (the session id sits several segments deep under `/tmp`).
-    const idx = segments.findIndex((s) => cmp(s, by));
-    if (idx === -1 || idx >= segments.length - 1) continue;
-    underRoot = true;
-    break;
-  }
-  if (!underRoot) {
-    return {
-      step: "scratch", result: "refused", ref: scratchPath,
-      detail: "does not resolve under a scratch root with --by as a whole path segment strictly between the root and the target",
-    };
-  }
-
-  let lst;
-  try {
-    lst = fsImpl.lstatSync(resolved);
-  } catch (error) {
-    if (error && error.code === "ENOENT") return { step: "scratch", result: "absent", ref: scratchPath };
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: `could not stat: ${error.message || error}` };
-  }
-  if (lst.isSymbolicLink()) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "target is a symlink or junction" };
-  }
-  if (!lst.isDirectory()) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "target is not a directory" };
-  }
-  let real;
-  try {
-    real = fsImpl.realpathSync(resolved);
-  } catch {
-    return { step: "scratch", result: "absent", ref: scratchPath };
-  }
-  if (!cmp(real, resolved)) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "a symlinked ancestor changes the real path" };
-  }
-  if (path.resolve(resolved, "..") === resolved) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "is a drive/filesystem root" };
-  }
-  if (cmp(path.resolve(os.homedir()), resolved)) {
-    return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the home directory" };
-  }
-  const inside = (p) => {
-    const rel = path.relative(forCompare(resolved), forCompare(path.resolve(p)));
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  // F8/L6: the session id is a whole path segment strictly between the root and the target, at
+  // ANY depth - not only the first segment directly under the root, which never matched this
+  // project's own real scratch layout (the session id sits several segments deep under `/tmp`).
+  const byPredicate = (segments) => {
+    const idx = segments.findIndex((s) => (winCase ? String(s).toLowerCase() === String(by).toLowerCase() : s === by));
+    return idx !== -1 && idx < segments.length - 1;
   };
+  const roots = rootStrings.map((r) => ({ path: r, predicate: byPredicate }));
+
+  let repoRoots = [];
   if (root) {
-    const repoResolved = path.resolve(root);
-    if (cmp(repoResolved, resolved)) {
-      return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the repo root" };
-    }
     const worktrees = listWorktreesImpl(root);
     if (worktrees === null) {
       return { step: "scratch", result: "refused", ref: scratchPath, detail: "could not read git worktree list" };
     }
-    const exactWt = worktrees.find((w) => cmp(path.resolve(w.path), resolved));
-    if (exactWt) {
-      return { step: "scratch", result: "refused", ref: scratchPath, detail: "is a path in git worktree list" };
-    }
-    if (inside(repoResolved)) {
-      return { step: "scratch", result: "refused", ref: scratchPath, detail: "contains the repo root" };
-    }
-    if (worktrees.some((w) => inside(w.path))) {
-      return { step: "scratch", result: "refused", ref: scratchPath, detail: "contains a path in git worktree list" };
-    }
-    // R2-4 (C1 round 3, MEDIUM): the REVERSE direction - the target lies INSIDE a registered
-    // worktree or inside the repo root, rather than containing it - was never checked: the walk
-    // only ever looked BELOW the target, so it could not see an enclosing worktree's `.git` file
-    // sitting above it, and with the walk dropped (L5 replaced) this direction needs its own
-    // explicit check, not an accidental side effect of one.
-    const liesInside = (p) => {
-      const rel = path.relative(forCompare(path.resolve(p)), forCompare(resolved));
-      return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
-    };
-    if (liesInside(repoResolved)) {
-      return { step: "scratch", result: "refused", ref: scratchPath, detail: "lies inside the repo root" };
-    }
-    if (worktrees.some((w) => liesInside(w.path))) {
-      return { step: "scratch", result: "refused", ref: scratchPath, detail: "lies inside a path in git worktree list" };
-    }
+    repoRoots = [
+      { path: root, kind: "the repo root" },
+      ...worktrees.map((w) => ({ path: w.path, kind: "a path in git worktree list" })),
+    ];
   }
 
-  if (!dryRun) fsImpl.rmSync(resolved, { recursive: true });
+  const check = checkRemovablePath(scratchPath, {
+    roots,
+    repoRoots,
+    home: os.homedir(),
+    platform: plat,
+    fsImpl,
+    notAbsoluteReason: "not absolute on this host (recorded on another OS)",
+    underRootReason: "does not resolve under a scratch root with --by as a whole path segment strictly between the root and the target",
+  });
+  if (!check.ok) {
+    if (check.absent) return { step: "scratch", result: "absent", ref: scratchPath };
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: check.reason };
+  }
+
+  if (!dryRun) fsImpl.rmSync(path.resolve(scratchPath), { recursive: true });
   return { step: "scratch", result: "removed", ref: scratchPath };
 }
 
