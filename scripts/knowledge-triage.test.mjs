@@ -4,8 +4,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runKnowledgeTriage } from './knowledge-triage.mjs';
+import * as triageModule from './knowledge-triage.mjs';
 import { importedNameFor, sha256 } from './knowledge-gather.mjs';
+import { assertFieldSafe } from '../skills/multi/scripts/envelope.mjs';
+
+const { runKnowledgeTriage } = triageModule;
 
 const tracked = [];
 function tmp(prefix) {
@@ -52,6 +55,13 @@ function makeStaticSsh(root, tar) {
   fs.writeFileSync(tarPath, Buffer.concat([tar, Buffer.alloc(1024)]));
   fs.writeFileSync(script, `import fs from 'node:fs'; process.stdout.write(fs.readFileSync(${JSON.stringify(tarPath.replaceAll('\\', '/'))}));\n`);
   return [process.execPath, script];
+}
+
+function makeLoggedFailure(root, label, exitCode = 2) {
+  const log = path.join(root, `${label}-calls.jsonl`);
+  const script = path.join(root, `${label}.mjs`);
+  fs.writeFileSync(script, `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(log.replaceAll('\\', '/'))}, JSON.stringify(process.argv.slice(2)) + '\\n'); process.exit(${exitCode});\n`);
+  return { command: [process.execPath, script], log };
 }
 
 function makeHarness() {
@@ -233,6 +243,83 @@ test('existing ATTENTION and unavailable Claude CLI are explicit skips with no f
   assert.match(result.receipt.reason, /Claude CLI|ENOENT|not found/i);
 });
 
+test('notification uses the installed Node sender, an envelope-safe summary, and a full ATTENTION packet', async () => {
+  assert.equal(typeof triageModule.buildNotificationInvocation, 'function');
+  const packet = path.resolve('fixture', 'ATTENTION');
+  const invocation = triageModule.buildNotificationInvocation('safe summary', packet);
+  assert.deepEqual(invocation.cmd, [process.execPath]);
+  assert.ok(path.isAbsolute(invocation.args[0]));
+  assert.match(invocation.args[0].replaceAll('\\', '/'), /\/skills\/multi\/scripts\/note-send\.mjs$/);
+  assert.equal(invocation.args[invocation.args.indexOf('--packet-file') + 1], packet);
+  const text = invocation.args[invocation.args.indexOf('--text') + 1];
+  assert.doesNotThrow(() => assertFieldSafe('text', text));
+  const source = fs.readFileSync(new URL('./knowledge-triage.mjs', import.meta.url), 'utf8');
+  assert.match(source, /defaultNoteSend[\s\S]{0,1200}buildNotificationInvocation\s*\(/, 'default sender must consume the tested helper');
+
+  const h = makeHarness();
+  const lock = path.join(h.store, '.curated-update.lock');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'owner.txt'), 'owner | unsafe\nsecond line\n');
+  let delivered = null;
+  const deps = { ...h.options.deps, noteSend: async (summary) => {
+    delivered = summary;
+    assert.ok(fs.existsSync(path.join(h.stateDir, 'ATTENTION')), 'packet must exist before notification');
+    assert.doesNotThrow(() => assertFieldSafe('text', summary));
+  } };
+  await runKnowledgeTriage({ ...h.options, deps });
+  const result = await runKnowledgeTriage({ ...h.options, deps });
+  assert.equal(result.receipt.status, 'attention');
+  assert.ok(delivered);
+  assert.ok(!delivered.includes('|'), delivered);
+  const attention = fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8');
+  assert.match(attention, /rmdir ~\/\.claude\/knowledge\/\.curated-update\.lock/);
+  assert.match(attention, /rm ~\/\.agents\/knowledge-triage\/ATTENTION/);
+});
+
+test('notification or ATTENTION write failure is visible in the returned reason and packet', async () => {
+  const send = makeHarness();
+  fs.writeFileSync(send.skill, '# no writer declaration\n');
+  const sent = await runKnowledgeTriage({
+    ...send.options,
+    deps: { ...send.options.deps, noteSend: async () => { throw new Error('fixture delivery down'); } },
+  });
+  assert.equal(sent.receipt.status, 'attention');
+  assert.match(sent.receipt.reason, /BLOCKED.*NOT delivered.*fixture delivery down/i);
+  assert.match(fs.readFileSync(path.join(send.stateDir, 'ATTENTION'), 'utf8'), /NOT delivered.*fixture delivery down/i);
+
+  const write = makeHarness();
+  fs.writeFileSync(write.skill, '# no writer declaration\n');
+  const stateFile = path.join(write.root, 'state-is-a-file');
+  fs.writeFileSync(stateFile, 'blocks directory creation\n');
+  let attempted = 0;
+  const unwritten = await runKnowledgeTriage({
+    ...write.options, stateDir: stateFile,
+    deps: { ...write.options.deps, noteSend: async () => { attempted++; } },
+  });
+  assert.equal(unwritten.receipt.status, 'attention');
+  assert.match(unwritten.receipt.reason, /ATTENTION.*(?:not written|write failed)/i);
+  assert.equal(attempted, 0, 'notification cannot claim a packet that was not written');
+});
+
+test('managed discovery failure skips before gather or nested spawn and names the cause', async () => {
+  const h = makeHarness();
+  writeNote(h, '2026-08-01-managed-unknown.md');
+  const chezmoi = makeLoggedFailure(h.root, 'failing-chezmoi');
+  const ssh = makeLoggedFailure(h.root, 'must-not-gather', 91);
+  const result = await runKnowledgeTriage({
+    ...h.options,
+    deps: {
+      ...h.options.deps, chezmoiSourceInbox: undefined, chezmoiCommand: chezmoi.command,
+      sshCommand: ssh.command, endpoints: { netcup: 'fixture', hetzner: null, mac: null },
+    },
+  });
+  assert.equal(result.receipt.status, 'skipped');
+  assert.match(result.receipt.reason, /managed set unresolved.*chezmoi source-path/i);
+  assert.equal(fs.readFileSync(chezmoi.log, 'utf8').trim().split('\n').length, 1, 'managed set resolves once');
+  assert.ok(!fs.existsSync(ssh.log), 'gather must not start');
+  assert.ok(!fs.existsSync(h.claudeLog), 'nested skill must not start');
+});
+
 test('chezmoi-source inbox names are managed residue and cannot enter selection', async () => {
   const h = makeHarness();
   const name = '2026-08-01-managed.md';
@@ -288,6 +375,10 @@ test('two skill deferrals escalate, while unavailable usage is never invented as
   writeNote(h, '2026-08-01-deferred.md');
   h.configure({ action: 'defer', usage: false });
   const first = await runKnowledgeTriage(h.options);
+  assert.equal(first.receipt.status, 'skipped');
+  assert.equal(first.receipt.reason, 'skill deferred');
+  assert.equal(first.receipt.nestedExitCode, 0);
+  assert.ok(first.receipt.sessionId);
   assert.equal(first.receipt.deferredConsecutive, 1);
   assert.deepEqual(Object.keys(first.receipt.tokens), ['unavailable']);
   const second = await runKnowledgeTriage(h.options);
@@ -314,14 +405,18 @@ test('successful run requires committed digest identity and a fresh matching rem
   assert.ok(gitCalls.some((argv) => argv.includes('ls-remote')), 'fresh remote identity must be read');
   assert.ok(gitCalls.some((argv) => argv.some((arg) => String(arg).includes('DIGEST'))), 'commit/digest identity must be checked');
   const sessions = readJson(path.join(h.stateDir, 'sessions.json'));
-  assert.ok(sessions.length >= 1);
+  const argv = JSON.parse(fs.readFileSync(h.claudeLog, 'utf8').trim().split('\n')[0]).argv;
+  assert.ok(sessions.includes(argv[argv.indexOf('--session-id') + 1]));
 });
 
 test('changed DIGEST cannot report success for unchanged HEAD, unrelated HEAD, or remote mismatch', async () => {
   for (const mode of ['unchanged', 'unrelated', 'remote-mismatch']) {
     const h = makeHarness();
     writeNote(h, `2026-08-01-${mode}.md`);
-    if (mode === 'unchanged') h.configure({ action: 'archive', advanceHead: false });
+    if (mode === 'unchanged') {
+      h.configure({ action: 'archive', advanceHead: false });
+      h.configureGit({ remoteHead: '1'.repeat(40), touchesDigest: false });
+    }
     else h.configure({ action: 'archive' });
     if (mode === 'unrelated') h.configureGit({ touchesDigest: false });
     if (mode === 'remote-mismatch') h.configureGit({ remoteHead: '3'.repeat(40) });
@@ -330,6 +425,12 @@ test('changed DIGEST cannot report success for unchanged HEAD, unrelated HEAD, o
     assert.equal(result.receipt.publication.verified, false, mode);
     assert.notEqual(result.exitCode, 0, mode);
     assert.equal(h.notes.length, 1, mode);
+    assert.equal(result.receipt.nestedExitCode, 0, mode);
+    assert.match(
+      result.receipt.reason,
+      mode === 'remote-mismatch' ? /^publication not verified: HEAD does not match/ : /^publication not verified: DIGEST changed but no commit/,
+      mode,
+    );
   }
 });
 
@@ -339,8 +440,11 @@ test('no-change remote mismatch defers reconciliation without ATTENTION', async 
   h.configure({ action: 'defer' });
   h.configureGit({ remoteHead: '3'.repeat(40) });
   const result = await runKnowledgeTriage(h.options);
-  assert.notEqual(result.receipt.status, 'attention');
+  assert.equal(result.receipt.status, 'skipped');
+  assert.equal(result.receipt.reason, 'skill deferred');
+  assert.equal(result.receipt.nestedExitCode, 0);
   assert.equal(result.receipt.publication.verified, false);
+  assert.match(result.receipt.publication.reason, /remote ref/i);
   assert.equal(h.notes.length, 0);
   assert.ok(fs.existsSync(path.join(h.inboxDir, '2026-08-01-still-pending.md')));
 });
@@ -376,6 +480,79 @@ test('nested nonzero is failed, and the job-local lock rejects a concurrent run'
   const first = await firstPromise;
   assert.equal(first.receipt.status, 'failed');
   assert.equal(first.receipt.nestedExitCode, 17);
+});
+
+test('a live PID with an owner timestamp older than three hours is ATTENTION and never auto-removed', async () => {
+  const h = makeHarness();
+  const lock = path.join(h.stateDir, 'run.lock');
+  fs.mkdirSync(lock);
+  writeJson(path.join(lock, 'owner.json'), {
+    token: 'stale-live-pid', pid: process.pid, started: '2026-09-29T14:00:00.000Z',
+  });
+  const result = await runKnowledgeTriage(h.options);
+  assert.equal(result.receipt.status, 'attention');
+  assert.match(result.receipt.reason, /stale or unverifiable run\.lock/i);
+  assert.ok(fs.existsSync(lock));
+  assert.ok(!fs.existsSync(h.claudeLog));
+});
+
+test('full receipt reports one superseded terminal and keeps first deferral as skipped with evidence', async () => {
+  const h = makeHarness();
+  const name = '2026-08-01-replaced.md';
+  const firstBytes = Buffer.alloc(4, 0x61);
+  const firstSha = sha256(firstBytes);
+  const firstImported = importedNameFor('netcup', firstSha, name);
+  fs.writeFileSync(path.join(h.inboxDir, firstImported), firstBytes);
+  const gatherDir = path.join(h.stateDir, 'gather');
+  fs.mkdirSync(gatherDir, { recursive: true });
+  writeJson(path.join(gatherDir, 'state.json'), {
+    schema: 1,
+    notes: {
+      [firstSha]: {
+        sha: firstSha, canonical: { kind: 'import', host: 'netcup', name: firstImported },
+        origins: [{ host: 'netcup', originalName: name, sourceMtimeMs: 1_700_000_000_000, status: 'pending' }],
+      },
+    },
+  });
+  h.configure({ action: 'defer' });
+  const result = await runKnowledgeTriage({
+    ...h.options,
+    deps: {
+      ...h.options.deps, sshCommand: makeStaticSsh(h.root, fixtureTarEntry(name, 5)),
+      endpoints: { netcup: 'fixture-netcup', hetzner: null, mac: null },
+    },
+  });
+  assert.deepEqual(result.receipt.terminal, [{ host: 'netcup', name, reason: 'superseded' }]);
+  assert.equal(result.receipt.hosts.find((row) => row.host === 'netcup').terminal, 1);
+  assert.equal(result.receipt.status, 'skipped');
+  assert.equal(result.receipt.reason, 'skill deferred');
+  assert.equal(result.receipt.nestedExitCode, 0);
+  assert.ok(result.receipt.sessionId);
+  assert.deepEqual(result.receipt.tokens, { input: 11, output: 7, cacheRead: 13, cacheCreation: 5, total: 36 });
+});
+
+test('full receipt preserves gather-phase collision names and unresolved host totals', async () => {
+  const h = makeHarness();
+  const name = '2026-08-01-collision.md';
+  const bytes = Buffer.alloc(7, 0x61);
+  const imported = importedNameFor('netcup', sha256(bytes), name);
+  fs.writeFileSync(path.join(h.inboxDir, imported), 'different local bytes\n');
+  h.configure({ action: 'defer' });
+  const result = await runKnowledgeTriage({
+    ...h.options,
+    deps: {
+      ...h.options.deps, sshCommand: makeStaticSsh(h.root, fixtureTarEntry(name, bytes.length)),
+      endpoints: { netcup: 'fixture-netcup', hetzner: null, mac: null },
+    },
+  });
+  const row = result.receipt.hosts.find((item) => item.host === 'netcup');
+  assert.equal(row.unresolved, 1);
+  assert.deepEqual(
+    result.receipt.residue.unresolved.filter((item) => item.host === 'netcup'),
+    [{ host: 'netcup', name, reason: 'import name collides with different local bytes' }],
+  );
+  assert.equal(result.receipt.status, 'skipped');
+  assert.equal(result.receipt.reason, 'skill deferred');
 });
 
 function processAlive(pid) {

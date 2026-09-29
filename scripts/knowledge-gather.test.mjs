@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { gatherKnowledge, reconcileKnowledge } from './knowledge-gather.mjs';
+import { gatherKnowledge, managedNames, reconcileKnowledge, runProcess } from './knowledge-gather.mjs';
 
 const tracked = [];
 function tmp(prefix) {
@@ -46,15 +46,20 @@ function shellPath() {
   return fs.existsSync(gitBash) ? gitBash : 'bash.exe';
 }
 
-function makeSshFixture(hostHomes) {
+function makeSshFixture(hostHomes, { archiveRace = null } = {}) {
   const dir = tmp('knowledge-ssh-');
   const script = path.join(dir, 'fake-ssh.mjs');
   const log = path.join(dir, 'calls.jsonl');
   const homes = Object.fromEntries(Object.entries(hostHomes).map(([key, value]) => [key, value.replaceAll('\\', '/')]));
+  const race = archiveRace && {
+    source: archiveRace.source.replaceAll('\\', '/'),
+    replacement: archiveRace.replacement.replaceAll('\\', '/'),
+  };
   fs.writeFileSync(script, `
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 const homes = ${JSON.stringify(homes)};
+const race = ${JSON.stringify(race)};
 const log = ${JSON.stringify(log.replaceAll('\\', '/'))};
 const shell = ${JSON.stringify(shellPath())};
 const argv = process.argv.slice(2);
@@ -62,11 +67,15 @@ const endpoint = argv.find((arg) => Object.hasOwn(homes, arg));
 fs.appendFileSync(log, JSON.stringify({ argv, env: Object.keys(process.env).sort() }) + '\\n');
 if (!endpoint) process.exit(91);
 const transported = argv.at(-1);
-const command = transported.startsWith("'") && transported.endsWith("'") ? transported.slice(1, -1) : transported;
+let command = transported.startsWith("'") && transported.endsWith("'") ? transported.slice(1, -1) : transported;
 const input = fs.readFileSync(0);
+if (race && input.length) {
+  command = 'mv(){ command mv "$@"; rc=$?; if [ "$rc" -eq 0 ] && [ ! -e "$RACE_SOURCE" ]; then command cp "$RACE_REPLACEMENT" "$RACE_SOURCE.race"; command mv -f "$RACE_SOURCE.race" "$RACE_SOURCE"; fi; return "$rc"; }; ' +
+    'ln(){ case " $* " in *" $RACE_SOURCE "*) command cp "$RACE_REPLACEMENT" "$RACE_SOURCE.race"; command mv -f "$RACE_SOURCE.race" "$RACE_SOURCE";; esac; command ln "$@"; }; ' + command;
+}
 const child = spawnSync(shell, ['-c', command], {
   cwd: homes[endpoint], input,
-  env: { PATH: process.env.PATH || '', HOME: homes[endpoint], TMP: process.env.TMP || '', TEMP: process.env.TEMP || '' },
+  env: { PATH: process.env.PATH || '', HOME: homes[endpoint], TMP: process.env.TMP || '', TEMP: process.env.TEMP || '', RACE_SOURCE: race?.source || '', RACE_REPLACEMENT: race?.replacement || '' },
   maxBuffer: 80 * 1024 * 1024,
 });
 if (child.stdout) process.stdout.write(child.stdout);
@@ -273,6 +282,30 @@ test('null endpoint and pending Mac have distinct reasons and spawn no SSH child
   assert.equal(ssh.calls().length, 0);
 });
 
+test('unresolved managed-name discovery fails standalone gather closed before SSH', async () => {
+  const localHome = tmp('knowledge-managed-unknown-local-');
+  const remote = tmp('knowledge-managed-unknown-remote-');
+  writeRemoteNote(remote, '2026-08-01-must-not-import.md', 'managed status unknown\n');
+  const ssh = makeSshFixture({ n: remote });
+  const options = fixtureOptions({
+    localHome, stateDir: path.join(localHome, '.agents', 'knowledge-triage'), ssh,
+    endpoints: { netcup: 'n', hetzner: null, mac: null },
+  });
+  options.deps.chezmoiSourceInbox = undefined;
+  options.deps.chezmoiCommand = makeExitSshFixture(2, 'fixture chezmoi failure\n').command;
+  const resolved = await managedNames(options);
+  assert.ok(resolved.set instanceof Set);
+  assert.equal(resolved.set.size, 0);
+  assert.match(resolved.error, /chezmoi source-path/i);
+  const gathered = await gatherKnowledge(options);
+  assert.equal(gathered.imports.length, 0);
+  assert.equal(ssh.calls().length, 0);
+  for (const row of gathered.hosts) {
+    assert.equal(row.status, 'skipped', row.host);
+    assert.match(row.reason, /managed set unresolved.*chezmoi source-path/i, row.host);
+  }
+});
+
 test('unreachable configured remote is never reported as gathered success', async () => {
   const localHome = tmp('knowledge-unreachable-local-');
   const options = fixtureOptions({
@@ -308,6 +341,44 @@ test('real host deadline kills the fake SSH process tree and reports timeout', {
   const deadline = Date.now() + 4_000;
   while (processIsAlive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(processIsAlive(pid), false, `SSH grandchild ${pid} survived owned process-tree kill`);
+});
+
+test('overflow followed by the parent timeout signals the owned child tree only once', async () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const realKill = process.kill;
+  let timeoutCallback = null;
+  let killCalls = 0;
+  try {
+    Object.defineProperty(process, 'platform', { ...platform, value: 'linux' });
+    process.kill = (pid, signal) => {
+      killCalls++;
+      const killed = realKill.call(process, Math.abs(pid), signal);
+      if (killCalls === 1) {
+        assert.ok(timeoutCallback, 'parent timeout must be armed before child output');
+        timeoutCallback();
+      }
+      return killed;
+    };
+    const result = await runProcess({
+      cmd: [process.execPath],
+      args: ['-e', 'process.stdout.write("overflow"); setInterval(() => {}, 1000)'],
+      maxBytes: 1,
+      timeoutMs: 10_000,
+      timers: {
+        setTimeout(callback) {
+          if (!timeoutCallback) timeoutCallback = callback;
+          return { unref() {} };
+        },
+        clearTimeout() {},
+      },
+    });
+    assert.equal(result.overflow, true);
+    assert.equal(result.timedOut, true);
+    assert.equal(killCalls, 1, 'overflow and timeout must share one process-tree signal');
+  } finally {
+    process.kill = realKill;
+    Object.defineProperty(process, 'platform', platform);
+  }
 });
 
 test('same origin name with changed bytes becomes a distinct version instead of clobbering the first import', async () => {
@@ -413,6 +484,39 @@ test('changed origin and conflicting archive are preserved and reported unresolv
     assert.ok(fs.existsSync(source), `${mode}: source retained`);
     assert.ok(fs.existsSync(item.stagedPath), `${mode}: staged evidence retained`);
   }
+});
+
+test('atomic replacement during archive preserves the claimed original and the live replacement', async () => {
+  const localHome = tmp('knowledge-archive-race-local-');
+  const remote = tmp('knowledge-archive-race-remote-');
+  const name = '2026-08-07-race.md';
+  const original = Buffer.from('gathered original bytes\n');
+  const replacement = Buffer.from('replacement written during archive\n');
+  const source = writeRemoteNote(remote, name, original);
+  const replacementFile = path.join(remote, 'race-replacement.bin');
+  fs.writeFileSync(replacementFile, replacement);
+  const ssh = makeSshFixture({ n: remote }, { archiveRace: { source, replacement: replacementFile } });
+  const options = fixtureOptions({
+    localHome, stateDir: path.join(localHome, '.agents', 'knowledge-triage'), ssh,
+    endpoints: { netcup: 'n', hetzner: null, mac: null },
+  });
+  const gathered = await gatherKnowledge(options);
+  const item = gathered.imports[0];
+  const month = '2026-09';
+  const localArchive = path.join(options.inboxDir, '_archive', month);
+  fs.mkdirSync(localArchive, { recursive: true });
+  fs.renameSync(path.join(options.inboxDir, item.importedName), path.join(localArchive, item.importedName));
+  seedVerifiedPublication(options, [item.importedName]);
+  const rows = await reconcileKnowledge(options, gathered);
+  const row = rows.find((entry) => entry.host === 'netcup');
+  const remoteInbox = path.dirname(source);
+  const destination = path.join(remoteInbox, '_archive', month, name);
+  assert.equal(row.archived, 1);
+  assert.equal(row.unresolved, 0);
+  assert.deepEqual(fs.readFileSync(destination), original, 'the owned claim supplies archived bytes');
+  assert.deepEqual(fs.readFileSync(source), replacement, 'the replacement remains pending at the live name');
+  assert.deepEqual(fs.readdirSync(remoteInbox).sort(), ['_archive', name]);
+  assert.ok(!fs.existsSync(item.stagedPath), 'successful old-version archive removes only its staged evidence');
 });
 
 test('origin missing and superseded versions become one-time terminal outcomes with staged evidence retained', async () => {
@@ -561,6 +665,33 @@ test('rejects unsafe tar paths, links, global PAX, and malformed/truncated strea
     assert.equal(gathered.imports.length, 0, label);
     assert.deepEqual(fs.readdirSync(options.inboxDir).filter((name) => !name.startsWith('.')), [], label);
   }
+});
+
+test('POSIX backslash and drive-like names are named residue while a sibling valid note imports', async () => {
+  const backslash = '2026-08-09-back\\slash.md';
+  const driveLike = 'C:2026-08-09-drive.md';
+  const valid = '2026-08-09-valid.md';
+  const tar = tarArchive([
+    tarEntry(backslash, 'unsupported backslash\n'),
+    tarEntry(driveLike, 'unsupported drive-like\n'),
+    tarEntry(valid, 'valid sibling\n'),
+  ]);
+  const localHome = tmp('knowledge-unsupported-path-local-');
+  const options = fixtureOptions({
+    localHome, stateDir: path.join(localHome, '.agents', 'knowledge-triage'),
+    ssh: makeTarSshFixture(tar), endpoints: { netcup: 'mixed-names', hetzner: null, mac: null },
+  });
+  const gathered = await gatherKnowledge(options);
+  assert.equal(hostRow(gathered, 'netcup').status, 'gathered');
+  assert.deepEqual(gathered.imports.map((item) => item.originalName), [valid]);
+  assert.deepEqual(
+    gathered.residue.unsupportedName.filter((item) => item.host === 'netcup').map((item) => item.name),
+    [backslash, driveLike],
+  );
+  assert.deepEqual(
+    fs.readdirSync(options.inboxDir).filter((name) => name.endsWith('.md')),
+    [gathered.imports[0].importedName],
+  );
 });
 
 test('skips a named oversize note but imports a later valid entry; entry-count exhaustion fails the host', async () => {
