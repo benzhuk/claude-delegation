@@ -153,8 +153,7 @@ Values, quoted from that file:
 - Stop-blocks: 1 (`docs/reports/census-0928/fable-lead-census.md:10`)
 - Stall nudges: unavailable (ledger dir unreadable) (`docs/reports/census-0928/fable-lead-census.md:11`)
 
-**Exact reader command** (run over ssh on ben-desktop, in cmd.exe, the default OpenSSH shell on
-Windows, where the file exists), read time fixed at this report's own generation time,
+**Exact reader command** (run over ssh on ben-desktop; the one-line form runs as is in cmd.exe or PowerShell, where the file exists), read time fixed at this report's own generation time,
 2026-09-29T00:19:27Z:
 
 ```
@@ -162,7 +161,7 @@ node scripts/build-census.mjs --lead "C:\Users\benzh\.claude\projects\C--Users-b
 ```
 
 To check the bearings prediction (65M tokens in the 24-hour window) at 3:00 PM NY on 2026-09-29
-(= 2026-09-29T19:00:00Z), run the same command over ssh on ben-desktop, in cmd.exe, with only
+(= 2026-09-29T19:00:00Z), run the same command over ssh on ben-desktop (cmd.exe or PowerShell), with only
 `--to` advanced:
 
 ```
@@ -285,7 +284,7 @@ Only lanes 33, 34 and 38 read clean on every part: 0 gaps over 30 minutes, 0 wai
 - Led once from Claude: met, by lane 33. Lead f6c8ae21, census COUNTED (`wr-2026-09-28-collect-followups-census.md:1`), and eight other Claude-led lanes pass as well.
 - Led once from Codex with a mixed handoff, both ids on record: partly, by lane 48. Lanes 31, 37 and 48 were led by Codex session 01a0df4c from specs written by the Claude Fable session 9c61c35a. Each record carries both ids (`wr-2026-09-28-render-readback.record.md:10-11`), and Claude Opus reviewed each lane through ledger asks. That makes a mixed handoff with both ids on record, so this verdict differs from S5's "not yet", which also asked for the Claude reviewer's own session id. It is still only partly met: the Codex census is PARTIAL (`wr-2026-09-28-render-readback.census.md:1`), so the run cannot be scored with numbers, and DONE is a test with numbers.
 - Lead under 20 turns: met, by lane 33 with 7 (`wr-2026-09-28-collect-followups-census.md:7`). Every Claude-led lane is under 20, the highest being lane 47 at 19 (`wr-2026-09-28-repo-env-everywhere-census.md:7`), against 152 for the hand-run build (`docs/GOALS.md:56`). No lane counts the Fable spec session, which took 39 turns in its 5.3-hour window (`fable-lead-census.md:7`) while nine lanes closed.
-- Nothing lost or stalled, with the count: partly, by lane 33. Its count is 0 gaps over 30 minutes, 0 waiting on agents and 0 unanswered ASKs (`wr-2026-09-28-collect-followups-four-read.md:10`), and lanes 34 and 38 match it. The day as a whole does not: lane 32's 413-minute silence, the readback exit 5s, no reading for lanes 42 to 47, and no stall count at all for the Codex half of the DONE pair.
+- Nothing lost or stalled, with the count: partly, by lane 33. Its count is 0 gaps over 30 minutes, 0 waiting on agents and 0 unanswered ASKs (`wr-2026-09-28-collect-followups-four-read.md:10`), and lanes 34 and 38 match it. The day as a whole does not: lane 32's 413-minute silence, lane 36's 111-minute builder hang, the readback exit 5s, no reading for lanes 42 to 47, and no stall count at all for the Codex half of the DONE pair.
 
 ### The one change next
 

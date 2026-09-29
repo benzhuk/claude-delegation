@@ -360,11 +360,11 @@ output is numbers, model names, slugs, ledger ids, the ledger directory and file
 node scripts/four-read.mjs --record <record.md> --census <census.json> [--spec-census <json>] [--ledger docs/ledger] [--git <repo>] [--branch <ref>] [--lead-session <id>] [--lead-slug <slug>] [--out <path>] [--json <path>]
 ```
 
+The first cross-lane read, every lane closed on 9/28 against the hand-run baseline with an Opus verdict, is docs/reports/census-0928/four-read.md (lane 50).
+
 Prints the goal's four measures (docs/GOALS.md) for one build. Every number is a
 computed `value` or `unavailable (<reason>)` — a guess is never printed. Definitions,
 verbatim from `docs/specs/2026-09-25-four-number-read.md`:
-
-The first cross-lane read, every lane closed on 9/28 against the hand-run baseline with an Opus verdict, is docs/reports/census-0928/four-read.md (lane 50).
 
 1. **Top-tier tokens per build**: the sum over every counted file of input, output,
    cache-read and cache-write tokens for messages whose `message.model` matches the top
