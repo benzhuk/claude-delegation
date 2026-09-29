@@ -205,7 +205,7 @@ test('L47/P7: a repo git could not identify from cwd is never treated as checked
 });
 
 // The straightforward companion: when git CAN answer, the resolved repo is still checked exactly
-// as before (no regression from the P6 fix on the ordinary, working path).
+// as before (no regression from the P7 hardening on the ordinary, working path).
 test('L47/P7: when git answers, the resolved repo is still checked as before', async () => {
   const home = tmp();
   mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md')]);
