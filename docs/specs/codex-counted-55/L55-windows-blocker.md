@@ -22,3 +22,5 @@ Root preserves55 reviewed and exact approved Artifact, all failed receipts and h
 
 
 Audit correction2026-09-29T04:06Z: integrator commit3679b15 confirms the diagnostic runner validated detachedcd5fecc with git -C but omitted Set-Location. Node ran in integration at b24d31d, a docs-only descendant. It is NOT a valid exact-detached candidate gate. Original exactcandidate Windows gate remains failed, Netcup remains passed. Native exit1/raw retained. No further full run. Peer request skills-a-lane-55-6 carries the sequence/ownership question; no56 implementation starts while that explicit dependency remains.
+
+Ruling resolved2026-09-29T04:11Z: skills-fable-lane-55-8 permits56 to start before55 closes and requires56 to merge first.55 holds reviewedcd5fecc and later rebases for a green Windows gate.56 is underway in codex-clock-56 with test-only territory. Separate deserialization probes completed three standalone runs, each21pass0fail6skip, not reproduced; exact file-process error and receipts sent in skills-a-lane55-runner-1 for routing forskills-n. No production change, full-gate waiver or additional full55 rerun.
