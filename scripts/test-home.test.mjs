@@ -66,7 +66,9 @@ function spawnAndSignal(script, signal) {
     // N2 (lane 57): this ran with no `env` at all, so the child inherited the real environment
     // unmodified - the script itself always calls makeTempHome() for its own, separate fixture home,
     // so the `home` passed here is only what seals the messaging vars, never read by the script.
-    const env = childEnv(scratchHome(fs, "spawn-and-signal-"));
+    const sealedHome = scratchHome(fs, "spawn-and-signal-");
+    cleanups.push(() => fs.rmSync(sealedHome, { recursive: true, force: true }));
+    const env = childEnv(sealedHome);
     const child = spawn(NODE, ["--input-type=module", "-e", script], { env, stdio: ["ignore", "pipe", "pipe"] });
     const rl = readline.createInterface({ input: child.stdout });
     let settled = false;
@@ -526,7 +528,9 @@ test("handler registration is idempotent: exactly one listener per event, even a
   ].join("\n");
   // N2 (lane 57): this ran with no `env` at all; the script itself calls makeTempHome() for its own
   // fixture homes, so the `home` sealed here is only what blanks the messaging vars, never read by it.
-  const env = childEnv(scratchHome(fs, "handler-idempotent-"));
+  const sealedHome = scratchHome(fs, "handler-idempotent-");
+  cleanups.push(() => fs.rmSync(sealedHome, { recursive: true, force: true }));
+  const env = childEnv(sealedHome);
   const out = execFileSync(NODE, ["--input-type=module", "-e", script], { env }).toString().trim();
   const { afterFirst, afterSecond } = JSON.parse(out.split("\n").pop());
   for (const event of events) {

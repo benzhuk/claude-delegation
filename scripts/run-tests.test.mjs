@@ -806,7 +806,10 @@ test("P3: sweepStaleHomes removes a stale test-run root with a dead pid, keeps a
 
   // A genuinely dead pid: spawn a trivial child, wait for it to fully exit, then reuse its pid -
   // never a made-up number, which could collide with something real on a shared host.
-  const dead = spawnSync(NODE, ["-e", "process.exit(0)"]);
+  // N2 (lane 57 fix round 1, F5): this ran with no `env` at all - the trivial literal used to be
+  // exempted as "provably inert", a special case the ruling removed for adding parts and proving
+  // little. It's in-territory, so it gets the real seal instead of a listed exemption.
+  const dead = spawnSync(NODE, ["-e", "process.exit(0)"], { env: sealedEnv(homeDir) });
   const deadPid = dead.pid;
 
   const stalePath = path.join(tmpDir, `${TEST_RUN_ROOT_PREFIX}${deadPid}-abcdef`);
