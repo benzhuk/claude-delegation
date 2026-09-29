@@ -329,10 +329,28 @@ export function isTreeClean(worktreePath) {
     // --ignored=matching is not optional: `git worktree remove` deletes the whole directory,
     // ignored files included, and an ignored file with content (local config, build output) is
     // work this tool did not create. Any output at all - untracked or ignored - means NOT clean.
-    return git(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], worktreePath).trim() === "";
+    if (git(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], worktreePath).trim() !== "") {
+      return false;
+    }
   } catch {
     return false;
   }
+  // F16 (redteam): `git status --porcelain` reports nothing at all for a tracked file carrying
+  // `--skip-worktree` or `--assume-unchanged` even when it has a real, uncommitted local edit -
+  // measured directly. `git ls-files -v` tags every entry with a letter that is lowercased when the
+  // file is assume-unchanged, and tagged `S` (always uppercase) when it is skip-worktree; either one
+  // means this worktree can be hiding a real edit that the status check above never saw.
+  try {
+    const lines = git(["ls-files", "-v"], worktreePath).split(/\r?\n/);
+    for (const line of lines) {
+      if (!line) continue;
+      const tag = line[0];
+      if (tag === "S" || /[a-z]/.test(tag)) return false;
+    }
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 export function isBranchMerged(root, branch, mainBranch) {
@@ -1067,6 +1085,76 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
 // ---------- apply (SAFE class only) ----------
 
 /**
+ * F1 (redteam, adopted by ruling r0): the only cwd protection classify() has is "not the worktree
+ * we are standing in" - an old, merged worktree that still holds a LIVE session (a pane, an Orca
+ * workspace) is otherwise SAFE the moment its branch lands on origin, and `git worktree remove`
+ * pulls the directory out from under whatever is running there. Idle age is `now` minus the newest
+ * mtime this function can find among:
+ *   - the worktree directory itself;
+ *   - its own git-admin dir's `HEAD`, `index` and `logs/HEAD` (resolved via
+ *     `git -C <wtPath> rev-parse --git-dir`, so a linked worktree's admin dir under the main
+ *     repo's `.git/worktrees/<name>` is read, not a nonexistent `<wtPath>/.git/HEAD`);
+ *   - the newest entry directly under `~/.claude/projects/<slug>/`, where `<slug>` is `wtPath`'s
+ *     absolute form with every character outside `[A-Za-z0-9]` replaced by `-` (the same slugging
+ *     Claude Code itself uses for a project's transcript directory).
+ * Any candidate this function cannot read (no git-admin dir, no matching `~/.claude/projects`
+ * entry, an unreadable path) is simply skipped, never treated as an error. `home` defaults to
+ * `os.homedir()` only when not supplied - every caller inside this file (and reclaim.mjs, T1's
+ * territory) passes one explicitly so a test's fake HOME is honoured. `now` is a number
+ * (`Date.now()`-shaped), not the `Date` object every other age function here takes - this is the
+ * pinned seam T1's reclaim.mjs codes against too.
+ * Pure and read-only: never throws, never touches the filesystem beyond stat/readdir.
+ */
+export function idleHours(wtPath, { home, now = Date.now() } = {}) {
+  const nowMs = typeof now === "number" ? now : new Date(now).getTime();
+  const mtimes = [];
+  const noteMtime = (p) => {
+    try {
+      mtimes.push(statSync(p).mtimeMs);
+    } catch {
+      // absent or unreadable: simply not a candidate
+    }
+  };
+
+  noteMtime(wtPath);
+
+  let gitDir = null;
+  try {
+    const out = execFileSync("git", ["-C", wtPath, "rev-parse", "--git-dir"], {
+      env: withoutRepoLocatingGitEnv(process.env),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    gitDir = out && path.isAbsolute(out) ? out : path.join(wtPath, out || "");
+  } catch {
+    gitDir = null;
+  }
+  if (gitDir) {
+    noteMtime(path.join(gitDir, "HEAD"));
+    noteMtime(path.join(gitDir, "index"));
+    noteMtime(path.join(gitDir, "logs", "HEAD"));
+  }
+
+  const homeDir = home || os.homedir();
+  const slug = path.resolve(wtPath).replace(/[^A-Za-z0-9]/g, "-");
+  const projectsDir = path.join(homeDir, ".claude", "projects", slug);
+  try {
+    for (const name of readdirSync(projectsDir)) {
+      noteMtime(path.join(projectsDir, name));
+    }
+  } catch {
+    // no Claude session transcript directory for this worktree - not a candidate
+  }
+
+  if (mtimes.length === 0) return Infinity;
+  return (nowMs - Math.max(...mtimes)) / 3600000;
+}
+
+/** F1's fixed floor for the daily act (and, per the ruling, reclaim's W class in T1's territory):
+ * nothing idle for less than this is ever removed by an act run, whatever else is true about it. */
+export const IDLE_FLOOR_HOURS = 24;
+
+/**
  * Mutates and returns `log`, so a caller can still see partial progress if something outside the
  * per-item try/catches below somehow throws (defense in depth; every actual mutation site below is
  * already individually guarded and never throws past this function). Only two kinds of action
@@ -1079,15 +1167,45 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
  * alone no longer saw the branch as checked out, so it was deleted anyway even though the log line
  * read "failed". The branch is the last copy of those commits if anything went wrong; when in doubt
  * it stays, and the log says exactly what happened to each.
+ *
+ * F1 (redteam): `state.act === true` is this function's only signal that it is running as part of a
+ * real daily act (main() sets it, only when `--apply` took effect and the kill switch is off) - the
+ * idle floor is checked ONLY then, never for a bare `applySafe(state, log)` call a test or
+ * `closeoutWorktree` makes directly with its own hand-built state. `opts.home` threads a fake HOME
+ * through to `idleHours` for tests; it defaults to the real `os.homedir()`.
+ *
+ * F2 (redteam): every successful removal's log row now carries the `sha` it proved merged (for a
+ * worktree, its branch's tip read right before the removal call; for a branch, the same `b.sha`
+ * this loop already re-verified) and a `restore` hint a human can paste back.
+ *
+ * F16 (redteam): `isTreeClean` is re-run on each worktree immediately before `git worktree remove` -
+ * classify() ran it once, earlier, and a skip-worktree/assume-unchanged edit (or any other change)
+ * landing in the window between classify and apply must not be deleted through silently.
  */
-export function applySafe(state, log = []) {
+export function applySafe(state, log = [], opts = {}) {
   const { root } = state._raw;
+  const home = opts.home;
+  const now = opts.now;
 
   const failedWorktreeBranches = new Set();
   for (const w of state.safe.worktrees) {
+    if (state.act === true) {
+      const hrs = idleHours(w.ref, { home, now });
+      if (!(hrs >= IDLE_FLOOR_HOURS)) {
+        log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "active in last 24h" });
+        continue;
+      }
+    }
+    if (!isTreeClean(w.ref)) {
+      log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "tree changed since classify" });
+      if (w.branch) failedWorktreeBranches.add(w.branch);
+      continue;
+    }
+    const sha = w.branch ? refSha(root, headRef(w.branch)) : null;
     try {
       git(["worktree", "remove", "--", w.ref], root);
-      log.push({ action: "worktree-remove", ref: w.ref, ok: true });
+      const restore = sha && w.branch ? `git branch ${w.branch} ${sha} && git worktree add ${w.ref} ${w.branch}` : null;
+      log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: true, sha, restore });
     } catch (err) {
       // A failure here can still have left git's own bookkeeping deregistered and the directory
       // emptied (only the final rmdir failed) - round-2 review found that on Windows the empty
@@ -1169,7 +1287,7 @@ export function applySafe(state, log = []) {
       // stale, the original bug. The ancestry check above is the safety; `-D`'s force is redundant
       // with it, never a substitute for it.
       git(["branch", "-D", "--", b.ref], root);
-      log.push({ action: "branch-delete", ref: b.ref, ok: true });
+      log.push({ action: "branch-delete", ref: b.ref, ok: true, sha: b.sha, restore: b.sha ? `git branch ${b.ref} ${b.sha}` : null });
     } catch (err) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: String(err.message || err) });
     }
@@ -1379,7 +1497,13 @@ export function summarizeCounts(state) {
   };
 }
 
-function printReport(state, wiring, outsideRows) {
+function printReport(state, wiring, outsideRows, actSwitchedOff = false) {
+  // F14 (redteam): when the kill switch turned a requested --apply into record-only, that is the
+  // very first thing the report says - everything below is still a live, accurate report, just one
+  // that changed nothing.
+  if (actSwitchedOff) {
+    console.log("janitor: act switched off (~/.agents/ws-off-janitor-act)");
+  }
   // J1 item 1: a fetch that failed this run is said on the report's own first lines - every merge
   // judgment below is UNVERIFIABLE, and a stale or absent origin ref proved nothing this run.
   if (state.fetch && state.fetch.attempted && !state.fetch.ok) {
@@ -1473,8 +1597,17 @@ function baseShaFor(root, mainBranch) {
  * `hostName`, both parameters here rather than read from the live clock/os.hostname() inside this
  * function, so a test can assert exact bytes. `dir` resolves relative to `root` unless already
  * absolute; bare `--record` (no path) resolves to DEFAULT_RECORD_DIR by the caller in main().
+ *
+ * F2 (redteam): the record is now the restorable evidence of what an act run actually removed, not
+ * just a count. `act` is `"applied" | "switched-off" | "not-requested"` (main() computes it: whether
+ * `--apply` was given, and whether the kill switch was on); `applyLog` is applySafe's own log array
+ * (`[]` when apply never ran). From it: `removed` lists every row this run actually deleted, by kind,
+ * ref and sha; `safeLeft` counts SAFE rows that were NOT removed this run (never requested, switched
+ * off, or individually failed/skipped - idle, tree-changed, or any other reason). The drift.md line
+ * gains a ` safe=<safeLeft total> removed=<removed count>` suffix so the read-back Ben asked for
+ * (item 4: "the drift line shows the safe class at zero") is answerable from this file alone.
  */
-export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname() }) {
+export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname(), act = "not-requested", applyLog = [] }) {
   const host = sanitizeHost(hostName);
   // J1 review round 2 (F7): `toISOString()` is UTC. facts.md fixes Ben's clock as America/New_York,
   // so a run between 20:00 and 24:00 EDT/EST filed under UTC's tomorrow - a drift record dated a day
@@ -1483,6 +1616,17 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
   const targetDir = path.isAbsolute(dir) ? dir : path.join(root, dir);
   mkdirSync(targetDir, { recursive: true });
   const counts = summarizeCounts(state);
+
+  const removed = applyLog
+    .filter((l) => l.ok === true)
+    .map((l) => ({ kind: l.action === "worktree-remove" ? "worktree" : "branch", ref: l.ref, sha: l.sha || null }));
+  const removedWorktreeRefs = new Set(applyLog.filter((l) => l.action === "worktree-remove" && l.ok === true).map((l) => l.ref));
+  const removedBranchRefs = new Set(applyLog.filter((l) => l.action === "branch-delete" && l.ok === true).map((l) => l.ref));
+  const safeLeft = {
+    worktrees: state.safe.worktrees.filter((w) => !removedWorktreeRefs.has(w.ref)).length,
+    branches: state.safe.branches.filter((b) => !removedBranchRefs.has(b.ref)).length,
+  };
+
   const record = {
     date: dateStr,
     host,
@@ -1496,11 +1640,15 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
       remoteBranches: counts.judgmentRemoteBranches,
       overdueWorkarounds: counts.judgmentOverdueWorkarounds,
     },
+    act,
+    removed,
+    safeLeft,
   };
   const jsonPath = path.join(targetDir, `${dateStr}-${host}.json`);
   writeFileSync(jsonPath, `${JSON.stringify(record, null, 2)}\n`);
   const diskStr = state.drift.diskUsedKB === null ? "unknown" : String(state.drift.diskUsedKB);
-  const driftLine = `- ${dateStr} ${host}: worktrees=${state.drift.worktreeCount} branches=${state.drift.openBranchCount} untracked=${state.drift.untrackedFileCount} diskKB=${diskStr}\n`;
+  const safeLeftTotal = safeLeft.worktrees + safeLeft.branches;
+  const driftLine = `- ${dateStr} ${host}: worktrees=${state.drift.worktreeCount} branches=${state.drift.openBranchCount} untracked=${state.drift.untrackedFileCount} diskKB=${diskStr} safe=${safeLeftTotal} removed=${removed.length}\n`;
   const driftPath = path.join(targetDir, "drift.md");
   appendFileSync(driftPath, driftLine);
   return { jsonPath, driftPath, record };
@@ -1604,7 +1752,18 @@ function parseFlags(argv) {
   return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag, host };
 }
 
-export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
+/**
+ * `now` (epoch ms, `idleHours`-shaped): a test-only override for F1's idle-floor check ONLY - it is
+ * never read from the CLI, and it does not touch `gatherState`'s own, separately-defaulted `now`
+ * (the pre-existing `--min-age-hours` floor). Real `git status` calls (inside gatherState, run just
+ * above applySafe in this same function) refresh a tracked file's cached index entry - and rewrite
+ * the index file's own mtime to the real current instant - the moment its on-disk ctime/mtime looks
+ * even slightly inconsistent with what the index cached; measured directly, this makes backdating a
+ * fixture worktree's actual file mtimes to fake "idle" an unreliable way to test the floor (the very
+ * `git status` gatherState just ran resets it). Advancing `now` into the future instead of rewinding
+ * any file's mtime sidesteps that entirely, which is why this seam exists.
+ */
+export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now } = {}) {
   let startedApplying = false;
   const applyLog = [];
   try {
@@ -1641,30 +1800,52 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       return 3;
     }
 
-    if (record) {
-      // J1 item 4: fed and measured, not printed and lost. A write failure here is reported but
-      // never blinds or fails the rest of the report - --record is additive, not load-bearing.
+    // F14 (redteam): a second, apply-scoped kill switch. `switchedOff("janitor")` above (~/.agents/
+    // ws-off or ws-off-janitor) already returned 0, silently, with no report at all - this one is
+    // narrower: while ~/.agents/ws-off-janitor-act exists, a requested --apply is treated as not
+    // given, but the report, the APPLIED table (empty) and, when asked, --record's file still run,
+    // labelled "switched-off" rather than silently doing nothing. An unreadable switch path counts
+    // as present (switchedOff's own contract), so an error here fails safe to record-only too.
+    let act = "not-requested";
+    let actSwitchedOff = false;
+    if (applyFlag) {
+      if (switchedOff("janitor-act")) {
+        act = "switched-off";
+        actSwitchedOff = true;
+      } else {
+        act = "applied";
+        state.act = true;
+      }
+    }
+
+    // F2 (redteam): --record now writes AFTER applySafe (never before it), including from the catch
+    // path below when apply throws partway - the record is the restorable account of what actually
+    // happened this run, not a snapshot of what was about to be attempted.
+    const writeRecordIfRequested = () => {
+      if (!record) return;
       try {
-        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main" };
+        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main", act, applyLog };
         if (host) recordArgs.hostName = host;
         writeRecord(recordArgs);
       } catch (err) {
         process.stderr.write(`janitor: --record failed: ${String(err && err.message ? err.message : err)}\n`);
       }
-    }
+    };
 
-    if (applyFlag) {
+    if (act === "applied") {
       startedApplying = true;
       try {
-        applySafe(state, applyLog);
+        applySafe(state, applyLog, { now });
       } catch (err) {
         // Once we have started deleting, silence is not an option: say what was done before
         // failing. Fail-open applies to READING state, never to reporting a destructive run.
         for (const line of applyLog) process.stderr.write(`janitor: applied ${JSON.stringify(line)}\n`);
         process.stderr.write(`janitor: --apply aborted partway: ${String(err && err.message ? err.message : err)}\n`);
+        writeRecordIfRequested();
         return 1;
       }
     }
+    writeRecordIfRequested();
 
     // J5: the wiring check is its own read-only tool with its own fail-open contract - a failure
     // here must never take down janitor's own report. It is display only: it never affects janitor's
@@ -1692,6 +1873,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
             summary: summarizeCounts(state),
             wiring,
             outside: outsideRows,
+            act,
             applied: applyFlag ? applyLog : null,
           },
           null,
@@ -1699,11 +1881,13 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
         ),
       );
     } else {
-      printReport(state, wiring, outsideRows);
+      printReport(state, wiring, outsideRows, actSwitchedOff);
       if (applyFlag) {
         console.log("");
         console.log("APPLIED:");
-        console.log(table(applyLog, ["action", "ref", "ok", "error"]));
+        // F2 (redteam): sha and a copy-pasteable restore hint ride along on every applied row, so a
+        // removal is restorable by name from this table (or the --record evidence file) alone.
+        console.log(table(applyLog, ["action", "ref", "ok", "sha", "restore", "skipped", "error"]));
       }
     }
 
