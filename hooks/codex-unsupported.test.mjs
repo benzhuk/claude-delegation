@@ -324,14 +324,15 @@ test('deadline: runCodexHook outer route budget gives up silently within two sec
     { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'outer-timeout' },
     {
       home, env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') },
-      inbox: async () => ({ slug: 'lead', count: 0, notes: [] }),
-      goalContextForLead: async () => null,
+      inbox: async () => peerNotes(),
+      goalContextForLead: async () => ({ text: 'OUTER-ADVISORY-PRESERVED' }),
       nativeRouteForLead: async () => new Promise(() => {}),
       codexContinuationSupported: false,
     },
   );
   assert.ok(performance.now() - started < 2000, 'runCodexHook outer route budget must reject the 5-second timeout mutant');
-  assert.equal(result, null, 'the timed-out route must give up silently');
+  assert.match(context(result), /peer → lead/, 'peer delivery survives the separately bounded route');
+  assert.match(context(result), /OUTER-ADVISORY-PRESERVED/, 'a stalled native route cannot discard an already-complete advisory');
 });
 
 test('functional: a real UserPromptSubmit child preserves peer and advisory output while parent route timers stay frozen', { timeout: 10000 }, async (t) => {
