@@ -49,7 +49,7 @@ export interface Options {
 }
 export declare function gatherKnowledge(options?: Options): Promise<Gathered>;
 export declare function managedNames(options?: Options): Promise<{set: Set<string>; error: string | null}>;
-export declare function buildNotificationInvocation(text: string, packetFile: string): {cmd: [string]; args: string[]}; // pure production argv helper, cmd[0]=process.execPath, args[0]=installed plugin note-send.mjs, includes --packet-file
+export declare function buildNotificationInvocation(text: string, packetFile: string | null): {cmd: [string]; args: string[]}; // pure production argv helper, cmd[0]=process.execPath, args[0]=installed plugin note-send.mjs; null omits --packet-file only after packet write failure
 export declare function reconcileKnowledge(options: Options, gathered: Gathered): Promise<HostResult[]>;
 export type Tokens = {
   input: number; output: number; cacheRead: number; cacheCreation: number; total: number; // total = input + output + cacheRead + cacheCreation
