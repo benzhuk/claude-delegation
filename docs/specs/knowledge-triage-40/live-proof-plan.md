@@ -18,6 +18,8 @@ C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-
 
 Evidence helpers may write only in that directory. They are read-only with respect to HOME, the knowledge stores, remotes and dotfiles.
 
+Root readiness adjudication (live-readiness-r1-addendum.md): the 48 untracked AppleDouble `._*` metadata files within the source knowledge tree are outside the existing exact-file publication allowlist and are allowed as unrelated dirt. Do not clean them. Preserve each exact path, hash and index absence before/after. This specific evidence-backed exception refines step4 below; a dirty publishable curated file remains a blocker. A fresh baseline is still mandatory after review approval.
+
 ## Read-only preflight and before snapshot
 
 Do these checks in order. A refusal stops that check and the launch; retain the exact refusal and do not retry through another command, shell, tool, allowlist or permission mode.
