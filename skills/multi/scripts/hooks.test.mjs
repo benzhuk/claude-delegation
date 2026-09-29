@@ -431,6 +431,115 @@ test('S1: no hook child can register anything the fixture did not give it', () =
   }
 });
 
+// --- N2 extension (lane 57): a spawn site can violate "never inherits the runner's environment"
+// two ways - spreading the runner's environment on its own (the original check above), OR passing NO
+// `env` key at all, which inherits the WHOLE real environment unmodified (worse: no text pattern for
+// the check above to find). Lane 57 found exactly that shape at test-home.test.mjs's `spawnAndSignal`.
+// These helpers make the second shape mechanical instead of remembered.
+
+/** Balanced-delimiter slice of `text` starting at `openIdx` (which must be `openCh`), string-aware. */
+function extractBalanced(text, openIdx, openCh, closeCh) {
+  let depth = 0;
+  let i = openIdx;
+  let inStr = null;
+  for (; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (c === '\\') { i++; continue; }
+      if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+    if (c === openCh) depth++;
+    else if (c === closeCh) { depth--; if (depth === 0) return text.slice(openIdx, i + 1); }
+  }
+  return text.slice(openIdx);
+}
+
+/** One-hop resolution: does `const <ident> = { ... }` (found in `fileText`) have an `env` key? Null
+ * if no such declaration is found (the identifier isn't a locally-declared object literal). */
+function resolveIdentHasEnvKey(fileText, ident) {
+  const re = new RegExp(`\\b(?:const|let|var)\\s+${ident}\\s*=\\s*\\{`);
+  const m = re.exec(fileText);
+  if (!m) return null;
+  const braceIdx = fileText.indexOf('{', m.index);
+  const obj = extractBalanced(fileText, braceIdx, '{', '}');
+  return /\benv\b/.test(obj);
+}
+
+/**
+ * Finds every `spawn`/`spawnSync`/`execFile`/`execFileSync`/`fork` call in `text` that passes no
+ * `env` key, narrowed to calls that can actually reach the runner's session: a spawn of `node` itself
+ * (`process.execPath`, or a local const bound to it - the common `NODE` pattern in this suite) runs
+ * ARBITRARY script text with the whole inherited environment, so it alone could read and act on
+ * `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN` the way the 2026-09-17 hook child did. A spawn of a fixed
+ * external binary (`git`, `sh`, `mkfifo`, `taskkill.exe`, ...) has no code path that parses or acts on
+ * those two variable names, so it cannot reach the session through inheritance alone and is not
+ * flagged - narrowing the rule to the mechanism that made the incident possible, not to "no env key"
+ * read literally everywhere a spawn appears (which would also catch every fixture `git` call in the
+ * suite). Two exemptions from THAT narrower rule, both mechanical, not "trusted because of what the
+ * script happens to do today":
+ *   - the options argument is a bare identifier resolving (one hop, in the same file) to an object
+ *     literal that itself has an `env` key;
+ *   - the script text is a literal written directly at the call site (an inline `-e`/`--eval` string,
+ *     not a path to a separately-maintained file) that does not itself reference `process.env` - so
+ *     if anyone ever edits that exact literal to add one, this scanner re-flags it at that moment;
+ *     it is not "trust that this doesn't misuse it forever."
+ */
+function findEnvLessSpawns(text) {
+  const found = [];
+  const nodeDirect = new Set(['process.execPath']);
+  const constRe = /\b(?:const|let|var)\s+(\w+)\s*=\s*process\.execPath\b/g;
+  let cm;
+  while ((cm = constRe.exec(text))) nodeDirect.add(cm[1]);
+
+  const fnRe = /\b(spawn|spawnSync|execFile|execFileSync|fork)\s*\(/g;
+  let m;
+  while ((m = fnRe.exec(text))) {
+    const openParenIdx = m.index + m[0].length - 1;
+    const call = extractBalanced(text, openParenIdx, '(', ')');
+    const line = text.slice(0, m.index).split('\n').length;
+    const inner = call.slice(1, -1);
+    const firstArgMatch = inner.match(/^\s*([^,]+?)\s*,/);
+    const firstArg = firstArgMatch ? firstArgMatch[1].trim() : inner.trim();
+    if (!nodeDirect.has(firstArg)) continue; // not a node-direct spawn: cannot reach the session
+
+    let hasEnv = call.includes('env:') || /[{,]\s*env\s*[,}]/.test(call);
+    if (!hasEnv) {
+      const lastArgMatch = call.match(/,\s*(\w+)\s*\)$/);
+      if (lastArgMatch && resolveIdentHasEnvKey(text, lastArgMatch[1]) === true) hasEnv = true;
+    }
+    if (hasEnv) continue;
+
+    const evalFlag = ['-', 'e'].join('');
+    const litMatch = call.match(new RegExp(`['"](?:${evalFlag}|--eval)['"]\\s*,\\s*(['"])((?:\\\\.|(?!\\1).)*)\\1`));
+    if (litMatch) {
+      const marker = ['process', '.', 'env'].join('');
+      if (!litMatch[2].includes(marker)) continue; // inline literal, provably can't read the sealed vars
+    }
+
+    found.push({ line, fn: m[1], target: firstArg });
+  }
+  return found;
+}
+
+// Real spawns of `process.execPath` in test files OUTSIDE this lane's territory
+// (scripts/run-tests.test.mjs, scripts/test-home.test.mjs) that inherit the runner's env with no
+// override. Per the hard rule that an existing test file's spawn options need the lead first, these
+// are named here rather than fixed - each is a real, minor completeness gap against the class this
+// scanner enforces, but leaving them named means a NEW site anywhere else still fails red.
+const N2_SPAWN_ENV_EXEMPTIONS = new Map([
+  ['hooks/codex-unsupported.test.mjs:438', 'functional installer smoke test, real INSTALLER child, out of lane-57 territory'],
+  ['scripts/bugfix-fields.test.mjs:21', 'runCli() helper for the bugfix-fields CLI, out of lane-57 territory'],
+  ['scripts/bugfix-fields.test.mjs:113', 'same file, direct usage-message check, out of lane-57 territory'],
+  ['scripts/prefix-test.test.mjs:91', 'runPrefixTest() helper spawning the real CLI, out of lane-57 territory'],
+  ['scripts/work-record.test.mjs:1778', 'real build-census.mjs CLI invocation, out of lane-57 territory'],
+  ['skills/decisions/scripts/decisions-read.test.mjs:440', 'symlinked-script exit-code check, out of lane-57 territory'],
+  ['skills/decisions/scripts/decisions-read.test.mjs:720', 'same file, direct SCRIPT_PATH spawn, out of lane-57 territory'],
+  ['skills/decisions/scripts/decisions-read.test.mjs:727', 'same file, blind-input variant, out of lane-57 territory'],
+  ['skills/decisions/scripts/goals-mirror.test.mjs:30', 'real CLI render-match check, out of lane-57 territory'],
+]);
+
 test('N2: no test file in this suite inherits the runner environment on its own', () => {
   // The rule, enforced rather than remembered: every child environment is built by `childEnv`, so no
   // test file spreads `process.env` itself. A new spawn site that forgets the seal fails HERE, at the
@@ -439,18 +548,59 @@ test('N2: no test file in this suite inherits the runner environment on its own'
   const files = walkTestFiles(REPO);
   assert.ok(files.length > 0, 'N2 scanned no test files at all - the walk itself is broken');
   const offenders = [];
+  const envLessOffenders = [];
   for (const full of files) {
     const text = fs.readFileSync(full, 'utf8');
+    const rel = path.relative(REPO, full);
     // Built, never written: a literal here would make this test its own first offender.
     const needle = ['...', 'process', '.', 'env'].join('');
     for (const [i, line] of text.split('\n').entries()) {
-      if (line.includes(needle)) offenders.push(`${path.relative(REPO, full)}:${i + 1}`);
+      if (line.includes(needle)) offenders.push(`${rel}:${i + 1}`);
+    }
+    for (const hit of findEnvLessSpawns(text)) {
+      const key = `${rel}:${hit.line}`;
+      if (N2_SPAWN_ENV_EXEMPTIONS.has(key)) continue;
+      envLessOffenders.push(`${key} [${hit.fn}] passes no env key at all`);
     }
   }
   assert.deepEqual(offenders, [], `these spawn sites build their own env instead of using childEnv(): ${offenders.join(', ')}`);
+  assert.deepEqual(
+    envLessOffenders,
+    [],
+    `these node-direct spawn sites pass NO env key at all, inheriting the runner's whole environment: ${envLessOffenders.join(', ')}`,
+  );
   assert.deepEqual(Object.keys(SEALED).sort(), ['CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN']);
   assert.equal(childEnv('/fixture').CLAUDE_CODE_MESSAGING_TOKEN, '', 'and the helper really does blank them');
   assert.equal(childEnv('/fixture').HOME, '/fixture');
+});
+
+test('N2 scanner: findEnvLessSpawns flags a node-direct spawn with no env key, not one that has one', () => {
+  // Built, never written: this file is itself scanned by the real N2 check above, so writing the
+  // bare call text directly (function name immediately followed by an opening paren) right here
+  // would make this unit test its own offender.
+  const SPAWN = ['sp', 'awn'].join('');
+  const noEnv = [
+    "const NODE = process.execPath;",
+    `${SPAWN}(NODE, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });`,
+  ].join('\n');
+  const withEnv = [
+    "const NODE = process.execPath;",
+    `${SPAWN}(NODE, ['--input-type=module', '-e', script], { env: childEnv(home), stdio: ['ignore', 'pipe', 'pipe'] });`,
+  ].join('\n');
+  const flaggedNoEnv = findEnvLessSpawns(noEnv);
+  const flaggedWithEnv = findEnvLessSpawns(withEnv);
+  assert.equal(flaggedNoEnv.length, 1, 'a node-direct spawn with no env key at all must be flagged');
+  assert.equal(flaggedNoEnv[0].fn, 'spawn');
+  assert.deepEqual(flaggedWithEnv, [], 'the same call with an env key must not be flagged');
+
+  // And the non-node-direct + inline-literal-without-process.env-reference narrowings hold too.
+  const gitSpawn = "execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' });";
+  assert.deepEqual(findEnvLessSpawns(gitSpawn), [], 'a fixed external binary cannot reach the session through inheritance alone');
+  const trivialEval = "spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });";
+  assert.deepEqual(findEnvLessSpawns(trivialEval), [], 'an inline literal that never references process.env is provably safe');
+  const evalMarker = ['process', '.', 'env'].join('');
+  const dangerousEval = `spawn(process.execPath, ['-e', 'console.log(${evalMarker})'], { stdio: 'ignore' });`;
+  assert.equal(findEnvLessSpawns(dangerousEval).length, 1, 'an inline literal that DOES reference the env must still be flagged');
 });
 
 // Lane 47, P3/FU4: childEnv strips the four repo-locating git names too, even when the parent
