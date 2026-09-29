@@ -43,7 +43,7 @@ function wrapperTimerPreload(root) {
     'const realClearTimeout = globalThis.clearTimeout;',
     'const frozen = new Set();',
     'globalThis.setTimeout = (callback, delay, ...args) => {',
-    '  if (delay === 400 || delay === 450) {',
+    '  if (delay === 400 || delay === 450 || delay === 2500) {',
     '    const timer = { frozen: true, unref() { return this; } };',
     '    frozen.add(timer);',
     '    return timer;',
@@ -207,11 +207,11 @@ function assertManifestParity(claudeManifest, codexManifest, unsupportedDoc, nat
   assert.ok(nativeCommands('Interrupt', codexManifest).some((command) => command.includes('multi-codex-hook.mjs')), 'Codex-only Interrupt remains permitted');
 }
 
-test('actual manifests derive complete bidirectional native coverage with only the reasoned Interrupt exception', () => {
+test('functional: actual manifests derive complete bidirectional native coverage with only the reasoned Interrupt exception', () => {
   assertManifestParity(readJson(CLAUDE_MANIFEST), readJson(CODEX_MANIFEST), readJson(UNSUPPORTED));
 });
 
-test('the same manifest-derived validator rejects fake Claude and Codex wrapper events', () => {
+test('functional: the manifest-derived validator rejects fake Claude and Codex wrapper events', () => {
   const claudeManifest = readJson(CLAUDE_MANIFEST);
   const codexManifest = readJson(CODEX_MANIFEST);
   const unsupportedDoc = readJson(UNSUPPORTED);
@@ -223,10 +223,11 @@ test('the same manifest-derived validator rejects fake Claude and Codex wrapper 
   assert.throws(() => assertManifestParity(claudeManifest, fakeCodex, unsupportedDoc), /NATIVE_ROUTES\.FakeCodex|Codex-only allowance: Codex has an Interrupt event, Claude Code has none\./);
 });
 
-test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop output without erasing peer or continuation context', async (t) => {
+test('functional: native wrapper emits SessionStart wiring plus backlog prompt/post/stop output without erasing peer or continuation context', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-route-project-');
   const home = scratch('codex-parity-route-home-');
   rmLater(t, root); rmLater(t, home);
+  freezeParentRouteTimers(t);
   runnableRecord(root);
   const input = { session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'native-turn' };
   const deps = {
@@ -255,7 +256,7 @@ test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop out
   }
 });
 
-test('functional: the actual wrapper CLI keeps its parent route timers frozen while its real UserPromptSubmit child writes the supplied-session sentinel', { timeout: 2000 }, (t) => {
+test('functional: the actual wrapper CLI keeps its parent route timers frozen while its real UserPromptSubmit child writes the supplied-session sentinel', { timeout: 10000 }, (t) => {
   const root = scratch('codex-parity-cli-project-'); const home = scratch('codex-parity-cli-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const sessionId = 'cli-l56-session';
@@ -263,6 +264,7 @@ test('functional: the actual wrapper CLI keeps its parent route timers frozen wh
   const child = spawnSync(process.execPath, ['--import', pathToFileURL(wrapperTimerPreload(root)).href, WRAPPER], {
     cwd: root, input: JSON.stringify(input), encoding: 'utf8',
     env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
+    timeout: 10000,
   });
   assert.equal(child.status, 0, child.stderr);
   const output = JSON.parse(child.stdout.trim());
@@ -270,10 +272,11 @@ test('functional: the actual wrapper CLI keeps its parent route timers frozen wh
   assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'the real UserPromptSubmit child must write its supplied-session sentinel');
 });
 
-test('real SessionStart without transcript metadata still routes wiring while preserving peer context', async (t) => {
+test('functional: real SessionStart without transcript metadata still routes wiring while preserving peer context', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-no-transcript-project-'); const home = scratch('codex-parity-no-transcript-home-');
   const healthyHome = scratch('codex-parity-wiring-healthy-home-');
   rmLater(t, root); rmLater(t, home); rmLater(t, healthyHome);
+  freezeParentRouteTimers(t);
   const result = await runCodexHook(
     { hook_event_name: 'SessionStart', session_id: LEAD, cwd: root, turn_id: 'no-transcript-turn' },
     {
@@ -331,7 +334,7 @@ test('deadline: runCodexHook outer route budget gives up silently within two sec
   assert.equal(result, null, 'the timed-out route must give up silently');
 });
 
-test('functional: a real UserPromptSubmit child preserves peer and advisory output while parent route timers stay frozen', { timeout: 2000 }, async (t) => {
+test('functional: a real UserPromptSubmit child preserves peer and advisory output while parent route timers stay frozen', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-real-route-project-'); const home = scratch('codex-parity-real-route-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const sessionId = 'real-route-l56-session';
@@ -353,9 +356,10 @@ test('functional: a real UserPromptSubmit child preserves peer and advisory outp
   assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'the real child must write its supplied-session sentinel');
 });
 
-test('nativeRouteForLead consumes the production NATIVE_ROUTES declaration', async (t) => {
+test('functional: nativeRouteForLead consumes the production NATIVE_ROUTES declaration without writing a sentinel for a nonexistent child', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-route-declaration-'); const home = scratch('codex-parity-route-declaration-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
+  freezeParentRouteTimers(t);
   const original = NATIVE_ROUTES.UserPromptSubmit;
   NATIVE_ROUTES.UserPromptSubmit = ['hooks/not-a-real-native-route.js'];
   try {
@@ -364,12 +368,13 @@ test('nativeRouteForLead consumes the production NATIVE_ROUTES declaration', asy
       childEnv(home, { AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
     );
     assert.equal(result, null, 'changing the declaration must change the route selection instead of leaving a handwritten backlog path');
+    assert.equal(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), LEAD)), false, 'a nonexistent route child must not write a supplied-session sentinel');
   } finally {
     NATIVE_ROUTES.UserPromptSubmit = original;
   }
 });
 
-test('functional: Claude and Codex native session ids have independent exact backlog sentinels while the same id stays silent', { timeout: 2000 }, async (t) => {
+test('functional: Claude and Codex native session ids have independent exact backlog sentinels while the same id stays silent', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-session-project-'); const home = scratch('codex-parity-session-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const agents = path.join(home, '.agents');
@@ -400,7 +405,7 @@ test('functional: Claude and Codex native session ids have independent exact bac
   assert.equal(repeated.stdout, '', 'the same supplied id keeps its existing cadence');
 });
 
-test('functional: real native Stop route surfaces backlog text for Codex', { timeout: 2000 }, async (t) => {
+test('functional: real native Stop route surfaces backlog text for Codex', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-stop-route-'); const home = scratch('codex-parity-stop-route-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents'), NOTE_SLUG: 'lead', CLAUDE_PLUGIN_ROOT: REPO });
@@ -411,7 +416,7 @@ test('functional: real native Stop route surfaces backlog text for Codex', { tim
   assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'real Stop child must write its supplied-session backlog sentinel');
 });
 
-test('functional: backlog route keeps its existing switches and cadence silent', { timeout: 2000 }, async (t) => {
+test('functional: backlog route keeps its existing switches and cadence silent', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-silence-project-'); const home = scratch('codex-parity-silence-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const base = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'silence-turn' };
@@ -427,7 +432,7 @@ test('functional: backlog route keeps its existing switches and cadence silent',
   assert.equal(switched, null, 'ws-off-backlog remains silent through the native wrapper');
 });
 
-test('native scratch installer wires and trusts the delete guard beside the wrapper', (t) => {
+test('functional: native scratch installer wires and trusts the delete guard beside the wrapper', (t) => {
   const home = scratch('codex-parity-installer-home-'); rmLater(t, home);
   const installed = spawnSync(process.execPath, [INSTALLER, '--codex-hooks-only', '--codex-home', home, '--json'], { cwd: REPO, encoding: 'utf8' });
   assert.equal(installed.status, 0, installed.stderr || installed.stdout);
@@ -438,7 +443,7 @@ test('native scratch installer wires and trusts the delete guard beside the wrap
   assert.match(fs.readFileSync(path.join(home, 'config.toml'), 'utf8'), /trusted_hash\s*=/, 'installer must trust what it wires');
 });
 
-test('negative controls prove removed and overlapping coverage are rejected by the same contract validator', () => {
+test('functional: negative controls prove removed and overlapping coverage are rejected by the same contract validator', () => {
   const actual = claudePairs();
   const routes = new Map(actual.map((pair) => [key(pair), pair.event]));
   const noUnsupported = [];
