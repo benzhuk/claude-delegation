@@ -117,6 +117,7 @@ function codexRows({ id, root, parentId, depth, model = 'gpt-5.6-terra', timesta
     { timestamp, type: 'turn_context', payload: { model } },
     { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: `${turnId}-started` } },
     { timestamp, type: 'token_usage_record', payload: { session_id: root, response_id: responseId, turn_id: turnId, usage: { input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 10, output_tokens: 5 }, turn_token_usage: { input_tokens: 9999 }, thread_token_usage: { input_tokens: 99999 } } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: `${turnId}-started` } },
   ];
 }
 
@@ -211,13 +212,16 @@ test('a Codex marker window without response records stays partial rather than b
   assert.ok(text.startsWith('VERDICT: PARTIAL'));
 });
 
-test('Codex conflicting repeated response ids fail visibly while identical repeats remain observations', async () => {
+test('Codex equal-usage repeated response ids preserve usage but conflicting turn attribution is unavailable', async () => {
   const dir = mkTmp('build-census-codex-conflict-');
   const lead = path.join(dir, 'conflict.jsonl');
   const meta = { type: 'session_meta', payload: { id: 'codex-conflict', session_id: 'codex-conflict' } };
   const row = { type: 'token_usage_record', payload: { session_id: 'codex-conflict', response_id: 'same', turn_id: 'one', usage: { input_tokens: 1, output_tokens: 1 } } };
   writeJsonl(lead, [meta, row, { type: 'token_usage_record', payload: { ...row.payload, turn_id: 'two' } }]);
-  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /conflicting turn or usage/);
+  const report = await runCensus({ lead, tasksDirs: [], marker: null, out: null });
+  assert.equal(report.lead.observedLeadRequests, 1);
+  assert.equal(report.lead.observedLeadTokens, 2);
+  assert.equal(report.lead.codex.responseTimelineComplete, false);
 });
 
 test('a truncated Codex stream with a token record before metadata fails visibly instead of falling through to Claude', async () => {
@@ -237,11 +241,13 @@ test('a Codex-shaped event-only truncated stream fails visibly instead of becomi
   await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /session_meta was not found/);
 });
 
-test('a recognized Codex stream rejects malformed JSON while explicit task candidates remain additive', async () => {
+test('a recognized Codex stream preserves prefix evidence but marks malformed JSON partial while explicit task candidates remain additive', async () => {
   const dir = mkTmp('build-census-codex-malformed-');
   const lead = path.join(dir, 'malformed.jsonl');
   fs.writeFileSync(lead, `${JSON.stringify({ type: 'session_meta', payload: { id: 'codex-malformed', session_id: 'codex-malformed' } })}\nnot-json\n`, 'utf8');
-  await assert.rejects(() => runCensus({ lead, tasksDirs: [], marker: null, out: null }), /contains malformed JSON/);
+  const damaged = await runCensus({ lead, tasksDirs: [], marker: null, out: null });
+  assert.equal(damaged.lead.codex.discovery.scope.complete, false);
+  assert.match(damaged.lead.codex.discovery.scope.reason, /damaged|malformed/i);
   const report = await runCensus({ lead: FIXTURES_CODEX_LEAD, tasksDirs: [dir], marker: null, out: null });
   assert.equal(report.lead.host, 'codex');
 });
@@ -367,11 +373,11 @@ test('Codex lead timeline trust follows selected-lead identity only, preserving 
   writeJsonl(conflictLead, makeLeadRows('selected'));
   writeJsonl(path.join(conflictDay, 'copy.jsonl'), makeLeadRows('other', 99));
   const conflicted = await runCensus({ lead: conflictLead, tasksDirs: [], codexHome: conflictHome });
-  assert.equal(conflicted.lead.coverageSupported, false);
-  assert.equal(conflicted.combined, null);
-  assert.equal(conflicted.lead.codex.discovery.selectedLeadIdentityVerified, false);
-  assert.deepEqual(conflicted.lead.codex.responseTimeline.map((row) => row.responseId), ['selected'], 'observed selected-file rows remain inspectable');
-  assert.equal(conflicted.lead.codex.responseTimelineComplete, false, 'ambiguous logical lead cannot export a complete timeline');
+  assert.equal(conflicted.lead.coverageSupported, true, 'same-id files with nonoverlapping responses are segments, not conflicting identities');
+  assert.equal(conflicted.lead.observedLeadRequests, 2);
+  assert.deepEqual(conflicted.lead.codex.responseTimeline.map((row) => row.responseId).sort(), ['other', 'selected']);
+  assert.equal(conflicted.lead.codex.responseTimelineComplete, true);
+  assert.equal(conflicted.lead.codex.identity.paths.length, 2);
 
   const exactHome = mkTmp('build-census-codex-lead-exact-');
   const exactDay = path.join(exactHome, 'sessions', '2026', '09', '27');
