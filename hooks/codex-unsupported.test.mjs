@@ -165,9 +165,9 @@ function assertManifestParity(claudeManifest, codexManifest, unsupportedDoc, nat
   for (const pair of inventory) {
     const route = derivedRoutes.get(key(pair));
     if (route === 'PreToolUse') {
-      assert.ok(nativeCommands(route).some((command) => command.includes('delete-guard.mjs')), 'delete guard must be native PreToolUse');
+      assert.ok(nativeCommands(route, codexManifest).some((command) => command.includes('delete-guard.mjs')), 'delete guard must be native PreToolUse');
     } else if (route) {
-      assert.ok(nativeCommands(route).some((command) => command.includes('multi-codex-hook.mjs')), `${pair.script}/${pair.event} must reach the native wrapper`);
+      assert.ok(nativeCommands(route, codexManifest).some((command) => command.includes('multi-codex-hook.mjs')), `${pair.script}/${pair.event} must reach the native wrapper`);
     }
   }
   for (const pair of codex) {
