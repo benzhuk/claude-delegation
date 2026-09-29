@@ -1,13 +1,5 @@
 # Waiting on you now
 <details>
-<summary>**Secret guard: 236 refusals on this desktop, most of them read-only greps**</summary>
-	The secret guard is doing its job on real secret paths, but it also refuses ordinary read-only commands whose text merely resembles one: today it stopped skills-a mid-scout on a grep for argv, and it keeps no log of what it refused, so nobody sees the cost. Count on this desktop: 236 refusals across 108 transcripts. Each one stalls a lane until a lead rewords the command. Proposed: a narrow lane that adds a denial log (command text only, never file contents), then tightens the two noisiest patterns against that log, with a red-team review so nothing real gets through. The guard stays on throughout.
-	- [ ] Yes, open the guard lane after the sweep (recommended)
-	- [ ] Hold, live with the refusals
-	No default: the guard stays as it is until you tick
-	<empty-block/>
-</details>
-<details>
 <summary>**One-time cleanup sweep (lane 36)**</summary>
 	Lane 36 (closeout) is merged. This sweep removes leftovers from finished lanes, once. On origin it deletes 29 merged build branches (lane 37's build/codex-parity-37 is kept while that lane is open). Each name and tip commit is written to the sweep record, so any branch can be restored (the list of 29 names and tips is in the sweep record, not here). On each host the janitor removes only its SAFE class, meaning merged branches and worktrees with fully clean trees. Hetzner has 3 worktrees and 3 branches (the janitor-daily-1 J1-J3 leftovers). Windows has 18 worktrees and 19 branches. Netcup can't be reached from Hetzner (ssh host-key check failed, not bypassed), so its count comes from its own janitor run on the day. The record lists before and after counts per host. Unmerged branches stay: feat/working-smarter, docs/bearings-0925 through 0928, build/fresh-walk-1, build/gate-under-load-1 and docs/lane-specs-0925. Ticking yes means skills-h runs it at that moment.
 	- [ ] Yes, run the sweep
@@ -17,7 +9,7 @@
 </details>
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-# This session (since your tick at Tue 3:55 PM)
+# This session (since your tick at Tue 5:15 PM)
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
 - Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
 - Bearings 9/29 said RE-PLAN: we merged seventeen lanes and installed none. No new lane opens until one 24-hour census has read 0.20.18. Two items below ask for your call.
@@ -42,5 +34,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Sep 29, 2026, 5:15 PM America/New_York)
+- [ ] Done (last cleared: Sep 29, 2026, 5:21 PM America/New_York)
 <empty-block/>
