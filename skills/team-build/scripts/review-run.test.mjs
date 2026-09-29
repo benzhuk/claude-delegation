@@ -14,7 +14,7 @@ import {
   EXIT, RECURSION_ENV_VAR, VERDICT_RE, DISALLOWED_TOOLS,
   parseArgs, normalizeFirstLine, validateVerdict, parseRoleFile, sha256Hex,
   buildAgentsJson, buildArgv, buildChildEnv, validateReportPath, resolvePluginRoot,
-  runReviewRun,
+  stripGitLocatingEnv, runReviewRun,
 } from './review-run.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -430,6 +430,33 @@ test('buildChildEnv: strips the full M2 denylist and adds the two markers', () =
   ]) {
     assert.equal(env[key], undefined, key);
   }
+});
+
+test('finding 9: buildChildEnv strips every GIT_* variable, not just the six repo-locating names (measured: GIT_CONFIG_PARAMETERS, GIT_AUTHOR_*, GIT_SSH_COMMAND etc reached the child)', () => {
+  const env = buildChildEnv({
+    HOME: '/home/fixture', PATH: '/usr/bin',
+    GIT_CONFIG_PARAMETERS: "'core.hooksPath=/tmp/x'", GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/tmp/x',
+    GIT_CONFIG_GLOBAL: '/tmp/evil.gitconfig', GIT_CONFIG_SYSTEM: '/tmp/evil-system.gitconfig',
+    GIT_AUTHOR_NAME: 'x', GIT_AUTHOR_EMAIL: 'x@x', GIT_COMMITTER_NAME: 'x', GIT_COMMITTER_EMAIL: 'x@x',
+    GIT_NAMESPACE: 'x', GIT_CEILING_DIRECTORIES: '/tmp', GIT_SSH_COMMAND: 'evil', GIT_ASKPASS: 'evil',
+    GIT_EXEC_PATH: '/tmp/evil-exec', GIT_TEMPLATE_DIR: '/tmp/evil-template', GIT_QUARANTINE_PATH: '/tmp/q',
+  }, { runDir: '/tmp/run-dir' });
+  for (const key of Object.keys(env)) {
+    assert.ok(!key.startsWith('GIT_'), `${key} must never reach the child`);
+  }
+  assert.equal(env.HOME, '/home/fixture');
+});
+
+test('finding 9: stripGitLocatingEnv (used for every git call the script makes) strips every GIT_* name, not just the six repo-locating ones', () => {
+  const stripped = stripGitLocatingEnv({
+    HOME: '/home/fixture', PATH: '/usr/bin', GIT_DIR: '/x', GIT_AUTHOR_NAME: 'x',
+    GIT_CONFIG_PARAMETERS: "'core.hooksPath=/tmp/x'", GIT_SSH_COMMAND: 'evil',
+  });
+  for (const key of Object.keys(stripped)) {
+    assert.ok(!key.startsWith('GIT_'), `${key} must be stripped from every git call's env`);
+  }
+  assert.equal(stripped.HOME, '/home/fixture');
 });
 
 test('normalizeFirstLine + validateVerdict: B1 table', () => {

@@ -65,7 +65,7 @@ const ENV_DENYLIST_EXACT = new Set([
 const ENV_DENYLIST_PREFIX = ['ORCA_', 'CODEX_'];
 /** M2: removed by pattern (any *_SESSION_ID, any CLAUDE_CODE_SESSION_*). decision 2's
  * "the runner strips NOTE_SLUG and ORCA_TERMINAL_HANDLE" is covered by the exact/prefix sets above. */
-const ENV_DENYLIST_PATTERN = [/^CLAUDE_CODE_SESSION_/, /_SESSION_ID$/];
+const ENV_DENYLIST_PATTERN = [/^CLAUDE_CODE_SESSION_/, /_SESSION_ID$/, /^GIT_/];
 
 /** m5: repo-locating git env vars, stripped from every git call this script makes (same set
  * transport.mjs's withoutRepoLocatingGitEnv strips — inlined here per the import restriction). */
@@ -238,9 +238,14 @@ export function buildChildEnv(callerEnv, { runDir }) {
   return out;
 }
 
-function stripGitLocatingEnv(env) {
+/** finding 9: exported so the test can pin the full GIT_* strip, not just the six named vars. */
+export function stripGitLocatingEnv(env) {
   const copy = { ...env };
-  for (const key of Object.keys(copy)) if (REPO_LOCATING_GIT_ENV.includes(key)) delete copy[key];
+  // finding 9: measured — GIT_CONFIG_PARAMETERS/GIT_CONFIG_COUNT+KEY_n+VALUE_n, GIT_CONFIG_GLOBAL,
+  // GIT_CONFIG_SYSTEM, GIT_AUTHOR_*/GIT_COMMITTER_*, GIT_NAMESPACE, GIT_CEILING_DIRECTORIES,
+  // GIT_SSH_COMMAND, GIT_ASKPASS, GIT_EXEC_PATH, GIT_TEMPLATE_DIR and GIT_QUARANTINE_PATH all
+  // reached every git call this script makes when only the six repo-locating names were stripped.
+  for (const key of Object.keys(copy)) if (key.startsWith('GIT_')) delete copy[key];
   return copy;
 }
 
