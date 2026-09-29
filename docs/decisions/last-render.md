@@ -46,7 +46,7 @@
 </details>
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-# This session (since your tick at Mon 5:42 PM)
+# This session (since your tick at Tue 3:55 PM)
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
 - Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
 - Bearings 9/29 said RE-PLAN: we merged seventeen lanes and installed none. No new lane opens until one 24-hour census has read 0.20.18. Two items below ask for your call.
