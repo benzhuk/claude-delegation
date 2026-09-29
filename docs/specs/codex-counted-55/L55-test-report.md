@@ -12,5 +12,12 @@ Fix location: `scripts/build-census.mjs` (T1). Test location:
 `scripts/build-census.codex.contract.test.mjs` (T2).
 
 Simplification: fixtures are native-shaped JSONL generated in the contract test; no
-transcript content is retained. Green candidate and focused consumer-gate receipts are
-pending.
+transcript content is retained.
+
+Candidate interim check: the two new Lane55 assertions pass against the uncommitted
+T1 source candidate. The full owned contract file remains red (14 pass, 6 fail): legacy
+fixtures need temporal terminal witnesses or updated expectations for the new
+`coverageSupported` rule; the native sanitized fixture lacks a terminal witness; and
+same-id segment union presently raises `Codex response_id conflict across segments for
+lead-response` on the logical-segment contract. No focused consumer gate was run while
+these failures remain.

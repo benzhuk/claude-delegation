@@ -61,13 +61,13 @@ function writeRollout(home, day, name, rows) {
 
 function leadRows({ model = MODEL, repeatContext = false, tokenAt = '2026-09-27T12:00:02.000Z', missing = [], output = 3 } = {}) {
   const turn = 'lead-turn';
-  return [meta(ROOT), taskStarted(turn), context(turn, model), ...(repeatContext ? [context(turn, model, '2026-09-27T12:00:01.500Z')] : []), usage('lead-response', turn, { output, at: tokenAt, missing })];
+  return [meta(ROOT), taskStarted(turn), context(turn, model), ...(repeatContext ? [context(turn, model, '2026-09-27T12:00:01.500Z')] : []), usage('lead-response', turn, { output, at: tokenAt, missing }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z')];
 }
 
 function childRows(id, parentId, depth, responseId, output, options = {}) {
   const turn = `${id}-turn`;
   const sessionId = options.sessionId ?? ROOT;
-  return [meta(id, sessionId, parentId, depth, options.agentPath), ...(options.context === false ? [] : [context(turn, options.model ?? MODEL)]), usage(responseId, turn, { sessionId, output, missing: options.missing ?? [] })];
+  return [meta(id, sessionId, parentId, depth, options.agentPath), taskStarted(turn), ...(options.context === false ? [] : [context(turn, options.model ?? MODEL)]), usage(responseId, turn, { sessionId, output, missing: options.missing ?? [] }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z')];
 }
 
 test('Codex contract: verified ancestry, root namespace, distinct child response ids, and native turns', async () => {
@@ -374,10 +374,17 @@ test('Codex contract: rejected root-namespace parent cannot authenticate its gra
 // lead-day horizon.  The old child is deliberately far from the lead filename day.
 test('Lane55 known lead-session walks the canonical tree and counts an old resumed child exactly once', async () => {
   const home = fixtureHome();
-  const lead = writeRollout(home, DAY, 'rollout-current-name.jsonl', leadRows({ output: 3 }));
+  const lead = writeRollout(home, DAY, 'rollout-current-name.jsonl', [
+    ...leadRows({ output: 3 }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
   const oldDay = '2026/03/01';
   fs.mkdirSync(path.join(home, 'sessions', ...oldDay.split('/')), { recursive: true });
-  writeRollout(home, oldDay, 'rollout-old-child.jsonl', childRows('old-child', ROOT, 1, 'old-response', 7));
+  writeRollout(home, oldDay, 'rollout-old-child.jsonl', [
+    meta('old-child', ROOT, ROOT, 1), taskStarted('old-child-turn'), context('old-child-turn'),
+    usage('old-response', 'old-child-turn', { output: 7 }),
+    line('event_msg', { type: 'task_complete', turn_id: 'old-child-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
 
   const report = await runCensus({
     lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
