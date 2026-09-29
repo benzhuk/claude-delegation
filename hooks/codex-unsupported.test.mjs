@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { createRequire } from 'node:module';
 
@@ -30,6 +30,31 @@ function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
 function rmLater(t, target) { t.after(() => fs.rmSync(target, { recursive: true, force: true })); }
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function key(pair) { return `${pair.script}\u0000${pair.event}`; }
+
+function freezeParentRouteTimers(t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => t.mock.timers.reset());
+}
+
+function wrapperTimerPreload(root) {
+  const preload = path.join(root, 'freeze-wrapper-route-timers.mjs');
+  fs.writeFileSync(preload, [
+    'const realSetTimeout = globalThis.setTimeout;',
+    'const realClearTimeout = globalThis.clearTimeout;',
+    'const frozen = new Set();',
+    'globalThis.setTimeout = (callback, delay, ...args) => {',
+    '  if (delay === 400 || delay === 450) {',
+    '    const timer = { frozen: true, unref() { return this; } };',
+    '    frozen.add(timer);',
+    '    return timer;',
+    '  }',
+    '  return realSetTimeout(callback, delay, ...args);',
+    '};',
+    'globalThis.clearTimeout = (timer) => frozen.delete(timer) || realClearTimeout(timer);',
+    '',
+  ].join('\n'));
+  return preload;
+}
 
 function manifestPairs(manifest) {
   const pairs = [];
@@ -230,17 +255,19 @@ test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop out
   }
 });
 
-test('the actual wrapper CLI selects the default native backlog route and writes its context to stdout', (t) => {
+test('functional: the actual wrapper CLI keeps its parent route timers frozen while its real UserPromptSubmit child writes the supplied-session sentinel', { timeout: 2000 }, (t) => {
   const root = scratch('codex-parity-cli-project-'); const home = scratch('codex-parity-cli-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
-  const input = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'cli-turn' };
-  const child = spawnSync(process.execPath, [WRAPPER], {
+  const sessionId = 'cli-l56-session';
+  const input = { hook_event_name: 'UserPromptSubmit', session_id: sessionId, transcript_path: transcript(root), cwd: root, turn_id: 'cli-turn' };
+  const child = spawnSync(process.execPath, ['--import', pathToFileURL(wrapperTimerPreload(root)).href, WRAPPER], {
     cwd: root, input: JSON.stringify(input), encoding: 'utf8',
     env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
   });
   assert.equal(child.status, 0, child.stderr);
   const output = JSON.parse(child.stdout.trim());
   assert.match(output.hookSpecificOutput.additionalContext, /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/);
+  assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'the real UserPromptSubmit child must write its supplied-session sentinel');
 });
 
 test('real SessionStart without transcript metadata still routes wiring while preserving peer context', async (t) => {
@@ -274,7 +301,7 @@ test('real SessionStart without transcript metadata still routes wiring while pr
   assert.equal(healthy, null, 'a fully wired isolated home keeps SessionStart silent');
 });
 
-test('route child early-close and timeout stay silent; the shared advisory deadline never erases peer delivery', async (t) => {
+test('deadline: native route child give-up stays silent within two seconds', { timeout: 2000 }, async (t) => {
   const root = scratch('codex-parity-route-timeout-'); const home = scratch('codex-parity-route-timeout-home-');
   rmLater(t, root); rmLater(t, home);
   const close = path.join(root, 'close.mjs'); const slow = path.join(root, 'slow.mjs');
@@ -284,37 +311,9 @@ test('route child early-close and timeout stay silent; the shared advisory deadl
   const childStarted = performance.now();
   assert.equal(await runRoute(slow, [], {}, root, {}), '');
   assert.ok(performance.now() - childStarted < 2000, 'default runRoute kill must reap a real hung child well before the 5-second mutant');
-  const hookStarted = performance.now();
-  const delayedRoute = await runCodexHook(
-    { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'route-failure' },
-    {
-      home, env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') },
-      inbox: async () => peerNotes(),
-      goalContextForLead: async () => ({ text: 'ADVISORY-PRESERVED' }),
-      nativeRouteForLead: async () => new Promise(() => {}),
-      codexContinuationSupported: false,
-    },
-  );
-  assert.ok(performance.now() - hookStarted < 2000, 'runCodexHook must bound an injected never-resolving native route');
-  assert.match(context(delayedRoute), /peer → lead/, 'peer delivery is outside the route/advisory shared deadline');
-  assert.match(context(delayedRoute), /ADVISORY-PRESERVED/, 'a stalled native route cannot discard an already-complete advisory');
-
-  const completed = await runCodexHook(
-    { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'route-completed' },
-    {
-      home, env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') }),
-      inbox: async () => peerNotes(),
-      goalContextForLead: async () => ({ text: 'ADVISORY-PRESERVED' }),
-      nativeRouteForLead: async () => ({ text: 'ROUTE-COMPLETED', systemMessage: null }),
-      codexContinuationSupported: false,
-    },
-  );
-  assert.match(context(completed), /peer → lead/);
-  assert.match(context(completed), /ROUTE-COMPLETED/);
-  assert.match(context(completed), /ADVISORY-PRESERVED/);
 });
 
-test('runCodexHook separately bounds an injected never-resolving native route while retaining peer and ready advisory output', async (t) => {
+test('deadline: runCodexHook outer route budget gives up silently within two seconds', { timeout: 2000 }, async (t) => {
   const root = scratch('codex-parity-outer-timeout-'); const home = scratch('codex-parity-outer-timeout-home-');
   rmLater(t, root); rmLater(t, home);
   const started = performance.now();
@@ -322,15 +321,36 @@ test('runCodexHook separately bounds an injected never-resolving native route wh
     { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'outer-timeout' },
     {
       home, env: { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents') },
-      inbox: async () => peerNotes(),
-      goalContextForLead: async () => ({ text: 'OUTER-ADVISORY-PRESERVED' }),
+      inbox: async () => ({ slug: 'lead', count: 0, notes: [] }),
+      goalContextForLead: async () => null,
       nativeRouteForLead: async () => new Promise(() => {}),
       codexContinuationSupported: false,
     },
   );
   assert.ok(performance.now() - started < 2000, 'runCodexHook outer route budget must reject the 5-second timeout mutant');
-  assert.match(context(result), /peer → lead/, 'peer delivery survives the separately bounded route');
-  assert.match(context(result), /OUTER-ADVISORY-PRESERVED/, 'ready advisory survives the separately bounded route');
+  assert.equal(result, null, 'the timed-out route must give up silently');
+});
+
+test('functional: a real UserPromptSubmit child preserves peer and advisory output while parent route timers stay frozen', { timeout: 2000 }, async (t) => {
+  const root = scratch('codex-parity-real-route-project-'); const home = scratch('codex-parity-real-route-home-');
+  rmLater(t, root); rmLater(t, home); runnableRecord(root);
+  const sessionId = 'real-route-l56-session';
+  freezeParentRouteTimers(t);
+  const result = await runCodexHook(
+    { hook_event_name: 'UserPromptSubmit', session_id: sessionId, transcript_path: transcript(root), cwd: root, turn_id: 'real-route' },
+    {
+      home,
+      env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
+      inbox: async () => peerNotes(),
+      goalContextForLead: async () => ({ text: 'ADVISORY-PRESERVED' }),
+      nativeRouteForLead,
+      codexContinuationSupported: false,
+    },
+  );
+  assert.match(context(result), /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/, 'the real child route must reach the wrapper output');
+  assert.match(context(result), /peer → lead/, 'the real child route must preserve peer output');
+  assert.match(context(result), /ADVISORY-PRESERVED/, 'the real child route must preserve advisory output');
+  assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'the real child must write its supplied-session sentinel');
 });
 
 test('nativeRouteForLead consumes the production NATIVE_ROUTES declaration', async (t) => {
@@ -349,11 +369,12 @@ test('nativeRouteForLead consumes the production NATIVE_ROUTES declaration', asy
   }
 });
 
-test('Claude and Codex native session ids have independent exact backlog sentinels while the same id stays silent', async (t) => {
+test('functional: Claude and Codex native session ids have independent exact backlog sentinels while the same id stays silent', { timeout: 2000 }, async (t) => {
   const root = scratch('codex-parity-session-project-'); const home = scratch('codex-parity-session-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const agents = path.join(home, '.agents');
   const env = childEnv(home, { AGENTS_HOME: agents, NOTE_SLUG: 'lead', CLAUDE_PLUGIN_ROOT: REPO });
+  freezeParentRouteTimers(t);
   const claudeInput = { hook_event_name: 'UserPromptSubmit', session_id: CLAUDE_SESSION, cwd: root };
   const first = spawnSync(process.execPath, [BACKLOG, 'UserPromptSubmit'], {
     cwd: root, input: JSON.stringify(claudeInput), encoding: 'utf8', env,
@@ -379,24 +400,26 @@ test('Claude and Codex native session ids have independent exact backlog sentine
   assert.equal(repeated.stdout, '', 'the same supplied id keeps its existing cadence');
 });
 
-test('real native Stop route surfaces backlog text for Codex', { timeout: 2000 }, async (t) => {
+test('functional: real native Stop route surfaces backlog text for Codex', { timeout: 2000 }, async (t) => {
   const root = scratch('codex-parity-stop-route-'); const home = scratch('codex-parity-stop-route-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents'), NOTE_SLUG: 'lead', CLAUDE_PLUGIN_ROOT: REPO });
   const sessionId = 'stop-l49-session';
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  freezeParentRouteTimers(t);
   const result = await nativeRouteForLead({ hook_event_name: 'Stop', session_id: sessionId, cwd: root }, root, 'unknown', env);
   assert.match(result?.text ?? '', /work: 1 runnable and unowned/, 'Codex Stop must carry the real backlog line in additionalContext text');
   assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), sessionId)), 'real Stop child must write its supplied-session backlog sentinel');
 });
 
-test('backlog route keeps its existing switches and cadence silent', async (t) => {
+test('functional: backlog route keeps its existing switches and cadence silent', { timeout: 2000 }, async (t) => {
   const root = scratch('codex-parity-silence-project-'); const home = scratch('codex-parity-silence-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
   const base = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'silence-turn' };
   const env = { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO };
+  freezeParentRouteTimers(t);
   const first = await runCodexHook(base, { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
   assert.match(context(first), /work: 1 runnable/, 'fixture proves the route is live before cadence check');
+  assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), LEAD)), 'the real first route must write its supplied-session sentinel');
   const second = await runCodexHook(base, { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
   assert.equal(second, null, 'the existing 120-second backlog cadence remains silent');
   fs.mkdirSync(path.join(home, '.agents'), { recursive: true }); fs.writeFileSync(path.join(home, '.agents', 'ws-off-backlog'), '');
