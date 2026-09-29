@@ -3,7 +3,7 @@ Scope: docs/specs/2026-09-28-notion-writing.md (this branch), from skills-fable-
 Owner: skills-o
 Status: reviewed
 Authority: skills-fable ASK skills-fable-lane-39-1: spec, red-team, build, review, second-host suite, merge, publish
-Artifact: build/notion-writing-1
+Artifact: build/notion-writing-1@0f968192d809b43d9fdef8d36740155366c16617
 Worktree: build/notion-writing-1
 Evidence: page-lint tests 54/54, Netcup suite 2749 pass 0 fail at 27ecce3 (0f96819 adds one test line), Codex live proof page 3eada112 published and read back
 Next: accept, merge, close
