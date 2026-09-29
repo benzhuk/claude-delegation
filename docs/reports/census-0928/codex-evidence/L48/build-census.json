@@ -1,6 +1,6 @@
 {
   "provenance": {
-    "sourceSha": "50a66a5339007664bd964f608050178afbd9a7f0",
+    "sourceSha": "863a6865d8bbcca6dde9fb7eaffe22c600f50c6d",
     "originMain": "c0818c99c171de3b7812acd20adbe4d4ea96297c",
     "mode": "candidate",
     "command": [
@@ -19,9 +19,9 @@
       "--lead-slug",
       "skills-a",
       "--json",
-      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
       "--out",
-      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.md"
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.md"
     ],
     "nativeExit": 0,
     "inputHashes": {
@@ -59,7 +59,7 @@
     "lead": {
       "codex": {
         "discovery": {
-          "candidates": 185,
+          "candidates": 186,
           "excluded": [
             {
               "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
@@ -1345,7 +1345,7 @@
       "coverageReason": null,
       "coverageSupported": true,
       "host": "codex",
-      "leadLastMessageAt": "2026-09-29T03:03:50.151Z",
+      "leadLastMessageAt": "2026-09-29T03:12:03.412Z",
       "leadTurns": 1,
       "leadTurnsTotal": 51,
       "markerFound": true,
@@ -1358,13 +1358,13 @@
       "observedTotalByModel": {
         "gpt-6-astra": {
           "cache_creation_input_tokens": 0,
-          "cache_read_input_tokens": 210817536,
-          "derived_total_tokens": 214900039,
-          "input_tokens": 3429961,
-          "native_input_tokens": 214247497,
-          "output_tokens": 652542,
-          "reasoning_output_tokens": 243391,
-          "total_tokens": 214900039,
+          "cache_read_input_tokens": 213508480,
+          "derived_total_tokens": 217627560,
+          "input_tokens": 3458084,
+          "native_input_tokens": 216966564,
+          "output_tokens": 660996,
+          "reasoning_output_tokens": 248121,
+          "total_tokens": 217627560,
           "unavailable": []
         }
       },
@@ -1387,17 +1387,17 @@
       "totalByModel": {
         "gpt-6-astra": {
           "cache_creation_input_tokens": 0,
-          "cache_read_input_tokens": 210817536,
-          "derived_total_tokens": 214900039,
-          "input_tokens": 3429961,
-          "native_input_tokens": 214247497,
-          "output_tokens": 652542,
-          "reasoning_output_tokens": 243391,
-          "total_tokens": 214900039,
+          "cache_read_input_tokens": 213508480,
+          "derived_total_tokens": 217627560,
+          "input_tokens": 3458084,
+          "native_input_tokens": 216966564,
+          "output_tokens": 660996,
+          "reasoning_output_tokens": 248121,
+          "total_tokens": 217627560,
           "unavailable": []
         }
       },
-      "totalTurns": 1815,
+      "totalTurns": 1841,
       "turnsPerHour": 191.89155486440688,
       "wakeSplit": null,
       "wakeSplitUnavailable": "codex lead",
@@ -1436,8 +1436,8 @@
       "windowStartAt": "2026-09-28T23:13:00Z"
     },
     "subagents": {
-      "excludedByWindow": 3739,
-      "fileCount": 50,
+      "excludedByWindow": 3830,
+      "fileCount": 51,
       "incomplete": false,
       "perFile": [
         {
@@ -1950,7 +1950,7 @@
           "agentNickname": "Arendt",
           "byModel": {},
           "depth": 1,
-          "excludedByWindow": 57,
+          "excludedByWindow": 73,
           "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-36-14-01a0eb05-175f-7df0-aa59-203016ce232a.jsonl",
           "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
           "role": "unmapped",
@@ -1960,7 +1960,7 @@
           "agentNickname": "Noether",
           "byModel": {},
           "depth": 1,
-          "excludedByWindow": 64,
+          "excludedByWindow": 98,
           "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-53-10-01a0eb14-9800-7b91-878a-0a38e90f47a6.jsonl",
           "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
           "role": "unmapped",
@@ -1975,13 +1975,23 @@
           "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
           "role": "unmapped",
           "turns": 0
+        },
+        {
+          "agentNickname": "Volta",
+          "byModel": {},
+          "depth": 1,
+          "excludedByWindow": 41,
+          "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T23-04-01-01a0eb1e-8768-7482-b034-ba63d50fac0c.jsonl",
+          "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+          "role": "unmapped",
+          "turns": 0
         }
       ],
       "roleFileCounts": {
         "builder": 1,
         "integrator": 1,
         "reviewer": 1,
-        "unmapped": 47
+        "unmapped": 48
       },
       "totalByModel": {
         "gpt-5.6-terra": {

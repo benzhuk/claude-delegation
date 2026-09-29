@@ -1,6 +1,6 @@
 VERDICT: OBSERVED candidate evidence only
 
-Generator source SHA: `50a66a5339007664bd964f608050178afbd9a7f0` (preliminary candidate; superseded for final reread by source correction `df821f1`; not final-main proof).
+Generator source SHA: `863a6865d8bbcca6dde9fb7eaffe22c600f50c6d` (current candidate evidence; not final-main proof). The earlier `50a66a5` preliminary raw receipts remain preserved in scratch.
 
 # Codex native rows
 

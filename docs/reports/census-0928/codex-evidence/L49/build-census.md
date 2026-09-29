@@ -1,7 +1,7 @@
-VERDICT: COUNTED 189 Codex responses (leadTurns 2); UNSUPPORTED stalls, 50 subagent files, leadLastMessageAt: 2026-09-29T03:03:50.151Z
+VERDICT: COUNTED 189 Codex responses (leadTurns 2); UNSUPPORTED stalls, 51 subagent files, leadLastMessageAt: 2026-09-29T03:12:03.412Z
 
-Generator source SHA: 50a66a5339007664bd964f608050178afbd9a7f0
-Command: node scripts/build-census.mjs --lead-session 01a0df4c-2809-7520-b1d7-876cc51a87ee --codex-home C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home --from 2026-09-29T00:00:00Z --to 2026-09-29T01:20:03.000Z --ledger-dir C:/Users/benzh/Code/claude-delegation/docs/ledger --lead-slug skills-a --json C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\candidate-reread-fixed-50a66a5\docs\reports\census-0928\codex-evidence\L49\build-census.raw.json --out C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\candidate-reread-fixed-50a66a5\docs\reports\census-0928\codex-evidence\L49\build-census.raw.md
+Generator source SHA: 863a6865d8bbcca6dde9fb7eaffe22c600f50c6d
+Command: node scripts/build-census.mjs --lead-session 01a0df4c-2809-7520-b1d7-876cc51a87ee --codex-home C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home --from 2026-09-29T00:00:00Z --to 2026-09-29T01:20:03.000Z --ledger-dir C:/Users/benzh/Code/claude-delegation/docs/ledger --lead-slug skills-a --json C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\candidate-reread-863a686\docs\reports\census-0928\codex-evidence\L49\build-census.raw.json --out C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\candidate-reread-863a686\docs\reports\census-0928\codex-evidence\L49\build-census.raw.md
 
 # Build census
 
@@ -18,7 +18,7 @@ Command: node scripts/build-census.mjs --lead-session 01a0df4c-2809-7520-b1d7-87
 - stallNudges: 0 to skills-a (slug option, ledger C:/Users/benzh/Code/claude-delegation/docs/ledger)
 - by-model: gpt-5.6-terra=44669299, gpt-6-astra=22357188
 - by-role: unmapped=44669299
-- subagentFiles: 50
+- subagentFiles: 51
 
 Lead: `rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl` | Tasks dirs: (none)
 Window: 2026-09-29T00:00:02.391Z .. 2026-09-29T01:19:52.890Z
@@ -29,7 +29,7 @@ Window: 2026-09-29T00:00:02.391Z .. 2026-09-29T01:19:52.890Z
 - identity: 01a0df4c-2809-7520-b1d7-876cc51a87ee verified from 1 file(s)
 - home: canonical
 - horizonUtcDays: unavailable
-- candidates: 185
+- candidates: 186
 - excluded: C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\26\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl (duplicate lead/path)
 - excluded: C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\03\19\rollout-2026-03-19T09-57-19-019d0662-ea33-75c0-ae39-c78d769df03d.jsonl (unrelated)
 - excluded: C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\03\19\rollout-2026-03-19T10-09-16-019d066d-dc23-7f50-a23a-0c01412979ad.jsonl (unrelated)
@@ -172,7 +172,7 @@ Window: 2026-09-29T00:00:02.391Z .. 2026-09-29T01:19:52.890Z
 |---|---|---|---|---|---|---|---|---|---|
 | gpt-6-astra | 22287290 | 308154 | 0 | 21979136 | 69898 | 22357188 | 24843 | 22357188 | (none) |
 
-## Subagents (50 files, 340 observed responses)
+## Subagents (51 files, 340 observed responses)
 
 | file | role | nickname | parentId | depth | turns |
 |---|---|---|---|---|---|
@@ -226,6 +226,7 @@ Window: 2026-09-29T00:00:02.391Z .. 2026-09-29T01:19:52.890Z
 | C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\28\rollout-2026-09-28T22-36-14-01a0eb05-175f-7df0-aa59-203016ce232a.jsonl | unmapped | Arendt | 01a0df4c-2809-7520-b1d7-876cc51a87ee | 1 | 0 |
 | C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\28\rollout-2026-09-28T22-53-10-01a0eb14-9800-7b91-878a-0a38e90f47a6.jsonl | unmapped | Noether | 01a0df4c-2809-7520-b1d7-876cc51a87ee | 1 | 0 |
 | C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\28\rollout-2026-09-28T22-53-18-01a0eb14-b75e-7522-8bcb-658ecb3ae65b.jsonl | unmapped | Hegel | 01a0df4c-2809-7520-b1d7-876cc51a87ee | 1 | 0 |
+| C:\Users\benzh\AppData\Roaming\orca\codex-accounts\f22a4cc4-fb5a-4af5-aeec-4951188a536a\home\sessions\2026\09\28\rollout-2026-09-28T23-04-01-01a0eb1e-8768-7482-b034-ba63d50fac0c.jsonl | unmapped | Volta | 01a0df4c-2809-7520-b1d7-876cc51a87ee | 1 | 0 |
 
 ## Combined native totals (lead window + subagents)
 

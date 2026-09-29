@@ -1,7 +1,7 @@
 {
   "verdict": "OBSERVED",
   "mode": "candidate",
-  "sourceSha": "50a66a5339007664bd964f608050178afbd9a7f0",
+  "sourceSha": "863a6865d8bbcca6dde9fb7eaffe22c600f50c6d",
   "originMain": "c0818c99c171de3b7812acd20adbe4d4ea96297c",
   "canonicalHome": "C:/Users/benzh/AppData/Roaming/orca/codex-accounts/f22a4cc4-fb5a-4af5-aeec-4951188a536a/home",
   "canonicalLedger": "C:/Users/benzh/Code/claude-delegation/docs/ledger",
@@ -36,21 +36,21 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.md"
         ],
         "fourRead": [
           "node",
           "scripts/four-read.mjs",
           "--record",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-27-sealed-signal.record.md",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-27-sealed-signal.record.md",
           "--census",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
           "--ledger",
           "C:/Users/benzh/Code/claude-delegation/docs/ledger",
           "--git",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
           "--branch",
           "b5341c71d9436427e31bdae11a6726ec798d1946",
           "--lead-session",
@@ -58,12 +58,12 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.md"
         ]
       },
-      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31",
+      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31",
       "native": {
         "census": {
           "command": [
@@ -82,9 +82,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.md"
           ],
           "exit": 0
         },
@@ -93,13 +93,13 @@
             "node",
             "scripts/four-read.mjs",
             "--record",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-27-sealed-signal.record.md",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-27-sealed-signal.record.md",
             "--census",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\build-census.raw.json",
             "--ledger",
             "C:/Users/benzh/Code/claude-delegation/docs/ledger",
             "--git",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
             "--branch",
             "b5341c71d9436427e31bdae11a6726ec798d1946",
             "--lead-session",
@@ -107,9 +107,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L31\\four-read.raw.md"
           ],
           "exit": 0
         }
@@ -145,21 +145,21 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.md"
         ],
         "fourRead": [
           "node",
           "scripts/four-read.mjs",
           "--record",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-codex-parity.record.md",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-codex-parity.record.md",
           "--census",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
           "--ledger",
           "C:/Users/benzh/Code/claude-delegation/docs/ledger",
           "--git",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
           "--branch",
           "11a1023e47aeb94d7646d21c1b4c9b4cdc0bc883",
           "--lead-session",
@@ -167,12 +167,12 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.md"
         ]
       },
-      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37",
+      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37",
       "native": {
         "census": {
           "command": [
@@ -191,9 +191,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.md"
           ],
           "exit": 0
         },
@@ -202,13 +202,13 @@
             "node",
             "scripts/four-read.mjs",
             "--record",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-codex-parity.record.md",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-codex-parity.record.md",
             "--census",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\build-census.raw.json",
             "--ledger",
             "C:/Users/benzh/Code/claude-delegation/docs/ledger",
             "--git",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
             "--branch",
             "11a1023e47aeb94d7646d21c1b4c9b4cdc0bc883",
             "--lead-session",
@@ -216,9 +216,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L37\\four-read.raw.md"
           ],
           "exit": 0
         }
@@ -254,21 +254,21 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.md"
         ],
         "fourRead": [
           "node",
           "scripts/four-read.mjs",
           "--record",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-render-readback.record.md",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-render-readback.record.md",
           "--census",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
           "--ledger",
           "C:/Users/benzh/Code/claude-delegation/docs/ledger",
           "--git",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
           "--branch",
           "d6e7fcc182da4c9a288c176872797aeb8bb9fa3c",
           "--lead-session",
@@ -276,12 +276,12 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.md"
         ]
       },
-      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48",
+      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48",
       "native": {
         "census": {
           "command": [
@@ -300,9 +300,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.md"
           ],
           "exit": 0
         },
@@ -311,13 +311,13 @@
             "node",
             "scripts/four-read.mjs",
             "--record",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-render-readback.record.md",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-render-readback.record.md",
             "--census",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
             "--ledger",
             "C:/Users/benzh/Code/claude-delegation/docs/ledger",
             "--git",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
             "--branch",
             "d6e7fcc182da4c9a288c176872797aeb8bb9fa3c",
             "--lead-session",
@@ -325,9 +325,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.md"
           ],
           "exit": 0
         }
@@ -363,21 +363,21 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.md"
         ],
         "fourRead": [
           "node",
           "scripts/four-read.mjs",
           "--record",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-codex-followups.record.md",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-codex-followups.record.md",
           "--census",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
           "--ledger",
           "C:/Users/benzh/Code/claude-delegation/docs/ledger",
           "--git",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
           "--branch",
           "d7625e031a61bc34a9bcc8d0fbcdfb8c99114d87",
           "--lead-session",
@@ -385,12 +385,12 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.md"
         ]
       },
-      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49",
+      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49",
       "native": {
         "census": {
           "command": [
@@ -409,9 +409,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.md"
           ],
           "exit": 0
         },
@@ -420,13 +420,13 @@
             "node",
             "scripts/four-read.mjs",
             "--record",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-codex-followups.record.md",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-codex-followups.record.md",
             "--census",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\build-census.raw.json",
             "--ledger",
             "C:/Users/benzh/Code/claude-delegation/docs/ledger",
             "--git",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
             "--branch",
             "d7625e031a61bc34a9bcc8d0fbcdfb8c99114d87",
             "--lead-session",
@@ -434,9 +434,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L49\\four-read.raw.md"
           ],
           "exit": 0
         }
@@ -472,21 +472,21 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.md"
         ],
         "fourRead": [
           "node",
           "scripts/four-read.mjs",
           "--record",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-readback-escapes.record.md",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-readback-escapes.record.md",
           "--census",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
           "--ledger",
           "C:/Users/benzh/Code/claude-delegation/docs/ledger",
           "--git",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
           "--branch",
           "47780b4a87a17d6056abaab3b964e6e8b783f1b0",
           "--lead-session",
@@ -494,12 +494,12 @@
           "--lead-slug",
           "skills-a",
           "--json",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.json",
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.json",
           "--out",
-          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.md"
+          "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.md"
         ]
       },
-      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52",
+      "out": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52",
       "native": {
         "census": {
           "command": [
@@ -518,9 +518,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.md"
           ],
           "exit": 0
         },
@@ -529,13 +529,13 @@
             "node",
             "scripts/four-read.mjs",
             "--record",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-readback-escapes.record.md",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\work\\wr-2026-09-28-readback-escapes.record.md",
             "--census",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\build-census.raw.json",
             "--ledger",
             "C:/Users/benzh/Code/claude-delegation/docs/ledger",
             "--git",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686",
             "--branch",
             "47780b4a87a17d6056abaab3b964e6e8b783f1b0",
             "--lead-session",
@@ -543,9 +543,9 @@
             "--lead-slug",
             "skills-a",
             "--json",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.json",
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.json",
             "--out",
-            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.md"
+            "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-863a686\\docs\\reports\\census-0928\\codex-evidence\\L52\\four-read.raw.md"
           ],
           "exit": 0
         }

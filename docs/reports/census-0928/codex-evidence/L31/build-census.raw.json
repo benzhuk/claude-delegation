@@ -27,7 +27,7 @@
   "lead": {
     "codex": {
       "discovery": {
-        "candidates": 185,
+        "candidates": 186,
         "excluded": [
           {
             "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
@@ -1325,7 +1325,7 @@
     "coverageReason": null,
     "coverageSupported": true,
     "host": "codex",
-    "leadLastMessageAt": "2026-09-29T03:03:35.636Z",
+    "leadLastMessageAt": "2026-09-29T03:11:42.996Z",
     "leadTurns": 1,
     "leadTurnsTotal": 51,
     "markerFound": true,
@@ -1338,13 +1338,13 @@
     "observedTotalByModel": {
       "gpt-6-astra": {
         "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 210723456,
-        "derived_total_tokens": 214805124,
-        "input_tokens": 3429196,
-        "native_input_tokens": 214152652,
-        "output_tokens": 652472,
-        "reasoning_output_tokens": 243344,
-        "total_tokens": 214805124,
+        "cache_read_input_tokens": 213395200,
+        "derived_total_tokens": 217512998,
+        "input_tokens": 3457341,
+        "native_input_tokens": 216852541,
+        "output_tokens": 660457,
+        "reasoning_output_tokens": 247605,
+        "total_tokens": 217512998,
         "unavailable": []
       }
     },
@@ -1367,17 +1367,17 @@
     "totalByModel": {
       "gpt-6-astra": {
         "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 210723456,
-        "derived_total_tokens": 214805124,
-        "input_tokens": 3429196,
-        "native_input_tokens": 214152652,
-        "output_tokens": 652472,
-        "reasoning_output_tokens": 243344,
-        "total_tokens": 214805124,
+        "cache_read_input_tokens": 213395200,
+        "derived_total_tokens": 217512998,
+        "input_tokens": 3457341,
+        "native_input_tokens": 216852541,
+        "output_tokens": 660457,
+        "reasoning_output_tokens": 247605,
+        "total_tokens": 217512998,
         "unavailable": []
       }
     },
-    "totalTurns": 1814,
+    "totalTurns": 1840,
     "turnsPerHour": 126.59647468735803,
     "wakeSplit": null,
     "wakeSplitUnavailable": "codex lead",
@@ -1416,8 +1416,8 @@
     "windowStartAt": "2026-09-28T02:44:00Z"
   },
   "subagents": {
-    "excludedByWindow": 3685,
-    "fileCount": 50,
+    "excludedByWindow": 3777,
+    "fileCount": 51,
     "incomplete": false,
     "perFile": [
       {
@@ -1978,7 +1978,7 @@
         "agentNickname": "Arendt",
         "byModel": {},
         "depth": 1,
-        "excludedByWindow": 57,
+        "excludedByWindow": 73,
         "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-36-14-01a0eb05-175f-7df0-aa59-203016ce232a.jsonl",
         "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
         "role": "unmapped",
@@ -1988,7 +1988,7 @@
         "agentNickname": "Noether",
         "byModel": {},
         "depth": 1,
-        "excludedByWindow": 62,
+        "excludedByWindow": 98,
         "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-53-10-01a0eb14-9800-7b91-878a-0a38e90f47a6.jsonl",
         "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
         "role": "unmapped",
@@ -1998,8 +1998,18 @@
         "agentNickname": "Hegel",
         "byModel": {},
         "depth": 1,
-        "excludedByWindow": 48,
+        "excludedByWindow": 49,
         "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-53-18-01a0eb14-b75e-7522-8bcb-658ecb3ae65b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Volta",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 39,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T23-04-01-01a0eb1e-8768-7482-b034-ba63d50fac0c.jsonl",
         "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
         "role": "unmapped",
         "turns": 0
@@ -2009,7 +2019,7 @@
       "builder": 1,
       "integrator": 1,
       "reviewer": 1,
-      "unmapped": 47
+      "unmapped": 48
     },
     "totalByModel": {
       "gpt-5.6-terra": {
