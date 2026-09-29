@@ -379,6 +379,14 @@ test('Claude and Codex native session ids have independent exact backlog sentine
   assert.equal(repeated.stdout, '', 'the same supplied id keeps its existing cadence');
 });
 
+test('real native Stop route surfaces backlog text for Codex', async (t) => {
+  const root = scratch('codex-parity-stop-route-'); const home = scratch('codex-parity-stop-route-home-');
+  rmLater(t, root); rmLater(t, home); runnableRecord(root);
+  const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents'), NOTE_SLUG: 'lead', CLAUDE_PLUGIN_ROOT: REPO });
+  const result = await nativeRouteForLead({ hook_event_name: 'Stop', session_id: 'stop-l49-session', cwd: root }, root, 'unknown', env);
+  assert.match(result?.text ?? '', /work: 1 runnable and unowned/, 'Codex Stop must carry the real backlog line in additionalContext text');
+});
+
 test('backlog route keeps its existing switches and cadence silent', async (t) => {
   const root = scratch('codex-parity-silence-project-'); const home = scratch('codex-parity-silence-home-');
   rmLater(t, root); rmLater(t, home); runnableRecord(root);
