@@ -1,0 +1,41 @@
+VERDICT: READY 354307891fef3b091623c0bbc5b53095e6a61d8e
+
+# Lane40 source builder report
+
+Reviewed-source-ready SHA: `354307891fef3b091623c0bbc5b53095e6a61d8e` on `build/knowledge-triage-40-source` (base `9cad287`). One initial build, zero fix rounds beyond one self-caught regression (below). No subagents, no live writes, no SSH, no install, no full suite.
+
+## Paths (committed)
+`scripts/knowledge-gather.mjs` (538 lines, new), `scripts/knowledge-triage.mjs` (408, new), `scripts/install-janitor-timer.mjs` (third job; already >800 before this lane, now 1055), `scripts/knowledge-counts.mjs` (session exclusion), `docs/census.md` (one appended section "Knowledge triage: fed"). Uncommitted and NOT mine: `contracts.d.ts` (root's seam delta) and `test-seam-ruling.md`.
+
+## Gates run (Global\claude-verify mutex, acquired within bound, released)
+- `node --check` on the four scripts: exit 0.
+- `node --test scripts/install-janitor-timer.test.mjs scripts/knowledge-counts.test.mjs scripts/knowledge-count.test.mjs`: gate 2 = 75 tests, 72 pass, 0 fail (remainder skipped by the suite itself). Output: `%TEMP%\lane40-builder-gate2.txt`.
+- Gate 1 (same files) had 1 named failure, `C2: --job with an unrecognized value is refused...`: my reworded error text dropped the substring `--job must be janitor-record or collect-status`. Fixed to `--job must be janitor-record or collect-status (or knowledge-triage), got X`. Output: `%TEMP%\lane40-builder-gate1.txt`.
+- Not run: the independent contract tests (not yet supplied). Nothing here is claimed as their result.
+- Ad-hoc scratch smoke (mock proof only, NOT live proof and not a substitute for the contract tests), under `%TEMP%\lane40-smoke-2036\` (`smoke.mjs`, `run.mjs`, `inst.mjs`, fake ssh/claude/git): a real GNU-tar pax stream parsed; gather twice = 2 imports then 0 (idempotent, alreadyPresent); the same bytes on two hosts = one import with both origins; full `runKnowledgeTriage` against fake ssh/claude/git: selection oldest-first, one nested call, 3/3 archived, DIGEST changed plus fake commit, publication verified, both hosts' origins reconciled with correct hash|month|name on the remote program's stdin, tokens `{3,5,7,11, total 26}`, exit 0. Installer: nonwriter exit 2 with the exact message; `--enable` issues Create, Query, Change /ENABLE, Run in that order; the XML has PT2H, Enabled=false, InteractiveToken and a StartBoundary from the injected first-run date; remove deletes only triage files.
+
+## Spec clause mapping
+- Fixed endpoints, Mac `pending` sentinel (`awaiting owner-provided ssh alias`, no spawn), null = `no ssh alias`: gather `ENDPOINTS`, `gatherKnowledge`.
+- SSH argv/env isolation, fixed `/bin/sh -c` programs, data on stdin only: `SSH_OPTIONS`, `sshEnv`, `GATHER_SCRIPT`, `ARCHIVE_SCRIPT`.
+- F6 tar: one pax stream, 5-minute age, `parseTar` (checksums, x-records with length validation, path/mtime honored, linkpath / size disagreement / entry type / traversal / nested rejected, dot and AppleDouble skipped, >1 MiB oversize residue, 64 MiB and 1000-entry bounds, truncation and missing end marker fail the host). Fully validated in memory before any write.
+- F6 imports: `<host>-<sha12>-<safe stem>.md`, dot-temp + fsync + exclusive hard link, temp unlinked, `utimes` preserves source mtime, no partial-write fallback.
+- F1 dedup: full-SHA256 state (`gather/state.json`, stage metadata only) keeps every origin alias; a same-bytes local pending note becomes canonical; managed names (chezmoi source inbox listing) are never selected/imported/moved and are named as residue.
+- F2 selection: age = basename date else original mtime, filename tie-break, cap 60 across local + imports, union eligible reported; out-of-selection archives -> `outOfSelection`, attention, no reconciliation.
+- F3 publication: `publicationState` (fresh `ls-remote`, committed DIGEST at HEAD, source path via chezmoi read-only) and `digestCommitSince`; strict ATTENTION + one BLOCKED only when this run changed DIGEST; a no-change mismatch or unreadable ref sets `verified=false`, moves nothing, is not attention. Per-note eligibility = local archive + literal `· <slug> →` line at HEAD + verified remote match; a missing line -> unresolved `digest entry missing`.
+- F4: curated lock checked before gather and before spawn, never taken; two consecutive held/deferred runs -> ATTENTION + BLOCKED; `skill deferred` counted; job-local mkdir `run.lock` with pid/start/token, live owner = `job already running`, stale = attention, released only by owner token.
+- F5 remote archive: hash-checked, month from the local archive, `ln` (never overwrites), inode-equality check, then removal of the source name, destination re-hashed; symlink / changed source / mismatch surfaced, never destroyed; RESURRECTED and ORIGIN_MISSING handled; `superseded` and `origin missing` reported once, bytes retained, no retry.
+- F7/F8/F11: installer third job, three-entry marker table, writer refusal exit 2, Windows-only, PT2H, register disabled -> Query -> Change -> Run, own state dir; other jobs' artifacts untouched (existing byte-stability tests green). The nested prompt carries the exact slug sentence (`SLUG_SENTENCE`) and the tick (or the intake for `--manual`). The skill/README amendment sentence is NOT written here (not my territory).
+- Rev3 retained: writer-name parsing from the skill, nonwriter no-op, missing writer paragraph = ATTENTION exit 1, kill switches, missing CLI/skill skips, nested nonzero = failed, tree kill on timeout (`taskkill /T /F` or process group), env hygiene (no API key, no ORCA/CODEX/peer/git-identity/`*_TOKEN` keys; `CLAUDE_CODE_OAUTH*` kept for plan auth), sessions.json appended before spawn and read-count exclusion (last-token match, tolerant list shapes), tokens never zero-invented.
+- Seams from root's contract delta honored: `gitCommand`, `chezmoiCommand`, `nestedTimeoutMs`, `hostTimeoutMs`, `timers`; none is exposed by the CLI (its only flag is `--manual`).
+
+## Limitations and judgment calls for root
+1. The nested argv is the R4 probe's, with three production differences the probe did not exercise: no `--plugin-dir` (installed skill), no `--include-hook-events`, and `Bash(git:*)` / `Bash(chezmoi:*)` removed from `--disallowedTools` because the skill publishes. Whether `Bash` alone suffices for the skill's lock/publication recipe in production is unproven (the probe omitted publication). This is the live-proof gate.
+2. The remote programs assume POSIX `find` with `-print0`/`-mmin`, `tar --null -T -` with `--format=pax`, and `sh` with `-ef`; verified only against GNU tar locally, not on the real Netcup/Hetzner/Mac.
+3. The `note-send` BLOCKED call (`--from knowledge-triage --to ben --kind BLOCKED --topic knowledge-triage --sender-repo <plugin root>`) is derived from note-send's usage text and unexercised; its failure is swallowed so it never masks the run's status.
+4. The `sessions.json` format (JSON array of id strings) and the `state.json` / `run-state.json` shapes are mine; the counts reader tolerates an array of strings, an array of objects, or `{sessions: []}`.
+5. Skipped runs also overwrite `last-run.json` (rev4: "recorded skips"); the previous-run end used for `notesArrived` lives separately in `run-state.json` so a skip does not reset it.
+6. An empty selection still runs reconcile (a drained inbox retries origin moves) and reports `reason: "inbox empty"`. Duplicate bytes among local notes keep only the oldest in the selection.
+7. A reconcile ssh failure marks that host row `failed` with `reconciliation pending: ...`, leaving the local archive and staging intact for retry.
+8. A stale `run.lock` also raises ATTENTION + one BLOCKED (the spec is silent on the notification).
+9. The installer already exceeded 800 lines; no unrelated refactor.
+10. Guard events: the delete guard refused one recursive-delete of a scratch directory I did not need (stopped, fresh directory used instead), and later matched the literal phrase in a heredoc that contained report prose (a false positive: that command deleted nothing); I stopped that command and wrote this report with the Write tool instead. Leftovers for the janitor/root: `%TEMP%\lane40-smoke-2036\`, `%TEMP%\lane40-smoke-path.txt`, `%TEMP%\lane40-builder-gate1.txt`, `%TEMP%\lane40-builder-gate2.txt`.
