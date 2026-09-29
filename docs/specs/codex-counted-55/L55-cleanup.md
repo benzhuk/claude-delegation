@@ -9,15 +9,15 @@ VERDICT: OBSERVED
 - `record-closed-and-skip-1-builder`: Orca removal exit `0`; after-state `pathExists: False`, `localBranchExists: False`. Its independently revalidated merged local branch was removed by Orca with the worktree. Receipt set: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55/janitor-rebased-001/cleanup-four/record-closed-and-skip-1-builder-{pre.json,orca-pre.json,command.txt,remove.raw.json,exit.txt,after.json}`.
 - `sealed-signal-1-builder`: Orca removal exit `0`; after-state `pathExists: False`, `localBranchExists: False`. Its independently revalidated merged local branch was removed by Orca with the worktree. Receipt set: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55/janitor-rebased-001/cleanup-four/sealed-signal-1-builder-{pre.json,orca-pre.json,command.txt,remove.raw.json,exit.txt,after.json}`.
 
-No remote branch was deleted. The cleanup used `orca worktree rm` without `--force`; it touched no other worktree.
+The initial four removals touched no remote branch. A separate explicitly requested owned-lane retirement then removed old `codex-counted-55` without force and exact-lease deleted `origin/build/codex-counted-55`. All original commit history remains on local `build/codex-counted-55` at `2f6ee937`; its child `lane55-r1-red` and all Scratch evidence remain. True receipts: `C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55/original-retirement-001`. Orca unexpectedly removed the local branch; it was recreated from the still-exact remote and verified before remote deletion. No provenance was lost.
 
 ## Retained contexts
 
-- Original pre-rebase Lane55 worktree `codex-counted-55` and `origin/build/codex-counted-55` remain: its `2f6ee937` provenance is unmerged historical source and Janitor did not offer it for automatic removal.
+- Original pre-rebase Lane55 provenance remains on local `build/codex-counted-55` at `2f6ee937`; the old worktree and remote ref were retired separately under the existing scoped cleanup request. This was an explicitly verified reversible owned closeout, not an automatic action on the generic JUDGMENT table.
 - Astra worktrees remain: none appeared in the Janitor SAFE worktree set.
 - `codex-parity-37-builder` remains despite SAFE Git state because Orca reported `active`, one live attached terminal.
 - The other 15 SAFE worktrees remain because they are not Orca-managed by this local runtime, so liveness is unknown.
-- skills-a retains current Lane55 rebased and Lane56 source/gate worktrees plus Lane55 scratch evidence; original Lane55 provenance remains retained. Other live panes retain their own contexts.
+- skills-a retains current Lane55 rebased and Lane56 source/gate worktrees plus Lane55 scratch evidence; original Lane55 provenance remains retained by its local ref. Other live panes retain their own contexts.
 
 ## Janitor counts and evidence
 
@@ -517,3 +517,5 @@ Generated Janitor record evidence status in codex-counted-55-rebased at observat
 }
 ```
 
+
+A temporary Waiting item was published during authority reconciliation, then withdrawn after the scoped original55 retirement preserved all provenance. No user answer or silence was treated as permission; the existing cleanup request already authorized this reversible owned closeout. The original fresh-sweep JSON below remains an immutable before-cleanup snapshot.
