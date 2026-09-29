@@ -11,6 +11,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 import {
   main,
@@ -26,7 +27,7 @@ import {
 } from "./collect-from-origin.mjs";
 
 function git(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" });
+  return execFileSync("git", args, { cwd, encoding: "utf8", env: childEnv(os.homedir()) });
 }
 
 const tracked = [];

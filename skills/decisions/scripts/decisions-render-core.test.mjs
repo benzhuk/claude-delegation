@@ -14,12 +14,13 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { defaultExecGit } from './decisions-render-core.mjs';
+import { childEnv } from '../../multi/scripts/test-child-env.mjs';
 
 const tracked = [];
 function mkRepo(prefix) {
   const dir = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), prefix));
   tracked.push(dir);
-  execFileSync('git', ['init', '--quiet'], { cwd: dir, encoding: 'utf8' });
+  execFileSync('git', ['init', '--quiet'], { cwd: dir, encoding: 'utf8', env: childEnv(os.homedir()) });
   return dir;
 }
 
