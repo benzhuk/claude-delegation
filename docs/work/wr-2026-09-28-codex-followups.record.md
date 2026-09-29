@@ -1,12 +1,12 @@
 Work: wr-2026-09-28-codex-followups
 Scope: specification below, skills-fable-lane-49-1 at base9c816fdd8ef906388c74d69263bb6b9935dc9221
 Owner: skills-a
-Status: rejected
+Status: delivered
 Authority: lane49 dispatch under standing build/merge grant; normal guarded publication at close. No release/install, transport, render, janitor or Claude-side hook edits. Shared-hook changes require a peer territory ruling before implementation. Root alone writes the work record.
-Artifact: d6e411764846d8a02b82e3c0671f13ccd19a5951
+Artifact: 46228f302b88d64c48fd966caea0d73496b67614
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-followups-49
 Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md, docs/specs/codex-followups-49/L49-builder-report.md, docs/specs/codex-followups-49/L49-test-report.md, docs/specs/codex-followups-49/L49-main-integration.md, docs/specs/codex-followups-49/L49-host-gates-r1.md, docs/specs/codex-followups-49/L49-opus-r1.md, docs/specs/codex-followups-49/L49-host-gates-r2.md, docs/specs/codex-followups-49/L49-opus-r2.md, docs/specs/codex-followups-49/L49-merge-gate-r1.md, docs/work/evidence/wr-2026-09-28-codex-followups.census.md, docs/work/evidence/wr-2026-09-28-codex-followups.spec-census-observed.md, docs/work/evidence/wr-2026-09-28-codex-followups.four-read-evidence.md, docs/work/evidence/wr-2026-09-28-codex-followups.work-census-evidence.md
-Next: diagnose the exact-merge Stop backlog assertion failure, preserve the failed receipt, then obtain any required correction review and fresh acceptance before merge/publish/close.
+Next: deterministic advisory-composition test correction by independent test author, same Opus delta review, changed-candidate host gates, refreshed census and reacceptance, then exact-merge gate and publication.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:59:00Z
@@ -27,6 +27,8 @@ Four numbers: Rework after acceptance: 0 commits touching build files within 7 d
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-49-1; wakes 2 (2 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
 Log: 2026-09-29T00:42:02.000Z accepted skills-a artifact d6e411764846d8a02b82e3c0671f13ccd19a5951
 Log: 2026-09-29T00:50:00Z rejected skills-a exact merge50d67a0545ee6b8f5a16a9a4db7b784dd60e1a7b Windows sealed suite failed one Stop backlog assertion,2703pass1fail14skip. Merge remains local and unpushed, publication not attempted. GPT-5.6-Terra builder diagnosing before any correction, no unchanged suite rerun. Prior acceptance retained as history and rework is explicit.
+Log: 2026-09-29T00:53:02Z owned skills-a GPT-5.6-Terra test author correcting the optional-advisory composition fixture through the existing injection seam. Focused exact test1of1 passed while merge suite Stop-only output was absent, supporting load-related advisory expiry without proving it instrumentally. skills-fable-lane-49-8 confirms deterministic prewarmed/injected fixture and unchanged production bounds, with same Opus delta review required.
+Log: 2026-09-29T00:54:42Z delivered skills-a GPT-5.6-Terra test author returned deterministic composition fix46228f302b88d64c48fd966caea0d73496b67614. Scoped25of25 passes. Scratch Stop-null mutant fails intended assertion while peer and continuation remain. Existing real CLI, two-session routing, and both timing checks retained; production unchanged. Same Opus delta requested next.
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-followups-49
 
