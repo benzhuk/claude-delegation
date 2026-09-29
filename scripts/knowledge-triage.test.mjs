@@ -161,6 +161,7 @@ const head = s.phase === 'after' ? s.newHead : s.oldHead;
 if (args[0] === 'rev-parse' && args.includes('HEAD')) console.log(head);
 else if (args[0] === 'rev-parse' && args.includes('--abbrev-ref')) console.log('main');
 else if (args[0] === 'symbolic-ref' || args[0] === 'branch') console.log('main');
+else if (args[0] === 'ls-remote' && s.failureReason) { process.stderr.write(s.failureReason); process.exit(2); }
 else if (args[0] === 'ls-remote') console.log((s.remoteHead || head) + '\\trefs/heads/main');
 else if (args[0] === 'log') { if (s.touchesDigest) console.log(s.newHead); }
 else if (args[0] === 'show') process.stdout.write(fs.readFileSync(digest, 'utf8'));
@@ -259,24 +260,31 @@ test('notification uses the installed Node sender, an envelope-safe summary, and
   const source = fs.readFileSync(new URL('./knowledge-triage.mjs', import.meta.url), 'utf8');
   assert.match(source, /defaultNoteSend[\s\S]{0,1200}buildNotificationInvocation\s*\(/, 'default sender must consume the tested helper');
 
-  const h = makeHarness();
-  const lock = path.join(h.store, '.curated-update.lock');
-  fs.mkdirSync(lock);
-  fs.writeFileSync(path.join(lock, 'owner.txt'), 'owner | unsafe\nsecond line\n');
-  let delivered = null;
-  const deps = { ...h.options.deps, noteSend: async (summary) => {
-    delivered = summary;
-    assert.ok(fs.existsSync(path.join(h.stateDir, 'ATTENTION')), 'packet must exist before notification');
-    assert.doesNotThrow(() => assertFieldSafe('text', summary));
-  } };
-  await runKnowledgeTriage({ ...h.options, deps });
-  const result = await runKnowledgeTriage({ ...h.options, deps });
-  assert.equal(result.receipt.status, 'attention');
-  assert.ok(delivered);
-  assert.ok(!delivered.includes('|'), delivered);
-  const attention = fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8');
-  assert.match(attention, /rmdir ~\/\.claude\/knowledge\/\.curated-update\.lock/);
-  assert.match(attention, /rm ~\/\.agents\/knowledge-triage\/ATTENTION/);
+  for (const [label, owner] of [
+    ['shell/newline', 'owner | unsafe\nsecond line\n'],
+  ]) {
+    const h = makeHarness(); const lock = path.join(h.store, '.curated-update.lock');
+    fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner.txt'), owner);
+    let delivered = null;
+    const deps = { ...h.options.deps, noteSend: async (summary) => {
+      delivered = summary;
+      assert.ok(fs.existsSync(path.join(h.stateDir, 'ATTENTION')), `${label}: packet must exist before notification`);
+    } };
+    await runKnowledgeTriage({ ...h.options, deps });
+    const result = await runKnowledgeTriage({ ...h.options, deps });
+    assert.equal(result.receipt.status, 'attention', label); assert.ok(delivered, label);
+    assert.doesNotThrow(() => assertFieldSafe('text', delivered), label);
+    const attention = fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8');
+    assert.match(attention, /rmdir ~\/\.claude\/knowledge\/\.curated-update\.lock/, label);
+    assert.match(attention, /rm ~\/\.agents\/knowledge-triage\/ATTENTION/, label);
+  }
+  for (const [label, failureReason] of [['NBSP', 'remote\u00a0Goal: unsafe'], ['U+2028', 'remote\u2028Details: unsafe']]) {
+    const h = makeHarness(); writeNote(h, `2026-08-01-${label.toLowerCase().replace(/\W/g, '')}.md`); h.configure({ action: 'archive' }); h.configureGit({ failureReason });
+    let delivered = null;
+    const result = await runKnowledgeTriage({ ...h.options, deps: { ...h.options.deps, noteSend: async (summary) => { delivered = summary; } } });
+    assert.equal(result.receipt.status, 'attention', label); assert.ok(delivered, label);
+    assert.doesNotThrow(() => assertFieldSafe('text', delivered), label);
+  }
 });
 
 test('notification or ATTENTION write failure is visible in the returned reason and packet', async () => {
@@ -294,14 +302,21 @@ test('notification or ATTENTION write failure is visible in the returned reason 
   fs.writeFileSync(write.skill, '# no writer declaration\n');
   const stateFile = path.join(write.root, 'state-is-a-file');
   fs.writeFileSync(stateFile, 'blocks directory creation\n');
-  let attempted = 0;
+  let attempted = 0; let fallback = null;
   const unwritten = await runKnowledgeTriage({
     ...write.options, stateDir: stateFile,
-    deps: { ...write.options.deps, noteSend: async () => { attempted++; } },
+    deps: { ...write.options.deps, noteSend: async (summary) => { attempted++; fallback = summary; throw new Error('fixture fallback send down'); } },
   });
   assert.equal(unwritten.receipt.status, 'attention');
   assert.match(unwritten.receipt.reason, /ATTENTION.*(?:not written|write failed)/i);
-  assert.equal(attempted, 0, 'notification cannot claim a packet that was not written');
+  assert.match(unwritten.receipt.reason, /BLOCKED.*NOT delivered.*fixture fallback send down/i);
+  assert.equal(attempted, 1, 'packet write failure still gets exactly one fallback notification');
+  assert.doesNotThrow(() => assertFieldSafe('text', fallback));
+  assert.match(fallback, /ATTENTION packet NOT written/);
+  assert.ok(fallback.includes('rmdir ~/.claude/knowledge/.curated-update.lock'));
+  assert.ok(fallback.includes('rm ~/.agents/knowledge-triage/ATTENTION'));
+  const withoutPacket = triageModule.buildNotificationInvocation('fallback summary', null);
+  assert.equal(withoutPacket.args.includes('--packet-file'), false);
 });
 
 test('managed discovery failure skips before gather or nested spawn and names the cause', async () => {

@@ -1,190 +1,16 @@
 // node --test scripts/knowledge-gather.test.mjs
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { gatherKnowledge, managedNames, reconcileKnowledge, runProcess } from './knowledge-gather.mjs';
+import {
+  fixtureOptions, hostRow, makeExitSshFixture, makeSshFixture, makeTarSshFixture, paxRecord,
+  seedVerifiedPublication, sha, tarArchive, tarEntry, tmp, writeRemoteNote,
+} from './knowledge-gather.test-fixtures.mjs';
 
 const CHILD_ENV_MODULE = new URL('../skills/multi/scripts/test-child-env.mjs', import.meta.url).href;
-
-const tracked = [];
-function tmp(prefix) {
-  const root = process.env.FIXTURE_ROOT || os.tmpdir();
-  const dir = fs.mkdtempSync(path.join(root, prefix));
-  tracked.push(dir);
-  return dir;
-}
-
-after(() => {
-  for (const dir of tracked.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-});
-
-function sha(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
-function hostRow(gathered, host) {
-  const row = gathered.hosts.find((item) => item.host === host);
-  assert.ok(row, `missing host row ${host}`);
-  return row;
-}
-
-function writeRemoteNote(remoteHome, name, bytes, ageMinutes = 10) {
-  const inbox = path.join(remoteHome, '.claude', 'knowledge', '_inbox');
-  fs.mkdirSync(inbox, { recursive: true });
-  const file = path.join(inbox, name);
-  fs.writeFileSync(file, bytes);
-  const when = (Date.now() - ageMinutes * 60_000) / 1000;
-  fs.utimesSync(file, when, when);
-  return file;
-}
-
-function shellPath() {
-  if (process.platform !== 'win32') return '/bin/sh';
-  const gitBash = 'C:/Program Files/Git/bin/bash.exe';
-  return fs.existsSync(gitBash) ? gitBash : 'bash.exe';
-}
-
-function makeSshFixture(hostHomes, { archiveRace = null } = {}) {
-  const dir = tmp('knowledge-ssh-');
-  const script = path.join(dir, 'fake-ssh.mjs');
-  const log = path.join(dir, 'calls.jsonl');
-  const homes = Object.fromEntries(Object.entries(hostHomes).map(([key, value]) => [key, value.replaceAll('\\', '/')]));
-  const race = archiveRace && {
-    source: archiveRace.source.replaceAll('\\', '/'),
-    replacement: archiveRace.replacement.replaceAll('\\', '/'),
-  };
-  fs.writeFileSync(script, `
-import fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
-const homes = ${JSON.stringify(homes)};
-const race = ${JSON.stringify(race)};
-const log = ${JSON.stringify(log.replaceAll('\\', '/'))};
-const shell = ${JSON.stringify(shellPath())};
-const argv = process.argv.slice(2);
-const endpoint = argv.find((arg) => Object.hasOwn(homes, arg));
-fs.appendFileSync(log, JSON.stringify({ argv, env: Object.keys(process.env).sort() }) + '\\n');
-if (!endpoint) process.exit(91);
-const transported = argv.at(-1);
-let command = transported.startsWith("'") && transported.endsWith("'") ? transported.slice(1, -1) : transported;
-const input = fs.readFileSync(0);
-if (race && input.length) {
-  command = 'mv(){ command mv "$@"; rc=$?; if [ "$rc" -eq 0 ] && [ ! -e "$RACE_SOURCE" ]; then command cp "$RACE_REPLACEMENT" "$RACE_SOURCE.race"; command mv -f "$RACE_SOURCE.race" "$RACE_SOURCE"; fi; return "$rc"; }; ' +
-    'ln(){ case " $* " in *" $RACE_SOURCE "*) command cp "$RACE_REPLACEMENT" "$RACE_SOURCE.race"; command mv -f "$RACE_SOURCE.race" "$RACE_SOURCE";; esac; command ln "$@"; }; ' + command;
-}
-const child = spawnSync(shell, ['-c', command], {
-  cwd: homes[endpoint], input,
-  env: { PATH: process.env.PATH || '', HOME: homes[endpoint], TMP: process.env.TMP || '', TEMP: process.env.TEMP || '', RACE_SOURCE: race?.source || '', RACE_REPLACEMENT: race?.replacement || '' },
-  maxBuffer: 80 * 1024 * 1024,
-});
-if (child.stdout) process.stdout.write(child.stdout);
-if (child.stderr) process.stderr.write(child.stderr);
-process.exit(child.status ?? 92);
-`);
-  return {
-    command: [process.execPath, script],
-    log,
-    calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
-  };
-}
-
-function fixtureOptions({ localHome, stateDir, ssh, endpoints, now = new Date('2026-09-29T18:00:00Z') }) {
-  const inboxDir = path.join(localHome, '.claude', 'knowledge', '_inbox');
-  const dotfilesRepo = path.join(localHome, 'dotfiles-fixture');
-  const sourceInbox = path.join(dotfilesRepo, 'source-inbox');
-  fs.mkdirSync(inboxDir, { recursive: true });
-  fs.mkdirSync(path.join(sourceInbox, '_archive'), { recursive: true });
-  return {
-    home: localHome,
-    stateDir,
-    inboxDir,
-    now: () => new Date(now),
-    deps: {
-      sshCommand: ssh.command,
-      hostTimeoutMs: 10_000,
-      endpoints,
-      dotfilesRepo,
-      chezmoiSourceInbox: sourceInbox,
-    },
-  };
-}
-
-function seedVerifiedPublication(options, importedNames) {
-  const digest = path.join(options.deps.chezmoiSourceInbox, '_archive', 'DIGEST.md');
-  fs.writeFileSync(digest, `# fixture digest\n${importedNames.map((name) => `2026-09-29 · ${name.slice(0, -3)} → merged:fixture.md`).join('\n')}\n`);
-  const fakeGit = path.join(options.stateDir, 'fake-git.mjs');
-  fs.mkdirSync(options.stateDir, { recursive: true });
-  fs.writeFileSync(fakeGit, `
-import fs from 'node:fs';
-const argv = process.argv.slice(2);
-const args = argv[0] === '-C' ? argv.slice(2) : argv;
-const head = 'a'.repeat(40);
-if (args[0] === 'rev-parse') console.log(head);
-else if (args[0] === 'symbolic-ref') console.log('main');
-else if (args[0] === 'ls-remote') console.log(head + '\\trefs/heads/main');
-else if (args[0] === 'show') process.stdout.write(fs.readFileSync(${JSON.stringify(digest.replaceAll('\\', '/'))}, 'utf8'));
-else if (args[0] === 'log') console.log(head);
-else process.exit(2);
-`);
-  options.deps.gitCommand = [process.execPath, fakeGit];
-}
-
-function octalField(buffer, offset, length, value) {
-  const text = Math.trunc(value).toString(8).padStart(length - 1, '0') + '\0';
-  buffer.write(text.slice(-length), offset, length, 'ascii');
-}
-
-function tarEntry(name, data = Buffer.alloc(0), { type = '0', mtime = 1_700_000_000, linkname = '' } = {}) {
-  data = Buffer.isBuffer(data) ? data : Buffer.from(data);
-  const header = Buffer.alloc(512);
-  header.write(name, 0, 100, 'utf8');
-  octalField(header, 100, 8, 0o600);
-  octalField(header, 108, 8, 1000);
-  octalField(header, 116, 8, 1000);
-  octalField(header, 124, 12, data.length);
-  octalField(header, 136, 12, mtime);
-  header.fill(0x20, 148, 156);
-  header.write(type, 156, 1, 'ascii');
-  header.write(linkname, 157, 100, 'utf8');
-  header.write('ustar\0', 257, 6, 'binary');
-  header.write('00', 263, 2, 'ascii');
-  const checksum = header.reduce((sum, byte) => sum + byte, 0);
-  header.write(checksum.toString(8).padStart(6, '0'), 148, 6, 'ascii');
-  header[154] = 0;
-  header[155] = 0x20;
-  const padding = Buffer.alloc((512 - (data.length % 512)) % 512);
-  return Buffer.concat([header, data, padding]);
-}
-
-function paxRecord(key, value) {
-  const body = `${key}=${value}\n`;
-  let length = Buffer.byteLength(body) + 3;
-  while (Buffer.byteLength(`${length} ${body}`) !== length) length = Buffer.byteLength(`${length} ${body}`);
-  return `${length} ${body}`;
-}
-
-function tarArchive(entries) {
-  return Buffer.concat([...entries, Buffer.alloc(1024)]);
-}
-
-function makeTarSshFixture(tarBytes) {
-  const dir = tmp('knowledge-tar-ssh-');
-  const script = path.join(dir, 'fake-tar-ssh.mjs');
-  const data = path.join(dir, 'stream.tar');
-  fs.writeFileSync(data, tarBytes);
-  fs.writeFileSync(script, `import fs from 'node:fs'; process.stdout.write(fs.readFileSync(${JSON.stringify(data.replaceAll('\\', '/'))}));\n`);
-  return { command: [process.execPath, script], log: path.join(dir, 'unused'), calls: () => [] };
-}
-
-function makeExitSshFixture(code, stderr = '') {
-  const dir = tmp('knowledge-exit-ssh-');
-  const script = path.join(dir, 'fake-exit-ssh.mjs');
-  fs.writeFileSync(script, `process.stderr.write(${JSON.stringify(stderr)}); process.exit(${code});\n`);
-  return { command: [process.execPath, script], log: path.join(dir, 'unused'), calls: () => [] };
-}
 
 function makeHangingSshFixture() {
   const dir = tmp('knowledge-hang-ssh-');
@@ -349,38 +175,32 @@ test('real host deadline kills the fake SSH process tree and reports timeout', {
   assert.equal(processIsAlive(pid), false, `SSH grandchild ${pid} survived owned process-tree kill`);
 });
 
-test('overflow followed by the parent timeout signals the owned child tree only once', async () => {
+test('overflow and timeout signal the owned child tree only once in either order', async () => {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   const realKill = process.kill;
-  let timeoutCallback = null;
-  let killCalls = 0;
   try {
     Object.defineProperty(process, 'platform', { ...platform, value: 'linux' });
-    process.kill = (pid, signal) => {
-      killCalls++;
-      const killed = realKill.call(process, Math.abs(pid), signal);
-      if (killCalls === 1) {
-        assert.ok(timeoutCallback, 'parent timeout must be armed before child output');
-        timeoutCallback();
-      }
-      return killed;
-    };
-    const result = await runProcess({
-      cmd: [process.execPath],
-      args: ['-e', 'process.stdout.write("overflow"); setInterval(() => {}, 1000)'],
-      maxBytes: 1,
-      timeoutMs: 10_000,
-      timers: {
-        setTimeout(callback) {
-          if (!timeoutCallback) timeoutCallback = callback;
-          return { unref() {} };
-        },
-        clearTimeout() {},
-      },
-    });
-    assert.equal(result.overflow, true);
-    assert.equal(result.timedOut, true);
-    assert.equal(killCalls, 1, 'overflow and timeout must share one process-tree signal');
+    for (const order of ['overflow-first', 'timeout-first']) {
+      let timeoutCallback = null; let killCalls = 0; let childPid = null;
+      process.kill = (pid, signal) => {
+        killCalls++; childPid = Math.abs(pid);
+        if (order === 'overflow-first' && killCalls === 1) {
+          assert.ok(timeoutCallback, 'parent timeout must already be armed'); timeoutCallback();
+          return realKill.call(process, childPid, signal);
+        }
+        if (order === 'timeout-first' && killCalls === 1) setTimeout(() => { try { realKill.call(process, childPid, signal); } catch {} }, 200);
+        return true;
+      };
+      const pending = runProcess({
+        cmd: [process.execPath], args: ['-e', 'setTimeout(() => process.stdout.write("overflow"), 25); setInterval(() => {}, 1000)'],
+        maxBytes: 1, timeoutMs: 10_000,
+        timers: { setTimeout(callback) { if (!timeoutCallback) timeoutCallback = callback; return { unref() {} }; }, clearTimeout() {} },
+      });
+      if (order === 'timeout-first') { assert.ok(timeoutCallback); timeoutCallback(); }
+      const result = await pending;
+      assert.equal(result.overflow, true, order); assert.equal(result.timedOut, true, order);
+      assert.equal(killCalls, 1, `${order}: overflow and timeout must share one process-tree signal`);
+    }
   } finally {
     process.kill = realKill;
     Object.defineProperty(process, 'platform', platform);
@@ -489,6 +309,60 @@ test('changed origin and conflicting archive are preserved and reported unresolv
     assert.equal(row.unresolved, 1, mode);
     assert.ok(fs.existsSync(source), `${mode}: source retained`);
     assert.ok(fs.existsSync(item.stagedPath), `${mode}: staged evidence retained`);
+  }
+});
+
+async function preparedArchiveCase(label, phase = null) {
+  const localHome = tmp(`knowledge-claim-${label}-local-`);
+  const remote = tmp(`knowledge-claim-${label}-remote-`);
+  const name = `2026-08-07-${label}.md`;
+  const original = Buffer.from('gathered original bytes\n');
+  const replacement = Buffer.from('changed bytes before claim\n');
+  const occupied = Buffer.from('new live-name occupant\n');
+  const source = writeRemoteNote(remote, name, original);
+  const replacementFile = path.join(remote, 'replacement.bin');
+  const occupiedFile = path.join(remote, 'occupied.bin');
+  fs.writeFileSync(replacementFile, replacement); fs.writeFileSync(occupiedFile, occupied);
+  const archiveRace = phase ? { source, replacement: replacementFile, occupied: occupiedFile, phase } : null;
+  const ssh = makeSshFixture({ n: remote }, { archiveRace });
+  const options = fixtureOptions({ localHome, stateDir: path.join(localHome, '.agents', 'knowledge-triage'), ssh, endpoints: { netcup: 'n', hetzner: null, mac: null } });
+  const gathered = await gatherKnowledge(options); const item = gathered.imports[0]; const month = '2026-09';
+  const localArchive = path.join(options.inboxDir, '_archive', month);
+  fs.mkdirSync(localArchive, { recursive: true });
+  fs.renameSync(path.join(options.inboxDir, item.importedName), path.join(localArchive, item.importedName));
+  seedVerifiedPublication(options, [item.importedName]);
+  return { remote, source, name, original, replacement, occupied, options, gathered, item, month };
+}
+
+test('interrupted and busy archive claims remain named unresolved evidence, never terminal missing', async () => {
+  for (const mode of ['interrupted', 'busy']) {
+    const h = await preparedArchiveCase(mode);
+    const claim = path.join(path.dirname(h.source), `.claim-${h.item.sha256}`);
+    fs.mkdirSync(claim);
+    if (mode === 'interrupted') fs.renameSync(h.source, path.join(claim, 'note'));
+    else fs.writeFileSync(path.join(claim, 'owner'), 'existing claim marker\n');
+    const rows = await reconcileKnowledge(h.options, h.gathered); const row = hostRow({ hosts: rows }, 'netcup');
+    assert.equal(row.terminal, 0, mode); assert.equal(row.unresolved, 1, mode);
+    const residue = rows.residue.unresolved.find((item) => item.host === 'netcup' && item.name === h.name);
+    assert.match(residue.reason, mode === 'interrupted' ? /remote claim kept.*\.claim-/i : /claim dir already exists.*\.claim-/i);
+    if (mode === 'interrupted') assert.deepEqual(fs.readFileSync(path.join(claim, 'note')), h.original);
+    else { assert.deepEqual(fs.readFileSync(h.source), h.original); assert.equal(fs.readFileSync(path.join(claim, 'owner'), 'utf8'), 'existing claim marker\n'); }
+  }
+});
+
+test('changed claim restores to a free name or preserves claim plus a newly occupied live name', async () => {
+  for (const phase of ['before-claim', 'before-claim-occupied']) {
+    const h = await preparedArchiveCase(phase, phase);
+    const rows = await reconcileKnowledge(h.options, h.gathered); const row = hostRow({ hosts: rows }, 'netcup');
+    const claim = path.join(path.dirname(h.source), `.claim-${h.item.sha256}`);
+    const destination = path.join(path.dirname(h.source), '_archive', h.month, h.name);
+    assert.equal(row.terminal, 0, phase); assert.equal(row.unresolved, 1, phase); assert.ok(!fs.existsSync(destination), phase);
+    const residue = rows.residue.unresolved.find((item) => item.name === h.name);
+    if (phase === 'before-claim') {
+      assert.match(residue.reason, /origin changed since gather/i); assert.deepEqual(fs.readFileSync(h.source), h.replacement); assert.ok(!fs.existsSync(claim));
+    } else {
+      assert.match(residue.reason, /remote claim kept.*\.claim-/i); assert.deepEqual(fs.readFileSync(h.source), h.occupied); assert.deepEqual(fs.readFileSync(path.join(claim, 'note')), h.replacement);
+    }
   }
 });
 
