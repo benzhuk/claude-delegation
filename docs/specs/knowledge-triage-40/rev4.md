@@ -6,13 +6,15 @@ Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Base: e142f9a0490ec58bad62bd1ecc4e87a606b5308e
 Authority: rev4-intake.md, skills-fable-lane-40-1. Ben's quoted comment authorizes the build now. This document supersedes only the rev3 clauses expressly changed below; rev3.md is retained unchanged as provenance.
 
-Revision after Opus red-team: spec-review-r1.md reviewed0a759de with NEEDS_FIXES. The normative corrections in spec-r1-adjudication.md below this document's contract take precedence where they replace a clause. This remains a draft pending probe resolution and a fresh Opus delta approval; no builder may start.
+Revision after Opus red-team: spec-review-r1.md reviewed0a759de with NEEDS_FIXES. The normative corrections in spec-r1-adjudication.md below this document's contract take precedence where they replace a clause. Spec-review-r4.md subsequently APPROVED6fa1b4d, and probe-r4-report.md passed the required plain-file proof. Those prerequisites authorized the completed main build; implementation acceptance still requires independent code review and the remaining gates.
 
 Later authority: install-authority.md records skills-fable-lane-40-2 and Ben's September29 17:11 America/New_York tick. The installation wait below is satisfied by that reported decision. Install on the next release after acceptance/merge, enabled, then trigger the first run immediately rather than waiting for its daily clock slot. Cite the tick in the release item. Do not request it again. Existing probe/review/merge gates are not waived.
 
 Latest probe/gather ruling: probe-r2-authority.md (skills-fable-lane-40-3) replaces scratch Git publication with plain-file before/after digest manifests, no Git and no allowlist. Nested behavior is tested in scratch; real publication remains the later live gate. Mac is a named placeholder pending Ben's alias, and both denied searches remain stopped. These specific later rulings override the earlier probe and alias-discovery clauses below and in spec-r1-adjudication.md.
 
 Lock naming correction: skills-fable-lane-40-4 through -6 authorize the narrow non-credential owner-name fix in the maintained triage skill and the environment-name regression check with exactly the two documented non-credential exceptions in lock-owner-scope.md. The dotfiles branch patch is727e60db25d5e45d9476d8a6f41e9ade91fe33cf, separate from this plugin branch. Guards and on-disk ownership protocol remain unchanged. The next plain-file probe loads this exact branch skill through an explicitly named scratch plugin, with real user settings and guards preserved, per probe-r3-prep-report.md. This proves candidate skill behavior, not live installation. The production live proof still requires the corrected recipe to be available through the normal selected skill; do not silently apply the whole dotfiles tree or treat a scratch overlay as installed behavior.
+
+Later scope/delivery correction: skills-fable-lane-40-9 reports the exact lock rename delivered on Windows, Netcup and Hetzner. Lane-40-10 withdraws the proposed discovery reroute and transfers the naming regression test to Lane60. The refused scan stays refused; no naming test remains in Lane40. Evidence is lock-owner-delivered.md. The actual live proof still verifies the normally installed skill.
 
 ## Outcome and boundaries
 
