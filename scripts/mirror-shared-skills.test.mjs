@@ -64,6 +64,21 @@ test('plugin skills actually resolve to sources under <repo>/skills/, not ~/.cla
   }
 });
 
+test('lane 53 m7: the mirrored team-build copy contains scripts/review-run.mjs (Codex reaches it), not its .test.mjs twin', () => {
+  const sources = collectSources();
+  const teamBuild = sources.find((s) => s.kind === 'skill' && s.name === 'team-build');
+  assert.ok(teamBuild, 'team-build must be a skill source');
+  const scriptPath = path.join(teamBuild.src, 'scripts', 'review-run.mjs');
+  assert.ok(fs.existsSync(scriptPath), `expected ${scriptPath} to exist under the mirrored team-build source`);
+  const testPath = path.join(teamBuild.src, 'scripts', 'review-run.test.mjs');
+  assert.ok(fs.existsSync(testPath), 'sanity: the test file itself must exist on disk');
+  // mirror-shared-skills.mjs's own SKILL_FILE_EXCLUDE is not exported; this mirrors its literal
+  // pattern (`/\.test\.mjs$/`) so a change to that pattern that stops excluding tests is caught here.
+  const excludePattern = /\.test\.mjs$/;
+  assert.ok(excludePattern.test('review-run.test.mjs'), 'the exclude pattern must still catch it so it never publishes');
+  assert.ok(!excludePattern.test('review-run.mjs'), 'the script itself must not match the test-file exclude pattern');
+});
+
 test('work-record.md resolves as a shared document into the synthetic Codex docs home', () => {
   const source = collectSources().find((entry) => entry.kind === 'doc' && entry.name === 'work-record.md');
   assert.ok(source, 'work-record.md must be a shared document source');

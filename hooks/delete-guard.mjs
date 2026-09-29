@@ -535,11 +535,13 @@ export function detectDelete(command) {
  * `logVerb` is null whenever nothing should be logged at all: a kill switch, a
  * non-string/missing command, or a command that matches no delete pattern (spec item 5:
  * "a command that matches nothing is not logged"). Otherwise it is `denied` (agent_id
- * present) or `passed-lead` (agent_id absent — the lead's own pane keeps its prompt).
+ * present, or the review-run child marker below) or `passed-lead` (neither — the lead's
+ * own pane keeps its prompt).
  */
 export function decide(input, ctx = {}) {
   const home = ctx.home ?? os.homedir();
   const fsImpl = ctx.fsImpl ?? fs;
+  const env = ctx.env ?? process.env;
 
   if (
     switchPresentFailSafe(fsImpl, path.join(home, '.agents', 'no-delete-guard'))
@@ -554,7 +556,9 @@ export function decide(input, ctx = {}) {
     return { action: 'allow', verb: null, text: null, skip: false, logVerb: null };
   }
 
-  const fromSubagent = input?.agent_id !== undefined;
+  // lane 53 decision 2(a): a review-run child (claude -p --agent, main thread, no agent_id)
+  // is still a subagent for delete purposes — the marker it runs under is DELEGATION_REVIEW_RUN=1.
+  const fromSubagent = input?.agent_id !== undefined || env.DELEGATION_REVIEW_RUN === '1';
   if (!fromSubagent) {
     return { action: 'allow', verb: match.verb, text: null, skip: false, logVerb: 'passed-lead' };
   }

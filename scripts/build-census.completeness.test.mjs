@@ -105,7 +105,7 @@ test('text that only resembles a marker is not counted (negative cases)', () => 
   const user = (content, extra = {}) => ({ type: 'user', message: { role: 'user', content }, ...extra });
 
   // positive control: the same text, delivered the way note-flush delivers it
-  assert.deepEqual(classifyWake(user(`${WAKE_PREFIX}\n${env}`, peer)), { to: 'skills-o', doneTick: false });
+  assert.deepEqual(classifyWake(user(`${WAKE_PREFIX}\n${env}`, peer)), { to: 'skills-o', kind: 'ASK', doneTick: false });
   // quoted mid-message, not opening the turn
   assert.equal(classifyWake(user(`Explain this:\n${WAKE_PREFIX}\n${env}`, peer)), null);
   // the prefix with no envelope behind it, an envelope-shaped line with the wrong arrow, no newline after the prefix
@@ -235,7 +235,7 @@ test('codex lead: text that only resembles a wake is not counted', () => {
   const env = buildEnvelope({ from: 'skills-fable', to: 'skills-o', id: 'skills-fable-neg-2', kind: 'ASK', body: 'Codex negative case', date: '9.27.26', time: '08:05', tz: 'NYC' });
   const msg = (role, content) => ({ type: 'response_item', payload: { type: 'message', role, content } });
   const part = (text, type = 'input_text') => ({ type, text });
-  assert.deepEqual(classifyCodexWake(msg('user', [part(env)])), { to: 'skills-o', doneTick: false });
+  assert.deepEqual(classifyCodexWake(msg('user', [part(env)])), { to: 'skills-o', kind: 'ASK', doneTick: false });
   assert.equal(classifyCodexWake(msg('user', [part(`Explain:\n${env}`)])), null);
   assert.equal(classifyCodexWake(msg('user', [part(`${env}\nmore text`)])), null);
   assert.equal(classifyCodexWake(msg('user', [part(env), part('second part')])), null);

@@ -950,6 +950,24 @@ test('decide: agent_id: null or "" still counts as present and denies (review r1
   }
 });
 
+test('decide (lane 53 decision 2a): DELEGATION_REVIEW_RUN=1 with no agent_id is treated as a subagent and denied', () => {
+  const home = scratchHome();
+  const command = 'rm -rf SCRATCH/dg';
+  const input = { tool_name: 'Bash', tool_input: { command }, session_id: 'review-run-child' };
+  const result = decide(input, { home, fsImpl: fs, env: { DELEGATION_REVIEW_RUN: '1' } });
+  assert.equal(result.action, 'deny', 'a review-run child (main thread, no agent_id) must not fall through to passed-lead');
+  assert.equal(result.logVerb, 'denied');
+});
+
+test('decide: with no agent_id and no DELEGATION_REVIEW_RUN marker, the lead keeps its prompt (control for the test above)', () => {
+  const home = scratchHome();
+  const command = 'rm -rf SCRATCH/dg';
+  const input = { tool_name: 'Bash', tool_input: { command }, session_id: 'lead-session' };
+  const result = decide(input, { home, fsImpl: fs, env: {} });
+  assert.equal(result.action, 'allow');
+  assert.equal(result.logVerb, 'passed-lead');
+});
+
 test('decide: a missing/non-string command allows with no log, never throws', () => {
   const home = scratchHome();
   assert.doesNotThrow(() => decide(SUBAGENT(undefined), ctxFor(home)));
@@ -1108,6 +1126,19 @@ test('CLI: a PowerShell-shaped payload (tool_name PowerShell) is denied the same
   assert.equal(result.status, 0);
   const out = JSON.parse(result.stdout.trim());
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+});
+
+test('CLI (lane 53 decision 2a): a review-run child (DELEGATION_REVIEW_RUN=1, no agent_id) is denied like a subagent', () => {
+  const home = scratchHome();
+  const result = spawnSync(process.execPath, [GUARD_PATH], {
+    input: LEAD_PAYLOAD('rm -rf SCRATCH/dg'),
+    env: childEnv(home, { DELEGATION_REVIEW_RUN: '1' }),
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0);
+  const out = JSON.parse(result.stdout.trim());
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.ok(readLog(home).includes(' denied '));
 });
 
 test('CLI: an allowed git worktree remove (no --force) from a subagent prints nothing and logs nothing (allowance)', () => {

@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { formatJson, formatText, runCensus } from './build-census.mjs';
+import { formatJson, formatText, parseArgs, runCensus } from './build-census.mjs';
+import { buildFourRead } from './four-read.mjs';
 
 const ROOT = 'root-session';
 const MODEL = 'gpt-5.6-terra';
@@ -61,13 +62,13 @@ function writeRollout(home, day, name, rows) {
 
 function leadRows({ model = MODEL, repeatContext = false, tokenAt = '2026-09-27T12:00:02.000Z', missing = [], output = 3 } = {}) {
   const turn = 'lead-turn';
-  return [meta(ROOT), taskStarted(turn), context(turn, model), ...(repeatContext ? [context(turn, model, '2026-09-27T12:00:01.500Z')] : []), usage('lead-response', turn, { output, at: tokenAt, missing })];
+  return [meta(ROOT), taskStarted(turn), context(turn, model), ...(repeatContext ? [context(turn, model, '2026-09-27T12:00:01.500Z')] : []), usage('lead-response', turn, { output, at: tokenAt, missing }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z')];
 }
 
 function childRows(id, parentId, depth, responseId, output, options = {}) {
   const turn = `${id}-turn`;
   const sessionId = options.sessionId ?? ROOT;
-  return [meta(id, sessionId, parentId, depth, options.agentPath), ...(options.context === false ? [] : [context(turn, options.model ?? MODEL)]), usage(responseId, turn, { sessionId, output, missing: options.missing ?? [] })];
+  return [meta(id, sessionId, parentId, depth, options.agentPath), taskStarted(turn), ...(options.context === false ? [] : [context(turn, options.model ?? MODEL)]), usage(responseId, turn, { sessionId, output, missing: options.missing ?? [] }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z')];
 }
 
 test('Codex contract: verified ancestry, root namespace, distinct child response ids, and native turns', async () => {
@@ -134,7 +135,11 @@ test('Codex contract: explicit tasks adds eligible outside-home rollout and de-d
 
 test('Codex contract: a context before --from supplies the model for an in-window response', async () => {
   const home = fixtureHome();
-  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows({ tokenAt: '2026-09-27T12:10:00.000Z' }));
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    meta(ROOT), taskStarted('lead-turn'), context('lead-turn'),
+    usage('lead-response', 'lead-turn', { output: 3, at: '2026-09-27T12:10:00.000Z' }),
+    line('event_msg', { type: 'heartbeat' }, '2026-09-27T12:16:00.000Z'),
+  ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: '2026-09-27T12:05:00.000Z', to: '2026-09-27T12:15:00.000Z', out: null });
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.combined[MODEL].output_tokens, 3);
@@ -150,10 +155,9 @@ test('Codex contract: each missing cache breakdown stays unavailable while deriv
     const home = fixtureHome();
     const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows({ missing, output: 5 }));
     const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-    const aggregate = report.combined[MODEL];
-    assert.equal(report.lead.coverageSupported, true, missing.join('+'));
-    assert.equal(aggregate.derived_total_tokens, 15, 'native input plus output remains independently known');
-    assert.equal(aggregate.input_tokens, null, 'inclusive input is not emitted as a Claude-style split');
+    const aggregate = report.lead.observedWindowByModel[MODEL];
+    assert.equal(report.lead.coverageSupported, missing.length === 1 && missing[0] === 'cache_write_input_tokens', missing.join('+'));
+    assert.equal(aggregate.derived_total_tokens, 15, 'native input plus output remains observed without a false complete aggregate');
     for (const field of missing) {
       assert.equal(aggregate[field.replace('cached_', 'cache_read_').replace('cache_write_', 'cache_creation_')], null);
       assert.ok(aggregate.unavailable.includes(field), `${field} is aggregate-unavailable`);
@@ -170,11 +174,9 @@ test('Codex contract: mixed complete and missing-cache responses derive 30 witho
     meta(ROOT), taskStarted(turn), context(turn), usage('complete', turn), usage('missing-cache-write', turn, { missing: ['cache_write_input_tokens'] }),
   ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-  assert.equal(report.lead.coverageSupported, true);
-  assert.equal(report.combined[MODEL].derived_total_tokens, 30);
-  assert.equal(report.combined[MODEL].input_tokens, null);
-  assert.equal(report.combined[MODEL].cache_creation_input_tokens, null);
-  assert.ok(report.combined[MODEL].unavailable.includes('cache_write_input_tokens'));
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.lead.observedWindowByModel[MODEL].derived_total_tokens, 30);
+  assert.equal(report.lead.codex.fields.cacheWriteTokens.status, 'UNSUPPORTED');
   assert.match(formatJson(report), /cache_write_input_tokens/);
   assert.match(formatText(report), /cache_write_input_tokens/);
 });
@@ -183,7 +185,7 @@ test('Codex contract: missing reasoning and raw total are named unavailable, not
   const home = fixtureHome();
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', leadRows({ missing: ['reasoning_output_tokens', 'total_tokens'], output: 5 }));
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.coverageSupported, true, 'optional reasoning/raw-total support does not erase complete required token evidence');
   assert.equal(report.combined[MODEL].derived_total_tokens, 15);
   assert.ok(report.combined[MODEL].unavailable.includes('reasoning_output_tokens'));
   assert.ok(report.combined[MODEL].unavailable.includes('total_tokens'));
@@ -200,30 +202,34 @@ test('Codex contract: whitelist-native fixture discovers next-day child and pres
   fs.copyFileSync(path.join(NATIVE_SANITIZED, 'child-2.jsonl'), path.join(home, 'sessions', ...NATIVE_NEXT_DAY.split('/'), 'child-2.jsonl'));
 
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
-  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.coverageSupported, false, 'the native excerpt has no terminal temporal witness');
   assert.equal(report.lead.sessionId, '01a0df4c-2809-7520-b1d7-876cc51a87ee');
   assert.equal(report.subagents.fileCount, 2);
   assert.ok(report.subagents.perFile.every((row) => row.parentId === report.lead.sessionId));
-  assert.equal(report.combined['gpt-5.6-terra'].derived_total_tokens, 49028);
-  assert.equal(report.combined['gpt-6-astra'].derived_total_tokens, 88325);
+  assert.equal(report.lead.observedWindowByModel['gpt-6-astra'].derived_total_tokens, 47893);
+  assert.equal(report.subagents.perFile.find((row) => row.file.endsWith('child-1.jsonl')).byModel['gpt-5.6-terra'].derived_total_tokens, 49028);
+  assert.equal(report.subagents.perFile.find((row) => row.file.endsWith('child-2.jsonl')).byModel['gpt-6-astra'].derived_total_tokens, 40432);
   assert.deepEqual(report.lead.codex.discovery.horizonUtcDays, ['2026-09-26', '2026-09-27']);
 });
 
-test('Codex contract: a duplicate response with a conflicting model throws by name', async () => {
+test('Codex contract: equal-usage duplicate with conflicting model preserves usage but makes attribution unavailable', async () => {
   const home = fixtureHome();
   const turn = 'lead-turn';
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
     meta(ROOT), taskStarted(turn),
     context(turn, 'gpt-6-astra'), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
-    context(turn, MODEL), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
+    context(turn, MODEL, '2026-09-27T12:00:02.000Z'), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z'),
   ]);
-  await assert.rejects(
-    () => runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
-    /conflict/i,
-  );
+  const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.observedLeadRequests, 1);
+  assert.equal(report.lead.observedLeadTokens, 15);
+  assert.equal(report.lead.codex.fields.model.status, 'UNSUPPORTED');
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.lead.codex.discovery.scope.complete, true, 'unknown model is field support, not temporal incompleteness');
 });
 
-test('Codex contract: a duplicate response with a conflicting timestamp throws by name', async () => {
+test('Codex contract: equal-usage duplicate with conflicting timestamp preserves usage but makes time incomplete', async () => {
   const home = fixtureHome();
   const turn = 'lead-turn';
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
@@ -231,10 +237,12 @@ test('Codex contract: a duplicate response with a conflicting timestamp throws b
     usage('timestamp-conflict', turn, { at: '2026-09-27T12:00:03.000Z' }),
     usage('timestamp-conflict', turn, { at: '2026-09-27T12:00:04.000Z' }),
   ]);
-  await assert.rejects(
-    () => runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
-    /conflict/i,
-  );
+  const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: '2026-09-27T12:00:10.000Z', out: null });
+  assert.equal(report.lead.observedLeadRequests, 1);
+  assert.equal(report.lead.observedLeadTokens, 15);
+  assert.equal(report.lead.codex.responseTimelineComplete, false);
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: PARTIAL/);
 });
 
 test('Codex contract: a duplicate response with conflicting raw optional evidence throws by name', async () => {
@@ -255,7 +263,7 @@ test('Codex contract: an exact repeated response is deduplicated once', async ()
   const home = fixtureHome();
   const turn = 'lead-turn';
   const row = usage('identical-repeat', turn, { output: 5, at: '2026-09-27T12:00:05.000Z' });
-  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [meta(ROOT), taskStarted(turn), context(turn), row, row]);
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [meta(ROOT), taskStarted(turn), context(turn), row, row, line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:06.000Z')]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
   assert.equal(report.lead.coverageSupported, true);
   assert.equal(report.combined[MODEL].derived_total_tokens, 15);
@@ -267,13 +275,13 @@ test('Codex contract: a lead-only marker includes child responses at and after i
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
     meta(ROOT), taskStarted(turn), context(turn),
     line('event_msg', { type: 'marker', marker: 'start-build' }, '2026-09-27T12:00:10.000Z'),
-    usage('lead-after', turn, { output: 3, at: '2026-09-27T12:00:11.000Z' }),
+    usage('lead-after', turn, { output: 3, at: '2026-09-27T12:00:11.000Z' }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:12.000Z'),
   ]);
   writeRollout(home, DAY, 'rollout-child.jsonl', [
-    meta('marker-child', ROOT, ROOT, 1), context('child-turn'),
+    meta('marker-child', ROOT, ROOT, 1), taskStarted('child-turn'), context('child-turn'),
     usage('child-before', 'child-turn', { output: 4, at: '2026-09-27T12:00:09.000Z' }),
     usage('child-at', 'child-turn', { output: 5, at: '2026-09-27T12:00:10.000Z' }),
-    usage('child-after', 'child-turn', { output: 6, at: '2026-09-27T12:00:11.000Z' }),
+    usage('child-after', 'child-turn', { output: 6, at: '2026-09-27T12:00:11.000Z' }), line('event_msg', { type: 'task_complete', turn_id: 'child-turn' }, '2026-09-27T12:00:12.000Z'),
   ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: 'start-build', from: null, to: null, out: null });
   assert.equal(report.lead.coverageSupported, true);
@@ -324,21 +332,20 @@ test('Codex contract: logical lead and child identity conflicts stay permanently
   const divergentLead = writeRollout(divergentHome, DAY, 'rollout-lead.jsonl', rows);
   const explicitDivergent = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-census-divergent-lead-'));
   fs.writeFileSync(path.join(explicitDivergent, 'lead-conflict.jsonl'), `${leadRows({ output: 99 }).map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
-  const divergent = await runCensus({ lead: divergentLead, codexHome: divergentHome, tasksDirs: [explicitDivergent], marker: null, from: null, to: null, out: null });
-  assert.equal(divergent.lead.coverageSupported, false);
-  assert.equal(divergent.combined, null);
-  assert.ok(divergent.lead.codex.discovery.excluded.some((row) => row.file.includes('lead-conflict')));
+  await assert.rejects(
+    () => runCensus({ lead: divergentLead, codexHome: divergentHome, tasksDirs: [explicitDivergent], marker: null, from: null, to: null, out: null }),
+    /response_id conflict across segments/i,
+  );
 
   const childrenHome = fixtureHome();
   const childrenLead = writeRollout(childrenHome, DAY, 'rollout-lead.jsonl', leadRows());
   writeRollout(childrenHome, DAY, 'child-first.jsonl', childRows('same-child', ROOT, 1, 'child-r', 5));
   writeRollout(childrenHome, DAY, 'child-second.jsonl', childRows('same-child', ROOT, 1, 'child-r', 6));
   writeRollout(childrenHome, DAY, 'child-third.jsonl', childRows('same-child', ROOT, 1, 'child-r', 5));
-  const children = await runCensus({ lead: childrenLead, codexHome: childrenHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
-  assert.equal(children.lead.coverageSupported, false);
-  assert.equal(children.combined, null, 'a third copy cannot resurrect a conflicted child identity');
-  assert.ok(children.lead.codex.discovery.excluded.some((row) => row.file.includes('child-second')));
-  assert.ok(children.lead.codex.discovery.excluded.some((row) => row.file.includes('child-third')));
+  await assert.rejects(
+    () => runCensus({ lead: childrenLead, codexHome: childrenHome, tasksDirs: [], marker: null, from: null, to: null, out: null }),
+    /response_id conflict across segments/i,
+  );
 });
 
 test('Codex contract: a missing explicit tasks directory is partial while a missing default next-day directory is normal', async () => {
@@ -368,4 +375,249 @@ test('Codex contract: rejected root-namespace parent cannot authenticate its gra
   assert.equal(report.subagents.perFile.some((row) => row.parentId === 'bad-parent'), false, 'an excluded parent is never an ancestry authority');
   assert.ok(report.lead.codex.discovery.excluded.some((row) => row.file.includes('bad-parent')));
   assert.ok(report.lead.codex.discovery.excluded.some((row) => row.file.includes('grandchild')));
+});
+
+// Lane55: known-id discovery must be bounded by the canonical tree, not the old
+// lead-day horizon.  The old child is deliberately far from the lead filename day.
+test('Lane55 known lead-session walks the canonical tree and counts an old resumed child exactly once', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'rollout-current-name.jsonl', [
+    ...leadRows({ output: 3 }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const oldDay = '2026/03/01';
+  fs.mkdirSync(path.join(home, 'sessions', ...oldDay.split('/')), { recursive: true });
+  writeRollout(home, oldDay, 'rollout-old-child.jsonl', [
+    meta('old-child', ROOT, ROOT, 1), taskStarted('old-child-turn'), context('old-child-turn'),
+    usage('old-response', 'old-child-turn', { output: 7 }),
+    line('event_msg', { type: 'task_complete', turn_id: 'old-child-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+
+  const report = await runCensus({
+    lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
+    from: '2026-09-27T00:00:00.000Z', to: '2026-09-27T23:59:59.999Z', out: null,
+  });
+  assert.ok(report.lead.codex.identity, 'known lead-session emits resolved identity evidence');
+  assert.equal(report.lead.codex.identity.expectedId, ROOT);
+  assert.equal(report.lead.codex.identity.verified, true);
+  assert.equal(report.lead.codex.discovery.scope.kind, 'canonical-session-tree');
+  assert.equal(report.lead.codex.discovery.scope.complete, true);
+  assert.equal(report.subagents.fileCount, 1);
+  assert.equal(report.combined[MODEL].derived_total_tokens, 30, 'lead 13 + old child 17, no horizon loss or double count');
+});
+
+test('Lane55 temporal COUNTED remains a consumer-readable verdict when a token field is unsupported', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    ...leadRows({ missing: ['cached_input_tokens'] }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({
+    lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
+    from: '2026-09-27T00:00:00.000Z', to: '2026-09-27T12:00:02.500Z', out: null,
+  });
+  assert.equal(report.lead.coverageSupported, false, 'cache evidence is not fabricated');
+  assert.equal(report.lead.codex.fields.cachedInputTokens.status, 'UNSUPPORTED');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED .*; UNSUPPORTED cachedInputTokens/);
+  assert.equal(JSON.parse(formatJson(report)).lead.codex.fields.cachedInputTokens.status, 'UNSUPPORTED');
+});
+
+test('Lane55 --lead-session resolves the canonical lead without --lead and rejects a spoofed selected identity', async () => {
+  const home = fixtureHome();
+  writeRollout(home, DAY, 'rollout-resolved.jsonl', leadRows());
+  const report = await runCensus({ lead: null, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.codex.identity.source, 'lead-session');
+  assert.equal(report.lead.codex.identity.expectedId, ROOT);
+  assert.equal(parseArgs(['--lead-session', ROOT, '--codex-home', home]).leadSession, ROOT);
+
+  const spoof = writeRollout(home, DAY, 'rollout-spoof.jsonl', [meta('spoof-id', 'spoof-id'), taskStarted('spoof-turn'), context('spoof-turn'), usage('spoof-response', 'spoof-turn', { sessionId: 'spoof-id' }), line('event_msg', { type: 'task_complete', turn_id: 'spoof-turn' })]);
+  await assert.rejects(() => runCensus({ lead: spoof, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }), /identify|identity|expected/i);
+});
+
+test('Lane55 same-id nonconflicting segments are unioned and exact aliases do not add usage', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead-a.jsonl', leadRows({ output: 3 }));
+  writeRollout(home, NEXT_DAY, 'lead-b.jsonl', [
+    meta(ROOT), context('lead-turn'), usage('resumed-response', 'lead-turn', { output: 7, at: '2026-09-28T12:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-28T12:00:03.000Z'),
+  ]);
+  writeRollout(home, NEXT_DAY, 'lead-b-alias.jsonl', [
+    meta(ROOT), context('lead-turn'), usage('resumed-response', 'lead-turn', { output: 7, at: '2026-09-28T12:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-28T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.observedLeadRequests, 2);
+  assert.equal(report.lead.observedLeadTokens, 30, '13 + 17; exact alias contributes zero');
+  assert.equal(report.lead.codex.identity.paths.length, 2, 'identity evidence lists unique verified segments');
+});
+
+test('Lane55 bounded temporal witnesses distinguish damaged, open, historical, completed, and later-created files', async () => {
+  const from = '2026-09-27T12:00:00.000Z';
+  const to = '2026-09-27T12:00:10.000Z';
+
+  const historicalHome = fixtureHome();
+  const historicalLead = writeRollout(historicalHome, DAY, 'historical.jsonl', [
+    meta(ROOT), taskStarted('t'), context('t'), usage('r', 't'),
+    line('event_msg', { type: 'heartbeat' }, '2026-09-27T12:00:11.000Z'),
+  ]);
+  const historical = await runCensus({ lead: historicalLead, leadSession: ROOT, codexHome: historicalHome, tasksDirs: [], marker: null, from, to, out: null });
+  assert.equal(historical.lead.codex.discovery.scope.complete, true, 'a valid row beyond --to closes an earlier window');
+
+  const openHome = fixtureHome();
+  const openLead = writeRollout(openHome, DAY, 'open.jsonl', [meta(ROOT), taskStarted('t'), context('t'), usage('r', 't')]);
+  const open = await runCensus({ lead: openLead, leadSession: ROOT, codexHome: openHome, tasksDirs: [], marker: null, from, to, out: null });
+  assert.equal(open.lead.codex.discovery.scope.complete, false);
+  assert.match(open.lead.codex.discovery.scope.reason, /no end-bound witness/);
+
+  const completeHome = fixtureHome();
+  const completeLead = writeRollout(completeHome, DAY, 'complete.jsonl', [...leadRows(), line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-27T12:00:04.000Z')]);
+  writeRollout(completeHome, DAY, 'short-child.jsonl', childRows('short-child', ROOT, 1, 'child-r', 5));
+  writeRollout(completeHome, NEXT_DAY, 'future-child.jsonl', [meta('future-child', ROOT, ROOT, 1), taskStarted('future-t', '2026-09-28T12:00:00.500Z'), context('future-t', MODEL, '2026-09-28T12:00:01.000Z'), usage('future-r', 'future-t', { at: '2026-09-28T12:00:02.000Z' })]);
+  const complete = await runCensus({ lead: completeLead, leadSession: ROOT, codexHome: completeHome, tasksDirs: [], marker: null, from, to, out: null });
+  assert.equal(complete.lead.codex.discovery.scope.complete, true, 'completed short child and child created after --to do not make the historical slice partial');
+
+  const damagedHome = fixtureHome();
+  const damagedLead = writeRollout(damagedHome, DAY, 'damaged.jsonl', leadRows());
+  fs.appendFileSync(damagedLead, '{"type":"event_msg"');
+  const damaged = await runCensus({ lead: damagedLead, leadSession: ROOT, codexHome: damagedHome, tasksDirs: [], marker: null, from, to, out: null });
+  assert.equal(damaged.lead.codex.discovery.scope.complete, false);
+  assert.match(damaged.lead.codex.discovery.scope.reason, /damaged|malformed|truncated/i);
+});
+
+test('Lane55 field contracts cover missing required evidence, native cache-write absence, and reasoning as an output subset', async () => {
+  for (const missing of [['output_tokens'], ['input_tokens']]) {
+    const home = fixtureHome();
+    const lead = writeRollout(home, DAY, 'missing.jsonl', leadRows({ missing }));
+    const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+    assert.equal(report.lead.coverageSupported, false);
+    assert.equal(report.lead.codex.fields[missing[0] === 'output_tokens' ? 'outputTokens' : 'inputTokens'].status, 'UNSUPPORTED');
+  }
+
+  const noTaskHome = fixtureHome();
+  const noTaskLead = writeRollout(noTaskHome, DAY, 'no-task-id.jsonl', [meta(ROOT), context('t'), usage('r', 't'), line('event_msg', { type: 'task_complete' })]);
+  const noTask = await runCensus({ lead: noTaskLead, leadSession: ROOT, codexHome: noTaskHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(noTask.lead.leadTurns, 0, 'a response is not fabricated into a native task_started turn');
+  assert.equal(noTask.lead.observedLeadRequests, 1);
+
+  const schemaHome = fixtureHome();
+  const schemaLead = writeRollout(schemaHome, DAY, 'schema.jsonl', [
+    meta(ROOT), taskStarted('t'), context('t'),
+    line('event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 5 } } }, '2026-09-27T12:00:01.500Z'),
+    usage('r', 't', { missing: ['cache_write_input_tokens'] }),
+    line('event_msg', { type: 'task_complete', turn_id: 't' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const schema = await runCensus({ lead: schemaLead, leadSession: ROOT, codexHome: schemaHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(schema.lead.codex.fields.cacheWriteTokens.status, 'COUNTED');
+  assert.equal(schema.combined[MODEL].cache_creation_input_tokens, 0);
+  assert.equal(schema.combined[MODEL].reasoning_output_tokens, 1);
+  assert.equal(schema.combined[MODEL].output_tokens, 5);
+  assert.equal(schema.combined[MODEL].derived_total_tokens, 15, 'reasoning and cached tokens are not re-added');
+});
+
+test('Lane55 unchanged four-read propagates unsupported token fields as unavailable', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'consumer.jsonl', leadRows({ missing: ['cached_input_tokens'] }));
+  const census = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.match(formatText(census).split('\n')[0], /^VERDICT: COUNTED .*UNSUPPORTED cachedInputTokens/);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-four-read-contract-'));
+  const censusPath = path.join(dir, 'census.json');
+  const recordPath = path.join(dir, 'record.md');
+  fs.writeFileSync(censusPath, formatJson(census));
+  fs.writeFileSync(recordPath, `Work: fixture\nStatus: accepted\nLead-session: ${ROOT}\nOpened: 2026-09-27T12:00:00.000Z\nLog: 2026-09-27T12:00:00.000Z owned owner start\nLog: 2026-09-27T12:00:03.000Z accepted owner artifact 0123456789abcdef0123456789abcdef01234567\n\nfixture\n`);
+  const read = buildFourRead({ record: recordPath, census: censusPath });
+  assert.match(read.numbers.find((row) => row.key === 'topTierTokensPerBuild').value, /^unavailable \(Codex census coverage is unavailable/);
+});
+
+test('Lane55 task-turn and stall-nudge support require actual native evidence', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'missing-turn.jsonl', [
+    meta(ROOT), line('event_msg', { type: 'task_started' }), context('t'), usage('r', 't'),
+    line('event_msg', { type: 'task_complete' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, ledgerDir: path.join(home, 'missing-ledger'), leadSlug: null, from: null, to: null, out: null });
+  assert.equal(report.lead.leadTurns, 0);
+  assert.equal(report.lead.codex.fields.leadTurns.status, 'UNSUPPORTED', 'malformed task_started.turn_id cannot prove an exact zero');
+  assert.equal(report.lead.codex.fields.stallNudges.status, 'UNSUPPORTED', 'no readable ledger/slug cannot prove zero nudges');
+});
+
+test('Lane55 temporal completeness includes open children and requires no in-window rows for the future-child exception', async () => {
+  const openHome = fixtureHome();
+  const openLead = writeRollout(openHome, DAY, 'lead.jsonl', leadRows());
+  writeRollout(openHome, DAY, 'open-child.jsonl', [meta('open-child', ROOT, ROOT, 1), taskStarted('ct'), context('ct'), usage('cr', 'ct')]);
+  const unbounded = await runCensus({ lead: openLead, leadSession: ROOT, codexHome: openHome, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(unbounded.lead.codex.discovery.scope.complete, false);
+  assert.match(unbounded.lead.codex.discovery.scope.reason, /child.*end-bound witness|open.*child/i);
+
+  const futureHome = fixtureHome();
+  const futureLead = writeRollout(futureHome, DAY, 'lead.jsonl', leadRows());
+  writeRollout(futureHome, NEXT_DAY, 'future-but-in-window.jsonl', [
+    meta('future-child', ROOT, ROOT, 1),
+    taskStarted('ft', '2026-09-28T12:00:00.500Z'), context('ft', MODEL, '2026-09-28T12:00:01.000Z'),
+    usage('backdated-in-window', 'ft', { at: '2026-09-27T12:00:05.000Z' }),
+  ]);
+  const bounded = await runCensus({ lead: futureLead, leadSession: ROOT, codexHome: futureHome, tasksDirs: [], marker: null, from: '2026-09-27T12:00:00.000Z', to: '2026-09-27T12:00:10.000Z', out: null });
+  assert.equal(bounded.lead.codex.discovery.scope.complete, false, 'future-file exception is invalid when the file contributes an in-window row');
+});
+
+test('Lane55 R1 corrupt verified children make descendant coverage PARTIAL with no complete aggregate', async () => {
+  for (const [label, mutate] of [
+    ['negative output', (row) => { row.payload.usage.output_tokens = -1; }],
+    ['string input', (row) => { row.payload.usage.input_tokens = '10'; }],
+    ['wrong usage session', (row) => { row.payload.session_id = 'foreign-root'; }],
+  ]) {
+    const home = fixtureHome();
+    const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+    const rows = childRows('bad-' + label, ROOT, 1, 'bad-response-' + label, 5);
+    mutate(rows.find((row) => row.type === 'token_usage_record'));
+    writeRollout(home, DAY, 'bad-' + label + '.jsonl', rows);
+    const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+    assert.equal(report.lead.codex.discovery.scope.complete, false, label);
+    assert.match(report.lead.codex.discovery.scope.reason, /child|candidate|usage|unreadable|incomplete/i, label);
+    assert.equal(report.lead.coverageSupported, false, label);
+    assert.equal(report.combined, null, label);
+    assert.match(formatText(report).split('\n')[0], /^VERDICT: PARTIAL/, label);
+  }
+});
+
+test('Lane55 R1 relevant zero-usage logical child is unavailable without breaking valid empty-window rules', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'zero-usage-child.jsonl', [
+    meta('zero-usage-child', ROOT, ROOT, 1), taskStarted('zero-turn'), context('zero-turn'),
+    line('event_msg', { type: 'task_complete', turn_id: 'zero-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child|usage|response/i);
+  assert.equal(report.lead.coverageSupported, false);
+  assert.equal(report.combined, null);
+});
+
+test('Lane55 R1 lead segment terminal witness follows chronology when explicit --lead is the later segment', async () => {
+  const home = fixtureHome();
+  writeRollout(home, DAY, 'early-segment.jsonl', [
+    meta(ROOT), taskStarted('early-turn', '2026-09-27T11:00:00.500Z'), context('early-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('early-response', 'early-turn', { at: '2026-09-27T11:00:02.000Z' }),
+  ]);
+  const later = writeRollout(home, NEXT_DAY, 'explicit-later-segment.jsonl', [
+    meta(ROOT), taskStarted('later-turn', '2026-09-27T13:00:00.500Z'), context('later-turn', MODEL, '2026-09-27T13:00:01.000Z'),
+    usage('later-response', 'later-turn', { at: '2026-09-27T13:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'later-turn' }, '2026-09-27T13:00:03.000Z'),
+  ]);
+  const report = await runCensus({ lead: later, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: '2026-09-27T10:00:00.000Z', to: '2026-09-27T14:00:00.000Z', out: null });
+  assert.equal(report.lead.codex.discovery.scope.complete, true);
+  assert.equal(report.lead.coverageSupported, true);
+  assert.equal(report.lead.observedLeadRequests, 2);
+});
+
+test('Lane55 R1 explicit lead identity refusal names expected and found ids', async () => {
+  const home = fixtureHome();
+  const spoof = writeRollout(home, DAY, 'wrong-id.jsonl', [
+    meta('found-session', 'found-session'), taskStarted('t'), context('t'),
+    usage('r', 't', { sessionId: 'found-session' }), line('event_msg', { type: 'task_complete', turn_id: 't' }),
+  ]);
+  await assert.rejects(
+    () => runCensus({ lead: spoof, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }),
+    /expected root-session.*found found-session/i,
+  );
 });

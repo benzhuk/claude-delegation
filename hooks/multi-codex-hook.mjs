@@ -63,6 +63,14 @@ function appendGoalContext(result, event, text, systemMessage) {
   return next;
 }
 
+/** @type {Readonly<Record<string, readonly string[]>>} */
+export const NATIVE_ROUTES = {
+  SessionStart: ['scripts/wiring-check.mjs'],
+  UserPromptSubmit: ['hooks/backlog-notice.js'],
+  PostToolUse: ['hooks/backlog-notice.js'],
+  Stop: ['hooks/backlog-notice.js'],
+};
+
 // This stays below the 700 ms native PostToolUse ceiling. A route is advisory and must never consume
 // the time the peer-delivery path needs to surface a note.
 const ROUTE_TIMEOUT_MS = 400;
@@ -113,13 +121,15 @@ export async function nativeRouteForLead(input, cwd, role, env) {
   // unknown therefore remains eligible for these advisory-only host routes.
   if (role === 'child') return null;
   const event = String(input.hook_event_name ?? '');
+  const routes = NATIVE_ROUTES[event];
+  if (!routes || routes.length !== 1) return null;
+  const script = path.join(HOOK_DIR, '..', routes[0]);
   try {
     if (event === 'SessionStart') {
-      const text = (await runRoute(path.join(HOOK_DIR, '..', 'scripts', 'wiring-check.mjs'), ['--line', '--hook'], input, cwd, env)).trim();
+      const text = (await runRoute(script, ['--line', '--hook'], input, cwd, env)).trim();
       return text ? { text, systemMessage: null } : null;
     }
-    if (!['UserPromptSubmit', 'PostToolUse', 'Stop'].includes(event)) return null;
-    const raw = await runRoute(path.join(HOOK_DIR, 'backlog-notice.js'), [event], input, cwd, env);
+    const raw = await runRoute(script, [event], input, cwd, env);
     const output = JSON.parse(raw || 'null');
     // Claude deliberately shows Stop backlog only to its human. Codex must put the same line in
     // additionalContext as well, or an autonomous lead never receives the backlog cue.

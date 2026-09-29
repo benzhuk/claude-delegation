@@ -264,6 +264,18 @@ async function main() {
   // Keep this immediately after parsing so no identity lookup or hook branch can create a registry,
   // cursor, stamp, or binding side effect first.
   if (typeof input.agent_id === "string" && input.agent_id.length > 0) return;
+  // lane 53 decision 2(a): a review-run child (claude -p --agent, main thread, no agent_id)
+  // must never register either — same rule, the marker it runs under instead of agent_id.
+  // finding 12: a session whose env carries DELEGATION_REVIEW_RUN=1 is never registered and
+  // receives no notes; the marker must never be exported in a lead's shell (see SKILL.md's
+  // review-run paragraph).
+  if (process.env.DELEGATION_REVIEW_RUN === "1") {
+    const event = input.hook_event_name || process.argv[2] || "";
+    if (event === "SessionStart") {
+      process.stderr.write("multi-inbox: DELEGATION_REVIEW_RUN=1 — this session is never registered and receives no notes\n");
+    }
+    return;
+  }
   const event = input.hook_event_name || process.argv[2] || "";
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const sessionId = input.session_id;

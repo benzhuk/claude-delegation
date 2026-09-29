@@ -1,0 +1,11 @@
+VERDICT: INTEGRATED
+
+Original reviewed source artifact: cd5fecccad1028298fb7811c77cff133c2d4c750, with independent Opus APPROVE in L55-review-r2.md. Original producer Worktree remains C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55; its original local and published build/codex-counted-55 branch remains at 2f6ee937ecd62322740b4cfe1c84ab8b73472660, retaining approved-source ancestry.
+
+Rebased integration: f40accef2fea5ec66585d26feae92e4818ed4d48 in C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55-rebased on build/codex-counted-55-rebased. A clean git rebase --rebase-merges origin/main onto fc5586655c484b5f3795107e9d2620e1cee21ab0 follows skills-fable-lane-55-8 and skills-fable-lane-56-5; no force push or conflict resolution. Lane56 closed on main before this rebase.
+
+The three reviewed blobs remain byte-identical to cd5fecc: build-census.mjs 8a04a38fa8e0f58b23094960d17f6e60659fb5cd; build-census.test.mjs 848ff984aee4665a33435990036fbc17bc89820d; build-census.codex.contract.test.mjs 2de98251ff20a4c0043fc803bc91605279fe087b. Root repeated the path-scoped diff and found it empty. The integration tree includes the independently approved Lane56 test fix and passes both full host gates, L55-rebased-host-gates.md.
+
+The existing team-build source-artifact contract permits a reviewed source artifact to differ from the integration/merge head. Artifact and original producer Worktree therefore stay unchanged; rebased integration is named separately. Strict read-only pinned check passed without changing that record identity. The unnecessary exact-rebased-SHA review request skills-a-lane55-integration-2 was withdrawn in skills-a-lane55-integration-3; no peer silence was treated as approval and no new review verdict was invented.
+
+Initial Netcup transport produced no remote receipt and reached no clone/test. It was corrected before the one actual passing suite. Windows and Netcup successful raw receipts are retained separately; there was no retry of a failing actual suite. Prior Windows failures and the wrong-CWD diagnostic remain in the historical reports. The separate deserialization owner packet remains skills-a-lane55-runner-1; the new full Windows pass is direct integration evidence.

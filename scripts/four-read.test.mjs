@@ -28,6 +28,7 @@ import {
   computeReworkAfterAcceptance, collectLedgerEntries, computeWorkLostOrStalled,
   buildFourRead, formatJson, formatMarkdown, parseArgs, main,
   mergeSpans, splitGapByUnion, buildAgentSpans, scanSubagentFile, collectSubagentStalls,
+  validateCensusArg, isBuildCensusJsonShape, CENSUS_REFUSAL_MESSAGE,
 } from './four-read.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1561,4 +1562,118 @@ test('main: without --out/--json, the full markdown report goes to the write() s
   await main(['--record', RECORD, '--census', censusPath], { write: (s) => lines.push(s) });
   assert.equal(lines.length, 1);
   assert.match(lines[0], /Four-number read/);
+});
+
+// ── F1/F3 (lane 54): --census must be build-census's own --json file, never the markdown ──
+// (docs/reports/census-0928/four-read.md, "Finding 4b is wrong" ¶: four-read.mjs used to hand
+// the markdown to loadJson (:47), which silently swallowed the parse failure into "no census"
+// (:787) — a check that passes because it isn't looking.)
+
+const CENSUS_MARKDOWN = path.join(FIXTURES, 'census-markdown-sample.md');
+
+test('isBuildCensusJsonShape: a real build-census --json report is the shape', async () => {
+  const dir = mkTmp('four-read-shape-');
+  const censusPath = await buildCensusFile(dir);
+  assert.equal(isBuildCensusJsonShape(JSON.parse(fs.readFileSync(censusPath, 'utf8'))), true);
+});
+
+test('isBuildCensusJsonShape: the census markdown, plain objects, arrays and null are not the shape', () => {
+  assert.equal(isBuildCensusJsonShape({ leadTurns: 7 }), false);
+  assert.equal(isBuildCensusJsonShape([1, 2, 3]), false);
+  assert.equal(isBuildCensusJsonShape(null), false);
+  assert.equal(isBuildCensusJsonShape('VERDICT: COUNTED'), false);
+  const allKeys = { subagents: {}, combined: null, marker: null, leadPath: 'x', tasksPaths: [], defaultSubagentsDir: null };
+  assert.equal(isBuildCensusJsonShape({ ...allKeys, lead: null }), false);
+  assert.equal(isBuildCensusJsonShape({ ...allKeys, lead: [] }), false);
+});
+
+test('validateCensusArg: the census markdown fails JSON.parse and is refused with the F1 message', () => {
+  const result = validateCensusArg(fs, CENSUS_MARKDOWN);
+  assert.equal(result.ok, false);
+  assert.equal(result.message, CENSUS_REFUSAL_MESSAGE);
+});
+
+test('validateCensusArg: JSON with the wrong top-level shape is refused with the F1 message', () => {
+  const dir = mkTmp('four-read-wrong-shape-');
+  const p = path.join(dir, 'wrong-shape.json');
+  fs.writeFileSync(p, JSON.stringify({ leadTurns: 7, ok: true }));
+  const result = validateCensusArg(fs, p);
+  assert.equal(result.ok, false);
+  assert.equal(result.message, CENSUS_REFUSAL_MESSAGE);
+});
+
+test('validateCensusArg: a missing file is refused loudly, not silently accepted', () => {
+  const dir = mkTmp('four-read-missing-census-');
+  const result = validateCensusArg(fs, path.join(dir, 'does-not-exist.json'));
+  assert.equal(result.ok, false);
+  assert.match(result.message, /four-read: --census file not found or unreadable/);
+});
+
+test('validateCensusArg: a real build-census --json file passes', async () => {
+  const dir = mkTmp('four-read-valid-census-');
+  const censusPath = await buildCensusFile(dir);
+  assert.deepEqual(validateCensusArg(fs, censusPath), { ok: true });
+});
+
+// The discriminating check named in the build report: at the base commit this test failed
+// (exit 0, `wrote:` lines printed, output files written) because the markdown silently read
+// as "no census". After the fix it exits 2, writes nothing, and stderr names the flag.
+test('main: --census pointed at the census markdown refuses with exit 2 and writes no output file, before this fix it silently exited 0', async () => {
+  const dir = mkTmp('four-read-main-markdown-census-');
+  const outMd = path.join(dir, 'out.md');
+  const outJson = path.join(dir, 'out.json');
+  const lines = [];
+  const errLines = [];
+  const code = await main(
+    ['--record', RECORD, '--census', CENSUS_MARKDOWN, '--out', outMd, '--json', outJson],
+    { write: (s) => lines.push(s), writeErr: (s) => errLines.push(s) },
+  );
+  assert.equal(code, 2);
+  assert.deepEqual(lines, []);
+  assert.equal(errLines.length, 1);
+  assert.equal(errLines[0], `${CENSUS_REFUSAL_MESSAGE}\n`);
+  assert.equal(fs.existsSync(outMd), false);
+  assert.equal(fs.existsSync(outJson), false);
+});
+
+test('main: --census pointed at a real build-census --json file still passes (F3: JSON input keeps working)', async () => {
+  const dir = mkTmp('four-read-main-json-census-');
+  const censusPath = await buildCensusFile(dir);
+  const lines = [];
+  const code = await main(['--record', RECORD, '--census', censusPath], { write: (s) => lines.push(s) });
+  assert.equal(code, 0);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /Four-number read/);
+});
+
+// ── Lane 54 fix round 1 ──────────────────────────────────────────────────────────────────
+
+test('validateCensusArg: a pre-lane-38 build-census JSON (no stallNudges) still passes', async () => {
+  const dir = mkTmp('four-read-old-census-');
+  const censusPath = await buildCensusFile(dir);
+  const c = JSON.parse(fs.readFileSync(censusPath, 'utf8'));
+  delete c.stallNudges;
+  fs.writeFileSync(censusPath, JSON.stringify(c));
+  assert.deepEqual(validateCensusArg(fs, censusPath), { ok: true });
+});
+
+// F-2 (lane 54 r1): --spec-census must be gated the same way as --census, not silently
+// read as "no spec census" via buildFourRead's internal loadJson (:787).
+test('main: --spec-census pointed at the census markdown refuses with exit 2, mirroring --census', async () => {
+  const dir = mkTmp('four-read-main-markdown-spec-census-');
+  const censusPath = await buildCensusFile(dir);
+  const outMd = path.join(dir, 'out.md');
+  const outJson = path.join(dir, 'out.json');
+  const lines = [];
+  const errLines = [];
+  const code = await main(
+    ['--record', RECORD, '--census', censusPath, '--spec-census', CENSUS_MARKDOWN, '--out', outMd, '--json', outJson],
+    { write: (s) => lines.push(s), writeErr: (s) => errLines.push(s) },
+  );
+  assert.equal(code, 2);
+  assert.deepEqual(lines, []);
+  assert.equal(errLines.length, 1);
+  assert.equal(errLines[0], 'four-read: --spec-census must be the build-census --json data file, not the census markdown\n');
+  assert.equal(fs.existsSync(outMd), false);
+  assert.equal(fs.existsSync(outJson), false);
 });
