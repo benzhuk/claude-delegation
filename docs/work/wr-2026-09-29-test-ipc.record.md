@@ -3,7 +3,7 @@ Scope: the spec section of this record (lane 57), from packet docs/notes/skills-
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: fix round 3 per docs/specs/test-ipc-57/lead-ruling-r3.md (the last round in this design), then an Opus delta review
+Next: fresh Opus delta review of ae7dfce against review-r3 and lead-ruling-r3, plus the Windows suite, then the stop rule
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -27,6 +27,7 @@ Log: 2026-09-29T19:24:56.000Z owned skills-n ruling r2 written (R1 to R3 adopted
 Log: 2026-09-29T19:31:23.000Z delivered skills-n fix-round-2 builder a5d58c760806b036f DONE 9e36a082ab6516103c993766bb417f69cddd3040 (R1 to R3 each red at 1135839 and green after; the note-inbox mutation is flagged at 369; per-file exemption counts match with zero offenders; full suite 3038 tests 3033 pass 0 fail); report docs/specs/test-ipc-57/build-r2.md
 Log: 2026-09-29T19:34:30.000Z delivered skills-n Windows full suite at 9e36a08: 3038 tests, 3005 pass, 0 fail, 33 skipped (the printed probe failure is run-tests.test.mjs's intentional nested child); fresh Opus reviewer a8b20b656347dd02d on review r3
 Log: 2026-09-29T19:46:08.000Z rejected skills-n fresh Opus reviewer a8b20b656347dd02d NEEDS_FIXES (5) 9e36a08 (N1 and N2 blocking, silent passes on composite env values and on a regex-desynced extent; N3 to N5 low); lead intervention ruling r3 adopts the measured patches, with flag-when-unsure and a stop rule; the round-2 builder a5d58c760806b036f resumes (under 150k)
+Log: 2026-09-29T19:56:14.000Z delivered skills-n Sonnet builder a5d58c760806b036f fix round 3 DONE ae7dfce (N1 to N5 per lead-ruling-r3, each fixture red at 9e36a08 and green after; exemptions 15 sites in 10 files, zero offenders; three files 95 pass, full suite 3043 tests 3038 pass 0 fail); report docs/specs/test-ipc-57/build-r3.md
 
 ## Spec (lead, from the packet)
 
