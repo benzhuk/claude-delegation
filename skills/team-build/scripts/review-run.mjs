@@ -52,6 +52,23 @@ export const DISALLOWED_TOOLS = [
   'Bash(git switch:*)', 'Bash(git worktree:*)', 'Bash(git clean:*)', 'Bash(git stash:*)',
   'Bash(gh:*)', 'Bash(vercel:*)', 'Bash(npm publish:*)', 'Bash(claude:*)', 'Bash(note-send:*)',
   'Bash(rm -r:*)', 'Bash(rm -fr:*)', 'Bash(find * -delete*)',
+  // finding 1(b): git's global-option forms bypass every subcommand prefix rule above (`git -C
+  // <path> push`, `git --git-dir=<path> config`, etc). The reviewer's cwd is always the clone; it
+  // never legitimately needs any of these. (Still whack-a-mole: `env git …` and an absolute-path
+  // git remain open — named in this build's Gap: paragraph.)
+  'Bash(git -C:*)', 'Bash(git -c:*)', 'Bash(git --git-dir:*)', 'Bash(git --work-tree:*)', 'Bash(git --exec-path:*)',
+];
+
+/** finding 1(c): used only if the mode falls back to dontAsk (auto failing P5) — dontAsk has no
+ * classifier backstop, so *something* has to be pre-approved or the reviewer can't do its job at
+ * all. Named here so the build report can point at exactly what a dontAsk reviewer loses: only
+ * these read-only shapes go through without a denial; anything else is refused outright. */
+export const DONTASK_READONLY_BASH_ALLOWLIST = [
+  'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git show:*)',
+  'Bash(git rev-parse:*)', 'Bash(git blame:*)', 'Bash(git grep:*)', 'Bash(git ls-files:*)',
+  'Bash(node:*)', 'Bash(npm test:*)', 'Bash(npm run:*)', 'Bash(cat:*)', 'Bash(ls:*)',
+  'Bash(grep:*)', 'Bash(find:*)', 'Bash(sed:*)', 'Bash(wc:*)', 'Bash(head:*)', 'Bash(tail:*)',
+  'Bash(diff:*)', 'Bash(sha256sum:*)', 'Bash(pwd:*)', 'Bash(echo:*)',
 ];
 
 /** M2: removed from the caller's env before it reaches the child. Exact names. */
@@ -200,25 +217,43 @@ export function buildAgentsJson(role) {
  * decoys — see docs/specs/review-run-53/build.md's probe table for the pass/fail evidence this
  * shape is pinned against).
  */
-export function buildArgv({ model, effort, tools, sessionId, agentsPath, permissionMode }) {
+// finding 1(c): the ruling's default mode. Re-decided in THIS round by live probe (build-r1.md's
+// mode table): kept `auto` if P7 and P5 both pass under it with 1(a)+1(b) in place; falls back to
+// `dontAsk` (with the explicit read-only Bash allowlist above) only if auto fails P5.
+export const DEFAULT_PERMISSION_MODE = 'auto';
+
+export function buildArgv({ model, effort, tools, sessionId, agentsPath, permissionMode, reportPath }) {
   // finding 3: PowerShell is dropped from --tools/--allowedTools on every platform. Every
   // DISALLOWED_TOOLS entry is Bash(...); a PowerShell(...) twin of each would be whack-a-mole
   // (finding 1(b) already needs more of that for git's global options). The simpler fix: Bash IS
   // Git Bash on win32 too, so one tool means one deny list everywhere.
-  const toolList = tools.filter((t) => t !== 'PowerShell').join(',');
+  const mode = permissionMode ?? DEFAULT_PERMISSION_MODE;
+  const effectiveTools = tools.filter((t) => t !== 'PowerShell');
+  const toolList = effectiveTools.join(',');
+  // finding 1(a) (the blocker's fix): NEVER a tool-wide Write pre-approval — an allow rule
+  // pre-approves regardless of permission mode (auto's classifier is skipped for anything an
+  // allow rule already covers), so a bare "Write" token is a standing escape under either mode.
+  // The report path is the only Write the child is ever granted, scoped exactly to it.
+  const writeRule = reportPath ? [`Write(/${reportPath.replace(/\\/g, '/')})`] : [];
+  // Same reasoning for Bash: a bare "Bash" token pre-approves every command an allow rule
+  // matches, which is ALL of them — that is what let `auto`'s classifier get skipped entirely
+  // under the old argv (this blocker's root cause), and what made dontAsk's tool-wide allow a
+  // standing deny-list-only escape. Under auto, leaving Bash OUT of --allowedTools is exactly
+  // what lets the classifier actually evaluate each command (backstopped by --disallowedTools).
+  // Under dontAsk (no classifier at all), an explicit read-only allowlist replaces it instead.
+  const bashRules = mode === 'dontAsk' ? DONTASK_READONLY_BASH_ALLOWLIST : [];
+  const allowList = effectiveTools
+    .filter((t) => t !== 'Write' && t !== 'Bash')
+    .concat(writeRule, bashRules)
+    .join(',');
   return [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-hook-events',
     '--setting-sources', 'user', '--strict-mcp-config',
     '--model', model, '--effort', effort ?? 'high',
     '--session-id', sessionId,
-    // M1's ruling: "auto first, and dontAsk only by probe, with a reason." Probe P7 supplied
-    // the reason — under `auto` + `--permission-prompts none`, a Write to an absolute path
-    // outside the reviewed worktree was ALLOWED (a real file landed on disk outside wtDir),
-    // even though the git push/git config Bash escapes in the same run were correctly denied
-    // by --disallowedTools. `dontAsk` is the escalation this ruling names for exactly this case.
-    '--permission-mode', permissionMode ?? 'dontAsk', '--permission-prompts', 'none',
+    '--permission-mode', mode, '--permission-prompts', 'none',
     '--tools', toolList,
-    '--allowedTools', toolList,
+    '--allowedTools', allowList,
     '--disallowedTools', DISALLOWED_TOOLS.join(','),
     '--agents', agentsPath,
     '--agent', 'review-run-reviewer',
@@ -270,6 +305,9 @@ function defaultGitRunner(args, cwd) {
  * under too — a stronger, simpler check than "outside the worktree" alone). */
 export function validateReportPath(reportPath, scratchDir, fsImpl = fs) {
   if (!path.isAbsolute(reportPath)) usageError('--report must be absolute');
+  // finding 1(a): a , or ) in --report would break the Write(/<path>) allow-rule syntax buildArgv
+  // emits for it (a comma ends the rule list; an unmatched ) ends the rule itself).
+  if (/[,)]/.test(reportPath)) usageError('--report must not contain , or ) (these break the Write allow-rule syntax)');
   const dir = path.dirname(reportPath);
   if (!fsImpl.existsSync(dir)) usageError(`--report's directory does not exist: ${dir}`);
   const resolvedReport = path.resolve(reportPath);
@@ -527,6 +565,7 @@ export async function runReviewRun(argv, deps = {}) {
 
     const argvForChild = buildArgv({
       model: options.model, effort: role.effort, tools: role.tools, sessionId, agentsPath,
+      reportPath: options.report,
     });
     const childEnv = buildChildEnv(env, { runDir });
 

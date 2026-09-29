@@ -586,6 +586,29 @@ test('buildArgv: carries --effort and --tools always, disallows the M1 list, nev
   assert.ok(!argv.includes('--name'));
 });
 
+test('finding 1(a)/(b)/1(c): the spawn-boundary argv never grants a tool-wide Write or Bash, the Write rule is scoped to --report, and git\'s global-option forms are disallowed', () => {
+  const argv = buildArgv({
+    model: 'opus', effort: 'high', tools: ['Read', 'Grep', 'Glob', 'Write', 'Bash'],
+    sessionId: 'fixture-session', agentsPath: '/tmp/agents.json', reportPath: '/abs/out/report.md',
+  });
+  const allowed = argv[argv.indexOf('--allowedTools') + 1].split(',');
+  assert.ok(!allowed.includes('Write'), '--allowedTools must never carry a bare, tool-wide Write');
+  assert.ok(!allowed.includes('Bash'), '--allowedTools must never carry a bare, tool-wide Bash');
+  assert.ok(allowed.some((r) => r.startsWith('Write(') && r.includes('/abs/out/report.md')), 'the Write rule must be scoped to exactly the report path');
+  const disallowed = argv[argv.indexOf('--disallowedTools') + 1];
+  assert.ok(disallowed.includes('Bash(git -C:*)'), 'git -C must be disallowed (finding 1(b))');
+  assert.ok(disallowed.includes('Bash(git -c:*)'));
+  assert.ok(disallowed.includes('Bash(git --git-dir:*)'));
+  assert.ok(disallowed.includes('Bash(git --work-tree:*)'));
+  assert.ok(disallowed.includes('Bash(git --exec-path:*)'));
+});
+
+test('finding 1(a): --report containing a comma or a close-paren is refused (it would break the Write allow-rule syntax)', () => {
+  const scratch = scratchDir('review-run-scratch-');
+  assert.throws(() => validateReportPath(path.join(scratch, '..', 'report,with,comma.md'), scratch));
+  assert.throws(() => validateReportPath(path.join(scratch, '..', 'report)paren.md'), scratch));
+});
+
 test('finding 3: PowerShell is dropped from both --tools and --allowedTools on every platform, even when the role frontmatter grants it (agents/reviewer.md lists it for win32)', () => {
   const argv = buildArgv({
     model: 'opus', effort: 'high', tools: ['Read', 'Grep', 'Glob', 'Write', 'Bash', 'PowerShell'],
@@ -598,14 +621,24 @@ test('finding 3: PowerShell is dropped from both --tools and --allowedTools on e
   for (const tok of argv) assert.ok(!String(tok).includes('PowerShell'), `PowerShell must be absent from argv entirely, found in: ${tok}`);
 });
 
-test("buildArgv: permission mode defaults to dontAsk (M1's ruling, escalated by probe P7's Write-tool escape finding)", () => {
+test("finding 1(c): permission mode defaults to auto (the ruling's default, re-decided this round by live probe once 1(a)/1(b) close the Write/git-global escapes) — see build-r1.md's mode table for the decision and its reason", () => {
   const argv = buildArgv({
     model: 'opus', effort: 'high', tools: ['Read', 'Bash'], sessionId: 'fixture-session',
     agentsPath: '/tmp/agents.json',
   });
   const i = argv.indexOf('--permission-mode');
   assert.ok(i >= 0);
-  assert.equal(argv[i + 1], 'dontAsk');
+  assert.equal(argv[i + 1], 'auto');
+});
+
+test('finding 1(c): an explicit dontAsk mode gets the read-only Bash allowlist instead of a tool-wide Bash', () => {
+  const argv = buildArgv({
+    model: 'opus', effort: 'high', tools: ['Read', 'Bash'], sessionId: 'fixture-session',
+    agentsPath: '/tmp/agents.json', permissionMode: 'dontAsk',
+  });
+  const allowed = argv[argv.indexOf('--allowedTools') + 1].split(',');
+  assert.ok(!allowed.includes('Bash'), 'dontAsk must never carry a bare, tool-wide Bash either');
+  assert.ok(allowed.includes('Bash(git status:*)'), 'dontAsk needs an explicit read-only allowlist to do any work at all');
 });
 
 test('buildChildEnv: strips the full M2 denylist and adds the two markers', () => {
