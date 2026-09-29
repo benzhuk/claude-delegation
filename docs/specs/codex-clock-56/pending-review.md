@@ -1,0 +1,7 @@
+VERDICT: WAITING
+
+Builder returned sourcea742860 and evidencee324100: all14 focused tests passed, Stop-null and Stop-text-fallback mutants each failed only the intended Stop functional test. Every test is explicitly classified, with helper/contract mapping in builder-report.md. Root intake caught remaining live SessionStart/declaration timers and short functional harness limits; these are corrected in the final source. CLI preload freezes parent400/450/2500ms budgets with an independent10s cleanup bound, and no preload reaches the backlog child. Deadline assertions remain real-clock<=2s.
+
+Only hooks/codex-unsupported.test.mjs changed outside docs; production, other tests, runner and census docs are unchanged. Independent Opus source review is next through skills-fable because review-run is absent from origin/mainc0818c9. Root does not infer approval from focused passes. Gate setup is ready and cwd-probed; three full Windows candidate gates and one Netcup sealed gate begin on the reviewed final candidate. No full Lane56 suite has run.
+
+After approval and host gates, strict acceptance, fresh-main merge with one history bullet and merged-tree Windows gate, normal guarded publish and code-mediated close remain.55 remains reviewedcd5fecc and rebases only after56 merges. Separate run-tests deserialization probes were sent as skills-a-lane55-runner-1; isolated passes are not a gate waiver.
