@@ -2575,7 +2575,9 @@ test("closeoutWorktree: idempotent - a Worktree: whose directory is genuinely go
 test("closeoutWorktree: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (never silently absent)", () => {
   const root = initRepo();
   writeProjectConfig(root);
-  const result = closeoutWorktree({ root, worktreeField: "C:/Users/benzh/orca/workspaces/x/idem-foreign-1", cwd: root });
+  // Foreign to THIS host: a Linux-written value read on win32, a Windows-written value read elsewhere.
+  const foreign = process.platform === "win32" ? "/home/ben/orca/workspaces/x/idem-foreign-1" : "C:/Users/benzh/orca/workspaces/x/idem-foreign-1";
+  const result = closeoutWorktree({ root, worktreeField: foreign, cwd: root });
   assert.deepEqual(result.steps, [
     { step: "worktree", result: "refused", detail: "worktree-unresolved" },
     { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },

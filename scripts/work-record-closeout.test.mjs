@@ -1533,7 +1533,7 @@ test("closeoutRecord: idempotent - a foreign-OS-shaped Worktree: value stays ref
   const { repo, branch, tip } = closedFixtureForScratch(env);
   const { scratchPath, by } = mkScratchFixture();
   const recordRel = writeClosedRecord(repo, {
-    work: "wr-2026-09-27-idem-foreign", worktree: "C:/Users/benzh/orca/workspaces/x/idem-foreign-1",
+    work: "wr-2026-09-27-idem-foreign", worktree: process.platform === "win32" ? "/home/ben/orca/workspaces/x/idem-foreign-1" : "C:/Users/benzh/orca/workspaces/x/idem-foreign-1",
     artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
   });
   const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
@@ -1608,6 +1608,51 @@ test("closeoutRecord: idempotent - a path-form Worktree: that no longer exists, 
   assert.equal(steps.branch.ref, branch);
   assert.equal(git(["branch", "--list", branch], repo, env).trim(), "", "the record's local branch must actually be gone");
   assert.equal(result.exitCode, 0);
+});
+
+// R4-5 (C1 round 5): the origin-branch `absent` path is confirmed against the remote with
+// `git ls-remote --exit-code`; absent only on its exit 2. These pin both halves.
+test("closeoutRecord: R4-5 - a narrow fetch refspec (no refs/remotes/origin tracking ref) with the branch still on origin is refused, never reported absent", () => {
+  const env = fixtureEnv();
+  const { repo } = buildRepo(env);
+  const branch = "build/r45-narrow-1";
+  git(["config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main"], repo, env);
+  git(["branch", branch], repo, env);
+  const tree = git(["rev-parse", `${branch}^{tree}`], repo, env).trim();
+  const tip = git(["commit-tree", tree, "-p", branch, "-m", `work on ${branch}`], repo, env).trim();
+  git(["update-ref", `refs/heads/${branch}`, tip], repo, env);
+  mergeNoFF(repo, env, branch);
+  pushMain(repo, env);
+  pushBranch(repo, env, branch);
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-28-r45-narrow", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps["origin-branch"].result, "refused");
+  assert.match(steps["origin-branch"].detail, /on origin, but no refs\/remotes\/origin tracking ref/);
+  assert.equal(result.exitCode, 2);
+  assert.notEqual(git(["ls-remote", "--heads", "origin", branch], repo, env).trim(), "", "the branch must still be on origin");
+});
+
+test("closeoutRecord: R4-5 - a failed git ls-remote on the absent path refuses UNVERIFIABLE (exit 2), never reports absent", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-28-r45-lsfail", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const first = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by });
+  assert.equal(stepsOf(first)["origin-branch"].result, "removed");
+  const spawnImpl = (cmd, args, opts) => (cmd === "git" && args[0] === "ls-remote"
+    ? { status: 128, stdout: "", stderr: "fatal: simulated ls-remote failure", error: undefined }
+    : spawnSync(cmd, args, opts));
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by, spawnImpl });
+  const steps = stepsOf(result);
+  assert.equal(steps["origin-branch"].result, "refused");
+  assert.equal(steps["origin-branch"].detail, "UNVERIFIABLE: git ls-remote failed");
+  assert.equal(result.exitCode, 2);
 });
 
 after(() => {
