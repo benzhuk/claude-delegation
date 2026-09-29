@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { formatJson, formatText, runCensus } from './build-census.mjs';
+import { formatJson, formatText, parseArgs, runCensus } from './build-census.mjs';
 
 const ROOT = 'root-session';
 const MODEL = 'gpt-5.6-terra';
@@ -413,4 +413,16 @@ test('Lane55 temporal COUNTED remains a consumer-readable verdict when a token f
   assert.equal(report.lead.codex.fields.cachedInputTokens.status, 'UNSUPPORTED');
   assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED .*; UNSUPPORTED cachedInputTokens/);
   assert.equal(JSON.parse(formatJson(report)).lead.codex.fields.cachedInputTokens.status, 'UNSUPPORTED');
+});
+
+test('Lane55 --lead-session resolves the canonical lead without --lead and rejects a spoofed selected identity', async () => {
+  const home = fixtureHome();
+  writeRollout(home, DAY, 'rollout-resolved.jsonl', leadRows());
+  const report = await runCensus({ lead: null, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+  assert.equal(report.lead.codex.identity.source, 'lead-session');
+  assert.equal(report.lead.codex.identity.expectedId, ROOT);
+  assert.equal(parseArgs(['--lead-session', ROOT, '--codex-home', home]).leadSession, ROOT);
+
+  const spoof = writeRollout(home, DAY, 'rollout-spoof.jsonl', [meta('spoof-id', 'spoof-id'), taskStarted('spoof-turn'), context('spoof-turn'), usage('spoof-response', 'spoof-turn', { sessionId: 'spoof-id' }), line('event_msg', { type: 'task_complete', turn_id: 'spoof-turn' })]);
+  await assert.rejects(() => runCensus({ lead: spoof, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }), /identity|expected/i);
 });

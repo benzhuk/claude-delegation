@@ -21,3 +21,16 @@ fixtures need temporal terminal witnesses or updated expectations for the new
 same-id segment union presently raises `Codex response_id conflict across segments for
 lead-response` on the logical-segment contract. No focused consumer gate was run while
 these failures remain.
+
+## Mandatory case map
+
+`build-census.codex.contract.test.mjs` covers verified/missing/spoofed identity;
+old-child tree traversal; response and task-started distinction; duplicate and
+conflicting responses; alias/segment conflict; root/parent/depth exclusions; missing
+cache/model/reasoning evidence; cache split non-fabrication; pre-window model context;
+historical horizon; and explicit unreadable discovery. The two `Lane55` cases pin
+canonical-tree identity and temporal COUNTED with unsupported fields. Existing
+`work-record.test.mjs` contains the untouched COUNTED acceptance/PARTIAL refusal
+consumer assertions. The remaining required additions are nonconflicting resumed segment
+union, damaged/open historical variants, cache-write-format proof, reasoning-subset
+schema fixture, and real four-read unavailable propagation; they are not claimed PASS.
