@@ -3,11 +3,11 @@ Scope: docs/specs/codex-counted-55/final-spec.md@ef5b8aaac6b8dfc399dfa592194fe47
 Owner: skills-a
 Status: delivered
 Authority: scoped Lane55 standing build/merge grant. Root owns specification, record, adjudication and acceptance. Source scouts/builders/tests/reports delegated by territory, independent high review required. No four-read.mjs, review-run.mjs, Claude discovery, hooks, GOALS.md, prior lane record, install or release changes. Normal guarded publication after merge; no recovery flag.
-Artifact: build/codex-counted-55@8926a2c5e1e1133c07d9b7c77b2066888e1629e8
+Artifact: build/codex-counted-55@60ece109bc24eb03bc17c242472e9c105b063ca4
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55
-Evidence: docs/specs/codex-counted-55/L55-spec-evidence.md, docs/specs/codex-counted-55/L55-baseline.md, docs/specs/codex-counted-55/L55-pending-spec-review.md, docs/specs/codex-counted-55/root-ruling.md, docs/specs/codex-counted-55/L55-builder-report.md, docs/specs/codex-counted-55/L55-test-report.md, docs/reports/census-0928/codex-rows.md
-Next: Opus source review and exact-candidate Windows/Netcup sealed gates, then strict acceptance, main merge, fresh-main five-lane reread, normal publish and close.
+Evidence: docs/specs/codex-counted-55/L55-spec-evidence.md, docs/specs/codex-counted-55/L55-baseline.md, docs/specs/codex-counted-55/L55-pending-spec-review.md, docs/specs/codex-counted-55/root-ruling.md, docs/specs/codex-counted-55/L55-builder-report.md, docs/specs/codex-counted-55/L55-test-report.md, docs/reports/census-0928/codex-rows.md, docs/specs/codex-counted-55/L55-host-gates.md, docs/specs/codex-counted-55/L55-pending-source-review.md
+Next: receive Opus source verdict from skills-fable on60ece10, requested skills-a-lane-55-3 by23:40 America/New_York; both host gates complete. Then acceptance, main merge/exact-merge gate, final-main rereads, normal publish and close.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:30:44Z
@@ -20,6 +20,7 @@ Log: 2026-09-29T02:52:32.496253Z owned skills-a adopts all seven Opus spec findi
 Log: 2026-09-29T02:55:11.983842Z owned skills-a dispatched T1 lane55_builder high-tier for native accounting data integrity and independent mid-tier T2 lane55_tests; resumed mid-tier lane55_measure for T3 reread preparation. Root retains record/adjudication. Continuation bind reports EPISODE_INACTIVE and status suspended for current native epoch, so no enforced-binding claim; ordinary authorized work continues.
 Log: 2026-09-29T03:03:20.270226Z owned skills-a T1 beb7f9d delivered, main lane54 consumer merged clean at50a66a5. Root adjudicated equal-usage duplicate attribution: unsupported model/timeline instead of arbitrary ordering, refusal remains usage-only. Independent tests still red and incomplete; candidate rereads dispatched, no acceptance claim.
 Log: 2026-09-29T03:19:56.434905Z delivered skills-a agent-exited artifact build/codex-counted-55@8926a2c5e1e1133c07d9b7c77b2066888e1629e8 T1 and independent high-tier T2 delivered; final focused498of498 green. Five candidate rows counted at863a686. T2 initial failed raw log was overwritten; reconstructed summary is explicitly not original bytes. Root owns integration and review.
+Log: 2026-09-29T03:28:43.635032Z delivered skills-a artifact build/codex-counted-55@60ece109bc24eb03bc17c242472e9c105b063ca4 host integrator returned, both sealed suites native0. Windows globaltemp observer424 remains unattributed, own sealed run root absent; Netcup observer0. Only external Opus source verdict blocks next acceptance step; no peer wait.
 
 Measure: feed top-tier tokens per build and the Codex portion of DONE with exact counts. This lane changes the reader, not the measured historical performance.
 
