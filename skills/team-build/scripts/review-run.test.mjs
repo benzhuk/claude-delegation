@@ -877,6 +877,9 @@ test('finding 1(a)/(b)/1(c): the spawn-boundary argv never grants a tool-wide Wr
   // the child's own cwd, per the CLI's own settings docs and validator).
   assert.ok(allowed.includes('Edit(//abs/out/report.md)'), 'the report rule must be Edit(//<abs path>)');
   assert.ok(!allowed.some((r) => r.startsWith('Write(')), 'never emit an inert Write(path) rule');
+  // N4: a win32 drive-letter path is already absolute to the CLI (C:/…), so it takes no extra "/".
+  const winArgv = buildArgv({ model: 'opus', effort: 'high', tools: ['Read', 'Write'], sessionId: 's', agentsPath: 'C:\\a.json', reportPath: 'C:\\Users\\me\\out dir\\report.md' });
+  assert.equal(winArgv[winArgv.indexOf('--allowedTools') + 1], 'Read,Edit(C:/Users/me/out dir/report.md)');
   const disallowed = argv[argv.indexOf('--disallowedTools') + 1];
   assert.ok(disallowed.includes('Bash(git -C:*)'), 'git -C must be disallowed (finding 1(b))');
   assert.ok(disallowed.includes('Bash(git -c:*)'));
@@ -903,6 +906,10 @@ test('finding 1(a): --report containing a comma or a close-paren is refused (it 
   const scratch = scratchDir('review-run-scratch-');
   assert.throws(() => validateReportPath(path.join(scratch, '..', 'report,with,comma.md'), scratch));
   assert.throws(() => validateReportPath(path.join(scratch, '..', 'report)paren.md'), scratch));
+  // N4: the Edit rule body is a gitignore glob — a glob metacharacter would widen it past --report.
+  for (const name of ['r*.md', 'r?.md', 'r[1].md', 'r{a}.md']) {
+    assert.throws(() => validateReportPath(path.join(scratch, '..', name), scratch), /must not contain/, name);
+  }
 });
 
 test('finding 3: PowerShell is dropped from both --tools and --allowedTools on every platform, even when the role frontmatter grants it (agents/reviewer.md lists it for win32)', () => {
