@@ -218,7 +218,7 @@ test('Codex contract: equal-usage duplicate with conflicting model preserves usa
   const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
     meta(ROOT), taskStarted(turn),
     context(turn, 'gpt-6-astra'), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
-    context(turn, MODEL), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
+    context(turn, MODEL, '2026-09-27T12:00:02.000Z'), usage('model-conflict', turn, { at: '2026-09-27T12:00:02.000Z' }),
     line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z'),
   ]);
   const report = await runCensus({ lead, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
