@@ -63,6 +63,7 @@ Four numbers: Hours ask to accepted: 1.9h; gap unavailable (no lead transcript)
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-lane-47-1; wakes unavailable (no census); Stop-blocks unavailable (no census); stall nudges 0 to skills-n
 Log: 2026-09-29T00:12:11.000Z accepted skills-n artifact 9435161e0997b5cde2e42b8a481c6e07f547d077
+Log: 2026-09-29T00:13:05.000Z merged skills-n merge fa25c327986be78fdd16548deeaeb3453fa2f12d into main under the standing grant of 2026-09-26; full suite on the merge 2709 of 2714, 0 fail, leak check 0; history bullet in the merge commit
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-47
 
