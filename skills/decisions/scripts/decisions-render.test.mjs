@@ -297,6 +297,47 @@ test('normalize: Lane52 substantive snapshot mutations remain unequal', () => {
   }
 });
 
+test('normalize: Lane52 observed escapes stay significant inside fenced literals', () => {
+  const backtickFenceEscaped = ['```', String.raw`a\*b`, '```'].join('\n');
+  const backtickFenceBare = ['```', 'a*b', '```'].join('\n');
+  const tildeFenceEscaped = ['~~~', String.raw`C:\[x]`, '~~~'].join('\n');
+  const tildeFenceBare = ['~~~', 'C:[x]', '~~~'].join('\n');
+  assert.notEqual(normalize(backtickFenceEscaped), normalize(backtickFenceBare), 'a fenced escaped star is literal content');
+  assert.notEqual(normalize(tildeFenceEscaped), normalize(tildeFenceBare), 'a fenced escaped bracket is literal content');
+});
+
+test('normalize: Lane52 observed escapes stay significant inside matching inline code spans', () => {
+  const singleEscaped = '`' + String.raw`C:\[x]` + '`';
+  const singleBare = '`C:[x]`';
+  const multiEscaped = '``' + String.raw`a\*b` + '``';
+  const multiBare = '``a*b``';
+  const multilineEscaped = ['``', String.raw`a\*b`, 'continued literal', '``'].join('\n');
+  const multilineBare = ['``', 'a*b', 'continued literal', '``'].join('\n');
+  assert.notEqual(normalize(singleEscaped), normalize(singleBare), 'single-backtick code span preserves its backslash');
+  assert.notEqual(normalize(multiEscaped), normalize(multiBare), 'multi-backtick code span preserves its backslash');
+  assert.notEqual(normalize(multilineEscaped), normalize(multilineBare), 'a multi-line matching code span preserves its backslash before any fence boundary');
+});
+
+test('normalize: Lane52 prose escapes remain equivalent without a matching code span', () => {
+  assert.equal(normalize(String.raw`prose a\*b and A\`B`), normalize('prose a*b and A`B'));
+  assert.equal(
+    normalize(String.raw`unmatched prose tick A\`B leaves a\*b in prose`),
+    normalize('unmatched prose tick A`B leaves a*b in prose'),
+    'an unmatched prose tick must not make later prose literal',
+  );
+  assert.equal(normalize(String.raw`A\`B`), normalize('A`B'), 'the observed escaped probe backtick remains equivalent');
+  assert.equal(
+    normalize(['unmatched ` before fence', '```', 'fenced literal', '```', String.raw`after fence a\*b`].join('\n')),
+    normalize(['unmatched ` before fence', '```', 'fenced literal', '```', 'after fence a*b'].join('\n')),
+    'an unmatched inline tick cannot pair across fence boundaries and hide later prose',
+  );
+});
+
+test('normalize: Lane52 code backslash changes remain substantive', () => {
+  assert.notEqual(normalize('`' + String.raw`build/\*` + '`'), normalize('`build/*`'));
+  assert.notEqual(normalize('``' + String.raw`C:\[x]` + '``'), normalize('``C:[x]``'));
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // countSentences() — now.md's three-to-five-sentence rule
 // ─────────────────────────────────────────────────────────────────────────────
