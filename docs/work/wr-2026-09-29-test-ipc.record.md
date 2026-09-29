@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-test-ipc
 Scope: the spec section of this record (lane 57), from packet docs/notes/skills-fable-lane-57-1.md read at 0b517ba
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
-Next: fix round 2 per docs/specs/test-ipc-57/lead-ruling-r2.md, then the r2 reviewer re-runs its unmeasured checks
+Next: fresh Opus delta review r3 and the Windows full suite at 9e36a08
 Worktree: build/test-ipc-57-1
 Scratch: /var/tmp/lane-57
 Opened: 2026-09-29T07:30:00.000Z
@@ -24,6 +24,7 @@ Log: 2026-09-29T09:27:15.000Z delivered skills-n fix-round-1 builder af9f91cafc8
 Log: 2026-09-29T09:30:50.000Z delivered skills-n Windows full suite at 1135839: 3035 tests, 3002 pass, 0 fail, 33 skipped (the one printed probe failure is run-tests.test.mjs's intentional nested child); Opus delta review r2 sent to a6d6df3d585206a42
 Log: 2026-09-29T19:24:39.000Z rejected skills-n Opus delta reviewer a6d6df3d585206a42 NEEDS_FIXES 1135839 by static trace (R1 HIGH, an env key set to the parent process environment inside a multi-line template still slips; R2 MEDIUM, regex literals mis-extend a call, the fix is a loud tripwire; R3 LOW, false reds). Stall: from about 07:30 to 15:20 NY every shell on Netcup failed with ENOSPC because /tmp had 0 free inodes; the reviewer could not measure, and the lead could not record or spawn until /tmp was freed
 Log: 2026-09-29T19:24:56.000Z owned skills-n ruling r2 written (R1 to R3 adopted, F7 as built accepted); a fresh Sonnet fix-round-2 builder spawned, the r1 builder being over 150k tokens, ETA 45 min
+Log: 2026-09-29T19:31:23.000Z delivered skills-n fix-round-2 builder a5d58c760806b036f DONE 9e36a082ab6516103c993766bb417f69cddd3040 (R1 to R3 each red at 1135839 and green after; the note-inbox mutation is flagged at 369; per-file exemption counts match with zero offenders; full suite 3038 tests 3033 pass 0 fail); report docs/specs/test-ipc-57/build-r2.md
 
 ## Spec (lead, from the packet)
 
