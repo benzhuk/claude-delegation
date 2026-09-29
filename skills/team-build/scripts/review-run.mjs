@@ -709,10 +709,29 @@ function computeInstalledRoleSha256({ home, claudeConfigDir, fsImpl }) {
  * enforce the timeout by killing the whole process tree (M5). */
 function runChild({ claudeBin, argv, cwd, env, prompt, timeoutMin, spawnImpl, runDir, fsImpl, signal, startedAt }) {
   return new Promise((resolve) => {
-    const child = spawnImpl(claudeBin, argv, {
-      cwd, env, windowsHide: true, detached: process.platform !== 'win32',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let child;
+    try {
+      child = spawnImpl(claudeBin, argv, {
+        cwd, env, windowsHide: true, detached: process.platform !== 'win32',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      // W1 (lead ruling r4): spawn() throws SYNCHRONOUSLY for some inputs — a shebang script on
+      // win32 gives a synchronous EFTYPE this way, before any ChildProcess (and so before its own
+      // 'error' event) exists. This used to escape straight past the 'error' handler below into
+      // runReviewRun's outer catch, EXIT.INTERNAL — indistinguishable from an actual bug in this
+      // script. Report it exactly the same way as the async 'error' path instead: EXIT.HOST, with
+      // an (empty) stderr.txt on disk for a human to find.
+      try { fsImpl.mkdirSync(runDir, { recursive: true }); } catch { /* already exists */ }
+      try { fsImpl.writeFileSync(path.join(runDir, 'stream.jsonl'), ''); } catch { /* best effort */ }
+      try { fsImpl.writeFileSync(path.join(runDir, 'stderr.txt'), ''); } catch { /* best effort */ }
+      resolve({
+        timedOut: false, usage: null, modelUsage: null, totalCostUsd: null, numTurns: null, durationMs: null,
+        permissionDenials: 0, finalResultText: null, claudeVersion: null, resolvedModel: null,
+        spawnError: true, spawnErrorMessage: err?.message ?? String(err), stderrTail: '', childPid: null,
+      });
+      return;
+    }
     // finding 6: record the real spawned child pid (plus this run's own timeout) the moment it
     // exists, so a LATER run's sweep can tell "review-run died, but the claude session it spawned
     // is still going as an orphan" apart from "the whole run is simply gone", and reap only the

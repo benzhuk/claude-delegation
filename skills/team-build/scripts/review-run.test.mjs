@@ -158,6 +158,19 @@ test('lane 53 diagnostics fix (found by probe P3): a child that fails to spawn e
   assert.ok(fs.existsSync(path.join(scratch, runDirs[0], 'stderr.txt')), 'stderr.txt must exist even on a spawn failure');
 });
 
+test('W1 (lead ruling r4): a synchronous throw from spawn() (e.g. win32 EFTYPE on a shebang script) is also reported as EXIT.HOST, not EXIT.INTERNAL', async () => {
+  // node:child_process.spawn() throws SYNCHRONOUSLY, before returning a ChildProcess at all, for
+  // some inputs — on win32, spawning a shebang script gives a synchronous EFTYPE this way. Inject
+  // a spawnImpl that reproduces exactly that: a throw before any ChildProcess exists, no process
+  // ever created, so this test never depends on real OS spawn behaviour.
+  const spawnSpy = () => { const e = new Error('spawn EFTYPE'); e.code = 'EFTYPE'; throw e; };
+  const { exitCode, scratch } = await run({ spawnSpy });
+  assert.equal(exitCode, EXIT.HOST, 'a synchronous spawn throw must be reported as EXIT.HOST, not EXIT.INTERNAL');
+  const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
+  assert.equal(runDirs.length, 1);
+  assert.ok(fs.existsSync(path.join(scratch, runDirs[0], 'stderr.txt')), 'stderr.txt must exist even on a synchronous spawn throw');
+});
+
 test('a missing report exits 2, and (m8) the inline reply is saved to reply.txt, never to --report', async () => {
   const { exitCode, scratch } = await run({ mode: 'reply-fallback' });
   assert.equal(exitCode, EXIT.BAD_REPORT);
