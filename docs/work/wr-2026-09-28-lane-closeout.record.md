@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-lane-closeout
 Scope: docs/specs/lane-closeout-1/spec.md (the Lane 36 section of docs/specs/2026-09-28-parallel-bundle.md read at origin/docs/lane-specs-0925 dc16de3; full file copied as spec-full.md), rulings in docs/specs/lane-closeout-1/contracts.md; territories C1 (record, closeout, sweep-origin) and C2 (delete guard, scratch sentence)
 Owner: skills-h
-Status: owned
+Status: delivered
 Authority: build, review, push build/lane-closeout-1, merge into main on acceptance under the standing grant of 2026-09-26, without Ben. The one-time sweep (origin build/* deletes, janitor --apply on Hetzner, Netcup and Windows) only on Ben's Yes on a waiting item on the decisions page (skills-fable-lane-36-2). No release or install.
 Artifact: none
 Evidence: docs/specs/lane-closeout-1/spec.md
@@ -37,3 +37,4 @@ Log: 2026-09-29T00:03:00Z owned C1 sonnet builder round 5 committed 2296478 at 2
 Log: 2026-09-29T00:07:48Z delivered C1 fresh sonnet builder round 5 at 22964783b1e26331ce3c3a503ee38028e1a09188: diff matched every ruling, 4 of 4 mutants killed, full gate 2688/2682/1 pre-existing/5 skipped (reports/C1-r5-report.md); provisionally merged as 7ce9843; Opus delta review and Windows gate running
 Log: 2026-09-29T00:18:23Z rejected C1 Opus reviewer NEEDS_FIXES 22964783: code meets every ruling, 4 of 4 mutants re-killed, R4-5 fails closed; R5-1 the W1 spec tests use a value native on win32, R5-2 R4-5 untested (reports/C1-review-r5.md); lead (opus) Windows gate at 7ce9843 agrees, W3 (reports/C1-r5-windows-findings.md); addendum-C1-r6, tests only
 Log: 2026-09-29T00:18:33Z owned C1 sonnet builder round 6 (tests only, addendum-C1-r6.md), ETA 20 min
+Log: 2026-09-29T00:25:29Z delivered C1 sonnet builder round 6 at b0f26339fac8346a4fedabe2e36d4c4adf6a8052, tests only, 3 of 3 mutants killed, full gate 2690/2684/1 pre-existing/5 skipped (reports/C1-r6-report.md); provisionally merged as 1bea04a; Opus delta review and Windows gate running
