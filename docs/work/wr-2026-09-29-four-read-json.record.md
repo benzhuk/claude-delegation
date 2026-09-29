@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-four-read-json
 Scope: the spec section of this record (lane 54), from packet docs/notes/skills-fable-lane-53-1.md "Queued behind it: lane 54" read at 7ab59db
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/four-read-json-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; rerun build-census and four-read read-only against lead transcripts and merged records; no release, no install
 Next: census, four-read and accept pinned at 63996a6, then merge, publish, close, RESULT
 Artifact: 63996a6b35eb2a143092bb354f58e026f9981f77
@@ -66,6 +66,8 @@ Four numbers: Hours ask to accepted: 0.5h; largest gap 9.8min at 2026-09-29T02:2
 Four numbers: Rework after acceptance: 1 commit(s) touching build files within 7 days: 5766f1a "docs(work): lane 54 reviewed at 63996a6, evidence copied"; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-29T02:52:38.000Z accepted skills-n artifact 63996a6b35eb2a143092bb354f58e026f9981f77
+Log: 2026-09-29T02:53:31.000Z merged skills-n into main at 7a7d48f3ceb06d68064d239e0bfbe26e58d9f5fc under the standing grant of 2026-09-26, merge suite 2937 pass 0 fail
+Log: 2026-09-29T02:53:31.000Z closed skills-n merge 7a7d48f3ceb06d68064d239e0bfbe26e58d9f5fc
 
 Observed: four-read now refuses a --census or --spec-census file that is not build-census --json output, with exit 2, a message naming the flag and no output written. At 7ab59db the census markdown was read silently as no census, with exit 0. All 40 committed census JSON files in the repo pass the gate, older pre-lane-38 ones included. The rerun of lanes 42, 43, 44, 46 and 47 with the census JSON fills their token, gap and wake cells in the census-0928 appendix, with the unavailable parts shown verbatim. Two Opus reviews, the second APPROVE 63996a6.
 
