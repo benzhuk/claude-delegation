@@ -111,10 +111,15 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
   }
   const round = st?.receipt?.round;
   if (!Number.isSafeInteger(round)) return null;
-  // Review round-2 M8: only an unaccounted captured round can back a --clear-done publish. A
-  // status of ACCOUNTED, NEEDS_RECONCILIATION, or any legacy/unknown status means this round was
-  // already closed out (or is broken) and must not be treated as fresh, verbatim-checked capture.
-  const acceptableStatuses = new Set(['PREPARED', 'RECORDED', 'WAITING_OWNER']);
+  // Lane 58 (was Review round-2 M8): ACCOUNTED is now accepted too, since there is exactly one
+  // receipt (and so exactly one round) tracked per page — `st.receipt.round` above is always
+  // that round, never a stale earlier one. Following the SKILL.md order (account, then clear
+  // Done) leaves the page ACCOUNTED with Done still checked and no route able to clear it, so an
+  // ACCOUNTED capture is tagged `accounted: true` below; `publish` itself requires the fresh
+  // page's Done to still be checked before it will use one (see its own comment at the call
+  // site). NEEDS_RECONCILIATION and any legacy/unknown status still mean this round was closed
+  // out abnormally (or is broken) and must not be treated as fresh, verbatim-checked capture.
+  const acceptableStatuses = new Set(['PREPARED', 'RECORDED', 'WAITING_OWNER', 'ACCOUNTED']);
   if (!acceptableStatuses.has(st?.status)) return null;
   let originalBuf;
   try {
@@ -129,7 +134,10 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
     return null;
   }
   const tickAt = st.receipt.captureReadAt ?? st.receipt.preparedAt ?? null;
-  return { round, tickAt, triples: ownerInputTriples(doc) };
+  return {
+    round, tickAt, triples: ownerInputTriples(doc),
+    ...(st.status === 'ACCOUNTED' ? { accounted: true } : {}),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,6 +451,14 @@ export async function publish(opts, deps = {}) {
   if (clearDone) {
     const capture = await readPickupCapture({ repo, page });
     if (!capture) throw new PublishError(3, 'clear-done: no captured pickup round for this page');
+    // Lane 58: a capture tagged `accounted` came from an already-ACCOUNTED round (SKILL.md's
+    // account-then-clear order). It backs this publish only in exactly the state right after that
+    // accounting, before Done is cleared: the fresh page's Done still checked. Any other fresh
+    // page (Done already unchecked, or never was) means this round is not (or no longer) the one
+    // that produced this capture, so it must not be spent here.
+    if (capture.accounted && doc.done !== true) {
+      throw new PublishError(3, "clear-done: an already-accounted round requires the fresh page's Done to still be checked");
+    }
     const freshTriples = ownerInputTriples(doc);
     if (!multisetsEqual(freshTriples, capture.triples)) {
       throw new PublishError(3, `clear-done: captured owner inputs do not match the fresh read (${describeMismatch(freshTriples, capture.triples)})`);
