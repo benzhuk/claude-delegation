@@ -894,9 +894,11 @@ export function parseArgs(argv) {
 // be build-census.mjs's own `--json` data file, never the `-census.md` markdown report it
 // also writes. Handing four-read the markdown used to fail `JSON.parse` inside `loadJson`
 // (:47) and get silently swallowed into "no census" (:787) — a check that passes because it
-// isn't looking. These top-level keys are the exact shape build-census.mjs writes for every
-// lead host, Claude and Codex alike (scripts/build-census.mjs:1359-1390, :1558-1609).
-const CENSUS_JSON_TOP_LEVEL_KEYS = ['lead', 'subagents', 'combined', 'stallNudges', 'marker', 'leadPath', 'tasksPaths', 'defaultSubagentsDir'];
+// isn't looking. These are the top-level keys every build-census version has written, Claude
+// and Codex alike (scripts/build-census.mjs:1359-1390, :1558-1609). `stallNudges` is left out
+// on purpose: pre-lane-38 censuses (before commit 1c41ce7) lack it, and four-read never reads
+// it, so requiring it would refuse legitimate older census JSON (lane 54 r1, F-1).
+const CENSUS_JSON_TOP_LEVEL_KEYS = ['lead', 'subagents', 'combined', 'marker', 'leadPath', 'tasksPaths', 'defaultSubagentsDir'];
 export function isBuildCensusJsonShape(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   if (!CENSUS_JSON_TOP_LEVEL_KEYS.every((k) => Object.prototype.hasOwnProperty.call(value, k))) return false;
@@ -921,6 +923,10 @@ export async function main(argv = process.argv.slice(2), { fsImpl = fs, write = 
   const opts = parseArgs(argv);
   const censusCheck = validateCensusArg(fsImpl, opts.census);
   if (!censusCheck.ok) { writeErr(`${censusCheck.message}\n`); return 2; }
+  if (opts.specCensus) {
+    const specCheck = validateCensusArg(fsImpl, opts.specCensus);
+    if (!specCheck.ok) { writeErr(`${specCheck.message.replace('--census', '--spec-census')}\n`); return 2; }
+  }
   const report = buildFourRead(opts, fsImpl);
   const wrote = [];
   if (opts.json) { fsImpl.writeFileSync(opts.json, `${formatJson(report)}\n`); wrote.push(opts.json); }
