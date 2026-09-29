@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { gatherKnowledge, reconcileKnowledge } from './knowledge-gather.mjs';
 
 const tracked = [];
@@ -473,6 +474,39 @@ test('accepts per-file PAX from GNU/libarchive producers while ignoring non-sema
   assert.equal(gathered.imports[0].originalName, '2026-08-08-pax note.md');
   assert.equal(gathered.imports[0].sourceMtimeMs, 1_723_075_200_125);
   assert.deepEqual(fs.readFileSync(path.join(options.inboxDir, gathered.imports[0].importedName)), body);
+});
+
+test('parses actual GNU tar and libarchive pax streams, including a pax-only long path', {
+  skip: process.platform === 'win32' ? false : 'the sealed Windows gate pins both producer binaries',
+}, async () => {
+  const producers = [
+    ['gnu', 'C:/Program Files/Git/usr/bin/tar.exe'],
+    ['libarchive', 'C:/Windows/System32/tar.exe'],
+  ];
+  for (const [label, executable] of producers) {
+    assert.ok(fs.existsSync(executable), `${label} producer missing: ${executable}`);
+    const source = tmp(`knowledge-real-${label}-source-`);
+    const longName = `2026-08-15-${'p'.repeat(105)}-${label}.md`;
+    const body = Buffer.from(`${label} pax body\n`);
+    fs.writeFileSync(path.join(source, longName), body);
+    const made = spawnSync(executable, ['--format=pax', '-cf', '-', longName], {
+      cwd: source,
+      encoding: null,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    assert.equal(made.status, 0, `${label}: ${made.stderr?.toString()}`);
+    assert.ok(made.stdout.includes(Buffer.from('path=')), `${label} fixture did not contain a pax path record`);
+    const localHome = tmp(`knowledge-real-${label}-local-`);
+    const options = fixtureOptions({
+      localHome, stateDir: path.join(localHome, '.agents', 'knowledge-triage'),
+      ssh: makeTarSshFixture(made.stdout), endpoints: { netcup: `${label}-fixture`, hetzner: null, mac: null },
+    });
+    const gathered = await gatherKnowledge(options);
+    assert.equal(hostRow(gathered, 'netcup').status, 'gathered', label);
+    assert.equal(gathered.imports.length, 1, label);
+    assert.equal(gathered.imports[0].originalName, longName, label);
+    assert.deepEqual(fs.readFileSync(path.join(options.inboxDir, gathered.imports[0].importedName)), body, label);
+  }
 });
 
 test('rejects unsafe tar paths, links, global PAX, and malformed/truncated streams before import', async () => {
