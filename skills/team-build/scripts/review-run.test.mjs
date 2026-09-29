@@ -374,6 +374,15 @@ test('parseArgs: every required flag is enforced', () => {
   assert.throws(() => parseArgs(['--sha', FULLSHA]));
 });
 
+test('finding 13: --timeout-min above 35000 is rejected (Node clamps a bigger setTimeout delay to 1ms, killing the child immediately)', () => {
+  assert.throws(() => parseArgs([
+    '--sha', FULLSHA, '--brief', 'b', '--report', '/abs/r.md', '--scratch', '/abs/s', '--timeout-min', '35001',
+  ]), /at most 35000/);
+  assert.doesNotThrow(() => parseArgs([
+    '--sha', FULLSHA, '--brief', 'b', '--report', '/abs/r.md', '--scratch', '/abs/s', '--timeout-min', '35000',
+  ]));
+});
+
 test('buildArgv: carries --effort and --tools always, disallows the M1 list, never -n/--name', () => {
   const argv = buildArgv({
     model: 'opus', effort: 'high', tools: ['Read', 'Bash'], sessionId: 'fixture-session',

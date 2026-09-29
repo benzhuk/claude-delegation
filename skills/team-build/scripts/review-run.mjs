@@ -122,7 +122,11 @@ export function parseArgs(argv) {
   if (!out.brief) usageError('--brief is required');
   if (!out.report) usageError('--report is required');
   if (!out.scratch) usageError('--scratch is required (m3: the record\'s Scratch: dir)');
-  if (!Number.isFinite(out.timeoutMin) || out.timeoutMin <= 0) usageError('--timeout-min must be a positive number');
+  // finding 13: above ~35791 minutes, timeoutMin * 60 * 1000 overflows setTimeout's max delay
+  // (2147483647ms); Node clamps that to 1ms, so the child would be killed immediately.
+  if (!Number.isFinite(out.timeoutMin) || out.timeoutMin <= 0 || out.timeoutMin > 35000) {
+    usageError('--timeout-min must be a positive number of at most 35000');
+  }
   return out;
 }
 
