@@ -268,7 +268,7 @@ export function systemdTimerUnit({ hour, name, job = DEFAULT_JOB, every }) {
  * this string, which is what the test file's "--apply never appears / --repo appears" assertions
  * scan for. Live execution of `schtasks` was not attempted anywhere in this build — this host has no
  * such binary — so this is generated-text-only, not verified end to end. */
-export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job = DEFAULT_JOB, to, out, every, staleHours, startDate }) {
+export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job = DEFAULT_JOB, to, out, every, staleHours, startDate, firstRun }) {
   const triage = job === "knowledge-triage";
   const inner = scheduledCommandArgv({ node, pluginRoot, repo, host, job, to, out, staleHours }).map((a) => `"${a}"`).join(" ");
   const wrapped = `${inner} > "${logPath}" 2>&1`;
@@ -283,7 +283,7 @@ export function windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, jo
   const triggers = triage
     ? "  <Triggers>\n" +
       "    <CalendarTrigger>\n" +
-      `      <StartBoundary>${startDate}T${String(hour).padStart(2, "0")}:00:00</StartBoundary>\n` +
+      `      <StartBoundary>${startDate ?? firstRun}T${String(hour).padStart(2, "0")}:00:00</StartBoundary>\n` +
       "      <Enabled>true</Enabled>\n" +
       "      <ScheduleByDay>\n" +
       "        <DaysInterval>1</DaysInterval>\n" +
@@ -491,7 +491,7 @@ export function isInstalledPluginRoot(target, { home = os.homedir() } = {}) {
 }
 
 const KNOWN_BOOLEAN_FLAGS = new Set(["--dry-run", "--json", "--remove", "--enable", "--force-root"]);
-const KNOWN_VALUE_FLAGS = new Set(["--hour", "--repo", "--host", "--name", "--job", "--every", "--to", "--out", "--stale-hours"]);
+const KNOWN_VALUE_FLAGS = new Set(["--hour", "--repo", "--host", "--name", "--job", "--every", "--to", "--out", "--stale-hours", "--first-run"]);
 
 function usageText() {
   return [
@@ -641,6 +641,16 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       if (argv.includes(flag)) refusals.push(`${flag} is refused for --job knowledge-triage`);
     }
     if (!removeFlag && platform !== "win32") refusals.push("knowledge-triage installs only as a Windows Task Scheduler task on the writer host");
+  } else if (argv.includes("--first-run")) {
+    refusals.push("--first-run only applies to --job knowledge-triage");
+  }
+  // Optional first-run date (F8), default today: a real calendar date, YYYY-MM-DD.
+  let firstRun = null;
+  if (triage && argv.includes("--first-run")) {
+    const v = parseArgFlag(argv, "--first-run");
+    const d = v !== null && /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T00:00:00Z`) : null;
+    if (d && !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v) firstRun = v;
+    else refusals.push(`--first-run must be a calendar date YYYY-MM-DD, got ${v === null ? "(no value)" : v}`);
   }
 
   // Lane 33 F1 (docs/specs/collect-followups-1/spec.md): --stale-hours is baked into the collect
@@ -661,7 +671,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // J1 live-fix review F1: a value flag given with no value (or an empty one) must never fall back to
   // its default — `--remove --name` with the value forgotten used to remove the REAL janitor-record.
   // A repeated value flag is ambiguous (parseArgFlag silently takes the first), so it is refused too.
-  for (const flag of ["--repo", "--host", "--name", "--job", "--every", "--to", "--out", "--stale-hours"]) {
+  for (const flag of ["--repo", "--host", "--name", "--job", "--every", "--to", "--out", "--stale-hours", "--first-run"]) {
     if (argv.includes(flag) && parseArgFlag(argv, flag) === null) refusals.push(`${flag} needs a value`);
   }
   for (const flag of KNOWN_VALUE_FLAGS) {
@@ -863,7 +873,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     artifacts = [
       // Windows-task-1: written UTF-16LE (encoding: "utf16le" below) so the BOM character this
       // string leads with lands as the real bytes Task Scheduler's XML import requires.
-      { file: taskXmlFile, marker: markerLine("xml", job), desired: windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job, to: toFlag, out: outFlag, every, staleHours, startDate: triage ? localDate(now()) : undefined }), encoding: "utf16le" },
+      { file: taskXmlFile, marker: markerLine("xml", job), desired: windowsTaskXml({ node, pluginRoot, repo, host, hour, logPath, job, to: toFlag, out: outFlag, every, staleHours, startDate: triage ? (firstRun ?? localDate(now())) : undefined }), encoding: "utf16le" },
     ];
     enableCmds = [{ cmd: "schtasks", args: ["/Create", "/TN", name, "/XML", taskXmlFile, "/F"] }];
     if (triage) {
