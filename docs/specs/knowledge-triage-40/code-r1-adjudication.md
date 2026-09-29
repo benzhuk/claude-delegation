@@ -1,0 +1,25 @@
+# Root adjudication: code review42e356b
+
+All ten finding causes in code-review-r1.md are accepted. Fix all before the single live proof or scheduling. No waiver of existing guards. Source builder owns production only; independent test author owns four existing test paths and report/state. Root owns this ruling and contracts/records. This is source fix round2; provide discriminating red/green receipts and four bugfix fields. Both agents read the original review, not just this ruling.
+
+1. Adopt direct Node launch of installed plugin note-send.mjs and visible send failure in ATTENTION/receipt. Do NOT copy the suggested pipe-separated line: the envelope rejects vertical bars too. Use a short envelope-safe one-line summary, retaining exact multiline recovery instructions in ATTENTION and pass that file as --packet-file on the default sender. Sanitize any dynamic reason against the real envelope validator; no shell. Injected noteSend receives the same safe summary. Do not truncate mandatory recovery instructions or claim delivery on nonzero. Write ATTENTION before sending so packet exists. Missing ATTENTION write must itself be visible. Keep production sender identity isolated from the invoking peer. Test safe text against actual assertFieldSafe, injected send failure visibility, and factored production argv/Node path without sending a real note.
+
+2. Fix the archive race completely for atomic replacement, not merely by moving one hash check. Use the reviewer's rename-claim approach with an exclusively owned temporary directory on the same filesystem: claim the source name, hash the claimed bytes, exclusively link only matching bytes into final archive, remove only the owned claim on success. Never unlink the live source name after a check. On changed bytes restore by exclusive create only if the original name is free; if another version occupies it, preserve both and return named unresolved residue. Failures/crashes preserve claimed bytes in an auditable named location; never report success when recovery remains. This narrow same-directory claim is authorized as the necessary atomic step within remote reconciliation, not a new sync service or host registry. No bulk cleanup or scan/deletion of other claims. Include a discriminating replacement-during-archive test and retain readability of changed bytes, live-name replacement and conflicting destination. If a minimal recoverable claim cannot fit existing contract, report the exact issue before inventing more state.
+
+3. Terminal entries must appear once, with host row totals consistent. Adopt minimal shared-object dedup or an equivalent stable tuple, and test the full run receipt rather than only gather rows.
+
+4. Unknown managed set is a named skip before gather/spawn. Pin managedNames(options) => Promise<{set:Set<string>, error:string|null}>. Pin optional internal Options.managedNames?: Set<string> as a previously resolved set (not a CLI seam). Runner resolves once, skips on error and passes it to gather. Standalone gather also fails closed on unresolved discovery, returning named skipped host rows with zero imports (no SSH). No source-path failure may become empty managed state. Test both runner and standalone gather. Existing explicit deps.chezmoiSourceInbox fixture remains supported, but unreadable source must not be silently empty.
+
+5. Apply review test hardening exactly, including correct remoteHead in unchanged mode, nestedExitCode/reason assertions and actual argv session identity. Add regression checks for findings1-4,6-10. The first round's negative-test strengthening was incomplete; preserve that fact and prove precondition mutants now fail.
+
+6. Adopt the bounded three-hour live-owner age check (longer than PT2H), with stale/unparseable/future ownership yielding ATTENTION and no automatic lock removal. Test live PID plus old timestamp.
+
+7. Preserve gather-phase unresolved counts through reconciliation; test receipt names and counts agree.
+
+8. Adopt skipped for skill deferred, keeping nested session/tokens and reconciliation evidence; update the exact contract/test expectation. No receipt should call zero processing successful merely because the child exited0.
+
+9. Signal the owned child tree at most once across overflow and timeout. Prove with a deterministic parent-timer fixture and an actual child where useful, no racing tight clock bound.
+
+10. A top-level POSIX backslash name or drive-like name is unsupported-name residue; true slash traversal/absolute paths and links still reject the stream. These bytes must never be interpreted as local paths. Test mixed valid+unsupported entries import the valid note without touching the unsupported name.
+
+No live runs, SSH, installs, peer messages, guard changes or full suite for these builders. Shared Global claude-verify mutex for focused checks. Source and tests can progress concurrently from pinned decisions above. ETA25minutes. Root integrates one focused gate, then independent delta through review-run on exact final SHA. Original evidence stays intact.

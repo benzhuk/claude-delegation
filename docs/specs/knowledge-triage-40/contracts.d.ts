@@ -27,6 +27,7 @@ export interface Options {
   stateDir?: string;
   inboxDir?: string;
   now?: () => Date;
+  managedNames?: Set<string>; // internal pre-resolved managed set; never accepted by CLI
   // Dependency injection is test-only; CLI never accepts arbitrary host endpoints.
   deps?: {
     sshCommand?: string[]; // default ['ssh']; fake: [process.execPath, fakeSshPath]
@@ -47,6 +48,7 @@ export interface Options {
   };
 }
 export declare function gatherKnowledge(options?: Options): Promise<Gathered>;
+export declare function managedNames(options?: Options): Promise<{set: Set<string>; error: string | null}>;
 export declare function reconcileKnowledge(options: Options, gathered: Gathered): Promise<HostResult[]>;
 export type Tokens = {
   input: number; output: number; cacheRead: number; cacheCreation: number; total: number; // total = input + output + cacheRead + cacheCreation
