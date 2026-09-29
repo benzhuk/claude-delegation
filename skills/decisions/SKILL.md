@@ -125,7 +125,11 @@ that line. An unchecked Done is valid with zero or open decisions; an absent Don
 blocks the hand-back. In a registered pickup round the order is the reverse — clear Done
 first (`publish --clear-done`), then account — because any page edit while that round's
 Done is still checked moves its receipt to NEEDS_RECONCILIATION (the Done-window rules
-under "Reading answers") (not checked).
+under "Reading answers") (not checked). Either order reaches a working `publish
+--clear-done`: it also accepts an already-`ACCOUNTED` round whose Done is still checked
+from that same round (the Done line unchanged since the capture, never cleared and
+re-checked) and whose owner inputs still match, so accounting first no longer strands the
+page (checked by `decisions-render-publish.test.mjs`).
 
 The page is composed only of the sections `decisions-render.mjs render` builds —
 `# Waiting on you now`, `# What is going on`, `# This session (since your tick at …)`,

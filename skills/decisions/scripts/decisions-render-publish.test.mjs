@@ -175,13 +175,40 @@ test('defaultReadPickupCapture: a real RECORDED wrapper (status lives on st, not
   });
 });
 
-test('defaultReadPickupCapture: an ACCOUNTED wrapper (round already closed out) yields null and never opens the private capture', async () => {
+test('defaultReadPickupCapture: an ACCOUNTED wrapper (round accounted but Done not yet cleared) yields the captured triples, tagged so publish can require Done still checked', async () => {
   const pickup = {
-    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 4 } }),
-    openPrivateCapture: () => { throw new Error('must not be called once status is rejected'); },
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 4, captureReadAt: '2026-09-27T21:55:00Z' } }),
+    openPrivateCapture: () => Buffer.from(pageWithComment('hello'), 'utf8'),
+  };
+  const capture = await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup });
+  assert.deepEqual(capture, {
+    round: 4,
+    tickAt: '2026-09-27T21:55:00Z',
+    triples: [['comment', 'A decision', 'hello']],
+    accounted: true,
+    doneLabel: 'Done',
+  });
+});
+
+test('defaultReadPickupCapture: a NEEDS_RECONCILIATION wrapper still yields null and never opens the private capture', async () => {
+  let opened = false;
+  const pickup = {
+    status: () => ({ status: 'NEEDS_RECONCILIATION', receipt: { state: 'NEEDS_RECONCILIATION', round: 4 } }),
+    openPrivateCapture: () => { opened = true; return Buffer.from(pageWithComment('hello'), 'utf8'); },
   };
   const capture = await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup });
   assert.equal(capture, null);
+  assert.equal(opened, false, 'the status filter, not a failed open, must reject it');
+});
+
+test('defaultReadPickupCapture: an ACCOUNTED round whose unchecked page was already observed yields null and never opens the capture', async () => {
+  let opened = false;
+  const pickup = {
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 4, observedUncheckedAt: '2026-09-27T22:00:00Z' } }),
+    openPrivateCapture: () => { opened = true; return Buffer.from(pageWithComment('hello'), 'utf8'); },
+  };
+  assert.equal(await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup }), null);
+  assert.equal(opened, false, 'the observedUncheckedAt guard, not a failed open, must reject it');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -814,6 +841,96 @@ test('publish --clear-done: matching capture but the owner text is missing from 
   await assert.rejects(
     publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
     (e) => e instanceof PublishError && e.code === 3 && /not present verbatim/.test(e.message),
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 58: an ACCOUNTED round (Done not yet cleared) can still back --clear-done, through the
+// real defaultReadPickupCapture wired to a fake `pickup` module (never a bare injected object) —
+// so these exercise the actual read-layer acceptance, not just publish()'s own multiset check.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('publish --clear-done: an ACCOUNTED round whose Done is still checked and whose triples match proceeds, clearing Done', async () => {
+  const live = pageWithComment('please look at this');
+  const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
+    + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const pickup = {
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 1, captureReadAt: '2026-09-27T19:05:00Z' } }),
+    openPrivateCapture: () => Buffer.from(live, 'utf8'),
+  };
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: (ctx) => defaultReadPickupCapture(ctx, { pickup }),
+    gitOverrides: {
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }),
+    },
+  });
+  const result = await publish({
+    repo: REPO, page: 'PAGE', clearDone: true, dryRun: true,
+  }, deps);
+  assert.equal(result.code, 0);
+  assert.match(result.rendered, /- \[ \] Done \(last cleared: Sep 27, 2026, 3:00 PM America\/New_York\)/);
+});
+
+test('publish --clear-done: an ACCOUNTED round with Done unchecked on the fresh page is exit 3', async () => {
+  const live = pageWithComment('please look at this').replace('- [x] Done', '- [ ] Done');
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const pickup = {
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 1 } }),
+    openPrivateCapture: () => Buffer.from(pageWithComment('please look at this'), 'utf8'),
+  };
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: (ctx) => defaultReadPickupCapture(ctx, { pickup }),
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
+    (e) => e instanceof PublishError && e.code === 3 && /Done.*checked/i.test(e.message),
+  );
+});
+
+test('publish --clear-done: an ACCOUNTED round whose captured triples differ from the fresh read is exit 3, naming the difference', async () => {
+  const live = pageWithComment('please look at this');
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const pickup = {
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 1 } }),
+    openPrivateCapture: () => Buffer.from(pageWithComment('a totally different note'), 'utf8'),
+  };
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: (ctx) => defaultReadPickupCapture(ctx, { pickup }),
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
+    (e) => e instanceof PublishError && e.code === 3 && /do not match the fresh read/.test(e.message),
+  );
+});
+
+test('publish --clear-done: an ACCOUNTED round whose Done was cleared and then re-checked with the same inputs is exit 3 (a new hand-back, not that round)', async () => {
+  const OLD = 'Done (last cleared: Sep 27, 2026, 1:00 PM America/New_York)';
+  const NEW = 'Done (last cleared: Sep 27, 2026, 2:10 PM America/New_York)';
+  const captured = pageWithComment('please look at this').replace('- [x] Done', `- [x] ${OLD}`);
+  const live = pageWithComment('please look at this').replace('- [x] Done', `- [x] ${NEW}`);
+  const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
+    + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION.replace('- [ ] Done', `- [ ] ${NEW}`) });
+  const pickup = {
+    status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 1, captureReadAt: '2026-09-27T17:05:00Z' } }),
+    openPrivateCapture: () => Buffer.from(captured, 'utf8'),
+  };
+  const { deps } = baseDeps({
+    files,
+    readPage: async () => live,
+    readPickupCapture: (ctx) => defaultReadPickupCapture(ctx, { pickup }),
+    gitOverrides: { show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }) },
+  });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE', clearDone: true, dryRun: true }, deps),
+    (e) => e instanceof PublishError && e.code === 3 && /Done line/.test(e.message),
   );
 });
 
