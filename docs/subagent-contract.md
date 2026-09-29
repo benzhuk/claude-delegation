@@ -107,3 +107,13 @@ once the record closes, as its one sanctioned file-delete path. No agent removes
 scratch, or anyone else's — the eight role files each carry the sentence that says so,
 and `hooks/delete-guard.mjs` refuses a subagent's own recursive-delete attempt before any
 permission prompt can strand it.
+
+## Agent scratch: a name-prefixed temp dir, removed with reclaim, never rm
+
+For a throwaway file an agent needs during its own turn (not the lead-owned lane scratch
+above): agent scratch goes in `mktemp -d /var/tmp/delegation-<name>-XXXX` on Linux and
+macOS, and in `mktemp -d -t delegation-<name>-XXXX` on Windows Git Bash (lands in
+`%TEMP%`; the Windows gate records `cygpath -w` of one such dir and checks it equals
+`os.tmpdir()`'s child) — never a bare `os.tmpdir()` path with no prefix. Removal is bare
+`reclaim <path>` (`scripts/reclaim.mjs`'s T class), never `rm`, never a path to the
+script itself, never `node .../reclaim.mjs <path>`.

@@ -147,11 +147,17 @@ what turns it into something janitor (or the next builder) can act on.
 
 After every accepted build, the lane's integrator runs `janitor --record` and then
 `janitor --apply`, in that order, and pastes the JUDGMENT table into the RESULT. Once a
-day per host, the installed timer (below) does the same from the main checkout — a node
-script running unattended, never a Sonnet or Opus turn, so a stale worktree is found
-daily at zero top-tier token cost. JUDGMENT is never sent to the owner piecemeal: every
-JUDGMENT line from a run goes to the owner's decisions page as ONE item, with a
-recommendation per line, never as several separate asks.
+day per host, the installed timer (below) now does the same, unattended — a node script,
+never a Sonnet or Opus turn, so the SAFE class is kept down to zero at zero top-tier
+token cost. JUDGMENT is never sent to the owner piecemeal: every JUDGMENT line from a run
+goes to the owner's decisions page as ONE item, with a recommendation per line, never as
+several separate asks.
+
+A daily `--apply` only ever removes a SAFE item that has been idle at least 24 hours
+(`idleHours()`, below) — newest of the worktree directory's own mtime, its git-admin
+`HEAD`/`index`/`logs/HEAD`, and any `~/.claude/projects/<slug>/` session transcript. A
+worktree a live session is still sitting in, however long ago it merged, survives every
+run until that idle floor passes.
 
 ## Installing the daily timer
 
@@ -159,10 +165,14 @@ recommendation per line, never as several separate asks.
 entry — a systemd `--user` service+timer pair (`janitor-record.service`/`.timer`) on
 Linux, a Task Scheduler task (`janitor-record`) on Windows, a launchd agent
 (`com.delegation.janitor-record`) on macOS — that runs
-`node <installed plugin>/scripts/janitor.mjs --record --repo <repo>` once a day, at
-06:00 local time by default (`--hour <n>` to change it). Report-only, forever: the
-string `--apply` never appears in anything this installer generates, and `--apply`
-stays a human's own command, run by hand, never scheduled.
+`node <installed plugin>/scripts/janitor.mjs --record --repo <repo> --apply` once a day,
+at 06:00 local time by default (`--hour <n>` to change it). The daily run acts, not just
+reports: `--apply` is part of the scheduled command by default now (there is no installer
+flag to remove it), and it only ever removes the SAFE class, only once idle at least 24
+hours (see "Cadence" above). The one off switch is `~/.agents/ws-off-janitor-act`
+(below), checked by `janitor.mjs` itself at run time — while it exists, a scheduled
+`--apply` still writes its record and drift line, but removes nothing, and the report's
+first line says so. `--apply` typed by hand is unaffected either way.
 
 - **Which repo it watches**: `~/Code/claude-delegation`, or the path in
   `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both. The installer
@@ -186,6 +196,12 @@ stays a human's own command, run by hand, never scheduled.
 - **`--remove`** deletes exactly what the installer made — every file it manages
   carries its own marker line, so a same-named file it did not create (something you
   wrote by hand) is left alone and reported, never overwritten or removed.
+- **The daily act's own off switch**: `touch ~/.agents/ws-off-janitor-act` on a host, and
+  the scheduled run there treats `--apply` as not given — it still writes its record and
+  drift line (so drift.md keeps updating), and the run's report opens with
+  `janitor: act switched off (~/.agents/ws-off-janitor-act)`. Remove the file to resume.
+  This is separate from the older, blunter `~/.agents/ws-off`/`~/.agents/ws-off-janitor`
+  switches, which still mean "no run at all."
 - The installer never calls `systemctl`/`schtasks`/`launchctl` unless you pass
   `--enable`; without it, the files exist but the entry is not yet live — review them,
   then re-run with `--enable` (or run your platform's own enable command by hand) once
@@ -199,6 +215,63 @@ appended to a command that's doing real work. A build that ends "...and also let
 clean up" turns one permission prompt into a blocker for everything before it. Run the
 build, report it, then run janitor separately, or leave the cleanup named and
 unresolved for the next pass.
+
+## Reclaim: the one allowlisted deleter
+
+`janitor.mjs` itself never unlinks a file (see above) — but a session still hits real
+`rm` prompts and denials for things that are provably safe to remove: its own scratchpad,
+an agent's `delegation-<name>-XXXX` scratch dir, a worktree or branch janitor has already
+classified SAFE. `reclaim` is a second, narrow tool that covers exactly those four
+classes and nothing else, so an agent can clean up without a raw `rm`:
+
+```
+node scripts/reclaim.mjs [--dry-run] <path>... | --branch <name> --repo <dir>
+```
+
+- **S, session scratch** — strictly inside the CALLING session's own
+  `<tmpdir>/claude-<uid>/<project>/<session>/scratchpad/` (the session id must match
+  `CLAUDE_CODE_SESSION_ID`; the scratchpad directory itself is never removed, only its
+  contents).
+- **T, plugin temp** — a directory named `delegation-<name>-XXXX` directly under
+  `os.tmpdir()` or `/var/tmp` (POSIX: owned by the current uid), or anything inside one.
+  This is the naming convention every builder's own agent scratch already uses (see
+  `docs/subagent-contract.md`).
+- **W, finished worktree** — a path `git worktree list` names in its repo, that
+  `janitor.mjs`'s own `classify()` marks SAFE, AND that has been idle at least 24 hours
+  (`idleHours()`, the same floor the daily act uses) — removed through janitor's own
+  `git worktree remove`, never by hand.
+- **B, merged local branch** — `--branch <name> --repo <dir>`, SAFE per `classify()`,
+  removed through janitor's own `git branch -D`, its ancestry re-checked immediately
+  before the delete.
+
+Every argument is validated before anything is removed: one refusal among several
+removes nothing. `--dry-run` prints `would-remove <class> <path> <tag>` and removes
+nothing. A real removal prints `removed <S|T|W|B> <path-or-branch> <tip-sha-or-entry-
+count>` — restorable by name from that line alone for a W/B removal (the tip sha is a
+branch you can recreate with `git branch <name> <sha>`).
+
+**The kill switch**: `touch ~/.agents/ws-off-reclaim` and every call refuses every
+argument with `refused <arg>: reclaim switched off`, exit 3 — checked before any other
+validation. Separate from, and in addition to, the daily act's own
+`~/.agents/ws-off-janitor-act` switch above; reclaim is a tool a human or agent can
+invoke any time, not only from the timer.
+
+**The allow line**: without it, every `reclaim` call still prompts (or is denied) like
+any other `Bash` tool call. `node scripts/mirror-shared-skills.mjs` prints both lines on
+every run, and `--write-allow` adds them when the file exists, is not chezmoi-managed,
+and does not already carry the line:
+- Claude: `Bash(reclaim *)` in `permissions.allow` (`~/.claude/settings.json`) — the
+  space form Claude Code 2.1.285 itself documents, not the legacy `Bash(reclaim:*)`
+  colon form. A chained, substituted, or env-prefixed invocation
+  (`reclaim /x && ...`, `reclaim $(...)`, `FOO=1 reclaim /x`) still prompts or is denied
+  under this rule, exactly as it would for any other single-word Bash allow — only a
+  bare `reclaim <args...>` (output redirection included) is covered.
+- Codex: `prefix_rule(pattern = ["reclaim"], decision = "allow")` appended to
+  `~/.codex/rules/default.rules` — measured against codex-cli 0.158.0.
+
+Neither line is ever written by anything other than a human running
+`mirror-shared-skills.mjs --write-allow` themselves; nothing in a build or a gate run
+edits either file.
 
 ## Adapters
 

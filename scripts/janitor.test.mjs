@@ -2369,7 +2369,7 @@ test("J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and
   assert.match(body, /GIT_TERMINAL_PROMPT:\s*"0"/, "must disable git's own terminal credential prompt");
 });
 
-test("J1 round 2 MINOR 5 (updated, lane nineteen J1): SKILL.md's origin-is-the-record-of-truth text stays folded into an existing section; lane nineteen J1 adds exactly one new section, for the daily timer installer", () => {
+test("J1 round 2 MINOR 5 (updated, lane 59 C5): SKILL.md's origin-is-the-record-of-truth text stays folded into an existing section; lane 59 adds exactly one new section, the Reclaim section, after the daily timer installer's own section", () => {
   const src = fs.readFileSync(path.join(import.meta.dirname, "..", "skills", "janitor", "SKILL.md"), "utf8");
   const headings = src.split("\n").filter((l) => /^#{1,2} /.test(l));
   assert.deepEqual(headings, [
@@ -2381,6 +2381,7 @@ test("J1 round 2 MINOR 5 (updated, lane nineteen J1): SKILL.md's origin-is-the-r
     "## Cadence: fed, not run on a whim",
     "## Installing the daily timer",
     "## Cleanup is never chained onto productive work",
+    "## Reclaim: the one allowlisted deleter",
     "## Adapters",
   ]);
   assert.match(src, /Origin is the record of truth/, "the origin-truth content must still be present, just not under its own heading");
