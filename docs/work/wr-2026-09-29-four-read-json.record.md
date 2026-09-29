@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-four-read-json
 Scope: the spec section of this record (lane 54), from packet docs/notes/skills-fable-lane-53-1.md "Queued behind it: lane 54" read at 7ab59db
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build, review, integrate, push build/four-read-json-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; rerun build-census and four-read read-only against lead transcripts and merged records; no release, no install
-Next: Opus code review of 02c2535 and the Windows suite, then accept, merge, publish, close, RESULT
+Next: fresh Sonnet builder fix round 1 on review-r1 (F-1 to F-4, all patches verbatim, F-2 in scope), delta review
 Worktree: build/four-read-json-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-54
 Opened: 2026-09-29T02:24:00.000Z
@@ -13,6 +13,7 @@ Spec-from: 2026-09-29T02:04:06Z
 Base: 7ab59dbd496c062f1cbb8eb259dd5a95aa9f9088
 Log: 2026-09-29T02:24:05.000Z owned skills-n picked up lane 54 from the skills-fable-lane-53-1 packet while lane 53 waits on two decisions (disjoint territory); small lane, spec written by the lead, no spec red-team; Sonnet builder spawned
 Log: 2026-09-29T02:35:51.000Z delivered skills-n Sonnet builder DONE 02c2535, report 48c879b (four-read refuses a non-JSON census with exit 2, 10 new tests, four-read suites 117 pass, full suite 2928 pass 0 fail; lanes 42, 43, 44, 46, 47 rerun with the census JSON, no lane 45 record); Opus code review and Windows suite started
+Log: 2026-09-29T02:41:28.000Z rejected skills-n Opus code review by a04896a79a9e5e130 NEEDS_FIXES (4) 84e643e (F-1 the gate requires stallNudges and refuses 34 of 40 committed older census JSONs, F-2 --spec-census markdown still silent, F-3 appendix cells drop two unavailable parts, F-4 lead check untested); all four adopted, F-2 in scope; Windows suite at 84e643e 2918 pass, 1 fail the hooks/codex-unsupported load flake, 13 of 13 twice alone; fresh builder spawned
 
 ## Spec (lead, from the packet)
 
