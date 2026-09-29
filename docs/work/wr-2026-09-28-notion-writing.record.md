@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-notion-writing
 Scope: docs/specs/2026-09-28-notion-writing.md (this branch), from skills-fable-lane-39-1
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-39-1: spec, red-team, build, review, second-host suite, merge, publish
 Artifact: build/notion-writing-1@0f968192d809b43d9fdef8d36740155366c16617
 Worktree: build/notion-writing-1
@@ -63,6 +63,7 @@ Four numbers: Hours ask to accepted: 22.9h; largest gap 920.9min at 2026-09-29T0
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 5 gap(s) over 30min stalled: 2026-09-28T23:34:24.100Z (140.8min), 2026-09-29T01:55:12.519Z (36.0min), 2026-09-29T02:31:12.770Z (35.0min), 2026-09-29T03:47:42.013Z (920.9min), 2026-09-29T19:08:38.646Z (127.8min); 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to skills-o: skills-fable-lane-39-3; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o
 Log: 2026-09-29T21:31:09.000Z accepted skills-o artifact 0f968192d809b43d9fdef8d36740155366c16617
+Log: 2026-09-29T21:41:55.000Z closed skills-o merge 1a76c54223974465a53004c8b49d92237f7fea24
 
 Observed: before this lane no script checked a Notion page's shape, so page rules lived only in prose and pages drifted (em-dash arrows, done items first, missing goal callouts).
 Predicts: every page written through the notion-writing skill or the decisions render passes page-lint before publish, so rework after acceptance on Notion pages drops and the census counts a page-lint clean line per publish.
