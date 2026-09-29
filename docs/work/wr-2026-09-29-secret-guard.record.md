@@ -13,6 +13,7 @@ Spec-from: 2026-09-29T21:22:00Z
 Base: 1a76c54223974465a53004c8b49d92237f7fea24
 Log: 2026-09-29T21:39:28.000Z owned skills-n opened after the sweep RESULT (d3b780e); dotfiles worktree /var/tmp/lane-60/dot at b29f3f8593414670c19d66cf03032c7d5916bed8; the Netcup chezmoi checkout is mid-merge on the encrypted secrets file and is left untouched
 Log: 2026-09-29T21:57:36.000Z delivered skills-n Sonnet builder af52da0a355e4d400 phase 1 DONE dotfiles ab4d67d (denial log with redaction, off switch, swallowed failures, modes 700 and 600, rotation; no test corpus existed, a new selftest holds 14 baseline cases plus 6 phase 1 cases, 16 of 20 pass before and 20 of 20 after); report docs/specs/secret-guard-60/p1-build.md
+Log: 2026-09-29T21:59:11.000Z delivered skills-n Opus reviewer spawned on phase 1 (dotfiles ab4d67d), report /var/tmp/lane-60/p1-review.md; desktop corpus not yet on main
 
 ## Spec
 
