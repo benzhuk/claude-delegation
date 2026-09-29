@@ -176,13 +176,12 @@ never follows a symlink) · M5 (SIGTERM while the fake is running).
 **14, pre-existing (not review-run, unaffected by this round):** 3 systemd-generator tests
 ("the systemd generator runs only on linux hosts, and these fixtures are POSIX paths") · 1
 sealed-home sweep test ("no POSIX permission bits on win32 - the sweep's own guarantee there is
-the 6h age check") · 8 SIGTERM/SIGINT/SIGHUP-propagation tests ("on win32, child.kill(signal)
+the 6h age check") · 9 SIGTERM/SIGINT/SIGHUP-propagation tests ("on win32, child.kill(signal)
 terminates the child directly without running any Node signal handler - the run-tests.mjs stale
 sweep at suite start is the guarantee there, not this handler") · 1 symlinked-temp-dir test
-("dir symlinks need privileges on win32") · 1 P2 SIGTERM-root test ("POSIX only"). These are
-each Windows-only-behaviour tests that correctly skip on the *Linux* gate instead (not the same 5
-lines — each host skips the tests that don't apply to it, both by design; see the Linux gate
-section above for that host's own 5).
+("dir symlinks need privileges on win32"). These are POSIX-only-behaviour tests, each skipping
+on win32 by its own platform guard (a different 5 lines skip on the *Linux* gate instead — see
+that section above — each host skipping only what doesn't apply to it).
 
 ## Open questions
 
