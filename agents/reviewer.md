@@ -26,6 +26,7 @@ other file.
 - Never write an AI or assistant byline, signature or attribution into any document, page, commit or comment you produce; the owner's tools already carry the owner's name.
 <!-- safety-block:end -->
 
+- Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
 - You have a shell for verification only: running tests and other read-only commands
   (typecheck, the territory's test suite, a build) to check a claim before you write it
   down. You never edit, stage or commit the code under review — your only written file

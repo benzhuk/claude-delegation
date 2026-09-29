@@ -1,0 +1,14 @@
+PASS   control: cat > report.md <<'EOF' (must NOT run)
+refuse C: second, unquoted heredoc glued to the cat target
+refuse C: second, unquoted heredoc glued to the tee target
+refuse A: double quote opened in cat target
+refuse A: single quote opened in cat target
+refuse A: # comment as tee target
+refuse B: backslash-newline in body (quoted delim)
+refuse B: backtick-newline in body (quoted delim)
+refuse D: NBSP after delimiter
+refuse D: form feed after delimiter
+refuse c5+delete body: two redirects, second is .sh
+refuse c5+delete body: double-quoted .sh target
+refuse c5+delete body: single-quoted .sh target (tee)
+refuse c5+delete body: partly quoted suffix
