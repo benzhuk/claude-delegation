@@ -432,12 +432,41 @@ test('S1: no hook child can register anything the fixture did not give it', () =
 });
 
 // --- N2 extension (lane 57): a spawn site can violate "never inherits the runner's environment"
-// two ways - spreading the runner's environment on its own (the original check above), OR passing NO
-// `env` key at all, which inherits the WHOLE real environment unmodified (worse: no text pattern for
-// the check above to find). Lane 57 found exactly that shape at test-home.test.mjs's `spawnAndSignal`.
-// These helpers make the second shape mechanical instead of remembered.
+// two ways - handing a child an explicitly inheriting env value (`undefined`, `null`, `process.env`,
+// or a bare `...process.env` spread), OR passing NO `env` key at all, which inherits the WHOLE real
+// environment unmodified (worse: no text pattern for a naive scan to find). Lane 57 found the second
+// shape at test-home.test.mjs's `spawnAndSignal`. Fix round 1 closed four ways a text scan can be
+// fooled: a comment or string inside a call corrupting where the call actually ends (F1), an
+// exemption list keyed by line number instead of file (F2), a `sh -c` (or `fork`) child that runs
+// node without `process.execPath` as its OWN first argument (F3/F6), and an inheriting env VALUE
+// reading as "has an env key" (F4) - plus normalizing every reported path to `/` so the exemption
+// keys (always written with `/`) still match a Windows scan's `\` paths (W1). These helpers make all
+// of it mechanical instead of remembered.
 
-/** Balanced-delimiter slice of `text` starting at `openIdx` (which must be `openCh`), string-aware. */
+/** `s` with every comment and string body blanked to spaces (same length), so a key test sees code
+ * only - an apostrophe in a `//` comment, or the word "env" inside a string, can no longer corrupt
+ * what looks like an object key (F1, measured false green on note-inbox.test.mjs:369). */
+function codeOnly(s) {
+  let out = '';
+  let inStr = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (c === '\\') { out += '  '; i++; continue; }
+      if (c === inStr) { inStr = null; out += c; } else out += c === '\n' ? '\n' : ' ';
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '/') { const nl = s.indexOf('\n', i); const end = nl === -1 ? s.length : nl; out += ' '.repeat(end - i); i = end - 1; continue; }
+    if (c === '/' && s[i + 1] === '*') { const e = s.indexOf('*/', i + 2); const end = e === -1 ? s.length : e + 2; out += s.slice(i, end).replace(/[^\n]/g, ' '); i = end - 1; continue; }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; out += c; continue; }
+    out += c;
+  }
+  return out;
+}
+
+/** Balanced-delimiter slice of `text` starting at `openIdx` (which must be `openCh`), string- AND
+ * comment-aware (F1): an apostrophe in a `//` comment used to be read as the start of a string,
+ * stretching the slice into unrelated later code. */
 function extractBalanced(text, openIdx, openCh, closeCh) {
   let depth = 0;
   let i = openIdx;
@@ -449,6 +478,8 @@ function extractBalanced(text, openIdx, openCh, closeCh) {
       if (c === inStr) inStr = null;
       continue;
     }
+    if (c === '/' && text[i + 1] === '/') { const nl = text.indexOf('\n', i); if (nl === -1) break; i = nl; continue; }
+    if (c === '/' && text[i + 1] === '*') { const end = text.indexOf('*/', i + 2); if (end === -1) break; i = end + 1; continue; }
     if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
     if (c === openCh) depth++;
     else if (c === closeCh) { depth--; if (depth === 0) return text.slice(openIdx, i + 1); }
@@ -457,117 +488,183 @@ function extractBalanced(text, openIdx, openCh, closeCh) {
 }
 
 /** One-hop resolution: does `const <ident> = { ... }` (found in `fileText`) have an `env` key? Null
- * if no such declaration is found (the identifier isn't a locally-declared object literal). */
+ * if the identifier isn't declared EXACTLY ONCE as an object literal in this file (F7) - an ambiguous
+ * case (two same-named declarations, e.g. one per helper function) is not vouched for either way,
+ * instead of silently resolving to whichever declaration happens to come first. Matches `env` only as
+ * an object KEY (via `codeOnly`), not as any occurrence of the word (e.g. `{ cwd: env.HOME }`). */
 function resolveIdentHasEnvKey(fileText, ident) {
-  const re = new RegExp(`\\b(?:const|let|var)\\s+${ident}\\s*=\\s*\\{`);
-  const m = re.exec(fileText);
-  if (!m) return null;
-  const braceIdx = fileText.indexOf('{', m.index);
+  const re = new RegExp(`\\b(?:const|let|var)\\s+${ident}\\s*=\\s*\\{`, 'g');
+  const decls = [...fileText.matchAll(re)];
+  if (decls.length !== 1) return null;
+  const braceIdx = fileText.indexOf('{', decls[0].index);
   const obj = extractBalanced(fileText, braceIdx, '{', '}');
-  return /\benv\b/.test(obj);
+  return /[{,]\s*env\s*[:,}]/.test(codeOnly(obj));
 }
 
 /**
- * Finds every `spawn`/`spawnSync`/`execFile`/`execFileSync`/`fork` call in `text` that passes no
- * `env` key, narrowed to calls that can actually reach the runner's session: a spawn of `node` itself
- * (`process.execPath`, or a local const bound to it - the common `NODE` pattern in this suite) runs
- * ARBITRARY script text with the whole inherited environment, so it alone could read and act on
- * `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN` the way the 2026-09-17 hook child did. A spawn of a fixed
- * external binary (`git`, `sh`, `mkfifo`, `taskkill.exe`, ...) has no code path that parses or acts on
- * those two variable names, so it cannot reach the session through inheritance alone and is not
- * flagged - narrowing the rule to the mechanism that made the incident possible, not to "no env key"
- * read literally everywhere a spawn appears (which would also catch every fixture `git` call in the
- * suite). Two exemptions from THAT narrower rule, both mechanical, not "trusted because of what the
- * script happens to do today":
- *   - the options argument is a bare identifier resolving (one hop, in the same file) to an object
- *     literal that itself has an `env` key;
- *   - the script text is a literal written directly at the call site (an inline `-e`/`--eval` string,
- *     not a path to a separately-maintained file) that does not itself reference `process.env` - so
- *     if anyone ever edits that exact literal to add one, this scanner re-flags it at that moment;
- *     it is not "trust that this doesn't misuse it forever."
+ * Finds every way a test file's spawn can inherit the runner's real environment:
+ *  (a) a spawn/spawnSync/execFile/execFileSync/fork call, narrowed to one that can actually reach the
+ *      runner's session - `process.execPath`, a local const bound to it, or the string `'node'`/
+ *      `"node"` appears ANYWHERE in the call's own text, including behind a `sh -c` script (F3), or
+ *      the call is fork itself, always node (F6) - that passes no `env` key at
+ *      all, checked key-only and comment/string-safe (F1, F7). A spawn of a fixed external binary with
+ *      no node anywhere in its argv (`git`, `mkfifo`, `taskkill.exe`, a `sh -c` script that never runs
+ *      node) has no code path that parses or forwards `CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN`, so it
+ *      cannot reach the session through inheritance alone and is out of scope, not "exempt". (Lane 57
+ *      fix round 1 dropped the earlier "inline `-e` literal that doesn't mention `process.env`" escape
+ *      hatch (F5): it proved only one spelling among many ways a literal can still reach a module, a
+ *      grandchild, or its own environment, for very little in return.)
+ *  (b) ANY line, under any function name, that hands a child an explicitly inheriting `env` value -
+ *      `undefined`, `null`, `process.env`, or a bare `...process.env` spread (F4). This half is NOT
+ *      limited to the function names in (a): a wrapper like `runChild(...)` inherits the same way,
+ *      and this is how it's still caught.
  */
 function findEnvLessSpawns(text) {
   const found = [];
-  const nodeDirect = new Set(['process.execPath']);
+  const nodeDirect = new Set(['process.execPath', "'node'", '"node"']);
   const constRe = /\b(?:const|let|var)\s+(\w+)\s*=\s*process\.execPath\b/g;
   let cm;
   while ((cm = constRe.exec(text))) nodeDirect.add(cm[1]);
+  const nodeTokenRes = [...nodeDirect].map((t) => {
+    const bare = t.replace(/^['"]|['"]$/g, '');
+    const esc = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![\\w$.])${esc}(?![\\w$])`);
+  });
 
   const fnRe = /\b(spawn|spawnSync|execFile|execFileSync|fork)\s*\(/g;
   let m;
   while ((m = fnRe.exec(text))) {
+    // A function name written as literal DATA inside a string ('spawn(' in a forbidden-terms list,
+    // measured on hooks/delegation-reminder.test.mjs) sits with a quote touching it directly - no
+    // real call is ever written that way. Skipping it here is cheap and local (one character), unlike
+    // tracking string state across the whole raw-text scan, which fnRe deliberately does not do.
+    if (/['"]/.test(text[m.index - 1] ?? '')) continue;
+
     const openParenIdx = m.index + m[0].length - 1;
     const call = extractBalanced(text, openParenIdx, '(', ')');
     const line = text.slice(0, m.index).split('\n').length;
-    const inner = call.slice(1, -1);
-    const firstArgMatch = inner.match(/^\s*([^,]+?)\s*,/);
-    const firstArg = firstArgMatch ? firstArgMatch[1].trim() : inner.trim();
-    if (!nodeDirect.has(firstArg)) continue; // not a node-direct spawn: cannot reach the session
 
-    let hasEnv = call.includes('env:') || /[{,]\s*env\s*[,}]/.test(call);
-    if (!hasEnv) {
+    // (a) node-reachable, per F3/F6: `fork` always runs node; anything else needs a node token
+    // literally somewhere in its own call text (this deliberately scans the RAW call, not
+    // `codeOnly(call)` - a node token can legitimately sit inside a quoted `sh -c` script or a bare
+    // `'node'` string argument, and over-including a comment's mention of "node" only means more
+    // scrutiny, never less).
+    const reachesNode = m[1] === 'fork' || nodeTokenRes.some((re) => re.test(call));
+    if (!reachesNode) continue;
+
+    // hasEnv here means "this call's OWN env key, if any, is not an unconditional non-override" -
+    // `undefined`/`null` are scoped to THIS call only (an unrelated function's own same-named "env"
+    // parameter, e.g. a wiring-check test's `env: null` fixture, is not a child-process spawn and
+    // must not be read as one). `process.env`/a bare spread are deliberately left for (b) below,
+    // which is not restricted to these five function names - so they are not double-counted here.
+    const code = codeOnly(call);
+    const hasEnvKey = /[{,]\s*env\s*[:,}]/.test(code) || /\.\.\.\s*process\s*\.\s*env\b/.test(code);
+    const inheritsBare = /[{,]\s*env\s*:\s*(?:undefined|null)\s*[,}]/.test(code);
+    let hasEnv = hasEnvKey && !inheritsBare;
+    if (!hasEnv && !inheritsBare) {
       const lastArgMatch = call.match(/,\s*(\w+)\s*\)$/);
-      if (lastArgMatch && resolveIdentHasEnvKey(text, lastArgMatch[1]) === true) hasEnv = true;
+      if (lastArgMatch) {
+        const resolved = resolveIdentHasEnvKey(text, lastArgMatch[1]);
+        if (resolved === true) hasEnv = true;
+      }
     }
     if (hasEnv) continue;
 
-    const evalFlag = ['-', 'e'].join('');
-    const litMatch = call.match(new RegExp(`['"](?:${evalFlag}|--eval)['"]\\s*,\\s*(['"])((?:\\\\.|(?!\\1).)*)\\1`));
-    if (litMatch) {
-      const marker = ['process', '.', 'env'].join('');
-      if (!litMatch[2].includes(marker)) continue; // inline literal, provably can't read the sealed vars
-    }
-
+    const inner = call.slice(1, -1);
+    const firstArgMatch = inner.match(/^\s*([^,]+?)\s*,/);
+    const firstArg = firstArgMatch ? firstArgMatch[1].trim() : inner.trim();
     found.push({ line, fn: m[1], target: firstArg });
   }
-  return found;
+
+  // (b): an explicit `process.env` handoff - the exact value, or a bare spread of it - under ANY
+  // function name (F4): a wrapper like `runChild(...)` inherits the same way, and this half is what
+  // still catches it. `undefined`/`null` are deliberately NOT checked here (see (a) above) - read
+  // universally, "env: null" is common as an unrelated parameter to something that has nothing to do
+  // with spawning a child (measured: scripts/wiring-check.test.mjs's own `env: null` fixture), where
+  // "env: process.env" naming the real environment by name is specific enough not to false-positive
+  // that way. Checked one LINE at a time, not over the whole file: `codeOnly` tracks string/comment
+  // state as it scans, and a regex literal ELSEWHERE in the file holding a stray quote character
+  // (measured: hooks/codex-unsupported.test.mjs's own quote character class) can desync that state
+  // for everything after it in a whole-file pass. Resetting fresh at every line bounds a desync to
+  // that one line.
+  const inheritRe = /\benv\s*:\s*process\s*\.\s*env\b|\.\.\.\s*process\s*\.\s*env\b/;
+  const textLines = text.split('\n');
+  for (let li = 0; li < textLines.length; li++) {
+    if (inheritRe.test(codeOnly(textLines[li]))) found.push({ line: li + 1, fn: 'inherits', target: 'process.env' });
+  }
+
+  return found.sort((a, b) => a.line - b.line);
 }
 
-// Real spawns of `process.execPath` in test files OUTSIDE this lane's territory
-// (scripts/run-tests.test.mjs, scripts/test-home.test.mjs) that inherit the runner's env with no
-// override. Per the hard rule that an existing test file's spawn options need the lead first, these
-// are named here rather than fixed - each is a real, minor completeness gap against the class this
-// scanner enforces, but leaving them named means a NEW site anywhere else still fails red.
+// Real sites that inherit the runner's env, in test files OUTSIDE this lane's territory (scripts/
+// run-tests.test.mjs, scripts/test-home.test.mjs). Per the hard rule that an existing test file's
+// spawn options need the lead first, these are named here rather than fixed. Keyed by FILE, with an
+// EXACT COUNT, not `file:line` (F2, W1 normalizes the key to `/`): a line moving anywhere in one of
+// these files - and all of them see routine, unrelated edits - must never flip this red or green on
+// its own. A NEW no-env site in an exempted file (the count goes up) still fails red, listing every
+// site in that file. A site that gets fixed (the count goes down) fails red too, until the count here
+// is lowered - either way a human looks at the file again, not "it happened to land on a clean line".
 const N2_SPAWN_ENV_EXEMPTIONS = new Map([
-  ['hooks/codex-unsupported.test.mjs:438', 'functional installer smoke test, real INSTALLER child, out of lane-57 territory'],
-  ['scripts/bugfix-fields.test.mjs:21', 'runCli() helper for the bugfix-fields CLI, out of lane-57 territory'],
-  ['scripts/bugfix-fields.test.mjs:113', 'same file, direct usage-message check, out of lane-57 territory'],
-  ['scripts/prefix-test.test.mjs:91', 'runPrefixTest() helper spawning the real CLI, out of lane-57 territory'],
-  ['scripts/work-record.test.mjs:1778', 'real build-census.mjs CLI invocation, out of lane-57 territory'],
-  ['skills/decisions/scripts/decisions-read.test.mjs:440', 'symlinked-script exit-code check, out of lane-57 territory'],
-  ['skills/decisions/scripts/decisions-read.test.mjs:720', 'same file, direct SCRIPT_PATH spawn, out of lane-57 territory'],
-  ['skills/decisions/scripts/decisions-read.test.mjs:727', 'same file, blind-input variant, out of lane-57 territory'],
-  ['skills/decisions/scripts/goals-mirror.test.mjs:30', 'real CLI render-match check, out of lane-57 territory'],
+  ['hooks/codex-unsupported.test.mjs', { count: 1, reason: 'functional installer smoke test, real INSTALLER child, out of lane-57 territory' }],
+  ['scripts/bugfix-fields.test.mjs', { count: 2, reason: 'runCli() helper and the direct usage-message check, real bugfix-fields.mjs CLI, out of lane-57 territory' }],
+  ['scripts/prefix-test.test.mjs', { count: 1, reason: 'runPrefixTest() helper spawning the real CLI, out of lane-57 territory' }],
+  ['scripts/work-record.test.mjs', { count: 1, reason: 'real build-census.mjs CLI invocation, out of lane-57 territory' }],
+  ['skills/decisions/scripts/decisions-read.test.mjs', { count: 3, reason: 'symlinked-script exit-code check, the direct SCRIPT_PATH spawn and the blind-input variant, out of lane-57 territory' }],
+  ['skills/decisions/scripts/goals-mirror.test.mjs', { count: 1, reason: 'real CLI render-match check, out of lane-57 territory' }],
+  // F3 follow-up (lead ruling r1): an execFileSync call on sh, "-c", ..., process.execPath, ..., {}
+  // with no env - a real node-direct spawn reachable only through the shell's argv, out of lane-57
+  // territory.
+  ['scripts/collect-from-origin.test.mjs', { count: 1, reason: 'F3 follow-up: sh -c running process.execPath on the real CLI with no env, out of lane-57 territory' }],
+  // F4/F5 follow-up (lead ruling r1): two sites, same file - the win32-only scenario's runChild call
+  // with env set to process.env (the live full-environment handoff F4 was written for), plus a spawn
+  // call written INSIDE that scenario's own eval'd source string, which F5's removed "inert literal"
+  // escape hatch used to hide (build.md's build-round citation of ":17" as inert is wrong: that line
+  // is not a real call at this file's own scope, but the scanner reads string contents the same as
+  // code and it is a genuine second node-direct site with no env of its own).
+  ['scripts/native-continuation-smoke.test.mjs', { count: 2, reason: 'F4/F5 follow-up: a runChild call with env set to process.env, and the nested spawn literal in its eval source, win32-only, out of lane-57 territory' }],
+  // F5 follow-up (lead ruling r1): the removed "inert -e literal" escape hatch used to hide these.
+  ['scripts/janitor.test.mjs', { count: 1, reason: 'F5 follow-up: a trivial spawn on process.execPath with -e setInterval, as a cwd/stdio-only holder process, out of lane-57 territory' }],
+  ['skills/team-build/scripts/review-run.test.mjs', { count: 2, reason: 'F5 follow-up: spawnSleeper()\'s own spawn call (opts is a function parameter, never resolved) and a trivial dead-pid probe, out of lane-57 territory' }],
 ]);
+
+/** Per-file exemption check (F2): `rel` is normalized to `/` first (W1) - a Windows scan reports `\`
+ * and every key above is written with `/`. Returns this one file's offender messages: none if it's
+ * unlisted and clean, or listed with its hit count matching exactly; otherwise every hit in the file,
+ * plus a mismatch note if it WAS listed at a different count (a new site, or a fixed one whose count
+ * needs lowering). Records the normalized key into `seenExempt` when the file is listed, so the
+ * caller can catch a stale entry (an exempted file with no matching hit left at all) after the scan. */
+function exemptionOffenders(rel, hits, exemptions, seenExempt) {
+  const key = toPosix(rel);
+  const allowed = exemptions.get(key);
+  if (allowed) seenExempt?.add(key);
+  if (allowed && hits.length === allowed.count) return [];
+  const offenders = hits.map((hit) => `${key}:${hit.line} [${hit.fn}] passes no env key at all`);
+  if (allowed) offenders.push(`${key}: exemption allows ${allowed.count}, found ${hits.length} - fix the new site or lower the count`);
+  return offenders;
+}
 
 test('N2: no test file in this suite inherits the runner environment on its own', () => {
   // The rule, enforced rather than remembered: every child environment is built by `childEnv`, so no
-  // test file spreads `process.env` itself. A new spawn site that forgets the seal fails HERE, at the
-  // class, instead of quietly writing this session's token into a fixture the way the 2026-09-17 one
-  // did. (`test-child-env.mjs` is the one place that spread lives, and it is not a .test.mjs.)
+  // test file spreads the runner's real environment, or forgets an `env` key on a spawn that reaches
+  // node. A new site that forgets the seal fails HERE, at the class, instead of quietly writing this
+  // session's token into a fixture the way the 2026-09-17 one did. (`test-child-env.mjs` is the one
+  // place the real inheritance lives on purpose, and it is not a .test.mjs.)
   const files = walkTestFiles(REPO);
   assert.ok(files.length > 0, 'N2 scanned no test files at all - the walk itself is broken');
-  const offenders = [];
   const envLessOffenders = [];
+  const seenExempt = new Set();
   for (const full of files) {
     const text = fs.readFileSync(full, 'utf8');
-    const rel = path.relative(REPO, full);
-    // Built, never written: a literal here would make this test its own first offender.
-    const needle = ['...', 'process', '.', 'env'].join('');
-    for (const [i, line] of text.split('\n').entries()) {
-      if (line.includes(needle)) offenders.push(`${rel}:${i + 1}`);
-    }
-    for (const hit of findEnvLessSpawns(text)) {
-      const key = `${rel}:${hit.line}`;
-      if (N2_SPAWN_ENV_EXEMPTIONS.has(key)) continue;
-      envLessOffenders.push(`${key} [${hit.fn}] passes no env key at all`);
-    }
+    const rel = toPosix(path.relative(REPO, full));
+    envLessOffenders.push(...exemptionOffenders(rel, findEnvLessSpawns(text), N2_SPAWN_ENV_EXEMPTIONS, seenExempt));
   }
-  assert.deepEqual(offenders, [], `these spawn sites build their own env instead of using childEnv(): ${offenders.join(', ')}`);
+  for (const f of N2_SPAWN_ENV_EXEMPTIONS.keys()) {
+    if (!seenExempt.has(f)) envLessOffenders.push(`${f}: exempted file no longer has a matching hit - drop or fix its entry`);
+  }
   assert.deepEqual(
     envLessOffenders,
     [],
-    `these node-direct spawn sites pass NO env key at all, inheriting the runner's whole environment: ${envLessOffenders.join(', ')}`,
+    `these sites inherit the runner's whole environment: ${envLessOffenders.join(', ')}`,
   );
   assert.deepEqual(Object.keys(SEALED).sort(), ['CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN']);
   assert.equal(childEnv('/fixture').CLAUDE_CODE_MESSAGING_TOKEN, '', 'and the helper really does blank them');
@@ -593,14 +690,121 @@ test('N2 scanner: findEnvLessSpawns flags a node-direct spawn with no env key, n
   assert.equal(flaggedNoEnv[0].fn, 'spawn');
   assert.deepEqual(flaggedWithEnv, [], 'the same call with an env key must not be flagged');
 
-  // And the non-node-direct + inline-literal-without-process.env-reference narrowings hold too.
+  // The non-node-direct narrowing still holds: a fixed external binary with no node anywhere in its
+  // own argv cannot reach the session through inheritance alone.
   const gitSpawn = "execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' });";
   assert.deepEqual(findEnvLessSpawns(gitSpawn), [], 'a fixed external binary cannot reach the session through inheritance alone');
-  const trivialEval = "spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });";
-  assert.deepEqual(findEnvLessSpawns(trivialEval), [], 'an inline literal that never references process.env is provably safe');
-  const evalMarker = ['process', '.', 'env'].join('');
-  const dangerousEval = `spawn(process.execPath, ['-e', 'console.log(${evalMarker})'], { stdio: 'ignore' });`;
-  assert.equal(findEnvLessSpawns(dangerousEval).length, 1, 'an inline literal that DOES reference the env must still be flagged');
+});
+
+test('N2 scanner: a comment inside a call does not corrupt where it ends, or hide a real env key (F1)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  // An apostrophe in a `//` comment used to be read as opening a string, stretching the "call" all
+  // the way into this later, unrelated, genuinely-sealed call - hiding the first call's real gap.
+  const apostropheInComment = [
+    "const NODE = process.execPath;",
+    `${SPAWN}(NODE, ['-e', script], { // don't let this apostrophe leak past the call`,
+    "  stdio: 'ignore' });",
+    `${SPAWN}Sync(NODE, ['-e', 'later'], { env: {} });`,
+  ].join('\n');
+  const hits = findEnvLessSpawns(apostropheInComment);
+  assert.equal(hits.length, 1, 'only the first, genuinely env-less call should be flagged');
+  assert.equal(hits[0].fn, 'spawn');
+
+  // A comment that literally SAYS "env:" inside the call must not be read as a real object key.
+  const envWordInComment = [
+    "const NODE = process.execPath;",
+    `${SPAWN}(NODE, ['-e', script], { // env: added later, not really`,
+    "  stdio: 'ignore' });",
+  ].join('\n');
+  assert.equal(findEnvLessSpawns(envWordInComment).length, 1, 'a comment mentioning env: must still be flagged as env-less');
+});
+
+test('N2 scanner: fork and a bare node string are node-direct too, and sh -c running process.execPath is in scope (F3, F6)', () => {
+  // Built, never written: same self-scan reason as the SPAWN trick above.
+  const FORK = ['fo', 'rk'].join('');
+  const EXEC_FILE_SYNC = ['execFile', 'Sync'].join('');
+  const SP = ['sp', 'awn'].join('');
+
+  const forkNoEnv = `${FORK}('./child.mjs', ['--flag'], { stdio: 'ignore' });`;
+  assert.equal(findEnvLessSpawns(forkNoEnv).length, 1, 'fork always runs node, and must be flagged with no env key');
+
+  const bareNodeNoEnv = `${SP}('node', ['script.js'], { stdio: 'ignore' });`;
+  assert.equal(findEnvLessSpawns(bareNodeNoEnv).length, 1, "a bare 'node' string argument is node-direct too");
+
+  const shellRunningNode = `${EXEC_FILE_SYNC}("sh", ["-c", '"$0" --repo x', process.execPath, "script.mjs"], { encoding: "utf8" });`;
+  assert.equal(findEnvLessSpawns(shellRunningNode).length, 1, 'a shell child running process.execPath in its own argv is in scope');
+
+  const shellRunningGit = `${EXEC_FILE_SYNC}("sh", ["-c", "git status"], { encoding: "utf8" });`;
+  assert.deepEqual(findEnvLessSpawns(shellRunningGit), [], 'a shell child with no node anywhere in its argv stays out of scope');
+});
+
+test('N2 scanner: an inheriting env value counts as no env, under any function name (F4)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const undef = `${SPAWN}(process.execPath, ['-e', '0'], { env: undefined, stdio: 'ignore' });`;
+  const nul = `${SPAWN}(process.execPath, ['-e', '0'], { env: null, stdio: 'ignore' });`;
+  const fullEnv = `${SPAWN}(process.execPath, ['-e', '0'], { env: process.env, stdio: 'ignore' });`;
+  const spread = `${SPAWN}(process.execPath, ['-e', '0'], { ...process.env, stdio: 'ignore' });`;
+  for (const [name, src] of [['undefined', undef], ['null', nul], ['process.env', fullEnv], ['spread', spread]]) {
+    assert.equal(findEnvLessSpawns(src).length, 1, `env: ${name} must count as inheriting the whole environment`);
+  }
+
+  // And it's not limited to the fnRe function names: a wrapper like runChild(...) inherits the same
+  // way, and native-continuation-smoke.test.mjs:20 is exactly this shape.
+  const wrapperCall = "runChild(process.execPath, ['-e', source], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] }, 300);";
+  assert.equal(findEnvLessSpawns(wrapperCall).length, 1, 'an inheriting env value under an unlisted function name must still be flagged');
+});
+
+test('N2 scanner: ambiguous one-hop resolution does not vouch for an env key (F7)', () => {
+  const SPAWN = ['sp', 'awn'].join('');
+  const twoDeclarations = [
+    "const NODE = process.execPath;",
+    "function helperA() {",
+    "  const opts = { env: {} };",
+    "  return opts;",
+    "}",
+    "function helperB() {",
+    "  const opts = { stdio: 'ignore' };",
+    `  return ${SPAWN}(NODE, ['-e', script], opts);`,
+    "}",
+  ].join('\n');
+  assert.equal(findEnvLessSpawns(twoDeclarations).length, 1, 'two same-named declarations must not resolve to whichever one has env');
+});
+
+test('N2 scanner: exemption keys normalize backslash paths, and stay keyed by file (W1, F2)', () => {
+  const exemptions = new Map([['scripts/fixture.test.mjs', { count: 1, reason: 'fixture' }]]);
+
+  // W1: a backslash-separated relative path (as a Windows scan would report) must still match a key
+  // written with `/`.
+  const seenWin = new Set();
+  assert.deepEqual(
+    exemptionOffenders('scripts\\fixture.test.mjs', [{ line: 66, fn: 'spawn' }], exemptions, seenWin),
+    [],
+    'a backslash path must match the forward-slash exemption key',
+  );
+  assert.ok(seenWin.has('scripts/fixture.test.mjs'));
+
+  // F2 direction 1: moving the flagged line alone (an unrelated edit above it) must never turn this
+  // red - the count still matches.
+  const beforeShift = exemptionOffenders('scripts/fixture.test.mjs', [{ line: 5, fn: 'spawn' }], exemptions, new Set());
+  const afterShift = exemptionOffenders('scripts/fixture.test.mjs', [{ line: 50, fn: 'spawn' }], exemptions, new Set());
+  assert.deepEqual(beforeShift, []);
+  assert.deepEqual(afterShift, [], 'a line shift with the same hit count must stay green');
+
+  // F2 direction 2: a NEW site in an already-exempted file must still be flagged, with the mismatch
+  // reported too.
+  const withNewSite = exemptionOffenders(
+    'scripts/fixture.test.mjs',
+    [{ line: 5, fn: 'spawn' }, { line: 40, fn: 'execFileSync' }],
+    exemptions,
+    new Set(),
+  );
+  assert.ok(withNewSite.some((o) => o.includes('scripts/fixture.test.mjs:40')), 'the new site must be reported');
+  assert.ok(withNewSite.some((o) => o.includes('exemption allows 1, found 2')), 'the count mismatch must be reported too');
+
+  // And a site that gets fixed (fewer hits than the recorded count) must also go red until the count
+  // is lowered - the ratchet works both ways.
+  const withFixedSite = exemptionOffenders('scripts/fixture.test.mjs', [], exemptions, new Set());
+  assert.ok(withFixedSite.some((o) => o.includes('exemption allows 1, found 0')), 'a lowered hit count must still be reported until the entry catches up');
 });
 
 // Lane 47, P3/FU4: childEnv strips the four repo-locating git names too, even when the parent
