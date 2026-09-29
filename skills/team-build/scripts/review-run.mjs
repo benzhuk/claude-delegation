@@ -240,7 +240,11 @@ export function buildArgv({ model, effort, tools, sessionId, agentsPath, permiss
   // pre-approves regardless of permission mode (auto's classifier is skipped for anything an
   // allow rule already covers), so a bare "Write" token is a standing escape under either mode.
   // The report path is the only Write the child is ever granted, scoped exactly to it.
-  const writeRule = reportPath ? [`Write(${reportPath.replace(/\\/g, '/')})`] : [];
+  // N4 (ruling r3): the CLI never matches Write(path) in file permission checks — Edit(path) rules
+  // cover Write (its own settings docs + validator). For a CLI-arg rule a single leading "/" is
+  // cwd-relative; "//" is the filesystem root. win32 takes a drive-letter path as-is.
+  const rulePath = reportPath ? reportPath.replace(/\\/g, '/') : null;
+  const writeRule = rulePath ? [/^[A-Za-z]:\//.test(rulePath) ? `Edit(${rulePath})` : `Edit(/${rulePath})`] : [];
   // Same reasoning for Bash: a bare "Bash" token pre-approves every command an allow rule
   // matches, which is ALL of them — that is what let `auto`'s classifier get skipped entirely
   // under the old argv (this blocker's root cause), and what made dontAsk's tool-wide allow a
@@ -311,9 +315,11 @@ function defaultGitRunner(args, cwd) {
  * under too — a stronger, simpler check than "outside the worktree" alone). */
 export function validateReportPath(reportPath, scratchDir, fsImpl = fs) {
   if (!path.isAbsolute(reportPath)) usageError('--report must be absolute');
-  // finding 1(a): a , or ) in --report would break the Write(/<path>) allow-rule syntax buildArgv
-  // emits for it (a comma ends the rule list; an unmatched ) ends the rule itself).
-  if (/[,)]/.test(reportPath)) usageError('--report must not contain , or ) (these break the Write allow-rule syntax)');
+  // finding 1(a) / N4 (ruling r3): a , or ) in --report would break the Edit(/<path>) allow-rule
+  // syntax buildArgv emits for it (a comma ends the rule list; an unmatched ) ends the rule
+  // itself); the rule body is also a gitignore-style glob, so * ? [ ] { } would widen it instead
+  // of scoping it to exactly this one path.
+  if (/[,)*?[\]{}]/.test(reportPath)) usageError('--report must not contain , ) * ? [ ] { } (these break or widen the Edit allow rule)');
   const dir = path.dirname(reportPath);
   if (!fsImpl.existsSync(dir)) usageError(`--report's directory does not exist: ${dir}`);
   const resolvedReport = path.resolve(reportPath);
