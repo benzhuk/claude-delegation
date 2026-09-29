@@ -28,7 +28,10 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   verified from `session_meta.payload.id`; a filename match is never identity proof. If
   both options are present they must identify the same logical session. Same-id rollout
   segments are unioned, exact aliases do not add usage, and conflicting usage for one
-  response id is refused.
+  response id is refused. Equal-usage duplicates with conflicting model attribution make
+  the model field unsupported; conflicting timestamps make temporal coverage partial; and
+  conflicting turn ids make the response timeline unsupported. Exact token observations
+  remain countable in all three attribution-conflict cases.
   Codex is detected from a verified `session_meta` record. It sums only response-local
   `token_usage_record.payload.usage`, deduplicated by logical session id plus response id;
   cumulative turn/thread snapshots are never added. The preceding `turn_context` supplies

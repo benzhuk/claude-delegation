@@ -41,7 +41,7 @@ The pre-ruling Codex contract run at the source checkpoint produced 12 passes an
 - A same-id segment carrying different usage for an overlapping response id now refuses immediately; older tests treated non-identical same-id files as unresolved discovery exclusions.
 - Open legacy fixtures without native end witnesses are temporal PARTIAL where older assertions expected complete coverage.
 
-For equal-usage duplicates that disagree only on model or timestamp, the reader preserves the later encountered entry in a single file and the first encountered entry across files. This does not change token totals, but model attribution or timeline attribution can therefore depend on deterministic file/row order. Independent review should decide whether the contract requires those non-usage disagreements to make the affected attribution field unsupported rather than preserving one value.
+Root adjudicated the equal-usage attribution risk after initial delivery. The correction preserves exact token observations but marks conflicting model attribution unsupported, makes conflicting timestamps temporal PARTIAL, and makes a turn-id conflict leave the response timeline unsupported. Differing usage for an overlapping response id remains a refusing conflict. This removes file/row order as silent authority for the disputed attribution.
 
 Cause: the prior implementation bounded Codex discovery by two filename dates and used one blanket coverage flag for discovery, temporal closure and optional token fields.
 
@@ -50,4 +50,3 @@ Discriminating check: a verified `--lead-session` finds an old resumed child thr
 Fix location: `scripts/build-census.mjs` Codex usage parsing, discovery, graph accounting, temporal evaluation, formatting and CLI parsing; `docs/census.md` Codex contract section.
 
 Simplification: the implementation reuses the existing reader, report object and formatters. It adds no cache, secondary index, record parser, production helper file or transcript copy.
-

@@ -7,7 +7,7 @@ VERDICT: PASS
 - Source territory: `scripts/build-census.mjs`, Codex section of `docs/census.md`
 - Focused evidence: syntax exit 0; Lane55/parser assertions 9/9; diff check exit 0
 - Additive interface: `leadSession`, `codexHome`; CLI `--lead-session`, `--codex-home`
-- Remaining adjudication: equal-usage duplicate responses with differing model or timestamp preserve deterministic attribution rather than marking that attribution unsupported
+- Adjudicated correction: equal-usage duplicate model conflicts make model attribution unsupported; timestamp conflicts make temporal coverage partial; turn-id conflicts make the response timeline unsupported
 - Independent work remaining: T2 focused integrated gate, high-tier source review, consumer gates, sealed gates, acceptance and merge
 
 Cause: two-day discovery and blanket coverage could not support resumed native Codex graphs or honest partial fields.

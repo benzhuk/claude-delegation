@@ -669,6 +669,12 @@ function codexUsage(usage) {
   };
 }
 
+function codexUsageFingerprint(usage) {
+  return JSON.stringify([usage.native_input_tokens, usage.cache_read_input_tokens,
+    usage.cache_creation_input_tokens ?? 0, usage.output_tokens,
+    usage.reasoning_output_tokens, usage.total_tokens]);
+}
+
 function newCodexAgg() {
   return {
     native_input_tokens: 0,
@@ -798,6 +804,9 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   let currentModel = null;
   const unknownModels = new Set();
   const invalidResponseTimestamps = new Set();
+  const conflictingResponseModels = new Set();
+  const conflictingResponseTimestamps = new Set();
+  const conflictingResponseTurnIds = new Set();
   const stopBlocks = { window: 0, total: 0 };
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
   const slugVotes = new Map();
@@ -888,9 +897,17 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     if (!currentModel) unknownModels.add(record.response_id);
     if (!timestamp) invalidResponseTimestamps.add(record.response_id);
     const key = `${meta.id}:response:${record.response_id}`;
-    const fingerprint = JSON.stringify(entry.usage);
+    const fingerprint = codexUsageFingerprint(entry.usage);
     const seen = responseFingerprints.get(key);
     if (seen !== undefined && seen !== fingerprint) throw new Error('Codex token_usage_record repeats a response_id with conflicting usage');
+    const prior = totalById.get(key);
+    if (prior) {
+      if (prior.model !== entry.model) { prior.model = 'unknown'; unknownModels.add(record.response_id); conflictingResponseModels.add(record.response_id); }
+      if (prior.ts !== entry.ts) { prior.ts = null; invalidResponseTimestamps.add(record.response_id); conflictingResponseTimestamps.add(record.response_id); }
+      if (prior.turnId !== entry.turnId) conflictingResponseTurnIds.add(record.response_id);
+      if (inWindow && !windowById.has(key)) windowById.set(key, prior);
+      continue;
+    }
     responseFingerprints.set(key, fingerprint);
     totalById.set(key, entry);
     if (inWindow) {
@@ -937,6 +954,9 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     invalidResponseTimestamps: invalidTimestampList,
     responseTimeline,
     responseTimelineComplete,
+    conflictingResponseModels: [...conflictingResponseModels].sort(),
+    conflictingResponseTimestamps: [...conflictingResponseTimestamps].sort(),
+    conflictingResponseTurnIds: [...conflictingResponseTurnIds].sort(),
     startedTurns: [...startedTurns], windowStartedTurns: [...windowNativeTurns], completedTurns: [...completedTurns], hasRowAfterTo, finalEvent, finalRowCompletesTurn, damaged, cacheWriteTierAbsentBySchema,
     coverageSupported: tokenRecordCount > 0 && windowTokenRecordCount > 0 && unknownModelList.length === 0 && invalidTimestampList.length === 0,
     coverageReason: tokenRecordCount === 0 ? 'no token_usage_record rows with per-response usage' : unknownModelList.length ? 'usage rows have unknown model attribution' : invalidTimestampList.length ? 'usage rows have invalid or missing response timestamps' : windowTokenRecordCount === 0 ? 'no token_usage_record rows inside the requested window' : null,
@@ -1361,9 +1381,16 @@ async function runCodexCensus(opts, fsImpl) {
     identityPaths.push(segment.file);
     for (const mapName of ['totalById', 'windowById']) for (const [key, entry] of part[mapName]) {
       const prior = lead[mapName].get(key);
-      if (prior && JSON.stringify(prior.usage) !== JSON.stringify(entry.usage)) throw new Error(`Codex response_id conflict across segments for ${entry.responseId}`);
-      lead[mapName].set(key, entry);
+      if (prior && codexUsageFingerprint(prior.usage) !== codexUsageFingerprint(entry.usage)) throw new Error(`Codex response_id conflict across segments for ${entry.responseId}`);
+      if (prior) {
+        if (prior.model !== entry.model) { prior.model = 'unknown'; lead.conflictingResponseModels = [...new Set([...(lead.conflictingResponseModels || []), entry.responseId])]; }
+        if (prior.ts !== entry.ts) { prior.ts = null; lead.conflictingResponseTimestamps = [...new Set([...(lead.conflictingResponseTimestamps || []), entry.responseId])]; }
+        if (prior.turnId !== entry.turnId) lead.conflictingResponseTurnIds = [...new Set([...(lead.conflictingResponseTurnIds || []), entry.responseId])];
+      } else lead[mapName].set(key, entry);
     }
+    lead.conflictingResponseModels = [...new Set([...(lead.conflictingResponseModels || []), ...(part.conflictingResponseModels || [])])];
+    lead.conflictingResponseTimestamps = [...new Set([...(lead.conflictingResponseTimestamps || []), ...(part.conflictingResponseTimestamps || [])])];
+    lead.conflictingResponseTurnIds = [...new Set([...(lead.conflictingResponseTurnIds || []), ...(part.conflictingResponseTurnIds || [])])];
     lead.nativeTurnCount = new Set([...(lead.startedTurns || []), ...(part.startedTurns || [])]).size;
     lead.windowStartedTurns = [...new Set([...(lead.windowStartedTurns || []), ...(part.windowStartedTurns || [])])];
     lead.nativeTurnCountWindow = lead.windowStartedTurns.length;
@@ -1376,7 +1403,8 @@ async function runCodexCensus(opts, fsImpl) {
     }
   }
   lead.responseTimeline = [...lead.windowById.values()].map((entry) => ({ responseId: entry.responseId, turnId: entry.turnId, timestamp: entry.ts, model: entry.model }));
-  lead.responseTimelineComplete = lead.responseTimeline.every((entry) => entry.timestamp !== null && entry.model !== 'unknown');
+  lead.responseTimelineComplete = lead.responseTimeline.every((entry) => entry.timestamp !== null && entry.model !== 'unknown')
+    && (lead.conflictingResponseTurnIds || []).length === 0;
   const subTotalsByModel = {};
   const subTotalsByRole = {};
   const roleFileCounts = {};
@@ -1407,9 +1435,16 @@ async function runCodexCensus(opts, fsImpl) {
       const byModel = codexAggByModel(child.windowById);
       for (const [key, entry] of child.windowById) {
         const prior = subWindowById.get(key);
-        if (prior && JSON.stringify(prior.entry.usage) !== JSON.stringify(entry.usage)) throw new Error(`Codex response_id conflict across segments for ${entry.responseId}`);
-        if (!prior) subWindowById.set(key, { entry, role: candidate.role });
+        if (prior && codexUsageFingerprint(prior.entry.usage) !== codexUsageFingerprint(entry.usage)) throw new Error(`Codex response_id conflict across segments for ${entry.responseId}`);
+        if (prior) {
+          if (prior.entry.model !== entry.model) { prior.entry.model = 'unknown'; state.modelConflict = true; }
+          if (prior.entry.ts !== entry.ts) { prior.entry.ts = null; state.timestampConflict = true; }
+          if (prior.entry.turnId !== entry.turnId) state.turnIdConflict = true;
+        } else subWindowById.set(key, { entry, role: candidate.role });
       }
+      state.modelConflict ||= child.conflictingResponseModels.length > 0;
+      state.timestampConflict ||= child.conflictingResponseTimestamps.length > 0;
+      state.turnIdConflict ||= child.conflictingResponseTurnIds.length > 0;
       roleFileCounts[candidate.role] = (roleFileCounts[candidate.role] || 0) + 1;
       subTotalTurns += child.windowById.size;
       if (child.tokenRecordCount === 0) unavailable.push(`unusable child coverage in ${candidate.file}: no token_usage_record rows with per-response usage`);
@@ -1474,6 +1509,7 @@ async function runCodexCensus(opts, fsImpl) {
   const temporalReasons = [];
   if (!discovery.scope.complete) temporalReasons.push(discovery.scope.reason);
   if (lead.damaged) temporalReasons.push(`lead ${lead.damaged}`);
+  if ((lead.conflictingResponseTimestamps || []).length) temporalReasons.push('lead has conflicting timestamps for a duplicate response id');
   if (opts.to) {
     const lastStarted = lead.startedTurns && lead.startedTurns.at(-1);
     if (!lead.hasRowAfterTo && !(lead.finalRowCompletesTurn && lead.finalEvent && lead.finalEvent.turnId === lastStarted)) temporalReasons.push('lead has no end-bound witness for the requested window');
@@ -1481,6 +1517,7 @@ async function runCodexCensus(opts, fsImpl) {
       if (state.firstAt && Date.parse(state.firstAt) > Date.parse(opts.to)) continue;
       const lastStarted = state.startedTurns.at(-1);
       if (state.damaged) temporalReasons.push(`child ${id} ${state.damaged}`);
+      if (state.timestampConflict) temporalReasons.push(`child ${id} has conflicting timestamps for a duplicate response id`);
       if (!state.hasRowAfterTo && !(state.finalRowCompletesTurn && state.finalEvent && state.finalEvent.turnId === lastStarted)) temporalReasons.push(`child ${id} has no end-bound witness for the requested window`);
     }
   } else if (!lead.finalRowCompletesTurn) temporalReasons.push('open or unbounded lead has no end-bound witness');
