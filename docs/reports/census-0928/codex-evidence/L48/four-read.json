@@ -1,0 +1,78 @@
+{
+  "provenance": {
+    "sourceSha": "50a66a5339007664bd964f608050178afbd9a7f0",
+    "originMain": "c0818c99c171de3b7812acd20adbe4d4ea96297c",
+    "mode": "candidate",
+    "command": [
+      "node",
+      "scripts/four-read.mjs",
+      "--record",
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-render-readback.record.md",
+      "--census",
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\build-census.raw.json",
+      "--ledger",
+      "C:/Users/benzh/Code/claude-delegation/docs/ledger",
+      "--git",
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5",
+      "--branch",
+      "d6e7fcc182da4c9a288c176872797aeb8bb9fa3c",
+      "--lead-session",
+      "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+      "--lead-slug",
+      "skills-a",
+      "--json",
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.json",
+      "--out",
+      "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\reports\\census-0928\\codex-evidence\\L48\\four-read.raw.md"
+    ],
+    "nativeExit": 0,
+    "inputHashes": {
+      "record": "805980cddbc8cf68f74163ab2d6a11798e3799a722d5638eabeab7881956695c",
+      "fourRead": "47b112e6fe9cc9da19ba0fd4f343feeffe5ebb2252cde897a17a6b0f80b4d45f",
+      "census": "3f2d06666f9b463a1c50f84812e2bfb63f5b4e6765638cd0959469aca14fc165"
+    }
+  },
+  "report": {
+    "acceptAt": null,
+    "companions": [
+      {
+        "key": "topTierAssistantMessagesPerBuild",
+        "label": "Top-tier assistant messages per build",
+        "value": "109 verified top-tier native API response(s) (lead only); tokens: total 10726282; cache-read 10546304, cache-write 0, input 144802, output 35176"
+      },
+      {
+        "key": "notesToLeadPerBuild",
+        "label": "Notes to the lead per build",
+        "value": "4 note(s) to skills-a: ASK skills-fable-lane-48-1, RESULT skills-fable-lane-48-2, RESULT skills-fable-lane-48-4, RESULT skills-fable-lane-48-6"
+      }
+    ],
+    "leadSession": {
+      "id": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+      "note": "from the record's Lead-session: field",
+      "source": "record"
+    },
+    "numbers": [
+      {
+        "key": "topTierTokensPerBuild",
+        "label": "Top-tier tokens per build",
+        "value": "10726282 tokens: build 10726282 (gpt-6-astra); partial (no spec slice): spec-census not run"
+      },
+      {
+        "key": "hoursAskToAccepted",
+        "label": "Hours ask to accepted",
+        "value": "0.6h; largest native API response gap (heuristic) 3.1min at 2026-09-28T23:25:03.874Z"
+      },
+      {
+        "key": "reworkAfterAcceptance",
+        "label": "Rework after acceptance",
+        "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+      },
+      {
+        "key": "workLostOrStalled",
+        "label": "Work lost or stalled",
+        "value": "stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 0 unanswered ASKs to skills-a; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a"
+      }
+    ],
+    "record": "C:\\Users\\benzh\\orca\\gates\\01a0df4c-2809-7520-b1d7-876cc51a87ee\\codex-counted-55\\candidate-reread-fixed-50a66a5\\docs\\work\\wr-2026-09-28-render-readback.record.md"
+  }
+}
