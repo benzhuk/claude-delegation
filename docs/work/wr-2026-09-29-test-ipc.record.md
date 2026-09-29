@@ -12,6 +12,7 @@ Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T04:14:20Z
 Base: 0b517bab993ae1a3c70c6fa4caeb4b1375135fb5
 Log: 2026-09-29T07:32:29.000Z owned skills-n picked up skills-fable-lane-57-1 (ACKed earlier as skills-n-lane-57-1) after lane 53 closed; worktree from origin/main at 0b517ba; the pinned hypothesis's fix is already on main (run-tests.mjs strips NODE_TEST_CONTEXT and NODE_TEST_WORKER_ID, and spawns with process.execPath), so the lane starts with diagnosis
+Log: 2026-09-29T07:33:11.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 spawned with the five-step Research line, diagnosis before fix, ETA 60 min
 
 ## Spec (lead, from the packet)
 
