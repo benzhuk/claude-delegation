@@ -1,13 +1,13 @@
 Work: wr-2026-09-28-codex-counted
 Scope: docs/specs/codex-counted-55/final-spec.md@ef5b8aaac6b8dfc399dfa592194fe47b38fe2d26
 Owner: skills-a
-Status: accepted
+Status: closed
 Authority: scoped Lane55 standing build/merge grant. Root owns specification, record, adjudication and acceptance. Source scouts/builders/tests/reports delegated by territory, independent high review required. No four-read.mjs, review-run.mjs, Claude discovery, hooks, GOALS.md, prior lane record, install or release changes. Normal guarded publication after merge; no recovery flag.
 Artifact: build/codex-counted-55-rebased@f40accef2fea5ec66585d26feae92e4818ed4d48
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55-rebased
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55
-Evidence: docs/specs/codex-counted-55/L55-spec-evidence.md, docs/specs/codex-counted-55/L55-baseline.md, docs/specs/codex-counted-55/L55-pending-spec-review.md, docs/specs/codex-counted-55/root-ruling.md, docs/specs/codex-counted-55/L55-builder-report.md, docs/specs/codex-counted-55/L55-test-report.md, docs/reports/census-0928/codex-rows.md, docs/specs/codex-counted-55/L55-host-gates.md, docs/specs/codex-counted-55/L55-pending-source-review.md, docs/specs/codex-counted-55/L55-review-r1-adjudication.md, docs/specs/codex-counted-55/L55-review-r2.md, docs/specs/codex-counted-55/L55-host-gates-r1.md, docs/specs/codex-counted-55/L55-windows-blocker.md, docs/specs/codex-counted-55/L55-rebased-host-gates.md, docs/specs/codex-counted-55/L55-integration-identity.md, docs/specs/codex-counted-55/L55-rebase-binding.md
-Next: fresh acceptance measurement and strict pinned accept of bound reviewed rebased sourcef40acce; merge accepted rebased delivery tip with history bullet and source-identity verification (new-tree gate if needed), final-main five rereads, normal publish and close.
+Evidence: docs/specs/codex-counted-55/L55-spec-evidence.md, docs/specs/codex-counted-55/L55-baseline.md, docs/specs/codex-counted-55/L55-pending-spec-review.md, docs/specs/codex-counted-55/root-ruling.md, docs/specs/codex-counted-55/L55-builder-report.md, docs/specs/codex-counted-55/L55-test-report.md, docs/reports/census-0928/codex-rows.md, docs/specs/codex-counted-55/L55-host-gates.md, docs/specs/codex-counted-55/L55-pending-source-review.md, docs/specs/codex-counted-55/L55-review-r1-adjudication.md, docs/specs/codex-counted-55/L55-review-r2.md, docs/specs/codex-counted-55/L55-host-gates-r1.md, docs/specs/codex-counted-55/L55-windows-blocker.md, docs/specs/codex-counted-55/L55-rebased-host-gates.md, docs/specs/codex-counted-55/L55-integration-identity.md, docs/specs/codex-counted-55/L55-rebase-binding.md, docs/specs/codex-counted-55/L55-closeout.md
+Next: none for source/merge/publication; original pre-rebase worktree/ref cleanup remains separate Janitor JUDGMENT, retained by skills-a.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:30:44Z
@@ -36,12 +36,13 @@ Four numbers: Hours ask to accepted: 2.8h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 2 unanswered ASK(s) to skills-a: skills-fable-lane-55-1, skills-fable-lane-56-1; wakes 8 (8 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
 Log: 2026-09-29T05:20:04.158Z accepted skills-a artifact f40accef2fea5ec66585d26feae92e4818ed4d48
+Log: 2026-09-29T05:31:41.000Z closed skills-a merge 4e36981b0adb9f0799b2a5060b09e0e44f2a6d34
 
 Measure: feed top-tier tokens per build and the Codex portion of DONE with exact counts. This lane changes the reader, not the measured historical performance.
 
 Predicts: verifying record/session identity independently of discovery age and preserving per-field support will recover historical Codex metrics without weakening unknown or incomplete-data reporting.
 
-Observed: lanes31,37,48,49,52 were led by the native session above and prior reports mark discovery/out-of-horizon coverage partial. Lane52 retained actual log paths and census receipts. Candidate863a686 reads all five native graphs COUNTED with supported tokens; native turns1,2,1,2,1. Graph-only top-tier tokens13760385,26445465,10726282,22357188,11306438 respectively. Spec and external reviewer cost absent, stall attribution UNSUPPORTED; no overall DONE claim. Final-main efficacy remains pending.
+Observed: final-main4e36981 clean-detached rereads return COUNTED and coverageSupported=true for31,37,48,49,52. Graph-only top-tier tokens13760385,26445465,10726282,22357188,11306438 and native lead turns1,2,1,2,1. All native exits0; original five input sets hash-identical. Spec/external-review costs absent and stall attributionUNSUPPORTED. Both rebased host gates green, merge code byte-identical to testedf40, normal publish exit0 at3ffc17b. No overall DONE claim.
 
 The five existing census outputs remain unchanged; new outputs are confined to codex-evidence with provenance; their original work records remain untouched. Manual Codex build sequence is used because no Workflow tool is available. Existing census and work-record acceptance contracts stay in force until a reviewed scoped change justifies new output semantics.
 
