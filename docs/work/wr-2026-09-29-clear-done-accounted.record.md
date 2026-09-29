@@ -1,9 +1,11 @@
 Work: wr-2026-09-29-clear-done-accounted
 Scope: the spec section of this record (lane 58), from skills-fable-decisions-pickup-legacy-1 (its option: a lane that lets publish clear the page), read at 1090978
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/clear-done-accounted-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; after the merge, run publish --clear-done once for the live page 3e1da11277a18174bccfea187d5c3972 from Netcup; no install, no release
-Next: the same reviewer delta-verifies 59b6222
+Next: accept pinned at 59b6222, merge into main, close, then publish --clear-done once for the live page from Netcup
+Artifact: 59b6222d6fc80960e451d003f6bf22272f9ea49c
+Evidence: docs/work/evidence/wr-2026-09-29-clear-done-accounted-review.md
 Worktree: build/clear-done-accounted-1
 Scratch: /var/tmp/lane-58
 Opened: 2026-09-29T19:27:04.000Z
@@ -17,6 +19,14 @@ Log: 2026-09-29T19:39:49.000Z rejected skills-n Opus reviewer a18b02d1ea14ed8f1 
 Log: 2026-09-29T19:44:04.000Z delivered skills-n builder a3aa7c115a1a1fed4 fix round 1 DONE 14fc09d913d9149e7d5f6aa5533c18a6c5ad5f22 (Done label must match the capture; ACCOUNTED refused once an unchecked page was observed; SKILL.md reworded; regression red at c73d472, green after; full suite 3030 pass 0 fail); report docs/specs/clear-done-58/build-r1.md
 Log: 2026-09-29T19:46:21.000Z rejected skills-n Opus reviewer a18b02d1ea14ed8f1 NEEDS_FIXES 14fc09d (the code matches its patch, both re-check cases exit 3, the live round-5 shape clears, the observed-unchecked guard is live; MINOR, the observed-unchecked and NEEDS_RECONCILIATION tests pass even with their guard deleted); a fresh builder applies the ready test patch
 Log: 2026-09-29T19:50:26.000Z delivered skills-n Sonnet builder a16b5daa2d6c9e60c fix round 2 DONE 59b6222 (review-r2 test patch verbatim; guard-deleted and NEEDS_RECONCILIATION mutants each fail exactly their test; decisions scripts 509 pass; full suite 3030 pass 0 fail); report docs/specs/clear-done-58/build-r2.md
+Log: 2026-09-29T19:51:29.000Z reviewed skills-n Opus reviewer a18b02d1ea14ed8f1 APPROVE 59b6222d6fc80960e451d003f6bf22272f9ea49c (patch verbatim, only the test file changed since 14fc09d, each guard mutant fails exactly its test, all round-1 and round-2 findings closed); evidence docs/work/evidence/wr-2026-09-29-clear-done-accounted-review.md
+
+Observed: publish --clear-done now clears a page whose latest pickup round is ACCOUNTED, when Done is still checked and the fresh owner inputs equal that round's capture. It still refuses a cleared page, a same-input recheck after a clear, different inputs, and NEEDS_RECONCILIATION, UNKNOWN or legacy rounds. Three review rounds: a MAJOR hole (a stale capture clearing a recheck) and two vacuous tests, both fixed and re-measured. Full suite 3030 pass, 0 fail.
+Predicts: the live decisions page, stuck since round 5 was accounted on 9/29, clears with one publish --clear-done from Netcup after the merge, and future rounds clear in either order around account.
+
+Stall: none beyond review rounds. The lane ran about 45 minutes from spec to reviewed, with two fix rounds.
+
+Gap: the fix is measured on fixtures and the live round-5 shape reproduced by the reviewer, not yet on the live page. The post-merge publish is the live check, and its outcome goes in the RESULT.
 
 ## Spec (lead)
 
