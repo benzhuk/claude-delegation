@@ -9,6 +9,7 @@ import { importedNameFor, sha256 } from './knowledge-gather.mjs';
 import { assertFieldSafe } from '../skills/multi/scripts/envelope.mjs';
 
 const { runKnowledgeTriage } = triageModule;
+const CHILD_ENV_MODULE = new URL('../skills/multi/scripts/test-child-env.mjs', import.meta.url).href;
 
 const tracked = [];
 function tmp(prefix) {
@@ -100,6 +101,7 @@ function makeHarness() {
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { childEnv } from ${JSON.stringify(CHILD_ENV_MODULE)};
 const configPath = ${JSON.stringify(configPath.replaceAll('\\', '/'))};
 const gitStatePath = ${JSON.stringify(gitStatePath.replaceAll('\\', '/'))};
 const logPath = ${JSON.stringify(claudeLog.replaceAll('\\', '/'))};
@@ -107,11 +109,12 @@ const pidPath = ${JSON.stringify(grandchildPid.replaceAll('\\', '/'))};
 const inbox = ${JSON.stringify(inboxDir.replaceAll('\\', '/'))};
 const storeDigest = ${JSON.stringify(storeDigest.replaceAll('\\', '/'))};
 const sourceDigest = ${JSON.stringify(sourceDigest.replaceAll('\\', '/'))};
+const childHome = ${JSON.stringify(home.replaceAll('\\', '/'))};
 const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const prompt = fs.readFileSync(0, 'utf8');
 fs.appendFileSync(logPath, JSON.stringify({ argv: process.argv.slice(2), prompt, env: Object.keys(process.env).sort() }) + '\\n');
 if (cfg.spawnGrandchild) {
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env: childEnv(childHome) });
   fs.writeFileSync(pidPath, String(child.pid));
 }
 if (cfg.sleepMs) await new Promise((resolve) => setTimeout(resolve, cfg.sleepMs));

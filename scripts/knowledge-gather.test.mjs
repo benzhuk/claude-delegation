@@ -8,6 +8,8 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { gatherKnowledge, managedNames, reconcileKnowledge, runProcess } from './knowledge-gather.mjs';
 
+const CHILD_ENV_MODULE = new URL('../skills/multi/scripts/test-child-env.mjs', import.meta.url).href;
+
 const tracked = [];
 function tmp(prefix) {
   const root = process.env.FIXTURE_ROOT || os.tmpdir();
@@ -188,10 +190,14 @@ function makeHangingSshFixture() {
   const dir = tmp('knowledge-hang-ssh-');
   const script = path.join(dir, 'fake-hang-ssh.mjs');
   const pidFile = path.join(dir, 'grandchild.pid');
+  const childHome = path.join(dir, 'grandchild-home');
+  fs.mkdirSync(childHome);
   fs.writeFileSync(script, `
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+import { childEnv } from ${JSON.stringify(CHILD_ENV_MODULE)};
+const childHome = ${JSON.stringify(childHome.replaceAll('\\', '/'))};
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env: childEnv(childHome) });
 fs.writeFileSync(${JSON.stringify(pidFile.replaceAll('\\', '/'))}, String(child.pid));
 setInterval(() => {}, 1000);
 `);
