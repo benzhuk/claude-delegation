@@ -4,11 +4,11 @@ Owner: skills-a
 Children: wr-2026-09-29-knowledge-triage-source, wr-2026-09-29-knowledge-triage-tests
 Status: owned
 Authority: skills-fable-lane-40-1 rev4 build and manual proof, standing reviewed merge grant. skills-fable-lane-40-2 records Ben tick at17:11 America/New_York September29: install after acceptance/merge in next release, enable and start first run immediately. No hooks, janitor, other-host configuration, review-run or work-record production edits. Guards remain active.
-Artifact: build/knowledge-triage-40@6fa1b4d5aab800ae51b7e37141217bc382a1f7f7
+Artifact: build/knowledge-triage-40@42e356b
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40
-Evidence: docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
-Next: integrate source first-run date fix and independent fixture repairs, rerun sealed focused gate, then independent implementation review and authorized live proof. Naming regression belongs to Lane60.
+Evidence: docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
+Next: independent Opus review at42e356b, then adjudicate findings or authorize bounded live proof. Both territory deliveries integrated and focused gate green. Naming regression belongs to Lane60.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
@@ -35,12 +35,14 @@ Log: 2026-09-29T22:21:51.012Z reviewed skills-a Claude Opus reviewer review-run6
 Log: 2026-09-29T22:23:46.305Z owned skills-a R4 PASS22e738d0-ff7f-4215-997e-73c5e45e23d7 includes exact production slug sentence and one literal selected matcher hit, no unselected hit, zero denials.197231 aggregate tokens,0.3648056USD,8 turns. Both main-build prerequisites satisfied. Live skill changed concurrently under peer delivery and is not attributed to child.
 Log: 2026-09-29T22:34:27.841Z owned skills-a reconciled skills-fable-lane-40-9 delivery of dotfiles727e60d on Windows/Netcup/Hetzner and lane-40-10 scope transfer of naming regression to Lane60. The proposed Node reroute is withdrawn, refusal remains. Main source/tests continue; no live publication proof or acceptance claimed.
 Log: 2026-09-29T22:48:50.4834653Z owned skills-a integrated initial source/tests5e21529, retained failed sealed evidence and assigned independent source/fixture fixes. No gate waiver.
+Log: 2026-09-29T22:55:00.5317684Z owned skills-a integrated source8f71404 and testsa260ad3, sealed focused PASS at42e356b. Started independent Opus review-run code-review-r1 on that exact SHA. Live proof held for review.
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
-Observed: corrected lock skill delivered by peer, exact candidate passed R4 plain-file probe with zero denials. Source and independent tests integrated at5e21529. First sealed focused gate 103 tests, 76 pass, 24 fail, 3 skipped. One established installer defect and fixture precondition failures assigned for repair. No live publication proof, install or acceptance yet.
+Observed: exact candidate skill passed R4 plain-file probe. Source and independent tests integrated42e356b now pass sealed focused gate104 tests,101 pass,0 fail,3 skips,leak check0. First failed gate retained. Independent implementation review running. No live publication proof, install or acceptance yet.
 
 Authority and supporting sources: docs/specs/knowledge-triage-40/rev4-intake.md, install-authority.md, territories.md, scout-ruling.md, spec-r1-adjudication.md, spec-review-r1.identity.json and bearings-lead-response.md. These are source/adjudication/publication documents, not independent verdict reports.
 
 Installation update: skills-fable-lane-40-2 reports Ben's September29 17:11 America/New_York tick. No need to ask for that tick again. The task installs enabled after acceptance/merge via the next release and runs immediately; this does not waive the failed scratch-probe prerequisite.
+
 
