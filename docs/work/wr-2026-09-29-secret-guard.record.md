@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-secret-guard
 Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-1 and Ben's tick recorded on main at f815df7, read at 1a76c54223974465a53004c8b49d92237f7fea24
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: phase 2 Sonnet builder per ruling-r1 on top of c890801, then Opus red-team; later, the plugin secret-fragment name test (skills-fable-guard-60-4)
+Next: Opus red-team of phase 2 (fb48a92), with a full-length replay from Netcup transcripts
 Worktree: build/secret-guard-60-1
 Scratch: /var/tmp/lane-60
 Opened: 2026-09-29T21:39:28.000Z
@@ -20,6 +20,7 @@ Log: 2026-09-29T22:25:38.000Z delivered skills-n Sonnet builder a16b226fd4c64be0
 Log: 2026-09-29T22:28:31.000Z rejected skills-n Opus reviewer a367a2ba2b2f5efb9 delta r2 on f7ca1eb NEEDS_FIXES (1: R2-1 Agent, Task and MCP inputs log body text; F1 to F7 closed); docs/specs/secret-guard-60/p1-review-r2.md
 Log: 2026-09-29T23:29:02.000Z delivered skills-n Sonnet builder a8ae668d19e0620ae committed fix round 2 as dotfiles c890801 (R2-1), then sat about 60 min on a banned rm -rf permission prompt and was stopped by the lead before its report; the tree was clean, the reviewer runs the gate
 Log: 2026-09-29T23:30:02.000Z owned skills-n Opus reviewer a367a2ba2b2f5efb9 delta r3 APPROVE c890801 (selftest 31 of 31; phase 1 done); phase 2 builder spawned; docs/specs/secret-guard-60/p1-review-r3.md
+Log: 2026-09-29T23:58:01.000Z delivered skills-n Sonnet builder a5f20c5e13265092a phase 2 DONE dotfiles fb48a92 (exclusions H and Q, narrowing E; selftest 58 of 58; corpus replay 5 of 33 truncated commands now pass, 0 regressions, all 3 real reads deny); docs/specs/secret-guard-60/p2-build.md and p2-replay.md
 
 ## Spec
 
