@@ -3,10 +3,10 @@ Scope: specification below, skills-fable-lane-49-1 at base9c816fdd8ef906388c74d6
 Owner: skills-a
 Status: delivered
 Authority: lane49 dispatch under standing build/merge grant; normal guarded publication at close. No release/install, transport, render, janitor or Claude-side hook edits. Shared-hook changes require a peer territory ruling before implementation. Root alone writes the work record.
-Artifact: 1d0ba9f1fa5fd0dfd0e134efa402fad9801e2427
+Artifact: 552025157e17ab06ad3f3e32c3dc9cacf87fc7d6
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-followups-49
-Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md, docs/specs/codex-followups-49/L49-builder-report.md, docs/specs/codex-followups-49/L49-test-report.md
-Next: integrate current main and revalidate scoped tests against its changed shared helpers, then Opus review and sealed hosts before census/accept/merge/publish/close.
+Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md, docs/specs/codex-followups-49/L49-builder-report.md, docs/specs/codex-followups-49/L49-test-report.md, docs/specs/codex-followups-49/L49-main-integration.md
+Next: Opus review and sealed hosts on the integrated candidate, then census/accept/merge/publish/close. Pin Artifact to the exact approved candidate at acceptance.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:59:00Z
@@ -15,6 +15,7 @@ Opened: 2026-09-29T00:00:00Z
 Log: 2026-09-29T00:01:00Z owned skills-a ACKed lane49 and requested correction of packet Spec-from, which postdates dispatch.
 Log: 2026-09-29T00:10:22Z owned skills-a dispatched GPT-5.6-Terra lane49_builder and independent GPT-5.6-Terra lane49_tests after committed interface stubd7a9eb44881f3b4074ba8714526c69212241af00 and pinned specb090aca15be70f3694a30605fb4a572838c5f9a7. Continuation binding confirmed active for this record and current epoch.
 Log: 2026-09-29T00:22:00Z delivered skills-a resumed ownership from GPT-5.6-Terra builder and independent test author. Scoped25/25 native exit0 at1d0ba9f1fa5fd0dfd0e134efa402fad9801e2427. Separate5000ms child/outer-route mutants, dropped-session-id mutant, and on-disk fake Claude/Codex manifest events failed their intended assertions. Root required one shared validator and explicit Interrupt reason before this delivery.
+Log: 2026-09-29T00:23:44Z delivered skills-a GPT-5.6-Terra integrator merged current mainf7df9417e4f9b3ead60f7a5944e098ee287c5cef into the unpublished lane normally, preserving proof ancestry. New scoped25/25 native exit0 on merge2ab158678ec1b4210c7831e09bbee14dfcfffce7; report-only tip552025157e17ab06ad3f3e32c3dc9cacf87fc7d6. Opus and full hosts remain pending.
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-followups-49
 
