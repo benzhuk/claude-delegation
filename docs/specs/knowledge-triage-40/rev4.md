@@ -18,7 +18,7 @@ One Windows writer job gathers pending notes from the fixed hosts, invokes the e
 
 Nested judgment uses high tier Claude Opus, pinned to `claude-opus-5-5` by the intake, cap 60 oldest notes and 60 minutes. No model fallback or silent cap increase. A Codex runner is explicitly unsupported until tested. The lead remains Codex.
 
-Installation, even a disabled scheduled task, waits Ben's tick on docs/decisions/waiting/knowledge-triage.md. The manual live proof is separately authorized now by the intake. Until the tick, neither the live triage skill nor the chezmoi README gains the scheduled-run sentence. Prepare the exact amendments as artifacts, but do not apply them. After the tick, install disabled, verify the task, then enable respecting the chosen first-run date. This resolves the intake's disabled-install language consistently with its explicit installation gate. No inferred approval from elapsed time.
+The tick is recorded in install-authority.md. After acceptance, merge and the next release, publish and verify the one-sentence skill/README amendment first, register disabled with PT2H scheduler limit, query/verify, enable, then trigger the first run immediately. The manual live proof has separate intake authority and precedes acceptance. No install or live amendment during blocked preparation. See corrected F8/F11 in spec-r1-adjudication.md for the exact order and sentence.
 
 ## Rev3 retained contracts
 
@@ -34,7 +34,7 @@ Skill publication stays unchanged: exact curated allowlist, `chezmoi add --secre
 
 ## Gather and reconcile
 
-Fixed script-local endpoints: netcup=`ben@100.69.249.18`, hetzner=`ben@100.111.119.54`, mac=an existing explicit local SSH alias. Do not invent or install a Mac alias. No applicable alias yields named skip `no ssh alias`. Use existing SSH authentication without copying keys, env files, agent sockets or tokens. Each host has a 60 second timeout and noninteractive connection policy; unavailable/asleep hosts yield named skips while a successful local run may exit0.
+Fixed script-local endpoints: netcup=`ben@100.69.249.18`, hetzner=`ben@100.111.119.54`, mac=`pending` until Ben supplies an alias. This sentinel yields `awaiting owner-provided ssh alias`, no SSH spawn or config read. Null means `no ssh alias` only in tests or after an owner-recorded removal. No alias discovery or invention. Use existing SSH authentication without copying keys, env files, agent sockets or tokens. Each host has a60second timeout and the pinned noninteractive policy; unavailable/asleep hosts yield named skips while a successful local run may exit0.
 
 Each gather pulls only top-level non-dot `.md` regular files under `~/.claude/knowledge/_inbox` in one SSH tar stream per host. No recursion into `_archive`, no symlink targets, absolute paths, traversal, hardlinks, special entries or configuration. Validate extraction before writing. Stage under `~/.agents/knowledge-triage/gather/<host>/`. Preserve source basename, original bytes/hash and ordering timestamp in minimal stage metadata. Retain staging for interrupted-run reconciliation, not a second knowledge database.
 
@@ -51,7 +51,7 @@ Single implementation territory owns both modules; independent tests consume the
 `reconcileKnowledge(options, gathered)` resolves updated host rows after verified local archive/publication. It is not called on timeout, denied, failed or unverifiable nested run.
 `runKnowledgeTriage(options)` resolves a run receipt and exitCode, writes last-run.json atomically, and CLI sets that code. Exported functions have no import-time side effects. Dependencies are Node builtins/existing repo helpers; no new packages.
 
-last-run.json schema1: `{schemaVersion, startedAt, endedAt, status, reason, sessionId, model, cap, wallClockMs, notesIn, notesArchived, notesArrived, topicsTouched, tokens, dotfilesBefore, dotfilesSha, hosts, nestedExitCode}`. Tokens retain reported breakdown and total or explicit unavailable reason; never invent zero for absent usage. No credential or full nested transcript content in the receipt. `notesArrived` follows rev3's newer-than-previous-end definition; gathered notes retain original timing and counts are separately labeled so imports are not silently treated as new captures. Status success/skipped/failed/attention; incomplete origin reconciliation is visible in hosts/pending.
+last-run.json schema1 is the exact RunReceipt interface in contracts.d.ts: core timestamps/status/session/model/cap/timing/counts, notesEligible, selected, outOfSelection, deferredConsecutive, publication identity, residue and terminal outcome lists. Tokens are `{input, output, cacheRead, cacheCreation, total}` or `{unavailable: reason}`; never invent zero for absent usage. No credential or full nested transcript content in the receipt. `notesArrived` follows rev3's newer-than-previous-end definition; gathered notes retain original timing and counts are separately labeled so imports are not silently treated as new captures. Status success/skipped/failed/attention; incomplete origin reconciliation is visible in hosts/pending/unresolved. Terminal superseded/origin-missing outcomes are reported once, retain staged bytes and are excluded from pending.
 
 ## Gates and live proof
 
