@@ -96,3 +96,14 @@ Corollary: have builders commit per-territory early and often; lanes that had co
 before dying lose nothing. A labeled stash
 (`git stash push -m "WIP <territory> (agent interrupted)"`) is a fine parking spot for
 work you can't yet judge.
+
+## Scratch is the lead's to create and remove; agents never delete
+
+The lead creates the record's `Scratch:` directory — `<scratch root>/<lead session
+id>/<lane>/` — and names it in every agent's brief. Every temp file any agent writes for
+that lane goes only under that directory; nothing temp ever lands in the repo. Removing
+it is the lead's own job: `work-record.mjs close --closeout` deletes the whole directory
+once the record closes, as its one sanctioned file-delete path. No agent removes its own
+scratch, or anyone else's — the eight role files each carry the sentence that says so,
+and `hooks/delete-guard.mjs` refuses a subagent's own recursive-delete attempt before any
+permission prompt can strand it.

@@ -25,6 +25,7 @@ with you, once per gate — that is the whole point of your role.
 - Never write an AI or assistant byline, signature or attribution into any document, page, commit or comment you produce; the owner's tools already carry the owner's name.
 <!-- safety-block:end -->
 
+- Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
 - Run the full suite ONCE per gate (not per-territory, not per-round). Triage each
   failure to its owning territory by file path and say which builder owns it.
 - Drive live smoke verification against the already-running dev server, using whatever
