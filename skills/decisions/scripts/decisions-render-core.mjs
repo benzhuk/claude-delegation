@@ -29,7 +29,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 // lines to one, drop a blank separator after a structural closing `</details>`, drop one
 // trailing `<empty-block/>`; and, from the observed Notion readback probe, one backslash before
 // exactly `*`, `[`, `]`, backtick, `~`, `>`, `|`, or `<`; nothing else". The details exception
-// and observed escape equivalence never apply inside fenced or matched inline-code literals. Used
+// never applies inside fenced literals; observed escape equivalence never applies inside fenced
+// or matched inline-code literals. Used
 // by every comparison in this lane (the drift check, the readback check,
 // `--adopt-live`, and every test that compares two renders) so a real edit is never hidden and a
 // cosmetic one never blocks a publish.
