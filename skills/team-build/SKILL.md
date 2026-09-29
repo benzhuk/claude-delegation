@@ -442,6 +442,28 @@ one-call loop, and never an emulation of it. Its build is measured by the same c
 definitions as a Workflow-run build, and its record says so explicitly:
 `Evidence: Codex-led, manual sequence (no Workflow tool)`.
 
+**A Codex lead's high-tier review** has two routes; the measure counts either. The
+default is `skills/team-build/scripts/review-run.mjs` (mirrored at
+`~/.agents/skills/team-build/scripts/review-run.mjs`), which runs a real Claude Opus
+`claude -p` reviewer against the sha under review — a different vendor from a GPT
+builder (independence a same-vendor reviewer cannot give), and Codex's own read-only
+sandbox cannot run the mutation and test checks a review relies on. The second route is
+the Codex-native reviewer, `codex/agents/reviewer.toml` (GPT-6-Astra), used when
+review-run itself is unavailable or its exit code says so. Both routes carry the same
+report contract (`VERDICT: APPROVE` / `VERDICT: NEEDS_FIXES (<n>)`, the four C4 fields on
+a bug-fix review). For review-run: the lead byte-copies its report to
+`docs/work/evidence/<work-id>-review-r<n>.md` and lists only that file in `Evidence:` —
+never the identity sidecar, which starts with `{` and so fails the evidence-file
+`VERDICT:` check. The sidecar is copied alongside it
+(`docs/work/evidence/<work-id>-review-r<n>.identity.json`) but never listed as evidence;
+its session uuid is the reviewer id the record's `reviewed`/`rejected` Log line names,
+for example: "reviewed skills-a Claude Opus reviewer review-run `<session uuid>` APPROVE
+`<fullsha>`, identity `docs/work/evidence/<work-id>-review-r<n>.identity.json`". A Codex
+lead asks a Claude lead for a reviewer only when review-run exits nonzero, and quotes the
+exit code; the Claude-led path (an Agent-tool reviewer subagent) is unchanged. A Codex
+lead runs review-run as a background command, or with a tool timeout at least
+`--timeout-min + 5` past its own — it never lets a shell tool's timeout kill it mid-run.
+
 When accept-prep handles a Codex-led record, it runs the same census path and retires hand-written four-number inputs only when that report has a measured complete coverage result; a partial report remains explicitly unavailable, and lane fourteen may make refusal of hand-written Codex numbers effective after its own accept contract lands.
 
 **What breaks honestly**:
