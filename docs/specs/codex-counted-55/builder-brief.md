@@ -2,7 +2,7 @@ Task: Implement the approved Lane55 native discovery and per-field accounting co
 Goal: trustworthy Codex token and turn numbers without false completeness.
 Work: wr-2026-09-28-codex-counted.
 
-Inputs: final-spec.md, pickup.md, scout-T1.md, scout-completeness.md, the root spec ruling and independent red-team report when supplied, L55-baseline.md. Read current docs/model-tiers.md and docs/concurrency-budget.md.
+Inputs: final-spec.md, pickup.md, scout-T1.md, scout-completeness.md, root-ruling.md and lane55-redteam-report.raw.md, L55-baseline.md. Read current docs/model-tiers.md and docs/concurrency-budget.md.
 
 PROJECT FACTS: integration C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55, branch build/codex-counted-55. Scratch C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55. Every shell call has explicit workdir. T1 owns scripts/build-census.mjs Codex sections and additive CLI seam, plus docs/census.md Codex section. T2 owns tests/fixtures and the focused integrated gate. Root owns every docs/work record. Share index sequentially by coordination with T2; stage only owned files. No git identity changes, stash/reset/clean/force or unapproved file deletion.
 

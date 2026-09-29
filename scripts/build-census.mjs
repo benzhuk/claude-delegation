@@ -1417,6 +1417,12 @@ export function computeStallNudges(opts, lead, fsImpl) {
   return { ...base, count, ids };
 }
 
+/**
+ * Lane55 pinned additive options: opts.leadSession?: string is a verified Codex
+ * session identity supplied by the caller (which may use exported parseRecord).
+ * opts.codexHome?: string is the canonical Codex home; opts.lead remains legacy.
+ * Implementations preserve existing exports and consumer keys; see final-spec.md.
+ */
 export async function runCensus(opts, fsImpl = realFs()) {
   const leadHost = await detectLeadHost(opts.lead, fsImpl);
   if (leadHost === 'codex') return runCodexCensus(opts, fsImpl);
