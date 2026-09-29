@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-secret-guard
 Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-1 and Ben's tick recorded on main at f815df7, read at 1a76c54223974465a53004c8b49d92237f7fea24
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: Opus delta re-review of phase 1 fix f7ca1eb; then phase 2 per ruling-r1; later, the plugin secret-fragment name test (skills-fable-guard-60-4)
+Next: phase 1 fix round 2 (R2-1 verbatim patch); then phase 2 per ruling-r1; later, the plugin secret-fragment name test (skills-fable-guard-60-4)
 Worktree: build/secret-guard-60-1
 Scratch: /var/tmp/lane-60
 Opened: 2026-09-29T21:39:28.000Z
@@ -17,6 +17,7 @@ Log: 2026-09-29T21:59:11.000Z delivered skills-n Opus reviewer spawned on phase 
 Log: 2026-09-29T22:08:09.000Z rejected skills-n Opus reviewer a367a2ba2b2f5efb9 NEEDS_FIXES (7: F1 field 5 is raw hook JSON and carries Write contents, F2 redaction misses split keys, base64 tails and PEM bodies and fails open, F3 a FIFO at the log path hangs the hook, F4 to F7 medium and low incl. four selftest cases not looking); docs/specs/secret-guard-60/p1-review.md
 Log: 2026-09-29T22:13:36.000Z rejected skills-n ruling r1 from the desktop corpus (205 refusals): phase 2 narrows the secret-file-reference and environment-dump patterns via quoted-heredoc and search-operand exclusions; env-file flag dropped (zero cases); docs/specs/secret-guard-60/ruling-r1.md
 Log: 2026-09-29T22:25:38.000Z delivered skills-n Sonnet builder a16b226fd4c64be00 phase 1 fix round 1 DONE dotfiles f7ca1eb (F1 to F7, each red on ab4d67d and green after); report docs/specs/secret-guard-60/p1-fix1-build.md; lane gains a later deliverable from skills-fable-guard-60-4: a plugin test that no plugin script names a non-secret variable with a secret fragment, two documented exceptions
+Log: 2026-09-29T22:28:31.000Z rejected skills-n Opus reviewer a367a2ba2b2f5efb9 delta r2 on f7ca1eb NEEDS_FIXES (1: R2-1 Agent, Task and MCP inputs log body text; F1 to F7 closed); docs/specs/secret-guard-60/p1-review-r2.md
 
 ## Spec
 
