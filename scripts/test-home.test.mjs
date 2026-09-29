@@ -114,6 +114,27 @@ test("makeTempHome blanks the messaging socket/token in env (never inherits the 
   assert.equal(env.CLAUDE_CODE_MESSAGING_TOKEN, "");
 });
 
+// Lane 47, P3/FU4: an agent or git hook running the suite with GIT_DIR (or a sibling) exported in
+// the PARENT process must not be able to point a fixture git call at the real repo. Must fail on
+// base d6f5c9d (red) before the fix and pass after it (green).
+test("makeTempHome's env has none of the four repo-locating git names, even when the parent process has them set", () => {
+  const names = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"];
+  const saved = {};
+  for (const name of names) {
+    saved[name] = { had: Object.prototype.hasOwnProperty.call(process.env, name), value: process.env[name] };
+    process.env[name] = "/somewhere/.git";
+  }
+  try {
+    const { env } = tempHome();
+    for (const name of names) assert.equal(env[name], undefined, `${name} leaked into the sealed home's env`);
+  } finally {
+    for (const name of names) {
+      if (saved[name].had) process.env[name] = saved[name].value;
+      else delete process.env[name];
+    }
+  }
+});
+
 test("makeTempHome writes files passed under opts.files, relative to the new home", () => {
   const { home } = tempHome({ files: { "docs/work/wr-1.record.md": "Work: wr-1\n" } });
   const full = path.join(home, "docs", "work", "wr-1.record.md");

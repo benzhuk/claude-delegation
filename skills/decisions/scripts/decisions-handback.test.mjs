@@ -931,6 +931,13 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
   fs.writeFileSync(defectiveGoalsPath, fixture('goals-unattached-heading.md'), 'utf8');
   fs.mkdirSync(mirroredSkillDir, { recursive: true });
   fs.cpSync(path.join(HERE, '..'), mirroredSkillDir, { recursive: true });
+  // Lane 47, P2: decisions-handback.mjs now imports withoutRepoLocatingGitEnv from
+  // skills/multi/scripts/transport.mjs — a real dependency the actual mirror always ships
+  // alongside skills/decisions (mirror-shared-skills.mjs's Sources list), so the detached copy
+  // here mirrors that same sibling layout rather than declaring decisions dependency-free.
+  const mirroredMultiDir = path.join(home, '.agents', 'skills', 'multi');
+  fs.mkdirSync(mirroredMultiDir, { recursive: true });
+  fs.cpSync(path.join(HERE, '..', '..', 'multi'), mirroredMultiDir, { recursive: true });
   const mirroredScript = path.join(mirroredSkillDir, 'scripts', 'decisions-handback.mjs');
   const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents') });
   // `unconfigured` has no decisions_url, so the title-meta page-match constraint never fires;
