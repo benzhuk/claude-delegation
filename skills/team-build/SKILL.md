@@ -463,6 +463,9 @@ lead asks a Claude lead for a reviewer only when review-run exits nonzero, and q
 exit code; the Claude-led path (an Agent-tool reviewer subagent) is unchanged. A Codex
 lead runs review-run as a background command, or with a tool timeout at least
 `--timeout-min + 5` past its own — it never lets a shell tool's timeout kill it mid-run.
+A session whose environment carries `DELEGATION_REVIEW_RUN=1` (the marker review-run's own
+child runs under) is never registered and receives no notes from `multi-inbox.js`; a lead's
+own shell must never export that marker.
 
 When accept-prep handles a Codex-led record, it runs the same census path and retires hand-written four-number inputs only when that report has a measured complete coverage result; a partial report remains explicitly unavailable, and lane fourteen may make refusal of hand-written Codex numbers effective after its own accept contract lands.
 

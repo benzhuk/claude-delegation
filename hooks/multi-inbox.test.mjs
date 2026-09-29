@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
@@ -374,6 +374,17 @@ test('(l2) lane 53 decision 2a: DELEGATION_REVIEW_RUN=1 with no agent_id is trea
     assert.equal(output.trim(), '', `${event}: a review-run child receives no lead context`);
     assert.deepEqual(snapshotTree(notes), before, `${event}: a review-run child (main thread, no agent_id) must never register, poll, or acknowledge the lead's inbox`);
   }
+});
+
+test('(l3) lane 53 finding 12: SessionStart under DELEGATION_REVIEW_RUN=1 writes one stderr line naming the skip, since nothing else documents it live', () => {
+  const home = fixtureHome();
+  const result = spawnSync(process.execPath, [HOOK, 'SessionStart'], {
+    input: JSON.stringify({ hook_event_name: 'SessionStart', cwd: home, session_id: SESSION_ID, source: 'startup' }),
+    encoding: 'utf8',
+    env: childEnv(home, { CLAUDE_PLUGIN_ROOT: REPO, DELEGATION_REVIEW_RUN: '1', NOTE_SLUG: 'lead-pane' }),
+  });
+  assert.match(result.stderr, /DELEGATION_REVIEW_RUN/, 'the skip must be visible on stderr, not silent');
+  assert.equal(result.stdout.trim(), '', 'the child still gets no lead context in stdout');
 });
 
 test('(m) a positive child agent_id leaves absent lead state untouched, so the lead receives its pending note', () => {
