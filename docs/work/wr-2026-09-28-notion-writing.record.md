@@ -5,7 +5,7 @@ Status: reviewed
 Authority: skills-fable ASK skills-fable-lane-39-1: spec, red-team, build, review, second-host suite, merge, publish
 Artifact: build/notion-writing-1@0f968192d809b43d9fdef8d36740155366c16617
 Worktree: build/notion-writing-1
-Evidence: page-lint tests 54/54, Netcup suite 2749 pass 0 fail at 27ecce3 (0f96819 adds one test line), Codex live proof page 3eada112 published and read back
+Evidence: docs/work/evidence/wr-2026-09-28-notion-writing-review.md
 Next: accept, merge, close
 Lead-session: 588290d9-ee43-400b-a808-cf44c407171c
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
