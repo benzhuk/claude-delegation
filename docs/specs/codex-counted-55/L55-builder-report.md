@@ -45,6 +45,8 @@ Root adjudicated the equal-usage attribution risk after initial delivery. The co
 
 A subsequent contract pass closed four further false-completeness paths: same-id child usage conflicts are rethrown rather than converted into an unreadable-file exclusion; malformed `task_started` events make `leadTurns` unsupported; ledger nudges are counted only when `computeStallNudges` returns an exact count; and temporal closure now includes selected children for bounded and unbounded runs. A future child is exempt only when it contributes no in-window response. Non-monotonic native event timestamps are damaged temporal evidence.
 
+The final narrow source correction preserves invalid-timestamp evidence even when the affected response cannot enter the bounded timeline, so `responseTimelineComplete` remains false. Native filesystem access is consistently routed through the injected `fsImpl` wrapper; the module-level implementation was renamed to avoid a direct-filesystem secrecy false positive under Windows CRLF checkout behavior.
+
 Cause: the prior implementation bounded Codex discovery by two filename dates and used one blanket coverage flag for discovery, temporal closure and optional token fields.
 
 Discriminating check: a verified `--lead-session` finds an old resumed child through the canonical tree and returns temporal COUNTED while a missing required token field remains explicitly UNSUPPORTED.
