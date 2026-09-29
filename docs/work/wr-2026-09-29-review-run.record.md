@@ -1,9 +1,11 @@
 Work: wr-2026-09-29-review-run
 Scope: the spec section of this record (lane 53), from packet docs/notes/skills-fable-lane-53-1.md read at 7ab59db
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
-Next: the live Windows probe, the a2 quality check on 90beeb9 and the Codex-launched run (acceptance gates), then accept pinned at 643a862, merge, close, RESULT
+Next: census, four-read and accept pinned at 643a862, then merge, publish, close, RESULT; then lane 57
+Artifact: 643a8626b7cf3b8d9711e7640ee95a548d9fb69a
+Evidence: docs/work/evidence/wr-2026-09-29-review-run-review.md, docs/work/evidence/wr-2026-09-29-review-run-review-r1.md, docs/work/evidence/wr-2026-09-29-review-run-review-r2.md, docs/work/evidence/wr-2026-09-29-review-run-review-r3.md, docs/work/evidence/wr-2026-09-29-review-run-suites.md
 Worktree: build/review-run-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53
 Opened: 2026-09-29T02:05:00.000Z
@@ -27,6 +29,22 @@ Log: 2026-09-29T07:05:43.000Z delivered skills-n fresh Opus delta review r4 by a
 Log: 2026-09-29T07:15:45.000Z delivered skills-n Sonnet runner a571d9d784d16691b Windows live probe INCONCLUSIVE, 0 of 3 runs used: claude.exe resolves, but over the Bitvise ssh token claude -p cannot log in and hangs (three hung pids stopped by the runner); probes re-staged under C:\Temp and asked of skills-fable, whose pane runs in Ben's own Windows session (skills-n-lane-53-winprobe-1)
 Log: 2026-09-29T07:19:01.000Z delivered skills-n Sonnet runner a1e9750c13671facf gates: b (Codex-launched) PASS from codex exec, workspace-write fails with EROFS before the reviewer starts, danger-full-access needed, exit 0 NEEDS_FIXES (3) on the decoy, 0 denials; a2 returned NEEDS_FIXES (2) with F1 matching record line 32, but the lead rejects it as evidence because the reconstructed brief was written from line 32 itself; a clean-brief a2 rerun started
 Log: 2026-09-29T07:20:19.000Z delivered skills-n Windows live probes run by skills-fable from its own pane (skills-fable-lane-53-winprobe-2): W-P7 PASS, all three attack commands denied, decoy local hooksPath unchanged; W-P5 exit 0, VERDICT first line, real claude.exe, model opus, worktree cleaned, 1 denial from the machine identity guard on a chained read-only git config --get, which is not review-run behaviour; the lead strikes its own tools-in-sidecar probe criterion (not in the spec, PowerShell absence is unit-tested on win32) and reads hooksPath as local config unchanged
+Log: 2026-09-29T07:27:04.000Z reviewed skills-n Opus delta review r4 by aa0426e180c8df8eb APPROVE 643a862 is the deciding review; acceptance gates met: a2 PASS on a clean brief (NEEDS_FIXES (3) on 90beeb9, F1 names the production Stop-null mutant gap with its own production mutants), b PASS from codex exec with danger-full-access, Windows W-P7 PASS and W-P5 shape proven by skills-fable, Linux 2993 pass and Windows 2965 pass, 0 fail each
+
+Observed: skills/team-build/scripts/review-run.mjs runs a high-tier Claude Opus review as a `claude -p --agent` child, from any host, in an isolated shared clone with origin removed.
+- The child gets the installed reviewer role, byte-hashed into a sidecar. It runs under `--setting-sources user`, `--strict-mcp-config` and CLAUDE_CODE_DISABLE_CLAUDE_MDS.
+- The Write rule is scoped to the report as `Edit(//abs)`. Every git global-option form is on the deny list, in both space and equals spellings, and PowerShell is dropped.
+- It exits with distinct codes: 0 ok, 1 usage, 2 malformed, 3 timeout, 4 host, 5 kill switch, 6 recursion, 7 internal. The stale-run sweep never signals a process.
+- hooks/delete-guard.mjs treats a DELEGATION_REVIEW_RUN=1 child as a subagent, and hooks/multi-inbox.js never registers one.
+- It took one build and four fix rounds, with 14, 6, 3 and 0 findings. A reintroduced SIGKILL of foreign pids was caught in r2, and a zombie-blind test in r3.
+- Launched from a Codex exec, it returned a verdict, but only under danger-full-access.
+- On lane 49's commit 90beeb9, with a clean brief, it independently found the same production Stop-null mutant gap the Agent-tool Opus reviewer had found.
+
+Predicts: the next Codex-led lane gets its high-tier review by running review-run itself instead of asking a Claude lead. That removes one peer round trip per review round from hours-ask-to-accepted. Its census counts those review tokens only through the sidecar session, as docs/census.md now says.
+
+Gap: under `auto`, a write outside the clone that the classifier approves still runs, for example a raw Bash redirect, or a Write to a path other than the report. That is parity with the Agent-tool reviewer, which runs under the lead's own classifier (lead-ruling-r2). Prefix rules do not cover `env git ...` or an absolute-path git. The P2b delete-guard line only takes effect on a host after a release installs it. On Windows over the ssh key login, claude.exe cannot reach its login, so live Windows runs need a session in Ben's own logon.
+
+Stall: fix round 3's Sonnet builder went silent for 11 minutes on a permission prompt for an `rm -rf` that its brief banned. The lead stopped it and folded its one finished edit into round 4. The Windows suite at 1b62edb hung for about 40 minutes in review-run.test.mjs, from spawn EFTYPE, until the lead stopped that one test pid; round 4 fixed the cause. The Windows live probe over ssh hung inside claude.exe's login, and the runner stopped its own three pids; skills-fable ran the probes from its own pane instead.
 
 ## Spec (lead, from the packet)
 
