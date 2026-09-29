@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-test-ipc
 Scope: the spec section of this record (lane 57), from packet docs/notes/skills-fable-lane-57-1.md read at 0b517ba
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
 Next: accept pinned at e28f4f7, merge into main, close as not reproduced with the trip-wire, RESULT to skills-fable
 Artifact: e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a
@@ -83,6 +83,8 @@ Four numbers: Hours ask to accepted: 13.1h; largest gap 459.3min at 2026-09-29T1
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 3 gap(s) over 30min stalled: 2026-09-29T07:47:37.916Z (45.7min), 2026-09-29T09:37:26.214Z (113.0min), 2026-09-29T11:33:54.319Z (459.3min); 0 waiting-on-agents (0.0 min); 2 unanswered ASK(s) to skills-n: skills-fable-decisions-pickup-legacy-1, skills-fable-lane-58-1; wakes 6 (5 note-flush, 1 Done-tick); Stop-blocks 0; stall nudges 1 to skills-n: collect-v2202608391056492408-stall-build-test-ipc-57-1-dff5538-1
 Log: 2026-09-29T20:35:29.000Z accepted skills-n artifact e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a
+Log: 2026-09-29T20:36:32.000Z merged skills-n c5cc1adb71007171a1f8fabf4a71f23a9670f25d into main (suite 3050 tests, 3045 pass, 0 fail); history bullet in docs/decisions/history/2026-09-29.md
+Log: 2026-09-29T20:36:32.000Z closed skills-n merge c5cc1adb71007171a1f8fabf4a71f23a9670f25d
 
 Observed: the Windows "Unable to deserialize cloned data" failure did not reproduce on Linux or Windows, and the pinned NODE_TEST_CONTEXT fix was already on main. Closed as not reproduced with a trip-wire. Two gaps were fixed: run-tests.test.mjs strips NODE_TEST_WORKER_ID through sealedEnv(), and test-home.test.mjs passes childEnv to its spawns. The N2 scanner in skills/multi/scripts/hooks.test.mjs now flags a node-reachable spawn that has no top-level env key or that inherits the parent process environment. It holds 15 exempted sites in 10 files, flags 1167b9a at :66 and :523, and fails loud on a desynced call. Six review rounds. The stop rule fired at review r4, so the scanner's known silent classes are documented in its doc comment (R4-3 inheritance through a variable or helper, R4-5 unrecognised node reach, R4-6 the remaining shapes) instead of being patched. Linux full suite 3044 tests 3039 pass 0 fail, and Windows at 486dbcb 3044 tests 3011 pass 0 fail. The e28f4f7 change is test-only and pin-only on top of that.
 Predicts: a new node-reachable test spawn without a sealed env fails the suite on every host, unless it takes a documented-limit shape. If the deserialize error recurs on Windows, the trip-wire reopens this lane with the failing log.
