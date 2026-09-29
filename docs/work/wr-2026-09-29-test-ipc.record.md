@@ -21,6 +21,7 @@ Log: 2026-09-29T08:56:21.000Z delivered skills-n Windows full suite at 0824e76: 
 Log: 2026-09-29T09:02:31.000Z rejected skills-n Opus reviewer a6d6df3d585206a42 NEEDS_FIXES (8) 0824e76 (F1 a measured false green, the call extent is not comment-aware; F2 file:line exemption keys; F3 to F5 scope gaps); ruling docs/specs/test-ipc-57/lead-ruling-r1.md adds W1 (path separators) and removes the inert -e special case; a fresh Sonnet builder, the prior one being over 150k tokens
 Log: 2026-09-29T09:02:49.000Z owned skills-n fresh Sonnet fix-round-1 builder af9f91cafc871abba spawned on lead-ruling-r1.md, ETA 60 min
 Log: 2026-09-29T09:27:15.000Z delivered skills-n fix-round-1 builder af9f91cafc871abba DONE 1135839b7dac29bb8520094aa982af07821aaab2 (W1 and F1 to F8; red at 0824e76 for W1, F1, F2 both ways, F4 and F7; 1167b9a red re-confirmed; 8 files and 14 sites exempted by count; full suite 3035 tests 3030 pass 0 fail); report docs/specs/test-ipc-57/build-r1.md
+Log: 2026-09-29T09:30:50.000Z delivered skills-n Windows full suite at 1135839: 3035 tests, 3002 pass, 0 fail, 33 skipped (the one printed probe failure is run-tests.test.mjs's intentional nested child); Opus delta review r2 sent to a6d6df3d585206a42
 
 ## Spec (lead, from the packet)
 
