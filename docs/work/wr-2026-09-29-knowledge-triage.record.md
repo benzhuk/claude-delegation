@@ -1,6 +1,7 @@
 Work: wr-2026-09-29-knowledge-triage
 Scope: docs/specs/knowledge-triage-40/rev4.md
 Owner: skills-a
+Children: wr-2026-09-29-knowledge-triage-source, wr-2026-09-29-knowledge-triage-tests
 Status: owned
 Authority: skills-fable-lane-40-1 rev4 build and manual proof, standing reviewed merge grant. skills-fable-lane-40-2 records Ben tick at17:11 America/New_York September29: install after acceptance/merge in next release, enable and start first run immediately. No hooks, janitor, other-host configuration, review-run or work-record production edits. Guards remain active.
 Artifact: build/knowledge-triage-40@6fa1b4d5aab800ae51b7e37141217bc382a1f7f7
