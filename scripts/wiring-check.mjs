@@ -55,8 +55,12 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkStaleness, staleSessionText } from "./plugin-staleness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// This script's OWN file path (docs/specs/stale-session-guard-1/spec.md P7) - "it uses
+// wiring-check's own script path", never the guard's.
+const SELF_PATH = fileURLToPath(import.meta.url);
 const DEFAULT_LIST_PATH = path.join(HERE, "required-wiring.default.json");
 const PRIVATE_LIST_RELATIVE = "~/.agents/required-wiring.json";
 
@@ -467,6 +471,23 @@ function wsOffActive(opts = {}) {
   catch (e) { return switchErrorMeansPresent(e); }
 }
 
+/** docs/specs/stale-session-guard-1/spec.md P7: the same fact `agent-dispatch-guard.mjs`'s
+ * R0-stale denies on, read through this script's OWN path instead of the guard's. Never
+ * throws (`checkStaleness` already fails open; this is a second, redundant belt) - a broken
+ * staleness read must never take the wiring check itself down. */
+function staleness(opts) {
+  try {
+    return checkStaleness({
+      scriptPath: opts.scriptPath ?? SELF_PATH,
+      home: opts.home ?? homedir(),
+      env: opts.env ?? process.env,
+      fsImpl: opts.fsImpl ?? fs,
+    });
+  } catch {
+    return { stale: false };
+  }
+}
+
 export function main(argv = process.argv.slice(2), opts = {}) {
   const known = new Set(["--line", "--json", "--hook"]);
   const unknown = argv.filter((a) => !known.has(a));
@@ -482,21 +503,37 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     // Keep unexpected dependency failures visible without copying exception text into output.
     result = { ok: false, results: [{ id: "wiring-check", state: "unknown", why: "could not inspect required wiring", fix: "inspect the wiring-check inputs and filesystem access" }] };
   }
+  const stale = staleness(opts);
 
-  if (argv.includes("--json")) printJson(result);
-  else if (argv.includes("--line")) { if (!wsOffActive(opts)) printLine(result.results); }
-  else printTable(result.results);
+  if (argv.includes("--json")) {
+    printJson(result);
+    if (stale.stale) process.stderr.write(`${staleSessionText(stale)}\n`);
+  }
+  else if (argv.includes("--line")) {
+    if (!wsOffActive(opts)) {
+      printLine(result.results);
+      // P7: the same marker, "stale session: ...", as the guard's own deny text (P6) - one
+      // shared builder (staleSessionText), never two hand-typed copies that can drift.
+      if (stale.stale) console.log(staleSessionText(stale));
+    }
+  }
+  else {
+    printTable(result.results);
+    if (stale.stale) console.log(staleSessionText(stale));
+  }
 
   // J2: exit 1 when a required check is missing, stale, or could not be evaluated at all (any
   // state other than ok/info) - a wiring check can finally go red. `--json`/`--line`/table output
   // shapes are unchanged; only this return value differs from before. `checkWiring()` itself never
   // changes shape or meaning for its other callers (the janitor's embedded WIRING section calls the
   // library function directly and never runs this CLI, so its own exit code is untouched).
+  // P7: a stale session counts as a non-ok result for this same red exit, like any other stale
+  // finding - independent of which flag printed (or suppressed) the table/line/json output.
   // --hook: a Claude Code command hook's non-zero exit drops its stdout (a non-blocking error), so
   // the SessionStart caller keeps exit 0 and the line still reaches the session; the red exit is
   // for a human or agent running the CLI directly (bare `--line`, `--json`, or the table).
   if (argv.includes("--hook")) return 0;
-  return result.ok ? 0 : 1;
+  return (result.ok && !stale.stale) ? 0 : 1;
 }
 
 /**

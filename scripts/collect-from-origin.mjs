@@ -20,11 +20,14 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseRecord } from "./work-record.mjs";
+import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
 
 const ROW_FIELDS = ["branch", "tipSha", "tipDate", "recordPath", "status", "artifactSha", "merged", "hoursSinceLog", "state"];
 const SHA_RE = /^[0-9a-f]{40}$/i;
 
-const git = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+// GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR/GIT_INDEX_FILE stripped (lane 47, P2): a hook or agent
+// with one of these exported must not make every `git` call below answer for the wrong repo.
+const git = (args, cwd) => execFileSync("git", args, { cwd, env: withoutRepoLocatingGitEnv(process.env), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 const tryGit = (args, cwd) => { try { return git(args, cwd); } catch { return null; } };
 // One exit-status reader for every read-only existence/ancestry check below: true on exit 0,
 // false on exit 1 (git's own "no"), null for anything else — an unknown git failure (a corrupt

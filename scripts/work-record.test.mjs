@@ -907,6 +907,26 @@ test("checkAcceptance accepts matching abbreviated approval in live and pinned m
   assert.equal(pinned.artifact, f.sha);
 });
 
+// Lane 47, P2 class (b): checkAcceptance's git calls, run through their DEFAULT spawnImpl (no
+// execImpl/spawnImpl injected), must resolve identity from -C <cwd>, never an inherited GIT_DIR
+// pointed at a second, unrelated repo. Must fail on base d6f5c9d (red) before the fix, pass after.
+test("checkAcceptance resolves against repoRoot, not an inherited GIT_DIR pointed at another repo", () => {
+  const f = makeAcceptanceFixture();
+  const other = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-other-repo-"));
+  execFileSync("git", ["init", "-q", other], { env: makeGitFixtureEnv() });
+  const hadGitDir = Object.prototype.hasOwnProperty.call(process.env, "GIT_DIR");
+  const prevGitDir = process.env.GIT_DIR;
+  try {
+    process.env.GIT_DIR = path.join(other, ".git");
+    const live = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: "HEAD" });
+    assert.equal(live.ok, true);
+    assert.equal(live.artifact, f.sha);
+  } finally {
+    if (hadGitDir) process.env.GIT_DIR = prevGitDir;
+    else delete process.env.GIT_DIR;
+  }
+});
+
 test("checkAcceptance refuses a moved live ref without falling back to the reviewed artifact", () => {
   const f = makeAcceptanceFixture();
   fs.writeFileSync(path.join(f.repo, "later.txt"), "later\n");

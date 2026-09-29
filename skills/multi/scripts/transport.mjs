@@ -408,10 +408,39 @@ export function isLocalPane(pane, senderHost) {
 
 export function toPosix(p) { return String(p).replace(/\\/g, '/'); }
 
+/**
+ * Names that make `git` answer for whatever repo THEY point at instead of `cwd` (lane 44,
+ * transport-identity-1 F3): a hook run inside a git operation, an agent spawned from one, or a
+ * timer unit with a stale environment can leave one of these set in the parent process, and every
+ * `git` child that inherits it silently resolves identity for the wrong project.
+ */
+export const REPO_LOCATING_GIT_ENV = Object.freeze([
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
+]);
+
+/**
+ * Copy of `env` with the four repo-locating names removed (case-insensitively on win32), never
+ * mutating the argument (lane 47, P1: every direct `git` call site wraps its env with this instead
+ * of repeating gitRunner's stripping logic inline).
+ */
+export function withoutRepoLocatingGitEnv(env) {
+  const copy = { ...env };
+  // Shallow copy so the caller's own environment object is never mutated; each name is removed
+  // (not set to '') because an empty GIT_DIR is itself an error, not "unset" (lane 44, F3/P1).
+  // win32 env names are case-insensitive to the OS and to git, but a spread copy keeps each key's
+  // stored case, so `Git_Dir` would survive `delete copy.GIT_DIR`; match case-insensitively there.
+  const locating = process.platform === 'win32'
+    ? (key) => REPO_LOCATING_GIT_ENV.includes(key.toUpperCase())
+    : (key) => REPO_LOCATING_GIT_ENV.includes(key);
+  for (const key of Object.keys(copy)) if (locating(key)) delete copy[key];
+  return copy;
+}
+
 /** Default git shell-out. Tests inject their own `git` through deps, so this is never hit off-box. */
 export function gitRunner(args, cwd) {
+  const env = withoutRepoLocatingGitEnv(process.env);
   return execFileSync('git', args, {
-    cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+    cwd, env, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   }).toString();
 }
 
@@ -446,7 +475,11 @@ export function mainCheckout(dir, runner) {
   } else {
     c = toPosix(path.resolve(start, c)); // a genuinely relative `start`: cwd-relative is correct
   }
-  return c.replace(/\/?\.git\/?$/, '') || start;
+  // Strip only a trailing `/.git` PATH COMPONENT — a slash must precede it — never a bare suffix
+  // match. The old `/\/?\.git\/?$/` also matched the tail of a bare repo's OWN directory name
+  // (`/srv/repo.git` has no `/.git` component, but ends in the four characters `.git` right after
+  // `repo`), truncating it to `/srv/repo`, a directory that does not exist (lane 47, P4/FU5).
+  return c.replace(/\/\.git\/?$/, '') || start;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

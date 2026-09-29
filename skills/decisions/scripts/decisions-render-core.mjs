@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseDocument, computeExitCode } from './decisions-read.mjs';
+import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
 
 /** exit 2 from the CLI: a source file breaks a rule this lane enforces before it ever writes. */
 export class RefusedError extends Error {}
@@ -25,9 +26,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalisation — spec: "CRLF to LF, strip trailing whitespace per line, collapse runs of blank
-// lines to one, drop one trailing `<empty-block/>`; nothing else". Used by every comparison in
-// this lane (the drift check, the readback check, `--adopt-live`, and every test that compares
-// two renders) so a real edit is never hidden and a cosmetic one never blocks a publish.
+// lines to one, drop a blank separator after a structural closing `</details>`, drop one
+// trailing `<empty-block/>`; nothing else". The details exception never applies inside a fenced
+// literal. Used by every comparison in this lane (the drift check, the readback check,
+// `--adopt-live`, and every test that compares two renders) so a real edit is never hidden and a
+// cosmetic one never blocks a publish.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function normalize(text) {
@@ -37,11 +40,32 @@ export function normalize(text) {
     .map((l) => l.replace(/[ \t]+$/, ''));
   const collapsed = [];
   let prevBlank = false;
+  let fence = null;
+  let detailsDepth = 0;
+  let detailsSeparatorPending = false;
   for (const l of lines) {
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(l);
+    const isFenceClose = fence && new RegExp(`^\\s*${fence[0]}{${fence.length},}\\s*$`).test(l);
+    if (!fence && l === '<details>') detailsDepth += 1;
+    const isStructuralDetailsClose = !fence && detailsDepth > 0 && l === '</details>';
     const isBlank = l === '';
+    if (isBlank && detailsSeparatorPending) {
+      continue;
+    }
     if (isBlank && prevBlank) continue;
     collapsed.push(l);
     prevBlank = isBlank;
+    if (isStructuralDetailsClose) {
+      detailsDepth -= 1;
+      detailsSeparatorPending = true;
+    } else if (!isBlank) {
+      detailsSeparatorPending = false;
+    }
+    if (fence) {
+      if (isFenceClose) fence = null;
+    } else if (fenceMatch) {
+      fence = fenceMatch[1];
+    }
   }
   while (collapsed.length && collapsed[collapsed.length - 1] === '') collapsed.pop();
   // Review round-2 NIT: compare against the exact `<empty-block/>` string (no `.trim()`) — a
@@ -233,7 +257,7 @@ export function defaultReaddir(d) {
   return fs.readdirSync(d);
 }
 export function defaultExecGit(args, cwd) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  return execFileSync('git', args, { cwd, env: withoutRepoLocatingGitEnv(process.env), encoding: 'utf8', windowsHide: true });
 }
 
 function readRequired(readFile, fullPath, label) {

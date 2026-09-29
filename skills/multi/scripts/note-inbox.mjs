@@ -213,13 +213,14 @@ export async function runNoteInbox(argv, deps = {}) {
     // `--repo`, else this process's cwd, else the pane's own worktree from ORCA_WORKTREE_ID — a hook
     // can be invoked with a cwd that is not inside the repo the pane actually works in.
     const start = args.repo ? toPosix(args.repo) : (cwd || worktreePathFromEnv(env));
-    let repo = null;
-    try { repo = mainCheckout(start, git); } catch { repo = null; }
-    if (repo && !fsImpl.existsSync(ledgerDir(repo))) {
-      const fallback = worktreePathFromEnv(env);
-      if (fallback && toPosix(fallback) !== toPosix(start)) {
-        try { repo = mainCheckout(fallback, git) ?? repo; } catch { /* keep the first answer */ }
-      }
+    const fallbackStart = worktreePathFromEnv(env);
+    let repo = resolveRealRepo(start, git);
+    if (!repo && fallbackStart && toPosix(fallbackStart) !== toPosix(start)) {
+      repo = resolveRealRepo(fallbackStart, git);
+    }
+    if (repo && !fsImpl.existsSync(ledgerDir(repo)) && fallbackStart && toPosix(fallbackStart) !== toPosix(start)) {
+      const alt = resolveRealRepo(fallbackStart, git);
+      if (alt) repo = alt;
     }
     if (repo) sources.push({ dir: ledgerDir(repo), kind: 'repo', repo });
   }
@@ -325,6 +326,25 @@ export async function runNoteInbox(argv, deps = {}) {
     scanned: files.map((f) => f.file), days, coldStart, suppressed,
     count: notes.length, notes, problems,
   };
+}
+
+/**
+ * `dir` resolved as a repo ONLY when git itself proves it: `mainCheckout` is a WRITER's helper — when
+ * `dir` is not a repo (or git could not answer at all — no git on PATH, a transient failure, the same
+ * exception either way) it deliberately falls back to "write where we were told", because a note-send
+ * still needs somewhere to put a file. A READER must never inherit that fallback: treating an unproven
+ * directory as a checked repo is exactly how a packet that is really in the main checkout gets reported
+ * MISSING (lane 47, P7: a start git cannot place in any repo, e.g. a cwd outside every checkout, is
+ * never "checked"). So this probes with the SAME git call `mainCheckout` itself would make, and
+ * only ever answers `mainCheckout`'s own normalisation of that ONE probe's result — never a second
+ * spawn — when the probe itself succeeds.
+ */
+function resolveRealRepo(dir, git) {
+  if (!dir) return null;
+  let common;
+  try { common = git(['rev-parse', '--git-common-dir'], dir); } catch { return null; }
+  if (!String(common ?? '').trim()) return null;
+  return mainCheckout(dir, () => common); // same answer, one spawn
 }
 
 /** Is the packet the `Details:` path names actually on disk? Checked in every repo we scanned. */

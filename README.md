@@ -261,6 +261,10 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.17 — the lanes closed on Sep 28 evening:
+  - The Done pickup treats every worktree of a repository as one project, so a tick clears from a clean checkout (pickup-binding, b015f60).
+  - A stall ask from the collector also lands on the owning lead's own host (cross-host-nudge, c56a1ae).
+  - A session running older plugin hooks than the installed version is refused builder, reviewer, runner and integrator spawns, and told to start a fresh session (stale-session-guard, c91c1cc).
 - 0.20.16 — the lanes closed on Sep 27 and 28:
   - The Windows janitor task XML is UTF-16LE (windows-task, da6b9f6).
   - Work records gain a closed status, and the collector lists it.

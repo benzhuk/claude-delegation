@@ -99,15 +99,20 @@ function installHandlersOnce() {
  * @param {boolean} [opts.gitIdentity=true]  seed the fixture git identity scoped to `fixtureRoot`.
  *   `false` leaves `GIT_CONFIG_GLOBAL` pointed at an empty file: any commit under the seal then
  *   has no identity and git refuses it, on purpose.
+ * @param {string} [opts.tmpDir=os.tmpdir()]  where the sealed home itself is mkdtemp'd (lane 46,
+ *   test-temp-hygiene: `run-tests.mjs`'s CLI path passes its own per-run root here so the sealed
+ *   home lands INSIDE that root instead of directly under the real temp dir - see `runSealed`'s
+ *   `tmpRoot` option). Every other caller omits this and gets today's `os.tmpdir()` behaviour,
+ *   byte-for-byte.
  * @returns {{ home: string, agentsHome: string, env: object, fixtureRoot: string, cleanup: () => void,
  *   keep: () => void, unregister: () => void }} `keep`/`unregister` are the same function (alias):
  *   removes this directory from the per-process leak-fix registry (see above) WITHOUT deleting it -
  *   `run-tests.mjs` calls it to keep a failed suite's home around for inspection without the exit
  *   handler sweeping it out from under that intent.
  */
-export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
+export function makeTempHome({ files = {}, gitIdentity = true, tmpDir = os.tmpdir() } = {}) {
   installHandlersOnce();
-  const raw = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-home-"));
+  const raw = fs.mkdtempSync(path.join(tmpDir, "sealed-home-"));
   registeredHomes.add(raw);
   // realpath now: the includeIf glob below is matched against a realpath, and a mismatch here
   // (e.g. a symlinked temp dir) would silently widen or narrow which repos get the fixture identity.
@@ -160,8 +165,12 @@ export function makeTempHome({ files = {}, gitIdentity = true } = {}) {
   // Removed rather than blanked: some callers branch on the KEY BEING ABSENT, not on its value
   // being empty (e.g. codex-hook-trust.mjs falls back to process.env.CODEX_HOME only when the
   // passed-in env has no such key at all) - an empty string would still count as "present".
+  // GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR/GIT_INDEX_FILE (lane 47, P3/FU4): also removed here so
+  // an agent or git hook running the suite with one of these exported in the PARENT process
+  // cannot point a fixture git call at the real repo instead of the sealed home's scratch repo.
   for (const k of ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "ORCA_CODEX_HOME", "ORCA_USER_DATA_PATH",
-    "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_TAB_ID", "ORCA_WORKTREE_ID", "NOTE_SLUG"]) delete env[k];
+    "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_TAB_ID", "ORCA_WORKTREE_ID", "NOTE_SLUG",
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]) delete env[k];
 
   function unregister() {
     registeredHomes.delete(raw);

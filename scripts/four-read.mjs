@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { withoutRepoLocatingGitEnv } from '../skills/multi/scripts/transport.mjs';
 // ── Record parsing (independent of scripts/work-record.mjs) ────────────────
 function fieldRegex(label) {
   return new RegExp(`^[ \\t*+-]{0,20}${label}:\\**[ \\t]{0,20}(.+)$`, 'mi');
@@ -516,7 +517,7 @@ export function computeHoursAskToAccepted(fields, logs, leadTimestamps, leadGapR
   return { value: `${hours.toFixed(1)}h; ${gapPart}`, openedMs, acceptedMs };
 }
 // ── Number 3 — rework after acceptance ──────────────────────────────────────────────────
-function runGit(repoDir, args) { return execFileSync('git', ['-C', repoDir, ...args], { encoding: 'utf8' }); }
+function runGit(repoDir, args) { return execFileSync('git', ['-C', repoDir, ...args], { env: withoutRepoLocatingGitEnv(process.env), encoding: 'utf8' }); }
 export function computeReworkAfterAcceptance(fields, logs, gitDir, branch = 'HEAD') {
   const accepted = logs.filter((l) => l.status.toLowerCase() === 'accepted');
   const reaccepts = accepted.slice(1);
@@ -589,6 +590,14 @@ export function collectLedgerEntries(ledgerDir, fsImpl) {
 }
 function ledgerInWindow(entries, kinds, leadSlug, openedMs, acceptedMs) {
   return entries.filter((e) => kinds.includes(e.kind) && e.to === leadSlug && e.ms !== null && e.ms >= openedMs && e.ms <= acceptedMs);
+}
+// Stall nudges received (census-completeness, lane 38): ledger lines whose id matches
+// `collect-*-stall-*` (the collector's stall-nudge ASK, collect-status.mjs buildStallTopic) that are
+// addressed to the lead's slug inside [fromMs, toMs]. Shared with build-census.mjs.
+export const STALL_NUDGE_ID_RE = /^collect-.+-stall-/;
+export function countStallNudges(entries, leadSlug, fromMs, toMs) {
+  const hits = entries.filter((e) => e.to === leadSlug && STALL_NUDGE_ID_RE.test(e.id) && e.ms !== null && e.ms >= fromMs && e.ms <= toMs);
+  return { count: hits.length, ids: hits.map((e) => e.id) };
 }
 function ledgerHasSlug(entries, leadSlug) { return entries.some((e) => e.from === leadSlug || e.to === leadSlug); }
 // ── Number 4 — work lost or stalled. leadGapReason (MAJOR 1): see computeHoursAskToAccepted.
@@ -665,6 +674,33 @@ export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug
       : `0 unanswered ASKs to ${leadSlug}`;
   }
   return { value: `${gapPart}; ${askPart}` };
+}
+// ── Number 4's completeness suffix (census-completeness, lane 38) ───────────────────────────
+// Wakes, Stop-blocks and stall nudges received, appended AFTER the leading stalled integer so
+// work-record.mjs's stall check (which parses only that integer) is unaffected. Wakes and
+// Stop-blocks are read from the census JSON (build-census.mjs, docs/census.md "Wakes,
+// Stop-blocks, stall nudges") and only when the census window is the build window; stall
+// nudges are counted here from the ledger over the record's own Opened:..accepted window.
+export function computeCompletenessSuffix(census, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, lastAcceptedMs) {
+  const parts = [];
+  const lead = census && census.lead ? census.lead : null;
+  // Both hosts emit wakes and Stop-blocks; a census without integers for both predates them.
+  const windowReason = !census ? 'no census'
+    : !Number.isInteger(lead.wakes) || !Number.isInteger(lead.stopBlocks) ? 'census predates wake/Stop-block counts'
+      : censusBuildWindowReason(census, { openedMs, acceptedMs, reason }, lastAcceptedMs);
+  parts.push(windowReason
+    ? `wakes unavailable (${windowReason})`
+    : `wakes ${lead.wakes} (${lead.wakesNoteFlush} note-flush, ${lead.wakesDoneTick} Done-tick)`);
+  parts.push(windowReason ? `Stop-blocks unavailable (${windowReason})` : `Stop-blocks ${lead.stopBlocks}`);
+  if (!leadSlug) parts.push('stall nudges unavailable (no --lead-slug)');
+  else if (ledgerEntries === null) parts.push('stall nudges unavailable (no ledger dir)');
+  else if (!ledgerHasSlug(ledgerEntries, leadSlug)) parts.push(`stall nudges unavailable (slug ${leadSlug} not in ledger)`);
+  else if (openedMs === null || acceptedMs === null) parts.push(`stall nudges unavailable (${(reason || 'no Opened:/accepted window').replace(/:$/, '')})`);
+  else {
+    const nudges = countStallNudges(ledgerEntries, leadSlug, openedMs, acceptedMs);
+    parts.push(`stall nudges ${nudges.count} to ${leadSlug}${nudges.count ? `: ${nudges.ids.join(', ')}` : ''}`);
+  }
+  return parts.join('; ');
 }
 // ── Companion lines (item 5) ─────────────────────────────────────────────────────────────
 function computeNotesToLead(ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }) {
@@ -797,6 +833,9 @@ export function buildFourRead(opts, fsImpl = fs) {
     leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason,
     agentSpans, agentStallResults, isCodexCensus(census) ? 'native API response gap' : null,
   );
+  if (!numberFour.value.startsWith('unavailable')) {
+    numberFour.value = `${numberFour.value}; ${computeCompletenessSuffix(census, ledgerEntries, opts.leadSlug, windowMs, lastAcceptedMs)}`;
+  }
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
   const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason || nativeWindowReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };

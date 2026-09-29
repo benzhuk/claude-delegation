@@ -37,7 +37,15 @@ import { pathToFileURL } from "node:url";
 import { main as collectFromOriginMain, fullRef, refExists, formatTable } from "./collect-from-origin.mjs";
 import { parseRecord, STATUSES } from "./work-record.mjs";
 import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/envelope.mjs";
-import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
+import { mainCheckout, gitRunner, withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
+import { loadProjectConfig } from "./project-config.mjs";
+import { sanitizeOwnerHosts } from "../skills/decisions/scripts/project-config.mjs";
+import { MIRROR_HOSTS } from "../skills/multi/scripts/note-send.mjs";
+
+// F2 (review r1): the one place a `owner_hosts` value is checked against note-send's own host
+// table (never a second table copied here) - an unknown host name falls back to the no-flag path
+// instead of reaching note-send, which would refuse the whole send with exit 1 before any write.
+const MIRROR_HOST_NAMES = new Set(MIRROR_HOSTS.map((h) => h.name));
 
 // K2: the only state tokens that may ever reach a note's --text (collect-from-origin's computeState
 // names plus the no-record row); anything else is counted as "other", never named. Lane 33 F2 adds
@@ -275,7 +283,7 @@ function readOwnerField(repoAbs, row) {
   if (!row || !row.tipSha || !row.recordPath) return null;
   try {
     const text = execFileSync("git", ["show", `${row.tipSha}:${row.recordPath}`], {
-      cwd: repoAbs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      cwd: repoAbs, env: withoutRepoLocatingGitEnv(process.env), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
     });
     return parseRecord(text).fields.owner ?? null;
   } catch {
@@ -318,12 +326,43 @@ function killSwitchPath(home, repoAbs) {
   return path.join(defaultOutDir(home, repoAbs), "no-nudge");
 }
 
-function buildStallNudgeArgv({ from, to, repo, text, topic, by }) {
-  return [
+// Lane 43 (cross-host nudge): `--sender-host <name>` is note-send's own existing flag
+// (skills/multi/scripts/note-send.mjs resolveSenderHost) - passing it here is the whole fix, no
+// new transport. Omitted (undefined/null/"") when the owner has no entry in the lookup, which
+// keeps today's behaviour byte-for-byte for every owner this table does not name.
+function buildStallNudgeArgv({ from, to, repo, text, topic, by, senderHost }) {
+  const argv = [
     "--from", from, "--to", to, "--kind", "ASK", "--no-type",
     "--recipient-repo", repo, "--topic", topic, "--text", text,
     "--needs", "review", "--by", by,
   ];
+  if (senderHost) argv.push("--sender-host", senderHost);
+  return argv;
+}
+
+// F3 (review r1): note-send's own failure JSON on stdout carries `mirrorLedger` (note-send.mjs
+// :1121, :1185) - the last line of stdout is the JSON envelope note-send prints on every exit
+// path, success or refusal alike. Never throws: an unparseable/absent stdout is simply "no signal".
+function mirrorOutcome(result) {
+  const line = String(result?.stdout ?? "").trim().split("\n").pop();
+  try { return JSON.parse(line)?.mirrorLedger ?? null; } catch { return null; }
+}
+
+// F6 (review r1): the timer's `--repo` is a pinned plugin checkout that can sit at an old commit
+// indefinitely (a detached HEAD parked at a release tag) while the live repo's `.agents/project.json`
+// has moved on - reading `owner_hosts` from `origin/main` through the same `gitRunner` the ledger
+// path already uses (`mainCheckout`, above) means a config change never waits on that checkout
+// catching up. Falls back to the working-tree config (today's behaviour) when the ref does not
+// resolve (no `origin/main`, e.g. a fresh clone with no fetch yet) or the blob is missing/unparseable
+// JSON - never a throw, same "a broken table degrades to defaults" promise the loader itself makes.
+function loadOwnerHosts(repoAbs, gitRunnerFn, workingTreeHosts) {
+  try {
+    const raw = gitRunnerFn(["show", "origin/main:.agents/project.json"], repoAbs);
+    const parsed = JSON.parse(raw);
+    return sanitizeOwnerHosts(parsed?.owner_hosts);
+  } catch {
+    return workingTreeHosts;
+  }
 }
 
 /**
@@ -332,7 +371,7 @@ function buildStallNudgeArgv({ from, to, repo, text, topic, by }) {
  * per-row outcomes so a caller (or a test) can see what happened without re-deriving it.
  */
 function sendStallNudges({
-  args, home, env, hostname, repoAbs, rows, attention, now, warn,
+  args, home, env, hostname, repoAbs, rows, attention, now, warn, ownerHosts,
   spawnNoteSend, resolveNoteSendFn,
 }) {
   // F3 (review r1): --quiet means "send nothing this run", same promise it already makes for the
@@ -388,10 +427,28 @@ function sendStallNudges({
     const text = `${a.branch} has had no Log line for ${hours} h in state ${statusWord}. `
       + "Reply with the lane state and a new ETA, or BLOCKED. A Log line on the record resets this.";
     const by = timeParts(new Date(now + 30 * 60_000)).time;
-    const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by });
+    // Lane 43: the owner's own mirror host, from `.agents/project.json`'s `owner_hosts` table
+    // (loaded once by the caller, never a hardcoded map here). An owner with no entry there gets
+    // `undefined` -> `buildStallNudgeArgv` omits the flag -> today's sender-only-host behaviour.
+    const mappedHost = ownerHosts && Object.hasOwn(ownerHosts, owner) ? ownerHosts[owner] : undefined;
+    const senderHost = MIRROR_HOST_NAMES.has(mappedHost) ? mappedHost : undefined;
+    if (mappedHost !== undefined && !senderHost) {
+      warn(`collect-status: owner_hosts maps ${owner} to a host note-send does not know; sending without --sender-host`);
+    }
+    const argv = buildStallNudgeArgv({ from, to: owner, repo: repoAbs, text, topic, by, senderHost });
     const result = spawnNoteSend(execPath, argv);
     if (result && result.status !== 0) {
       warn(`collect-status: stall-nudge send exit ${result.status ?? "unknown"} for ${a.branch}`);
+    }
+    // F3 (review r1): a failed mirror is invisible on `result.status`, which is 3 for the normal
+    // "no registered inbox" ASK path whether or not the ssh mirror to the owner's own host worked.
+    // Surface it as one warn() line so a lost remote copy leaves a trace in last-run.log, without
+    // changing the exit code or retrying (R2: no retry, ever - the local ledger line already exists).
+    if (senderHost) {
+      const mirror = mirrorOutcome(result);
+      if (mirror && mirror.ok === false) {
+        warn(`collect-status: stall-nudge mirror to ${senderHost} failed (${mirror.error ?? "unknown"}) for ${a.branch}; the ASK is only in this host's ledger`);
+      }
     }
     // F6 (review r1): two silent records sharing one branch tip share one topic (one row per
     // record, `collect-from-origin` makes one row per changed record). Without this, both send in
@@ -486,6 +543,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   const collectMain = opts.collectMain ?? collectFromOriginMain;
   const resolveNoteSendFn = opts.resolveNoteSend ?? resolveNoteSend;
   const spawnNoteSendFn = opts.spawnNoteSend ?? defaultSpawnNoteSend;
+  const gitRunnerFn = opts.gitRunner ?? gitRunner;
 
   try {
     const args = parseArgs(argv);
@@ -520,7 +578,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     let mainSha = null;
     if (refExists(repo, mainFull)) {
       try {
-        mainSha = execFileSync("git", ["rev-parse", mainFull], { cwd: repo, encoding: "utf8" }).trim();
+        mainSha = execFileSync("git", ["rev-parse", mainFull], { cwd: repo, env: withoutRepoLocatingGitEnv(process.env), encoding: "utf8" }).trim();
       } catch {
         mainSha = null;
       }
@@ -586,8 +644,18 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     // for waking a lead.
     if (!fetchFailed) {
       try {
+        // Lane 43 (cross-host nudge): the Owner-slug -> mirror-host lookup lives ONLY in
+        // `.agents/project.json`'s `owner_hosts` key, read through the one project-config loader
+        // every script already shares (never a map hardcoded here). A missing/malformed table
+        // resolves to `{}` inside the loader itself, so every owner is simply unmapped - today's
+        // behaviour, no flag - rather than this call ever needing its own fallback.
+        // F6 (review r1): prefer `origin/main`'s copy (the timer's `--repo` checkout can be parked
+        // on an old release for a long time), falling back to this same working-tree read when the
+        // ref or file is missing/unparseable.
+        const workingTreeHosts = loadProjectConfig(repo).config.owner_hosts || {};
+        const ownerHosts = loadOwnerHosts(repo, gitRunnerFn, workingTreeHosts);
         sendStallNudges({
-          args, home, env, hostname, repoAbs: repo, rows, attention, now, warn,
+          args, home, env, hostname, repoAbs: repo, rows, attention, now, warn, ownerHosts,
           spawnNoteSend: spawnNoteSendFn, resolveNoteSendFn,
         });
       } catch (err) {

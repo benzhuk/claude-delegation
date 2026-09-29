@@ -40,6 +40,32 @@ const EXCLUDED_DIRS = new Set(["node_modules", ".claude", ".git"]);
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const SEALED_HOME_PREFIX = "sealed-home-";
 
+// ---------------------------------------------------------------------------
+// Per-run temp root (lane 46, test-temp-hygiene): the CLI path (`main`, never a programmatic
+// `runSealed` caller that passes no `tmpRoot`) mkdtemps ONE directory directly under the real temp
+// dir per invocation, points the sealed child's TMPDIR/TEMP/TMP at it (see `runSealed`'s `tmpRoot`
+// option), and removes it (or trims it down to just the retained sealed home) once the run ends -
+// see `main` below. `sweepStaleHomes` is the backstop for a root a process never got to clean up
+// itself (killed -9, power loss, an older runner before this fix): a root older than 24h whose pid
+// is provably dead is swept the same way a stale `sealed-home-*` already was.
+// ---------------------------------------------------------------------------
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+export const TEST_RUN_ROOT_PREFIX = "delegation-test-run-";
+const TEST_RUN_ROOT_RE = /^delegation-test-run-(\d+)-/;
+
+/** `process.kill(pid, 0)` throws ESRCH exactly when no process with that pid exists. Any OTHER
+ * outcome - it returns normally, or throws something else (EPERM: the pid exists but we can't
+ * signal it) - counts as alive, per the spec: never remove a root whose owning process might still
+ * be running. */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return Boolean(e) && e.code !== "ESRCH";
+  }
+}
+
 /** Mirrors the fail-open `present()` shape used elsewhere for a kill-switch file: a stat that
  * succeeds, or fails with anything other than "doesn't exist", counts as present. */
 function pathPresent(p) {
@@ -59,35 +85,59 @@ function sweepDisabled(homeDir) {
 }
 
 export function sweepStaleHomes({ tmpDir = os.tmpdir(), homeDir = os.homedir(), now = Date.now } = {}) {
-  if (sweepDisabled(homeDir)) return { swept: 0, skipped: true };
+  if (sweepDisabled(homeDir)) return { swept: 0, sweptRoots: 0, skipped: true };
   let swept = 0;
+  let sweptRoots = 0;
   try {
     const cutoff = now() - SIX_HOURS_MS;
+    const rootCutoff = now() - TWENTY_FOUR_HOURS_MS;
     for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith(SEALED_HOME_PREFIX)) continue;
+      if (!entry.isDirectory()) continue;
       const full = path.join(tmpDir, entry.name);
-      let stat;
-      try {
-        stat = fs.statSync(full);
-      } catch {
-        continue; // vanished between readdir and stat - not this run's problem
+
+      if (entry.name.startsWith(SEALED_HOME_PREFIX)) {
+        let stat;
+        try {
+          stat = fs.statSync(full);
+        } catch {
+          continue; // vanished between readdir and stat - not this run's problem
+        }
+        if (stat.mtimeMs >= cutoff) continue; // younger than 6h - another suite may still own it
+        try {
+          fs.rmSync(full, { recursive: true, force: true });
+          swept++;
+        } catch (e) {
+          console.error(`run-tests: sweep could not remove ${full}: ${e.code ?? e.message}`);
+        }
+        continue;
       }
-      if (stat.mtimeMs >= cutoff) continue; // younger than 6h - another suite may still own it
-      try {
-        fs.rmSync(full, { recursive: true, force: true });
-        swept++;
-      } catch (e) {
-        console.error(`run-tests: sweep could not remove ${full}: ${e.code ?? e.message}`);
+
+      const rootMatch = TEST_RUN_ROOT_RE.exec(entry.name);
+      if (rootMatch) {
+        let stat;
+        try {
+          stat = fs.statSync(full);
+        } catch {
+          continue; // vanished between readdir and stat - not this run's problem
+        }
+        if (stat.mtimeMs >= rootCutoff) continue; // younger than 24h - its own run may still be live
+        if (isPidAlive(Number(rootMatch[1]))) continue; // owning process may still be running
+        try {
+          fs.rmSync(full, { recursive: true, force: true });
+          sweptRoots++;
+        } catch (e) {
+          console.error(`run-tests: sweep could not remove ${full}: ${e.code ?? e.message}`);
+        }
       }
     }
   } catch (e) {
     // Fail open: a sweep error never blocks the suite, it's just reported.
     console.error(`run-tests: sweep error: ${e.message} - continuing without a full sweep`);
-    console.log(`swept ${swept} stale sealed homes`);
-    return { swept, skipped: false, error: e.message };
+    console.log(`swept ${swept} stale sealed homes, ${sweptRoots} stale test-run roots`);
+    return { swept, sweptRoots, skipped: false, error: e.message };
   }
-  console.log(`swept ${swept} stale sealed homes`);
-  return { swept, skipped: false };
+  console.log(`swept ${swept} stale sealed homes, ${sweptRoots} stale test-run roots`);
+  return { swept, sweptRoots, skipped: false };
 }
 
 // Exported (round 2, N2 review MAJOR 1) so `skills/multi/scripts/hooks.test.mjs`'s N2 test can
@@ -150,8 +200,25 @@ function runChild(args, options) {
   });
 }
 
-export async function runSealed({ files, cwd = REPO_ROOT } = {}) {
-  const { home, env, cleanup, keep } = makeTempHome({ gitIdentity: true });
+export async function runSealed({ files, cwd = REPO_ROOT, tmpRoot, onHome } = {}) {
+  // P1 (lane 46, test-temp-hygiene): with a `tmpRoot` (the CLI path's own per-run root, directly
+  // under the real temp dir - see `main`), the sealed home is created INSIDE it, and the child's
+  // own TMPDIR/TEMP/TMP point at it too, so a test file's OWN mkdtemp (which reads those, not this
+  // process's os.tmpdir()) lands inside the root as well, never directly under the real temp dir.
+  // Without a `tmpRoot`, every programmatic caller (this runner's own tests included) gets exactly
+  // today's behaviour - `makeTempHome`'s own `tmpDir` default is the real `os.tmpdir()`.
+  const { home, env, cleanup, keep } = makeTempHome(
+    tmpRoot ? { gitIdentity: true, tmpDir: tmpRoot } : { gitIdentity: true },
+  );
+  if (tmpRoot) {
+    env.TMPDIR = tmpRoot;
+    env.TEMP = tmpRoot;
+    env.TMP = tmpRoot;
+  }
+  // Told to the CLI path before anything can fail, so `main` always knows which entry of `tmpRoot`
+  // to keep on a nonzero exit - never inferred later by re-scanning the root for a `sealed-home-`
+  // name, which a leaking test's OWN mkdtemp could coincidentally shadow.
+  if (onHome) onHome(home);
   // Round 2 (N2 review MAJOR 2): a caller may itself be running inside `node --test` (this
   // runner is importable, not just a CLI - see test-home.test.mjs's wiring test). Node's own
   // test runner marks that process, `childEnv()` spreads `process.env`, and without this strip
@@ -207,6 +274,91 @@ export async function runSealed({ files, cwd = REPO_ROOT } = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The leak check (P4, lane 46; ruling R1 on round-1 review): every prefix a test file in this repo
+// is known to mkdtemp with, under the real temp dir, MINUS `sealed-home` (concurrent sealed runs
+// create those legitimately and the 6h sweep already bounds them), PLUS `dispatch` and the families
+// M2 (review-r1.md) measured missing: `bearings-state`, `codex-child-hook`, `codex-goal-hook-project`,
+// `other-home`, `pconfig-owner-hosts`, `plugin-staleness`, `record-closed`, `wiring-home`,
+// `work-census`, `census`, `build-census`, `knowledge-count`, `child-env`, `run-tests`, `cstatus`,
+// `janitor`, `collect`, `transport`. A name matching this directly under the real `os.tmpdir()`
+// after a run that did not exist there before it is a leak: P1's per-run root should have contained
+// every test's own mkdtemp call, so nothing new here means the seal held.
+//
+// R1: this check is a READER, not a gate - it always prints exactly one line and never changes the
+// run's exit code (see `main` below). On a shared host, two things make a forced nonzero exit here
+// too flaky to gate a merge on (m4): a concurrent legacy run of an older, pre-lane-46 runner racing
+// this one, and - the more common case in practice - another session running `node --test <file>`
+// directly against a test file that mkdtemps under the real temp dir without going through this
+// runner's seal at all (four-read.test.mjs is one such file; it never cleans up its own ~50
+// mkdtemp calls). Either can plant a name here that this run did not create. The unit tests in
+// run-tests.test.mjs (LEAK_PREFIX_RE's own matches, `describeLeak`, the CLI's line) are the gate for
+// the mechanism itself; the printed line on a real run is a signal to go look, not a pass/fail.
+// ---------------------------------------------------------------------------
+export const LEAK_PREFIX_RE =
+  /^(note-send|note-flush|hook-core|multi-hook|inbox|note-inbox|pane-binding|multi-inbox-home|session-name|resume-notice|resume-size|delete-guard|continuation-native|note-cursor-fallback|bugfix-fields|build-loop-check|goal|state-hold|decisions-handback|decisions-render|work-record|backlog|reminder|mirror|knowledge-log|knowledge-counts|codex-census|four-read|goal-card|accept-prep|discrim|dispatch|decisions|transport-identity|bearings-state|codex-child-hook|codex-goal-hook-project|other-home|pconfig-owner-hosts|plugin-staleness|record-closed|wiring-home|work-census|census|build-census|knowledge-count|child-env|run-tests|cstatus|janitor|collect|transport)-/;
+
+/** The set of names directly under `tmpDir` that match `LEAK_PREFIX_RE` - `main` calls this once
+ * before the suite and once after; a name in the "after" set that isn't in the "before" set is a
+ * leak. Never throws: an unreadable temp dir yields an empty snapshot rather than aborting the run
+ * over a check that exists to report leaks, not to become one itself. Matches by NAME (m3), not
+ * just directories, so a straggler that writes a file straight into the real temp dir is seen too. */
+export function snapshotLeakNames(tmpDir = os.tmpdir()) {
+  const names = new Set();
+  try {
+    for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
+      if (LEAK_PREFIX_RE.test(entry.name)) names.add(entry.name);
+    }
+  } catch {
+    // best-effort only; see the doc comment above
+  }
+  return names;
+}
+
+/** Pure (no I/O) so a test can drive it with fabricated before/after sets, never the real temp
+ * dir. Exactly one line, per P4: `leak check: 0 new temp entries` when clean, otherwise the count
+ * plus up to 5 names. */
+export function describeLeak(before, after) {
+  const leaked = [...after].filter((name) => !before.has(name));
+  if (leaked.length === 0) return { leaked: false, line: "leak check: 0 new temp entries" };
+  const shown = leaked.slice(0, 5).join(", ");
+  return { leaked: true, line: `leak check: ${leaked.length} new temp entries: ${shown}` };
+}
+
+/** Removes every entry of `root` except `keepPath` (P2: what a nonzero-exit run leaves behind).
+ * `keepPath` absent (or already gone) removes everything. Errors are reported on stderr and never
+ * thrown - removal never changes the run's exit code. */
+function trimRootExceptHome(root, keepPath) {
+  let entries;
+  try {
+    entries = fs.readdirSync(root);
+  } catch (e) {
+    console.error(`run-tests: could not read ${root}: ${e.code ?? e.message}`);
+    return;
+  }
+  // `keepPath` is `makeTempHome`'s REALPATH'd home, while `root` is the unresolved mkdtemp path;
+  // under a symlinked temp dir (macOS /var -> /private/var, or any TMPDIR reached through a
+  // symlink) the two spellings differ, so entries are compared under the realpath of `root`, never
+  // its raw one (M1, review-r1.md) - otherwise the retained home itself gets removed here, and the
+  // path `runSealed` printed for inspection no longer exists.
+  let realRoot = root;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    // readdir above just succeeded, so this is near-impossible; fall back to the raw spelling
+  }
+  const keep = keepPath ? path.resolve(keepPath) : null;
+  for (const name of entries) {
+    const full = path.join(realRoot, name);
+    if (keep && full === keep) continue;
+    try {
+      fs.rmSync(full, { recursive: true, force: true });
+    } catch (e) {
+      console.error(`run-tests: could not remove ${full}: ${e.code ?? e.message}`);
+    }
+  }
+}
+
 /** `--no-sweep` is the only supported flag (for the sweep's own tests - see run-tests.test.mjs);
  * anything else starting with `-` is still rejected exactly as before. */
 function parseArgv(argv) {
@@ -237,7 +389,89 @@ export async function main(argv = process.argv.slice(2), { sweep = sweepStaleHom
   // Resolved against the REAL invocation directory here, not inside runSealed (whose own
   // `cwd` default is REPO_ROOT, correct for a programmatic/test caller but wrong for argv).
   const files = parsed.files.map((f) => path.resolve(process.cwd(), f));
-  return await runSealed({ files });
+
+  // R2 (m5, review-r1.md): if this CLI's OWN os.tmpdir() is itself another run's per-run root
+  // (this process is running nested inside a sealed suite that never overrode its child's TMPDIR
+  // for this inner spawn), a before/after snapshot here would read that outer run's sibling test
+  // files' own concurrent mkdtemp traffic as this run's "leak" - a false red from shared-root
+  // concurrency, not an unswept directory (this is exactly what the 2455f1d straggler fix worked
+  // around at one call site; this check covers every other nested case). Read BEFORE creating this
+  // run's own root below, from the same real os.tmpdir() the root itself is about to be created in.
+  const nestedRun = TEST_RUN_ROOT_RE.test(path.basename(os.tmpdir()));
+
+  // P1: one disposable root per CLI run, directly under the REAL os.tmpdir() - never a
+  // programmatic `runSealed({})` caller's concern (those pass no `tmpRoot` and keep today's
+  // byte-for-byte behaviour; see run-tests.test.mjs).
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), `${TEST_RUN_ROOT_PREFIX}${process.pid}-`));
+
+  // P2: a synchronous, non-competing signal guard for the root. Installed here, BEFORE
+  // `runSealed` (and therefore before `makeTempHome`'s own registry handlers and `runChild`'s
+  // `forwardSignal` are ever registered), it fires FIRST on a signal: remove the root, remove our
+  // own listener, and re-raise only when we're the LAST listener left for that signal - the exact
+  // "clean up, drop your own listener, re-raise only if nobody else remains" shape test-home.mjs's
+  // registry already uses, so this never races or duplicates `runChild`'s own forwarding; it just
+  // runs earlier in the same chain.
+  let rootGone = false;
+  function removeRootBestEffort() {
+    if (rootGone) return;
+    rootGone = true;
+    try {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    } catch (e) {
+      console.error(`run-tests: could not remove ${tmpRoot}: ${e.code ?? e.message}`);
+    }
+  }
+  const rootSignals = ["SIGINT", "SIGTERM"];
+  if (process.platform !== "win32") rootSignals.push("SIGHUP");
+  function onRootSignal(signal) {
+    removeRootBestEffort();
+    process.removeListener(signal, onRootSignal);
+    if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+  }
+  for (const signal of rootSignals) process.on(signal, onRootSignal);
+
+  const before = nestedRun ? null : snapshotLeakNames();
+  let home;
+  let code;
+  try {
+    code = await runSealed({
+      files,
+      tmpRoot,
+      onHome: (h) => {
+        home = h;
+      },
+    });
+  } catch (e) {
+    console.error(`run-tests: runSealed threw: ${e.message}`);
+    code = 1;
+  } finally {
+    for (const signal of rootSignals) process.removeListener(signal, onRootSignal);
+  }
+  const after = nestedRun ? null : snapshotLeakNames();
+
+  // P2 continued: a signal already removed the whole root above (rootGone) - nothing left to do.
+  // Otherwise, exit 0 removes the whole root; a nonzero exit trims it down to just the retained
+  // sealed home `runSealed` printed and kept - unless `runSealed` threw before it ever called
+  // `onHome` (m2, review-r1.md: e.g. `makeTempHome` itself hit ENOSPC), in which case there is no
+  // home to retain and the whole root is removed instead of being left behind, empty, until the
+  // 24h sweep.
+  if (!rootGone) {
+    if (code === 0) removeRootBestEffort();
+    else if (home) trimRootExceptHome(tmpRoot, home);
+    else removeRootBestEffort(); // no home was ever made, so there is nothing to retain
+  }
+
+  // P4, as amended by ruling R1: always exactly one line, printed after the trim above so a leak
+  // the trim itself could not have caused (it only ever removes, never creates) is still measured
+  // against the real state. R2 (m5): a nested run - this CLI's own os.tmpdir() is itself another
+  // run's per-run root - never snapshots at all; snapshotting here would read that outer run's
+  // sibling test files' own concurrent mkdtemp traffic as a false leak. R1: the check is a reader,
+  // not a gate - it NEVER changes `code`, on a leak or otherwise; a suite that is already failing
+  // keeps its own code, and a suite that passed keeps 0 even when the check reads nonzero. See the
+  // doc comment above LEAK_PREFIX_RE for why a forced exit here was too flaky on a shared host.
+  console.log(nestedRun ? "leak check: nested run, not checked" : describeLeak(before, after).line);
+
+  return code;
 }
 
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] ?? "")) {

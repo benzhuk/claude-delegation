@@ -73,12 +73,12 @@ function writeJsonl(filePath, objs) {
 test('parseArgs: --lead is required; --tasks may be omitted entirely (the default subagents glob can stand alone)', () => {
   assert.throws(() => parseArgs([]), /--lead/);
   const opts = parseArgs(['--lead', 'x.jsonl']);
-  assert.deepEqual(opts, { lead: 'x.jsonl', tasksDirs: [], marker: null, from: null, to: null, out: null, json: null, roleMap: null });
+  assert.deepEqual(opts, { lead: 'x.jsonl', tasksDirs: [], marker: null, from: null, to: null, out: null, json: null, roleMap: null, ledgerDir: null, leadSlug: null });
 });
 
 test('parseArgs: --tasks may repeat, accumulating into tasksDirs in CLI order', () => {
   const opts = parseArgs(['--lead', 'a.jsonl', '--tasks', 'dir1', '--tasks', 'dir2', '--marker', 'text here', '--out', 'out.md', '--json', 'out.json']);
-  assert.deepEqual(opts, { lead: 'a.jsonl', tasksDirs: ['dir1', 'dir2'], marker: 'text here', from: null, to: null, out: 'out.md', json: 'out.json', roleMap: null });
+  assert.deepEqual(opts, { lead: 'a.jsonl', tasksDirs: ['dir1', 'dir2'], marker: 'text here', from: null, to: null, out: 'out.md', json: 'out.json', roleMap: null, ledgerDir: null, leadSlug: null });
 });
 
 test('parseArgs: --from and --to are captured', () => {
