@@ -1,9 +1,9 @@
 Work: wr-2026-09-28-fable-wave
 Scope: the spec section of this record (lane 51), from packet docs/notes/skills-fable-lane-51-1.md read at a6efbbe
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build, review, integrate, push build/fable-wave-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; read transcripts and flush.log on ben-desktop read-only over ssh; live proof sends two FYI notes to skills-fable under a scratch notes home only; no write to any live wave.json or notes home, no release, no install
-Next: NO-BUILD for step 2 by the gate; Opus code review of step 1 at 828dc30 and the Windows suite, then accept, merge, publish, close, RESULT
+Next: Sonnet fix round 1 on review-r1 (ceiling, window edges, tests); then the lead re-reads the Fable window at the fix head against the RESULT ceiling, then delta review
 Worktree: build/fable-wave-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-51
 Opened: 2026-09-29T00:58:00.000Z
@@ -14,6 +14,7 @@ Base: a6efbbe
 Log: 2026-09-29T00:59:03.000Z owned skills-n picked up skills-fable-lane-51-1 (ACK skills-n-lane-51-1); spec written into this record; Opus red-team of the spec before any builder
 Log: 2026-09-29T01:08:24.000Z owned skills-n Opus spec red-team by ac5a812f7f22dc663 NEEDS_FIXES da0e0e1 (3 blockers: most wakes are note-send direct posts that never reach the drain, a held entry would count as an attempt and dead-letter, a dead timer would strand held notes; 6 major incl. the gate measures wake share not saving); all adopted, gate is the coalescable upper bound under 10 percent, step 2 if built is a trailing debounce; Sonnet step 1 builder spawned
 Log: 2026-09-29T01:27:41.000Z delivered skills-n Sonnet step 1 builder DONE 828dc30 (wake split and W1b in build-census, red at a6efbbe, 2907 pass 0 fail); the lead read 9c61c35a on ben-desktop from 19:00Z to 01:26:54Z at 828dc30: wake-opened 22 turns carry 39.3 percent of claude-fable-5-1 (19.2M of 48.9M), coalescable RESULT turns at a 10-minute hold 0, so the upper bound is 0 percent, under the 10 percent gate: NO-BUILD for step 2; lead cross-check lists 21 wakes, 7 RESULT (nearest pair 13.8 min apart), 11 ASK (10 from skills-a), 3 BLOCKED; Opus code review and Windows suite started
+Log: 2026-09-29T01:38:23.000Z rejected skills-n Opus code review by ac577c0fc9f9dec6a NEEDS_FIXES 828dc30 (MAJOR: the W1b 0 is not an upper bound for the ruled design, a RESULT ceiling is the true gate; 4 MINOR, 1 NIT); Windows suite at 828dc30 2897 pass 1 fail, the fail a hooks/codex-unsupported load flake outside territory, 8 of 8 twice alone; Sonnet fix round 1 builder spawned
 
 ## Spec (lead, from the packet)
 
