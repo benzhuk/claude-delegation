@@ -1,12 +1,12 @@
 Work: wr-2026-09-28-codex-followups
 Scope: specification below, skills-fable-lane-49-1 at base9c816fdd8ef906388c74d69263bb6b9935dc9221
 Owner: skills-a
-Status: reviewed
+Status: accepted
 Authority: lane49 dispatch under standing build/merge grant; normal guarded publication at close. No release/install, transport, render, janitor or Claude-side hook edits. Shared-hook changes require a peer territory ruling before implementation. Root alone writes the work record.
-Artifact: 156ecdb3c42f8b76461536715b52d96e3f3e3084
+Artifact: d6e411764846d8a02b82e3c0671f13ccd19a5951
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-followups-49
-Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md, docs/specs/codex-followups-49/L49-builder-report.md, docs/specs/codex-followups-49/L49-test-report.md, docs/specs/codex-followups-49/L49-main-integration.md, docs/specs/codex-followups-49/L49-host-gates-r1.md, docs/specs/codex-followups-49/L49-opus-r1.md
-Next: apply the two ready one-line Opus test fixes, confirm scoped gate and same-reviewer delta on the final candidate, refresh changed-candidate host receipts, then census/accept/merge/publish/close.
+Evidence: docs/specs/codex-followups-49/L49-spec-evidence.md, docs/specs/codex-followups-49/L49-builder-report.md, docs/specs/codex-followups-49/L49-test-report.md, docs/specs/codex-followups-49/L49-main-integration.md, docs/specs/codex-followups-49/L49-host-gates-r1.md, docs/specs/codex-followups-49/L49-opus-r1.md, docs/specs/codex-followups-49/L49-host-gates-r2.md, docs/specs/codex-followups-49/L49-opus-r2.md, docs/work/evidence/wr-2026-09-28-codex-followups.census.md, docs/work/evidence/wr-2026-09-28-codex-followups.spec-census-observed.md, docs/work/evidence/wr-2026-09-28-codex-followups.four-read-evidence.md, docs/work/evidence/wr-2026-09-28-codex-followups.work-census-evidence.md
+Next: record final census, accept the approved artifact, merge with history bullet, gate the exact merge, publish normally, and close.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-28T23:59:00Z
@@ -19,6 +19,13 @@ Log: 2026-09-29T00:23:44Z delivered skills-a GPT-5.6-Terra integrator merged cur
 Log: 2026-09-29T00:28:00Z reviewed skills-a Claude Opus 5.5 reviewer lane49-review APPROVE 3def5cf193ae8e175c88153446831a3410c5b47f via skills-fable-lane-49-5, independently reran mutants/fake events and verified real two-session proof plus unchanged Claude hooks. Two ready one-line parameter fixes are being applied before acceptance; same reviewer delta will pin final artifact.
 Log: 2026-09-29T00:29:52Z delivered skills-a GPT-5.6-Terra integrator reported exact3def5cf Windows2704pass0fail14skip and Netcup2713pass0fail5skip, native exit0. Initial Netcup exit126 was an unexecutable scratch runner, no suite; fixed execute bit/syntax before the one actual suite. Windows leak observer reported28 entries, Netcup0; observations retained, not treated as test failures or erased.
 Log: 2026-09-29T00:32:00Z delivered skills-a GPT-5.6-Terra test author applied the two exact Opus parameter fixes at156ecdb3c42f8b76461536715b52d96e3f3e3084 and reported scoped25/25 native exit0. No production change since the approved candidate. Same Opus delta and refreshed final-candidate hosts precede acceptance.
+Log: 2026-09-29T00:36:00Z reviewed skills-a Claude Opus 5.5 reviewer lane49-review APPROVE d6e411764846d8a02b82e3c0671f13ccd19a5951 via skills-fable-lane-49-7. Exact two-line MINOR patch confirmed, scoped25/25 green, no production delta. Final candidate Windows2704pass0fail14skip and Netcup2713pass0fail5skip, both native exit0.
+Census: skipped — unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon; exact spec slice contains no assistant messages
+Four numbers: Top-tier tokens per build: unavailable (Codex census coverage is unavailable: unverified or out-of-contract discovery candidate; effective census window is outside default discovery horizon)
+Four numbers: Hours ask to accepted: 0.7h; largest native API response gap (heuristic) 3.5min at 2026-09-29T00:37:05.385Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 1 unanswered ASK(s) to skills-a: skills-fable-lane-49-1; wakes 2 (2 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
+Log: 2026-09-29T00:42:02.000Z accepted skills-a artifact d6e411764846d8a02b82e3c0671f13ccd19a5951
 
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-followups-49
 
@@ -26,7 +33,7 @@ Measure: work lost or stalled, by closing the three known Codex parity review ga
 
 Predicts: the final tests reject a5-second hung route and a fake unpaired manifest event; backlog nudge suppression has an explicit tested scope rather than an unexamined cross-host assumption.
 
-Observed: scoped25/25 tests passed. The5000ms child and outer-route mutants each failed the intended elapsed assertion; fake events in on-disk copies of each manifest failed actual parity validation; a dropped Codex session id failed its exact-sentinel assertion. The alleged cross-session backlog timer is absent for distinct supplied ids: deterministic shared-home/project proof confirms each session gets its nudge and a repeated id is suppressed. Missing ids share unknown as documented. Opus review, host suites and final efficacy measurement remain pending. skills-fable-lane-49-2 corrected the erroneous00:03Z Spec-from to2026-09-28T23:59:00Z; Opened retains00:00Z dispatch.
+Observed: scoped25/25 tests passed. The5000ms child and outer-route mutants each failed the intended elapsed assertion; fake events in on-disk copies of each manifest failed actual parity validation; a dropped Codex session id failed its exact-sentinel assertion. The alleged cross-session backlog timer is absent for distinct supplied ids: deterministic shared-home/project proof confirms each session gets its nudge and a repeated id is suppressed. Missing ids share unknown as documented. Claude Opus 5.5 approved final d6e4117 and both exact-candidate host suites passed. Acceptance census is PARTIAL: unverified or out-of-contract discovery candidate and effective window outside the default discovery horizon. The exact spec window has no assistant messages, so its failed producer output is preserved without substitute values. Four-read measures0.7h ask to acceptance. Top-tier tokens and definitive stall classification are unavailable; current0 rework commits and0 reaccepts are an immediate snapshot, not a completed seven-day observation. No full four-measure improvement claim is made. skills-fable-lane-49-2 corrected the erroneous00:03Z Spec-from to2026-09-28T23:59:00Z; Opened retains00:00Z dispatch.
 
 ## Pinned specification
 
