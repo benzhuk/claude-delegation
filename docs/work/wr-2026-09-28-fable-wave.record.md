@@ -1,11 +1,11 @@
 Work: wr-2026-09-28-fable-wave
 Scope: the spec section of this record (lane 51), from packet docs/notes/skills-fable-lane-51-1.md read at a6efbbe
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/fable-wave-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; read transcripts and flush.log on ben-desktop read-only over ssh; live proof sends two FYI notes to skills-fable under a scratch notes home only; no write to any live wave.json or notes home, no release, no install
 Next: accept pinned at e7f5f25, merge, publish, close, RESULT (NO-BUILD)
 Artifact: e7f5f25c3e6f7b7351476358b311cbfb2d7d5d5b
-Evidence: docs/work/evidence/wr-2026-09-28-fable-wave-review.md, docs/work/evidence/wr-2026-09-28-fable-wave-review-r1.md, docs/work/evidence/wr-2026-09-28-fable-wave-review-r2.md, docs/work/evidence/wr-2026-09-28-fable-wave-redteam.md, docs/work/evidence/wr-2026-09-28-fable-wave-suites.md, docs/reports/fable-wave-51/gap-read.md
+Evidence: docs/work/evidence/wr-2026-09-28-fable-wave-review.md, docs/work/evidence/wr-2026-09-28-fable-wave-review-r1.md, docs/work/evidence/wr-2026-09-28-fable-wave-review-r2.md, docs/work/evidence/wr-2026-09-28-fable-wave-redteam.md, docs/work/evidence/wr-2026-09-28-fable-wave-suites.md
 Worktree: build/fable-wave-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-51
 Opened: 2026-09-29T00:58:00.000Z
@@ -69,6 +69,8 @@ Four numbers: Hours ask to accepted: 1.1h; largest gap 17.8min at 2026-09-29T01:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 1 unanswered ASK(s) to skills-n: skills-fable-lane-51-1; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-29T02:01:32.000Z accepted skills-n artifact e7f5f25c3e6f7b7351476358b311cbfb2d7d5d5b
+Log: 2026-09-29T02:02:31.000Z merged skills-n merged into main at a6a3f39 under the standing merge grant, merge suite 2920 pass 0 fail
+Log: 2026-09-29T02:02:49.000Z closed skills-n merge a6a3f39eee278c9a2d3d2bf9f7d1deaa37b8dfde
 
 Observed: build-census now splits a Claude lead window into wake-opened, Stop-block and other turns, and prints a RESULT ceiling beside the W1b coalescable count. On the Fable lead 9c61c35a, 2026-09-28T19:00:00Z to 2026-09-29T01:26:54Z, read on ben-desktop at e7f5f25: wake-opened 22 turns carry 39.3 percent of claude-fable-5-1 (19196120 of 48886987), coalescable 0 at a 10 minute hold, and the RESULT ceiling is 8 turns, 11172487, 22.9 percent. The ceiling is over the 10 percent gate, so the pre-registered gap rule decided: 0 of 8 RESULT turns saved, 0.0 percent, NO-BUILD for step 2. A 30 minute hold would save 4 turns, 11.2 percent, but that sits at the GOALS 30 minute unread limit. The wakes are mostly ASKs (11 of 21, 10 from skills-a), so holding RESULTs is not the lever.
 
