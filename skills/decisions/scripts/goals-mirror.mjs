@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TEMPLATE_PATH = path.join(SCRIPT_DIR, '..', 'templates', 'goals-page.md');
@@ -241,7 +242,7 @@ export function renderPage({ repo, sha, readFile = defaultReadFile, templatePath
 }
 
 function defaultGit(repo, args) {
-  return execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  return execFileSync('git', args, { cwd: repo, env: withoutRepoLocatingGitEnv(process.env), encoding: 'utf8' });
 }
 
 /** `git log -1 --format=%h origin/main -- <sources>` in `--repo` — the last commit that changed either. */

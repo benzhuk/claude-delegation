@@ -11,6 +11,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 import {
   main,
@@ -26,7 +27,7 @@ import {
 } from "./collect-from-origin.mjs";
 
 function git(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" });
+  return execFileSync("git", args, { cwd, encoding: "utf8", env: childEnv(os.homedir()) });
 }
 
 const tracked = [];
@@ -512,6 +513,35 @@ test("refExists: true for a real ref, false for an absent one", () => {
   const root = initRepoWithOrigin();
   assert.equal(refExists(root, "refs/remotes/origin/main"), true);
   assert.equal(refExists(root, "refs/remotes/origin/does-not-exist"), false);
+});
+
+// Review r1, F3, class (a): every direct git call in this file must ignore an inherited
+// GIT_DIR, not just find its own repo's refs by luck. Repo A has the ref under test; repo B
+// (a second, unrelated repo) does not. With the PARENT PROCESS environment's own GIT_DIR
+// pointed at B's .git, refExists(A, ...) must still answer about A, never about B. On base
+// d6f5c9d refExists's git() call passes no env (inherits GIT_DIR unchanged) and answers as
+// if run inside B, where the ref is absent - red. At the fix, withoutRepoLocatingGitEnv
+// strips it - green.
+test("refExists ignores an inherited GIT_DIR: it answers for the repo it was told, never the poisoned one", () => {
+  const repoA = mkTmp("collect-gitdir-a-");
+  git(["init", "-q", "-b", "main"], repoA);
+  fs.writeFileSync(path.join(repoA, "README.md"), "a\n");
+  commitAll(repoA, "init a");
+  git(["branch", "-q", "only-in-a"], repoA);
+
+  const repoB = mkTmp("collect-gitdir-b-");
+  git(["init", "-q", "-b", "main"], repoB);
+  fs.writeFileSync(path.join(repoB, "README.md"), "b\n");
+  commitAll(repoB, "init b");
+
+  const prevGitDir = process.env.GIT_DIR;
+  process.env.GIT_DIR = path.join(repoB, ".git");
+  try {
+    assert.equal(refExists(repoA, "refs/heads/only-in-a"), true);
+  } finally {
+    if (prevGitDir === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = prevGitDir;
+  }
 });
 
 test("listOriginBranches: skips names in the skip set, strips the origin/ prefix", () => {

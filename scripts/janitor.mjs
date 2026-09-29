@@ -115,6 +115,7 @@ import os from "node:os";
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 import { checkWiring } from "./wiring-check.mjs";
 import { listRecords } from "./work-record.mjs";
+import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
 
 const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
@@ -162,7 +163,7 @@ function headRef(name) {
 // ---------- git wrappers (each catches its own failure; callers decide safe/blind) ----------
 
 function git(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("git", args, { cwd, env: withoutRepoLocatingGitEnv(process.env), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
 export function gitToplevel(cwd) {
@@ -197,7 +198,7 @@ export function fetchOrigin(root) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
+      env: { ...withoutRepoLocatingGitEnv(process.env), GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
     });
     return { ok: true, error: null };
   } catch (err) {

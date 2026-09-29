@@ -37,7 +37,7 @@ import { pathToFileURL } from "node:url";
 import { main as collectFromOriginMain, fullRef, refExists, formatTable } from "./collect-from-origin.mjs";
 import { parseRecord, STATUSES } from "./work-record.mjs";
 import { assertFieldSafe, SLUG_RE, timeParts } from "../skills/multi/scripts/envelope.mjs";
-import { mainCheckout, gitRunner } from "../skills/multi/scripts/transport.mjs";
+import { mainCheckout, gitRunner, withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 import { sanitizeOwnerHosts } from "../skills/decisions/scripts/project-config.mjs";
 import { MIRROR_HOSTS } from "../skills/multi/scripts/note-send.mjs";
@@ -283,7 +283,7 @@ function readOwnerField(repoAbs, row) {
   if (!row || !row.tipSha || !row.recordPath) return null;
   try {
     const text = execFileSync("git", ["show", `${row.tipSha}:${row.recordPath}`], {
-      cwd: repoAbs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      cwd: repoAbs, env: withoutRepoLocatingGitEnv(process.env), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
     });
     return parseRecord(text).fields.owner ?? null;
   } catch {
@@ -578,7 +578,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     let mainSha = null;
     if (refExists(repo, mainFull)) {
       try {
-        mainSha = execFileSync("git", ["rev-parse", mainFull], { cwd: repo, encoding: "utf8" }).trim();
+        mainSha = execFileSync("git", ["rev-parse", mainFull], { cwd: repo, env: withoutRepoLocatingGitEnv(process.env), encoding: "utf8" }).trim();
       } catch {
         mainSha = null;
       }

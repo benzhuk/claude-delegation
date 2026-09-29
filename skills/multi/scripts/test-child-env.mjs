@@ -16,6 +16,7 @@
 // So: one helper, every spawn site through it, and `no test file inherits the runner's environment` in
 // `hooks.test.mjs` fails if a new site spreads `process.env` on its own.
 import os from 'node:os';
+import { withoutRepoLocatingGitEnv } from './transport.mjs';
 
 /** Blanked in every child, whatever else the caller passes. */
 export const SEALED = Object.freeze({
@@ -27,12 +28,16 @@ export const SEALED = Object.freeze({
  * The environment for a child process: the runner's, with the home pointed at a fixture and this
  * session's inbox credential removed.
  *
+ * GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR/GIT_INDEX_FILE (lane 47, P3/FU4) are stripped too, AFTER the
+ * spread: an agent or git hook running the suite with one of these exported in the parent process
+ * environment would otherwise leak straight through and point a fixture git call at the real repo.
+ *
  * @param {string} home     fixture HOME; also USERPROFILE, because `os.homedir()` reads that on Windows
  * @param {object} over     anything the individual test needs on top
  */
 export function childEnv(home, over = {}) {
   return {
-    ...process.env,
+    ...withoutRepoLocatingGitEnv(process.env),
     HOME: home,
     USERPROFILE: home,
     ...SEALED,

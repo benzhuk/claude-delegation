@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { gitRunner, mainCheckout, toPosix } from './transport.mjs';
+import { gitRunner, mainCheckout, toPosix, withoutRepoLocatingGitEnv } from './transport.mjs';
 // N2 (hooks.test.mjs): every child environment in this suite is built through childEnv(), never by
 // spreading process.env in a .test.mjs file directly — that is the one thing that leaked a live
 // session's messaging token into a fixture on 2026-09-17. scratchHome gives childEnv a fixture home
@@ -102,4 +102,49 @@ test('gitRunner resolves identity from cwd, not an inherited GIT_COMMON_DIR', ()
     if (had) process.env.GIT_COMMON_DIR = prev;
     else delete process.env.GIT_COMMON_DIR;
   }
+});
+
+// Lane 47, P1: withoutRepoLocatingGitEnv is the exported helper every direct git call site wraps
+// its env with. gitRunner itself now calls it (covered above); this exercises the export directly.
+test('withoutRepoLocatingGitEnv strips the four names and never mutates its argument', () => {
+  const input = {
+    GIT_DIR: '/somewhere/.git',
+    GIT_WORK_TREE: '/somewhere',
+    GIT_COMMON_DIR: '/somewhere/.git',
+    GIT_INDEX_FILE: '/somewhere/.git/index',
+    PATH: process.env.PATH,
+    OTHER_VAR: 'kept',
+  };
+  const before = { ...input };
+
+  const out = withoutRepoLocatingGitEnv(input);
+
+  assert.deepEqual(input, before); // argument untouched
+  assert.equal(out.GIT_DIR, undefined);
+  assert.equal(out.GIT_WORK_TREE, undefined);
+  assert.equal(out.GIT_COMMON_DIR, undefined);
+  assert.equal(out.GIT_INDEX_FILE, undefined);
+  assert.equal(out.PATH, process.env.PATH);
+  assert.equal(out.OTHER_VAR, 'kept');
+});
+
+// Lane 47, P4/FU5: a bare repo's OWN common dir ends in the four characters `.git`
+// (`/srv/repo.git`), but there is no `/.git` PATH COMPONENT to strip — the old
+// `/\/?\.git\/?$/` matched the bare suffix too and truncated it to `/srv/repo`, a directory
+// that does not exist. Must fail on base d6f5c9d (red) before the fix, pass after it (green).
+test('mainCheckout leaves a bare repo\'s own <name>.git common dir untouched', () => {
+  const bareRunner = (args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') return '/srv/repo.git\n';
+    throw new Error(`unexpected git call: ${args.join(' ')}`);
+  };
+  assert.equal(mainCheckout('/srv/repo.git', bareRunner), '/srv/repo.git');
+});
+
+// A non-bare worktree's common dir DOES have a `/.git` component and must still be stripped.
+test('mainCheckout still strips a real /.git component', () => {
+  const runner = (args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') return '/home/dev/project/.git\n';
+    throw new Error(`unexpected git call: ${args.join(' ')}`);
+  };
+  assert.equal(mainCheckout('/home/dev/project', runner), '/home/dev/project');
 });

@@ -178,6 +178,46 @@ test('L29: packet state distinguishes unchecked, absent, present, and no Details
   assert.match(formatInbox(checked), /packet MISSING: docs\/notes\/astra-gone-1\.md/);
 });
 
+// Lane 47, P7: a `git` that cannot answer for the hook's cwd (a hook cwd genuinely outside any
+// repo, git missing from PATH, or any other error — note-inbox cannot and must not try to tell
+// these apart) is not a real, checked repo. Before the fix, mainCheckout's own "not a repo: write
+// where we were told" fallback (correct for a WRITER) was reused as the READER's repo, so a packet
+// that really lives in a DIFFERENT directory (the actual repo git could not identify from `cwd`)
+// read as MISSING instead of "not checked here". Must fail on base
+// d6f5c9d (red) before the fix, pass after it (green).
+test('L47/P7: a repo git could not identify from cwd is never treated as checked — the packet reads "not checked here", never MISSING', async () => {
+  const home = tmp();
+  const repoRoot = tmp(); // the packet's REAL location — deliberately not `home`/`cwd`
+  mirror(home, TODAY, [
+    line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md'),
+  ]);
+  const packet = path.join(repoRoot, 'docs/notes/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+
+  const throwingGit = () => { throw new Error('git could not answer for this cwd'); };
+  const res = await runNoteInbox(['--me', 'taxonomy'], deps(home, { git: throwingGit, env: {}, cwd: home }));
+  const note = res.notes.find((n) => n.id === 'astra-here-1');
+  assert.equal(note.packetChecked, false);
+  assert.equal(note.packetExists, null);
+  assert.equal(res.problems.length, 0, 'a packet nobody could check for must never be reported as missing');
+  assert.match(formatInbox(res), /packet: docs\/notes\/astra-here-1\.md, not checked here/);
+});
+
+// The straightforward companion: when git CAN answer, the resolved repo is still checked exactly
+// as before (no regression from the P7 hardening on the ordinary, working path).
+test('L47/P7: when git answers, the resolved repo is still checked as before', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md')]);
+  const packet = path.join(home, 'docs/notes/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+  const res = await runNoteInbox(['--me', 'taxonomy'], deps(home));
+  const note = res.notes.find((n) => n.id === 'astra-here-1');
+  assert.equal(note.packetChecked, true);
+  assert.equal(note.packetExists, true);
+});
+
 test('L29: the Codex queue explanation is verbatim directly after the idle bullet', () => {
   const skill = fs.readFileSync(fileURLToPath(new URL('../SKILL.md', import.meta.url)), 'utf8');
   const idle = '- **While you are idle**, `note-flush` posts one line into YOUR INBOX, within about a minute of the note\n'
