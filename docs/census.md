@@ -26,8 +26,9 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   Codex identity mode supplies `--lead-session`. In identity mode the configured
   `--codex-home` canonical `sessions/year/month/day` tree is walked once and the id is
   verified from `session_meta.payload.id`; a filename match is never identity proof. If
-  both options are present they must identify the same logical session. Same-id rollout
-  segments are unioned, exact aliases do not add usage, and conflicting usage for one
+  both options are present they must identify the same logical session. For every Codex
+  run, including legacy `--lead` without `--lead-session`, same-id rollout segments found
+  inside that mode's discovery scope are unioned, exact aliases do not add usage, and conflicting usage for one
   response id is refused. Equal-usage duplicates with conflicting model attribution make
   the model field unsupported; conflicting timestamps make temporal coverage partial; and
   conflicting turn ids make the response timeline unsupported. Exact token observations

@@ -47,6 +47,10 @@ A subsequent contract pass closed four further false-completeness paths: same-id
 
 The final narrow source correction preserves invalid-timestamp evidence even when the affected response cannot enter the bounded timeline, so `responseTimelineComplete` remains false. The initial secrecy failure was an EOL false positive: a local edit had left CRLF bytes, so the unchanged test could not find its LF-delimited `fsImpl` boundary and scanned beyond the intended slice. Renaming the native `fs` import made the regex pass but weakened the guard and was rejected. The original `fs` import/defaults/factory and comments are restored, and `scripts/build-census.mjs` is stored with LF bytes as required by `.gitattributes` (`* text=auto eol=lf`). The unchanged secrecy test now checks the intended slice and passes.
 
+R1 fixes route every verified child read/validation failure into temporal PARTIAL, treat a relevant logical child with no native usage rows as unavailable rather than zero, and select the terminal task witness chronologically across segments. Explicit identity mismatch errors now name expected and found ids. Segment union is documented for both known-id and legacy Codex discovery. Multi-segment behavior remains synthetically verified only on this machine; no real resumed lead segment was available, and timestamp conflicts across replayed segments deliberately make temporal coverage PARTIAL.
+
+R1 narrow verification: `node --check scripts/build-census.mjs` exited 0; `node --test --test-name-pattern="Lane55 R1" scripts/build-census.codex.contract.test.mjs` exited 0 with 4 passed and 0 failed; `git diff --check` exited 0. The independent T2 lane owns the integrated focused gate.
+
 Cause: the prior implementation bounded Codex discovery by two filename dates and used one blanket coverage flag for discovery, temporal closure and optional token fields.
 
 Discriminating check: a verified `--lead-session` finds an old resumed child through the canonical tree and returns temporal COUNTED while a missing required token field remains explicitly UNSUPPORTED.
