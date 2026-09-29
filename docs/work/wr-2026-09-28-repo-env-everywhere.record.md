@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-repo-env-everywhere
 Scope: docs/specs/repo-env-everywhere-1/spec.md (lane 47 lead spec, rulings P1 to P8) from packet docs/specs/repo-env-everywhere-1/packet.md (skills-fable-lane-47-1, plus skills-fable-lane-47-2 for P8)
 Owner: skills-n
-Status: reviewed
+Status: accepted
 Authority: build, review, integrate, push build/repo-env-everywhere-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; live proofs run read-only commands under a scratch GIT_DIR and a scratch notes home; no release, no install, no change to live note state
 Next: accept pinned at 9435161, merge into main under the standing grant, publish, close, RESULT to skills-fable
 Artifact: 9435161e0997b5cde2e42b8a481c6e07f547d077
@@ -19,6 +19,50 @@ Log: 2026-09-28T23:53:47.000Z delivered skills-n fix builder DONE 6ef609a (F1 fi
 Log: 2026-09-29T00:03:12.000Z rejected skills-n review r2 by a4a42ea240cc29011 NEEDS_FIXES 6ef609a (R2-1 MEDIUM a worktree-only card is masked by a silent main checkout, R2-2 LOW build.md narrative residue, R2-3 LOW new F3 fixtures unsealed); lead suites green at 6ef609a on Linux 2697 of 2702 and Windows 2688 of 2702, live proofs pass; fix round 2 per lead-ruling-r2.md
 Log: 2026-09-29T00:08:27.000Z delivered skills-n fix builder round 2 DONE 9435161 (R2-1 fallback condition plus test red at 6ef609a, R2-2 build.md narrative, R2-3 fixtures sealed, NIT 1); full 2698 pass, 0 fail, leak check 0; no denials; delta r3 by the r2 reviewer and Windows suite started
 Log: 2026-09-29T00:11:53.000Z reviewed skills-n Opus reviewer a4a42ea240cc29011 delta r3 VERDICT: APPROVE 9435161 (R2-1 probes G and A to D2 rerun at 9435161, R2-3 victim repo untouched, R2-2 residue gone); Windows 2689 and Netcup 2698 of 2703, 0 fail, leak check 0 on both; live proofs janitor under a foreign GIT_DIR and note-inbox from a Windows worktree cwd pass
+Census: - leadTurns: 19
+Census: - wallClockHours: 1.91
+Census: - wakes: 1 (1 note-flush, 0 Done-tick)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-5-5=35706699, claude-sonnet-5=55331973
+Census: - by-role: unassigned=72479568
+Census: - subagentFiles: 210
+Census: - Total assistant turns, deduped (whole file): **1228**
+Census: - Window assistant turns, deduped: **108**
+Census: - leadTurns (conversational runs — see docs/census.md): **19**
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **1** (1 note-flush, 0 Done-tick)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0**
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-28T22:17:33.983Z .. 2026-09-29T00:12:09.060Z
+Census: - Turns/hour in window: **56.55**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 2454 | 4018863 | 204031499 | 807946 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 216 | 238474 | 18241916 | 78498 |
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 370 | 705115 | 16255009 | 187101 |
+Census: | claude-sonnet-5 | 982 | 736621 | 54327991 | 266379 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 1352 | 1441736 | 70583000 | 453480 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 265599 | 35441100 |
+Census: | claude-sonnet-5 | 266379 | 55065594 |
+Four numbers: Top-tier tokens per build: unavailable (no census)
+Four numbers: Hours ask to accepted: 1.9h; gap unavailable (no lead transcript)
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: gaps unavailable (no lead transcript); 1 unanswered ASK(s) to skills-n: skills-fable-lane-47-1; wakes unavailable (no census); Stop-blocks unavailable (no census); stall nudges 0 to skills-n
+Log: 2026-09-29T00:12:11.000Z accepted skills-n artifact 9435161e0997b5cde2e42b8a481c6e07f547d077
 
 Scratch directory for this lane (in the body until lane 36 lands the header field): /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-47
 
