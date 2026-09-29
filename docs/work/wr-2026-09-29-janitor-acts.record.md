@@ -13,6 +13,7 @@ Spec-from: 2026-09-29T21:13:00Z
 Base: dff1e00c3096082c4f17da99a49debf41e83dfb2
 Log: 2026-09-29T21:13:00.000Z owned skills-n opened from skills-fable-janitor-59-1 (Ben's ticks: daily reclaim of the safe class on every host, one allowlisted deleter and its allow line on all four machines); ticks verified on a fresh page read
 Log: 2026-09-29T21:33:57.000Z owned skills-n Opus spec red-team a22e1e0094529b616 NEEDS_FIXES (17: F1 the daily act removes a worktree a live session is in, F2 no removal recorded with its tip, F3 mounts and nested worktrees, F4 class S wrong on Windows and macOS, F5 any session's scratch, F6 to F17 medium and low); all adopted, docs/specs/janitor-acts-59/ruling-r0.md
+Log: 2026-09-29T22:13:36.000Z owned skills-n T2 Sonnet builder a4f2f55290ddcd52c DONE at 1ce13f4 (suite 3134 tests, 3129 pass, 0 fail); Opus T2 review spawned; T1 still building
 
 ## Spec
 
