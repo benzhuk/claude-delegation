@@ -14,7 +14,7 @@ import {
   EXIT, RECURSION_ENV_VAR, VERDICT_RE, DISALLOWED_TOOLS,
   parseArgs, normalizeFirstLine, validateVerdict, parseRoleFile, sha256Hex,
   buildAgentsJson, buildArgv, buildChildEnv, validateReportPath, resolvePluginRoot,
-  stripGitLocatingEnv, sweepStaleRuns, isProcessAlive, runReviewRun,
+  stripGitLocatingEnv, sweepStaleRuns, isProcessAlive, runReviewRun, writeSidecarAtomic,
 } from './review-run.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -355,6 +355,29 @@ test('finding 14: validateReportPath atomically claims the sidecar, so two concu
   assert.ok(fs.existsSync(`${reportPath}.identity.json`), 'the sidecar must be claimed (even empty) as soon as validation passes');
   // Run 2, given the identical --report a moment later, must be refused outright.
   assert.throws(() => validateReportPath(reportPath, scratch), /identity sidecar already exists/);
+});
+
+test('finding 14 (N3): writeSidecarAtomic never writes through a planted symlink', () => {
+  const dir = scratchDir('review-run-sidecar-symlink-');
+  const canary = path.join(dir, 'canary.json');
+  fs.writeFileSync(canary, '{"safe":true}');
+  const sidecar = path.join(dir, 'report.md.identity.json');
+  fs.symlinkSync(canary, sidecar);
+  writeSidecarAtomic(sidecar, '{"forged":"through the link"}', fs);
+  assert.equal(fs.readFileSync(canary, 'utf8'), '{"safe":true}', 'the symlink target must never be written through');
+  assert.ok(!fs.lstatSync(sidecar).isSymbolicLink(), 'the sidecar path itself must now be a regular file, not the old symlink');
+  assert.equal(fs.readFileSync(sidecar, 'utf8'), '{"forged":"through the link"}', 'the sidecar path must carry the new contents');
+});
+
+test('finding 14 (N3): writeSidecarAtomic never writes through a hard link', () => {
+  const dir = scratchDir('review-run-sidecar-hardlink-');
+  const victim = path.join(dir, 'victim.json');
+  fs.writeFileSync(victim, '{"safe":true}');
+  const sidecar = path.join(dir, 'report.md.identity.json');
+  fs.linkSync(victim, sidecar);
+  writeSidecarAtomic(sidecar, '{"forged":"through the hard link"}', fs);
+  assert.equal(fs.readFileSync(victim, 'utf8'), '{"safe":true}', 'the hard-linked victim must never be written through');
+  assert.equal(fs.readFileSync(sidecar, 'utf8'), '{"forged":"through the hard link"}', 'the sidecar path must carry the new contents');
 });
 
 test('M4: --report inside --scratch is refused', () => {

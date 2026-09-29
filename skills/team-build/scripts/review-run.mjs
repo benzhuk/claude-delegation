@@ -337,18 +337,16 @@ export function validateReportPath(reportPath, scratchDir, fsImpl = fs) {
   }
 }
 
-/** finding 14: the final sidecar write never follows a symlink the child may have planted at
- * <report>.identity.json while it ran (the child can Write anywhere until finding 1(a) is in
- * place, and even after, a stale symlink from a prior run's scratch could still be reused). Falls
- * back to a plain write if O_NOFOLLOW isn't available (some platforms/mocked fsImpl). */
-function writeSidecarAtomic(sidecarPath, contents, fsImpl) {
-  const flags = fs.constants.O_WRONLY | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW ?? 0);
-  try {
-    const fd = fsImpl.openSync(sidecarPath, flags);
-    try { fsImpl.writeSync(fd, contents); } finally { fsImpl.closeSync(fd); }
-  } catch {
-    fsImpl.writeFileSync(sidecarPath, contents);
-  }
+/** finding 14 (N3, ruling r3): the final sidecar write never goes THROUGH whatever the child may
+ * have planted at <report>.identity.json while it ran — symlink or hard link. Write a fresh file
+ * beside it, then rename over the claimed name: rename replaces the directory entry itself, never
+ * the bytes an existing symlink or hard link points at. The O_NOFOLLOW-with-fallback form this
+ * replaces was defeated by its own catch-all: on a symlink the O_NOFOLLOW open fails, and the
+ * fallback plain write then follows it anyway (measured, live). */
+export function writeSidecarAtomic(sidecarPath, contents, fsImpl = fs) {
+  const tmp = `${sidecarPath}.${randomUUID()}.tmp`;
+  fsImpl.writeFileSync(tmp, contents, { flag: 'wx' });
+  fsImpl.renameSync(tmp, sidecarPath);
 }
 
 /** finding 7: EPERM (a process owned by another user, which this process cannot signal) must
