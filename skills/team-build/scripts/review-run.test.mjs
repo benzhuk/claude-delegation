@@ -563,6 +563,34 @@ test('finding 6: owner.json is rewritten with the real childPid and timeoutMin r
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// N5: the sweep tests r1 finding 5 required but never got — a live run's wt/ survives, a young
+// dead run's wt/ survives, and the cutoff is the dead run's OWN owner.timeoutMin, not the
+// sweeping run's. These still pass with the N1 patch: no childPid, so the identity check above is
+// never reached.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('finding 5: the sweep never touches a run whose review-run pid is alive, however old', () => {
+  const scratch = scratchDir('review-run-sweep-live-');
+  const runDir = makeRunDirWithOwner(scratch, { pid: 424242, startedAt: new Date(Date.now() - 999_999_999).toISOString() });
+  sweepStaleRuns(scratch, 1, fs, (pid) => pid === 424242);
+  assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')));
+});
+
+test('finding 5: a dead run younger than its timeout keeps its wt/', () => {
+  const scratch = scratchDir('review-run-sweep-young-');
+  const runDir = makeRunDirWithOwner(scratch, { pid: 424242, startedAt: new Date(Date.now() - 60_000).toISOString(), timeoutMin: 45 });
+  sweepStaleRuns(scratch, 45, fs, () => false);
+  assert.ok(fs.existsSync(path.join(runDir, 'wt', 'marker.txt')));
+});
+
+test("finding 6: the cutoff is the dead run's own owner.timeoutMin, not the sweeping run's", () => {
+  const scratch = scratchDir('review-run-sweep-owntimeout-');
+  const runDir = makeRunDirWithOwner(scratch, { pid: 424242, startedAt: new Date(Date.now() - 5 * 60_000).toISOString(), timeoutMin: 1 });
+  sweepStaleRuns(scratch, 45, fs, () => false);
+  assert.equal(fs.existsSync(path.join(runDir, 'wt')), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Finding 8: a symlinked --repo must not get past the "plugin root inside the reviewed repo"
 // exit-4 check (measured in the review: direct path exits 4, a symlink to the same repo exits 7
 // having reached clone).
@@ -723,7 +751,9 @@ test('finding 5 (kills M11): a gitRunner that throws on checkout, after a real c
   assert.equal(fs.existsSync(path.join(scratch, runDirs[0], 'wt')), false, 'wt/ must be gone even when the failure happens mid-clone, after the directory was created');
 });
 
-test('finding 5 (kills M13): SIGTERM to review-run itself actually kills the fake\'s real OS process, not just its own child handle', async () => {
+// N5: SIGTERM without killTree makes this file HANG (not fail) rather than fail — a 30s test
+// timeout turns a future regression into a fail in 30s instead of a stalled CI run.
+test('finding 5 (kills M13): SIGTERM to review-run itself actually kills the fake\'s real OS process, not just its own child handle', { timeout: 30_000 }, async () => {
   const scratch = scratchDir('review-run-scratch-sigterm2-');
   const outDir = scratchDir('review-run-out-sigterm2-');
   const claudeBin = writeFakeClaude(scratchDir('review-run-claude-sigterm2-'));
@@ -1012,7 +1042,8 @@ test('m5: review-run.mjs imports only node: builtins', () => {
 // M5: SIGTERM to the review-run process itself (real subprocess, not in-process)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('M5: SIGTERM to review-run while the fake is running exits with the timeout code and the clone dir is gone', async () => {
+// N5: same reasoning as the M13 test above — a 30s cap turns a hang into a fail.
+test('M5: SIGTERM to review-run while the fake is running exits with the timeout code and the clone dir is gone', { timeout: 30_000 }, async () => {
   const scratch = scratchDir('review-run-scratch-sigterm-');
   const outDir = scratchDir('review-run-out-sigterm-');
   const claudeBin = writeFakeClaude(scratchDir('review-run-claude-sigterm-'));
