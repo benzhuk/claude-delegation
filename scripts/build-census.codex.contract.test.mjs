@@ -369,3 +369,41 @@ test('Codex contract: rejected root-namespace parent cannot authenticate its gra
   assert.ok(report.lead.codex.discovery.excluded.some((row) => row.file.includes('bad-parent')));
   assert.ok(report.lead.codex.discovery.excluded.some((row) => row.file.includes('grandchild')));
 });
+
+// Lane55: known-id discovery must be bounded by the canonical tree, not the old
+// lead-day horizon.  The old child is deliberately far from the lead filename day.
+test('Lane55 known lead-session walks the canonical tree and counts an old resumed child exactly once', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'rollout-current-name.jsonl', leadRows({ output: 3 }));
+  const oldDay = '2026/03/01';
+  fs.mkdirSync(path.join(home, 'sessions', ...oldDay.split('/')), { recursive: true });
+  writeRollout(home, oldDay, 'rollout-old-child.jsonl', childRows('old-child', ROOT, 1, 'old-response', 7));
+
+  const report = await runCensus({
+    lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
+    from: '2026-09-27T00:00:00.000Z', to: '2026-09-27T23:59:59.999Z', out: null,
+  });
+  assert.ok(report.lead.codex.identity, 'known lead-session emits resolved identity evidence');
+  assert.equal(report.lead.codex.identity.expectedId, ROOT);
+  assert.equal(report.lead.codex.identity.verified, true);
+  assert.equal(report.lead.codex.discovery.scope.kind, 'canonical-session-tree');
+  assert.equal(report.lead.codex.discovery.scope.complete, true);
+  assert.equal(report.subagents.fileCount, 1);
+  assert.equal(report.combined[MODEL].derived_total_tokens, 30, 'lead 13 + old child 17, no horizon loss or double count');
+});
+
+test('Lane55 temporal COUNTED remains a consumer-readable verdict when a token field is unsupported', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'rollout-lead.jsonl', [
+    ...leadRows({ missing: ['cached_input_tokens'] }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  const report = await runCensus({
+    lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
+    from: '2026-09-27T00:00:00.000Z', to: '2026-09-27T12:00:02.500Z', out: null,
+  });
+  assert.equal(report.lead.coverageSupported, false, 'cache evidence is not fabricated');
+  assert.equal(report.lead.codex.fields.cachedInputTokens.status, 'UNSUPPORTED');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED .*; UNSUPPORTED cachedInputTokens/);
+  assert.equal(JSON.parse(formatJson(report)).lead.codex.fields.cachedInputTokens.status, 'UNSUPPORTED');
+});
