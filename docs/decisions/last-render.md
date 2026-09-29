@@ -1,14 +1,5 @@
 # Waiting on you now
 <details>
-<summary>**Remaining worktree cleanup**</summary>
-	Four fully clean, origin-merged, inactive worktrees were removed. The [retained inventory and complete JUDGMENT table](https://github.com/benzhuk/claude-delegation/blob/main/docs/specs/codex-counted-55/L55-cleanup.md) records live, unknown, young and unmerged contexts. The recommendation for every retained row is keep until its stated reason is resolved.
-	The coordinator also requested removal of the old Lane55 worktree and remote branch, but their pre-rebase history is not an ancestor of main. The local original branch must remain as a source/spec provenance ref. This cleanup choice does not block either completed lane.
-	- [ ] Keep all retained worktrees and refs for now (recommended)
-	- [ ] Remove only the old Lane55 worktree and its remote branch, preserving its local provenance ref
-	No default: removing unmerged historical work needs your choice
-	<empty-block/>
-</details>
-<details>
 <summary>**Schedule knowledge triage on this desktop**</summary>
 	The knowledge store's goal reads NONE, and 74 notes wait in this desktop's inbox, the oldest from July 28. The triage skill has everything a run needs and last ran August 1. Lane 40 installs a daily Windows task that runs it with a Sonnet session capped at 40 notes and 40 minutes, and reports tokens and results in the janitor-style record. Nothing else changes and no other host is touched.
 	Ticking yes decides these nine things:
