@@ -1,13 +1,13 @@
 Work: wr-2026-09-28-codex-counted
 Scope: docs/specs/codex-counted-55/final-spec.md@ef5b8aaac6b8dfc399dfa592194fe47b38fe2d26
 Owner: skills-a
-Status: rejected
+Status: delivered
 Authority: scoped Lane55 standing build/merge grant. Root owns specification, record, adjudication and acceptance. Source scouts/builders/tests/reports delegated by territory, independent high review required. No four-read.mjs, review-run.mjs, Claude discovery, hooks, GOALS.md, prior lane record, install or release changes. Normal guarded publication after merge; no recovery flag.
-Artifact: build/codex-counted-55@60ece109bc24eb03bc17c242472e9c105b063ca4
+Artifact: build/codex-counted-55@91c61b4701722a0ffd0ef7d3fccba450fc508fb5
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-counted-55
 Evidence: docs/specs/codex-counted-55/L55-spec-evidence.md, docs/specs/codex-counted-55/L55-baseline.md, docs/specs/codex-counted-55/L55-pending-spec-review.md, docs/specs/codex-counted-55/root-ruling.md, docs/specs/codex-counted-55/L55-builder-report.md, docs/specs/codex-counted-55/L55-test-report.md, docs/reports/census-0928/codex-rows.md, docs/specs/codex-counted-55/L55-host-gates.md, docs/specs/codex-counted-55/L55-pending-source-review.md, docs/specs/codex-counted-55/L55-review-r1-adjudication.md
-Next: fix Opus lane55-review findings per L55-review-r1-adjudication.md, independent red/green and focused gate, five rereads, then delta ASK to same reviewer. Lane56 remains queued until close.
+Next: same Opus lane55-review delta on corrected candidate, fresh exact-candidate host gates, then acceptance/main merge/final-main rereads/normal publish/close. Lane56 remains queued.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:30:44Z
@@ -23,6 +23,7 @@ Log: 2026-09-29T03:19:56.434905Z delivered skills-a agent-exited artifact build/
 Log: 2026-09-29T03:28:43.635032Z delivered skills-a artifact build/codex-counted-55@60ece109bc24eb03bc17c242472e9c105b063ca4 host integrator returned, both sealed suites native0. Windows globaltemp observer424 remains unattributed, own sealed run root absent; Netcup observer0. Only external Opus source verdict blocks next acceptance step; no peer wait.
 Log: 2026-09-29T03:31:04.790277Z delivered skills-a ACKed queued lane56 via skills-a-lane-56-1. Explicit dependency: start only after Lane55 closes, base then-current origin/main; no Lane56 implementation started. Current native continuation epoch rebound and confirmed active for Lane55. Opus source verdict remains pending.
 Log: 2026-09-29T03:32:54.741603Z rejected skills-a review-rejected Opus lane55-review NEEDS_FIXES60ece10 via skills-fable-lane-55-5. One blocking corrupt-child silent exclusion, four small follow-ups adjudicated for fix, native multi-segment proof limitation retained. Root owns this fix round; no acceptance.
+Log: 2026-09-29T03:42:24.738936Z delivered skills-a agent-exited artifact build/codex-counted-55@91c61b4701722a0ffd0ef7d3fccba450fc508fb5 R1 fixes06a93de complete. Exact60ece10 red0of4 R1 cases, final focused502of502 native0, five R1 rereads allCOUNTED/native0. All failed receipts unique; same Opus delta and fresh sealed gates next.
 
 Measure: feed top-tier tokens per build and the Codex portion of DONE with exact counts. This lane changes the reader, not the measured historical performance.
 
