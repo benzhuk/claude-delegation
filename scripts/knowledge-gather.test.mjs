@@ -515,7 +515,7 @@ test('atomic replacement during archive preserves the claimed original and the l
   assert.equal(row.unresolved, 0);
   assert.deepEqual(fs.readFileSync(destination), original, 'the owned claim supplies archived bytes');
   assert.deepEqual(fs.readFileSync(source), replacement, 'the replacement remains pending at the live name');
-  assert.deepEqual(fs.readdirSync(remoteInbox).sort(), ['_archive', name]);
+  assert.deepEqual(fs.readdirSync(remoteInbox).sort(), ['_archive', name].sort());
   assert.ok(!fs.existsSync(item.stagedPath), 'successful old-version archive removes only its staged evidence');
 });
 

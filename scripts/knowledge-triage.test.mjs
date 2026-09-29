@@ -601,7 +601,10 @@ test('two consecutive curated-lock observations escalate without taking or clear
   assert.equal(second.receipt.status, 'attention');
   assert.ok(fs.existsSync(lock), 'job must never clear the skill lock');
   assert.equal(h.notes.length, 1);
-  assert.match(h.notes[0], /rmdir ~\/\.claude\/knowledge\/\.curated-update\.lock/);
+  assert.doesNotThrow(() => assertFieldSafe('text', h.notes[0]));
+  const packet = fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8');
+  assert.ok(packet.includes('  rmdir ~/.claude/knowledge/.curated-update.lock\n'));
+  assert.ok(packet.includes('  rm ~/.agents/knowledge-triage/ATTENTION\n'));
 });
 
 test('archived note without its exact committed digest slug remains named residue', async () => {
