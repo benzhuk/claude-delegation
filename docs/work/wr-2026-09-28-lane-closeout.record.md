@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-lane-closeout
 Scope: docs/specs/lane-closeout-1/spec.md (the Lane 36 section of docs/specs/2026-09-28-parallel-bundle.md read at origin/docs/lane-specs-0925 dc16de3; full file copied as spec-full.md), rulings in docs/specs/lane-closeout-1/contracts.md; territories C1 (record, closeout, sweep-origin) and C2 (delete guard, scratch sentence)
 Owner: skills-h
-Status: reviewed
+Status: accepted
 Authority: build, review, push build/lane-closeout-1, merge into main on acceptance under the standing grant of 2026-09-26, without Ben. The one-time sweep (origin build/* deletes, janitor --apply on Hetzner, Netcup and Windows) only on Ben's Yes on a waiting item on the decisions page (skills-fable-lane-36-2). No release or install.
 Artifact: build/lane-closeout-1@5bc082a6e50f4073e9f500abd39c233b466021ae
 Evidence: docs/specs/lane-closeout-1/spec.md, docs/work/evidence/wr-2026-09-28-lane-closeout-C1.md, docs/work/evidence/wr-2026-09-28-lane-closeout-C2.md, docs/work/evidence/wr-2026-09-28-lane-closeout-S1.md, docs/work/evidence/wr-2026-09-28-lane-closeout-win-suite-5bc082a.log, docs/work/evidence/wr-2026-09-28-lane-closeout-census.md, docs/work/evidence/wr-2026-09-28-lane-closeout-four-read.md
@@ -44,6 +44,49 @@ Log: 2026-09-29T00:39:09Z delivered S1 sonnet builder seam fix cfa1fc0: 13 calls
 Log: 2026-09-29T00:40:16Z owned lead (opus) Opus seam review and Windows gate at af81181 running
 Log: 2026-09-29T00:48:35Z rejected S1 Opus reviewer NEEDS_FIXES af81181: production seam fix correct on all 19 calls, merge semantics intact; the two-repo test kills only 9 of 13 per-call mutants and its B-origin check cannot fail (reports/S1-review.md); Windows gate at af81181 2907/2893/0 fail/14 skipped; test-only replacement from the reviewer
 Log: 2026-09-29T00:52:01Z reviewed S1 Opus reviewer APPROVE 5bc082a6e50f4073e9f500abd39c233b466021ae: the replacement test kills all 13 per-call env mutants (reports/S1-review-r2.md); integrated lane artifact build/lane-closeout-1@5bc082a
+Census: - leadTurns: 35
+Census: - wallClockHours: 5.62
+Census: - wakes: 3 (3 note-flush, 0 Done-tick)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-5-5=56493892, claude-sonnet-5=130377144
+Census: - by-role: unassigned=164855301
+Census: - subagentFiles: 60
+Census: - Total assistant turns, deduped (whole file): **407**
+Census: - Window assistant turns, deduped: **153**
+Census: - leadTurns (conversational runs — see docs/census.md): **35** (of 68 in the whole file, unwindowed)
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **3** (3 note-flush, 0 Done-tick) (of 9 in the whole file, unwindowed)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0** (of 0 in the whole file, unwindowed)
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-28T19:16:41.486Z .. 2026-09-29T00:53:45.140Z
+Census: - Turns/hour in window: **27.24**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 814 | 1648403 | 53558929 | 278326 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 306 | 619628 | 21278744 | 117057 |
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 838 | 1602046 | 32349672 | 525601 |
+Census: | claude-sonnet-5 | 2412 | 2742852 | 126783342 | 848538 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 3250 | 4344898 | 159133014 | 1374139 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 642658 | 55851234 |
+Census: | claude-sonnet-5 | 848538 | 129528606 |
+Four numbers: Top-tier tokens per build: 56493892 tokens: build 56493892 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 5.6h; largest gap 105.4min at 2026-09-28T22:16:00.611Z
+Four numbers: Rework after acceptance: unavailable (no range); 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 1 gap(s) over 30min stalled; 1 waiting-on-agents (105.4 min); agent a0ca12e92b60858a9 silent 109.4 min from 2026-09-28T22:12:17.420Z; ASKs unavailable (no --lead-slug); wakes 3 (3 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)
+Log: 2026-09-29T00:53:58.000Z accepted skills-h artifact 5bc082a6e50f4073e9f500abd39c233b466021ae
 
 Observed: a lane now ends with nothing left behind, by one command. Every new record carries a `Scratch:` line, and `work-record.mjs close --closeout --by <lead session>` removes the lane's worktree, its local branch, its origin branch (a lease delete of the exact checked sha, so a branch that moved is refused) and its scratch dir. Every step is checked in-script: dirty or ignored files keep a worktree, an unresolvable or foreign-OS `Worktree:` is refused with exit 2, and a re-run exits 0 with every step absent. `sweep-origin` does the same for merged build/* branches, dry run by default. The delete guard no longer refuses a delete verb inside quoted text or an exact heredoc whitelist (`cat > x.md <<'EOF'`, note-send and git commit packets), and the pinned scratch sentence is in all eight role files. Rounds: C1 6 (18 findings in round 1, 2 critical), C2 5 (36 bypasses in round 1 fell to 0 under an exact whitelist), and 2 seam rounds after merging main: 13 new git calls lacked main's 7248ba5 repo-env wrapper, the origin delete among them. Every delete check is held by a test that fails when the check is removed. Suites at 5bc082a: Hetzner 2907/2902/0 fail/5 skipped, Windows 2907/2893/0 fail/14 skipped. Two Opus C2 reviewers were stopped by the safety classifier on delete-shaped probes, and the lead ran their saved harnesses. One Sonnet builder hung for 2 h in C1 round 5 before the lead noticed.
 Predicts: the first lane closed with `close --closeout` after this merge leaves no worktree, branch or scratch dir behind for it on the closing host (checked by `git worktree list`, `git ls-remote origin` and the scratch path), and the one-time sweep's dry run lists at least 20 merged build/* branches on origin.
