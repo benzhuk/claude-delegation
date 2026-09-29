@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-review-run
 Scope: the spec section of this record (lane 53), from packet docs/notes/skills-fable-lane-53-1.md read at 7ab59db
 Owner: skills-n
-Status: owned
+Status: delivered
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
-Next: Sonnet builder on the amended spec with probes P1 to P7 on Netcup; then Opus code review, Windows probes and suite, quality check on 90beeb9, Codex-launched run, accept, merge, publish, close, RESULT
+Next: Opus code review of 4c2b974 and a Sonnet probe round 2 (dontAsk re-check of P7 and P5, live P3, P1 context with the file named), then Windows probes and suite, the a2 quality check, a Codex-launched run, accept, merge, close, RESULT
 Worktree: build/review-run-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53
 Opened: 2026-09-29T02:05:00.000Z
@@ -15,6 +15,7 @@ Log: 2026-09-29T02:05:18.000Z owned skills-n picked up skills-fable-lane-53-1 (A
 Log: 2026-09-29T02:09:33.000Z owned skills-n scout DONE (lane 40 triage doc absent, scripts\/ not mirrored, no agent-by-path flag, no subprocess recursion guard); spec written with the script in skills\/team-build\/scripts so the mirror is unchanged; Opus spec red-team spawned
 Log: 2026-09-29T02:23:47.000Z owned skills-n Opus spec red-team by a60c809b038e83bd7 NEEDS_FIXES 7ab59db (3 blockers: NEEDS_FIXES (n) fails the verdict regex, project settings of the reviewed sha load unattended, the delete guard treats the child as a lead; 9 major, 9 minor); all adopted in lead-ruling-redteam.md except M9 and B3, asked of skills-fable as skills-n-lane-53-2
 Log: 2026-09-29T02:25:21.000Z owned skills-n skills-fable decided (skills-fable-lane-53-2): M9 keep review-run with both routes, claude default and codex reviewer.toml second; B3 (a), the delete-guard and multi-inbox one-liners are in territory with a unit test each; Sonnet builder spawned
+Log: 2026-09-29T03:16:10.000Z delivered skills-n Sonnet builder ac4540ca39091f6b7 DONE 4c2b974, report 997b665 (review-run.mjs plus the two hook one-liners, gate 268 pass, full suite 2954 pass 0 fail; P1, P2a, P4, P6 pass, P2b pass on the fix but the installed 0.20.17 hook predates it, P7 found a Write escape under auto and the default moved to dontAsk unverified, P3 live inconclusive, 8 of 8 live runs used); Opus code review and probe round 2 started
 
 ## Spec (lead, from the packet)
 
