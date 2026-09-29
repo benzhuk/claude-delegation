@@ -31,6 +31,14 @@ export interface Options {
   deps?: {
     sshCommand?: string[]; // default ['ssh']; fake: [process.execPath, fakeSshPath]
     claudeCommand?: string[]; // default ['claude']
+    gitCommand?: string[]; // default ['git']; test-only fixture command prefix
+    chezmoiCommand?: string[]; // default ['chezmoi']; test-only source-path fixture
+    nestedTimeoutMs?: number; // test-only; production remains 60 minutes
+    hostTimeoutMs?: number; // test-only; production remains 60 seconds
+    timers?: {
+      setTimeout: (callback: () => void, milliseconds: number) => unknown;
+      clearTimeout: (handle: unknown) => void;
+    }; // parent watchdog scheduling only; defaults to real global timers
     hostname?: () => string;
     endpoints?: Partial<Record<HostResult['host'], string | null | 'pending'>>; // test-only: null=no alias; pending=owner answer awaited
     noteSend?: (text: string) => Promise<void>;

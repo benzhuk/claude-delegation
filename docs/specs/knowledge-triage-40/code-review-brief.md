@@ -1,0 +1,21 @@
+Task: independent adversarial review of Lane40 source and tests at the supplied implementation SHA. Launch only after the integrated focused gate is green.
+Goal: reduce lost/stalled knowledge without weakening guards, losing notes, creating duplicate decisions or hiding failure.
+Work: wr-2026-09-29-knowledge-triage
+Inputs: rev4.md, spec-r1-adjudication.md, contracts.d.ts, spec-review-r4.md, test-seam-ruling.md (explicit later testability delta), source/test reports and focused gate evidence, probe-r3-report.md/probe-r4-report.md, rev3.md where not superseded. Root supplies exact SHA and final integration evidence.
+Territory: review source/tests in the lane and their contracts only. Root owns fixes, records, acceptance and live publication. No live SSH, real notes, task install, peer messages or credential/config inspection. No prior refused discovery search, original lock-owner brief, scratch Git commits, or guard changes.
+Attack the following with small discriminating fixtures/mutants where useful, preserving originals and using only scratch copies:
+- A check that passes because it is not looking, or an unknown rendered as a confident number. Commit/HEAD movement must not substitute for actual committed DIGEST and fresh remote identity. No-change mismatch defers and never moves an origin. Changed-DIGEST publication failures remain visible. Missing per-note delimiter yields residue.
+- Cross-host/local byte duplicates, same-name changed versions, source-managed residue, archived status mutation, retry after remote failure, cross-month archive, matching archive plus resurrected source, superseded/missing terminal versions reported once. No overwrite or false archive success.
+- Real GNU/libarchive PAX metadata, checksum/length and total/entry bounds, oversize note residue, symlink/hardlink/traversal/ADS/reserved names, atomic final import and crash residue. No unsafe extraction or shell interpolation.
+- Exact capped oldest-first list, preserved source age, out-of-selection attention, exact filename-slug sentence, receipt counts and token categories. Unavailable usage is explicit. Session/read-count exclusion must use real nested session identity.
+- Job/curated lock races, held/deferred behavior, stale or unverifiable owners, release only owned lock, full owned process-tree stop on deadline and no double signaling. Functional timer fixtures must still prove a real child; deadline tests use real clock and loose bounds.
+- SSH minimal environment and fixed noninteractive arguments, no agent/port forwarding, no remote-to-remote copying. All command-prefix/time/timer overrides are test-only and unreachable from CLI; defaults are real commands and the specified production limits. No API-key fallback or caller peer identity. User guards remain active.
+- Only triage installer changes: other jobs byte-identical, disabled-register/query/enable/Run sequence, triage-only PT2H, writer refusal, kill switches, bounded log/ATTENTION and no unapproved installation. The one allowed skill/README amendment is separate, based on renamed skill and owner tick.
+Distinguish measured fixture behavior from live proof. Plain-file probes do not prove Git/chezmoi publication. The one-file lock recipe delivery is a separate dependency with its own receipt; do not infer it from source.
+Report: supplied review-run path, first line VERDICT: APPROVE <sha> or VERDICT: NEEDS_FIXES (N) <sha>. Findings require severity, concrete failure case and path/line, plus minimal exact replacement for mechanical fixes. Preserve any mutant receipts. Do not run repo-wide tests; use the global verification mutex for scoped gates and report contention rather than overlap. No subagents.
+Cause: identify a cause rather than compensating around its symptom when reporting a bug.
+Discriminating check: name a check that fails on the faulty implementation.
+Fix location: point to the owning code or contract.
+Simplification: say whether a workaround or unnecessary mechanism can be removed.
+JUDGMENT: Can this implementation run once under the genuine writer home for the explicitly authorized live proof without a data-loss, duplication, permission or false-success defect?
+ETA: 20 minutes; report and stop.
