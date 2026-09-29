@@ -235,6 +235,10 @@ export function buildChildEnv(callerEnv, { runDir }) {
   out.AGENTS_HOME = path.join(runDir, 'agents-home');
   // m2: distill-session.sh's SessionEnd capture is honored, redirected into scratch.
   out.KNOWLEDGE_DIR = path.join(runDir, 'knowledge');
+  // finding 2 / M3 P1(ii): omitClaudeMd (in the agents JSON) only applies "when it runs as a
+  // subagent" — under --agent the child IS the main thread, so that flag is a no-op here and the
+  // user's CLAUDE.md / ~/.claude/rules load anyway. This is the one switch that actually stops it.
+  out.CLAUDE_CODE_DISABLE_CLAUDE_MDS = '1';
   return out;
 }
 

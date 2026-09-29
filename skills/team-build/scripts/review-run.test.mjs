@@ -423,6 +423,7 @@ test('buildChildEnv: strips the full M2 denylist and adds the two markers', () =
   assert.equal(env.PATH, '/usr/bin');
   assert.equal(env[RECURSION_ENV_VAR], '1');
   assert.equal(env.AGENTS_HOME, path.join('/tmp/run-dir', 'agents-home'));
+  assert.equal(env.CLAUDE_CODE_DISABLE_CLAUDE_MDS, '1', "finding 2: omitClaudeMd applies only to subagents, but under --agent the child IS the main thread; this env var is the only real switch");
   for (const key of [
     'NOTE_SLUG', 'ORCA_TERMINAL_HANDLE', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN',
     'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_PROJECT_DIR', 'CLAUDE_PLUGIN_ROOT', 'TMUX', 'TMUX_PANE',
