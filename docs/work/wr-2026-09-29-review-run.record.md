@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-review-run
 Scope: the spec section of this record (lane 53), from packet docs/notes/skills-fable-lane-53-1.md read at 7ab59db
 Owner: skills-n
-Status: reviewed
+Status: accepted
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
 Next: census, four-read and accept pinned at 643a862, then merge, publish, close, RESULT; then lane 57
 Artifact: 643a8626b7cf3b8d9711e7640ee95a548d9fb69a
@@ -30,6 +30,54 @@ Log: 2026-09-29T07:15:45.000Z delivered skills-n Sonnet runner a571d9d784d16691b
 Log: 2026-09-29T07:19:01.000Z delivered skills-n Sonnet runner a1e9750c13671facf gates: b (Codex-launched) PASS from codex exec, workspace-write fails with EROFS before the reviewer starts, danger-full-access needed, exit 0 NEEDS_FIXES (3) on the decoy, 0 denials; a2 returned NEEDS_FIXES (2) with F1 matching record line 32, but the lead rejects it as evidence because the reconstructed brief was written from line 32 itself; a clean-brief a2 rerun started
 Log: 2026-09-29T07:20:19.000Z delivered skills-n Windows live probes run by skills-fable from its own pane (skills-fable-lane-53-winprobe-2): W-P7 PASS, all three attack commands denied, decoy local hooksPath unchanged; W-P5 exit 0, VERDICT first line, real claude.exe, model opus, worktree cleaned, 1 denial from the machine identity guard on a chained read-only git config --get, which is not review-run behaviour; the lead strikes its own tools-in-sidecar probe criterion (not in the spec, PowerShell absence is unit-tested on win32) and reads hooksPath as local config unchanged
 Log: 2026-09-29T07:27:04.000Z reviewed skills-n Opus delta review r4 by aa0426e180c8df8eb APPROVE 643a862 is the deciding review; acceptance gates met: a2 PASS on a clean brief (NEEDS_FIXES (3) on 90beeb9, F1 names the production Stop-null mutant gap with its own production mutants), b PASS from codex exec with danger-full-access, Windows W-P7 PASS and W-P5 shape proven by skills-fable, Linux 2993 pass and Windows 2965 pass, 0 fail each
+Census: - leadTurns: 30
+Census: - wallClockHours: 5.38
+Census: - wakes: 4 (4 note-flush, 0 Done-tick)
+Census: - wakeSplit: wake 4, stopBlock 0, other 26 (coalescable 0 at hold 10m — see "Wake-opened turns" below)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-5-5=66485265, claude-sonnet-5=147375651
+Census: - by-role: unassigned=180547393
+Census: - subagentFiles: 239
+Census: - Total assistant turns, deduped (whole file): **1549**
+Census: - Window assistant turns, deduped: **175**
+Census: - leadTurns (conversational runs — see docs/census.md): **30**
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **4** (4 note-flush, 0 Done-tick)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0**
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-29T02:05:02.388Z .. 2026-09-29T07:28:08.375Z
+Census: - Turns/hour in window: **32.50**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 3096 | 4685033 | 261677230 | 1035822 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 350 | 394330 | 32787742 | 131101 |
+Census: - wakeTurns: 4, stopBlockTurns: 0, otherTurns: 26
+Census: - cache_creation per turn (M6) — wake: claude-opus-5-5=6224.3; other: claude-opus-5-5=14209.0
+Census: - coalescable (W1b, hold 10m, RESULT wakes only, Done-tick excluded): turns 0, upper (none), lower (none); ceiling (every RESULT wake turn) turns 2, claude-opus-5-5=2206852
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 642 | 1588180 | 31188244 | 394676 |
+Census: | claude-sonnet-5 | 2318 | 2048799 | 144542958 | 781576 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 2960 | 3636979 | 175731202 | 1176252 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 525777 | 65959488 |
+Census: | claude-sonnet-5 | 781576 | 146594075 |
+Four numbers: Top-tier tokens per build: 66485265 tokens: build 66485265 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 5.4h; largest gap 42.2min at 2026-09-29T03:32:41.976Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 2 waiting-on-agents (73.6 min); 2 unanswered ASK(s) to skills-n: skills-fable-lane-53-1, skills-fable-lane-57-1; wakes 4 (4 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
+Log: 2026-09-29T07:28:13.000Z accepted skills-n artifact 643a8626b7cf3b8d9711e7640ee95a548d9fb69a
 
 Observed: skills/team-build/scripts/review-run.mjs runs a high-tier Claude Opus review as a `claude -p --agent` child, from any host, in an isolated shared clone with origin removed.
 - The child gets the installed reviewer role, byte-hashed into a sidecar. It runs under `--setting-sources user`, `--strict-mcp-config` and CLAUDE_CODE_DISABLE_CLAUDE_MDS.
