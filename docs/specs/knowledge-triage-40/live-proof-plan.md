@@ -61,9 +61,9 @@ The live-proof gate passes only when all of the following are true: process exit
 
 Interpret every other outcome literally:
 
-- `status: skipped` is a recorded skip, not a run and not proof. Preserve its exact reason. Do not convert lock, kill-switch, writer, ATTENTION, missing-skill or missing-CLI skips into zero-work success.
+- `status: skipped` is not successful proof. Preserve its exact reason. Pre-spawn lock, kill-switch, writer, ATTENTION, missing-skill and missing-CLI skips did not run the child and must not become zero-work success; `skill deferred` is the post-child skipped case below.
 - `status: success, reason: inbox empty` has no nested session and does not satisfy the manual proof.
-- `status: success, reason: skill deferred` records a real child call but does not prove triage/publication efficacy. Preserve the token/session evidence and stop.
+- `status: skipped, reason: skill deferred` records a real child call but does not prove triage/publication efficacy. Preserve its nested session, tokens and reconciliation evidence and stop.
 - A host row skipped as unreachable, or Mac skipped as `awaiting owner-provided ssh alias`, remains a truthful named limitation. Never report a skipped host as zero notes or as successfully reconciled.
 - `tokens: {unavailable: ...}` is not zero and does not satisfy the token assertion.
 - `status: failed`, `status: attention`, nonzero exit, timeout, publication mismatch, changed DIGEST without its source-path commit, remote-ref failure after publication, out-of-selection archive, guard/permission denial, or inconclusive denial evidence fails the proof. Preserve all resulting state and do not clear locks or ATTENTION.
