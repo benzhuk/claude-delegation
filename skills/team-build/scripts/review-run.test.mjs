@@ -546,6 +546,148 @@ test('finding 7: isProcessAlive treats EPERM (a process owned by another user) a
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Finding 5: the tests were passing because they weren't looking. Each test below is named after
+// the mutation (from the review's own 15-mutation table) it must kill.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('finding 5 (kills M4/M5/M6): the real spawn-boundary argv is byte-identical to buildArgv\'s own output, and agents.json is byte-identical to buildAgentsJson(parseRoleFile(roleBytes))', async () => {
+  let capturedArgv = null;
+  let capturedCwd = null;
+  const spawnSpy = (cmd, argv, opts) => { capturedArgv = argv; capturedCwd = opts.cwd; return spawn(cmd, argv, opts); };
+  const pluginRoot = makePluginRoot();
+  const roleBytes = fs.readFileSync(path.join(pluginRoot, 'agents', 'reviewer.md'));
+  const role = parseRoleFile(roleBytes);
+  const { exitCode, scratch, reportPath } = await run({ mode: 'approve', spawnSpy, pluginRoot });
+  assert.equal(exitCode, EXIT.OK);
+  const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
+  assert.equal(runDirs.length, 1);
+  const agentsPath = path.join(scratch, runDirs[0], 'agents.json');
+  const expectedArgv = buildArgv({
+    model: 'opus', effort: role.effort, tools: role.tools, sessionId: 'IGNORED', agentsPath, reportPath,
+  });
+  // sessionId is a fresh randomUUID per run and can't be predicted — compare everything else
+  // positionally, and separately assert the fixed pairs the mutation table needs killed.
+  const sessionIdx = capturedArgv.indexOf('--session-id');
+  const withoutSession = [...capturedArgv];
+  withoutSession.splice(sessionIdx, 2);
+  const expectedWithoutSession = [...expectedArgv];
+  const expSessionIdx = expectedWithoutSession.indexOf('--session-id');
+  expectedWithoutSession.splice(expSessionIdx, 2);
+  assert.deepEqual(withoutSession, expectedWithoutSession, 'the real spawn argv must equal buildArgv\'s own output (minus the random session id)');
+  assert.deepEqual(capturedArgv.slice(sessionIdx, sessionIdx + 2)[0], '--session-id');
+  for (const [flag, value] of [['--agent', 'review-run-reviewer'], ['--setting-sources', 'user']]) {
+    const idx = capturedArgv.indexOf(flag);
+    assert.ok(idx >= 0, `${flag} must be present`);
+    assert.equal(capturedArgv[idx + 1], value);
+  }
+  assert.ok(capturedArgv.includes('--permission-mode'));
+  // Independent of buildArgv's own output (which could itself be mutated to drop these) — these
+  // flags must be hardcoded-present on the real spawn argv, not merely self-consistent with
+  // whatever buildArgv happens to currently produce.
+  assert.ok(capturedArgv.includes('--allowedTools'), '--allowedTools must be present on the real spawn argv');
+  assert.ok(capturedArgv.includes('--tools'), '--tools must be present on the real spawn argv');
+  assert.ok(capturedArgv.includes('--disallowedTools'), '--disallowedTools must be present on the real spawn argv');
+  assert.ok(capturedArgv.includes('--agents'), '--agents must be present on the real spawn argv');
+  assert.equal(capturedCwd, path.join(scratch, runDirs[0], 'wt'));
+  const agentsJsonOnDisk = JSON.parse(fs.readFileSync(agentsPath, 'utf8'));
+  assert.deepEqual(agentsJsonOnDisk, buildAgentsJson(role), 'agents.json must be byte-derived from parseRoleFile, not hand-assembled at the call site');
+});
+
+test('finding 5 (kills M12): buildChildEnv always sets KNOWLEDGE_DIR under the run dir (m2: distill-session.sh\'s SessionEnd capture goes to scratch, not the real ~/.claude/knowledge/_inbox)', () => {
+  const env = buildChildEnv({ HOME: '/h', PATH: '/p' }, { runDir: '/tmp/run-dir-k' });
+  assert.equal(env.KNOWLEDGE_DIR, path.join('/tmp/run-dir-k', 'knowledge'));
+});
+
+test('finding 5 (kills M10): an installed_plugins.json with a real user-scope entry gives roleSource: "installed"', () => {
+  const home = scratchDir('review-run-home-installed2-');
+  const installedRoot = makePluginRoot();
+  fs.mkdirSync(path.join(home, '.claude', 'plugins'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'delegation@benzhuk': [{ scope: 'user', installPath: installedRoot }] } }),
+  );
+  const result = resolvePluginRoot({ repoTop: REPO_TOP, home, fsImpl: fs, scriptDir: HERE });
+  assert.equal(result.roleSource, 'installed');
+  assert.equal(path.resolve(result.root), path.resolve(installedRoot));
+});
+
+test('finding 5 (kills M11): a gitRunner that throws on checkout, after a real clone, leaves no wt/ behind (catch-path cleanup)', async () => {
+  const scratch = scratchDir('review-run-catchpath-scratch-');
+  const outDir = scratchDir('review-run-catchpath-out-');
+  const reportPath = path.join(outDir, 'report.md');
+  const briefPath = path.join(scratchDir('review-run-catchpath-brief-'), 'brief.md');
+  fs.writeFileSync(briefPath, 'x');
+  const pluginRoot = makePluginRoot();
+  const home = scratchDir('review-run-catchpath-home-');
+  const realGit = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' });
+  const gitRunner = (args, cwd) => {
+    if (args.includes('checkout')) throw new Error('simulated checkout failure');
+    return realGit(args, cwd);
+  };
+  const { exitCode, scratch: outScratch } = await runReviewRun([
+    '--sha', FULLSHA, '--brief', briefPath, '--report', reportPath, '--repo', REPO_TOP,
+    '--scratch', scratch, '--claude-bin', 'irrelevant', '--plugin-root', pluginRoot,
+  ].map((v) => v), { env: { HOME: home, PATH: process.env.PATH }, home, gitRunner }).then((r) => ({ ...r, scratch }));
+  assert.equal(exitCode, EXIT.INTERNAL);
+  const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
+  assert.equal(runDirs.length, 1);
+  assert.equal(fs.existsSync(path.join(scratch, runDirs[0], 'wt')), false, 'wt/ must be gone even when the failure happens mid-clone, after the directory was created');
+});
+
+test('finding 5 (kills M13): SIGTERM to review-run itself actually kills the fake\'s real OS process, not just its own child handle', async () => {
+  const scratch = scratchDir('review-run-scratch-sigterm2-');
+  const outDir = scratchDir('review-run-out-sigterm2-');
+  const claudeBin = writeFakeClaude(scratchDir('review-run-claude-sigterm2-'));
+  const pluginRoot = makePluginRoot();
+  const briefPath = path.join(scratchDir('review-run-brief-sigterm2-'), 'brief.md');
+  fs.writeFileSync(briefPath, 'Review the fixture diff.\n');
+  const reportPath = path.join(outDir, 'report.md');
+  const home = scratchDir('review-run-home-sigterm2-');
+  const pidFile = path.join(scratchDir('review-run-sigterm2-pid-'), 'pid');
+
+  const child = spawn(process.execPath, [
+    SCRIPT, '--sha', FULLSHA, '--brief', briefPath, '--report', reportPath, '--repo', REPO_TOP,
+    '--scratch', scratch, '--claude-bin', claudeBin, '--plugin-root', pluginRoot, '--timeout-min', '5',
+  ], {
+    env: { HOME: home, PATH: process.env.PATH, FAKE_MODE: 'timeout', FAKE_PID_FILE: pidFile },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+
+  await new Promise((resolveWait) => {
+    const check = setInterval(() => {
+      if (fs.existsSync(pidFile)) { clearInterval(check); resolveWait(); }
+    }, 50);
+  });
+  const fakePid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+  child.kill('SIGTERM');
+  await new Promise((resolveExit) => { child.once('exit', () => resolveExit()); });
+  await new Promise((r) => setTimeout(r, 200)); // let SIGKILL actually land
+  let alive = true;
+  try { process.kill(fakePid, 0); } catch { alive = false; }
+  assert.equal(alive, false, 'the fake\'s real OS process must be gone, not just review-run\'s own handle to it');
+});
+
+test('finding 5: cleanup never follows a symlink inside wt/ out to a canary file elsewhere', async () => {
+  const canaryDir = scratchDir('review-run-canary-');
+  fs.writeFileSync(path.join(canaryDir, 'canary.txt'), 'must survive');
+  const claudeBin = writeFakeClaude(scratchDir('review-run-symcleanup-claude-'));
+  const pluginRoot = makePluginRoot();
+  // A fake mode that plants a symlink inside the worktree pointing at the canary dir, then
+  // approves normally — review-run's own cleanup (rmSync on wtDir) must remove only the link.
+  const symlinkFakeSource = FAKE_CLAUDE_SOURCE.replace(
+    "emit({ type: 'system', subtype: 'init', claude_code_version: '0.0.0-fake', model: 'fake-opus' });",
+    "emit({ type: 'system', subtype: 'init', claude_code_version: '0.0.0-fake', model: 'fake-opus' });\n"
+    + "  fs.symlinkSync(process.env.CANARY_DIR, process.cwd() + '/link-to-canary', 'dir');",
+  );
+  const dir = scratchDir('review-run-symcleanup-fake-');
+  const p = path.join(dir, 'fake-claude.mjs');
+  fs.writeFileSync(p, symlinkFakeSource, { mode: 0o755 });
+  const { exitCode } = await run({ mode: 'approve', claudeBin: p, pluginRoot, extraEnv: { CANARY_DIR: canaryDir } });
+  assert.equal(exitCode, EXIT.OK);
+  assert.ok(fs.existsSync(path.join(canaryDir, 'canary.txt')), 'the canary file itself must survive wt/ cleanup — only the symlink (inside wt/) may be removed');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pure unit coverage: argv, env, verdict regex, role parsing, plugin root
 // ─────────────────────────────────────────────────────────────────────────────
 
