@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-review-run
 Scope: the spec section of this record (lane 53), from packet docs/notes/skills-fable-lane-53-1.md read at 7ab59db
 Owner: skills-n
-Status: rejected
+Status: delivered
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
-Next: fresh Sonnet fix round 4 (lead intervention past the cap) per lead-ruling-r4: review-r3 F1 to F3 plus the win32 spawn EFTYPE fixes, Linux and Windows gates; then a narrow Opus delta r4, the Windows live probe, the a2 quality check, a Codex-launched run, accept, merge, close, RESULT
+Next: narrow Opus delta r4 of 643a862 and the live Windows probe, then the a2 quality check, a Codex-launched run, accept, merge, close, RESULT
 Worktree: build/review-run-1
 Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53
 Opened: 2026-09-29T02:05:00.000Z
@@ -22,6 +22,7 @@ Log: 2026-09-29T05:06:26.000Z rejected skills-n fresh Opus delta review r2 by ac
 Log: 2026-09-29T05:25:33.000Z delivered skills-n fresh Sonnet fix round 2 builder a5ece5b1da3b029cb DONE 1b62edb, report b17095f (N1 the sweep never signals, N2 equals forms denied, N3 rename write, N4 Edit(//abs), N5 sweep tests, N6 doc; gate 305 pass, full suite 2991 pass 0 fail; 3 of 6 live runs, all four equals and space forms denied, P5 pass under auto, dontAsk with Edit(//abs) delivers the report, P4 unchanged apart from an unrelated flush-last.json); fresh Opus delta reviewer and Windows suite started
 Log: 2026-09-29T05:59:55.000Z rejected skills-n fresh Opus delta review r3 by a7ee3a035a2e55a69 NEEDS_FIXES (3) 1b62edb (F1 the victim-survives tests read a zombie as alive, so a reintroduced sweep kill passes 65 of 65, measured; F2 the win32 Edit rule and the glob refusal have no red test; F3 a completed run prints a false stale-run line once its childPid is reused); all three mechanical with verified patches, adopted verbatim; fix round 3 of 3
 Log: 2026-09-29T06:14:02.000Z rejected skills-n Windows suite at 1b62edb 2958 pass, 23 fail, 1 cancelled, all in review-run.test.mjs (spawn EFTYPE: the shebang fake claude cannot spawn on win32, and the synchronous throw exits 7, not 4), the file hung about 40 min until the lead stopped that one pid; fix round 3 builder aa2dd766625652a8e stopped by the lead after 11 min silent on an rm -rf permission prompt its brief banned, F1 left uncommitted in the tree; lead-ruling-r4 combines F1 to F3 with the Windows fixes
+Log: 2026-09-29T06:50:15.000Z delivered skills-n fresh Sonnet fix round 4 builder a70a34162235184ec DONE 643a862 (F1 to F3 and W1 to W3; Linux review-run 67 of 67, full suite 2993 pass 0 fail with TMPDIR=/var/tmp because /tmp was at 100 percent inode use; Windows review-run 48 pass 0 fail 19 skipped on win32, full suite 2965 pass 0 fail in 170 s); Opus delta r4 and Windows live probe started
 
 ## Spec (lead, from the packet)
 
