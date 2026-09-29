@@ -11,13 +11,34 @@
  * Full contract: pack/spec.md, Lane 26.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseDocument, computeExitCode } from './decisions-read.mjs';
 import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
+import { lintPage, formatViolations } from '../../notion-writing/scripts/page-lint.mjs';
 
 /** exit 2 from the CLI: a source file breaks a rule this lane enforces before it ever writes. */
 export class RefusedError extends Error {}
+
+/**
+ * The page-lint rules the render does NOT run on its own page, because it already owns the
+ * concern: `checkWaitingItem` and `decisions-read.mjs` (finalizeDone) cover the waiting-item shape
+ * and the Done line, and the history template writes " — " between a date link and its summary.
+ * Everything else in page-lint's `decisions` kind runs (lane 39, spec Revision 2 F4).
+ */
+export const PAGE_LINT_SKIP = ['open-question-visible', 'decision-block', 'done-last', 'em-dash-arrow'];
+
+/** Fail-open presence test for a kill-switch file: anything but "it does not exist" counts as present. */
+function killSwitchPresent(p) {
+  try {
+    fs.statSync(p);
+    return true;
+  } catch (e) {
+    return Boolean(e) && e.code !== 'ENOENT' && e.code !== 'ENOTDIR';
+  }
+}
+
 /** exit 3 from the CLI: a source file could not even be read/parsed — never treated as clean. */
 export class BlindError extends Error {}
 
@@ -631,6 +652,20 @@ export function render({
       if (page.includes(f)) {
         throw new RefusedError(`render would leak an owner-written line into the page: ${f}`);
       }
+    }
+  }
+
+  // Lane 39: one call to the shared page checker, after every guard the render owns and before the
+  // page leaves render(), so `render`, `publish` and `publish --dry-run` are all covered by it.
+  // `~/.agents/no-page-lint` skips the call (fail-open, logged); a missing page-lint module is not
+  // fail-open, the static import above fails the whole process loudly instead.
+  const killSwitch = deps.pageLintKillSwitch ?? path.join(os.homedir(), '.agents', 'no-page-lint');
+  if (killSwitchPresent(killSwitch)) {
+    (deps.pageLintLog ?? ((line) => process.stderr.write(line)))(`decisions-render: page-lint skipped, kill switch ${killSwitch} exists\n`);
+  } else {
+    const violations = lintPage(page, { kind: 'decisions', skip: PAGE_LINT_SKIP });
+    if (violations.length > 0) {
+      throw new RefusedError(formatViolations(violations, 'composed-page').join('\n'));
     }
   }
 

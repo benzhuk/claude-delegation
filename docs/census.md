@@ -634,6 +634,18 @@ that carries one, such as this repo's own checkout; a scratch directory with no 
 
 Codex: the knowledge read counter is unsupported because Codex hook payloads carry no file path, so Codex sessions' reads are never counted. The SessionStart line still renders in Codex sessions, and its read count there covers Claude sessions on the same host only. The Codex token census reads the explicit lead transcript plus only verified descendant session files in the configured canonical Codex home’s UTC folder for the lead `session_meta` timestamp and the following UTC folder, to depth three; explicit `--tasks` files still require that same horizon, ancestry, and root-namespace verification. It cannot read tokens from other Codex homes, sessions outside that two-day horizon, or descendants without authenticated `thread_spawn` ancestry. A Claude reviewer such as skills-fable is not a native Codex descendant and cannot enter that combined aggregate through `--tasks`; its Claude census is separate and the four-read remains partial when that reviewer’s tokens are unavailable. These sources produce `PARTIAL`/`unavailable` evidence rather than an implied zero, so an unavailable record names this discovery limit.
 
+## Notion writing: fed
+
+The measure: rework after acceptance on Notion pages (pages Ben retitles, rejects or asks to be rewritten) and hours from ask to accepted (a Codex lead publishes a page without asking a Claude lead). The owner's structure complaints ("hard to read", "which toggle", "a mess") are the baseline (`docs/specs/2026-09-28-notion-writing.md`, Measure); the pages he used are listed in taxonomy-fable's 9/28 packet, kept out of this public repo.
+
+What is fed: `skills/notion-writing/scripts/page-lint.mjs`, one checker, kinds `decisions`, `spec`, `brief`, `status`, `read`, `handoff` and `plain`. It is read-only, exits 2 with `page-lint: <rule-id> <file>:<line> <what to fix>` per violation, and is mirrored to `~/.agents/skills/notion-writing/scripts/` so Codex runs the same file. The decisions render calls it once, at the end of `render()`, for `render`, `publish` and `publish --dry-run`; `~/.agents/no-page-lint` skips that call, fail-open, with one stderr line.
+
+Counting: every publish through the skill leaves a `page-lint: clean (<kind>)` line in the writer's record or ledger, so `grep -c 'page-lint: clean (' docs/ledger/<day>.md docs/work/*.record.md` per host is the number of checked publishes, and a Codex session appearing in those lines is the hours-to-accepted evidence. A skipped render call is counted by the `page-lint skipped, kill switch` stderr line, which the render prints once per run.
+
+The live-proof page (one page published through the skill from a Codex session to a scratch parent, read back, checker green) is named in the Evidence of `docs/work/wr-2026-09-28-notion-writing.record.md`, not here, because it is published after the build review.
+
+Fixtures are masked skeletons only (`skills/notion-writing/scripts/mask-fixture.mjs`): this repository is public and the pages Ben used are not.
+
 ## Counted markers
 
 - `stale session:`: the stale-session guard's marker; the guard logs it as rule `R0-stale` (with `hard_deny: true`); wiring-check `--line` prints the same text.

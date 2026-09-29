@@ -3,9 +3,10 @@
 // <repo>/skills/<name>, hard-refused if SKILL.md is missing).
 //
 // `HOME` in mirror-shared-skills.mjs is `os.homedir()` resolved once at module load from the
-// process's own environment, so an IMPORTING process cannot retarget it — this file therefore never
-// runs the CLI (guarded behind isMainModule() anyway) and never runs the script at all, dry-run or
-// not (common.md ban). It imports the exported `collectSources()` and inspects the plain data it
+// process's own environment, so an IMPORTING process cannot retarget it — the tests that import it
+// therefore never run the CLI in-process (guarded behind isMainModule() anyway). The tests that DO run
+// the script (the D2 hook cases and the lane 39 case at the bottom) spawn a child process whose home,
+// APPDATA and LOCALAPPDATA are faked (`fakeCodexEnv`). The rest imports the exported `collectSources()` and inspects the plain data it
 // returns, which proves the two skills ACTUALLY resolve under <repo>/skills/ rather than merely
 // having their names present in the right array (the failure class this build watches for: a
 // copy-paste into the wrong array, or a typo in the directory name under skills/, would leave the
@@ -16,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -206,4 +207,60 @@ test('D2: an unknown flag (the old --codex-hooks-delete-guard) is refused, not s
   const json = runMirrorOnly(['--codex-home', codex, '--codex-hooks-delete-guard'], home);
   assert.equal(json.ok, false);
   assert.ok(json.refusals.some((r) => r.includes('unknown flag --codex-hooks-delete-guard')));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 39 (notion-writing): the mirrored skill carries a runnable page-lint.mjs. A real child process
+// with the faked home (`fakeCodexEnv`, the mirror-shim.test.mjs `fakeEnv` pattern), because
+// `os.homedir()` in the mirror is fixed at module load. win32 mirrors by COPY and POSIX by SYMLINK, so
+// "the file is there" is trivially true on POSIX; the mode is asserted per platform and the checker is
+// then actually run from the mirror with process.execPath.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('lane 39: the mirrored notion-writing skill carries a runnable page-lint.mjs (copy on win32, symlink on POSIX)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-notion-writing-'));
+  execFileSync(process.execPath, [MIRROR], { encoding: 'utf8', env: fakeCodexEnv(home) });
+
+  const mirrored = path.join(home, '.agents', 'skills', 'notion-writing');
+  const isLink = fs.lstatSync(mirrored).isSymbolicLink();
+  if (process.platform === 'win32') {
+    assert.equal(isLink, false, 'on win32 the mirror copies');
+    const manifest = JSON.parse(fs.readFileSync(path.join(home, '.agents', 'skills', '.mirror-manifest.json'), 'utf8'));
+    const entry = manifest.managed.find((m) => m.name === 'notion-writing');
+    assert.equal(entry.mode, 'copy');
+    assert.ok(entry.files.includes('scripts/page-lint.mjs'), 'the manifest lists the copied checker');
+    assert.deepEqual(entry.files.filter((f) => /\.test\.mjs$/.test(f)), []);
+  } else {
+    assert.equal(isLink, true, 'on POSIX the mirror symlinks');
+  }
+
+  const lint = path.join(mirrored, 'scripts', 'page-lint.mjs');
+  assert.ok(fs.existsSync(lint), `${lint} must exist in the mirror`);
+  assert.ok(fs.existsSync(path.join(mirrored, 'scripts', 'mask-fixture.mjs')));
+  // The test-file exclusion (SKILL_FILE_EXCLUDE) lives in listFiles, which only the copy mode uses. A POSIX symlink
+  // exposes the whole skill dir, test files included, by design.
+  if (process.platform === 'win32') {
+    assert.equal(fs.existsSync(path.join(mirrored, 'scripts', 'page-lint.test.mjs')), false, 'test files are never copied');
+  } else {
+    assert.equal(fs.realpathSync(mirrored), fs.realpathSync(path.join(REPO, 'skills', 'notion-writing')), 'the symlink points at the repo skill');
+  }
+
+  const fixture = path.join(mirrored, 'scripts', 'fixtures', 'handoff-brief.skeleton.md');
+  assert.ok(fs.existsSync(fixture), 'the skeleton fixtures travel with the skill');
+  const run = (args) => spawnSync(process.execPath, [lint, ...args], { encoding: 'utf8', env: fakeCodexEnv(home) });
+  const bad = run([fixture, '--kind', 'handoff']);
+  assert.equal(bad.status, 2, bad.stderr);
+  assert.match(bad.stderr, /^page-lint: toggle-tail /m);
+  const clean = run([path.join(mirrored, 'scripts', 'fixtures', 'render-decisions.skeleton.md'), '--kind', 'plain']);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.equal(clean.stdout, 'page-lint: clean (plain)\n');
+
+  // The decisions skill imports the checker as a sibling (../../notion-writing/scripts/page-lint.mjs);
+  // that path must resolve inside the mirror too. With no --repo the render refuses at once, which it
+  // can only do after its imports loaded.
+  const render = spawnSync(process.execPath, [path.join(home, '.agents', 'skills', 'decisions', 'scripts', 'decisions-render.mjs'), 'render'], {
+    encoding: 'utf8', env: fakeCodexEnv(home),
+  });
+  assert.equal(render.status, 2, render.stderr);
+  assert.match(render.stderr, /render requires --repo/);
 });

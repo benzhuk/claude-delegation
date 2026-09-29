@@ -4,10 +4,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import {
   publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture,
 } from './decisions-render-publish.mjs';
-import { normalize } from './decisions-render-core.mjs';
+import { normalize, RefusedError } from './decisions-render-core.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { run } from './decisions-render.mjs';
 
@@ -1083,4 +1085,96 @@ test('publish --clear-done: the accepted round\'s commit adds session.md alongsi
   assert.equal(result.code, 0);
   assert.ok(calls.some((c) => c[0] === 'add' && c.includes('docs/decisions/session.md')));
   assert.match(fsMap.get(p('docs', 'decisions', 'session.md')), /^since: 2026-09-27T19:05:00Z/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 39: the render's page-lint call covers publish. publish() hands render() no kill-switch
+// path, so these tests point HOME at an empty temp dir for their duration, the way the sealed
+// runner does, and a machine's real ~/.agents/no-page-lint can never make them pass or fail.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PLANTED_SESSION = 'since: 2026-09-27T18:16:00Z\n- The collector runs on Netcup every 15 minutes.\n- Written by Claude Code';
+
+async function withEmptyHome(fn) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-lint-home-'));
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+}
+
+function plantedPublish(extra = {}) {
+  const files = baseFiles({
+    [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT,
+    [p('docs', 'decisions', 'session.md')]: PLANTED_SESSION,
+  });
+  let replaceCalls = 0;
+  const built = baseDeps({
+    files,
+    readPage: async () => PAGE_NO_INPUT,
+    replaceMd: async () => { replaceCalls += 1; },
+    ...extra,
+  });
+  return { ...built, replaceCount: () => replaceCalls };
+}
+
+test('page-lint: publish with a planted byline is refused before any Notion write', async () => {
+  await withEmptyHome(async () => {
+    const { deps, replaceCount } = plantedPublish();
+    await assert.rejects(
+      publish({ repo: REPO, page: 'PAGE' }, deps),
+      (e) => e instanceof RefusedError && /page-lint: no-byline composed-page:\d+/.test(e.message),
+    );
+    assert.equal(replaceCount(), 0, 'replaceMd must never be called');
+  });
+});
+
+test('page-lint: publish --dry-run with a planted byline is refused too, and prints no page', async () => {
+  await withEmptyHome(async () => {
+    const { deps, replaceCount } = plantedPublish();
+    const printed = [];
+    deps.write = (s) => printed.push(s);
+    await assert.rejects(
+      publish({ repo: REPO, page: 'PAGE', dryRun: true }, deps),
+      (e) => e instanceof RefusedError && /no-byline/.test(e.message),
+    );
+    assert.equal(replaceCount(), 0);
+    assert.equal(printed.join(''), '');
+  });
+});
+
+test('page-lint: CLI run() publish --dry-run exits 2 naming no-byline', async () => {
+  await withEmptyHome(async () => {
+    const { deps } = plantedPublish();
+    const err = [];
+    const code = await run({
+      argv: ['publish', '--repo', REPO, '--page', 'PAGE', '--dry-run'], write: () => {}, writeErr: (s) => err.push(s), deps,
+    });
+    assert.equal(code, 2);
+    assert.match(err.join(''), /page-lint: no-byline composed-page:/);
+  });
+});
+
+test('page-lint: the same publish with the kill switch present goes through and logs the skip', async () => {
+  await withEmptyHome(async () => {
+    fs.mkdirSync(path.join(os.homedir(), '.agents'), { recursive: true });
+    fs.writeFileSync(path.join(os.homedir(), '.agents', 'no-page-lint'), '');
+    const { deps, replaceCount } = plantedPublish();
+    const stderr = process.stderr.write.bind(process.stderr);
+    const seen = [];
+    process.stderr.write = (s, ...rest) => { seen.push(String(s)); return typeof rest[rest.length - 1] === 'function' ? rest[rest.length - 1]() : true; };
+    try {
+      await publish({ repo: REPO, page: 'PAGE', dryRun: true }, deps);
+    } finally {
+      process.stderr.write = stderr;
+    }
+    assert.equal(replaceCount(), 0);
+    assert.ok(seen.some((l) => /page-lint skipped, kill switch/.test(l)), seen.join(''));
+  });
 });

@@ -938,6 +938,8 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
   const mirroredMultiDir = path.join(home, '.agents', 'skills', 'multi');
   fs.mkdirSync(mirroredMultiDir, { recursive: true });
   fs.cpSync(path.join(HERE, '..', '..', 'multi'), mirroredMultiDir, { recursive: true });
+  // decisions-render-core imports the sibling notion-writing skill (page-lint), as the real mirror lays it out.
+  fs.cpSync(path.join(HERE, "..", "..", "notion-writing"), path.join(home, ".agents", "skills", "notion-writing"), { recursive: true });
   const mirroredScript = path.join(mirroredSkillDir, 'scripts', 'decisions-handback.mjs');
   const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents') });
   // `unconfigured` has no decisions_url, so the title-meta page-match constraint never fires;
