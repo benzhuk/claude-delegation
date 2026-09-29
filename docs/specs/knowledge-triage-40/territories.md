@@ -10,3 +10,5 @@ No hooks, janitor, work-record or remote configuration edits. No task install, e
 One mid-tier scout surveys all territories before any territory checkout exists. One implementation builder keeps gather/runner coordination in one territory. Each new source/test file remains below 800 lines.
 
 Measure: fewer lost/stalled knowledge notes; report processing/arrival counts, tokens and pending counts without claiming overall DONE. No new scheduler, host registry, sync service or judgment rubric.
+
+Root extension September29,2026: T2 additionally owns scripts/knowledge-gather.test-fixtures.mjs for extraction of existing reusable fixture machinery only. Assertions remain in tests and explicit childEnv remains visible.
