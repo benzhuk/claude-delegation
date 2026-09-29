@@ -154,17 +154,16 @@ function assertCoverage(inventory, nativeRoutes, unsupportedRows) {
   }
 }
 
-test('actual manifests derive complete bidirectional native coverage with only the reasoned Interrupt exception', () => {
-  const claudeManifest = readJson(CLAUDE_MANIFEST);
-  const codexManifest = readJson(CODEX_MANIFEST);
-  const { claude: inventory, codex, routes: nativeRoutes, coveredCodex } = pairedRoutes(claudeManifest, codexManifest, NATIVE_ROUTES);
-  const unsupportedDoc = readJson(UNSUPPORTED);
+const INTERRUPT_ONLY_REASON = 'Codex has an Interrupt event, Claude Code has none.';
+
+function assertManifestParity(claudeManifest, codexManifest, unsupportedDoc, nativeRoutes = NATIVE_ROUTES) {
+  const { claude: inventory, codex, routes: derivedRoutes, coveredCodex } = pairedRoutes(claudeManifest, codexManifest, nativeRoutes);
   assert.deepEqual(Object.keys(unsupportedDoc).sort(), ['unsupported']);
   assert.ok(Array.isArray(unsupportedDoc.unsupported));
-  assertCoverage(inventory, nativeRoutes, unsupportedDoc.unsupported);
+  assertCoverage(inventory, derivedRoutes, unsupportedDoc.unsupported);
 
   for (const pair of inventory) {
-    const route = nativeRoutes.get(key(pair));
+    const route = derivedRoutes.get(key(pair));
     if (route === 'PreToolUse') {
       assert.ok(nativeCommands(route).some((command) => command.includes('delete-guard.mjs')), 'delete guard must be native PreToolUse');
     } else if (route) {
@@ -173,29 +172,25 @@ test('actual manifests derive complete bidirectional native coverage with only t
   }
   for (const pair of codex) {
     if (coveredCodex.has(key(pair))) continue;
-    assert.deepEqual(pair, { script: 'hooks/multi-codex-hook.mjs', event: 'Interrupt' }, 'only reasoned Codex-only Interrupt may lack a Claude pair');
+    assert.deepEqual(pair, { script: 'hooks/multi-codex-hook.mjs', event: 'Interrupt' }, `Codex-only allowance: ${INTERRUPT_ONLY_REASON}`);
   }
   assert.ok(nativeCommands('Interrupt', codexManifest).some((command) => command.includes('multi-codex-hook.mjs')), 'Codex-only Interrupt remains permitted');
+}
+
+test('actual manifests derive complete bidirectional native coverage with only the reasoned Interrupt exception', () => {
+  assertManifestParity(readJson(CLAUDE_MANIFEST), readJson(CODEX_MANIFEST), readJson(UNSUPPORTED));
 });
 
 test('the same manifest-derived validator rejects fake Claude and Codex wrapper events', () => {
   const claudeManifest = readJson(CLAUDE_MANIFEST);
   const codexManifest = readJson(CODEX_MANIFEST);
-  const unsupported = readJson(UNSUPPORTED).unsupported;
+  const unsupportedDoc = readJson(UNSUPPORTED);
   const fakeClaude = structuredClone(claudeManifest);
   fakeClaude.hooks.FakeClaude = [{ hooks: [{ command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/fake-l49.mjs"' }] }];
   const fakeCodex = structuredClone(codexManifest);
   fakeCodex.hooks.FakeCodex = [{ hooks: [{ command: 'node "${PLUGIN_ROOT}/hooks/multi-codex-hook.mjs"' }] }];
-  const validate = (claude, codex) => {
-    const built = pairedRoutes(claude, codex, NATIVE_ROUTES);
-    assertCoverage(built.claude, built.routes, unsupported);
-    for (const pair of built.codex) {
-      if (built.coveredCodex.has(key(pair))) continue;
-      assert.deepEqual(pair, { script: 'hooks/multi-codex-hook.mjs', event: 'Interrupt' }, 'only reasoned Codex-only Interrupt may lack a Claude pair');
-    }
-  };
-  assert.throws(() => validate(fakeClaude, codexManifest), /coverage must be exactly one/);
-  assert.throws(() => validate(claudeManifest, fakeCodex), /NATIVE_ROUTES\.FakeCodex|only reasoned Codex-only Interrupt/);
+  assert.throws(() => assertManifestParity(fakeClaude, codexManifest, unsupportedDoc), /coverage must be exactly one/);
+  assert.throws(() => assertManifestParity(claudeManifest, fakeCodex, unsupportedDoc), /NATIVE_ROUTES\.FakeCodex|Codex-only allowance: Codex has an Interrupt event, Claude Code has none\./);
 });
 
 test('native wrapper emits SessionStart wiring plus backlog prompt/post/stop output without erasing peer or continuation context', async (t) => {
