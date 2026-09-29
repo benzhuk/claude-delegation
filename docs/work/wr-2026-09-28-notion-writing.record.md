@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-notion-writing
 Scope: docs/specs/2026-09-28-notion-writing.md (this branch), from skills-fable-lane-39-1
 Owner: skills-o
-Status: owned
+Status: reviewed
 Authority: skills-fable ASK skills-fable-lane-39-1: spec, red-team, build, review, second-host suite, merge, publish
 Artifact: build/notion-writing-1
 Worktree: build/notion-writing-1
