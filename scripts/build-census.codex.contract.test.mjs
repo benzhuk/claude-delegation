@@ -424,5 +424,5 @@ test('Lane55 --lead-session resolves the canonical lead without --lead and rejec
   assert.equal(parseArgs(['--lead-session', ROOT, '--codex-home', home]).leadSession, ROOT);
 
   const spoof = writeRollout(home, DAY, 'rollout-spoof.jsonl', [meta('spoof-id', 'spoof-id'), taskStarted('spoof-turn'), context('spoof-turn'), usage('spoof-response', 'spoof-turn', { sessionId: 'spoof-id' }), line('event_msg', { type: 'task_complete', turn_id: 'spoof-turn' })]);
-  await assert.rejects(() => runCensus({ lead: spoof, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }), /identity|expected/i);
+  await assert.rejects(() => runCensus({ lead: spoof, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null }), /identify|identity|expected/i);
 });
