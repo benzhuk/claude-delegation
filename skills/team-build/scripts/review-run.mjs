@@ -234,7 +234,7 @@ export function buildArgv({ model, effort, tools, sessionId, agentsPath, permiss
   // pre-approves regardless of permission mode (auto's classifier is skipped for anything an
   // allow rule already covers), so a bare "Write" token is a standing escape under either mode.
   // The report path is the only Write the child is ever granted, scoped exactly to it.
-  const writeRule = reportPath ? [`Write(/${reportPath.replace(/\\/g, '/')})`] : [];
+  const writeRule = reportPath ? [`Write(${reportPath.replace(/\\/g, '/')})`] : [];
   // Same reasoning for Bash: a bare "Bash" token pre-approves every command an allow rule
   // matches, which is ALL of them — that is what let `auto`'s classifier get skipped entirely
   // under the old argv (this blocker's root cause), and what made dontAsk's tool-wide allow a

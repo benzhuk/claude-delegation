@@ -737,6 +737,11 @@ test('finding 1(a)/(b)/1(c): the spawn-boundary argv never grants a tool-wide Wr
   assert.ok(!allowed.includes('Write'), '--allowedTools must never carry a bare, tool-wide Write');
   assert.ok(!allowed.includes('Bash'), '--allowedTools must never carry a bare, tool-wide Bash');
   assert.ok(allowed.some((r) => r.startsWith('Write(') && r.includes('/abs/out/report.md')), 'the Write rule must be scoped to exactly the report path');
+  // Live probe (build-r1, item 2/P5): a `Write(//abs/out/report.md)` double-leading-slash rule
+  // (an extra "/" prepended to an already-absolute reportPath) is NOT honored under `dontAsk`
+  // and the report write is silently denied — this exact single-slash form is the one a real
+  // `claude -p` run was confirmed (live) to honor for writing the report.
+  assert.ok(allowed.includes('Write(/abs/out/report.md)'), 'the Write rule must be the single-leading-slash form, not a doubled "//" prefix');
   const disallowed = argv[argv.indexOf('--disallowedTools') + 1];
   assert.ok(disallowed.includes('Bash(git -C:*)'), 'git -C must be disallowed (finding 1(b))');
   assert.ok(disallowed.includes('Bash(git -c:*)'));
