@@ -210,6 +210,93 @@ test('normalize: Lane48 structural separator collapse is idempotent for an exist
   assert.equal(normalized, normalize('<details>\n</details>\nnext\n</details>'));
 });
 
+const READBACK_ESCAPES_52_FIXTURES = path.join(HERE, 'fixtures', 'readback-escapes-52');
+function lane52Fixture(name, expectedHash) {
+  const bytes = fs.readFileSync(path.join(READBACK_ESCAPES_52_FIXTURES, name));
+  assert.equal(createHash('sha256').update(bytes).digest('hex').toUpperCase(), expectedHash);
+  return bytes.toString('utf8');
+}
+const lane52Before = lane52Fixture(
+  'lane52-render-before-write.md',
+  'B448DAB8D79FC7254FD42D100D192A5790E5A7642F2B46E608ED2D8C9C9B93C8',
+);
+const lane52Live = lane52Fixture(
+  'lane52-live-after-write.md',
+  'A88FA4A5AF57B30F237038F164B3F25EBA334F220EB559D62114542FD5FCC844',
+);
+const lane52ProbeRequest = lane52Fixture(
+  'probe-request.md',
+  '117A5C0F257FD42BC6CBA3B10AEB603B07E63B2D85735BF6CE36DCFB1D35264D',
+);
+const lane52ProbeReadback = lane52Fixture(
+  'readback.md',
+  '01FCC13F70C603E1E222A23986E33C879EFE3EB1A1C0A87393A10B7FEF43A3DD',
+);
+const lane52ProbeManifest = JSON.parse(lane52Fixture(
+  'proof-manifest.json',
+  '65BDAF2BB9679B3116CC3F0B054550FA34AD9659FBDD786B4FC9E78D2DFCBCFB',
+));
+
+function alignLane52DoneMetadata(before, live) {
+  const beforeDone = /^- \[ \] Done$/m.exec(before);
+  const liveDone = /^- \[ \] Done \(last cleared: [^)]+\)$/m.exec(live);
+  assert.ok(beforeDone, 'before snapshot must contain exactly the un-cleared Done line');
+  assert.ok(liveDone, 'live snapshot must contain the cleared Done line');
+  let replacements = 0;
+  const aligned = before.replace(beforeDone[0], () => {
+    replacements += 1;
+    return liveDone[0];
+  });
+  assert.equal(replacements, 1, 'metadata alignment must replace exactly one Done line');
+  assert.match(aligned, /^- \[ \] Done \(last cleared: [^)]+\)$/m);
+  return aligned;
+}
+
+const lane52TimestampAligned = alignLane52DoneMetadata(lane52Before, lane52Live);
+
+test('normalize: Lane52 byte-pinned snapshots compare after only Done metadata alignment', () => {
+  assert.notEqual(normalize(lane52Before), normalize(lane52Live), 'raw cleared timestamp stays significant');
+  assert.equal(normalize(lane52TimestampAligned), normalize(lane52Live));
+});
+
+test('normalize: Lane52 probe request and readback compare for only the observed escape set', () => {
+  assert.deepEqual(lane52ProbeManifest.observed_escaped_characters, ['*', '[', ']', '`', '~', '>', '|', '<']);
+  assert.equal(normalize(lane52ProbeRequest), normalize(lane52ProbeReadback));
+  for (const character of lane52ProbeManifest.observed_escaped_characters) {
+    const unescaped = `A${character}B`;
+    const escaped = `A\\${character}B`;
+    assert.equal(normalize(unescaped), normalize(escaped), `escape before ${character} must compare equally in either direction`);
+    assert.equal(normalize(escaped), normalize(normalize(escaped)), `escape before ${character} must be idempotent`);
+  }
+  for (const character of ['_', '#', '-', '+', '!']) {
+    assert.notEqual(normalize(`A${character}B`), normalize(`A\\${character}B`), `unobserved escape before ${character} must remain significant`);
+  }
+});
+
+test('normalize: Lane52 substantive snapshot mutations remain unequal', () => {
+  const bulletRemoved = lane52Live.replace(/\t- \[ \] Yes, daily on this desktop, first run as soon as the lane lands \(recommended\)\r?\n/, '');
+  const tickChanged = lane52Live.replace(
+    '\t- [ ] Yes, daily on this desktop, first run as soon as the lane lands (recommended)',
+    '\t- [x] Yes, daily on this desktop, first run as soon as the lane lands (recommended)',
+  );
+  const lineMoved = lane52Live.replace(
+    /(\t- \[ \] Yes, daily on this desktop, first run as soon as the lane lands \(recommended\))\r?\n(\t- \[ \] Yes, but the first run waits until after Oct 4)/,
+    '$2\n$1',
+  );
+  const wordChanged = lane52Live.replace('The plugin now runs the whole loop by itself', 'The harness now runs the whole loop by itself');
+  const escapedStarChanged = lane52Live.replace('build/\\* branches', 'build/x branches');
+  for (const [name, mutated] of [
+    ['removed bullet', bulletRemoved],
+    ['changed checkbox tick', tickChanged],
+    ['moved substantive line', lineMoved],
+    ['changed word', wordChanged],
+    ['changed escaped-star branch', escapedStarChanged],
+  ]) {
+    assert.notEqual(mutated, lane52Live, `${name} mutation must alter the pinned live snapshot`);
+    assert.notEqual(normalize(lane52TimestampAligned), normalize(mutated), `${name} must remain visible`);
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // countSentences() — now.md's three-to-five-sentence rule
 // ─────────────────────────────────────────────────────────────────────────────
