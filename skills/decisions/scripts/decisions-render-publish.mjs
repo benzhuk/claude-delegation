@@ -113,14 +113,19 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
   if (!Number.isSafeInteger(round)) return null;
   // Lane 58 (was Review round-2 M8): ACCOUNTED is now accepted too, since there is exactly one
   // receipt (and so exactly one round) tracked per page — `st.receipt.round` above is always
-  // that round, never a stale earlier one. Following the SKILL.md order (account, then clear
-  // Done) leaves the page ACCOUNTED with Done still checked and no route able to clear it, so an
-  // ACCOUNTED capture is tagged `accounted: true` below; `publish` itself requires the fresh
-  // page's Done to still be checked before it will use one (see its own comment at the call
-  // site). NEEDS_RECONCILIATION and any legacy/unknown status still mean this round was closed
-  // out abnormally (or is broken) and must not be treated as fresh, verbatim-checked capture.
+  // that round; whether the page is still in that round's Done episode is checked separately
+  // (observedUncheckedAt here, the Done label in `publish`). Following the SKILL.md order
+  // (account, then clear Done) leaves the page ACCOUNTED with Done still checked and no route
+  // able to clear it, so an ACCOUNTED capture is tagged `accounted: true` below; `publish` itself
+  // requires the fresh page's Done to still be checked, AND its Done line to still equal this
+  // capture's, before it will use one (see its own comments at the call site). NEEDS_RECONCILIATION
+  // and any legacy/unknown status still mean this round was closed out abnormally (or is broken)
+  // and must not be treated as fresh, verbatim-checked capture.
   const acceptableStatuses = new Set(['PREPARED', 'RECORDED', 'WAITING_OWNER', 'ACCOUNTED']);
   if (!acceptableStatuses.has(st?.status)) return null;
+  // Review r1 F1: an ACCOUNTED round whose unchecked page the pickup host has already observed
+  // is over: any checked Done now is a new hand-back (round + 1), never this round's.
+  if (st.status === 'ACCOUNTED' && st.receipt.observedUncheckedAt) return null;
   let originalBuf;
   try {
     originalBuf = pickupMod.openPrivateCapture({ repo, page, round });
@@ -136,7 +141,7 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
   const tickAt = st.receipt.captureReadAt ?? st.receipt.preparedAt ?? null;
   return {
     round, tickAt, triples: ownerInputTriples(doc),
-    ...(st.status === 'ACCOUNTED' ? { accounted: true } : {}),
+    ...(st.status === 'ACCOUNTED' ? { accounted: true, doneLabel: doc.doneLabel } : {}),
   };
 }
 
@@ -458,6 +463,12 @@ export async function publish(opts, deps = {}) {
     // that produced this capture, so it must not be spent here.
     if (capture.accounted && doc.done !== true) {
       throw new PublishError(3, "clear-done: an already-accounted round requires the fresh page's Done to still be checked");
+    }
+    // Review (lane 58): Done still checked is not enough. Once that round's Done was cleared, the
+    // page carries a newer `last cleared:` stamp; a re-check (even with identical inputs) is a NEW
+    // hand-back the pickup has not captured. Only the capture's own Done line proves same episode.
+    if (capture.accounted && doc.doneLabel !== capture.doneLabel) {
+      throw new PublishError(3, `clear-done: an already-accounted round's Done line ("${capture.doneLabel}") differs from the fresh page's ("${doc.doneLabel}"): Done was cleared and re-checked since that round; run the pickup for the new round`);
     }
     const freshTriples = ownerInputTriples(doc);
     if (!multisetsEqual(freshTriples, capture.triples)) {
