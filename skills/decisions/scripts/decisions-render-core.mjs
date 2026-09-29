@@ -27,8 +27,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalisation — spec: "CRLF to LF, strip trailing whitespace per line, collapse runs of blank
 // lines to one, drop a blank separator after a structural closing `</details>`, drop one
-// trailing `<empty-block/>`; nothing else". The details exception never applies inside a fenced
-// literal. Used by every comparison in this lane (the drift check, the readback check,
+// trailing `<empty-block/>`; and, from the observed Notion readback probe, one backslash before
+// exactly `*`, `[`, `]`, backtick, `~`, `>`, `|`, or `<`; nothing else". The details exception
+// never applies inside a fenced literal. Used by every comparison in this lane (the drift check, the readback check,
 // `--adopt-live`, and every test that compares two renders) so a real edit is never hidden and a
 // cosmetic one never blocks a publish.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ export function normalize(text) {
   const lines = String(text)
     .replace(/\r\n/g, '\n')
     .split('\n')
-    .map((l) => l.replace(/[ \t]+$/, ''));
+    .map((l) => l.replace(/[ \t]+$/, '').replace(/\\([*[\]`~>|<])/g, '$1'));
   const collapsed = [];
   let prevBlank = false;
   let fence = null;
