@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-codex-clock
 Scope: docs/specs/codex-clock-56/spec.md@23031e0dad5a2b112abcbe95ab66fe460507d2f2
 Owner: skills-a
-Status: rejected
+Status: delivered
 Authority: skills-fable-lane-56-1 small test-only lane and standing merge grant, sequence corrected by skills-fable-lane-55-8. Lane56 merges before55;55 stays reviewed atcd5fecc, then rebases and reruns Windows green. No production changes or gate waiver. Root alone writes record and handles review/acceptance/merge/publication.
-Artifact: build/codex-clock-56@fb96de5fd011f2c9457c045dcc647adc7d116243
+Artifact: build/codex-clock-56@debfdec08af1811b69696fba541feff264f3830c
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-clock-56
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-clock-56
 Evidence: docs/specs/codex-clock-56/root-ruling.md, docs/specs/codex-clock-56/builder-report.md, docs/specs/codex-clock-56/gate-setup.md, docs/specs/codex-clock-56/pending-review.md, docs/specs/codex-clock-56/review-r1-adjudication.md
-Next: fix rejected outer-deadline context survival assertion, focused and three mutant proofs, same Opus delta, then three consecutive Windows sealed full runs from fresh detached reviewed candidate plus one Netcup run, acceptance/merge/history bullet/merged-tree gate/normal publish/close, then55 resumes.
+Next: same Opus delta on corrected R1 candidate, then three consecutive Windows sealed full runs from fresh detached reviewed candidate plus one Netcup run, acceptance/merge/history bullet/merged-tree gate/normal publish/close, then55 resumes.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T02:54:32Z
@@ -18,6 +18,7 @@ Log: 2026-09-29T04:14:00Z owned skills-a t0 test contract and scout committed230
 Log: 2026-09-29T04:28:00Z delivered skills-a agent-exited artifact build/codex-clock-56@e324100f23956bb35b967f0a4fc8de6357498346 mid-tier builder delivered finalsourcea742860, focused14of14 and two final-source Stop mutants each13pass1intendedfail. Root intake gaps corrected before high review. Mid-tier gate integrator returned prepared cwd-probed runners, no full suite run. Root owns integration; high review then host gates remain.
 Log: 2026-09-29T04:29:00Z delivered skills-a artifact build/codex-clock-56@fb96de5fd011f2c9457c045dcc647adc7d116243 ASK skills-a-lane-56-3 requests one Opus source review, by00:45 America/New_York. All owned agents returned, root owns integration. Gate setup ready, execution follows final reviewed candidate. External source verdict is the remaining next-stage dependency, no peer wait. Continuation epoch8FJ4tW47LadsYdYTp2Ywvsba confirmed active.
 Log: 2026-09-29T04:33:37Z rejected skills-a review-rejected Claude Opus 5.5 lane56-review NEEDS_FIXESfb96de5 via skills-fable-lane-56-3. Advisory-discard mutant passed14of14, proving lost hung-route context coverage. Root adopts exact one-hunk patch restoring immediately ready peer/advisory give-up context; mid-tier builder resumed for focused and three mutants. Raw report hash pinned, MINOR exact-delay preload and label NIT explicitly recorded. No production change or full suite yet.
+Log: 2026-09-29T04:36:24Z delivered skills-a agent-exited artifact build/codex-clock-56@debfdec08af1811b69696fba541feff264f3830c mid-tier builder applied exact R1 hunk in sourcee102555. Focused14of14; Stop-null, Stop-text-fallback and advisory-discard each13pass1intendedfail. Production unchanged, unique receipts retained, same Opus delta next. Root owns integration; native epochIeUJj-L2-9nlBHIINehckZA5 confirmed active.
 
 Measure: reduce gate false reds and full-suite reruns, moving work lost/stalled and rework after acceptance without weakening routing or deadline proof.
 
