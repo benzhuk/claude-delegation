@@ -138,7 +138,7 @@ async function run({
 // S4 required tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a malformed first line exits 2', async () => {
+test('a malformed first line exits 2', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { exitCode } = await run({ mode: 'malformed' });
   assert.equal(exitCode, EXIT.BAD_REPORT);
 });
@@ -171,7 +171,7 @@ test('W1 (lead ruling r4): a synchronous throw from spawn() (e.g. win32 EFTYPE o
   assert.ok(fs.existsSync(path.join(scratch, runDirs[0], 'stderr.txt')), 'stderr.txt must exist even on a synchronous spawn throw');
 });
 
-test('a missing report exits 2, and (m8) the inline reply is saved to reply.txt, never to --report', async () => {
+test('a missing report exits 2, and (m8) the inline reply is saved to reply.txt, never to --report', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { exitCode, scratch } = await run({ mode: 'reply-fallback' });
   assert.equal(exitCode, EXIT.BAD_REPORT);
   const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
@@ -180,12 +180,12 @@ test('a missing report exits 2, and (m8) the inline reply is saved to reply.txt,
   assert.match(reply, /inline fallback text/);
 });
 
-test('a report for a different sha exits 2', async () => {
+test('a report for a different sha exits 2', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { exitCode } = await run({ mode: 'wrong-sha' });
   assert.equal(exitCode, EXIT.BAD_REPORT);
 });
 
-test("a timeout exits 3, and the fake's process is gone (process-tree kill, M5)", async () => {
+test("a timeout exits 3, and the fake's process is gone (process-tree kill, M5)", { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const pidFile = path.join(scratchDir('review-run-pid-'), 'pid');
   const { exitCode } = await run({ mode: 'timeout', timeoutMin: 0.01, extraEnv: { FAKE_PID_FILE: pidFile } });
   assert.equal(exitCode, EXIT.TIMEOUT);
@@ -215,7 +215,7 @@ test('the recursion marker exits 6, and the fake is never started', async () => 
   assert.equal(spawned, false, 'recursion refusal must short-circuit before any spawn');
 });
 
-test('APPROVE passes through with exit 0; the verdict is in the stdout-shaped output and the sidecar', async () => {
+test('APPROVE passes through with exit 0; the verdict is in the stdout-shaped output and the sidecar', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { exitCode, output, reportPath } = await run({ mode: 'approve' });
   assert.equal(exitCode, EXIT.OK);
   assert.equal(output.verdict, 'APPROVE');
@@ -227,7 +227,7 @@ test('APPROVE passes through with exit 0; the verdict is in the stdout-shaped ou
   assert.equal(identity.claudeVersion, '0.0.0-fake', 'the init event field is claude_code_version, not claude_version (found via probe evidence)');
 });
 
-test('NEEDS_FIXES (n) also passes through with exit 0 (B1: the reviewer role\'s own contract, not the packet\'s stricter regex)', async () => {
+test('NEEDS_FIXES (n) also passes through with exit 0 (B1: the reviewer role\'s own contract, not the packet\'s stricter regex)', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { exitCode, output, reportPath } = await run({ mode: 'needs_fixes' });
   assert.equal(exitCode, EXIT.OK);
   assert.equal(output.verdict, 'NEEDS_FIXES');
@@ -235,7 +235,7 @@ test('NEEDS_FIXES (n) also passes through with exit 0 (B1: the reviewer role\'s 
   assert.equal(identity.verdict, 'NEEDS_FIXES');
 });
 
-test('B1: APPROVE with an em dash, a CRLF report, and a BOM report all pass with exit 0', async () => {
+test('B1: APPROVE with an em dash, a CRLF report, and a BOM report all pass with exit 0', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   for (const mode of ['approve-emdash', 'approve-crlf', 'approve-bom']) {
     const { exitCode, output } = await run({ mode });
     assert.equal(exitCode, EXIT.OK, `mode ${mode}`);
@@ -243,7 +243,7 @@ test('B1: APPROVE with an em dash, a CRLF report, and a BOM report all pass with
   }
 });
 
-test('B1: APPROVE with no sha exits 2', async () => {
+test('B1: APPROVE with no sha exits 2', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { exitCode } = await run({ mode: 'nosha' });
   assert.equal(exitCode, EXIT.BAD_REPORT);
 });
@@ -257,7 +257,7 @@ test('the run\'s clone directory (wt/) is removed on every path — approve, mal
   }
 });
 
-test("the child's environment carries DELEGATION_REVIEW_RUN=1 and a scratch AGENTS_HOME, and never NOTE_SLUG/ORCA_*/the messaging socket, even when the caller's env sets them all", async () => {
+test("the child's environment carries DELEGATION_REVIEW_RUN=1 and a scratch AGENTS_HOME, and never NOTE_SLUG/ORCA_*/the messaging socket, even when the caller's env sets them all", { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   let capturedEnv = null;
   let capturedArgv = null;
   const spawnSpy = (cmd, argv, opts) => { capturedEnv = opts.env; capturedArgv = argv; return spawn(cmd, argv, opts); };
@@ -296,7 +296,7 @@ test("the child's environment carries DELEGATION_REVIEW_RUN=1 and a scratch AGEN
 // cleanup/wtDir surfaced on the stdout-shaped output too, not just the sidecar.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('finding 10: the sidecar carries roleBodySha256, an absolute claudeBin, resolvedModel from the init event, and installedRoleSha256 (null when nothing is installed)', async () => {
+test('finding 10: the sidecar carries roleBodySha256, an absolute claudeBin, resolvedModel from the init event, and installedRoleSha256 (null when nothing is installed)', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const claudeBin = writeFakeClaude(scratchDir('review-run-f10-claude-'));
   const pluginRoot = makePluginRoot();
   const expectedBody = parseRoleFile(fs.readFileSync(path.join(pluginRoot, 'agents', 'reviewer.md'))).body;
@@ -309,7 +309,7 @@ test('finding 10: the sidecar carries roleBodySha256, an absolute claudeBin, res
   assert.equal(identity.installedRoleSha256, null, 'no installed_plugins.json exists in this fixture HOME');
 });
 
-test('finding 10: installedRoleSha256 is computed independently of roleSource — a --plugin-root flag run still reports what is actually installed', async () => {
+test('finding 10: installedRoleSha256 is computed independently of roleSource — a --plugin-root flag run still reports what is actually installed', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const home = scratchDir('review-run-f10-home-');
   fs.mkdirSync(path.join(home, '.claude', 'plugins'), { recursive: true });
   const installedRoot = makePluginRoot(); // a DIFFERENT plugin root than the one used via --plugin-root below
@@ -325,13 +325,13 @@ test('finding 10: installedRoleSha256 is computed independently of roleSource �
   assert.equal(identity.installedRoleSha256, expectedInstalledSha, 'installedRoleSha256 must reflect the actually-installed entry, even when a different source was used to run');
 });
 
-test('finding 10: a failed cleanup is surfaced on the stdout-shaped output too (cleanup + wtDir), not just the sidecar', async () => {
+test('finding 10: a failed cleanup is surfaced on the stdout-shaped output too (cleanup + wtDir), not just the sidecar', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const { output } = await run({ mode: 'approve' });
   assert.equal(output.cleanup, 'ok', 'the ordinary success path must report cleanup:"ok" on stdout');
   assert.equal(output.wtDir, undefined, 'wtDir must only appear on stdout when cleanup failed');
 });
 
-test('the role passed to the child is byte-derived from the resolved reviewer.md: its sha256 is in the sidecar', async () => {
+test('the role passed to the child is byte-derived from the resolved reviewer.md: its sha256 is in the sidecar', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const pluginRoot = makePluginRoot();
   const roleBytes = fs.readFileSync(path.join(pluginRoot, 'agents', 'reviewer.md'));
   const expected = sha256Hex(roleBytes);
@@ -426,7 +426,7 @@ test('finding 4: a relative --scratch is resolved against the CLI process cwd, n
   }
 });
 
-test('finding 4: a run given a relative --scratch never writes anything into the reviewed repo (git status stays clean), and still succeeds', async () => {
+test('finding 4: a run given a relative --scratch never writes anything into the reviewed repo (git status stays clean), and still succeeds', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const scratchParent = scratchDir('review-run-relscratch-run-');
   const workDir = path.join(scratchParent, 'work');
   fs.mkdirSync(workDir, { recursive: true });
@@ -595,7 +595,7 @@ test('N1 (ruling r3): the sweep prints one line naming a stale run it left in pl
   assert.match(captured, new RegExp(runDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the printed line must name the run dir it left in place');
 });
 
-test('finding 6: owner.json is rewritten with the real childPid and timeoutMin right after spawn', async () => {
+test('finding 6: owner.json is rewritten with the real childPid and timeoutMin right after spawn', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const pidFile = path.join(scratchDir('review-run-childpid-'), 'pid');
   const { scratch } = await run({ mode: 'timeout', timeoutMin: 0.05, extraEnv: { FAKE_PID_FILE: pidFile } });
   const runDirs = fs.readdirSync(scratch).filter((d) => d.startsWith('review-run-'));
@@ -713,7 +713,7 @@ test('finding 7: isProcessAlive treats EPERM (a process owned by another user) a
 // the mutation (from the review's own 15-mutation table) it must kill.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('finding 5 (kills M4/M5/M6): the real spawn-boundary argv is byte-identical to buildArgv\'s own output, and agents.json is byte-identical to buildAgentsJson(parseRoleFile(roleBytes))', async () => {
+test('finding 5 (kills M4/M5/M6): the real spawn-boundary argv is byte-identical to buildArgv\'s own output, and agents.json is byte-identical to buildAgentsJson(parseRoleFile(roleBytes))', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   let capturedArgv = null;
   let capturedCwd = null;
   const spawnSpy = (cmd, argv, opts) => { capturedArgv = argv; capturedCwd = opts.cwd; return spawn(cmd, argv, opts); };
@@ -799,7 +799,7 @@ test('finding 5 (kills M11): a gitRunner that throws on checkout, after a real c
 
 // N5: SIGTERM without killTree makes this file HANG (not fail) rather than fail — a 30s test
 // timeout turns a future regression into a fail in 30s instead of a stalled CI run.
-test('finding 5 (kills M13): SIGTERM to review-run itself actually kills the fake\'s real OS process, not just its own child handle', { timeout: 30_000 }, async () => {
+test('finding 5 (kills M13): SIGTERM to review-run itself actually kills the fake\'s real OS process, not just its own child handle', { timeout: 30_000, skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const scratch = scratchDir('review-run-scratch-sigterm2-');
   const outDir = scratchDir('review-run-out-sigterm2-');
   const claudeBin = writeFakeClaude(scratchDir('review-run-claude-sigterm2-'));
@@ -832,7 +832,7 @@ test('finding 5 (kills M13): SIGTERM to review-run itself actually kills the fak
   assert.equal(alive, false, 'the fake\'s real OS process must be gone, not just review-run\'s own handle to it');
 });
 
-test('finding 5: cleanup never follows a symlink inside wt/ out to a canary file elsewhere', async () => {
+test('finding 5: cleanup never follows a symlink inside wt/ out to a canary file elsewhere', { skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const canaryDir = scratchDir('review-run-canary-');
   fs.writeFileSync(path.join(canaryDir, 'canary.txt'), 'must survive');
   const claudeBin = writeFakeClaude(scratchDir('review-run-symcleanup-claude-'));
@@ -1096,7 +1096,7 @@ test('m5: review-run.mjs imports only node: builtins', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // N5: same reasoning as the M13 test above — a 30s cap turns a hang into a fail.
-test('M5: SIGTERM to review-run while the fake is running exits with the timeout code and the clone dir is gone', { timeout: 30_000 }, async () => {
+test('M5: SIGTERM to review-run while the fake is running exits with the timeout code and the clone dir is gone', { timeout: 30_000, skip: process.platform === 'win32' && 'no spawnable fake claude on win32; covered by the live Windows probe' }, async () => {
   const scratch = scratchDir('review-run-scratch-sigterm-');
   const outDir = scratchDir('review-run-out-sigterm-');
   const claudeBin = writeFakeClaude(scratchDir('review-run-claude-sigterm-'));
