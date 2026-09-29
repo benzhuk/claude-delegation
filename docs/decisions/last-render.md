@@ -1,39 +1,10 @@
 # Waiting on you now
 <details>
-<summary>**Janitor reclaims the safe class daily, every host**</summary>
-	You asked twice yesterday that sessions stop asking you to delete things. Today the janitor runs daily on every host in record mode: its 6:01 AM run on this desktop listed 16 worktrees and 18 branches as safe to remove and removed none. The sweep you ticked removes them once. This item switches the daily run to act on the safe class every day: merged branches and clean worktrees of finished lanes, each deletion listed in the run record with its name and tip so it can be restored. The judgment class stays listed and untouched, and every run still reports drift.
-	- [ ] Yes, reclaim the safe class daily on every host (recommended)
-	- [ ] Hold, record only
-	No default: nothing is deleted unattended without your tick
-	<empty-block/>
-</details>
-<details>
-<summary>**Temp deletes without prompts: one allowlisted deleter**</summary>
-	Every session that runs rm hits your permission prompt, because rm is ask-first and the delete guard denies it to subagents. Making rm itself prompt-free is not safe. The fix is one deleter script in the plugin that deletes only inside known classes: session scratchpads, the plugin's temp folders under the OS temp directory, finished lane worktrees, and merged branches. It refuses any other path and lists what it removed. One allow line in each machine's local Claude settings names that script, so every session and subagent calls it without a prompt while rm stays gated. Sessions then stop asking you to delete.
-	- [ ] Yes, build the deleter and add the allow line on all four machines (recommended)
-	- [ ] Hold
-	No default: sessions keep asking until you tick
-	<empty-block/>
-</details>
-<details>
-<summary>**Knowledge triage, rev 4 per your 9/29 note**</summary>
-	You said: daily, on notes from all machines together in one session, and why Sonnet rather than Opus. You are right that triage is judgment, so rev 4 is Opus. Cost is about five times the Sonnet run, still far below one build, and every run reports its tokens.
-	What lane 40 now builds: a daily task on this desktop that first gathers the inbox notes from Netcup, Hetzner and the Mac over the tailnet (a host that is asleep or unreachable is skipped and named in the run record), triages the union in one Opus session capped at 60 notes and 60 minutes, archives each processed note on the host it came from, and commits the curated files to the dotfiles repo once, with the skill's credential check on.
-	Still true from rev 3: the run counts as you asking, the task runs only while you are logged on, a stuck lock is yours to clear with the two commands in the ATTENTION file, and the first run confounds the Oct 4 read-count check from lane 18.
-	The lane builds now on your note. The install on this desktop waits for your tick here.
-	- [ ] Yes, install when it lands, first run right away (recommended)
-	- [ ] Yes, but the first run waits until after Oct 4
-	- [ ] Hold
-	No default: installs take your word per item
-	<empty-block/>
-</details>
-<details>
-<summary>**Lead coordination: the Fable pane's cost, your call**</summary>
-	The 9/28 bearings kept the Fable pane as lead on one condition: its daily cost must not rise. It rose. In the 24 hours to 3 PM on 9/29 the pane used 72.7M tokens against a 65M bound, 91 turns, 47 percent of the tokens in turns that a peer note woke. The 9/29 bearings says the reason is not the pane but the loop: seventeen lanes merged in a day and none installed, so the change that removes most of those wakes (a Codex lead running its own Opus review, lane 53) runs nowhere yet. It is in 0.20.18, which you ticked today.
-	- [ ] Keep the Fable pane as lead through one 24-hour census after 0.20.18 is installed here, then decide on that reading (recommended)
-	- [ ] Move day-to-day coordination to an Opus pane now, Fable only for bearings and rulings
-	- [ ] Hold
-	No default: the pane keeps leading until you tick
+<summary>**Secret guard: 236 refusals on this desktop, most of them read-only greps**</summary>
+	The secret guard is doing its job on real secret paths, but it also refuses ordinary read-only commands whose text merely resembles one: today it stopped skills-a mid-scout on a grep for argv, and it keeps no log of what it refused, so nobody sees the cost. Count on this desktop: 236 refusals across 108 transcripts. Each one stalls a lane until a lead rewords the command. Proposed: a narrow lane that adds a denial log (command text only, never file contents), then tightens the two noisiest patterns against that log, with a red-team review so nothing real gets through. The guard stays on throughout.
+	- [ ] Yes, open the guard lane after the sweep (recommended)
+	- [ ] Hold, live with the refusals
+	No default: the guard stays as it is until you tick
 	<empty-block/>
 </details>
 <details>
@@ -71,5 +42,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Sep 29, 2026, 3:57 PM America/New_York)
+- [ ] Done (last cleared: Sep 29, 2026, 5:15 PM America/New_York)
 <empty-block/>

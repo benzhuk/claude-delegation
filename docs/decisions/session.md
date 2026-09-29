@@ -1,4 +1,4 @@
-since: 2026-09-29T19:55:27.574Z
+since: 2026-09-29T21:15:33.113Z
 - Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
 - Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
 - Bearings 9/29 said RE-PLAN: we merged seventeen lanes and installed none. No new lane opens until one 24-hour census has read 0.20.18. Two items below ask for your call.
