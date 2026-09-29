@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-clear-done-accounted
 Scope: the spec section of this record (lane 58), from skills-fable-decisions-pickup-legacy-1 (its option: a lane that lets publish clear the page), read at 1090978
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/clear-done-accounted-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; after the merge, run publish --clear-done once for the live page 3e1da11277a18174bccfea187d5c3972 from Netcup; no install, no release
 Next: accept pinned at 59b6222, merge into main, close, then publish --clear-done once for the live page from Netcup
 Artifact: 59b6222d6fc80960e451d003f6bf22272f9ea49c
@@ -68,6 +68,8 @@ Four numbers: Hours ask to accepted: 0.4h; largest gap 5.1min at 2026-09-29T19:3
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-29T19:51:38.000Z accepted skills-n artifact 59b6222d6fc80960e451d003f6bf22272f9ea49c
+Log: 2026-09-29T19:52:42.000Z merged skills-n d3f905c383113b27ef0ac617993adab663e3ad62 into main (suite 3035 tests, 3030 pass, 0 fail); history bullet in docs/decisions/history/2026-09-29.md
+Log: 2026-09-29T19:52:42.000Z closed skills-n merge d3f905c383113b27ef0ac617993adab663e3ad62
 
 Observed: publish --clear-done now clears a page whose latest pickup round is ACCOUNTED, when Done is still checked and the fresh owner inputs equal that round's capture. It still refuses a cleared page, a same-input recheck after a clear, different inputs, and NEEDS_RECONCILIATION, UNKNOWN or legacy rounds. Three review rounds: a MAJOR hole (a stale capture clearing a recheck) and two vacuous tests, both fixed and re-measured. Full suite 3030 pass, 0 fail.
 Predicts: the live decisions page, stuck since round 5 was accounted on 9/29, clears with one publish --clear-done from Netcup after the merge, and future rounds clear in either order around account.
