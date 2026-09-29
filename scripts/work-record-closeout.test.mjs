@@ -1667,6 +1667,12 @@ test("closeoutRecord: R4-5 - a failed git ls-remote on the absent path refuses U
 test("sweepOrigin and closeoutRecord never let an inherited GIT_DIR redirect their git calls at a different repo", () => {
   const envA = fixtureEnv();
   const { repo: repoA } = buildRepo(envA);
+  const dropTracking = (repo, env, b) => git(["update-ref", "-d", `refs/remotes/origin/${b}`], repo, env);
+  // A fast-forwarded branch: its tip sits on main's first parent under every later merge, so
+  // tipBehindMergeCommit must keep it - a leaked `merge-base <tip> <p1>` would call it deletable.
+  const ffBranch = "build/gitdir-leak-ff-1";
+  cutBranch(repoA, envA, ffBranch);
+  git(["merge", "--ff-only", "-q", ffBranch], repoA, envA);
   // A deletable branch for sweepOrigin: merged via --no-ff, safe by every evaluateOriginBranch check.
   const sweepBranch = "build/gitdir-leak-sweep-1";
   const { tip: sweepTip } = cutBranch(repoA, envA, sweepBranch);
@@ -1676,49 +1682,65 @@ test("sweepOrigin and closeoutRecord never let an inherited GIT_DIR redirect the
   const { wt: closeWt, tip: closeTip } = cutBranch(repoA, envA, closeBranch);
   mergeNoFF(repoA, envA, closeBranch);
   pushMain(repoA, envA);
-  pushBranch(repoA, envA, sweepBranch);
-  pushBranch(repoA, envA, closeBranch);
+  for (const b of [ffBranch, sweepBranch, closeBranch]) pushBranch(repoA, envA, b);
+  // Only a fetch of A's OWN origin can bring these tracking refs back; a fetch leaked to B leaves
+  // them missing, and both verdicts below turn into keep/refused.
+  dropTracking(repoA, envA, sweepBranch);
+  dropTracking(repoA, envA, closeBranch);
   const { scratchPath, by } = mkScratchFixture();
   const recordRel = writeClosedRecord(repoA, {
     work: "wr-2026-09-28-gitdir-leak-close", worktree: closeBranch, artifact: `${closeBranch}@${closeTip}`, leadSession: by, scratch: scratchPath,
   });
 
-  // A wholly separate repo B, with its own local bare origin and one branch that must survive
-  // untouched - never merged into B's main, so it would never be an eligible delete/close target
-  // even if a leaked GIT_DIR did redirect a call at B.
+  // Repo B, with its own bare origin carrying SAME-NAMED branches at different tips: a leaked
+  // ls-remote sees them present, and a leaked delete that ever lost its lease would remove them.
+  // B's own tracking refs are all dropped: a leaked for-each-ref then lists nothing, and a fetch
+  // leaked into B recreates them.
   const envB = fixtureEnv();
   const { repo: repoB, origin: originB } = buildRepo(envB);
   const branchB = "build/gitdir-leak-b-1";
-  cutBranch(repoB, envB, branchB);
-  pushBranch(repoB, envB, branchB);
-  const beforeB = git(["for-each-ref"], originB, envB);
+  for (const b of [sweepBranch, closeBranch, branchB]) {
+    cutBranch(repoB, envB, b, { worktree: false });
+    pushBranch(repoB, envB, b);
+    dropTracking(repoB, envB, b);
+  }
+  const beforeOriginB = git(["for-each-ref"], originB, envB);
+  const beforeRepoB = git(["for-each-ref"], repoB, envB);
 
   const hadGitDir = Object.prototype.hasOwnProperty.call(process.env, "GIT_DIR");
   const prevGitDir = process.env.GIT_DIR;
   let sweepResult;
   let closeResult;
+  let rerunResult;
   try {
     process.env.GIT_DIR = path.join(repoB, ".git");
     sweepResult = sweepOrigin({ repoRoot: repoA, apply: true, exclude: closeBranch });
+    // sweepOrigin's own fetch just restored this tracking ref: drop it again, so closeoutRecord's
+    // fetch is the only thing that can bring it back.
+    dropTracking(repoA, envA, closeBranch);
     closeResult = closeoutRecord({ repoRoot: repoA, recordPath: recordRel, closeoutBy: by });
+    // Re-run: the branch is gone from A's origin, so this one goes through the ls-remote check.
+    rerunResult = closeoutRecord({ repoRoot: repoA, recordPath: recordRel, closeoutBy: by });
   } finally {
     if (hadGitDir) process.env.GIT_DIR = prevGitDir;
     else delete process.env.GIT_DIR;
   }
 
-  // Repo A's own effect: both branches actually left A's origin.
+  // Repo A's own effect: both branches actually left A's origin; the fast-forwarded one stayed.
   assert.ok(sweepResult.applied.some((a) => a.name === sweepBranch && a.tip === sweepTip && a.ok === true), `sweepOrigin must have deleted ${sweepBranch} on A's own origin`);
   assert.equal(git(["ls-remote", "--heads", "origin", sweepBranch], repoA, envA).trim(), "");
+  assert.notEqual(git(["ls-remote", "--heads", "origin", ffBranch], repoA, envA).trim(), "", `${ffBranch} was fast-forwarded and must be kept`);
   const closeSteps = stepsOf(closeResult);
   assert.equal(closeSteps["origin-branch"].result, "removed");
   assert.equal(closeSteps["origin-branch"].sha, closeTip);
   assert.equal(git(["ls-remote", "--heads", "origin", closeBranch], repoA, envA).trim(), "");
   assert.equal(fs.existsSync(closeWt), false);
+  assert.equal(stepsOf(rerunResult)["origin-branch"].result, "absent");
 
-  // Repo B's proof: its bare origin's own ref set is byte-identical before and after - nothing
-  // from either call above ever reached it, even though GIT_DIR pointed straight at it throughout.
-  const afterB = git(["for-each-ref"], originB, envB);
-  assert.equal(afterB, beforeB, "repo B's origin refs must be untouched by calls whose repoRoot/cwd was repo A");
+  // Repo B's proof: neither its bare origin nor its own refs moved, even though GIT_DIR pointed
+  // straight at it throughout.
+  assert.equal(git(["for-each-ref"], originB, envB), beforeOriginB, "repo B's origin refs must be untouched");
+  assert.equal(git(["for-each-ref"], repoB, envB), beforeRepoB, "repo B's own refs must be untouched (no leaked fetch)");
 });
 
 after(() => {
