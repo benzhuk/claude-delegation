@@ -587,6 +587,47 @@ test('review finding 14: a previously-managed reclaim shim entry survives manife
   assert.ok(carried, `the reclaim entry must still be present in the reconciled manifest, got:\n${JSON.stringify(after.managed, null, 2)}`);
 });
 
+test('review finding R2-5: an entry merely NAMED reclaim outside LOCAL_BIN is dropped normally, not protected by the carry-forward clause', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-manifest-reclaim-elsewhere-'));
+  // A skill (or anything else) that happens to be named "reclaim" but lives somewhere other than
+  // ~/.local/bin must never become undroppable just because its basename matches the shim's - the
+  // finding 14 carry-forward is scoped to the real shim location only (R2-5's own patch, the exact
+  // complement of collectSources()'s gate).
+  const elsewhereDir = path.join(home, '.agents', 'skills', 'reclaim');
+  fs.mkdirSync(elsewhereDir, { recursive: true });
+  fs.writeFileSync(path.join(elsewhereDir, 'SKILL.md'), '# not the shim\n');
+  const elsewhereDest = path.join(home, 'somewhere-else', 'reclaim');
+  fs.mkdirSync(path.dirname(elsewhereDest), { recursive: true });
+  fs.symlinkSync(elsewhereDir, elsewhereDest);
+
+  const agentsSkills = path.join(home, '.agents', 'skills');
+  const priorManifest = {
+    version: 3,
+    updatedAt: null,
+    mode: 'symlink',
+    pluginVersion: null,
+    sourcePath: null,
+    managed: [{
+      name: 'reclaim', kind: 'skill', mode: 'symlink',
+      source: 'generated (target /some/old/repo/somewhere-else/reclaim)',
+      dest: elsewhereDest.split(path.sep).join('/'),
+    }],
+  };
+  fs.writeFileSync(path.join(agentsSkills, '.mirror-manifest.json'), `${JSON.stringify(priorManifest, null, 2)}\n`);
+
+  const json = runFull([], home);
+
+  assert.ok(
+    json.actions.some((a) => a === `drop no-longer-shared entry: ${elsewhereDest}`),
+    `an entry merely named reclaim outside LOCAL_BIN must be dropped like any other stale entry, got:\n${json.actions.join('\n')}`,
+  );
+  assert.equal(fs.existsSync(elsewhereDest), false, 'the stray symlink itself must actually be removed');
+
+  const after = JSON.parse(fs.readFileSync(path.join(agentsSkills, '.mirror-manifest.json'), 'utf8'));
+  const carried = after.managed.find((e) => path.resolve(e.dest) === path.resolve(elsewhereDest));
+  assert.equal(carried, undefined, 'it must not be silently carried forward just because its basename is "reclaim"');
+});
+
 /**
  * F10 probe P-allow (ruling r0: "the compound-command case is recorded as documented behavior, not
  * as a claim") — run ONCE by hand against the real Claude Code CLI (2.1.285), never in the automated

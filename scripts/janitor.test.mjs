@@ -38,6 +38,15 @@ import {
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
+// R2-6: every idleHours()/applySafe() call in this file passes its own fixture `home`, but idleHours
+// also reads `CODEX_HOME`/`CLAUDE_CONFIG_DIR` straight from `process.env` regardless of `home` - under
+// run-tests.mjs's sealed home both are already stripped (test-home.mjs), but a plain `node --test` run
+// of this file alone inherits whatever this shell happens to have set, which can point a fixture-home
+// test at this machine's REAL Codex/Claude config. Dropped here, once, for this file's own process
+// (Node isolates one test file per process), so no test in this file ever reads real state by accident.
+delete process.env.CODEX_HOME;
+delete process.env.CLAUDE_CONFIG_DIR;
+
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
@@ -2797,6 +2806,62 @@ test("F1 (review finding 1): idleHours() reads a Codex rollout session whose own
   assert.ok(idle < IDLE_FLOOR_HOURS, `expected a Codex session whose cwd is the worktree to read as active, got ${idle}h idle`);
 });
 
+test(
+  "review finding R2-1: an unreadable matched session directory (EACCES, not ENOENT) counts as unknown (NaN), never as idle",
+  {
+    skip:
+      process.platform === "win32"
+        ? "chmod 0 does not deny reads on win32"
+        : typeof process.getuid === "function" && process.getuid() === 0
+          ? "root ignores the mode-000 permission this fixture relies on"
+          : false,
+  },
+  () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    const wt = addWorktree(root, "feature-idle-unreadable");
+    backdateWorktreeSignals(wt);
+
+    const home = mkTmp("janitor-idlehome-unreadable-");
+    const slug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+    const projectsDir = path.join(home, ".claude", "projects", slug);
+    fs.mkdirSync(projectsDir, { recursive: true });
+    fs.writeFileSync(path.join(projectsDir, "session.jsonl"), "{}\n");
+    // A genuinely fresh session sits inside, so a naive "not a candidate" read of this directory
+    // would find nothing and wrongly fall back to "idle" - the mode-000 denial must make the WHOLE
+    // answer unknown instead, per ruling r1: an unreadable source counts as active, not idle.
+    fs.chmodSync(projectsDir, 0o000);
+    try {
+      const idle = idleHours(wt, { home, now: Date.now() });
+      assert.ok(Number.isNaN(idle), `an unreadable matched session dir must read as unknown (NaN), got ${idle}`);
+    } finally {
+      fs.chmodSync(projectsDir, 0o755); // restore before this file's own after() hook rm's the tree
+    }
+  },
+);
+
+test("review finding R2-2: a Codex session started more than a day ago (still writing today) is not invisible to idleHours", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const wt = addWorktree(root, "feature-idle-codex-oldstart");
+  backdateWorktreeSignals(wt);
+
+  const home = mkTmp("janitor-idlehome-codex-oldstart-");
+  // The rollout lives in the date-dir of 4 days ago (its session's START date - measured on real
+  // hosts to run this long after its own dir date), but its own file mtime, and the session_meta
+  // line's own cwd, are fresh right now - "today or yesterday" alone missed this shape entirely.
+  const fourDaysAgo = new Date(Date.now() - 4 * 86400000);
+  const dateStr = new Intl.DateTimeFormat("en-CA").format(fourDaysAgo);
+  const [y, m, d] = dateStr.split("-");
+  const sessDir = path.join(home, ".codex", "sessions", y, m, d);
+  fs.mkdirSync(sessDir, { recursive: true });
+  const row = { type: "session_meta", timestamp: new Date().toISOString(), payload: { id: "x", cwd: wt } };
+  fs.writeFileSync(path.join(sessDir, "rollout-oldstart.jsonl"), `${JSON.stringify(row)}\n`);
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle < IDLE_FLOOR_HOURS, `expected a session started 4 days ago but still writing to read as active, got ${idle}h idle`);
+});
+
 test("F1: --apply skips a SAFE worktree active in the last 24h, and removes it once idle past the floor", () => {
   const root = initRepo();
   writeProjectConfig(root);
@@ -2934,6 +2999,15 @@ test("F16: applySafe re-checks isTreeClean immediately before removal and skips 
 // and the drift.md line gains a safe=/removed= suffix.
 // ---------------------------------------------------------------------------
 
+// R2-3: a test-side mirror of janitor.mjs's own (unexported, internal) `q()` - single-quoted on
+// POSIX, double-quoted with backslashes normalized to `/` on win32; `null` for anything not provably
+// inert. Kept here only to build the EXPECTED restore-hint strings below, never imported from
+// production, so this test still catches a real drift in the production function's own behaviour.
+const qExpect = (s) => {
+  const v = process.platform === "win32" ? String(s).replace(/\\/g, "/") : String(s);
+  return process.platform === "win32" ? `"${v}"` : `'${v}'`;
+};
+
 test("F2: applySafe logs a sha and a restore hint for a removed worktree and a removed branch", () => {
   const root = initRepo();
   writeProjectConfig(root);
@@ -2956,7 +3030,7 @@ test("F2: applySafe logs a sha and a restore hint for a removed worktree and a r
   // works whether or not the branch survived this same run, unlike the old
   // `git branch <b> <sha> && git worktree add ...` form, which fails outright once the branch still
   // exists (the common case: most worktree rows are removed on their own, before their branch is).
-  assert.equal(wtRow.restore, `git -C ${JSON.stringify(toplevel)} worktree add ${JSON.stringify(wt)} ${safeBranchRow.sha}`);
+  assert.equal(wtRow.restore, `git -C ${qExpect(toplevel)} worktree add ${qExpect(wt)} ${safeBranchRow.sha}`);
 
   const branchRow = log.find((l) => l.action === "branch-delete" && l.ref === "feature-restorehint");
   assert.ok(branchRow, "the branch is SAFE separately from its worktree and must also be deleted and logged");
@@ -2964,8 +3038,40 @@ test("F2: applySafe logs a sha and a restore hint for a removed worktree and a r
   assert.equal(branchRow.sha, safeBranchRow.sha);
   assert.equal(
     branchRow.restore,
-    `git -C ${JSON.stringify(toplevel)} branch ${JSON.stringify("feature-restorehint")} ${safeBranchRow.sha}`,
+    `git -C ${qExpect(toplevel)} branch ${qExpect("feature-restorehint")} ${safeBranchRow.sha}`,
   );
+});
+
+test("review finding R2-3: a restore hint whose branch name is not provably inert (e.g. contains `$`) is null, but the sha is still there to restore by hand", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  // `$` is legal in a git refname and would let `$(...)` expand under sh/PowerShell double quotes if
+  // merely JSON-quoted (the R2-3 finding) - a hostile or merely odd branch name like this one must
+  // never produce a hint at all, only a sha.
+  const hostileName = "feat$x";
+  const wt = addWorktree(root, hostileName);
+  mergeIntoMain(root, hostileName);
+  pushMain(root);
+
+  const { config } = loadProjectConfig(root);
+  const toplevel = gitToplevel(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  const safeBranchRow = state.safe.branches.find((b) => b.ref === hostileName);
+  assert.ok(safeBranchRow && safeBranchRow.sha, "sanity: the SAFE branch row carries a sha");
+
+  const log = applySafe(state, []);
+  const wtRow = log.find((l) => l.action === "worktree-remove");
+  assert.equal(wtRow.ok, true);
+  assert.equal(wtRow.restore, null, "a hostile ref must never produce a pasteable restore hint");
+  assert.equal(wtRow.sha, safeBranchRow.sha);
+  assert.match(wtRow.sha, /^[0-9a-f]{40}$/, "the sha alone is still enough to restore by hand");
+
+  const branchRow = log.find((l) => l.action === "branch-delete" && l.ref === hostileName);
+  assert.ok(branchRow);
+  assert.equal(branchRow.ok, true);
+  assert.equal(branchRow.restore, null);
+  assert.match(branchRow.sha, /^[0-9a-f]{40}$/);
 });
 
 test("F2: --record's JSON gains act/removed/safeLeft, and the drift.md line gains a safe=/removed= suffix", () => {
@@ -3055,6 +3161,45 @@ test(
   },
 );
 
+test("review finding R2-4: a failed in-use check (darwin, no lsof on PATH) is labelled 'in-use check failed', never 'a process has its cwd here'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-openproc-nolsof");
+  mergeIntoMain(root, "feature-openproc-nolsof");
+  pushMain(root);
+
+  const home = mkTmp("janitor-idlehome-openproc-nolsof-");
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  state.act = true;
+
+  // Simulate darwin with no `lsof` reachable on PATH, regardless of whether this host happens to have
+  // one installed elsewhere: a scratch PATH holding only a `git` symlink (still needed by idleHours'
+  // own git-dir lookup and applySafe's real removal calls) guarantees `lsof` cannot resolve. The check
+  // itself then fails to answer - nothing was found BECAUSE nothing could be checked, a different fact
+  // than "a process has its cwd here", and must be labelled as such (ruling r1: a skip states its real
+  // reason, never a confident one it cannot back up).
+  const gitPath = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const scratchBin = mkTmp("janitor-scratch-bin-");
+  fs.symlinkSync(gitPath, path.join(scratchBin, "git"));
+  const platformDesc = Object.getOwnPropertyDescriptor(process, "platform");
+  const prevPath = process.env.PATH;
+  Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+  process.env.PATH = scratchBin;
+  try {
+    const log = applySafe(state, [], { home, now: Date.now() + 25 * 3600000 });
+    const row = log.find((l) => l.action === "worktree-remove");
+    assert.equal(row.ok, false);
+    assert.equal(row.skipped, "in-use check failed");
+    assert.ok(fs.existsSync(wt), "a worktree whose in-use check failed must survive --apply, same direction as a real match");
+  } finally {
+    Object.defineProperty(process, "platform", platformDesc);
+    process.env.PATH = prevPath;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Review round 1, finding 3: a "gone anyway" (partial) worktree removal must carry its own sha and
 // restore hint, and count as removed in the record - not dropped from `removed` while still counted
@@ -3099,7 +3244,7 @@ test(
       assert.equal(row.ok, false, "the final rmdir genuinely failed - this is not a clean ok:true removal");
       assert.equal(row.partial, true, "git already deregistered it and deleted everything it could - a partial removal, not a survival");
       assert.equal(row.sha, safeBranchRow.sha);
-      assert.equal(row.restore, `git -C ${JSON.stringify(toplevel)} worktree add ${JSON.stringify(wt)} ${safeBranchRow.sha}`);
+      assert.equal(row.restore, `git -C ${qExpect(toplevel)} worktree add ${qExpect(wt)} ${safeBranchRow.sha}`);
 
       const written = writeRecord({
         root: toplevel,
@@ -3223,10 +3368,34 @@ test("review finding 9: a future worktree mtime (idleHours negative) is labelled
 
   // `now` pushed 48h into the PAST relative to the worktree's own real (current) mtime makes
   // idleHours return a negative number - the same shape a clock running ahead on this filesystem
-  // would produce for real.
-  const log = applySafe(state, [], { now: Date.now() - 48 * 3600000 });
+  // would produce for real. R2-6: `home` is an empty fixture dir, never the default `os.homedir()` -
+  // this test must never read this machine's real ~/.claude*/projects or Codex rollouts, even under
+  // a plain `node --test` outside run-tests.mjs's sealed home.
+  const log = applySafe(state, [], { home: mkTmp("janitor-idlehome-future-"), now: Date.now() - 48 * 3600000 });
   const row = log.find((l) => l.action === "worktree-remove");
   assert.equal(row.skipped, "mtime in the future");
+});
+
+test("review finding R2-6: every applySafe(...) call in THIS file that passes `now` also passes an explicit `home`, never falling back to the real os.homedir()", () => {
+  // Mechanical, not a one-off: idleHours() is only ever reached from applySafe() when `state.act ===
+  // true`, and every such call in this test file is written with an explicit `now` (there is no other
+  // reason to pass one) - so "passes `now` but not `home`" is exactly the R2-6 shape (a fixture test
+  // that silently falls through to the real os.homedir() and reads this machine's actual
+  // ~/.claude*/projects or Codex rollouts). Scanning this file's own source, rather than special-casing
+  // one line number, means the NEXT such test gets caught here too, not just the one the review found.
+  const self = path.join(import.meta.dirname, "janitor.test.mjs");
+  const src = fs.readFileSync(self, "utf8");
+  const callRe = /applySafe\s*\(\s*state\s*,\s*[^,()]*,\s*\{([^{}]*)\}\s*\)/g;
+  const offenders = [];
+  let m;
+  while ((m = callRe.exec(src))) {
+    const opts = m[1];
+    if (!/\bnow\s*:/.test(opts)) continue; // no `now` at all: state.act is never true here, idleHours is never reached
+    if (/\bhome\b/.test(opts)) continue; // already isolated (`home: <expr>` or the `{ home, now }` shorthand)
+    const line = src.slice(0, m.index).split("\n").length;
+    offenders.push(`line ${line}: ${m[0].replace(/\s+/g, " ").trim()}`);
+  }
+  assert.deepEqual(offenders, [], `applySafe call(s) pass 'now' without 'home' and so read the real os.homedir(): ${offenders.join("; ")}`);
 });
 
 // ---------------------------------------------------------------------------

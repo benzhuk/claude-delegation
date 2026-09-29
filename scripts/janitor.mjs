@@ -1121,19 +1121,27 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
  *     erring toward "active" is the safe direction), or - when the slug is over 200 characters -
  *     truncated to 200 plus `-` (Claude Code's own hashed-slug rule, measured against the installed
  *     2.1.285 binary), case-folded on win32 and darwin;
- *   - any Codex `rollout-*.jsonl` from today or yesterday (both the local and UTC date, so a run
- *     near midnight in either direction still finds it), across every home `codexHomes()` returns,
- *     whose own first line's `payload.cwd` (measured directly against a real Orca-runtime rollout)
- *     is inside `wtPath`.
+ *   - any Codex `rollout-*.jsonl` from a session STARTED in the last 30 days (both the local and UTC
+ *     date for each day back, so a run near midnight in either direction still finds it) - R2-2: a
+ *     rollout stays in its start date's dir however long the session keeps writing after that
+ *     (measured: real rollouts written up to 4 days after their dir date), so "today or yesterday"
+ *     alone missed any session that outlived one day boundary - across every home `codexHomes()`
+ *     returns, whose own first line's `payload.cwd` (measured directly against a real Orca-runtime
+ *     rollout) is inside `wtPath`. A session started more than 30 days ago falls through to the
+ *     open-process check instead (see `worktreeHasOpenProcess` below).
  * Round-1 review (finding 1): "found nothing" is reachable in practice only when `wtPath` itself
  * cannot even be stat'd (it does not exist, or this run cannot read it) - every OTHER source that
  * genuinely has nothing simply contributes zero mtimes and is otherwise silent, exactly as before.
  * Ruling r0's "doubt resolves to active" therefore reduces to one rule: `mtimes.length === 0` means
- * unknown, never "fully idle" (see the `NaN` return below, finding 9). Any candidate this function
- * cannot read (no git-admin dir, no matching `projects` entry, an unreadable path, a Codex home this
- * run cannot enumerate) is simply skipped, never treated as an error - the number is a floor found
- * among what actually WAS readable, and any caller that gets `NaN` must treat it as active, never
- * remove, and say why (see applySafe below). `home` defaults to `os.homedir()` only when not
+ * unknown, never "fully idle" (see the `NaN` return below, finding 9). Round-2 review, R2-1: an
+ * ABSENT candidate (ENOENT/ENOTDIR - no such config dir, no such file) is readable-and-empty and
+ * contributes nothing, exactly as before, but any OTHER read failure (EACCES, EPERM, EIO, EMFILE...)
+ * makes the WHOLE answer unknown (NaN), never merely "this one candidate found nothing" - an
+ * unreadable session source must never quietly turn into "idle". Two things stay exempt from that, on
+ * purpose, or every act run everywhere is blocked: a per-pid `/proc/<pid>/cwd` read (most pids belong
+ * to another uid - see `worktreeHasOpenProcess` below, an unrelated code path from idleHours but the
+ * same principle), and a Codex rollout's first line failing to parse as JSON (a session mid-write is
+ * routine, not a real read failure). `home` defaults to `os.homedir()` only when not
  * supplied - every caller inside this file (and reclaim.mjs, T1's territory) passes one explicitly
  * so a test's fake HOME is honoured. `now` is a number (`Date.now()`-shaped), not the `Date` object
  * every other age function here takes - this is the pinned seam T1's reclaim.mjs codes against too.
@@ -1143,11 +1151,17 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
 export function idleHours(wtPath, { home, now = Date.now() } = {}) {
   const nowMs = typeof now === "number" ? now : new Date(now).getTime();
   const mtimes = [];
+  // R2-1: an unreadable source counts as active. ENOENT/ENOTDIR is "readable and empty"; any other
+  // error (EACCES, EPERM, EIO, EMFILE...) makes the whole answer unknown (NaN, checked below).
+  let unknown = false;
+  const unreadable = (err) => {
+    if (!err || (err.code !== "ENOENT" && err.code !== "ENOTDIR")) unknown = true;
+  };
   const noteMtime = (p) => {
     try {
       mtimes.push(statSync(p).mtimeMs);
-    } catch {
-      // absent or unreadable: simply not a candidate
+    } catch (err) {
+      unreadable(err);
     }
   };
 
@@ -1195,8 +1209,9 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
     let names;
     try {
       names = readdirSync(projectsDir);
-    } catch {
-      return; // no such config dir, or unreadable - not a candidate
+    } catch (err) {
+      unreadable(err);
+      return;
     }
     for (const name of names) {
       if (!matchesSlug(name)) continue;
@@ -1204,7 +1219,8 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
       let entries;
       try {
         entries = readdirSync(dir);
-      } catch {
+      } catch (err) {
+        unreadable(err);
         continue;
       }
       for (const entryName of entries) noteMtime(path.join(dir, entryName));
@@ -1231,10 +1247,18 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
   // Finding 1, item 3: Codex sessions. `payload.cwd` on a rollout's own first (`session_meta`) line -
   // confirmed directly against a real rollout written by Orca's codex-runtime-home.
   try {
+    // R2-2: a rollout stays in the `sessions/YYYY/MM/DD` dir of the day its session STARTED, however
+    // long it keeps writing after that (measured: real rollouts written up to 4 days after their dir
+    // date) - "today or yesterday" alone made a long-running session invisible once it crossed a day
+    // boundary. 30 days of date-dirs is checked; the mtime prefilter below still only opens/parses a
+    // rollout that is actually fresh, so this costs a readdir per empty day, not a parse.
     const codexDateStrings = new Set();
-    for (const baseMs of [nowMs, nowMs - 86400000]) {
-      codexDateStrings.add(new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(baseMs));
-      codexDateStrings.add(new Intl.DateTimeFormat("en-CA").format(baseMs));
+    const utcFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" });
+    const localFmt = new Intl.DateTimeFormat("en-CA");
+    for (let back = 0; back <= 30; back++) {
+      const baseMs = nowMs - back * 86400000;
+      codexDateStrings.add(utcFmt.format(baseMs));
+      codexDateStrings.add(localFmt.format(baseMs));
     }
     for (const codexHome of codexHomes({ home: homeDir, env: process.env })) {
       for (const dateStr of codexDateStrings) {
@@ -1244,7 +1268,8 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
         let names;
         try {
           names = readdirSync(sessDir);
-        } catch {
+        } catch (err) {
+          unreadable(err);
           continue;
         }
         for (const name of names) {
@@ -1253,14 +1278,19 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
           let mtimeMs;
           try {
             mtimeMs = statSync(file).mtimeMs;
-          } catch {
+          } catch (err) {
+            unreadable(err);
             continue;
           }
           // Cheap prefilter before a per-file open+read+JSON.parse: a rollout already well outside
           // any floor this file's own IDLE_FLOOR_HOURS cares about cannot become the newest candidate
           // through a cwd match, so there is no reason to pay for parsing it.
           if ((nowMs - mtimeMs) / 3600000 > IDLE_FLOOR_HOURS * 2) continue;
-          let cwd;
+          // R2-1: split the I/O (open/read) from the parse. An I/O failure here is a real unreadable
+          // source (counts as unknown); a first line that fails to PARSE (a session mid-write, whose
+          // JSON is truncated) is exempt on purpose - counting it would block every removal on a host
+          // with even one session actively writing at the moment the act runs.
+          let firstLine;
           try {
             const fd = openSync(file, "r");
             const buf = Buffer.alloc(65536);
@@ -1270,10 +1300,16 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
             } finally {
               closeSync(fd);
             }
-            const firstLine = buf.toString("utf8", 0, n).split("\n")[0];
+            firstLine = buf.toString("utf8", 0, n).split("\n")[0];
+          } catch (err) {
+            unreadable(err);
+            continue;
+          }
+          let cwd;
+          try {
             cwd = JSON.parse(firstLine)?.payload?.cwd;
           } catch {
-            continue; // unreadable or unparsable first line - not a candidate
+            continue; // unparsable (mid-write) first line: not a candidate, and not "unreadable" either
           }
           if (typeof cwd === "string" && pathWithin(cwd, wtPath)) noteMtime(file);
         }
@@ -1283,7 +1319,7 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
     // codexHomes() itself failing (a bad env value, etc.): Codex simply contributes nothing
   }
 
-  if (mtimes.length === 0) return NaN; // unknown is never "idle": every caller's `!(hrs >= floor)` skips NaN
+  if (unknown || mtimes.length === 0) return NaN; // unknown is never "idle": every caller's `!(hrs >= floor)` skips NaN
   return (nowMs - Math.max(...mtimes)) / 3600000;
 }
 
@@ -1291,7 +1327,20 @@ export function idleHours(wtPath, { home, now = Date.now() } = {}) {
  * nothing idle for less than this is ever removed by an act run, whatever else is true about it. */
 export const IDLE_FLOOR_HOURS = 24;
 
-const q = (s) => JSON.stringify(String(s));
+// Round-2 review, R2-3: a restore hint is pasted into sh, cmd or PowerShell on whatever host printed
+// it. A double-quoted `JSON.stringify` still lets `$(...)`/backquotes expand under sh and PowerShell,
+// and `%VAR%` expand under cmd - all legal characters in a git refname or a path - so quoting alone
+// never made the old hint safe to paste. Instead: print a hint ONLY when every argument is built
+// entirely from an inert character set (no shell in wide use treats any of them specially), and print
+// no hint at all (keeping the row's sha, which is enough to restore by hand) otherwise. Forward
+// slashes work in git and in every Windows shell, so a Windows path's backslashes are normalized
+// first rather than doubled.
+const INERT_ARG = /^[A-Za-z0-9._/@+=:,~ -]+$/;
+const q = (s) => {
+  const v = process.platform === "win32" ? String(s).replace(/\\/g, "/") : String(s);
+  if (!INERT_ARG.test(v)) return null;
+  return process.platform === "win32" ? `"${v}"` : `'${v}'`;
+};
 
 /**
  * Round-1 review, finding 4: the old hint (`git branch <b> <sha> && git worktree add <ref> <b>`)
@@ -1300,10 +1349,15 @@ const q = (s) => JSON.stringify(String(s));
  * worktree row is removed on its own. Re-creating the worktree DETACHED at the removed tip always
  * works, whatever happened to the branch; `-C <root>` so the hint runs from anywhere it is pasted,
  * and both the repo root and the worktree path are quoted so a Windows path with spaces cannot break
- * the command a human pastes back.
+ * the command a human pastes back. Round-2 review, R2-3: `q()` now returns `null` for anything that
+ * is not provably inert, and this function follows through with `null` for the whole hint rather than
+ * pasting a half-quoted command - the row's sha is always there regardless, which is enough to
+ * restore by hand.
  */
 function restoreHint(root, ref, sha) {
-  return `git -C ${q(root)} worktree add ${q(ref)} ${sha}`;
+  const r = q(root);
+  const p = q(ref);
+  return r && p ? `git -C ${r} worktree add ${p} ${sha}` : null;
 }
 
 /**
@@ -1324,6 +1378,10 @@ function restoreHint(root, ref, sha) {
  *   - win32: this function is never called there. A rename probe is the real check on that
  *     platform, and a failed rename-BACK has to stop applySafe's whole loop, not just skip one row -
  *     a decision this function cannot make on its own, so it lives inline in applySafe instead.
+ * Round-2 review, R2-4: the two fail-closed cases (`/proc` itself unreadable; the darwin `lsof` call
+ * erroring or timing out) return the STRING `"unknown"`, not `true` - both are truthy, so the caller's
+ * skip direction is identical, but a caller reporting WHY must never claim a process was actually
+ * found when the check itself simply failed to answer.
  */
 function worktreeHasOpenProcess(wtPath) {
   if (process.platform === "linux") {
@@ -1331,7 +1389,7 @@ function worktreeHasOpenProcess(wtPath) {
     try {
       pids = readdirSync("/proc").filter((n) => /^[0-9]+$/.test(n));
     } catch {
-      return true; // /proc itself unreadable: fail closed, never "clean"
+      return "unknown"; // /proc itself unreadable: fail closed, never "clean"
     }
     for (const pid of pids) {
       let link;
@@ -1359,7 +1417,7 @@ function worktreeHasOpenProcess(wtPath) {
       }
       return false;
     } catch {
-      return true; // timeout or any other error: "in use" wins over "clean"
+      return "unknown"; // timeout or any other error: "in use" wins over "clean", but is not a finding
     }
   }
   return false;
@@ -1429,6 +1487,7 @@ export function applySafe(state, log = [], opts = {}) {
       // Round-1 review, finding 2: idle by every file-mtime signal idleHours reads is not the same
       // as "nobody is here" - a shell sitting open, doing nothing, passes every check above and
       // still must not be removed out from under it.
+      let inUse;
       if (process.platform === "win32") {
         // Windows has no /proc or lsof: probe by trying to rename the directory away and straight
         // back. Windows itself refuses to rename a directory that is any process's cwd or holds an
@@ -1459,8 +1518,14 @@ export function applySafe(state, log = [], opts = {}) {
           });
           return log;
         }
-      } else if (worktreeHasOpenProcess(w.ref)) {
-        log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "a process has its cwd here" });
+      } else if ((inUse = worktreeHasOpenProcess(w.ref))) {
+        // R2-4: "unknown" (the check itself failed - /proc unreadable, lsof missing or erroring)
+        // still skips, same direction as a real match, but must never claim a process was found
+        // when the check simply could not answer.
+        log.push({
+          action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false,
+          skipped: inUse === "unknown" ? "in-use check failed" : "a process has its cwd here",
+        });
         if (w.branch) failedWorktreeBranches.add(w.branch);
         continue;
       }
@@ -1570,12 +1635,15 @@ export function applySafe(state, log = [], opts = {}) {
       git(["branch", "-D", "--", b.ref], root);
       // Round-1 review, finding 4: `-C <root>` and quoting, matching restoreHint() above - a
       // refname may itself contain a shell metacharacter, and this hint must run from anywhere.
+      // Round-2 review, R2-3: null unless both root and ref are provably inert (see q() above).
+      const rRoot = q(root);
+      const rRef = q(b.ref);
       log.push({
         action: "branch-delete",
         ref: b.ref,
         ok: true,
         sha: b.sha,
-        restore: b.sha ? `git -C ${q(root)} branch ${q(b.ref)} ${b.sha}` : null,
+        restore: b.sha && rRoot && rRef ? `git -C ${rRoot} branch ${rRef} ${b.sha}` : null,
       });
     } catch (err) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: String(err.message || err) });

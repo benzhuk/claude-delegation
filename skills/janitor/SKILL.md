@@ -157,12 +157,19 @@ A daily `--apply` only ever removes a SAFE item that has been idle at least 24 h
 (`idleHours()`, below) — newest of the worktree directory's own mtime, its git-admin
 `HEAD`/`index`/`logs/HEAD`, and any matching Claude or Codex session activity: every
 `<home>/.claude*/projects/<slug or slug-*>/` this host has (not only the plain
-`~/.claude`), plus any Codex `rollout-*.jsonl` from today or yesterday whose own `cwd`
-is inside the worktree. A worktree whose git state changed, or whose session or shell
-wrote anything, in the last 24 hours is skipped. On top of the idle floor, a separate,
-cheap "is any process's cwd inside this worktree right now" probe (`/proc/*/cwd` on
-Linux, `lsof` on macOS, a rename probe on Windows) also runs immediately before removal,
-so an idle-but-still-open shell survives too.
+`~/.claude`), plus any Codex `rollout-*.jsonl` from a session started in the last 30
+days whose own `cwd` is inside the worktree — a rollout stays in the date-dir of the day
+its session started, however long it keeps writing after that, so the window is 30 days
+of sessions, not 30 days of file activity; a session older than that falls through to
+the open-process probe below. A worktree whose git state changed, or whose session or
+shell wrote anything, in the last 24 hours is skipped, and a session source this run
+cannot even read (permissions, a full disk, a network home) counts the whole worktree as
+active too — never as idle. On top of the idle floor, a separate, cheap "is any
+process's cwd inside this worktree right now" probe (`/proc/*/cwd` on Linux, `lsof` on
+macOS, a rename probe on Windows) also runs immediately before removal, so an
+idle-but-still-open shell survives too; when that probe itself fails to answer (no
+`lsof` on PATH, a timeout), the worktree is skipped as "in-use check failed", not
+reported as if a process were actually found.
 
 ## Installing the daily timer
 

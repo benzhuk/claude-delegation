@@ -1229,7 +1229,14 @@ function main() {
         // its manifest entry has to be carried forward unchanged too. Without this, the very next run
         // that forgot the shim would also forget it was ever ours: a later durable run refuses it as
         // "not ours" (D11-style guard), and `--uninstall` stops removing it either way.
-        if (['reclaim', 'reclaim.cmd'].includes(path.basename(old.dest))) { managed.push(old); continue; }
+        // Round-2 review, R2-5: carrying it forward unconditionally, matched by basename alone, meant
+        // it could NEVER be dropped even from a durable, non-worktree checkout that retired the shim
+        // on purpose, and would wrongly protect an unrelated `reclaim`-named entry outside LOCAL_BIN.
+        // The clause below is the exact complement of collectSources()'s own gate at line 571: carry
+        // forward only while THIS run would once again skip publishing it, and only the real shim path.
+        if (path.resolve(path.dirname(old.dest)) === path.resolve(LOCAL_BIN)
+          && ['reclaim', 'reclaim.cmd'].includes(path.basename(old.dest))
+          && !(isDurablePath(REPO) && !isLinkedWorktree(REPO))) { managed.push(old); continue; }
         const st = lstat(old.dest);
         if (!st) continue;
         say('drop no-longer-shared entry', old.dest);
