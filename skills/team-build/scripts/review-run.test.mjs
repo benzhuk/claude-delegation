@@ -816,6 +816,20 @@ test('finding 1(a)/(b)/1(c): the spawn-boundary argv never grants a tool-wide Wr
   assert.ok(disallowed.includes('Bash(git --exec-path:*)'));
 });
 
+test('ruling r2: git global options are denied in their equals-joined spelling too, as wildcard (not :* prefix) rules', () => {
+  const argv = buildArgv({ model: 'opus', effort: 'high', tools: ['Read', 'Bash'], sessionId: 's', agentsPath: '/tmp/a.json' });
+  const denied = argv[argv.indexOf('--disallowedTools') + 1].split(',');
+  for (const rule of ['Bash(git --git-dir=*)', 'Bash(git --work-tree=*)', 'Bash(git --exec-path=*)',
+    'Bash(git -C:*)', 'Bash(git --git-dir:*)', 'Bash(git --work-tree:*)']) {
+    assert.ok(denied.includes(rule), `${rule} must be disallowed`);
+  }
+  for (const rule of denied) {
+    // The CLI treats "*" mixed with a trailing ":*" as an unexpanded literal prefix (never matches).
+    const body = rule.slice(rule.indexOf('(') + 1, -1);
+    if (body.endsWith(':*')) assert.ok(!body.slice(0, -2).includes('*'), `${rule} mixes * with :* and would never match`);
+  }
+});
+
 test('finding 1(a): --report containing a comma or a close-paren is refused (it would break the Write allow-rule syntax)', () => {
   const scratch = scratchDir('review-run-scratch-');
   assert.throws(() => validateReportPath(path.join(scratch, '..', 'report,with,comma.md'), scratch));

@@ -57,6 +57,12 @@ export const DISALLOWED_TOOLS = [
   // never legitimately needs any of these. (Still whack-a-mole: `env git …` and an absolute-path
   // git remain open — named in this build's Gap: paragraph.)
   'Bash(git -C:*)', 'Bash(git -c:*)', 'Bash(git --git-dir:*)', 'Bash(git --work-tree:*)', 'Bash(git --exec-path:*)',
+  // ruling r2: the equals-joined spellings. A trailing-`:*` rule is a word prefix (`git --git-dir`
+  // then a space), so `git --git-dir=<p>` never matches it (build-r1 probes 1-2). A rule whose `*`
+  // is not a trailing `:*` is a whole-command wildcard, `^git --git-dir=.*$`. Never write
+  // `…=*:*`: the CLI reads `*` mixed with a trailing `:*` as a literal, unexpanded prefix.
+  // --exec-path's only dangerous spelling is the equals one (the bare flag just prints the path).
+  'Bash(git --git-dir=*)', 'Bash(git --work-tree=*)', 'Bash(git --exec-path=*)',
 ];
 
 /** finding 1(c): used only if the mode falls back to dontAsk (auto failing P5) — dontAsk has no
