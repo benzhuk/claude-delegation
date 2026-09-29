@@ -15,6 +15,7 @@ Log: 2026-09-29T07:32:29.000Z owned skills-n picked up skills-fable-lane-57-1 (A
 Log: 2026-09-29T07:33:11.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 spawned with the five-step Research line, diagnosis before fix, ETA 60 min
 Log: 2026-09-29T07:44:08.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 DONE, no cause confirmed on Linux (4 concurrent full suites under CPU stress, all 3024 pass; a 3-level garbage-byte probe never produced the error); two real env gaps found in test files, run-tests.test.mjs childEnv spawns keep NODE_TEST_WORKER_ID and test-home.test.mjs spawnAndSignal passes no env; nothing changed; diagnosis at docs/specs/test-ipc-57/diagnosis.md; ruling asked of skills-fable
 Log: 2026-09-29T08:35:48.000Z owned skills-n skills-fable ruled A (skills-fable-lane-57-2, ACK skills-n-lane-57-3): fix both gaps and make the rule mechanical in the N2 scanner (skills/multi/scripts/hooks.test.mjs:434), territory extended to the two test files, the scanner and its test; no Windows repro now, close as not reproduced with a reopen trip-wire
+Log: 2026-09-29T08:36:06.000Z owned skills-n Sonnet fix builder a74bdb75006b180e2 spawned: scanner red first, then both gaps, ETA 45 min
 
 ## Spec (lead, from the packet)
 
