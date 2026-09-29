@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-test-ipc
 Scope: the spec section of this record (lane 57), from packet docs/notes/skills-fable-lane-57-1.md read at 0b517ba
 Owner: skills-n
-Status: owned
+Status: accepted
 Authority: build, review, integrate, push build/test-ipc-57-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run the suite on Netcup under scratch dirs; the live Windows full gate is coordinated with skills-a, one suite per machine; no install, no release
 Next: accept pinned at e28f4f7, merge into main, close as not reproduced with the trip-wire, RESULT to skills-fable
 Artifact: e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a
@@ -35,6 +35,54 @@ Log: 2026-09-29T20:16:08.000Z delivered skills-n Sonnet builder af88a3280d2f0ec9
 Log: 2026-09-29T20:23:43.000Z rejected skills-n Opus reviewer a0f9c69898dd85c75 NEEDS_FIXES (3) 486dbcb, all LOW with exact patches measured together (F1 the regex and desync fixes lack a test that fails when either is reverted alone, F2 env (null) and void(0) pass, F3 the Known limits paragraph overstates wrapper coverage); the remaining silent passes all fall inside the documented limits; 115712 fuzzed desync programs gave 0 silent passes; Windows suite at 486dbcb PASS 3044 tests 3011 pass 0 fail
 Log: 2026-09-29T20:28:15.000Z delivered skills-n Sonnet builder af88a3280d2f0ec98 fix round 5 DONE e28f4f7 (review-r5 patches verbatim, empty diff against the reviewer patched copy; reverting the regex fix or the desync check alone each turns hooks.test.mjs red; three files 96 pass, full suite 3044 tests 3039 pass 0 fail); report docs/specs/test-ipc-57/build-r5.md
 Log: 2026-09-29T20:35:01.000Z reviewed skills-n Opus reviewer a8f9b95a5207c89ee APPROVE e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a (hooks.test.mjs byte-identical to the review-r5 patched copy, each of four fixes red when reverted alone, real tree 15 sites in 10 files, 1167b9a flags :66 and :523, full suite 3044 tests 0 fail; the Known limits fixture spot-check was denied by the secret-guard hook and stopped, confirmed by reading and by review-r5's measurement of the identical text); evidence docs/work/evidence/wr-2026-09-29-test-ipc-review.md
+Census: - leadTurns: 39
+Census: - wallClockHours: 13.06
+Census: - wakes: 6 (5 note-flush, 1 Done-tick)
+Census: - wakeSplit: wake 6, stopBlock 0, other 33 (coalescable 0 at hold 10m — see "Wake-opened turns" below)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-5-5=53509917, claude-sonnet-5=55443080
+Census: - by-role: unassigned=74824820
+Census: - subagentFiles: 254
+Census: - Total assistant turns, deduped (whole file): **1765**
+Census: - Window assistant turns, deduped: **207**
+Census: - leadTurns (conversational runs — see docs/census.md): **39**
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **6** (5 note-flush, 1 Done-tick)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0**
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-29T07:31:42.864Z .. 2026-09-29T20:35:10.811Z
+Census: - Turns/hour in window: **15.85**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 3528 | 5290239 | 295907942 | 1162517 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 414 | 598239 | 33406652 | 122872 |
+Census: - wakeTurns: 6, stopBlockTurns: 0, otherTurns: 33
+Census: - cache_creation per turn (M6) — wake: claude-opus-5-5=61710.5; other: claude-opus-5-5=6908.4
+Census: - coalescable (W1b, hold 10m, RESULT wakes only, Done-tick excluded): turns 0, upper (none), lower (none); ceiling (every RESULT wake turn) turns 1, claude-opus-5-5=777707
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 494 | 858074 | 18212179 | 310993 |
+Census: | claude-sonnet-5 | 1130 | 1486386 | 53497657 | 457907 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 1624 | 2344460 | 71709836 | 768900 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 433865 | 53076052 |
+Census: | claude-sonnet-5 | 457907 | 54985173 |
+Four numbers: Top-tier tokens per build: 53509917 tokens: build 53509917 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 13.1h; largest gap 459.3min at 2026-09-29T11:33:54.319Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 3 gap(s) over 30min stalled: 2026-09-29T07:47:37.916Z (45.7min), 2026-09-29T09:37:26.214Z (113.0min), 2026-09-29T11:33:54.319Z (459.3min); 0 waiting-on-agents (0.0 min); 2 unanswered ASK(s) to skills-n: skills-fable-decisions-pickup-legacy-1, skills-fable-lane-58-1; wakes 6 (5 note-flush, 1 Done-tick); Stop-blocks 0; stall nudges 1 to skills-n: collect-v2202608391056492408-stall-build-test-ipc-57-1-dff5538-1
+Log: 2026-09-29T20:35:29.000Z accepted skills-n artifact e28f4f7fd7d9fd03ab7966747fd22f8d17952e3a
 
 Observed: the Windows "Unable to deserialize cloned data" failure did not reproduce on Linux or Windows, and the pinned NODE_TEST_CONTEXT fix was already on main. Closed as not reproduced with a trip-wire. Two gaps were fixed: run-tests.test.mjs strips NODE_TEST_WORKER_ID through sealedEnv(), and test-home.test.mjs passes childEnv to its spawns. The N2 scanner in skills/multi/scripts/hooks.test.mjs now flags a node-reachable spawn that has no top-level env key or that inherits the parent process environment. It holds 15 exempted sites in 10 files, flags 1167b9a at :66 and :523, and fails loud on a desynced call. Six review rounds. The stop rule fired at review r4, so the scanner's known silent classes are documented in its doc comment (R4-3 inheritance through a variable or helper, R4-5 unrecognised node reach, R4-6 the remaining shapes) instead of being patched. Linux full suite 3044 tests 3039 pass 0 fail, and Windows at 486dbcb 3044 tests 3011 pass 0 fail. The e28f4f7 change is test-only and pin-only on top of that.
 Predicts: a new node-reachable test spawn without a sealed env fails the suite on every host, unless it takes a documented-limit shape. If the deserialize error recurs on Windows, the trip-wire reopens this lane with the failing log.
