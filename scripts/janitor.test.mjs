@@ -2495,7 +2495,7 @@ test("closeoutWorktree: R2-8 - a Worktree: given as an origin-branch-shaped valu
   const result = closeoutWorktree({ root, worktreeField: `origin/${branch}`, cwd: root, dryRun: true });
   assert.equal(result.steps[0].step, "worktree");
   assert.equal(result.steps[0].result, "removed");
-  assert.equal(result.steps[0].ref, wt);
+  assert.equal(path.resolve(result.steps[0].ref), path.resolve(wt), "must resolve to the real linked worktree");
 });
 
 // R2-3(j) (C1 round 3, blocker item): the win32 case/separator fold `closeoutWorktree`'s
@@ -2592,6 +2592,56 @@ test("closeoutWorktree: idempotent - a Worktree: naming a real directory that ex
   assert.equal(result.steps[0].result, "refused");
   assert.equal(result.steps[0].detail, "worktree-unresolved");
   assert.equal(fs.existsSync(notAWorktree), true, "an unregistered real directory must never be removed");
+});
+
+// R4-3 (C1 round 5): the dry-run early return in the branch-survives idempotent path had no test
+// at all - removing it let `--dry-run` delete a merged local branch for real.
+test("closeoutWorktree: idempotent - --dry-run on a gone directory whose local branch survives deletes nothing", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  git(["branch", "idem-dry-1"], root);
+  const result = closeoutWorktree({ root, worktreeField: "idem-dry-1", cwd: root, dryRun: true });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", ref: "idem-dry-1", result: "removed" },
+  ]);
+  assert.notEqual(git(["branch", "--list", "idem-dry-1"], root).trim(), "", "--dry-run must not delete the branch");
+});
+
+// R4-4/W1 (C1 round 5): a pure unit test of the `hostAbsolute` classifier itself, forced to both
+// `platform: "win32"` and `platform: "posix"` on this (Linux) host - so the Windows form of the
+// classifier is pinned even though this suite never runs on a live win32 filesystem. A posix-
+// shaped value is native on a posix host and foreign on a win32 host; a win32-shaped value is
+// native on a win32 host and foreign on a posix host.
+test("closeoutWorktree: classifier - hostAbsolute forced to win32 and to posix picks the right form as native vs foreign", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const posixValue = "/nonexistent/idem-classifier-1";
+  const win32Value = "C:\\nonexistent\\idem-classifier-1";
+
+  const posixOnWin32 = closeoutWorktree({ root, worktreeField: posixValue, cwd: root, platform: "win32" });
+  assert.deepEqual(posixOnWin32.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ], "a posix-shaped value is foreign on a win32 host");
+
+  const win32OnWin32 = closeoutWorktree({ root, worktreeField: win32Value, cwd: root, platform: "win32" });
+  assert.deepEqual(win32OnWin32.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ], "a win32-shaped value is native on a win32 host");
+
+  const win32OnPosix = closeoutWorktree({ root, worktreeField: win32Value, cwd: root, platform: "posix" });
+  assert.deepEqual(win32OnPosix.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ], "a win32-shaped value is foreign on a posix host");
+
+  const posixOnPosix = closeoutWorktree({ root, worktreeField: posixValue, cwd: root, platform: "posix" });
+  assert.deepEqual(posixOnPosix.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ], "a posix-shaped value is native on a posix host");
 });
 
 after(() => {

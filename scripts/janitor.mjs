@@ -1219,11 +1219,11 @@ export function pathWithin(child, parent, opts = {}) {
   return rel === "" || (!rel.startsWith("..") && !pathImpl.isAbsolute(rel));
 }
 
-export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd = process.cwd(), dryRun = false }) {
+export function closeoutWorktree({ root, worktreeField, branchName = null, mainBranch = "main", cwd = process.cwd(), dryRun = false, listWorktreesImpl = listWorktrees, platform = process.platform }) {
   if (!worktreeField) {
     return { steps: [{ step: "worktree", result: "refused", detail: "no Worktree: field" }] };
   }
-  const worktrees = listWorktrees(root);
+  const worktrees = listWorktreesImpl(root);
   if (worktrees === null) {
     return { steps: [{ step: "worktree", result: "refused", detail: "could not read git worktree state" }] };
   }
@@ -1253,10 +1253,17 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
     // even resolve as a local path (foreign-OS-shaped, e.g. a `C:\...` value read on Linux) and a
     // real directory that exists but simply is not a registered worktree both stay ambiguous,
     // exactly as R2-8 ruled, and keep refusing.
-    const isForeignPath = (path.posix.isAbsolute(String(worktreeField)) || path.win32.isAbsolute(String(worktreeField)))
-      && !path.isAbsolute(String(worktreeField));
+    const wf = String(worktreeField);
+    const hostAbsolute = platform === "win32" ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(wf) : path.posix.isAbsolute(wf);
+    const isForeignPath = (path.posix.isAbsolute(wf) || path.win32.isAbsolute(wf)) && !hostAbsolute;
     if (!isForeignPath && !existsSync(target)) {
-      const branchSha = branchField ? refSha(root, `refs/heads/${branchField}`) : null;
+      // A path-form Worktree: names no branch itself: use the one closeoutRecord derived from
+      // Artifact:. A registered worktree still holding it means the value is stale, not absent.
+      const ownBranch = hostAbsolute ? (branchName || null) : branchField;
+      if (ownBranch && worktrees.some((w) => w.branch === ownBranch)) {
+        return { steps: [{ step: "worktree", result: "refused", detail: "worktree-unresolved" }, { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" }] };
+      }
+      const branchSha = ownBranch ? refSha(root, `refs/heads/${ownBranch}`) : null;
       if (!branchSha) {
         return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", result: "absent" }] };
       }
@@ -1264,13 +1271,13 @@ export function closeoutWorktree({ root, worktreeField, mainBranch = "main", cwd
       // branch step as usual (a plain, unconditional `git branch -d`; there is no worktree
       // directory left for a tree-clean check to run against).
       if (dryRun) {
-        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "removed" }] };
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: ownBranch, result: "removed" }] };
       }
       try {
-        git(["branch", "-d", "--", branchField], root);
-        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "removed" }] };
+        git(["branch", "-d", "--", ownBranch], root);
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: ownBranch, result: "removed" }] };
       } catch (err) {
-        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: branchField, result: "refused", detail: String(err.message || err) }] };
+        return { steps: [{ step: "worktree", result: "absent" }, { step: "branch", ref: ownBranch, result: "refused", detail: String(err.message || err).replace(/\s+/g, " ").trim() }] };
       }
     }
     return { steps: [{ step: "worktree", result: "refused", detail: "worktree-unresolved" }, { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" }] };
