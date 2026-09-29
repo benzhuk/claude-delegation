@@ -15,4 +15,4 @@ It exited `0`: 149 pass, 0 fail, 149 total. Raw output and immediate native exit
 
 The new assertions align exactly one `Done` metadata line before snapshot comparison, preserve raw timestamp inequality, require both the raw probe pair and every observed single escape to compare equal and idempotently, preserve each unobserved escaped candidate as unequal, and keep removal of a whole bullet, a checkbox change, substantive-line movement, a word change, and `build/\\*` to `build/x` unequal.
 
-Fresh-checkout verification will be recorded against the T2 commit immediately after this report and fixture set are committed.
+Fresh detached checkout verification at T2 commit `6fa0520b5dd8462c45a53aa7c53b7ca4386b6362` was clean and preserved every pin above. `git ls-files --eol` reports `attr/-text` for the fixture directory; the two snapshots, request, readback, and manifest hash to their asserted values there. This verifies the fixture-local byte protection before review or integration.
