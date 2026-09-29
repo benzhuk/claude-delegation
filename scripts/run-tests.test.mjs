@@ -32,6 +32,19 @@ import {
 // TMPDIR.
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
+// Lane 57: every childEnv-based spawn below needs BOTH `node --test` markers stripped, not just
+// NODE_TEST_CONTEXT - node's own test runner sets NODE_TEST_WORKER_ID too, and a spawn that leaves
+// it in place while dropping only NODE_TEST_CONTEXT still leaks a real marker of the runner's own
+// test-runner identity into what is supposed to be a sealed fixture child. One helper instead of a
+// `delete env.NODE_TEST_CONTEXT` repeated at every call site, so a third marker node ever adds only
+// needs to be named here once.
+function sealedEnv(fixtureHome, overrides) {
+  const env = childEnv(fixtureHome, overrides);
+  delete env.NODE_TEST_CONTEXT;
+  delete env.NODE_TEST_WORKER_ID;
+  return env;
+}
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RUN_TESTS_MODULE = path.join(HERE, "run-tests.mjs");
 const NODE = process.execPath;
@@ -382,8 +395,7 @@ test("the real CLI honours --no-sweep end to end (spawned process, real exit cod
   // mkdtemp traffic as this run's own "new" entries - a false red from concurrency, not a leak.
   const tmp = scratchDir("run-tests-nosweep-tmp-");
   const fixtureHome = scratchDir("run-tests-nosweep-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
   const out = execFileSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
   assert.ok(!/^swept /m.test(out), "no 'swept n stale sealed homes' line must appear under --no-sweep");
 });
@@ -398,8 +410,7 @@ test("the real CLI keeps a failed suite's home after the process has exited (RT-
   const probe = writeProbe(false);
   const tmp = scratchDir("run-tests-keep-tmp-");
   const fixtureHome = scratchDir("run-tests-keep-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
   const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
   assert.notEqual(r.status, 0);
   const home = r.stdout.split("\n")[0].trim();
@@ -486,8 +497,7 @@ function waitForOwnedPidGone(pid, label, timeoutMs = 1000) {
 async function startForwardRunner(probe) {
   const tmp = scratchDir("run-tests-forward-tmp-");
   const fixtureHome = scratchDir("run-tests-forward-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
   const runner = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe.file], { env, stdio: ["ignore", "pipe", "inherit"] });
   const home = await new Promise((resolve, reject) => {
     let text = ""; const timeout = setTimeout(() => reject(new Error("runner did not print its home within 4s")), 4000);
@@ -502,8 +512,7 @@ async function startForwardRunner(probe) {
 async function startForeignListenerRunner(probe) {
   const tmp = scratchDir("run-tests-foreign-listener-tmp-");
   const fixtureHome = scratchDir("run-tests-foreign-listener-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
   const script = [
     `import { runSealed } from ${JSON.stringify(pathToFileURL(RUN_TESTS_MODULE).href)};`,
     "let deliveries = 0;",
@@ -588,8 +597,7 @@ test(
     const { file: slowProbe, ready } = writeSlowProbe();
     const tmp = scratchDir("run-tests-group-sigterm-tmp-");
     const fixtureHome = scratchDir("run-tests-group-sigterm-home-");
-    const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-    delete env.NODE_TEST_CONTEXT;
+    const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
 
     const child = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", slowProbe], {
       env,
@@ -681,8 +689,7 @@ function writeEnvProbe({ passes, mkdtempStray } = {}) {
 function spawnRunner(probeFile, { noSweep = true } = {}) {
   const tmp = scratchDir("run-tests-root-tmp-");
   const fixtureHome = scratchDir("run-tests-root-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
   const args = noSweep ? [RUN_TESTS_MODULE, "--no-sweep", probeFile] : [RUN_TESTS_MODULE, probeFile];
   const r = spawnSync(NODE, args, { env, encoding: "utf8" });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr, tmp };
@@ -730,8 +737,7 @@ test("P2: a child run killed with SIGTERM leaves no root at all (POSIX only)", {
   const { file: slowProbe, ready } = writeSlowProbe();
   const tmp = scratchDir("run-tests-root-sigterm-tmp-");
   const fixtureHome = scratchDir("run-tests-root-sigterm-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
 
   const child = spawn(NODE, [RUN_TESTS_MODULE, "--no-sweep", slowProbe], { env, stdio: ["ignore", "pipe", "inherit"] });
   cleanups.push(() => {
@@ -781,8 +787,7 @@ test(
     fs.symlinkSync(real, link, "dir");
     const { file } = writeEnvProbe({ passes: false });
     const fixtureHome = scratchDir("run-tests-root-symhome-");
-    const env = childEnv(fixtureHome, { TMPDIR: link, TEMP: link, TMP: link });
-    delete env.NODE_TEST_CONTEXT;
+    const env = sealedEnv(fixtureHome, { TMPDIR: link, TEMP: link, TMP: link });
     const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", file], { env, encoding: "utf8" });
     assert.notEqual(r.status, 0);
     const home = r.stdout.split("\n")[0].trim();
@@ -895,13 +900,12 @@ test("the real CLI's leak check line is printed on a planted real leak, but the 
   );
   const tmp = scratchDir("run-tests-leak-cli-tmp-");
   const fixtureHome = scratchDir("run-tests-leak-cli-home-");
-  const env = childEnv(fixtureHome, {
+  const env = sealedEnv(fixtureHome, {
     TMPDIR: tmp,
     TEMP: tmp,
     TMP: tmp,
     REAL_TMP_FOR_LEAK_TEST: fs.realpathSync(tmp),
   });
-  delete env.NODE_TEST_CONTEXT;
   const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", file], { env, encoding: "utf8" });
   cleanups.push(() => fs.rmSync(path.join(tmp, "goal-leak-probe-abc123"), { recursive: true, force: true }));
 
@@ -919,8 +923,7 @@ test("R2: a nested run (this CLI's own os.tmpdir() is itself another run's per-r
   const outerRoot = fs.mkdtempSync(path.join(outerTmp, `${TEST_RUN_ROOT_PREFIX}999999-`));
   cleanups.push(() => fs.rmSync(outerRoot, { recursive: true, force: true }));
   const fixtureHome = scratchDir("run-tests-nested-home-");
-  const env = childEnv(fixtureHome, { TMPDIR: outerRoot, TEMP: outerRoot, TMP: outerRoot });
-  delete env.NODE_TEST_CONTEXT;
+  const env = sealedEnv(fixtureHome, { TMPDIR: outerRoot, TEMP: outerRoot, TMP: outerRoot });
   const r = spawnSync(NODE, [RUN_TESTS_MODULE, "--no-sweep", probe], { env, encoding: "utf8" });
   assert.equal(r.status, 0, "the inner suite itself still passes normally");
   assert.match(r.stdout, /^leak check: nested run, not checked$/m);
