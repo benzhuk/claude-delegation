@@ -1,0 +1,11 @@
+Task: Independent Opus red-team of Lane40 rev4 specification, before implementation. Review the committed SHA supplied by review-run.
+Goal: existing triage fed once daily over all-machine notes with fewer lost/stalled notes, no weaker publication boundaries.
+Work: wr-2026-09-29-knowledge-triage
+Inputs: docs/specs/knowledge-triage-40/rev4.md, rev3.md (unchanged provenance), rev4-intake.md, territories.md, contracts.d.ts, any scout-T*.md reports. Read relevant existing timer/counts code only to check contracts.
+PROJECT FACTS: Windows lead, fixed Netcup/Hetzner SSH endpoints and existing Mac alias only. Existing skill alone judges and publishes. Nested flags are subject to a separate mandatory scratch probe before implementation; if that probe is not in this reviewed commit, explicitly retain the pre-build gate rather than invent proof. Current review-run route is Claude by default and has no --via flag.
+Attack priorities: host dies during gather, after local archive or before origin move; same note gathered twice across restarts; import names/case collisions and changed source content; hostile tar/path/symlink entries; credentials crossing hosts; job overlap versus skill-owned curated lock; human chezmoi apply and unrelated staged dotfiles; permission-guard preservation and nested peer effects. Scrutinize the apparent rev3/rev4 installation/live-proof differences against the exact intake. Reject new frameworks when a small existing primitive suffices.
+NOT: no implementation, production edits, live stores, settings or remote operations. No peer messages. Do not change guard/permission mode or use a different tool after a denial. Report any refusal explicitly.
+Evidence: severity, exact file:line or source clause, concrete correction. Mechanical findings need exact replacement text. First line must match review-run's VERDICT: APPROVE <reviewed-sha> or VERDICT: NEEDS_FIXES (N) <reviewed-sha>.
+Report: use the exact report path provided by review-run. Root adjudicates and revises the spec. No builder starts until spec approved and probe passes.
+JUDGMENT: Is this contract sufficient to avoid duplicate triage, lost notes, secret leakage and unauthorized scheduled installation under interruption?
+ETA: 15 minutes. Stop after writing the report.
