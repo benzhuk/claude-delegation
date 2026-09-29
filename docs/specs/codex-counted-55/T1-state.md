@@ -8,6 +8,7 @@ VERDICT: PASS
 - Focused evidence: syntax exit 0; Lane55/parser assertions 9/9; diff check exit 0
 - Additive interface: `leadSession`, `codexHome`; CLI `--lead-session`, `--codex-home`
 - Adjudicated correction: equal-usage duplicate model conflicts make model attribution unsupported; timestamp conflicts make temporal coverage partial; turn-id conflicts make the response timeline unsupported
+- False-completeness correction: child usage conflicts refuse; turn and nudge fields require actual evidence; child closure participates in bounded and unbounded temporal completeness
 - Independent work remaining: T2 focused integrated gate, high-tier source review, consumer gates, sealed gates, acceptance and merge
 
 Cause: two-day discovery and blanket coverage could not support resumed native Codex graphs or honest partial fields.

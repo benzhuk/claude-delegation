@@ -812,11 +812,13 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   const slugVotes = new Map();
   const startedTurns = new Set();
   const completedTurns = new Set();
+  let invalidTaskStarted = false;
   let hasRowAfterTo = false;
   let finalEvent = null;
   let finalRowCompletesTurn = false;
   let damaged = null;
   let cacheWriteTierAbsentBySchema = false;
+  let previousTimestampMs = null;
   const vote = (slug) => { if (slug) slugVotes.set(slug, (slugVotes.get(slug) || 0) + 1); };
 
   for await (const line of rl) {
@@ -826,6 +828,8 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     const timestamp = normalizeCodexTimestamp(obj.timestamp);
     finalRowCompletesTurn = false;
     if ((fromMs !== null || toMs !== null) && !timestamp && obj.type !== 'session_meta') damaged ||= 'row has invalid or missing window timestamp';
+    if (obj.type !== 'session_meta' && timestamp && previousTimestampMs !== null && timestamp.milliseconds < previousTimestampMs) damaged ||= 'non-monotonic timestamps';
+    if (obj.type !== 'session_meta' && timestamp) previousTimestampMs = timestamp.milliseconds;
     if (toMs !== null && timestamp && timestamp.milliseconds > toMs) hasRowAfterTo = true;
     if (timestamp) {
       if (!firstAt) firstAt = timestamp.value;
@@ -872,6 +876,8 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
       vote(stop.slug);
     }
     const started = nativeTaskStarted(obj);
+    const nativeEvent = obj.type === 'event_msg' ? obj.payload : obj;
+    if (nativeEvent && nativeEvent.type === 'task_started' && !started) invalidTaskStarted = true;
     if (started) { startedTurns.add(started); finalEvent = { type: 'task_started', turnId: started }; }
     const completedPayload = obj.type === 'event_msg' ? obj.payload : obj;
     if (completedPayload && completedPayload.type === 'task_complete' && isUsableCodexString(completedPayload.turn_id)) {
@@ -957,7 +963,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     conflictingResponseModels: [...conflictingResponseModels].sort(),
     conflictingResponseTimestamps: [...conflictingResponseTimestamps].sort(),
     conflictingResponseTurnIds: [...conflictingResponseTurnIds].sort(),
-    startedTurns: [...startedTurns], windowStartedTurns: [...windowNativeTurns], completedTurns: [...completedTurns], hasRowAfterTo, finalEvent, finalRowCompletesTurn, damaged, cacheWriteTierAbsentBySchema,
+    startedTurns: [...startedTurns], windowStartedTurns: [...windowNativeTurns], completedTurns: [...completedTurns], invalidTaskStarted, hasRowAfterTo, finalEvent, finalRowCompletesTurn, damaged, cacheWriteTierAbsentBySchema,
     coverageSupported: tokenRecordCount > 0 && windowTokenRecordCount > 0 && unknownModelList.length === 0 && invalidTimestampList.length === 0,
     coverageReason: tokenRecordCount === 0 ? 'no token_usage_record rows with per-response usage' : unknownModelList.length ? 'usage rows have unknown model attribution' : invalidTimestampList.length ? 'usage rows have invalid or missing response timestamps' : windowTokenRecordCount === 0 ? 'no token_usage_record rows inside the requested window' : null,
   };
@@ -1396,6 +1402,7 @@ async function runCodexCensus(opts, fsImpl) {
     lead.nativeTurnCountWindow = lead.windowStartedTurns.length;
     lead.startedTurns = [...new Set([...(lead.startedTurns || []), ...(part.startedTurns || [])])];
     lead.completedTurns = [...new Set([...(lead.completedTurns || []), ...(part.completedTurns || [])])];
+    lead.invalidTaskStarted ||= part.invalidTaskStarted;
     lead.hasRowAfterTo ||= part.hasRowAfterTo;
     lead.damaged ||= part.damaged;
     if (!lead.lastAt || (part.lastAt && Date.parse(part.lastAt) > Date.parse(lead.lastAt))) {
@@ -1423,8 +1430,10 @@ async function runCodexCensus(opts, fsImpl) {
         rootSessionId: lead.rootSessionId, expectedId: candidate.meta.id, child: true,
       });
       if (child.lastAt) childLastAts.push(child.lastAt);
-      const state = childTemporal.get(candidate.meta.id) || { firstAt: null, hasRowAfterTo: false, damaged: null, latestAt: null, finalRowCompletesTurn: false, finalEvent: null, startedTurns: [] };
+      const state = childTemporal.get(candidate.meta.id) || { firstAt: null, windowResponses: 0, invalidTaskStarted: false, hasRowAfterTo: false, damaged: null, latestAt: null, finalRowCompletesTurn: false, finalEvent: null, startedTurns: [] };
       if (!state.firstAt || (child.firstAt && Date.parse(child.firstAt) < Date.parse(state.firstAt))) state.firstAt = child.firstAt;
+      state.windowResponses += child.windowById.size;
+      state.invalidTaskStarted ||= child.invalidTaskStarted;
       state.hasRowAfterTo ||= child.hasRowAfterTo;
       state.damaged ||= child.damaged;
       state.startedTurns = [...new Set([...state.startedTurns, ...(child.startedTurns || [])])];
@@ -1452,6 +1461,7 @@ async function runCodexCensus(opts, fsImpl) {
       if (child.invalidResponseTimestamps.length) unavailable.push(`invalid or missing response timestamp in ${candidate.file}`);
       perFile.push({ file: candidate.file, role: candidate.role, parentId: candidate.parentId, agentNickname: candidate.agentNickname, depth: candidate.depth, turns: child.windowById.size, byModel, excludedByWindow: child.totalById.size - child.windowById.size });
     } catch (error) {
+      if (/response_id conflict|conflicting usage/i.test(error.message)) throw error;
       discovery.unreadableFiles.push(candidate.file);
       discovery.excluded.push({ file: candidate.file, reason: `unusable child: ${error.message}` });
     }
@@ -1489,6 +1499,7 @@ async function runCodexCensus(opts, fsImpl) {
   mergeCodexAggInto(observedCombined, leadWindowByModel);
   mergeCodexAggInto(observedCombined, subTotalsByModel);
   const aggregates = Object.values(observedCombined);
+  const stallNudges = computeStallNudges(opts, lead, fsImpl);
   const field = (ok, reason) => ({ status: ok ? 'COUNTED' : 'UNSUPPORTED', reason: ok ? null : reason });
   const allPresent = (name) => aggregates.length > 0 && aggregates.every((aggregate) => aggregate[name] !== null);
   const modelCounted = !Object.prototype.hasOwnProperty.call(observedCombined, 'unknown');
@@ -1500,10 +1511,10 @@ async function runCodexCensus(opts, fsImpl) {
     outputTokens: field(allPresent('output_tokens'), 'one or more responses lack output_tokens'),
     reasoningOutputTokens: field(allPresent('reasoning_output_tokens'), 'one or more responses lack reasoning_output_tokens'),
     derivedTotalTokens: field(allPresent('derived_total_tokens'), 'input_tokens and output_tokens are not complete'),
-    leadTurns: field(true, null), responses: field(true, null),
+    leadTurns: field(!lead.invalidTaskStarted && [...childTemporal.values()].every((state) => !state.invalidTaskStarted), 'one or more task_started events lack turn_id'), responses: field(true, null),
     wakes: field(Number.isFinite(lead.wakes), 'native wake evidence unavailable'),
     stopBlocks: field(Number.isFinite(lead.stopBlocks), 'native Stop-block evidence unavailable'),
-    stallNudges: field(true, null),
+    stallNudges: field(stallNudges.count !== null, stallNudges.reason || 'ledger nudge evidence unavailable'),
     stalls: field(false, 'native Agent/Task/Workflow stall attribution is unsupported'),
   };
   const temporalReasons = [];
@@ -1514,13 +1525,20 @@ async function runCodexCensus(opts, fsImpl) {
     const lastStarted = lead.startedTurns && lead.startedTurns.at(-1);
     if (!lead.hasRowAfterTo && !(lead.finalRowCompletesTurn && lead.finalEvent && lead.finalEvent.turnId === lastStarted)) temporalReasons.push('lead has no end-bound witness for the requested window');
     for (const [id, state] of childTemporal) {
-      if (state.firstAt && Date.parse(state.firstAt) > Date.parse(opts.to)) continue;
+      if (state.firstAt && Date.parse(state.firstAt) > Date.parse(opts.to) && state.windowResponses === 0) continue;
       const lastStarted = state.startedTurns.at(-1);
       if (state.damaged) temporalReasons.push(`child ${id} ${state.damaged}`);
       if (state.timestampConflict) temporalReasons.push(`child ${id} has conflicting timestamps for a duplicate response id`);
       if (!state.hasRowAfterTo && !(state.finalRowCompletesTurn && state.finalEvent && state.finalEvent.turnId === lastStarted)) temporalReasons.push(`child ${id} has no end-bound witness for the requested window`);
     }
-  } else if (!lead.finalRowCompletesTurn) temporalReasons.push('open or unbounded lead has no end-bound witness');
+  } else {
+    if (!lead.finalRowCompletesTurn) temporalReasons.push('open or unbounded lead has no end-bound witness');
+    for (const [id, state] of childTemporal) {
+      const lastStarted = state.startedTurns.at(-1);
+      if (state.damaged) temporalReasons.push(`child ${id} ${state.damaged}`);
+      if (!(state.finalRowCompletesTurn && state.finalEvent && state.finalEvent.turnId === lastStarted)) temporalReasons.push(`open or unbounded child ${id} has no end-bound witness`);
+    }
+  }
   const temporalComplete = temporalReasons.length === 0;
   discovery.scope.complete = temporalComplete;
   discovery.scope.reason = temporalComplete ? null : temporalReasons.join('; ');
@@ -1562,7 +1580,7 @@ async function runCodexCensus(opts, fsImpl) {
       roleFileCounts: coverageSupported ? roleFileCounts : null, perFile,
     },
     combined: coverageSupported ? observedCombined : null,
-    stallNudges: computeStallNudges(opts, lead, fsImpl),
+    stallNudges,
     marker: opts.marker || null, leadPath: opts.lead, tasksPaths: [...(opts.tasksDirs || [])], defaultSubagentsDir: null,
   };
 }

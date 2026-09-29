@@ -43,6 +43,8 @@ The pre-ruling Codex contract run at the source checkpoint produced 12 passes an
 
 Root adjudicated the equal-usage attribution risk after initial delivery. The correction preserves exact token observations but marks conflicting model attribution unsupported, makes conflicting timestamps temporal PARTIAL, and makes a turn-id conflict leave the response timeline unsupported. Differing usage for an overlapping response id remains a refusing conflict. This removes file/row order as silent authority for the disputed attribution.
 
+A subsequent contract pass closed four further false-completeness paths: same-id child usage conflicts are rethrown rather than converted into an unreadable-file exclusion; malformed `task_started` events make `leadTurns` unsupported; ledger nudges are counted only when `computeStallNudges` returns an exact count; and temporal closure now includes selected children for bounded and unbounded runs. A future child is exempt only when it contributes no in-window response. Non-monotonic native event timestamps are damaged temporal evidence.
+
 Cause: the prior implementation bounded Codex discovery by two filename dates and used one blanket coverage flag for discovery, temporal closure and optional token fields.
 
 Discriminating check: a verified `--lead-session` finds an old resumed child through the canonical tree and returns temporal COUNTED while a missing required token field remains explicitly UNSUPPORTED.
