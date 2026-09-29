@@ -11,6 +11,7 @@ export interface HostResult {
   managed: number;
   resurrected: number;
   unresolved: number;
+  terminal: number; // superseded + origin missing first reported this run
 }
 export interface ImportedNote {
   host: HostResult['host'];
@@ -40,7 +41,7 @@ export interface Options {
 export declare function gatherKnowledge(options?: Options): Promise<Gathered>;
 export declare function reconcileKnowledge(options: Options, gathered: Gathered): Promise<HostResult[]>;
 export type Tokens = {
-  input: number; output: number; cacheRead: number; cacheCreation: number; total: number;
+  input: number; output: number; cacheRead: number; cacheCreation: number; total: number; // total = input + output + cacheRead + cacheCreation
 } | {unavailable: string};
 export interface RunReceipt {
   schemaVersion: 1;
@@ -62,9 +63,11 @@ export interface RunReceipt {
     remoteRef: string | null; digestPath: string | null;
   };
   residue: {
-    managed: string[]; resurrected: string[];
+    managed: {host: HostResult['host'] | 'local'; name: string}[];
+    resurrected: {host: HostResult['host']; name: string}[];
     unresolved: {host: HostResult['host']; name: string; reason: string}[];
-    oversize: string[]; unsupportedName: string[];
+    oversize: {host: HostResult['host']; name: string}[];
+    unsupportedName: {host: HostResult['host']; name: string}[];
   };
   terminal: {host: HostResult['host']; name: string; reason: 'superseded' | 'origin missing'}[];
 }
