@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-review-run
 Scope: the spec section of this record (lane 53), from packet docs/notes/skills-fable-lane-53-1.md read at 7ab59db
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/review-run-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; run claude -p probes and review-run on Netcup and ben-desktop under scratch dirs only; the live proof is run by skills-a from its own session; no install, no release, no edit to agents/reviewer.md, hooks/, note-send, note-inbox or the flusher
 Next: census, four-read and accept pinned at 643a862, then merge, publish, close, RESULT; then lane 57
 Artifact: 643a8626b7cf3b8d9711e7640ee95a548d9fb69a
@@ -78,6 +78,8 @@ Four numbers: Hours ask to accepted: 5.4h; largest gap 42.2min at 2026-09-29T03:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 2 waiting-on-agents (73.6 min); 2 unanswered ASK(s) to skills-n: skills-fable-lane-53-1, skills-fable-lane-57-1; wakes 4 (4 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-29T07:28:13.000Z accepted skills-n artifact 643a8626b7cf3b8d9711e7640ee95a548d9fb69a
+Log: 2026-09-29T07:29:14.000Z merged skills-n build/review-run-1 into main at 340c9001729cfab59abb54c7209591391b7d1916 under the standing merge grant of 2026-09-26; merge suite 3029 tests, 3024 pass, 0 fail, 5 skipped
+Log: 2026-09-29T07:29:14.000Z closed skills-n merge 340c9001729cfab59abb54c7209591391b7d1916
 
 Observed: skills/team-build/scripts/review-run.mjs runs a high-tier Claude Opus review as a `claude -p --agent` child, from any host, in an isolated shared clone with origin removed.
 - The child gets the installed reviewer role, byte-hashed into a sidecar. It runs under `--setting-sources user`, `--strict-mcp-config` and CLAUDE_CODE_DISABLE_CLAUDE_MDS.
