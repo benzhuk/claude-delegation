@@ -46,7 +46,7 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 - Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
 - The Windows daily cleanup task and the Netcup collector timer now run from 0.20.17, with the two-hour stall ask kept.
 # History {toggle="true"}
-	- [Sep 29](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-29.md) — Lane56 made Codex advisory-route tests deterministic while retaining real-clock deadline coverage.
+	- [Sep 29](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-29.md) — Lane56 made Codex advisory-route tests deterministic while retaining real-clock deadline coverage, and Lane55 restored COUNTED historical Codex token and lead-turn rows.
 	- [Sep 28](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-28.md) — the collector follow-ups landed, so a reinstall keeps --stale-hours and a closed lane stays closed.
 	- [Sep 27](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-27.md) — lanes merged all day, including the delete guard, the knowledge count, the Windows janitor task and this page's renderer, and a second RE-PLAN reached your page.
 	- [Sep 26](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-26.md) — eleven lanes merged, including the four-number read and the merge-on-acceptance rule.
