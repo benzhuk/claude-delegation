@@ -1,7 +1,7 @@
 Work: wr-2026-09-28-codex-counted
 Scope: docs/specs/codex-counted-55/final-spec.md@ef5b8aaac6b8dfc399dfa592194fe47b38fe2d26
 Owner: skills-a
-Status: reviewed
+Status: accepted
 Authority: scoped Lane55 standing build/merge grant. Root owns specification, record, adjudication and acceptance. Source scouts/builders/tests/reports delegated by territory, independent high review required. No four-read.mjs, review-run.mjs, Claude discovery, hooks, GOALS.md, prior lane record, install or release changes. Normal guarded publication after merge; no recovery flag.
 Artifact: build/codex-counted-55-rebased@f40accef2fea5ec66585d26feae92e4818ed4d48
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/codex-counted-55-rebased
@@ -30,6 +30,12 @@ Log: 2026-09-29T04:09:32Z blocked skills-a late peer confirmation skills-fable-l
 Log: 2026-09-29T04:11:00Z owned skills-a ruling skills-fable-lane-55-8 resolves the sequence:56 starts now and merges first,55 remains reviewed atcd5fecc and later rebases for Windows green. Dispatched mid-tier56 scout and existing integrator for exactly three isolated run-tests.test.mjs probes, separate territories. ACK skills-a-lane-56-2. No production changes or gate waiver.
 Log: 2026-09-29T05:15:10Z reviewed skills-a artifact build/codex-counted-55@cd5fecccad1028298fb7811c77cff133c2d4c750 Opus APPROVE retained for unchanged original source. GPT-5.6-Terra rebased integration f40accef cleanly onto closed56 mainfc55866, preserving original branch/worktree. Root verified zero diff in all three reviewed census source/test files. Rebased Windows2942pass0fail14skip and Netcup2951pass0fail5skip, each2956tests and leak0, reporta64f3c5. Original source Artifact and producer Worktree remain truthful under pinned acceptance; no invented Opus verdict on rewritten SHA. Strict read-only check passed; fresh census and acceptance next.
 Log: 2026-09-29T05:18:00Z reviewed skills-a artifact build/codex-counted-55-rebased@f40accef2fea5ec66585d26feae92e4818ed4d48 Opus APPROVEcd5fecc explicitly bound to identical f40acce by skills-fable-lane55-integration-1. Canonical ledger/packet read despite note-inbox returning no new notes. Root adopts newer ruling, superseding merge-instead and pinned-original alternatives. Diff stat for three reviewed source/test paths is empty; no new review or suite required. Artifact and Worktree updated exactly, fresh measurement follows.
+Census: skipped — Own current-window census is PARTIAL because two child files lack end-bound witnesses at the acceptance cutoff. Raw supported observations retained in docs/specs/codex-counted-55/acceptance-20260929T052004158Z. Historical five-row counts remain independently COUNTED; no complete own-window token or stall claim.
+Four numbers: Top-tier tokens per build: unavailable (Codex census coverage is unavailable: stalls: native Agent/Task/Workflow stall attribution is unsupported)
+Four numbers: Hours ask to accepted: 2.8h; largest native API response gap (heuristic) 3.5min at 2026-09-29T02:47:24.852Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 2 unanswered ASK(s) to skills-a: skills-fable-lane-55-1, skills-fable-lane-56-1; wakes 8 (8 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
+Log: 2026-09-29T05:20:04.158Z accepted skills-a artifact f40accef2fea5ec66585d26feae92e4818ed4d48
 
 Measure: feed top-tier tokens per build and the Codex portion of DONE with exact counts. This lane changes the reader, not the measured historical performance.
 
