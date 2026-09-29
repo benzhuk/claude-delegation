@@ -17,6 +17,7 @@ Log: 2026-09-29T07:44:08.000Z owned skills-n Sonnet builder a5e5c7ba904a02656 DO
 Log: 2026-09-29T08:35:48.000Z owned skills-n skills-fable ruled A (skills-fable-lane-57-2, ACK skills-n-lane-57-3): fix both gaps and make the rule mechanical in the N2 scanner (skills/multi/scripts/hooks.test.mjs:434), territory extended to the two test files, the scanner and its test; no Windows repro now, close as not reproduced with a reopen trip-wire
 Log: 2026-09-29T08:36:06.000Z owned skills-n Sonnet fix builder a74bdb75006b180e2 spawned: scanner red first, then both gaps, ETA 45 min
 Log: 2026-09-29T08:52:47.000Z delivered skills-n Sonnet fix builder a74bdb75006b180e2 DONE 0824e76e0372390f7309756462053a4cb8aba489 (scanner red at b63db1a on test-home.test.mjs:66 and :523, 9 reasoned exemptions; both gaps fixed; full suite 3030 tests 3025 pass 0 fail); report docs/specs/test-ipc-57/build.md
+Log: 2026-09-29T08:56:21.000Z delivered skills-n Windows full suite at 0824e76: 3030 tests, 2996 pass, 1 fail (N2: all 9 exemptions miss on win32 because the keys use / and the scanner reports backslash paths); fix folded into the round after the Opus review; evidence docs/specs/test-ipc-57/win-0824e76-fail.md
 
 ## Spec (lead, from the packet)
 
