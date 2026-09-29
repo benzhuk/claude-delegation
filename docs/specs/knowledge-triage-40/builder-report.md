@@ -1,4 +1,4 @@
-VERDICT: READY bac48499535c78fd6d3ec06a8f346be9526c7ba4
+VERDICT: READY dd40a7d18b5e1f7c2a969454bd03ce2bb41f7a9f
 
 # Lane40 source builder report
 
@@ -65,3 +65,9 @@ Command (nonblocking `Global\claude-verify`, acquired): `node scripts/run-tests.
 - F3 (`knowledge-triage.test.mjs:250`, NBSP before a reserved label): `safeSummary` rejected by the real `assertFieldSafe`, `NBSP: null == true` (never reached the sender). Cause: reserved-label replace runs before `\s+` normalisation, so ` Goal:` after NBSP survives. Check: same test. Fix: normalise whitespace first.
 - F4 (`knowledge-triage.test.mjs:290`, stateDir is a file): receipt shows only `[ATTENTION write failed: EEXIST ...]`, no send attempted (`attempted` 0), so no `BLOCKED ... NOT delivered ... fixture fallback send down`. Cause: `if (!suffix)` gates the send on the packet write. Check: same test. Fix: nullable `buildNotificationInvocation(text, null)` and a fixed-label fallback via `recoveryText`.
 - Two further failures in this tree are NOT F2-F4 and not source: `knowledge-gather.test.mjs:369` (expects `["_archive", name]` from a `.sort()`ed list, actual `[name, "_archive"]`) and `knowledge-triage.test.mjs:610` (expects `rmdir ...` in the injected note). These are the two stale fixtures the test author reports fixed in `8e8c653`; the copies in this worktree still carry the old assertions. Returned to root.
+
+
+## Fix round 3 result (real clock 2026-09-29 19:56 -04:00)
+Source SHA `dd40a7d18b5e1f7c2a969454bd03ce2bb41f7a9f` (source-only: gather `killOnce`; triage whitespace-first `safeSummary`, nullable `buildNotificationInvocation`, packetless fallback via `recoveryText("ATTENTION packet NOT written")` for default and injected sender).
+Cause: F2 two order-specific kill guards; F3 reserved-label replace ran before whitespace normalisation; F4 send gated on the packet write. Discriminating check: the three integrated tests, red in the pre-edit receipts above. Fix location: `knowledge-gather.mjs` runProcess; `knowledge-triage.mjs` safeSummary/buildNotificationInvocation/defaultNoteSend/raiseAttention. Simplification: one flag replaces two guards; one regex pass dropped.
+Before: gather+triage 42 tests, 37 pass, 5 fail. After (four files, `run-tests.mjs --no-sweep`, mutex nonblocking): 116 tests, 111 pass, 2 fail, 3 skipped, leak 0. The 2 remaining are the stale fixtures already listed (`knowledge-gather.test.mjs:369` sort order; `knowledge-triage.test.mjs:610` rmdir text), fixed by test commit 8e8c653 but not present in this worktree.
