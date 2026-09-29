@@ -1,42 +1,17 @@
-VERDICT: IN_PROGRESS
+VERDICT: PASS
 
-Cause: the exact base retains two-day discovery and couples Codex COUNTED output to
-token-field support.
+Tested candidate: `112313869b8777182f6e7adf6b07deb820092ec2`; production blob `127043eff29bf548cef6d68a254592c826abf41c`; contract blob `0a75b2fa04123211b8bf8b1a389f0823065c97ac`; generic-test blob `848ff984aee4665a33435990036fbc17bc89820d`.
 
-Discriminating check: `node --test --test-name-pattern "Lane55" scripts/build-census.codex.contract.test.mjs`, run from `baseline-main` at
-`72f1dfc1c026c0e410bf6e74d910550e1fe0f843`, produced two assertion failures:
-known `leadSession` has no identity evidence, and missing cached input still reports
-coverage supported.
+Cause: the exact base `72f1dfc1c026c0e410bf6e74d910550e1fe0f843` used a two-day discovery horizon, coupled temporal COUNTED to field support, lacked segment union and complete temporal witnesses, and could expose unsupported values as exact totals.
 
-Fix location: `scripts/build-census.mjs` (T1). Test location:
-`scripts/build-census.codex.contract.test.mjs` (T2).
+Discriminating check: the retained base scratch `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\baseline-main` produced the original meaningful red: known `leadSession` had no verified identity evidence and missing cached input remained falsely coverage-supported. Later retained red receipts exposed same-id segment conflict, child usage-conflict non-refusal, unconditional task-turn/nudge support, open-child completeness, invalid future-child exemption, filtered timestamp completeness, and an injected-filesystem boundary regression. Equal-usage duplicate model/timestamp disagreement is intentionally unavailable/PARTIAL, not a throwing usage conflict.
 
-Simplification: fixtures are native-shaped JSONL generated in the contract test; no
-transcript content is retained.
+Fix location: production `scripts/build-census.mjs`; independent contracts `scripts/build-census.codex.contract.test.mjs`; root-authorized Codex-only legacy contract alignment `scripts/build-census.test.mjs`.
 
-Candidate interim check: the two new Lane55 assertions pass against the uncommitted
-T1 source candidate. The full owned contract file remains red (14 pass, 6 fail): legacy
-fixtures need temporal terminal witnesses or updated expectations for the new
-`coverageSupported` rule; the native sanitized fixture lacks a terminal witness; and
-same-id segment union presently raises `Codex response_id conflict across segments for
-lead-response` on the logical-segment contract. No focused consumer gate was run while
-these failures remain.
+Simplification: all new fixtures are native-shaped, synthetic JSONL without prompt content; the existing sanitized native fixture bytes are unchanged.
 
-Post-merge contract run at `50a66a5339007664bd964f608050178afbd9a7f0`: 13 pass,
-8 fail. Two failures are production regressions sent to T1: a duplicate response with
-conflicting model/timestamp no longer refuses, and an exact same-id alias is treated as a
-response conflict. The other failures are T2 fixture expectations retained from the prior
-coverage rule and will be converted to final-spec temporal/PARTIAL or per-field assertions.
+Mandatory case map: identity/out-of-horizon/old-child and spoof rejection are at contract lines 380 and 423; segment union, aliases, and usage conflict are at line 435 and the earlier logical-identity contract; damaged/open/historical/completed/future-child witnesses are at lines 452 and 541; missing required fields, cache-write schema proof, reasoning subset, exact derivation, response/turn distinction, malformed task ids, and nudge evidence are at lines 485 and 529; unchanged four-read unavailable propagation is at line 515. Equal-usage duplicate attribution conflicts are pinned in the earlier contract cases and generic line 215. Malformed prefix preservation and same-id nonoverlap union are pinned at generic lines 244 and 362. Existing Claude assertions and the generic injected-filesystem assertion were not weakened.
 
-## Mandatory case map
+Final focused gate: `node --test scripts/build-census.test.mjs scripts/build-census.codex.contract.test.mjs scripts/build-census.completeness.test.mjs scripts/build-census.wake-split.test.mjs scripts/four-read.test.mjs scripts/four-read.completeness.test.mjs scripts/work-record.test.mjs`, under process-owned `Global\claude-verify`, acquired within 60 seconds and released in `finally`. Native exit `0`; 498 tests, 498 pass, 0 fail, 0 skipped, 0 todo; 34857.2577 ms. Raw receipt: `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\t2-focused-green.txt`; immediate native exit: adjacent `.exit` file.
 
-`build-census.codex.contract.test.mjs` covers verified/missing/spoofed identity;
-old-child tree traversal; response and task-started distinction; duplicate and
-conflicting responses; alias/segment conflict; root/parent/depth exclusions; missing
-cache/model/reasoning evidence; cache split non-fabrication; pre-window model context;
-historical horizon; and explicit unreadable discovery. The two `Lane55` cases pin
-canonical-tree identity and temporal COUNTED with unsupported fields. Existing
-`work-record.test.mjs` contains the untouched COUNTED acceptance/PARTIAL refusal
-consumer assertions. The remaining required additions are nonconflicting resumed segment
-union, damaged/open historical variants, cache-write-format proof, reasoning-subset
-schema fixture, and real four-read unavailable propagation; they are not claimed PASS.
+The earlier exit-1 focused receipt was superseded after material source/test corrections. The base scratch and commit history retain the red-before-green evidence.
