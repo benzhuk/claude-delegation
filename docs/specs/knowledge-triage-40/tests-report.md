@@ -1,4 +1,4 @@
-VERDICT: READY 9c9ebddeef443bbfe472552bc2891b2074ebf1ec
+VERDICT: READY 8e8c65308a79b34bd1f59979ac6ee6222e56ebcc
 
 # Lane40 independent contract-test report
 
@@ -8,9 +8,9 @@ Branch: `build/knowledge-triage-40-tests`
 
 Base: `9cad287a5a0567d1e4fbe9e1ccfc25117828b620`
 
-Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, and `9c9ebdd`
+Test commits: `888729f`, `db88bbd`, `86d51a1`, `a260ad3`, `9c9ebdd`, and `8e8c653`
 
-The four owned test paths contain 49 new contract cases. The two new files remain below the 800-line limit (`knowledge-gather.test.mjs` 745 physical lines; `knowledge-triage.test.mjs` 624 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
+The four owned test paths contain 49 new contract cases. The two new files remain below the 800-line limit (`knowledge-gather.test.mjs` 745 physical lines; `knowledge-triage.test.mjs` 627 physical lines). Every fixture uses a temporary or sealed `FIXTURE_ROOT` home. SSH, Claude, Git and chezmoi are real Node command-prefix children; scheduler execution is injected. No live store, SSH host, Claude account, task, settings, Notion page or Git publication was touched.
 
 ## Contract coverage
 
@@ -48,11 +48,18 @@ Against the reviewed source, the sealed red gates produced:
 - Gather: 16 pass / 4 expected fail. The failures are exactly managed discovery fail-closed, one process-tree signal, archive replacement preservation, and unsupported-name residue.
 - Runner: 12 pass / 8 expected fail. The failures map to notification seam/failure visibility, managed discovery, deferral status, aged live-PID ownership, terminal uniqueness and unresolved accounting. The hardened changed-DIGEST test passed its exact nested-exit and publication-reason assertions, proving it reaches the intended verification branches.
 
-These are intentional red receipts pending the source fix; they are not represented as a green integrated gate. The failed sealed runners left `%TEMP%\delegation-test-run-42424-sq9qz7` and `%TEMP%\delegation-test-run-53120-LfA8kJ`. An exact temp-only recursive cleanup was refused by `delete-guard`; no alternate deletion was attempted.
+These were intentional red receipts before the source fix. The failed sealed runners left `%TEMP%\delegation-test-run-42424-sq9qz7` and `%TEMP%\delegation-test-run-53120-LfA8kJ`. An exact temp-only recursive cleanup was refused by `delete-guard`; no alternate deletion was attempted.
+
+Against source fixes `1317543` and `bac4849`, commit `8e8c653` applies the two root-adjudicated fixture corrections: compare both sorted archive-directory lists, and read the exact multiline recovery commands from ATTENTION while treating the injected note as the envelope-safe summary. Scoped green results under `Global\claude-verify`:
+
+- Gather: 20 pass / 0 fail / 0 skip; Node duration 6,419 ms, command wall time 7.23 s, sealed leak check 0.
+- Runner: 20 pass / 0 fail / 0 skip; Node duration 11,141 ms, command wall time 11.95 s, sealed leak check 0.
+
+Six focused scratch-copy mutants all exited nonzero and killed their intended assertion: writer precondition (166 ms), digest commit proof (808 ms), archive rename claim (731 ms), runner managed fail-closed (469 ms), standalone gather managed fail-closed (167 ms), and production sender consumption of `buildNotificationInvocation` (158 ms). The mutant copy remains at `%TEMP%\lane40-mutants-0f73682238ac4f94af1015ac1494dc3f` per the no-cleanup instruction. No full suite was run in this child.
 
 ## Limitations and integration gate
 
-Root added the bounded test-only command/time seams in `test-seam-ruling.md` after dispatch. Those root-owned files are deliberately absent from the test commits. The source cherry-picks in this test branch exist only to run scoped verification; root should integrate the five test commits above rather than merge this branch wholesale. After the source fix, root's final integrated gate should run exactly:
+Root added the bounded test-only command/time seams in `test-seam-ruling.md` after dispatch. Those root-owned files are deliberately absent from the test commits. The source cherry-picks in this test branch exist only to run scoped verification; root should integrate the six test commits above rather than merge this branch wholesale. Root's final integrated gate should run exactly:
 
 ```text
 node --test scripts/knowledge-triage.test.mjs scripts/knowledge-gather.test.mjs scripts/install-janitor-timer.test.mjs scripts/knowledge-counts.test.mjs
