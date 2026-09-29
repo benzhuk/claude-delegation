@@ -635,21 +635,23 @@ function codexUsage(usage) {
     if (!Number.isFinite(value) || value < 0) throw new Error(`Codex token_usage_record has invalid ${name}`);
     return value;
   };
-  const input = finiteCount(usage.input_tokens, 'input_tokens');
+  const input = finiteCount(usage.input_tokens, 'input_tokens', true);
   const cached = finiteCount(usage.cached_input_tokens, 'cached_input_tokens', true);
   const cacheWrite = finiteCount(usage.cache_write_input_tokens, 'cache_write_input_tokens', true);
-  const output = finiteCount(usage.output_tokens, 'output_tokens');
+  const output = finiteCount(usage.output_tokens, 'output_tokens', true);
   const reasoning = finiteCount(usage.reasoning_output_tokens, 'reasoning_output_tokens', true);
   const rawTotal = finiteCount(usage.total_tokens, 'total_tokens', true);
-  if (cached !== null && cacheWrite !== null && input < cached + cacheWrite) {
+  if (input !== null && cached !== null && cacheWrite !== null && input < cached + cacheWrite) {
     throw new Error('Codex token_usage_record has invalid per-response usage');
   }
-  const splitAvailable = cached !== null && cacheWrite !== null;
+  const splitAvailable = input !== null && cached !== null && cacheWrite !== null;
   const unavailable = [];
+  if (input === null) unavailable.push('input_tokens');
   if (cached === null) unavailable.push('cached_input_tokens');
   if (cacheWrite === null) unavailable.push('cache_write_input_tokens');
   if (!splitAvailable) unavailable.push('input_tokens (exclusive cache split)');
   if (reasoning === null) unavailable.push('reasoning_output_tokens');
+  if (output === null) unavailable.push('output_tokens');
   if (rawTotal === null) unavailable.push('total_tokens');
   // Native input is inclusive of both cache categories. Keep it intact and derive the
   // native total independently. The legacy additive split is available only when both
@@ -662,9 +664,15 @@ function codexUsage(usage) {
     output_tokens: output,
     reasoning_output_tokens: reasoning,
     total_tokens: rawTotal,
-    derived_total_tokens: input + output,
+    derived_total_tokens: input === null || output === null ? null : input + output,
     unavailable,
   };
+}
+
+function codexUsageFingerprint(usage) {
+  return JSON.stringify([usage.native_input_tokens, usage.cache_read_input_tokens,
+    usage.cache_creation_input_tokens ?? 0, usage.output_tokens,
+    usage.reasoning_output_tokens, usage.total_tokens]);
 }
 
 function newCodexAgg() {
@@ -687,14 +695,14 @@ function addCodexUsage(target, usage) {
     if (usage[field] === null) target[field] = null;
     else target[field] += usage[field];
   };
-  target.native_input_tokens += usage.native_input_tokens;
+  addNullable('native_input_tokens');
   addNullable('input_tokens');
   addNullable('cache_creation_input_tokens');
   addNullable('cache_read_input_tokens');
-  target.output_tokens += usage.output_tokens;
+  addNullable('output_tokens');
   addNullable('reasoning_output_tokens');
   addNullable('total_tokens');
-  target.derived_total_tokens += usage.derived_total_tokens;
+  addNullable('derived_total_tokens');
   target.unavailable = [...new Set([...target.unavailable, ...usage.unavailable])].sort();
 }
 
@@ -796,16 +804,35 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   let currentModel = null;
   const unknownModels = new Set();
   const invalidResponseTimestamps = new Set();
+  const conflictingResponseModels = new Set();
+  const conflictingResponseTimestamps = new Set();
+  const conflictingResponseTurnIds = new Set();
   const stopBlocks = { window: 0, total: 0 };
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
   const slugVotes = new Map();
+  const startedTurns = new Set();
+  const completedTurns = new Set();
+  let invalidTaskStarted = false;
+  let lastStartedTurn = null;
+  let lastStartedAt = null;
+  let hasRowAfterTo = false;
+  let finalEvent = null;
+  let finalRowCompletesTurn = false;
+  let damaged = null;
+  let cacheWriteTierAbsentBySchema = false;
+  let previousTimestampMs = null;
   const vote = (slug) => { if (slug) slugVotes.set(slug, (slugVotes.get(slug) || 0) + 1); };
 
   for await (const line of rl) {
     if (!line.trim()) continue;
     let obj;
-    try { obj = JSON.parse(line); } catch { throw new Error('Codex session transcript contains malformed JSON'); }
+    try { obj = JSON.parse(line); } catch { damaged = 'malformed JSON row'; break; }
     const timestamp = normalizeCodexTimestamp(obj.timestamp);
+    finalRowCompletesTurn = false;
+    if ((fromMs !== null || toMs !== null) && !timestamp && obj.type !== 'session_meta') damaged ||= 'row has invalid or missing window timestamp';
+    if (obj.type !== 'session_meta' && timestamp && previousTimestampMs !== null && timestamp.milliseconds < previousTimestampMs) damaged ||= 'non-monotonic timestamps';
+    if (obj.type !== 'session_meta' && timestamp) previousTimestampMs = timestamp.milliseconds;
+    if (toMs !== null && timestamp && timestamp.milliseconds > toMs) hasRowAfterTo = true;
     if (timestamp) {
       if (!firstAt) firstAt = timestamp.value;
       lastAt = timestamp.value;
@@ -819,10 +846,17 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
       windowStartAt = timestamp.value;
     }
     const inWindow = codexInWindow(timestamp, windowStarted, fromMs, toMs);
+    const eventPayload = obj.type === 'event_msg' ? obj.payload : null;
+    const tokenCountUsage = eventPayload && eventPayload.type === 'token_count' && eventPayload.info && eventPayload.info.total_token_usage;
+    if (tokenCountUsage && Number.isFinite(tokenCountUsage.input_tokens) && Number.isFinite(tokenCountUsage.cached_input_tokens)
+      && Number.isFinite(tokenCountUsage.output_tokens) && !Object.prototype.hasOwnProperty.call(tokenCountUsage, 'cache_write_input_tokens')) cacheWriteTierAbsentBySchema = true;
     if (inWindow && timestamp) windowLastAt = timestamp.value;
     if (obj.type === 'session_meta') {
       meta = obj.payload;
-      if (sawMeta || !meta || !isUsableCodexString(meta.id) || !isUsableCodexString(meta.session_id) || (!child && meta.session_id !== meta.id) || (expectedId && meta.id !== expectedId)) {
+      if (expectedId && meta && isUsableCodexString(meta.id) && meta.id !== expectedId) {
+        throw new Error(`Codex session identity mismatch: expected ${expectedId}, found ${meta.id}`);
+      }
+      if (sawMeta || !meta || !isUsableCodexString(meta.id) || !isUsableCodexString(meta.session_id) || (!child && meta.session_id !== meta.id)) {
         throw new Error('Codex session_meta is malformed or does not identify exactly one session');
       }
       if (rootSessionId && meta.session_id !== rootSessionId) throw new Error('Codex session_meta is outside the lead root session namespace');
@@ -847,6 +881,18 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
       vote(stop.slug);
     }
     const started = nativeTaskStarted(obj);
+    const nativeEvent = obj.type === 'event_msg' ? obj.payload : obj;
+    if (nativeEvent && nativeEvent.type === 'task_started' && !started) invalidTaskStarted = true;
+    if (started) {
+      startedTurns.add(started); finalEvent = { type: 'task_started', turnId: started };
+      if (timestamp && (!lastStartedAt || timestamp.milliseconds >= Date.parse(lastStartedAt))) { lastStartedAt = timestamp.value; lastStartedTurn = started; }
+    }
+    const completedPayload = obj.type === 'event_msg' ? obj.payload : obj;
+    if (completedPayload && completedPayload.type === 'task_complete' && isUsableCodexString(completedPayload.turn_id)) {
+      completedTurns.add(completedPayload.turn_id);
+      finalEvent = { type: 'task_complete', turnId: completedPayload.turn_id };
+      finalRowCompletesTurn = true;
+    }
     if (started && inWindow) windowNativeTurns.add(started);
     if (started) totalNativeTurns.add(started);
     if (obj.type !== 'token_usage_record') continue;
@@ -865,9 +911,17 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     if (!currentModel) unknownModels.add(record.response_id);
     if (!timestamp) invalidResponseTimestamps.add(record.response_id);
     const key = `${meta.id}:response:${record.response_id}`;
-    const fingerprint = JSON.stringify([record.turn_id, entry.model, entry.ts, entry.usage]);
+    const fingerprint = codexUsageFingerprint(entry.usage);
     const seen = responseFingerprints.get(key);
-    if (seen !== undefined && seen !== fingerprint) throw new Error('Codex token_usage_record repeats a response_id with conflicting turn or usage, model, or timestamp');
+    if (seen !== undefined && seen !== fingerprint) throw new Error('Codex token_usage_record repeats a response_id with conflicting usage');
+    const prior = totalById.get(key);
+    if (prior) {
+      if (prior.model !== entry.model) { prior.model = 'unknown'; unknownModels.add(record.response_id); conflictingResponseModels.add(record.response_id); }
+      if (prior.ts !== entry.ts) { prior.ts = null; invalidResponseTimestamps.add(record.response_id); conflictingResponseTimestamps.add(record.response_id); }
+      if (prior.turnId !== entry.turnId) conflictingResponseTurnIds.add(record.response_id);
+      if (inWindow && !windowById.has(key)) windowById.set(key, prior);
+      continue;
+    }
     responseFingerprints.set(key, fingerprint);
     totalById.set(key, entry);
     if (inWindow) {
@@ -876,6 +930,16 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     }
   }
   if (!sawMeta) throw new Error('Codex session_meta was not found');
+  if (cacheWriteTierAbsentBySchema) for (const entry of totalById.values()) {
+    if (entry.usage.cache_creation_input_tokens === null) {
+      entry.usage.cache_creation_input_tokens = 0;
+      entry.usage.unavailable = entry.usage.unavailable.filter((name) => name !== 'cache_write_input_tokens');
+      if (entry.usage.native_input_tokens !== null && entry.usage.cache_read_input_tokens !== null) {
+        entry.usage.input_tokens = entry.usage.native_input_tokens - entry.usage.cache_read_input_tokens;
+        entry.usage.unavailable = entry.usage.unavailable.filter((name) => name !== 'input_tokens (exclusive cache split)');
+      }
+    }
+  }
   if (!marker && fromMs === null) windowStartAt = firstAt;
   const responseTimeline = [...windowById.values()].map((entry) => ({
     responseId: entry.responseId,
@@ -904,6 +968,10 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     invalidResponseTimestamps: invalidTimestampList,
     responseTimeline,
     responseTimelineComplete,
+    conflictingResponseModels: [...conflictingResponseModels].sort(),
+    conflictingResponseTimestamps: [...conflictingResponseTimestamps].sort(),
+    conflictingResponseTurnIds: [...conflictingResponseTurnIds].sort(),
+    startedTurns: [...startedTurns], windowStartedTurns: [...windowNativeTurns], completedTurns: [...completedTurns], invalidTaskStarted, lastStartedTurn, lastStartedAt, hasRowAfterTo, finalEvent, finalRowCompletesTurn, damaged, cacheWriteTierAbsentBySchema,
     coverageSupported: tokenRecordCount > 0 && windowTokenRecordCount > 0 && unknownModelList.length === 0 && invalidTimestampList.length === 0,
     coverageReason: tokenRecordCount === 0 ? 'no token_usage_record rows with per-response usage' : unknownModelList.length ? 'usage rows have unknown model attribution' : invalidTimestampList.length ? 'usage rows have invalid or missing response timestamps' : windowTokenRecordCount === 0 ? 'no token_usage_record rows inside the requested window' : null,
   };
@@ -1184,11 +1252,32 @@ function codexRole(meta) {
   return { role, agentNickname: spawn && typeof spawn.agent_nickname === 'string' ? spawn.agent_nickname : null, parentId: spawn && spawn.parent_thread_id };
 }
 
-function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHome }) {
+function listCanonicalCodexTree(codexHome, fsImpl, discovery) {
+  const root = path.join(codexHome, 'sessions');
+  const files = [];
+  const walk = (dir, depth) => {
+    let names;
+    try { names = fsImpl.readdirSync(dir); }
+    catch { discovery.unreadableDirs.push(dir); return; }
+    for (const name of names) {
+      const child = path.join(dir, name);
+      if (depth === 3) {
+        if (name.endsWith('.jsonl')) files.push(child);
+      } else if (/^\d+$/.test(name)) walk(child, depth + 1);
+    }
+  };
+  walk(root, 0);
+  return files;
+}
+
+function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHome, knownId = false }) {
   const horizonUtcDays = utcDays(leadMeta.timestamp);
-  const discovery = { home: 'canonical', horizonUtcDays, candidates: 0, malformedFiles: [], unreadableFiles: [], unreadableDirs: [], excluded: [], selectedLeadIdentityVerified: true };
+  const discovery = { home: 'canonical', horizonUtcDays: knownId ? [] : horizonUtcDays, candidates: 0, malformedFiles: [], unreadableFiles: [], unreadableDirs: [], excluded: [], selectedLeadIdentityVerified: true,
+    scope: { kind: knownId ? 'canonical-session-tree' : 'default-horizon', complete: true, reason: null } };
   const files = new Map();
-  for (const day of horizonUtcDays) for (const file of listCodexJsonl(codexDayDir(codexHome, day), fsImpl, discovery)) files.set(path.resolve(file), { file });
+  const canonical = knownId ? listCanonicalCodexTree(codexHome, fsImpl, discovery)
+    : horizonUtcDays.flatMap((day) => listCodexJsonl(codexDayDir(codexHome, day), fsImpl, discovery));
+  for (const file of canonical) files.set(path.resolve(file), { file });
   for (const dir of tasksDirs || []) for (const file of listCodexJsonl(dir, fsImpl, discovery, true)) {
     const key = path.resolve(file);
     files.set(key, { file });
@@ -1217,35 +1306,31 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
   }
   const conflictedIds = new Set();
   for (const [id, group] of groups) {
-    const reference = group[0];
-    const exact = group.every((candidate) => candidate.text === reference.text);
-    if (!exact) {
+    const unique = [];
+    for (const candidate of group) {
+      if (unique.some((item) => item.text === candidate.text)) discovery.excluded.push({ file: candidate.file, reason: 'exact duplicate logical identity' });
+      else unique.push(candidate);
+    }
+    const identitySignatures = new Set(unique.map((candidate) => {
+      const role = codexRole(candidate.meta);
+      return JSON.stringify([candidate.meta.session_id, role.parentId || null]);
+    }));
+    if (identitySignatures.size > 1) {
       conflictedIds.add(id);
       if (id === leadMeta.id) discovery.selectedLeadIdentityVerified = false;
-      const claimsSelectedRoot = id === leadMeta.id || group.some((candidate) => {
-        const role = codexRole(candidate.meta);
-        return candidate.meta.session_id === leadMeta.id || role.parentId === leadMeta.id;
-      });
-      for (const candidate of group) discovery.excluded.push({
-        file: candidate.file,
-        reason: claimsSelectedRoot ? 'conflicting duplicate logical identity' : 'unrelated',
-      });
+      for (const candidate of unique) discovery.excluded.push({ file: candidate.file, reason: 'conflicting logical-session identity' });
       continue;
     }
-    if (reference.selectedLead) {
-      for (const candidate of group.slice(1)) discovery.excluded.push({ file: candidate.file, reason: 'exact duplicate logical identity' });
-      continue;
-    }
-    byId.set(id, reference);
-    for (const candidate of group.slice(1)) discovery.excluded.push({ file: candidate.file, reason: 'exact duplicate logical identity' });
+    byId.set(id, unique);
   }
   const selected = [];
   const verified = new Map([[leadMeta.id, { meta: leadMeta, depth: 0 }]]);
   let progressed = true;
   while (progressed) {
     progressed = false;
-    for (const [id, candidate] of byId) {
+    for (const [id, segments] of byId) {
       if (verified.has(id) || conflictedIds.has(id)) continue;
+      const candidate = segments[0];
       const role = codexRole(candidate.meta);
       const parent = verified.get(role.parentId);
       if (!parent) continue;
@@ -1262,23 +1347,30 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
       }
       const candidateTime = candidate.timestamp ? Date.parse(candidate.timestamp) : NaN;
       const candidateDay = Number.isNaN(candidateTime) ? null : new Date(candidateTime).toISOString().slice(0, 10);
-      if (!candidateDay || !horizonUtcDays.includes(candidateDay)) {
+      if (!knownId && (!candidateDay || !horizonUtcDays.includes(candidateDay))) {
         discovery.excluded.push({ file: candidate.file, reason: 'outside horizon' });
         conflictedIds.add(id);
         continue;
       }
-      selected.push({ ...candidate, depth, ...role });
+      for (const segment of segments) selected.push({ ...segment, depth, ...role });
       verified.set(id, { meta: candidate.meta, depth });
       progressed = true;
     }
   }
-  for (const [id, candidate] of byId) {
+  for (const [id, segments] of byId) {
     if (verified.has(id) || conflictedIds.has(id)) continue;
+    const candidate = segments[0];
     const role = codexRole(candidate.meta);
     const claimsRoot = candidate.meta.session_id === leadMeta.id;
     discovery.excluded.push({ file: candidate.file, reason: claimsRoot ? 'unverified ancestry' : 'unrelated' });
   }
-  return { discovery, selected };
+  if (discovery.unreadableDirs.length || discovery.unreadableFiles.length || discovery.malformedFiles.length
+    || discovery.excluded.some((item) => !['unrelated', 'duplicate lead/path', 'exact duplicate logical identity'].includes(item.reason))) {
+    discovery.scope.complete = false;
+    discovery.scope.reason = 'canonical discovery contains unreadable or indeterminate candidates';
+  }
+  const leadSegments = byId.get(leadMeta.id) || [{ ...leadIdentity, selectedLead: true }];
+  return { discovery, selected, leadSegments };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1292,16 +1384,55 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
  */
 
 async function runCodexCensus(opts, fsImpl) {
-  const lead = await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker, from: opts.from, to: opts.to });
+  const lead = await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker, from: opts.from, to: opts.to, expectedId: opts.leadSession || undefined });
   const leadMeta = { id: lead.sessionId, session_id: lead.rootSessionId, timestamp: lead.firstAt };
   const codexHome = opts.codexHome || CANONICAL_CODEX_HOME;
-  const { discovery, selected } = discoverCodexChildren({ leadPath: opts.lead, leadMeta, tasksDirs: opts.tasksDirs || [], fsImpl, codexHome });
+  const { discovery, selected, leadSegments } = discoverCodexChildren({ leadPath: opts.lead, leadMeta, tasksDirs: opts.tasksDirs || [], fsImpl, codexHome, knownId: Boolean(opts.leadSession) });
+  const identityPaths = [opts.lead];
+  for (const segment of leadSegments) {
+    if (path.resolve(segment.file) === path.resolve(opts.lead)) continue;
+    const part = await censusCodexLeadFile(segment.file, { fsImpl, marker: null, from: opts.from, to: opts.to, expectedId: lead.sessionId });
+    identityPaths.push(segment.file);
+    for (const mapName of ['totalById', 'windowById']) for (const [key, entry] of part[mapName]) {
+      const prior = lead[mapName].get(key);
+      if (prior && codexUsageFingerprint(prior.usage) !== codexUsageFingerprint(entry.usage)) throw new Error(`Codex response_id conflict across segments for ${entry.responseId}`);
+      if (prior) {
+        if (prior.model !== entry.model) { prior.model = 'unknown'; lead.conflictingResponseModels = [...new Set([...(lead.conflictingResponseModels || []), entry.responseId])]; }
+        if (prior.ts !== entry.ts) { prior.ts = null; lead.conflictingResponseTimestamps = [...new Set([...(lead.conflictingResponseTimestamps || []), entry.responseId])]; }
+        if (prior.turnId !== entry.turnId) lead.conflictingResponseTurnIds = [...new Set([...(lead.conflictingResponseTurnIds || []), entry.responseId])];
+      } else lead[mapName].set(key, entry);
+    }
+    lead.conflictingResponseModels = [...new Set([...(lead.conflictingResponseModels || []), ...(part.conflictingResponseModels || [])])];
+    lead.conflictingResponseTimestamps = [...new Set([...(lead.conflictingResponseTimestamps || []), ...(part.conflictingResponseTimestamps || [])])];
+    lead.conflictingResponseTurnIds = [...new Set([...(lead.conflictingResponseTurnIds || []), ...(part.conflictingResponseTurnIds || [])])];
+    lead.invalidResponseTimestamps = [...new Set([...(lead.invalidResponseTimestamps || []), ...(part.invalidResponseTimestamps || [])])];
+    lead.nativeTurnCount = new Set([...(lead.startedTurns || []), ...(part.startedTurns || [])]).size;
+    lead.windowStartedTurns = [...new Set([...(lead.windowStartedTurns || []), ...(part.windowStartedTurns || [])])];
+    lead.nativeTurnCountWindow = lead.windowStartedTurns.length;
+    lead.startedTurns = [...new Set([...(lead.startedTurns || []), ...(part.startedTurns || [])])];
+    lead.completedTurns = [...new Set([...(lead.completedTurns || []), ...(part.completedTurns || [])])];
+    lead.invalidTaskStarted ||= part.invalidTaskStarted;
+    if (part.lastStartedAt && (!lead.lastStartedAt || Date.parse(part.lastStartedAt) > Date.parse(lead.lastStartedAt))) {
+      lead.lastStartedAt = part.lastStartedAt; lead.lastStartedTurn = part.lastStartedTurn;
+    }
+    lead.hasRowAfterTo ||= part.hasRowAfterTo;
+    lead.damaged ||= part.damaged;
+    if (!lead.lastAt || (part.lastAt && Date.parse(part.lastAt) > Date.parse(lead.lastAt))) {
+      lead.lastAt = part.lastAt; lead.finalEvent = part.finalEvent; lead.finalRowCompletesTurn = part.finalRowCompletesTurn;
+    }
+  }
+  lead.responseTimeline = [...lead.windowById.values()].map((entry) => ({ responseId: entry.responseId, turnId: entry.turnId, timestamp: entry.ts, model: entry.model }));
+  lead.responseTimelineComplete = lead.responseTimeline.every((entry) => entry.timestamp !== null && entry.model !== 'unknown')
+    && (lead.invalidResponseTimestamps || []).length === 0 && (lead.conflictingResponseTurnIds || []).length === 0;
   const subTotalsByModel = {};
   const subTotalsByRole = {};
   const roleFileCounts = {};
   const perFile = [];
   const unavailable = [];
   const childLastAts = [];
+  const subWindowById = new Map();
+  const childTemporal = new Map();
+  const unusableChildren = [];
   const sharedFrom = opts.marker ? lead.windowStartAt : opts.from;
   if (opts.marker && !lead.windowStartAt) unavailable.push('marker boundary timestamp is unavailable');
   let subTotalTurns = 0;
@@ -1312,10 +1443,34 @@ async function runCodexCensus(opts, fsImpl) {
         rootSessionId: lead.rootSessionId, expectedId: candidate.meta.id, child: true,
       });
       if (child.lastAt) childLastAts.push(child.lastAt);
+      const state = childTemporal.get(candidate.meta.id) || { firstAt: null, windowResponses: 0, tokenRecordCount: 0, invalidTaskStarted: false, lastStartedAt: null, lastStartedTurn: null, hasRowAfterTo: false, damaged: null, latestAt: null, finalRowCompletesTurn: false, finalEvent: null, startedTurns: [] };
+      if (!state.firstAt || (child.firstAt && Date.parse(child.firstAt) < Date.parse(state.firstAt))) state.firstAt = child.firstAt;
+      state.windowResponses += child.windowById.size;
+      state.tokenRecordCount += child.tokenRecordCount;
+      state.invalidTaskStarted ||= child.invalidTaskStarted;
+      if (child.lastStartedAt && (!state.lastStartedAt || Date.parse(child.lastStartedAt) > Date.parse(state.lastStartedAt))) {
+        state.lastStartedAt = child.lastStartedAt; state.lastStartedTurn = child.lastStartedTurn;
+      }
+      state.hasRowAfterTo ||= child.hasRowAfterTo;
+      state.damaged ||= child.damaged;
+      state.startedTurns = [...new Set([...state.startedTurns, ...(child.startedTurns || [])])];
+      if (!state.latestAt || (child.lastAt && Date.parse(child.lastAt) > Date.parse(state.latestAt))) {
+        state.latestAt = child.lastAt; state.finalRowCompletesTurn = child.finalRowCompletesTurn; state.finalEvent = child.finalEvent;
+      }
+      childTemporal.set(candidate.meta.id, state);
       const byModel = codexAggByModel(child.windowById);
-      mergeCodexAggInto(subTotalsByModel, byModel);
-      if (!subTotalsByRole[candidate.role]) subTotalsByRole[candidate.role] = newCodexAgg();
-      for (const aggregate of Object.values(byModel)) mergeCodexAgg(subTotalsByRole[candidate.role], aggregate);
+      for (const [key, entry] of child.windowById) {
+        const prior = subWindowById.get(key);
+        if (prior && codexUsageFingerprint(prior.entry.usage) !== codexUsageFingerprint(entry.usage)) throw new Error(`Codex response_id conflict across segments for ${entry.responseId}`);
+        if (prior) {
+          if (prior.entry.model !== entry.model) { prior.entry.model = 'unknown'; state.modelConflict = true; }
+          if (prior.entry.ts !== entry.ts) { prior.entry.ts = null; state.timestampConflict = true; }
+          if (prior.entry.turnId !== entry.turnId) state.turnIdConflict = true;
+        } else subWindowById.set(key, { entry, role: candidate.role });
+      }
+      state.modelConflict ||= child.conflictingResponseModels.length > 0;
+      state.timestampConflict ||= child.conflictingResponseTimestamps.length > 0;
+      state.turnIdConflict ||= child.conflictingResponseTurnIds.length > 0;
       roleFileCounts[candidate.role] = (roleFileCounts[candidate.role] || 0) + 1;
       subTotalTurns += child.windowById.size;
       if (child.tokenRecordCount === 0) unavailable.push(`unusable child coverage in ${candidate.file}: no token_usage_record rows with per-response usage`);
@@ -1323,7 +1478,9 @@ async function runCodexCensus(opts, fsImpl) {
       if (child.invalidResponseTimestamps.length) unavailable.push(`invalid or missing response timestamp in ${candidate.file}`);
       perFile.push({ file: candidate.file, role: candidate.role, parentId: candidate.parentId, agentNickname: candidate.agentNickname, depth: candidate.depth, turns: child.windowById.size, byModel, excludedByWindow: child.totalById.size - child.windowById.size });
     } catch (error) {
+      if (/response_id conflict|conflicting usage/i.test(error.message)) throw error;
       discovery.unreadableFiles.push(candidate.file);
+      unusableChildren.push(`${candidate.file}: ${error.message}`);
       discovery.excluded.push({ file: candidate.file, reason: `unusable child: ${error.message}` });
     }
   }
@@ -1343,16 +1500,72 @@ async function runCodexCensus(opts, fsImpl) {
   const horizonEndExclusive = discovery.horizonUtcDays.length ? horizonStart + discovery.horizonUtcDays.length * 86400000 : NaN;
   const effectiveStartMs = effectiveStartAt ? Date.parse(effectiveStartAt) : NaN;
   const effectiveEndMs = effectiveEndAt ? Date.parse(effectiveEndAt) : NaN;
-  if (!Number.isFinite(horizonStart) || !Number.isFinite(effectiveStartMs) || !Number.isFinite(effectiveEndMs)
-    || effectiveStartMs < horizonStart || effectiveEndMs >= horizonEndExclusive) {
+  if (!opts.leadSession && (!Number.isFinite(horizonStart) || !Number.isFinite(effectiveStartMs) || !Number.isFinite(effectiveEndMs)
+    || effectiveStartMs < horizonStart || effectiveEndMs >= horizonEndExclusive)) {
     unavailable.push('effective census window is outside default discovery horizon');
   }
-  const coverageSupported = unavailable.length === 0;
+  for (const { entry, role } of subWindowById.values()) {
+    const singleton = new Map([[`${role}:${entry.responseId}`, entry]]);
+    mergeCodexAggInto(subTotalsByModel, codexAggByModel(singleton));
+    if (!subTotalsByRole[role]) subTotalsByRole[role] = newCodexAgg();
+    mergeCodexAgg(subTotalsByRole[role], entry.usage);
+  }
+  subTotalTurns = subWindowById.size;
   const leadTotalByModel = codexAggByModel(lead.totalById);
   const leadWindowByModel = codexAggByModel(lead.windowById);
   const observedCombined = {};
   mergeCodexAggInto(observedCombined, leadWindowByModel);
   mergeCodexAggInto(observedCombined, subTotalsByModel);
+  const aggregates = Object.values(observedCombined);
+  const stallNudges = computeStallNudges(opts, lead, fsImpl);
+  const field = (ok, reason) => ({ status: ok ? 'COUNTED' : 'UNSUPPORTED', reason: ok ? null : reason });
+  const allPresent = (name) => aggregates.length > 0 && aggregates.every((aggregate) => aggregate[name] !== null);
+  const modelCounted = !Object.prototype.hasOwnProperty.call(observedCombined, 'unknown');
+  const fields = {
+    model: field(modelCounted, 'one or more responses lack native model attribution'),
+    inputTokens: field(allPresent('native_input_tokens'), 'one or more responses lack input_tokens'),
+    cachedInputTokens: field(allPresent('cache_read_input_tokens'), 'one or more responses lack cached_input_tokens'),
+    cacheWriteTokens: field(allPresent('cache_creation_input_tokens'), 'native rows do not prove a cache-write tier or exact zero'),
+    outputTokens: field(allPresent('output_tokens'), 'one or more responses lack output_tokens'),
+    reasoningOutputTokens: field(allPresent('reasoning_output_tokens'), 'one or more responses lack reasoning_output_tokens'),
+    derivedTotalTokens: field(allPresent('derived_total_tokens'), 'input_tokens and output_tokens are not complete'),
+    leadTurns: field(!lead.invalidTaskStarted && [...childTemporal.values()].every((state) => !state.invalidTaskStarted), 'one or more task_started events lack turn_id'), responses: field(true, null),
+    wakes: field(Number.isFinite(lead.wakes), 'native wake evidence unavailable'),
+    stopBlocks: field(Number.isFinite(lead.stopBlocks), 'native Stop-block evidence unavailable'),
+    stallNudges: field(stallNudges.count !== null, stallNudges.reason || 'ledger nudge evidence unavailable'),
+    stalls: field(false, 'native Agent/Task/Workflow stall attribution is unsupported'),
+  };
+  const temporalReasons = [];
+  if (!discovery.scope.complete) temporalReasons.push(discovery.scope.reason);
+  if (unusableChildren.length) temporalReasons.push(`verified child could not be read: ${unusableChildren.join('; ')}`);
+  if (lead.damaged) temporalReasons.push(`lead ${lead.damaged}`);
+  if ((lead.conflictingResponseTimestamps || []).length) temporalReasons.push('lead has conflicting timestamps for a duplicate response id');
+  if (opts.to) {
+    const lastStarted = lead.lastStartedTurn;
+    if (!lead.hasRowAfterTo && !(lead.finalRowCompletesTurn && lead.finalEvent && lead.finalEvent.turnId === lastStarted)) temporalReasons.push('lead has no end-bound witness for the requested window');
+    for (const [id, state] of childTemporal) {
+      if (state.firstAt && Date.parse(state.firstAt) > Date.parse(opts.to) && state.windowResponses === 0) continue;
+      const lastStarted = state.lastStartedTurn;
+      if (state.damaged) temporalReasons.push(`child ${id} ${state.damaged}`);
+      if (state.timestampConflict) temporalReasons.push(`child ${id} has conflicting timestamps for a duplicate response id`);
+      if (state.tokenRecordCount === 0) temporalReasons.push(`child ${id} has no token_usage_record rows with per-response usage`);
+      if (!state.hasRowAfterTo && !(state.finalRowCompletesTurn && state.finalEvent && state.finalEvent.turnId === lastStarted)) temporalReasons.push(`child ${id} has no end-bound witness for the requested window`);
+    }
+  } else {
+    if (!lead.finalRowCompletesTurn) temporalReasons.push('open or unbounded lead has no end-bound witness');
+    for (const [id, state] of childTemporal) {
+      const lastStarted = state.lastStartedTurn;
+      if (state.damaged) temporalReasons.push(`child ${id} ${state.damaged}`);
+      if (state.tokenRecordCount === 0) temporalReasons.push(`child ${id} has no token_usage_record rows with per-response usage`);
+      if (!(state.finalRowCompletesTurn && state.finalEvent && state.finalEvent.turnId === lastStarted)) temporalReasons.push(`open or unbounded child ${id} has no end-bound witness`);
+    }
+  }
+  const temporalComplete = temporalReasons.length === 0;
+  discovery.scope.complete = temporalComplete;
+  discovery.scope.reason = temporalComplete ? null : temporalReasons.join('; ');
+  const requiredFields = ['inputTokens', 'cachedInputTokens', 'outputTokens', 'model', 'derivedTotalTokens'];
+  const coverageSupported = temporalComplete && requiredFields.every((name) => fields[name].status === 'COUNTED');
+  unavailable.push(...Object.entries(fields).filter(([, value]) => value.status === 'UNSUPPORTED').map(([name, value]) => `${name}: ${value.reason}`));
   const endAt = lead.windowLastAt ?? lead.lastAt;
   const wallClockHours = lead.windowStartAt && endAt && new Date(endAt) > new Date(lead.windowStartAt)
     ? (new Date(endAt) - new Date(lead.windowStartAt)) / 3600000 : null;
@@ -1361,7 +1574,7 @@ async function runCodexCensus(opts, fsImpl) {
       host: 'codex', sessionId: lead.sessionId, totalTurns: lead.totalById.size, windowTurns: lead.windowById.size,
       leadTurns: lead.nativeTurnCountWindow, leadTurnsTotal: lead.nativeTurnCount,
       nativeTurnCount: lead.nativeTurnCount, nativeTurnCountWindow: lead.nativeTurnCountWindow,
-      observedLeadRequests: lead.windowById.size, observedLeadTokens: Object.values(leadWindowByModel).reduce((n, aggregate) => n + aggregate.derived_total_tokens, 0),
+      observedLeadRequests: lead.windowById.size, observedLeadTokens: Object.values(leadWindowByModel).every((aggregate) => aggregate.derived_total_tokens !== null) ? Object.values(leadWindowByModel).reduce((n, aggregate) => n + aggregate.derived_total_tokens, 0) : null,
       observedNativeTurnCount: lead.nativeTurnCount, observedNativeTurnCountWindow: lead.nativeTurnCountWindow,
       coverageSupported, coverageReason: coverageSupported ? null : unavailable.join('; '),
       totalByModel: coverageSupported ? leadTotalByModel : null, windowByModel: coverageSupported ? leadWindowByModel : null,
@@ -1373,6 +1586,8 @@ async function runCodexCensus(opts, fsImpl) {
       turnsPerHour: wallClockHours ? lead.windowById.size / wallClockHours : null, wallClockHours,
       codex: {
         discovery,
+        identity: { expectedId: opts.leadSession || lead.sessionId, verified: true, path: opts.lead, paths: identityPaths.sort(), source: opts.leadSession ? 'lead-session' : 'lead' },
+        fields,
         unavailable: [...new Set(unavailable)],
         responseTimeline: lead.responseTimeline,
         responseTimelineComplete: lead.responseTimelineComplete && discovery.selectedLeadIdentityVerified,
@@ -1386,7 +1601,7 @@ async function runCodexCensus(opts, fsImpl) {
       roleFileCounts: coverageSupported ? roleFileCounts : null, perFile,
     },
     combined: coverageSupported ? observedCombined : null,
-    stallNudges: computeStallNudges(opts, lead, fsImpl),
+    stallNudges,
     marker: opts.marker || null, leadPath: opts.lead, tasksPaths: [...(opts.tasksDirs || [])], defaultSubagentsDir: null,
   };
 }
@@ -1417,8 +1632,24 @@ export function computeStallNudges(opts, lead, fsImpl) {
   return { ...base, count, ids };
 }
 
+/**
+ * Lane55 pinned additive options: opts.leadSession?: string is a verified Codex
+ * session identity supplied by the caller (which may use exported parseRecord).
+ * opts.codexHome?: string is the canonical Codex home; opts.lead remains legacy.
+ * Implementations preserve existing exports and consumer keys; see final-spec.md.
+ */
 export async function runCensus(opts, fsImpl = realFs()) {
+  if (opts.leadSession && !opts.lead) {
+    const discovery = { unreadableDirs: [] };
+    const matches = listCanonicalCodexTree(opts.codexHome || CANONICAL_CODEX_HOME, fsImpl, discovery)
+      .map((file) => codexFirstMeta(file, fsImpl)).filter((item) => !item.error && item.meta.id === opts.leadSession);
+    if (discovery.unreadableDirs.length) throw new Error('Codex canonical session tree is not fully readable');
+    if (!matches.length) throw new Error(`--lead-session identity was not found: ${opts.leadSession}`);
+    opts = { ...opts, lead: matches.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))[0].file };
+  }
+  if (!opts.lead) throw new Error('--lead or --lead-session is required');
   const leadHost = await detectLeadHost(opts.lead, fsImpl);
+  if (opts.leadSession && leadHost !== 'codex') throw new Error('--lead-session requires a Codex lead');
   if (leadHost === 'codex') return runCodexCensus(opts, fsImpl);
   const lead = leadHost === 'codex'
     ? await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker })
@@ -1690,10 +1921,12 @@ function cacheCreationPerTurnFor(byModelBuckets, wakeTurns, otherTurns) {
 function formatCodexText(report) {
   const md = [];
   const supported = report.lead.coverageSupported;
+  const temporalComplete = report.lead.codex.discovery.scope.complete;
   const unavailable = report.lead.codex.unavailable;
-  md.push(supported
-    ? `VERDICT: COUNTED ${report.lead.windowTurns} Codex responses (leadTurns ${report.lead.leadTurns}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`
-    : `VERDICT: PARTIAL Codex census (${unavailable.join('; ') || 'coverage unavailable'}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`);
+  const unsupported = Object.entries(report.lead.codex.fields || {}).filter(([, value]) => value.status === 'UNSUPPORTED').map(([name]) => name);
+  md.push(temporalComplete
+    ? `VERDICT: COUNTED ${report.lead.windowTurns} Codex responses (leadTurns ${report.lead.leadTurns})${unsupported.length ? `; UNSUPPORTED ${unsupported.join(', ')}` : ''}, ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`
+    : `VERDICT: PARTIAL Codex census (${report.lead.codex.discovery.scope.reason || 'temporal coverage unavailable'}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`);
   md.push('', '# Build census', '', '## Summary', '');
   md.push('- leadHost: codex');
   md.push(`- leadSessionId: ${report.lead.sessionId}`);
@@ -1712,6 +1945,9 @@ function formatCodexText(report) {
   md.push(`Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`, '');
   md.push('## Codex discovery', '');
   const discovery = report.lead.codex.discovery;
+  md.push(`- scope: ${discovery.scope.kind}; complete ${discovery.scope.complete}; reason ${discovery.scope.reason || '(none)'}`);
+  const identity = report.lead.codex.identity;
+  md.push(`- identity: ${identity.expectedId} verified from ${identity.paths.length} file(s)`);
   md.push(`- home: ${discovery.home}`);
   md.push(`- horizonUtcDays: ${discovery.horizonUtcDays.join(', ') || 'unavailable'}`);
   md.push(`- candidates: ${discovery.candidates}`);
@@ -1911,6 +2147,8 @@ export function parseArgs(argv) {
   for (i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--lead') opts.lead = need('--lead');
+    else if (a === '--lead-session') opts.leadSession = need('--lead-session');
+    else if (a === '--codex-home') opts.codexHome = need('--codex-home');
     else if (a === '--tasks') opts.tasksDirs.push(need('--tasks'));
     else if (a === '--marker') opts.marker = need('--marker');
     else if (a === '--from') opts.from = need('--from');
@@ -1928,7 +2166,7 @@ export function parseArgs(argv) {
       }
     } else throw new Error(`unknown argument: ${a}`);
   }
-  if (!opts.lead) throw new Error('--lead <session.jsonl> is required');
+  if (!opts.lead && !opts.leadSession) throw new Error('--lead <session.jsonl> or --lead-session <id> is required');
   return opts;
 }
 

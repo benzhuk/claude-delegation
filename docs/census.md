@@ -12,7 +12,7 @@ file basenames.
 ## `build-census.mjs`
 
 ```
-node scripts/build-census.mjs --lead <session.jsonl> [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--from <iso>] [--to <iso>] [--ledger-dir <dir>] [--lead-slug <slug>] [--out <path>] [--json <path>]
+node scripts/build-census.mjs (--lead <session.jsonl> | --lead-session <id>) [--codex-home <canonical-home>] [--tasks <dir>]... [--role-map <json>] [--marker <text>] [--from <iso>] [--to <iso>] [--ledger-dir <dir>] [--lead-slug <slug>] [--out <path>] [--json <path>]
 ```
 
 Worked example, run against the committed fixtures (this is gate-10's own invocation —
@@ -22,7 +22,17 @@ run it twice and the two outputs must be byte-identical):
 node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --tasks scripts/build-census.fixtures/tasks
 ```
 
-- `--lead` — one Claude Code or Codex lead session transcript (`.jsonl`). Required.
+- `--lead` — one Claude Code or Codex lead session transcript (`.jsonl`). Required unless
+  Codex identity mode supplies `--lead-session`. In identity mode the configured
+  `--codex-home` canonical `sessions/year/month/day` tree is walked once and the id is
+  verified from `session_meta.payload.id`; a filename match is never identity proof. If
+  both options are present they must identify the same logical session. For every Codex
+  run, including legacy `--lead` without `--lead-session`, same-id rollout segments found
+  inside that mode's discovery scope are unioned, exact aliases do not add usage, and conflicting usage for one
+  response id is refused. Equal-usage duplicates with conflicting model attribution make
+  the model field unsupported; conflicting timestamps make temporal coverage partial; and
+  conflicting turn ids make the response timeline unsupported. Exact token observations
+  remain countable in all three attribution-conflict cases.
   Codex is detected from a verified `session_meta` record. It sums only response-local
   `token_usage_record.payload.usage`, deduplicated by logical session id plus response id;
   cumulative turn/thread snapshots are never added. The preceding `turn_context` supplies
@@ -34,7 +44,7 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   array; they are never converted to zero, never double-counted, and do not by themselves
   invalidate the derived total. A missing model context is `unknown` and makes coverage
   partial. A unique native `task_started.turn_id` is a Codex user-turn counter.
-  Default discovery reads only the configured canonical Codex home in the lead's UTC date
+  Legacy discovery reads only the configured canonical Codex home in the lead's UTC date
   folder and the following date folder. It verifies each child edge through
   `source.subagent.thread_spawn.parent_thread_id`, follows depth at most three, and checks
   that all usage rows use the lead root session namespace. `--tasks` adds explicit rollout
@@ -48,6 +58,21 @@ node scripts/build-census.mjs --lead scripts/build-census.fixtures/lead.jsonl --
   unknown-model evidence emits `VERDICT: PARTIAL` with observed subtotals and unavailable
   reasons. `--from`/`--to` accept offset-bearing inclusive timestamps for Codex and retain
   model context before the window.
+
+  Known-id discovery reads every existing canonical date folder, proves descendant ancestry
+  transitively to depth three, and reports the finite read snapshot in
+  `lead.codex.discovery.scope`. Shell-launched `codex exec` runners, other Codex homes and
+  other hosts are outside this session graph. Temporal completeness and field support are
+  independent: `VERDICT: COUNTED` means the requested historical window has a readable
+  discovery snapshot and an end witness for every selected logical session, and may include
+  `UNSUPPORTED <field>` on that line. `lead.codex.fields` reports stable status for model,
+  native token fields, derived totals, turns, responses, wakes, Stop-blocks, nudges and
+  stalls. Missing native evidence stays unavailable rather than becoming zero. Native input
+  includes cached input; derived total is input plus output, while reasoning output remains
+  a subset of output. `lead.coverageSupported` additionally requires counted input, cached
+  input, output, model and derived-total fields. A valid row after `--to`, or a matching
+  terminal `task_complete` at logical-session end, witnesses a closed historical window;
+  damaged tails and open unbounded runs remain PARTIAL while preserving observed subtotals.
 - `--tasks` — a directory of subagent transcripts (`.output`, and `.jsonl` for forward
   compatibility — `.output` is the extension real subagent task directories actually use).
   May be given more than once; every file across every given directory is counted, each
