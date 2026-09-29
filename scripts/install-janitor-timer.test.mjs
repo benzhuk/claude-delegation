@@ -1415,6 +1415,32 @@ test("Lane40: Windows install registers disabled, queries, enables, then launche
   assert.match(xml, /<ExecutionTimeLimit>PT2H<\/ExecutionTimeLimit>/);
 });
 
+test("Lane40: --first-run refuses missing and invalid calendar dates before writes", () => {
+  for (const [label, tail] of [
+    ["missing", ["--first-run"]],
+    ["malformed", ["--first-run", "2026-2-03"]],
+    ["impossible", ["--first-run", "2026-02-30"]],
+  ]) {
+    const home = mkTmp(`janitor-timer-home-triage-first-run-${label}-`);
+    fixtureDefaultRepoGit(home);
+    fixtureTriageSkill(home);
+    const calls = [];
+    const cap = capture();
+    const code = main(["--force-root", "--json", "--job", "knowledge-triage", ...tail], {
+      home, platform: "win32", execPath: "C:\\node\\node.exe", pluginRoot: fixturePluginRoot(),
+      hostname: () => "BEN-DESKTOP", exec: (...args) => calls.push(args), ...cap,
+    });
+    assert.equal(code, 1, `${label}: ${cap.text()}`);
+    const result = JSON.parse(cap.text());
+    assert.ok(
+      result.refusals.some((reason) => reason.includes("--first-run must be a calendar date YYYY-MM-DD")),
+      `${label}: ${JSON.stringify(result.refusals)}`,
+    );
+    assert.equal(calls.length, 0, `${label}: scheduler command must not run`);
+    assert.ok(!fs.existsSync(path.join(home, ".agents", "knowledge-triage")), `${label}: installer must not write`);
+  }
+});
+
 test("Lane40: installer refuses a nonwriter with exit 2 before writes or scheduler calls", () => {
   const home = mkTmp("janitor-timer-home-triage-nonwriter-");
   fixtureDefaultRepoGit(home);
