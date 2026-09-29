@@ -200,7 +200,12 @@ export function buildArgv({ model, effort, tools, sessionId, agentsPath, permiss
     '--setting-sources', 'user', '--strict-mcp-config',
     '--model', model, '--effort', effort ?? 'high',
     '--session-id', sessionId,
-    '--permission-mode', permissionMode ?? 'auto', '--permission-prompts', 'none',
+    // M1's ruling: "auto first, and dontAsk only by probe, with a reason." Probe P7 supplied
+    // the reason — under `auto` + `--permission-prompts none`, a Write to an absolute path
+    // outside the reviewed worktree was ALLOWED (a real file landed on disk outside wtDir),
+    // even though the git push/git config Bash escapes in the same run were correctly denied
+    // by --disallowedTools. `dontAsk` is the escalation this ruling names for exactly this case.
+    '--permission-mode', permissionMode ?? 'dontAsk', '--permission-prompts', 'none',
     '--tools', toolList,
     '--allowedTools', toolList,
     '--disallowedTools', DISALLOWED_TOOLS.join(','),

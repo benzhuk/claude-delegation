@@ -341,6 +341,16 @@ test('buildArgv: carries --effort and --tools always, disallows the M1 list, nev
   assert.ok(!argv.includes('--name'));
 });
 
+test("buildArgv: permission mode defaults to dontAsk (M1's ruling, escalated by probe P7's Write-tool escape finding)", () => {
+  const argv = buildArgv({
+    model: 'opus', effort: 'high', tools: ['Read', 'Bash'], sessionId: 'fixture-session',
+    agentsPath: '/tmp/agents.json',
+  });
+  const i = argv.indexOf('--permission-mode');
+  assert.ok(i >= 0);
+  assert.equal(argv[i + 1], 'dontAsk');
+});
+
 test('buildChildEnv: strips the full M2 denylist and adds the two markers', () => {
   const env = buildChildEnv({
     HOME: '/home/fixture', PATH: '/usr/bin', NOTE_SLUG: 'x', ORCA_TERMINAL_HANDLE: 'y',
