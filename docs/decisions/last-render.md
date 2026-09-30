@@ -1,19 +1,39 @@
 # Waiting on you now
 <details>
-<summary>**Codex hook failure: paste the error line**</summary>
-	You said a Codex hook failed on 9/30. Every Codex hook (SessionStart, UserPromptSubmit, PostToolUse, Stop, Interrupt, the delete guard) runs clean by hand on this machine, and the Codex home the live skills-a session uses has not been found, so the cause is unknown. One line of the error text (the pane's red line, or the output of the failing command) is enough to find it.
-	- [ ] Pasted the error into the skills-fable pane
-	- [ ] It has not happened again, drop it
-	No default: item 15 of the plan stays open until you tick
+<summary>**Cleanup: leftovers directly in the Windows Code folder, and keeping it clean**</summary>
+	Directly in Code on Windows: eight folders that hold only a pack file (autolink-guard, decisions-render, four-read, janitor-fed, janitor-origin, knowledge-counted, render-guard, windows-task), three empty folders (census-completeness, Claude-Work, decisions-actions), three scratch folders (scratch-l59b-win1, scratch-l60c-win1, scratch-l60c-win2), the now-empty worktree parents (claude-delegation-wt, delete-deny, notion-writing), and a stray macOS file. Under orca/workspaces/claude-delegation there are 19 empty folders, and under orca/gates 18 standalone clones and 12 orphaned copies from closed lanes. The cause is that lane leads picked their own worktree locations. The fix is one rule with a check: every worktree and gate tree goes under one root outside Code, the dispatch guard refuses a worktree path inside Code, and the janitor reclaims that root.
+	- [ ] Delete all of the leftovers listed, and build the one-root rule with its guard as the first lane when work resumes (recommended)
+	- [ ] Delete the leftovers only
+	- [ ] Build the rule only, I will clear the folders myself
+	No default: nothing is deleted until you tick
 	<empty-block/>
 </details>
 <details>
-<summary>**Delete prompts on Netcup: restart the stale BTO session or drop the blanket rule**</summary>
-	You still get "rm -rf ... requires confirmation" prompts from a delegation:integrator agent on Netcup. Two causes, both verified from the session transcript: the BTO session in that pane started 2026-09-20 and still runs plugin 0.1.1, which has no delete guard, so its integrator issues deletes the current agent file forbids; and the user-level settings on Netcup list "Bash(rm -rf \*)" under ask, which outranks the project's allow lines for the two gate folders, so a prompt appears every time. The integrator waited 68 minutes across four prompts on 9/30 alone.
-	- [ ] Restart the BTO pane on Netcup: exit that Claude session and start a new one in the same folder. It picks up 0.20.18 with the delete guard and the new integrator, and the prompts stop. (recommended)
-	- [ ] Remove "Bash(rm -rf \*)" from the ask list in the Netcup user settings, keeping the session as is. Deletes under the project allow lines then run without a prompt, and any other rm -rf in any project on that box runs unprompted too.
-	- [ ] Both
-	No default: the prompts continue until you tick
+<summary>**Cleanup: worktrees in your other projects (BTO, tdf, cook, Cadma)**</summary>
+	These are outside the plugin project and most have live sessions, so I touched none of them except two clean, pushed Cadma worktrees on the Mac. Netcup holds 228 bto-workflows worktrees in Code/BTO: 152 clean and merged or pushed, 76 holding unpushed or uncommitted work, and 23 live Claude sessions running in that repo. Code on Netcup uses 4.09 million inodes. tdf on Windows has 24 worktrees with a build running today: 17 clean, 7 holding work. cook has two never-pushed branches on the Mac (14 commits) and 16 unpushed commits on its main checkout there and on Hetzner. bto-workflows on Hetzner has 124 commits not on origin.
+	- [ ] Remove the clean, merged or pushed worktrees everywhere now (about 170), leave the ones holding work and the ones in use, and give me the list of what holds work (recommended)
+	- [ ] Wait until I have stopped the BTO and tdf sessions, then remove the clean ones
+	- [ ] Leave the other projects alone
+	No default: BTO, tdf, cook and Cadma worktrees stay until you tick
+	<empty-block/>
+</details>
+<details>
+<summary>**Cleanup: what happens to unmerged lane work in claude-delegation**</summary>
+	On 9/30 I removed 38 of 45 claude-delegation worktrees on Windows, 6 on Netcup and 1 on Hetzner, without force. Leftover logs and reports in 13 of them were committed locally on their lane branches first. About 20 branches in the Windows checkout now hold commits that are on no remote and not in main (the astra-* set, lane 40 and 40b source and test branches, lane 55, archive/* branches). One abandoned merge from 9/27 (codex-census-1-final-main-merge) is stuck in a conflict and still has its worktree.
+	- [ ] Keep them as local branches, delete nothing (recommended: costs no disk worth naming, and nothing is lost)
+	- [ ] Push them all to origin as archive branches, then delete the local ones. The repo is public, so their content becomes public.
+	- [ ] Delete every branch not merged into main, and discard the abandoned merge. This cannot be undone.
+	No default: the branches stay local until you tick
+	<empty-block/>
+</details>
+<details>
+<summary>**Cleanup: layout for the zhuk-infra folder**</summary>
+	zhuk-infra is itself a git repo (benzhuk/zhuk-infra) at Code/zhuk-infra on all four machines, and claude-delegation is a separate repo beside it. Putting one repo inside another repo's checkout is the awkward option. The move waits until every pane is stopped, because seven Codex hook paths on Windows and the peer-note ledger point at the current claude-delegation path. On Windows, zhuk-infra's checkout sits on a feature branch 20 commits past main with one modified file and two untracked docs; that work is on origin but not merged.
+	- [ ] Parent folder: Code/zhuk-infra/ becomes a plain folder holding the repos side by side: zhuk-infra (renamed infra), claude-delegation, and the orca fork on the Mac (recommended)
+	- [ ] Same parent folder, plus move the dotfiles checkout in too. Chezmoi expects its fixed path, so this needs a chezmoi source-dir change on every machine.
+	- [ ] Nest claude-delegation inside the existing zhuk-infra checkout and have zhuk-infra ignore it
+	- [ ] Leave both where they are
+	No default: nothing moves until you tick
 	<empty-block/>
 </details>
 # What is going on
@@ -44,5 +64,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Sep 30, 2026, 12:34 PM America/New_York)
+- [ ] Done (last cleared: Sep 30, 2026, 7:43 PM America/New_York)
 <empty-block/>
