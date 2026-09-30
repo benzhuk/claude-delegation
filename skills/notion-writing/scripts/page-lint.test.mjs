@@ -141,6 +141,59 @@ test('toggle-tail: probes, a blank line before the empty block, and verbatim Ori
   assert.deepEqual(ids(orig, { kind: 'plain' }), []);
 });
 
+// Notion's export prints table rows at column 0 however deeply the table is nested. Invented skeleton text.
+const TT = `${T}${T}`;
+const tableAt = (indent, inner = []) => [
+  `${indent}<table header-row="true">`, '<tr>', '<td>cell a</td>', '<td>cell b</td>', '</tr>', ...inner, `${indent}</table>`,
+];
+const tableToggle = (tail, indent = '') => [
+  `${indent}# Section {toggle="true"}`,
+  `${indent}${T}A paragraph.`,
+  ...tableAt(`${indent}${TT}`),
+  `${indent}${T}- more child`,
+  `${indent}${T}- another child`,
+  ...(tail ? [`${indent}${T}<empty-block/>`] : []),
+];
+
+test('toggle-tail: a table whose rows sit at column 0 does not cut a toggle extent short', () => {
+  assert.deepEqual(lintPage(doc(...tableToggle(true)), { kind: 'plain' }), []);
+});
+
+test('toggle-tail: the same table without a trailing empty block still reports the toggle', () => {
+  const got = lintPage(doc(...tableToggle(false)), { kind: 'plain' });
+  assert.deepEqual(got.map((v) => [v.rule, v.line]), [['toggle-tail', 1]]);
+});
+
+test('toggle-tail: an enclosing outer toggle gets its true tail, with or without the table inside', () => {
+  const inner = tableToggle(true, T);
+  const closed = doc('# Outer {toggle="true"}', ...inner, `${T}- outer child`, `${T}<empty-block/>`);
+  assert.deepEqual(lintPage(closed, { kind: 'plain' }), []);
+  const open = lintPage(doc('# Outer {toggle="true"}', ...inner, `${T}- outer child`), { kind: 'plain' });
+  assert.deepEqual(open.map((v) => [v.rule, v.line]), [['toggle-tail', 1]], 'outer reported, inner clean');
+  const both = lintPage(doc('# Outer {toggle="true"}', ...tableToggle(false, T), `${T}- outer child`), { kind: 'plain' });
+  assert.deepEqual(both.map((v) => [v.rule, v.line]), [['toggle-tail', 1], ['toggle-tail', 2]]);
+});
+
+test('toggle-tail: nested tables are matched by depth, and content after the outer close is not swallowed', () => {
+  const nested = [
+    '# Section {toggle="true"}', `${T}A paragraph.`,
+    ...tableAt(TT, ['<td>', ...tableAt(TT), '</td>']),
+    `${T}<empty-block/>`,
+    '# Next',
+    'sibling text',
+  ];
+  assert.deepEqual(lintPage(doc(...nested), { kind: 'plain' }), []);
+  const noTail = [...nested.slice(0, -3), '# Next', 'sibling text'];
+  assert.deepEqual(lintPage(doc(...noTail), { kind: 'plain' }).map((v) => v.rule), ['toggle-tail']);
+});
+
+test('toggle-tail: an unclosed table inherits nothing, and rows outside a table still end an extent', () => {
+  const unclosed = ['# Section {toggle="true"}', `${T}A paragraph.`, `${TT}<table header-row="true">`, '<tr>', '</tr>', `${T}<empty-block/>`];
+  assert.deepEqual(lintPage(doc(...unclosed), { kind: 'plain' }).map((v) => v.rule), ['toggle-tail']);
+  const outside = ['# Section {toggle="true"}', `${T}A paragraph.`, 'Column zero text.', `${T}<empty-block/>`];
+  assert.deepEqual(lintPage(doc(...outside), { kind: 'plain' }).map((v) => v.rule), ['toggle-tail']);
+});
+
 // ---------------------------------------------------------------------------
 // before-after
 // ---------------------------------------------------------------------------
