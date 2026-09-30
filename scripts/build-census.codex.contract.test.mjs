@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { formatJson, formatText, parseArgs, runCensus } from './build-census.mjs';
+import { censusCodexLeadFile, formatJson, formatText, parseArgs, runCensus } from './build-census.mjs';
 import { buildFourRead } from './four-read.mjs';
 
 const ROOT = 'root-session';
@@ -70,6 +70,299 @@ function childRows(id, parentId, depth, responseId, output, options = {}) {
   const sessionId = options.sessionId ?? ROOT;
   return [meta(id, sessionId, parentId, depth, options.agentPath), taskStarted(turn), ...(options.context === false ? [] : [context(turn, options.model ?? MODEL)]), usage(responseId, turn, { sessionId, output, missing: options.missing ?? [] }), line('event_msg', { type: 'task_complete', turn_id: turn }, '2026-09-27T12:00:03.000Z')];
 }
+
+function benignItem(at, text = 'benign trailing item') {
+  return line('event_msg', {
+    type: 'item_completed', turn_id: 'benign-item-turn',
+    item: { type: 'UserMessage', content: [{ type: 'text', text }] },
+  }, at);
+}
+
+async function boundedReport(home, lead, from = '2026-09-27T12:00:00.000Z', to = '2026-09-27T12:00:10.000Z') {
+  return runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from, to, out: null });
+}
+
+test('Codex public census API preserves literal U+2028/U+2029 JSON and counts the following usage row', async () => {
+  const home = fixtureHome();
+  const rows = [
+    meta(ROOT), taskStarted('lead-turn'), context('lead-turn'),
+    line('response_item', { type: 'message', text: 'before\u2028middle\u2029after' }, '2026-09-27T12:00:01.500Z'),
+    usage('unicode-response', 'lead-turn', { output: 7 }),
+    line('event_msg', { type: 'task_complete', turn_id: 'lead-turn' }, '2026-09-27T12:00:03.000Z'),
+  ];
+  const lead = writeRollout(home, DAY, 'unicode.jsonl', rows);
+  const raw = fs.readFileSync(lead, 'utf8');
+  assert.equal((raw.match(/\u2028/g) || []).length, 1);
+  assert.equal((raw.match(/\u2029/g) || []).length, 1);
+
+  const parsed = await censusCodexLeadFile(lead, { rootSessionId: ROOT, expectedId: ROOT });
+  assert.equal(parsed.damaged, null, 'literal JSON string separators are not malformed rows');
+  assert.equal(parsed.tokenRecordCount, 1, 'the exact usage row after the Unicode string is reached');
+
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+
+  assert.equal(report.lead.codex.discovery.scope.complete, true);
+  assert.equal(report.lead.coverageSupported, true, report.lead.coverageReason);
+  assert.equal(report.lead.observedLeadRequests, 1);
+  assert.equal(report.combined[MODEL].output_tokens, 7, 'the response after the Unicode-bearing row is not lost');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED/);
+});
+
+test('Lane40b clean completed pre-window child is excluded even when benign item_completed trails task_complete', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'completed-pre-window.jsonl', [
+    meta('completed-pre-window', ROOT, ROOT, 1, '/root/pre-window'),
+    taskStarted('old-turn', '2026-09-27T11:00:00.000Z'),
+    context('old-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('old-response', 'old-turn', { output: 99, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'old-turn' }, '2026-09-27T11:00:03.000Z'),
+    benignItem('2026-09-27T11:00:04.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, true, report.lead.codex.discovery.scope.reason);
+  assert.equal(report.subagents.perFile.find((row) => row.parentId === ROOT).turns, 0, 'pre-window usage contributes no response');
+  assert.equal(report.combined[MODEL].output_tokens, 3, 'pre-window child output is excluded from the aggregate');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED/);
+});
+
+test('Lane40b incomplete pre-window child remains PARTIAL with a named end-witness reason', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'incomplete-pre-window.jsonl', [
+    meta('incomplete-pre-window', ROOT, ROOT, 1),
+    taskStarted('old-open-turn', '2026-09-27T11:00:00.000Z'),
+    context('old-open-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('old-open-response', 'old-open-turn', { output: 9, at: '2026-09-27T11:00:02.000Z' }),
+    benignItem('2026-09-27T11:00:03.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child incomplete-pre-window.*end-bound witness/i);
+  assert.equal(report.combined, null, 'unknown child end coverage cannot produce a complete aggregate');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: PARTIAL/);
+});
+
+test('Lane40b completed overlapping child is counted when a benign row trails its task_complete', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'overlapping-child.jsonl', [
+    meta('overlapping-child', ROOT, ROOT, 1),
+    taskStarted('overlap-turn', '2026-09-27T11:59:59.000Z'),
+    context('overlap-turn', MODEL, '2026-09-27T11:59:59.500Z'),
+    usage('overlap-response', 'overlap-turn', { output: 5, at: '2026-09-27T12:00:05.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'overlap-turn' }, '2026-09-27T12:00:06.000Z'),
+    benignItem('2026-09-27T12:00:07.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, true, report.lead.codex.discovery.scope.reason);
+  assert.equal(report.subagents.perFile.find((row) => row.parentId === ROOT).turns, 1);
+  assert.equal(report.combined[MODEL].output_tokens, 8, 'lead output 3 plus overlapping child output 5');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED/);
+});
+
+test('Lane40b a newer task_started cannot borrow an earlier task completion', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'latest-task-open.jsonl', [
+    meta('latest-task-open', ROOT, ROOT, 1),
+    taskStarted('finished-turn', '2026-09-27T12:00:00.000Z'),
+    context('finished-turn', MODEL, '2026-09-27T12:00:01.000Z'),
+    usage('finished-response', 'finished-turn', { output: 4, at: '2026-09-27T12:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'finished-turn' }, '2026-09-27T12:00:03.000Z'),
+    taskStarted('latest-open-turn', '2026-09-27T12:00:04.000Z'),
+    context('latest-open-turn', MODEL, '2026-09-27T12:00:05.000Z'),
+    usage('latest-open-response', 'latest-open-turn', { output: 6, at: '2026-09-27T12:00:06.000Z' }),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child latest-task-open.*end-bound witness/i);
+  assert.equal(report.combined, null);
+});
+
+test('Lane40b repeated same-id restart cannot borrow the first run completion', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'same-id-restart.jsonl', [
+    meta('same-id-restart', ROOT, ROOT, 1),
+    taskStarted('reused-turn', '2026-09-27T11:00:00.000Z'),
+    context('reused-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('first-run-response', 'reused-turn', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'reused-turn' }, '2026-09-27T11:00:03.000Z'),
+    taskStarted('reused-turn', '2026-09-27T11:00:04.000Z'),
+    context('reused-turn', MODEL, '2026-09-27T11:00:05.000Z'),
+    usage('second-run-response', 'reused-turn', { output: 6, at: '2026-09-27T11:00:06.000Z' }),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child same-id-restart.*end-bound witness/i);
+  assert.equal(report.combined, null);
+});
+
+test('Lane40b invalid task restart after completion remains PARTIAL', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'invalid-restart.jsonl', [
+    meta('invalid-restart', ROOT, ROOT, 1),
+    taskStarted('valid-turn', '2026-09-27T11:00:00.000Z'),
+    context('valid-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('valid-response', 'valid-turn', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'valid-turn' }, '2026-09-27T11:00:03.000Z'),
+    line('event_msg', { type: 'task_started' }, '2026-09-27T11:00:04.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child invalid-restart.*end-bound witness/i);
+  assert.equal(report.lead.codex.fields.leadTurns.status, 'UNSUPPORTED');
+  assert.equal(report.combined, null);
+});
+
+test('Lane40b task completion before a benign row is a witness in open mode and contributes usage', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'open-completed-child.jsonl', [
+    meta('open-completed-child', ROOT, ROOT, 1),
+    taskStarted('open-child-turn', '2026-09-27T12:00:00.000Z'),
+    context('open-child-turn', MODEL, '2026-09-27T12:00:01.000Z'),
+    usage('open-child-response', 'open-child-turn', { output: 5, at: '2026-09-27T12:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'open-child-turn' }, '2026-09-27T12:00:03.000Z'),
+    benignItem('2026-09-27T12:00:04.000Z'),
+  ]);
+
+  const report = await runCensus({ lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null, from: null, to: null, out: null });
+
+  assert.equal(report.lead.codex.discovery.scope.complete, true, report.lead.codex.discovery.scope.reason);
+  assert.equal(report.combined[MODEL].output_tokens, 8, 'open mode includes lead output 3 and child output 5');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED/);
+});
+
+test('Lane40b from-only window excludes a clean child that ended before its finite start', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'from-only-pre-window.jsonl', [
+    meta('from-only-pre-window', ROOT, ROOT, 1),
+    taskStarted('from-old-turn', '2026-09-27T11:00:00.000Z'),
+    context('from-old-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('from-old-response', 'from-old-turn', { output: 50, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'from-old-turn' }, '2026-09-27T11:00:03.000Z'),
+    benignItem('2026-09-27T11:00:04.000Z'),
+  ]);
+
+  const report = await runCensus({
+    lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
+    from: '2026-09-27T12:00:00.000Z', to: null, out: null,
+  });
+
+  assert.equal(report.lead.codex.discovery.scope.complete, true, report.lead.codex.discovery.scope.reason);
+  assert.equal(report.combined[MODEL].output_tokens, 3, 'from-only census excludes old child output');
+});
+
+test('Lane40b child ending exactly at --from overlaps and cannot be excluded as pre-window', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'boundary-zero-usage.jsonl', [
+    meta('boundary-zero-usage', ROOT, ROOT, 1),
+    taskStarted('boundary-turn', '2026-09-27T11:59:58.000Z'),
+    context('boundary-turn', MODEL, '2026-09-27T11:59:59.000Z'),
+    line('event_msg', { type: 'task_complete', turn_id: 'boundary-turn' }, '2026-09-27T12:00:00.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child boundary-zero-usage has no token_usage_record/i);
+  assert.equal(report.combined, null);
+});
+
+test('Lane40b item_completed turn_id and task-complete-looking agent text are never terminal witnesses', async () => {
+  for (const [id, terminalLikeRow] of [
+    ['user-message-item', line('event_msg', {
+      type: 'item_completed', turn_id: 'pending-turn',
+      item: { type: 'UserMessage', content: [{ type: 'text', text: 'ordinary user message' }] },
+    }, '2026-09-27T11:00:03.000Z')],
+    ['agent-text-item', line('event_msg', {
+      type: 'item_completed', turn_id: 'pending-turn',
+      item: { type: 'AgentMessage', text: 'task complete' },
+    }, '2026-09-27T11:00:03.000Z')],
+  ]) {
+    const home = fixtureHome();
+    const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+    writeRollout(home, DAY, `${id}.jsonl`, [
+      meta(id, ROOT, ROOT, 1),
+      taskStarted('pending-turn', '2026-09-27T11:00:00.000Z'),
+      context('pending-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+      usage(`${id}-response`, 'pending-turn', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+      terminalLikeRow,
+    ]);
+
+    const report = await boundedReport(home, lead);
+    assert.equal(report.lead.codex.discovery.scope.complete, false, id);
+    assert.match(report.lead.codex.discovery.scope.reason, new RegExp(`child ${id}.*end-bound witness`, 'i'), id);
+    assert.equal(report.combined, null, id);
+  }
+});
+
+test('Lane40b pre-window completion never hides corrupt or conflicting child evidence', async () => {
+  const corruptHome = fixtureHome();
+  const corruptLead = writeRollout(corruptHome, DAY, 'lead.jsonl', leadRows());
+  const corrupt = writeRollout(corruptHome, DAY, 'corrupt-pre-window.jsonl', [
+    meta('corrupt-pre-window', ROOT, ROOT, 1),
+    taskStarted('corrupt-turn', '2026-09-27T11:00:00.000Z'),
+    context('corrupt-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('corrupt-response', 'corrupt-turn', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'corrupt-turn' }, '2026-09-27T11:00:03.000Z'),
+  ]);
+  fs.appendFileSync(corrupt, '{malformed-json\n', 'utf8');
+  const corruptReport = await boundedReport(corruptHome, corruptLead);
+  assert.equal(corruptReport.lead.codex.discovery.scope.complete, false);
+  assert.match(corruptReport.lead.codex.discovery.scope.reason, /child corrupt-pre-window malformed JSON row/i);
+  assert.equal(corruptReport.combined, null);
+
+  const conflictHome = fixtureHome();
+  const conflictLead = writeRollout(conflictHome, DAY, 'lead.jsonl', leadRows());
+  writeRollout(conflictHome, DAY, 'conflict-pre-window.jsonl', [
+    meta('conflict-pre-window', ROOT, ROOT, 1),
+    taskStarted('conflict-turn', '2026-09-27T11:00:00.000Z'),
+    context('conflict-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('same-response', 'conflict-turn', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+    usage('same-response', 'conflict-turn', { output: 4, at: '2026-09-27T11:00:02.500Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'conflict-turn' }, '2026-09-27T11:00:03.000Z'),
+  ]);
+  const conflictReport = await boundedReport(conflictHome, conflictLead);
+  assert.equal(conflictReport.lead.codex.discovery.scope.complete, false);
+  assert.match(conflictReport.lead.codex.discovery.scope.reason, /child conflict-pre-window has conflicting timestamps/i);
+  assert.equal(conflictReport.combined, null);
+});
+
+test('Lane40b clean completed zero-usage child wholly before --from is excluded', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'zero-usage-pre-window.jsonl', [
+    meta('zero-usage-pre-window', ROOT, ROOT, 1),
+    taskStarted('zero-turn', '2026-09-27T11:00:00.000Z'),
+    context('zero-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    line('event_msg', { type: 'task_complete', turn_id: 'zero-turn' }, '2026-09-27T11:00:02.000Z'),
+    benignItem('2026-09-27T11:00:03.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, true, report.lead.codex.discovery.scope.reason);
+  assert.equal(report.combined[MODEL].output_tokens, 3, 'only lead usage contributes');
+  assert.match(formatText(report).split('\n')[0], /^VERDICT: COUNTED/);
+});
 
 test('Codex contract: verified ancestry, root namespace, distinct child response ids, and native turns', async () => {
   const home = fixtureHome();
