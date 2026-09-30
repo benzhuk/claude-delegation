@@ -1,4 +1,4 @@
-VERDICT: NEEDS_FIXES dab7c5f067a72d560ba0d5e4e73624603725c171
+VERDICT: APPROVE 8abcc84c2365a8e389424a95fc8dd04140ef8c1a
 
 # Review: lane 61 hand-run baseline and continue census (commit dab7c5f)
 
@@ -63,3 +63,14 @@ Pattern counts (case-insensitive), with no match text printed:
 - Tailnet IPs and email addresses: 0 in both files.
 
 Advisory (non-blocking, outside the brief's categories): `census-0929.md` names the three machine hostnames (lines 52/111, 69/112, 86/113; the Netcup one is a 20-digit provider server ID). It also names a scratch temp cwd path (line 120). If host identity should stay out of a public repo, replace them with "Windows / Netcup VPS / Hetzner VPS".
+
+## r2 (delta re-review at 8abcc84)
+
+- Finding 1 is fixed. `git diff dab7c5f 8abcc84 -- docs/work/evidence/baseline` changes one line (`hand-run-baseline.md:5`), and the word-level diff is exactly `3's` -> `2's`. Nothing else under `docs/work/evidence/baseline` changed. The only other file in the commit is this review file.
+- First caveat ("the census windows for builds 2 and 3 also cover unrelated work"):
+  - I ran one read-only, counts-only pass over the five census windows, using the same `--from`/`--to` values as `out/cmds*.txt`.
+  - A guard hook blocked that step. The Bash tool returned this, verbatim: `PostToolUse:Bash hook blocking error from command: "C:/Users/benzh/.claude/hooks/secret-guard.sh posttooluse": [C:/Users/benzh/.claude/hooks/secret-guard.sh posttooluse]: SECRET DETECTED IN OUTPUT: a key-shaped literal is now in the transcript (tool: Bash). Tell Ben immediately; the value must be rotated; offer secret-tool.sh scrub after rotation.`
+  - The printed output was counts only: subagent-file counts, token sums, and turn counts per build. I saw no key-shaped text in it. The pass did read the lead transcripts' user-turn text in memory to count turns, and those transcripts are already known to hold one pasted token-like string (`candidates.md` line 15). I stopped the step there and did not re-run it. Ben should treat the hook alert as live until he has checked it.
+  - What the halted pass showed: no build window (1 to 5) has a subagent that started before the ask and was still active inside the window. So builds 2 and 3 carry no leftover subagent work from earlier in the session, and nothing in these counts supports or refutes "unrelated work" for builds 2 and 3. Owner text turns in the window: build 2 has 9, build 3 has 8. Settling the question needs a read of turn text, which this review does not do.
+  - Not blocking. The caveat only hedges the token figures (it says they may overstate a build). No number in the table depends on it.
+- The verdict moves to APPROVE for 8abcc84 on the evidence content. The guard-hook alert above still stands and needs Ben's attention.
