@@ -236,22 +236,26 @@ function fixtureHomeWithSettings(prefix, settingsText) {
 const PLAIN_SETTINGS = `${JSON.stringify({ permissions: { allow: ['Bash(git *)'] } }, null, 2)}\n`;
 
 /** A fake `chezmoi` binary on PATH, for chezmoiManagedStatus()'s own execFileSync('chezmoi', ...) call
- * (no shell: true). On POSIX a `#!/bin/sh` script works directly; on win32 the equivalent is a `.cmd`
- * file - Windows has no shebang interpreter, and execFileSync without shell:true can only resolve and
- * run `chezmoi` via PATHEXT if the file has a recognised extension. `stdout`/`exitCode` are the only
- * two behaviours chezmoiManagedStatus() reads. */
+ * (no shell: true). A `#!/bin/sh` script works directly on POSIX. Measured on the lane 59 Windows
+ * gate (r2): a `.cmd` stand-in does NOT work as a win32 equivalent - `execFileSync('chezmoi', ...)`
+ * with no shell option throws ENOENT even with a `chezmoi.cmd` on PATH, because current, patched Node
+ * versions (post CVE-2024-27980) only auto-wrap a resolved `.bat`/`.cmd` through cmd.exe when the
+ * caller opts in with `shell: true` - which chezmoiManagedStatus() itself does not set, and this file
+ * cannot add without touching product code. See CHEZMOI_FIXTURE_UNAVAILABLE below: the three tests
+ * that depend on this fixture skip on win32 for that reason, not because chezmoi detection itself is
+ * unavailable there. */
 function writeFakeChezmoi(dir, { stdout = '', exitCode = 0 } = {}) {
-  if (process.platform === 'win32') {
-    const bin = path.join(dir, 'chezmoi.cmd');
-    const echoLines = stdout ? stdout.split('\n').filter(Boolean).map((l) => `echo ${l}`).join('\r\n') : '';
-    fs.writeFileSync(bin, `@echo off\r\n${echoLines}\r\nexit /b ${exitCode}\r\n`);
-    return bin;
-  }
   const bin = path.join(dir, 'chezmoi');
   fs.writeFileSync(bin, `#!/bin/sh\n${stdout ? `echo "${stdout}"\n` : ''}exit ${exitCode}\n`);
   fs.chmodSync(bin, 0o755);
   return bin;
 }
+
+const CHEZMOI_FIXTURE_UNAVAILABLE = "measured on the lane 59 Windows gate: chezmoiManagedStatus() "
+  + "calls execFileSync('chezmoi', ...) with no shell option, which throws ENOENT for a .cmd stand-in "
+  + "on current, patched Node (post CVE-2024-27980, a resolved .bat/.cmd is only auto-wrapped through "
+  + "cmd.exe when the caller passes shell:true) - a test-fixture limitation only, not a claim that "
+  + "chezmoi detection is unavailable on win32 itself.";
 
 test('F12: the reclaim shim is gated by isDurablePath(REPO), targeting THIS repo\'s own scripts/reclaim.mjs, never the mirrored copy', () => {
   const sources = collectSources();
@@ -436,7 +440,7 @@ for (const shadowKey of ['deny', 'ask']) {
   });
 }
 
-test('F11: --write-allow SKIPs as chezmoi-managed when a fake chezmoi on PATH lists the settings file (relative to $HOME)', () => {
+test('F11: --write-allow SKIPs as chezmoi-managed when a fake chezmoi on PATH lists the settings file (relative to $HOME)', { skip: process.platform === 'win32' ? CHEZMOI_FIXTURE_UNAVAILABLE : false }, () => {
   const home = fixtureHomeWithSettings('mirror-write-allow-chezmoi-', PLAIN_SETTINGS);
   const settingsPath = path.join(home, '.claude', 'settings.json');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-chezmoi-'));
@@ -446,7 +450,7 @@ test('F11: --write-allow SKIPs as chezmoi-managed when a fake chezmoi on PATH li
   assert.equal(fs.readFileSync(settingsPath, 'utf8'), PLAIN_SETTINGS, 'never touched');
 });
 
-test('F11: --write-allow SKIPs as "chezmoi check failed" when chezmoi is on PATH but errors', () => {
+test('F11: --write-allow SKIPs as "chezmoi check failed" when chezmoi is on PATH but errors', { skip: process.platform === 'win32' ? CHEZMOI_FIXTURE_UNAVAILABLE : false }, () => {
   const home = fixtureHomeWithSettings('mirror-write-allow-chezmoi-err-', PLAIN_SETTINGS);
   const settingsPath = path.join(home, '.claude', 'settings.json');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-chezmoi-err-'));
@@ -530,7 +534,7 @@ test('F9: --write-allow SKIPs the codex rules file with "line present" when it a
   assert.ok(json.actions.some((a) => a === `SKIP ${rulesPath}: line present`), json.actions.join('\n'));
 });
 
-test('F9: --write-allow SKIPs the codex rules file as chezmoi-managed', () => {
+test('F9: --write-allow SKIPs the codex rules file as chezmoi-managed', { skip: process.platform === 'win32' ? CHEZMOI_FIXTURE_UNAVAILABLE : false }, () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-write-allow-codex-chezmoi-'));
   const rulesPath = fixtureCodexHome(home, 'prefix_rule(pattern = ["git"], decision = "allow")\n');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-chezmoi-codex-'));
@@ -624,12 +628,9 @@ test('review finding 14: a previously-managed reclaim shim entry survives manife
 
 test('review finding R2-5: an entry merely NAMED reclaim outside LOCAL_BIN is dropped normally, not protected by the carry-forward clause', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-manifest-reclaim-elsewhere-'));
-  // warnCrossSessionInbound() runs unconditionally on every plain run and reads straight off HOME
-  // (module-level, resolved from os.homedir() inside the freshly-spawned child) - this fixture home
-  // has no .claude/settings.json of its own, so without one it falls through to "nothing" and prints
-  // a WARNING action irrelevant to this test's own assertions. Giving it a fixture settings.json that
-  // already says `crossSessionInbound: "accept"` keeps that WARNING out of json.actions here, the same
-  // way a real, correctly-configured machine would never see it either.
+  // Keeps warnCrossSessionInbound()'s unconditional WARNING action out of this test's own noise (it
+  // reads straight off HOME for every plain run) - not, in the end, this test's actual Windows-gate
+  // failure; see the elsewhereDestSlash note below for the real cause.
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ crossSessionInbound: 'accept' }));
   // A skill (or anything else) that happens to be named "reclaim" but lives somewhere other than
@@ -660,8 +661,14 @@ test('review finding R2-5: an entry merely NAMED reclaim outside LOCAL_BIN is dr
 
   const json = runFull([], home);
 
+  // say() prints old.dest verbatim, which the manifest fixture above already stored in forward-slash
+  // form (`elsewhereDest.split(path.sep).join('/')`, matching what publish() itself always writes) -
+  // comparing against the raw, host-native `elsewhereDest` here (backslashes on win32) is what
+  // actually broke this test on the Windows gate, not any crossSessionInbound WARNING output: the
+  // action line was really there, just spelled with forward slashes.
+  const elsewhereDestSlash = elsewhereDest.split(path.sep).join('/');
   assert.ok(
-    json.actions.some((a) => a === `drop no-longer-shared entry: ${elsewhereDest}`),
+    json.actions.some((a) => a === `drop no-longer-shared entry: ${elsewhereDestSlash}`),
     `an entry merely named reclaim outside LOCAL_BIN must be dropped like any other stale entry, got:\n${json.actions.join('\n')}`,
   );
   assert.equal(fs.existsSync(elsewhereDest), false, 'the stray symlink itself must actually be removed');

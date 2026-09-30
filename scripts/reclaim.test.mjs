@@ -102,6 +102,24 @@ const NO_WIN32_HOST = "no win32 host is available in this environment - this run
   + "read) on a real Windows machine: reclaim.mjs's pImpl() forces path.win32 arithmetic for a "
   + "win32 ctx, which only lines up with real on-disk paths when the host itself is win32.";
 
+// Measured on the Windows gate (lane 59, r2): baseCtx() always forces `platform: "linux"` with fake
+// /tmp and /var/tmp roots (mkTmp()'s own real on-disk paths, but a POSIX platform label) - the very
+// first thing validateArg() does with any absolute argument, `isHostAbsolute(raw, "linux")`, checks
+// `path.posix.isAbsolute()` against it, which a real win32 path (`C:\Users\...`) never satisfies. On
+// a real win32 host every one of these tests fails identically with "not absolute on this host"
+// instead of whatever it means to exercise - not because the check itself (isHostAbsolute has a
+// dedicated win32 branch), the S/T scratch-path shape, the uid model, or the mount-table reads these
+// tests build fixtures for actually stop existing on win32, but because baseCtx()'s POSIX fixture
+// cannot be driven through win32-shaped real paths at all. The win32-context tests added above (T
+// happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) cover the same reclaim.mjs code for
+// real on win32 instead.
+const POSIX_FIXTURE_ONLY = "baseCtx() forces platform:\"linux\" over real POSIX-shaped fake /tmp and "
+  + "/var/tmp roots - on a real win32 host, isHostAbsolute(raw, \"linux\") refuses every argument here "
+  + "as \"not absolute on this host\" before this test's own subject is ever reached (measured on the "
+  + "lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context "
+  + "twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same "
+  + "reclaim.mjs code paths exercised for real on win32.";
+
 function collector() {
   const lines = [];
   return { lines, print: (l) => lines.push(l) };
@@ -188,7 +206,7 @@ test("F14: kill switch refuses every argument, exit 3, nothing removed", () => {
 
 // ---------- F8: cwd containment ----------
 
-test("F8: target equal to process.cwd() is refused", () => {
+test("F8: target equal to process.cwd() is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const c = collector();
   const code = reclaimMain([ctx.cwd], { ...ctx, print: c.print });
@@ -218,7 +236,7 @@ function sTarget(ctx, { session = ctx.sessionId, project = "proj1", rest = "work
   return p;
 }
 
-test("S: happy path removes with fs, dry-run removes nothing", () => {
+test("S: happy path removes with fs, dry-run removes nothing", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const target = sTarget(ctx);
   const c1 = collector();
@@ -234,7 +252,7 @@ test("S: happy path removes with fs, dry-run removes nothing", () => {
   assert.ok(!fs.existsSync(target));
 });
 
-test("S: session id mismatch is refused", () => {
+test("S: session id mismatch is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx({ sessionId: "sess-1" });
   const target = sTarget(ctx, { session: "sess-OTHER" });
   const c = collector();
@@ -244,7 +262,7 @@ test("S: session id mismatch is refused", () => {
   assert.ok(fs.existsSync(target));
 });
 
-test("S: unset session id is refused", () => {
+test("S: unset session id is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx({ sessionId: undefined });
   const target = sTarget({ ...ctx, sessionId: "sess-1" }, { session: "sess-1" });
   const c = collector();
@@ -253,7 +271,7 @@ test("S: unset session id is refused", () => {
   assert.match(c.lines[0], /CLAUDE_CODE_SESSION_ID/);
 });
 
-test("S: the scratchpad directory itself is refused, not just its contents", () => {
+test("S: the scratchpad directory itself is refused, not just its contents", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const target = path.join(ctx.posixTmpRoot, `claude-${ctx.uid}`, "proj1", ctx.sessionId, "scratchpad");
   mkdir(target);
@@ -273,7 +291,7 @@ function tTarget(ctx, { root = ctx.posixVarTmpRoot, name = "delegation-foo-XXXX"
   return { top, target: p };
 }
 
-test("T: happy path removes with fs, dry-run removes nothing", () => {
+test("T: happy path removes with fs, dry-run removes nothing", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const c1 = collector();
@@ -308,7 +326,7 @@ test("T: happy path removes with fs, dry-run removes nothing (win32 host)", { sk
   assert.ok(!fs.existsSync(target));
 });
 
-test("T: whole delegation-<name>-XXXX directory removes as one unit", () => {
+test("T: whole delegation-<name>-XXXX directory removes as one unit", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { top } = tTarget(ctx);
   const c = collector();
@@ -317,7 +335,7 @@ test("T: whole delegation-<name>-XXXX directory removes as one unit", () => {
   assert.ok(!fs.existsSync(top));
 });
 
-test("T: a top dir not prefixed delegation- is refused", () => {
+test("T: a top dir not prefixed delegation- is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx, { name: "not-delegation-foo" });
   const c = collector();
@@ -326,7 +344,7 @@ test("T: a top dir not prefixed delegation- is refused", () => {
   assert.match(c.lines[0], /delegation-<name>-XXXX/);
 });
 
-test("T: owned by another uid is refused (no root required - inject ctx.uid)", () => {
+test("T: owned by another uid is refused (no root required - inject ctx.uid)", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const forged = { ...ctx, uid: ctx.uid + 1 };
@@ -338,7 +356,7 @@ test("T: owned by another uid is refused (no root required - inject ctx.uid)", (
 
 // ---------- F3: mount-crossing / linked-worktree walk ----------
 
-test("F3: a nested linked-worktree .git FILE inside a T dir is refused", () => {
+test("F3: a nested linked-worktree .git FILE inside a T dir is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const sub = mkdir(path.join(target, "sub"));
@@ -363,7 +381,7 @@ test("F3: a nested linked-worktree .git FILE inside a T dir is refused (win32 ho
   assert.ok(fs.existsSync(target));
 });
 
-test("F3: a nested repo with a non-empty worktrees/ subdir is refused", () => {
+test("F3: a nested repo with a non-empty worktrees/ subdir is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const sub = mkdir(path.join(target, "sub"));
@@ -377,7 +395,7 @@ test("F3: a nested repo with a non-empty worktrees/ subdir is refused", () => {
 
 // ---------- repoRoots (C1's repoRoots wired through S/T) ----------
 
-test("T dir containing a path from the cwd's own git worktree list is refused", () => {
+test("T dir containing a path from the cwd's own git worktree list is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // The main repo root lives INSIDE the T target; cwd is a second, linked worktree of that same
   // repo living OUTSIDE the T target - so F8's own "equals/contains cwd" rule (a stronger, earlier
   // check) never fires here, and it's repoRoots' own "contains" rule being exercised instead.
@@ -409,7 +427,7 @@ test("T dir containing a path from the cwd's own git worktree list is refused", 
 
 // ---------- symlink refusal ----------
 
-test("a symlink target is refused, never followed", () => {
+test("a symlink target is refused, never followed", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { top } = tTarget(ctx, { rest: null });
   const elsewhere = mkTmp("reclaim-elsewhere-");
@@ -424,7 +442,7 @@ test("a symlink target is refused, never followed", () => {
 
 // ---------- HOME refusal ----------
 
-test("a target equal to HOME is refused", () => {
+test("a target equal to HOME is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const roots = mkScratchRoots();
   const homeAsT = mkdir(path.join(roots.varTmpRoot, "delegation-home-1"));
   fs.chmodSync(homeAsT, 0o700);
@@ -449,7 +467,7 @@ test("a target equal to HOME is refused", () => {
 
 // ---------- absent targets ----------
 
-test("an absent target does not block other arguments and does not fail the run", () => {
+test("an absent target does not block other arguments and does not fail the run", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const missing = path.join(ctx.posixVarTmpRoot, "delegation-missing-1");
@@ -476,7 +494,7 @@ test("one refusal among many arguments removes nothing at all", () => {
 
 // ---------- class W ----------
 
-test("W: happy path - dry-run prints without removing, live removes via applySafe (F1 idle floor cleared)", () => {
+test("W: happy path - dry-run prints without removing, live removes via applySafe (F1 idle floor cleared)", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-a");
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
@@ -494,7 +512,7 @@ test("W: happy path - dry-run prints without removing, live removes via applySaf
   assert.ok(!fs.existsSync(wt));
 });
 
-test("W: refused when younger than the classify-level age floor (real now)", () => {
+test("W: refused when younger than the classify-level age floor (real now)", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-a");
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: new Date() });
@@ -505,7 +523,7 @@ test("W: refused when younger than the classify-level age floor (real now)", () 
   assert.ok(fs.existsSync(wt));
 });
 
-test("W: F1 - SAFE but not yet idle 24h is refused distinctly from the age floor", () => {
+test("W: F1 - SAFE but not yet idle 24h is refused distinctly from the age floor", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-a");
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: MID });
@@ -516,7 +534,7 @@ test("W: F1 - SAFE but not yet idle 24h is refused distinctly from the age floor
   assert.ok(fs.existsSync(wt));
 });
 
-test("W: a dirty worktree is refused, never removed", () => {
+test("W: a dirty worktree is refused, never removed", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-a");
   fs.writeFileSync(path.join(wt, "uncommitted.txt"), "dirty\n");
@@ -528,7 +546,7 @@ test("W: a dirty worktree is refused, never removed", () => {
   assert.ok(fs.existsSync(wt));
 });
 
-test("W: the main worktree itself is refused", () => {
+test("W: the main worktree itself is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
   const c = collector();
@@ -586,7 +604,7 @@ test("B: --repo not a git repository is refused", () => {
 
 // ---------- HIGH 1: upward containment walk (round-2 review) ----------
 
-test("HIGH1: a target INSIDE a linked worktree living inside a T dir is refused, even with cwd outside the worktree's repo", () => {
+test("HIGH1: a target INSIDE a linked worktree living inside a T dir is refused, even with cwd outside the worktree's repo", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // Mirrors probe1's layout: repo R lives OUTSIDE the T root; a linked worktree of R lives INSIDE
   // a T dir, holding uncommitted work; cwd is a third, unrelated directory. Before HIGH 1, F3's
   // walk only looked BELOW the argument, and repoRoots only sees the CWD's own repo - so a target
@@ -620,7 +638,7 @@ test("HIGH1: a target INSIDE a linked worktree living inside a T dir is refused,
   assert.ok(fs.existsSync(path.join(wt, "new.txt")), "uncommitted work must survive");
 });
 
-test("HIGH1 (re-review finding 1): a plain repo's own main checkout, with NO other linked worktrees, is refused too - ruling r2's 'any .git entry' rule, not only 'has other linked worktrees'", () => {
+test("HIGH1 (re-review finding 1): a plain repo's own main checkout, with NO other linked worktrees, is refused too - ruling r2's 'any .git entry' rule, not only 'has other linked worktrees'", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // Round-1's fix narrowed ruling r2's "refuse on any .git file or directory above the target" to
   // "refuse a .git DIR only when its worktrees/ is non-empty" - so a plain repo's own checkout,
   // with no linked worktrees at all, fell through to a bare fs delete even though its tracked and
@@ -671,7 +689,7 @@ test("HIGH1: a plain repo's own main checkout is refused too - ancestor .git ref
   assert.ok(fs.existsSync(path.join(srcDir, "new.txt")));
 });
 
-test("HIGH1 (re-review finding 1, P2b): the T top itself is the plain repo - a target inside it is still refused", () => {
+test("HIGH1 (re-review finding 1, P2b): the T top itself is the plain repo - a target inside it is still refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
   const repo = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-plain-repo-1"));
   fs.chmodSync(repo, 0o700);
@@ -688,7 +706,7 @@ test("HIGH1 (re-review finding 1, P2b): the T top itself is the plain repo - a t
   assert.ok(fs.existsSync(path.join(srcDir, "a.txt")));
 });
 
-test("HIGH1 (re-review finding 1, P2c): a plain repo whose .git/worktrees/ is empty (its one linked worktree already removed) is still refused", () => {
+test("HIGH1 (re-review finding 1, P2c): a plain repo whose .git/worktrees/ is empty (its one linked worktree already removed) is still refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
   const top = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-plain-gone-1"));
   fs.chmodSync(top, 0o700);
@@ -712,7 +730,7 @@ test("HIGH1 (re-review finding 1, P2c): a plain repo whose .git/worktrees/ is em
 
 // ---------- Round-2 re-review MEDIUM 4: mutations that survived fix round 1's own proof set ----------
 
-test("H1d (mutation-provable): an unreadable ancestor .git entry refuses, rather than being treated as absent", () => {
+test("H1d (mutation-provable): an unreadable ancestor .git entry refuses, rather than being treated as absent", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx, { rest: "sub" });
   const dotGit = path.join(path.dirname(target), ".git");
@@ -734,7 +752,7 @@ test("H1d (mutation-provable): an unreadable ancestor .git entry refuses, rather
 
 // ---------- HIGH 2: mount-point/bind-mount refusal (round-2 review) ----------
 
-test("HIGH2 (re-review finding 2): a bare repo backing a live linked worktree with an unpushed commit is refused, and so is anything inside it", () => {
+test("HIGH2 (re-review finding 2): a bare repo backing a live linked worktree with an unpushed commit is refused, and so is anything inside it", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // P3's exact layout: a bare clone inside a T dir, with a linked worktree ELSEWHERE holding a
   // commit that was never pushed anywhere else - the bare repo is the only copy of that commit.
   const { repo, origin } = initRepo();
@@ -791,7 +809,7 @@ test("HIGH2: a bare repo backing a live linked worktree with an unpushed commit 
   assert.ok(fs.existsSync(path.join(bareRepo, "objects")));
 });
 
-test("HIGH2 (re-review finding 2): a plain delegation-* dir with no git shape at all stays removable", () => {
+test("HIGH2 (re-review finding 2): a plain delegation-* dir with no git shape at all stays removable", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx, { rest: "data" });
   fs.writeFileSync(path.join(target, "HEAD"), "not actually a git dir\n"); // a file named HEAD alone must not trip the shape test
@@ -802,7 +820,7 @@ test("HIGH2 (re-review finding 2): a plain delegation-* dir with no git shape at
   assert.ok(!fs.existsSync(target));
 });
 
-test("HIGH2: the class-root st_dev baseline catches a target that is ITSELF a differently-mounted directory (mutation M5b-provable: the fix's own baseDev change)", () => {
+test("HIGH2: the class-root st_dev baseline catches a target that is ITSELF a differently-mounted directory (mutation M5b-provable: the fix's own baseDev change)", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // Regression for the exact redteam measurement: a tmpfs mounted AT the T target itself always
   // matched its own children under the OLD baseline (the target's own st_dev), because every
   // descendant is naturally on the SAME device as the target. The fix compares against the CLASS
@@ -837,7 +855,7 @@ test("HIGH2: the class-root st_dev baseline catches a target that is ITSELF a di
   assert.ok(fs.existsSync(target));
 });
 
-test("HIGH2: a same-filesystem bind mount (st_dev identical) is refused via the mount table (injected mountinfo)", () => {
+test("HIGH2: a same-filesystem bind mount (st_dev identical) is refused via the mount table (injected mountinfo)", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // st_dev cannot see this at all - the real hazard the redteam measured with `unshare -rm`: a
   // bind mount of an unrelated directory landing exactly on a T target, on the SAME device.
   const ctx = baseCtx({ platform: "linux" });
@@ -859,7 +877,7 @@ test("HIGH2: a same-filesystem bind mount (st_dev identical) is refused via the 
   assert.ok(fs.existsSync(target));
 });
 
-test("HIGH2: an unreadable mount table fails closed (refused), never silently passes", () => {
+test("HIGH2: an unreadable mount table fails closed (refused), never silently passes", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx({ platform: "linux" });
   const { top } = tTarget(ctx);
   const fsImpl = Object.create(fs);
@@ -877,7 +895,7 @@ test("HIGH2: an unreadable mount table fails closed (refused), never silently pa
   assert.match(c.lines[0], /mount table/);
 });
 
-test("H2c (mutation-provable): a target lying under an ANCESTOR bind mount is refused as 'lies under a bind mount', not just 'crosses'", () => {
+test("H2c (mutation-provable): a target lying under an ANCESTOR bind mount is refused as 'lies under a bind mount', not just 'crosses'", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // Round-2 re-review MEDIUM 4: the existing injected-mountinfo test above only ever exercises the
   // "target IS/CONTAINS a mount point" branches (mount registered AT top, target == top) - never
   // the "target LIES UNDER a mount registered on one of its own ancestors" branch, so disabling
@@ -951,7 +969,7 @@ test("HIGH2 (measured, unshare -rm): a real same-device bind mount landing on a 
 // ---------- Re-review MEDIUM 3: the ".."-prefix twin of LOW 12, in reclaim's own mount check and
 // F8's cwd check (both fail toward ALLOW) ----------
 
-test("re-review MEDIUM3 (mount check): a same-filesystem bind mount at a dir literally named '..m' is still refused, not misread as an escape", () => {
+test("re-review MEDIUM3 (mount check): a same-filesystem bind mount at a dir literally named '..m' is still refused, not misread as an escape", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx({ platform: "linux" });
   const { top } = tTarget(ctx, { rest: null });
   const mountPoint = path.join(top, "..m");
@@ -972,7 +990,7 @@ test("re-review MEDIUM3 (mount check): a same-filesystem bind mount at a dir lit
   assert.match(c.lines[0], /crosses a mount point/);
 });
 
-test("re-review MEDIUM3 (F8 cwd check): a cwd of '<top>/..work' still refuses <top>, not misread as escaping it", () => {
+test("re-review MEDIUM3 (F8 cwd check): a cwd of '<top>/..work' still refuses <top>, not misread as escaping it", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { top } = tTarget(ctx, { rest: null });
   const cwdDir = path.join(top, "..work");
@@ -986,7 +1004,7 @@ test("re-review MEDIUM3 (F8 cwd check): a cwd of '<top>/..work' still refuses <t
 
 // ---------- MEDIUM 3: an rmSync failure must not crash the process (round-2 review) ----------
 
-test("MEDIUM3: an rmSync failure prints a failed line and does not crash; later arguments still run", () => {
+test("MEDIUM3: an rmSync failure prints a failed line and does not crash; later arguments still run", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target: bad } = tTarget(ctx, { name: "delegation-bad-1" });
   const { target: good } = tTarget(ctx, { name: "delegation-good-1" });
@@ -1043,7 +1061,7 @@ test("MEDIUM5: a removed B line carries a restore hint", () => {
   assert.match(c.lines[0], /^removed B feature-r [0-9a-f]{40} restore: git -C /);
 });
 
-test("MEDIUM5: a removed W line carries a restore hint", () => {
+test("MEDIUM5: a removed W line carries a restore hint", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-w");
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
@@ -1053,7 +1071,7 @@ test("MEDIUM5: a removed W line carries a restore hint", () => {
   assert.match(c.lines[0], /^removed W .* restore: git -C /);
 });
 
-test("M5c (mutation-provable): a partial W removal (git deregistered it, contents already gone) prints its own restore-hint line", () => {
+test("M5c (mutation-provable): a partial W removal (git deregistered it, contents already gone) prints its own restore-hint line", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // Forcing a REAL "partial" row out of git (the final rmdir failing while the worktree is already
   // deregistered) is not reliably reproducible from a fixture - `ctx.applySafeImpl` is stubbed to
   // return exactly the `partial: true` shape janitor.mjs's own applySafe can produce for this case,
@@ -1080,7 +1098,7 @@ test("M5c (mutation-provable): a partial W removal (git deregistered it, content
 
 // ---------- MEDIUM 6: T works on darwin for the convention's own paths (round-2 review) ----------
 
-test("MEDIUM6: a T argument given through a symlinked posixVarTmpRoot (darwin's own /var/tmp shape) is accepted and rmSync receives the REAL path", () => {
+test("MEDIUM6: a T argument given through a symlinked posixVarTmpRoot (darwin's own /var/tmp shape) is accepted and rmSync receives the REAL path", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const realVarTmp = ctx.posixVarTmpRoot; // the fake "/private/var/tmp"
   const symlinkedVarTmp = path.join(mkTmp("reclaim-darwin-"), "var-tmp-link");
@@ -1098,7 +1116,7 @@ test("MEDIUM6: a T argument given through a symlinked posixVarTmpRoot (darwin's 
   assert.ok(!fs.existsSync(top));
 });
 
-test("MEDIUM6: a symlink ONE LEVEL BELOW the root is still refused (the rewrite never touches anything below the root)", () => {
+test("MEDIUM6: a symlink ONE LEVEL BELOW the root is still refused (the rewrite never touches anything below the root)", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const realVarTmp = ctx.posixVarTmpRoot;
   const elsewhere = mkTmp("reclaim-elsewhere-");
@@ -1155,7 +1173,7 @@ test("MEDIUM7: darwin S is refused with the unmeasured message when the tmpdir r
   assert.match(c.lines[0], /S class unmeasured on darwin/);
 });
 
-test("MEDIUM7 (M7-provable): a T top dir that is group- or world-writable is refused", () => {
+test("MEDIUM7 (M7-provable): a T top dir that is group- or world-writable is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const top = path.dirname(target);
@@ -1166,7 +1184,7 @@ test("MEDIUM7 (M7-provable): a T top dir that is group- or world-writable is ref
   assert.match(c.lines[0], /group- or world-writable/);
 });
 
-test("MEDIUM7 (M7-provable): an S claude-<uid> dir that is group- or world-writable is refused", () => {
+test("MEDIUM7 (M7-provable): an S claude-<uid> dir that is group- or world-writable is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const target = sTarget(ctx);
   fs.chmodSync(path.join(ctx.posixTmpRoot, `claude-${ctx.uid}`), 0o777);
@@ -1178,7 +1196,7 @@ test("MEDIUM7 (M7-provable): an S claude-<uid> dir that is group- or world-writa
 
 // ---------- LOW 10: unknown/future idle age never gets the confident "active" label (round-2 review) ----------
 
-test("LOW10: an unreadable idle-age source gives 'idle age unknown', never 'active in last 24h'", () => {
+test("LOW10: an unreadable idle-age source gives 'idle age unknown', never 'active in last 24h'", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-nan");
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED, idleHoursImpl: () => NaN });
@@ -1188,7 +1206,7 @@ test("LOW10: an unreadable idle-age source gives 'idle age unknown', never 'acti
   assert.match(c.lines[0], /idle age unknown/);
 });
 
-test("LOW10: a negative idle age (clock running ahead) gives 'mtime in the future', never 'active in last 24h'", () => {
+test("LOW10: a negative idle age (clock running ahead) gives 'mtime in the future', never 'active in last 24h'", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const { repo } = initRepo();
   const wt = addMergedWorktree(repo, "feature-neg");
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED, idleHoursImpl: () => -5 });
@@ -1200,7 +1218,7 @@ test("LOW10: a negative idle age (clock running ahead) gives 'mtime in the futur
 
 // ---------- LOW 11: the F3 walk fails closed on an unreadable entry (round-2 review) ----------
 
-test("LOW11: an unreadable subdirectory during the walk refuses the whole invocation, rather than silently skipping what it hides", () => {
+test("LOW11: an unreadable subdirectory during the walk refuses the whole invocation, rather than silently skipping what it hides", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const sub = mkdir(path.join(target, "sub"));
@@ -1220,7 +1238,7 @@ test("LOW11: an unreadable subdirectory during the walk refuses the whole invoca
   assert.ok(fs.existsSync(target));
 });
 
-test("L11 (mutation-provable): an unreadable subdirectory's READDIR failure refuses too, not just an lstat failure", () => {
+test("L11 (mutation-provable): an unreadable subdirectory's READDIR failure refuses too, not just an lstat failure", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   // The test above only ever forces an lstat error. LOW 11's own fix also fails closed on a
   // readdirSync error (a directory that lstats fine but cannot be listed) - disabling that half
   // alone left the suite green.
@@ -1245,7 +1263,7 @@ test("L11 (mutation-provable): an unreadable subdirectory's READDIR failure refu
 
 // ---------- LOW 13: the check-to-delete window is re-checked immediately before rmSync (round-2 review) ----------
 
-test("LOW13: a target that becomes a symlink between validation and removal is refused at the re-check, not removed", () => {
+test("LOW13: a target that becomes a symlink between validation and removal is refused at the re-check, not removed", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
   const elsewhere = mkTmp("reclaim-elsewhere-");
@@ -1278,7 +1296,7 @@ test("LOW13: a target that becomes a symlink between validation and removal is r
 
 // ---------- unrecognized ----------
 
-test("a path that is neither S, T, nor a live worktree is refused", () => {
+test("a path that is neither S, T, nor a live worktree is refused", { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false }, () => {
   const ctx = baseCtx();
   const stray = mkTmp("reclaim-stray-");
   const c = collector();
