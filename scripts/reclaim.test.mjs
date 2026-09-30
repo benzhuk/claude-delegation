@@ -1176,16 +1176,27 @@ test("LOW5 (Windows junction gate, deferred without a win32 host): a reparse-poi
     ? "no win32 host is available in this environment - this runs (and must be read) on a real Windows machine, per the re-review's LOW 5: either `mklink /J` refuses the walk (a reparse point treated the same as a symlink - never followed), or reclaim removes only the junction link itself and the sentinel's own contents survive either way"
     : false,
 }, () => {
-  const ctx = baseCtx();
-  const { target } = tTarget(ctx);
+  // A real win32 context: T's win32 root is <home>\AppData\Local\Temp, so build exactly that.
+  const home = mkTmp("reclaim-home-");
+  const tmpdir = mkdir(path.join(home, "AppData", "Local", "Temp"));
+  const top = mkdir(path.join(tmpdir, "delegation-junction-XXXX"));
   const sentinel = mkTmp("reclaim-junction-sentinel-");
   fs.writeFileSync(path.join(sentinel, "keep.txt"), "keep me\n");
-  const junction = path.join(target, "linked");
+  const junction = path.join(top, "linked");
   execFileSync("cmd", ["/c", "mklink", "/J", junction, sentinel], { encoding: "utf8" });
   const c = collector();
-  const code = reclaimMain([target], { ...ctx, print: c.print });
-  // Either the whole T removal is refused because the walk treats the junction as an
-  // untraversable reparse point, or the T removal goes ahead and takes only the junction LINK
-  // with it - what must never happen is the sentinel's own contents being deleted.
-  assert.ok(code === 3 || (code === 0 && fs.existsSync(path.join(sentinel, "keep.txt"))));
+  const code = reclaimMain([top], {
+    cwd: mkTmp("reclaim-cwd-"), home, platform: "win32", uid: 0, tmpdir,
+    posixTmpRoot: "/tmp", posixVarTmpRoot: "/var/tmp", sessionId: "sess-1", now: new Date(),
+    fsImpl: fs, print: c.print,
+  });
+  // The sentinel's own contents must survive, whichever way reclaim resolves the junction.
+  assert.ok(fs.existsSync(path.join(sentinel, "keep.txt")), "the junction's target must survive");
+  if (code === 3) {
+    assert.match(c.lines[0], /symlink|reparse|junction|mount/); // refused FOR the junction, not for an unrelated reason
+  } else {
+    assert.equal(code, 0);
+    assert.match(c.lines[0], /^removed T /);
+    assert.ok(!fs.existsSync(top));
+  }
 });
