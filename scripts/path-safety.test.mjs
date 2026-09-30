@@ -258,6 +258,38 @@ test("checkRemovablePath: allowFile:true refuses something that is neither a fil
   assert.equal(result.reason, "target is not a file or directory");
 });
 
+// Round-2 review, finding 12: a segment name that merely BEGINS with ".." (e.g. "..repo") is not
+// an escape - only an exact ".." segment, or one followed by a separator, climbs out. The loose
+// `rel.startsWith("..")` check used to read such a path as "outside" in every direction, which
+// fails toward ALLOW (a repo root or a worktree path named with a leading ".." was missed by every
+// containment check).
+test("F12/LOW 12: a repoRoots entry whose basename literally starts with .. (not an escape) is still caught by contains/lies-inside", () => {
+  const root = mkTmp("path-safety-root-");
+  const scratch = path.join(root, "scratch");
+  const dotDotRepo = path.join(scratch, "..repo");
+  fs.mkdirSync(path.join(dotDotRepo, "inner"), { recursive: true });
+  const opts = { roots: [root], repoRoots: [{ path: dotDotRepo, kind: "the repo root" }] };
+
+  // "contains": the target (scratch) is an ancestor of the ..repo protected path.
+  const containsResult = checkRemovablePath(scratch, opts);
+  assert.equal(containsResult.ok, false);
+  assert.equal(containsResult.reason, "contains the repo root");
+
+  // "lies inside": the target is a descendant of the ..repo protected path.
+  const insideResult = checkRemovablePath(path.join(dotDotRepo, "inner"), opts);
+  assert.equal(insideResult.ok, false);
+  assert.equal(insideResult.reason, "lies inside the repo root");
+});
+
+test("F12/LOW 12: a root whose basename literally starts with .. still admits membership normally", () => {
+  const parent = mkTmp("path-safety-root-");
+  const dotDotRoot = path.join(parent, "..scratchroot");
+  const target = path.join(dotDotRoot, "lane-1");
+  fs.mkdirSync(target, { recursive: true });
+  const result = checkRemovablePath(target, { roots: [dotDotRoot] });
+  assert.equal(result.ok, true);
+});
+
 test("checkRemovablePath: string roots and { path, predicate } roots can be mixed in one call", () => {
   const rootA = mkTmp("path-safety-root-a-");
   const rootB = mkTmp("path-safety-root-b-");

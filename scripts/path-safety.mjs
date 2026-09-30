@@ -60,12 +60,21 @@ export function checkRemovablePath(target, opts = {}) {
   const forCompare = (p) => (winCase ? normSep(p).toLowerCase() : normSep(p));
   const resolved = path.resolve(target);
 
+  // Round-2 review, finding 12: `rel.startsWith("..")` alone also matches a segment name that
+  // merely BEGINS with two dots (e.g. a directory literally named "..repo"), which is not an
+  // escape at all - only an exact ".." segment, or one followed by a separator, means the
+  // relative path actually climbs out. The old, looser test made such a path read as "outside"
+  // in every direction this file uses it (root membership below, and both containment directions
+  // further down), and every failure here fails toward ALLOW, never toward refuse - the wrong
+  // direction for a removability gate.
+  const escapes = (rel) => rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+
   let underRoot = false;
   for (const entry of roots) {
     const rootDesc = typeof entry === "string" ? { path: entry } : entry;
     const rootPath = path.resolve(rootDesc.path);
     const rel = path.relative(rootPath, resolved);
-    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    if (rel === "" || escapes(rel)) continue;
     const segments = rel.split(path.sep).filter(Boolean);
     if (rootDesc.predicate && !rootDesc.predicate(segments, rel)) continue;
     underRoot = true;
@@ -107,11 +116,11 @@ export function checkRemovablePath(target, opts = {}) {
 
   const inside = (p) => {
     const rel = path.relative(forCompare(resolved), forCompare(path.resolve(p)));
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    return rel === "" || !escapes(rel);
   };
   const liesInside = (p) => {
     const rel = path.relative(forCompare(path.resolve(p)), forCompare(resolved));
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    return rel !== "" && !escapes(rel);
   };
 
   for (const entry of repoRoots) {

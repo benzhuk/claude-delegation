@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { main as reclaimMain } from "./reclaim.mjs";
+import { main as reclaimMain, checkS, checkT } from "./reclaim.mjs";
 
 const tmpDirs = [];
 function mkTmp(prefix) {
@@ -133,7 +133,11 @@ test("--branch combined with a path: exit 2", () => {
 // ---------- F14 kill switch ----------
 
 test("F14: kill switch refuses every argument, exit 3, nothing removed", () => {
-  const ctx = baseCtx({ switchedOffImpl: () => true });
+  // Round-2 review, LOW 9: `switchedOffImpl: () => true` (ignoring its argument entirely) stayed
+  // green even after mutating the call site from `switchedOffImpl("reclaim")` to
+  // `switchedOffImpl("janitor-act")` - the test never actually checked WHICH switch name reclaim
+  // asks about. Injecting a name-sensitive stub makes that mutation fail loudly instead.
+  const ctx = baseCtx({ switchedOffImpl: (name) => name === "reclaim" });
   const target = path.join(ctx.posixTmpRoot, `claude-${ctx.uid}`, "proj", ctx.sessionId, "scratchpad", "x");
   mkdir(target);
   const c = collector();
@@ -324,7 +328,12 @@ test("T dir containing a path from the cwd's own git worktree list is refused", 
   const c = collector();
   const code = reclaimMain([top], { ...forged, print: c.print });
   assert.equal(code, 3);
-  assert.match(c.lines[0], /contains/);
+  // Round-2 review, MEDIUM 8: a loose /contains/ match here passed even with reclaim's own
+  // repoRoots wiring deleted (mutation M1 replacing it with `[]`) - the F3 downward walk's OWN
+  // "contains a repo with linked worktrees elsewhere" message also matches /contains/, so the test
+  // never actually exercised repoRoots at all. Tightened to the exact reason text repoRoots
+  // produces, so it goes red the moment that wiring is cut.
+  assert.match(c.lines[0], /contains a path in git worktree list/);
   assert.ok(fs.existsSync(top));
 });
 
@@ -503,6 +512,399 @@ test("B: --repo not a git repository is refused", () => {
   const code = reclaimMain(["--branch", "anything", "--repo", notRepo], { ...ctx, print: c.print });
   assert.equal(code, 3);
   assert.match(c.lines[0], /not a git repository/);
+});
+
+// ---------- HIGH 1: upward containment walk (round-2 review) ----------
+
+test("HIGH1: a target INSIDE a linked worktree living inside a T dir is refused, even with cwd outside the worktree's repo", () => {
+  // Mirrors probe1's layout: repo R lives OUTSIDE the T root; a linked worktree of R lives INSIDE
+  // a T dir, holding uncommitted work; cwd is a third, unrelated directory. Before HIGH 1, F3's
+  // walk only looked BELOW the argument, and repoRoots only sees the CWD's own repo - so a target
+  // strictly inside the worktree (not the worktree's own root) matched neither and fell through to
+  // a bare fs delete.
+  const { repo } = initRepo();
+  git(["branch", "lane-work"], repo);
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") }); // cwd has nothing to do with `repo`
+  const top = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-lane-1"));
+  fs.chmodSync(top, 0o700);
+  const wt = path.join(top, "wt");
+  git(["worktree", "add", wt, "lane-work"], repo);
+  const srcDir = mkdir(path.join(wt, "src"));
+  fs.writeFileSync(path.join(srcDir, "a.txt"), "uncommitted\n");
+  fs.writeFileSync(path.join(wt, "new.txt"), "also uncommitted\n");
+
+  // `wt` itself is a registered worktree root, so W's own claim (git worktree list) reaches it
+  // FIRST - this HIGH 1 fix is specifically about a target STRICTLY INSIDE it, which W never
+  // claims (claimW only matches an exact worktree root) and which used to fall through to a bare
+  // fs delete instead of being caught at all.
+  const c1 = collector();
+  const code1 = reclaimMain([srcDir], { ...ctx, print: c1.print });
+  assert.equal(code1, 3);
+  assert.match(c1.lines[0], /linked worktree/);
+  assert.ok(fs.existsSync(path.join(srcDir, "a.txt")));
+
+  const c2 = collector();
+  const code2 = reclaimMain([path.join(wt, "new.txt")], { ...ctx, print: c2.print });
+  assert.equal(code2, 3);
+  assert.match(c2.lines[0], /linked worktree/);
+  assert.ok(fs.existsSync(path.join(wt, "new.txt")), "uncommitted work must survive");
+});
+
+// ---------- HIGH 2: mount-point/bind-mount refusal (round-2 review) ----------
+
+test("HIGH2: the class-root st_dev baseline catches a target that is ITSELF a differently-mounted directory (mutation M5-provable)", () => {
+  // Regression for the exact redteam measurement: a tmpfs mounted AT the T target itself always
+  // matched its own children under the OLD baseline (the target's own st_dev), because every
+  // descendant is naturally on the SAME device as the target. The fix compares against the CLASS
+  // ROOT's st_dev instead. Simulated with an injected fsImpl (no real mount needed) so this is
+  // deterministic and portable - the real end-to-end case is covered separately with `unshare -rm`.
+  const ctx = baseCtx();
+  const { top, target } = tTarget(ctx, { rest: "inner" });
+  const realLstat = fs.lstatSync.bind(fs);
+  const fsImpl = Object.create(fs);
+  fsImpl.lstatSync = (p) => {
+    const st = realLstat(p);
+    if (path.resolve(p) === path.resolve(top)) {
+      // Pretend `top` sits on a different device than its own parent (the class root) - the exact
+      // shape of "a tmpfs mounted AT the target".
+      return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: 999999 });
+    }
+    return st;
+  };
+  const c = collector();
+  const code = reclaimMain([top], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /crosses a mount point/);
+  assert.ok(fs.existsSync(target));
+});
+
+test("HIGH2: a same-filesystem bind mount (st_dev identical) is refused via the mount table (injected mountinfo)", () => {
+  // st_dev cannot see this at all - the real hazard the redteam measured with `unshare -rm`: a
+  // bind mount of an unrelated directory landing exactly on a T target, on the SAME device.
+  const ctx = baseCtx({ platform: "linux" });
+  const { top, target } = tTarget(ctx, { rest: "inner" });
+  const mountinfoText = [
+    "23 30 0:20 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw",
+    `24 30 254:4 /elsewhere ${top} rw,relatime - ext4 /dev/root rw`,
+    "",
+  ].join("\n");
+  const fsImpl = Object.create(fs);
+  fsImpl.readFileSync = (p, enc) => {
+    if (p === "/proc/self/mountinfo") return mountinfoText;
+    return fs.readFileSync(p, enc);
+  };
+  const c = collector();
+  const code = reclaimMain([top], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /mount point|bind mount/);
+  assert.ok(fs.existsSync(target));
+});
+
+test("HIGH2: an unreadable mount table fails closed (refused), never silently passes", () => {
+  const ctx = baseCtx({ platform: "linux" });
+  const { top } = tTarget(ctx);
+  const fsImpl = Object.create(fs);
+  fsImpl.readFileSync = (p, enc) => {
+    if (p === "/proc/self/mountinfo") {
+      const err = new Error("boom");
+      err.code = "EACCES";
+      throw err;
+    }
+    return fs.readFileSync(p, enc);
+  };
+  const c = collector();
+  const code = reclaimMain([top], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /mount table/);
+});
+
+test("HIGH2 (measured, unshare -rm): a real same-device bind mount landing on a T target is refused and the sentinel survives", { skip: (() => {
+  try {
+    execFileSync("unshare", ["-rm", "true"], { stdio: "ignore" });
+    return false;
+  } catch {
+    return "unshare -rm is not available in this environment";
+  }
+})() }, () => {
+  const ctx = baseCtx({ platform: "linux" });
+  const { top } = tTarget(ctx, { rest: null });
+  const sentinel = mkTmp("reclaim-sentinel-");
+  fs.writeFileSync(path.join(sentinel, "keep.txt"), "keep me\n");
+  const bindPoint = path.join(top, "bound");
+  mkdir(bindPoint);
+  const script = path.join(mkTmp("reclaim-script-"), "run.mjs");
+  const outFile = path.join(path.dirname(script), "out.json");
+  // `unshare -r` maps the real, outside uid to uid 0 INSIDE the new user namespace - every file
+  // this fixture owns appears owned by uid 0 from in here, so the ownership check must be compared
+  // against `process.getuid()` AS SEEN INSIDE the namespace, not the outside ctx.uid captured
+  // before unshare ran.
+  fs.writeFileSync(script, `
+    import { main } from "file://${path.resolve("./scripts/reclaim.mjs")}";
+    import fs from "node:fs";
+    const lines = [];
+    const code = main([${JSON.stringify(top)}], {
+      cwd: ${JSON.stringify(ctx.cwd)},
+      home: ${JSON.stringify(ctx.home)},
+      platform: "linux",
+      uid: process.getuid(),
+      tmpdir: ${JSON.stringify(ctx.tmpdir)},
+      posixTmpRoot: ${JSON.stringify(ctx.posixTmpRoot)},
+      posixVarTmpRoot: ${JSON.stringify(ctx.posixVarTmpRoot)},
+      sessionId: ${JSON.stringify(ctx.sessionId)},
+      print: (l) => lines.push(l),
+    });
+    fs.writeFileSync(${JSON.stringify(outFile)}, JSON.stringify({ code, lines }));
+  `);
+  execFileSync("unshare", ["-rm", "bash", "-c",
+    `mount --bind '${sentinel}' '${bindPoint}' && node '${script}'`], { stdio: "inherit" });
+  const out = JSON.parse(fs.readFileSync(outFile, "utf8"));
+  assert.equal(out.code, 3);
+  assert.ok(out.lines.some((l) => /mount point|bind mount/.test(l)));
+  assert.ok(fs.existsSync(path.join(sentinel, "keep.txt")), "the sentinel outside the bind must survive");
+});
+
+// ---------- MEDIUM 3: an rmSync failure must not crash the process (round-2 review) ----------
+
+test("MEDIUM3: an rmSync failure prints a failed line and does not crash; later arguments still run", () => {
+  const ctx = baseCtx();
+  const { target: bad } = tTarget(ctx, { name: "delegation-bad-1" });
+  const { target: good } = tTarget(ctx, { name: "delegation-good-1" });
+  const fsImpl = Object.create(fs);
+  fsImpl.rmSync = (p, opts2) => {
+    if (path.resolve(p) === path.resolve(bad)) {
+      const err = new Error("boom");
+      err.code = "EACCES";
+      throw err;
+    }
+    return fs.rmSync(p, opts2);
+  };
+  const c = collector();
+  const code = reclaimMain([bad, good], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 1);
+  assert.ok(c.lines.some((l) => /^failed T .*EACCES/.test(l)));
+  assert.ok(c.lines.some((l) => l.startsWith("removed T")));
+  assert.ok(!fs.existsSync(good));
+});
+
+// ---------- MEDIUM 4: B refuses a branch checked out anywhere (round-2 review) ----------
+
+test("MEDIUM4: B refuses a merged branch still checked out in a SAFE worktree; dry-run says so too, not would-remove", () => {
+  const { repo } = initRepo();
+  const wt = addMergedWorktree(repo, "feature-live");
+  // feature-live is SAFE (classify() marks a branch SAFE even while its worktree is also SAFE,
+  // expecting the worktree to be removed first) but is NOT removed here - the worktree stays.
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
+
+  const c1 = collector();
+  const code1 = reclaimMain(["--dry-run", "--branch", "feature-live", "--repo", repo], { ...ctx, print: c1.print });
+  assert.equal(code1, 3);
+  assert.match(c1.lines[0], /checked out in worktree/);
+
+  const c2 = collector();
+  const code2 = reclaimMain(["--branch", "feature-live", "--repo", repo], { ...ctx, print: c2.print });
+  assert.equal(code2, 3);
+  assert.match(c2.lines[0], /checked out in worktree/);
+  // `git branch --list` marks a branch checked out in ANOTHER worktree with a leading "+ ".
+  assert.equal(git(["branch", "--list", "feature-live"], repo).trim(), "+ feature-live");
+  assert.ok(fs.existsSync(wt));
+});
+
+// ---------- MEDIUM 5: restore hints on B and W removed/partial lines (round-2 review) ----------
+
+test("MEDIUM5: a removed B line carries a restore hint", () => {
+  const { repo } = initRepo();
+  const wt = addMergedWorktree(repo, "feature-r");
+  git(["worktree", "remove", wt], repo);
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
+  const c = collector();
+  const code = reclaimMain(["--branch", "feature-r", "--repo", repo], { ...ctx, print: c.print });
+  assert.equal(code, 0);
+  assert.match(c.lines[0], /^removed B feature-r [0-9a-f]{40} restore: git -C /);
+});
+
+test("MEDIUM5: a removed W line carries a restore hint", () => {
+  const { repo } = initRepo();
+  const wt = addMergedWorktree(repo, "feature-w");
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
+  const c = collector();
+  const code = reclaimMain([wt], { ...ctx, print: c.print });
+  assert.equal(code, 0);
+  assert.match(c.lines[0], /^removed W .* restore: git -C /);
+});
+
+// ---------- MEDIUM 6: T works on darwin for the convention's own paths (round-2 review) ----------
+
+test("MEDIUM6: a T argument given through a symlinked posixVarTmpRoot (darwin's own /var/tmp shape) is accepted and rmSync receives the REAL path", () => {
+  const ctx = baseCtx();
+  const realVarTmp = ctx.posixVarTmpRoot; // the fake "/private/var/tmp"
+  const symlinkedVarTmp = path.join(mkTmp("reclaim-darwin-"), "var-tmp-link");
+  fs.symlinkSync(realVarTmp, symlinkedVarTmp, "dir");
+  const forged = { ...ctx, posixVarTmpRoot: symlinkedVarTmp };
+  const top = mkdir(path.join(realVarTmp, "delegation-mac-1"));
+  fs.chmodSync(top, 0o700);
+  // The RAW argument spells the path through the symlink, exactly like `mktemp -d
+  // /var/tmp/delegation-x-XXXX` would print on a host where /var/tmp is itself a symlink.
+  const rawArg = path.join(symlinkedVarTmp, "delegation-mac-1");
+  const c = collector();
+  const code = reclaimMain([rawArg], { ...forged, print: c.print });
+  assert.equal(code, 0);
+  assert.match(c.lines[0], /^removed T /);
+  assert.ok(!fs.existsSync(top));
+});
+
+test("MEDIUM6: a symlink ONE LEVEL BELOW the root is still refused (the rewrite never touches anything below the root)", () => {
+  const ctx = baseCtx();
+  const realVarTmp = ctx.posixVarTmpRoot;
+  const elsewhere = mkTmp("reclaim-elsewhere-");
+  const link = path.join(realVarTmp, "delegation-linked-1");
+  fs.symlinkSync(elsewhere, link, "dir");
+  const c = collector();
+  const code = reclaimMain([link], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /symlink/);
+  assert.ok(fs.existsSync(elsewhere));
+});
+
+// ---------- MEDIUM 7: missing tests the round-2 review named, each mutation-provable ----------
+
+// This host's real `path` module is POSIX regardless of what `ctx.platform` claims, so these two
+// win32 tests call `checkS` directly (exported for exactly this) with `path.win32` used to build
+// the resolved argument - the same "platform/pathImpl injection" approach janitor.mjs's own
+// `pathWithin` tests already use, rather than driving a win32-shaped path through the full
+// `main()` pipeline (checkRemovablePath's own root-membership check is POSIX-only on this host,
+// same documented, pre-existing limit as path-safety.test.mjs's own win32 test already accepts).
+test("MEDIUM7 (M4-provable): a win32 claude-verify.lock sibling is never treated as S-shaped (checkS, pathImpl injection)", () => {
+  const ctx = { platform: "win32", home: "C:\\Users\\me", tmpdir: "C:\\Users\\me\\AppData\\Local\\Temp", uid: 0, fsImpl: fs, sessionId: "sess-1" };
+  // claude-verify.lock is a REAL sibling name (docs/concurrency-budget.md) that a loose
+  // `/^claude/i` first-segment rule (mutation M4) would wrongly accept as S-shaped.
+  const resolved = path.win32.resolve("C:\\Users\\me\\AppData\\Local\\Temp\\claude-verify.lock\\proj\\sess-1\\scratchpad\\x");
+  const result = checkS(resolved, ctx);
+  assert.equal(result, null, "not S-shaped at all - must fall through to T/W, never read as a session scratchpad");
+});
+
+test("MEDIUM7: the win32 S segment is literally `claude`, case-insensitive, and IS accepted (checkS, pathImpl injection)", () => {
+  const ctx = { platform: "win32", home: "C:\\Users\\me", tmpdir: "C:\\Users\\me\\AppData\\Local\\Temp", uid: 0, fsImpl: fs, sessionId: "SeSs-1" };
+  const resolved = path.win32.resolve("C:\\Users\\me\\AppData\\Local\\Temp\\Claude\\proj1\\sess-1\\scratchpad\\work");
+  const result = checkS(resolved, ctx);
+  assert.equal(result.ok, true);
+  assert.equal(result.root, ctx.tmpdir);
+});
+
+test("MEDIUM7: a win32 T dir is delegation-<name>-XXXX, case-insensitive (checkT, pathImpl injection)", () => {
+  const ctx = { platform: "win32", home: "C:\\Users\\me", tmpdir: "C:\\Users\\me\\AppData\\Local\\Temp", uid: 0, fsImpl: { statSync: fs.statSync } };
+  const resolved = path.win32.resolve("C:\\Users\\me\\AppData\\Local\\Temp\\DELEGATION-foo-XXXX\\data");
+  const result = checkT(resolved, ctx);
+  assert.equal(result.ok, true);
+});
+
+test("MEDIUM7: darwin S is refused with the unmeasured message when the tmpdir realpath is under /private/var/folders/", () => {
+  const ctx = baseCtx({ platform: "darwin", tmpdir: "/var/folders/aa/bb" });
+  const fsImpl = Object.create(fs);
+  fsImpl.realpathSync = (p) => (p === ctx.tmpdir ? "/private/var/folders/aa/bb" : fs.realpathSync(p));
+  // Given directly in its already-realpath'd form - MEDIUM6's own argument rewrite (posixTmpRoot /
+  // posixVarTmpRoot only) is a separate concern from this darwin-unmeasured refusal.
+  const c = collector();
+  const code = reclaimMain(["/private/var/folders/aa/bb/claude-1/proj/sess/scratchpad/x"], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /S class unmeasured on darwin/);
+});
+
+test("MEDIUM7 (M7-provable): a T top dir that is group- or world-writable is refused", () => {
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx);
+  const top = path.dirname(target);
+  fs.chmodSync(top, 0o775);
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /group- or world-writable/);
+});
+
+test("MEDIUM7 (M7-provable): an S claude-<uid> dir that is group- or world-writable is refused", () => {
+  const ctx = baseCtx();
+  const target = sTarget(ctx);
+  fs.chmodSync(path.join(ctx.posixTmpRoot, `claude-${ctx.uid}`), 0o777);
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /group- or world-writable/);
+});
+
+// ---------- LOW 10: unknown/future idle age never gets the confident "active" label (round-2 review) ----------
+
+test("LOW10: an unreadable idle-age source gives 'idle age unknown', never 'active in last 24h'", () => {
+  const { repo } = initRepo();
+  const wt = addMergedWorktree(repo, "feature-nan");
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED, idleHoursImpl: () => NaN });
+  const c = collector();
+  const code = reclaimMain([wt], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /idle age unknown/);
+});
+
+test("LOW10: a negative idle age (clock running ahead) gives 'mtime in the future', never 'active in last 24h'", () => {
+  const { repo } = initRepo();
+  const wt = addMergedWorktree(repo, "feature-neg");
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED, idleHoursImpl: () => -5 });
+  const c = collector();
+  const code = reclaimMain([wt], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /mtime in the future/);
+});
+
+// ---------- LOW 11: the F3 walk fails closed on an unreadable entry (round-2 review) ----------
+
+test("LOW11: an unreadable subdirectory during the walk refuses the whole invocation, rather than silently skipping what it hides", () => {
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx);
+  const sub = mkdir(path.join(target, "sub"));
+  const fsImpl = Object.create(fs);
+  fsImpl.lstatSync = (p) => {
+    if (path.resolve(p) === path.resolve(sub)) {
+      const err = new Error("boom");
+      err.code = "EACCES";
+      throw err;
+    }
+    return fs.lstatSync(p);
+  };
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /could not stat/);
+  assert.ok(fs.existsSync(target));
+});
+
+// ---------- LOW 13: the check-to-delete window is re-checked immediately before rmSync (round-2 review) ----------
+
+test("LOW13: a target that becomes a symlink between validation and removal is refused at the re-check, not removed", () => {
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx);
+  const elsewhere = mkTmp("reclaim-elsewhere-");
+  const fsImpl = Object.create(fs);
+  let lstatCalls = 0;
+  fsImpl.lstatSync = (p) => {
+    if (path.resolve(p) === path.resolve(target)) {
+      lstatCalls += 1;
+      // The first finishST pass (validateArg's own validation: checkRemovablePath's lstat, then
+      // the walk's own lstat of the target - 2 calls total) sees a plain directory; the RE-CHECK
+      // immediately before rmSync runs a second, fresh finishST pass - from its first lstat call
+      // on, pretend the target has become a symlink in the gap, simulating the TOCTOU window
+      // LOW 13 shrinks.
+      if (lstatCalls > 2) {
+        const st = fs.lstatSync(elsewhere);
+        return Object.assign(Object.create(Object.getPrototypeOf(st)), st, {
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        });
+      }
+    }
+    return fs.lstatSync(p);
+  };
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 1);
+  assert.match(c.lines[0], /changed since validation/);
+  assert.ok(fs.existsSync(target));
 });
 
 // ---------- unrecognized ----------

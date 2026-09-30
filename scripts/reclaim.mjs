@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 import { checkRemovablePath } from "./path-safety.mjs";
 import {
@@ -44,30 +45,48 @@ function isHostAbsolute(target, platform) {
 class WalkRefusal extends Error {}
 
 /**
- * F3: before any S/T removal, walk the target (lstat only, never following a link) and refuse the
- * whole invocation if any entry - the target included - crosses a mount point (a different
- * st_dev than the target's own), is a `.git` FILE (a linked worktree), or is a `.git` DIRECTORY
- * whose own `worktrees/` is non-empty (a repo with linked worktrees elsewhere). The same walk
- * produces the entry count reclaim prints. A symlink is never followed (lstat reports it, but its
+ * F3, amended by round-2 review HIGH 2: before any S/T removal, walk the target (lstat only,
+ * never following a link) and refuse the whole invocation if any entry - the target included -
+ * crosses a mount point, is a `.git` FILE (a linked worktree), or is a `.git` DIRECTORY whose own
+ * `worktrees/` is non-empty (a repo with linked worktrees elsewhere). The same walk produces the
+ * entry count reclaim prints. A symlink is never followed (lstat reports it, but its
  * `isDirectory()` is false, so the walk never recurses into what it points at) - this is what
  * keeps a symlink INSIDE the tree safe without a dedicated rule for it.
+ *
+ * HIGH 2's fix: the mount-crossing baseline is the CLASS ROOT's st_dev (e.g. the fake /tmp or
+ * /var/tmp base), not the target's own - the old code compared every descendant against the
+ * TARGET's own device, so a target that was itself the top of a mounted filesystem (a tmpfs, or a
+ * bind mount landing exactly on the target) always matched its own children and was never caught.
+ * st_dev alone still cannot see a same-filesystem bind mount at all (this is what
+ * checkMountsUnderClassRoot, called by finishST right after this, is for).
+ *
+ * Round-2 review LOW 11: an lstat/readdir error OTHER than "this entry is simply gone" must refuse
+ * the whole invocation, not silently skip past whatever it could not see - an unreadable
+ * subdirectory could otherwise hide a `.git` file or a mount point below it, and rmSync would then
+ * delete the readable siblings and throw partway through with nothing protected underneath.
  */
-function walkForMountAndLinkedWorktrees(target, fsImpl) {
-  let rootStat;
+function walkForMountAndLinkedWorktrees(target, fsImpl, classRoot) {
   try {
-    rootStat = fsImpl.lstatSync(target);
+    fsImpl.lstatSync(target);
   } catch (error) {
     if (error && error.code === "ENOENT") return { ok: true, entryCount: 0, absent: true };
     return { ok: false, reason: `could not stat: ${error.message || error}` };
   }
-  const baseDev = rootStat.dev;
+  let baseDev;
+  try {
+    // HIGH 2: the CLASS ROOT's st_dev, so a target that is itself a mount root is caught too.
+    baseDev = fsImpl.lstatSync(classRoot).dev;
+  } catch (error) {
+    return { ok: false, reason: `could not stat class root: ${(error && error.code) || error}` };
+  }
   let entryCount = 0;
   const visit = (p) => {
     let st;
     try {
       st = fsImpl.lstatSync(p);
-    } catch {
-      return; // vanished mid-walk - nothing left here to protect or to count
+    } catch (error) {
+      if (error && error.code === "ENOENT") return; // vanished mid-walk - nothing left here to protect or to count
+      throw new WalkRefusal(`could not stat ${p}`);
     }
     entryCount += 1;
     if (typeof st.dev === "number" && typeof baseDev === "number" && st.dev !== baseDev) {
@@ -79,18 +98,22 @@ function walkForMountAndLinkedWorktrees(target, fsImpl) {
         let names = [];
         try {
           names = fsImpl.readdirSync(path.join(p, "worktrees"));
-        } catch {
+        } catch (error) {
+          if (error && error.code !== "ENOENT" && error.code !== "ENOTDIR") {
+            throw new WalkRefusal(`could not read ${p}/worktrees`);
+          }
           // no worktrees/ subdir - a standalone fixture repo, stays removable
         }
         if (names.length > 0) throw new WalkRefusal(`contains a repo with linked worktrees elsewhere at ${p}`);
       }
     }
     if (st.isDirectory()) {
-      let children = [];
+      let children;
       try {
         children = fsImpl.readdirSync(p);
-      } catch {
-        children = [];
+      } catch (error) {
+        if (error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return;
+        throw new WalkRefusal(`could not read ${p}`);
       }
       for (const child of children) visit(path.join(p, child));
     }
@@ -102,6 +125,142 @@ function walkForMountAndLinkedWorktrees(target, fsImpl) {
     throw error;
   }
   return { ok: true, entryCount };
+}
+
+/**
+ * Round-2 review HIGH 2, part 2: st_dev cannot see a same-filesystem bind mount at all (two paths
+ * on the same device, one of them a bind of the other). This reads the live mount table -
+ * `/proc/self/mountinfo` on Linux, `mount`'s own output on darwin - and refuses when the target
+ * itself IS a registered mount point, CONTAINS one below it, or LIES UNDER one that sits strictly
+ * between the class root and the target (a bind mount wrapping part of the scratch tree). Where
+ * the mount table cannot be read at all, this refuses - ruling r1/r2: a check that cannot be
+ * completed fails closed, never silently passes. win32 has no equivalent table read here; its
+ * junctions are covered separately, by the walk's own symlink-non-follow behavior and (per F3) a
+ * reparse-point refusal where the Windows gate needs one.
+ */
+function readMountPoints(ctx) {
+  if (ctx.platform === "linux") {
+    let text;
+    try {
+      text = ctx.fsImpl.readFileSync("/proc/self/mountinfo", "utf8");
+    } catch {
+      return null;
+    }
+    const decode = (raw) => raw.replace(/\\([0-7]{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
+    return text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => decode(line.split(" ")[4] || ""))
+      .filter(Boolean);
+  }
+  if (ctx.platform === "darwin") {
+    let text;
+    try {
+      text = ctx.execFileSyncImpl("mount", [], { encoding: "utf8" });
+    } catch {
+      return null;
+    }
+    const points = [];
+    for (const line of text.split("\n")) {
+      const m = line.match(/ on (.+?) \(/);
+      if (m) points.push(m[1]);
+    }
+    return points;
+  }
+  return []; // win32 and anything else: no mount-table cross-check attempted here
+}
+
+function checkMountsUnderClassRoot(resolved, classRoot, ctx) {
+  if (ctx.platform !== "linux" && ctx.platform !== "darwin") return { ok: true };
+  const points = readMountPoints(ctx);
+  if (points === null) return { ok: false, reason: "could not read the mount table" };
+  const withinOrEqual = (parent, child) => {
+    const rel = path.relative(path.resolve(parent), path.resolve(child));
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
+  const resolvedClassRoot = path.resolve(classRoot);
+  for (const raw of points) {
+    let real = raw;
+    try {
+      real = ctx.fsImpl.realpathSync(raw);
+    } catch {
+      // keep the raw form - a mount point this host cannot resolve right now is still worth
+      // comparing textually rather than dropping from consideration entirely
+    }
+    if (path.resolve(real) === resolvedClassRoot) continue; // the class root's own mount is expected
+    if (!withinOrEqual(resolvedClassRoot, real)) continue; // only mounts inside our own scratch tree matter
+    if (path.resolve(real) === path.resolve(resolved)) {
+      return { ok: false, reason: `crosses a mount point at ${real}` };
+    }
+    if (withinOrEqual(resolved, real)) {
+      return { ok: false, reason: `crosses a mount point at ${real}` };
+    }
+    if (withinOrEqual(real, resolved)) {
+      return { ok: false, reason: `lies under a bind mount at ${real}` };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Round-2 review HIGH 1: S/T's downward walk (above) only ever looked BELOW the target - a target
+ * that is itself a path INSIDE a linked worktree (or inside a repo with other linked worktrees
+ * elsewhere) fell through every check, because the worktree's own `.git` file sits ABOVE the
+ * target, not below it. This walks every ancestor from the target's parent up to the filesystem
+ * root (ruling r2: not merely up to the class root) and refuses on the same two shapes the
+ * downward walk already refuses on, plus containment in that repo's own `git worktree list`.
+ */
+function checkAncestorsForGit(resolved, ctx) {
+  let dir = path.dirname(resolved);
+  for (;;) {
+    const dotGit = path.join(dir, ".git");
+    let st = null;
+    try {
+      st = ctx.fsImpl.lstatSync(dotGit);
+    } catch (error) {
+      if (!error || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) {
+        return { ok: false, reason: `could not stat ${dotGit}` };
+      }
+    }
+    if (st) {
+      if (!st.isDirectory()) {
+        return { ok: false, reason: `lies inside a linked worktree at ${dir}` };
+      }
+      let names = [];
+      try {
+        names = ctx.fsImpl.readdirSync(path.join(dotGit, "worktrees"));
+      } catch (error) {
+        if (error && error.code !== "ENOENT" && error.code !== "ENOTDIR") {
+          return { ok: false, reason: `could not read ${dotGit}/worktrees` };
+        }
+      }
+      if (names.length > 0) {
+        return { ok: false, reason: `lies inside a repo with linked worktrees at ${dir}` };
+      }
+      // A standalone repo root (no OTHER linked worktrees, per F3's ruling: stays removable) - but
+      // ruling r2 also asks that a target lying inside any path THIS repo's own `git worktree
+      // list` names be refused, in case a linked worktree lives somewhere this ancestor scan alone
+      // would not reach.
+      let worktrees = null;
+      try {
+        worktrees = listWorktrees(dir);
+      } catch {
+        worktrees = null;
+      }
+      if (worktrees) {
+        for (const w of worktrees) {
+          if (path.resolve(w.path) === dir) continue; // the repo root itself, already handled above
+          if (pathWithin(resolved, w.path)) {
+            return { ok: false, reason: `lies inside a path in git worktree list at ${w.path}` };
+          }
+        }
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // filesystem root reached
+    dir = parent;
+  }
+  return { ok: true };
 }
 
 /** F6: the top scratch directory (S's `claude-<uid>`, T's `delegation-<name>-XXXX`) must be owned
@@ -131,9 +290,20 @@ function checkOwnerNotWidelyWritable(topPath, ctx) {
 
 // ---------- class S: the caller's own session scratchpad ----------
 
+// Round-2 review MEDIUM 7 (the fix's own words: "Tests use platform/pathImpl injection ... to
+// cover the Windows claude segment"): this host's real `path` module is POSIX regardless of what
+// `ctx.platform` claims, so a backslash-shaped win32 fixture can only be resolved correctly here
+// by explicitly handing these functions `path.win32` - exactly the same pattern janitor.mjs's own
+// `pathWithin` already uses for its own win32 tests. Production on a real win32 host is unaffected
+// either way, since `path` already IS `path.win32` there.
+function pImpl(ctx) {
+  return ctx.pathImpl ?? (ctx.platform === "win32" ? path.win32 : path);
+}
+
 function sSpecRoot(ctx) {
+  const p = pImpl(ctx);
   if (ctx.platform === "win32") {
-    const expected = path.join(ctx.home, "AppData", "Local", "Temp");
+    const expected = p.join(ctx.home, "AppData", "Local", "Temp");
     if (String(ctx.tmpdir).toLowerCase() !== expected.toLowerCase()) return null;
     return { path: ctx.tmpdir, kind: "win32" };
   }
@@ -158,15 +328,16 @@ function sSpecRoot(ctx) {
   return { path: real, kind: "posix" };
 }
 
-function checkS(resolved, ctx) {
+export function checkS(resolved, ctx) {
+  const p = pImpl(ctx);
   const root = sSpecRoot(ctx);
   if (!root) return null;
-  const rel = path.relative(root.path, resolved);
-  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  const rel = p.relative(root.path, resolved);
+  if (rel === "" || rel.startsWith("..") || p.isAbsolute(rel)) return null;
   if (root.kind === "darwin-unmeasured") {
     return { ok: false, reason: "S class unmeasured on darwin" };
   }
-  const segments = rel.split(path.sep).filter(Boolean);
+  const segments = rel.split(p.sep).filter(Boolean);
   if (root.kind === "win32") {
     if (!(segments[0] && segments[0].toLowerCase() === "claude")) return null; // not S-shaped at all
   } else if (segments[0] !== `claude-${ctx.uid}`) {
@@ -179,7 +350,7 @@ function checkS(resolved, ctx) {
     return { ok: false, reason: "is the scratchpad directory itself" };
   }
   if (root.kind !== "win32") {
-    const owner = checkOwnerNotWidelyWritable(path.join(root.path, segments[0]), ctx);
+    const owner = checkOwnerNotWidelyWritable(p.join(root.path, segments[0]), ctx);
     if (!owner.ok) return owner;
   }
   const session = segments[2];
@@ -202,8 +373,9 @@ function checkS(resolved, ctx) {
 // ---------- class T: an agent's own delegation-<name>-XXXX scratch dir ----------
 
 function tRoots(ctx) {
+  const p = pImpl(ctx);
   if (ctx.platform === "win32") {
-    const expected = path.join(ctx.home, "AppData", "Local", "Temp");
+    const expected = p.join(ctx.home, "AppData", "Local", "Temp");
     if (String(ctx.tmpdir).toLowerCase() !== expected.toLowerCase()) return [];
     return [ctx.tmpdir];
   }
@@ -226,17 +398,18 @@ function tRoots(ctx) {
   return roots;
 }
 
-function checkT(resolved, ctx) {
+export function checkT(resolved, ctx) {
+  const p = pImpl(ctx);
   for (const root of tRoots(ctx)) {
-    const rel = path.relative(root, resolved);
-    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
-    const segments = rel.split(path.sep).filter(Boolean);
+    const rel = p.relative(root, resolved);
+    if (rel === "" || rel.startsWith("..") || p.isAbsolute(rel)) continue;
+    const segments = rel.split(p.sep).filter(Boolean);
     const topName = segments[0];
     const prefixOk = ctx.platform === "win32" ? /^delegation-/i.test(topName) : topName.startsWith("delegation-");
     if (!prefixOk) {
       return { ok: false, reason: "T dir must be named delegation-<name>-XXXX, directly under a scratch root" };
     }
-    const topPath = path.join(root, topName);
+    const topPath = p.join(root, topName);
     const owner = checkOwnerNotWidelyWritable(topPath, ctx);
     if (!owner.ok) return owner;
     // NOTE: `root` (the T BASE, e.g. /var/tmp), not `topPath`, goes to checkRemovablePath's
@@ -299,10 +472,18 @@ function finishST(cls, resolved, classResult, ctx) {
     if (check.absent) return { ok: false, absent: true, class: cls };
     return { ok: false, reason: check.reason };
   }
-  const walk = walkForMountAndLinkedWorktrees(resolved, ctx.fsImpl);
+  // HIGH 1: look UPWARD from the target too, not only below it - a target sitting INSIDE a linked
+  // worktree (or inside a repo with other linked worktrees elsewhere) is caught here even when
+  // cwd's own repo has nothing to do with it.
+  const ancestors = checkAncestorsForGit(resolved, ctx);
+  if (!ancestors.ok) return { ok: false, reason: ancestors.reason };
+  const walk = walkForMountAndLinkedWorktrees(resolved, ctx.fsImpl, classResult.root);
   if (!walk.ok) return { ok: false, reason: walk.reason };
   if (walk.absent) return { ok: false, absent: true, class: cls };
-  return { ok: true, class: cls, resolved, entryCount: walk.entryCount };
+  // HIGH 2, part 2: same-filesystem bind mounts st_dev cannot see at all.
+  const mounts = checkMountsUnderClassRoot(resolved, classResult.root, ctx);
+  if (!mounts.ok) return { ok: false, reason: mounts.reason };
+  return { ok: true, class: cls, resolved, entryCount: walk.entryCount, root: classResult.root };
 }
 
 // ---------- class W: a SAFE, idle worktree (F1, F17) ----------
@@ -347,10 +528,16 @@ function validateW(resolved, claim, ctx) {
     const judgMatch = state.judgment.worktrees.find((w) => samePathResolved(w.ref, resolved));
     return { ok: false, reason: judgMatch ? judgMatch.reason : "not SAFE" };
   }
-  // F1: the idle floor applies to reclaim's W class too, not only the daily act.
-  const hrs = idleHours(resolved, { home: ctx.home, now: ctx.now });
+  // F1: the idle floor applies to reclaim's W class too, not only the daily act. Goes through
+  // ctx.idleHoursImpl (defaulting to janitor.mjs's real idleHours) so LOW 10's unknown/future
+  // labels are testable without needing a real unreadable filesystem source.
+  const hrs = ctx.idleHoursImpl(resolved, { home: ctx.home, now: ctx.now });
   if (!(hrs >= IDLE_FLOOR_HOURS)) {
-    return { ok: false, reason: "active in last 24h" };
+    // Round-2 review, LOW 10 (ruling r1: doubt never gets a confident label): NaN (an unreadable
+    // source) and a negative value (a clock running ahead somewhere) are unknowns, not "seen
+    // 0-24h ago" - matching applySafe's own labels for the exact same computation.
+    const reason = Number.isNaN(hrs) ? "idle age unknown" : hrs < 0 ? "mtime in the future" : "active in last 24h";
+    return { ok: false, reason };
   }
   return {
     ok: true,
@@ -375,6 +562,16 @@ function validateB(name, repoDir, ctx) {
     const judgMatch = state.judgment.branches.find((b) => b.ref === name);
     return { ok: false, reason: judgMatch ? judgMatch.reason : "not SAFE" };
   }
+  // Round-2 review, MEDIUM 4: classify() deliberately marks a branch SAFE even while it is still
+  // checked out in a SAFE linked worktree (it expects the worktree to be removed first) - reclaim
+  // narrows the state to the branch alone, so a bare `--branch` call skips that ordering entirely.
+  // applySafe's own `stillCheckedOut` guard would catch this at apply time regardless (nothing is
+  // ever deleted either way), but validation - and dry-run's own printed line - must say so too,
+  // rather than claim `would-remove` for a branch a live run cannot actually delete.
+  const wts = listWorktrees(root);
+  if (wts === null) return { ok: false, reason: "could not read git worktree list" };
+  const holder = wts.find((w) => w.branch === name);
+  if (holder) return { ok: false, reason: `checked out in worktree ${holder.path}` };
   return { ok: true, root, mainBranch: config.main_branch || "main", safeMatch, fetch: state.fetch };
 }
 
@@ -383,7 +580,27 @@ function validateB(name, repoDir, ctx) {
 function validateArg(rawArg, ctx) {
   if (containsDotDot(rawArg)) return { ok: false, reason: "contains .." };
   if (!isHostAbsolute(rawArg, ctx.platform)) return { ok: false, reason: "not absolute on this host" };
-  const resolved = path.resolve(rawArg);
+  let resolved = path.resolve(rawArg);
+  // Round-2 review, MEDIUM 6: tRoots()/sSpecRoot() already realpath each root (on macOS /var/tmp
+  // and /tmp are themselves symlinks to /private/var/tmp and /private/tmp), but the ARGUMENT was
+  // never rewritten to match - `mktemp -d /var/tmp/delegation-x-XXXX` prints the un-rewritten
+  // `/var/tmp/...` form, which then falls through every class as "unrecognized" instead of
+  // matching the realpath'd root. This never touches anything BELOW the root, so the
+  // realpath-equality check inside checkRemovablePath still refuses every symlink under it.
+  if (ctx.platform !== "win32") {
+    for (const base of [ctx.posixTmpRoot, ctx.posixVarTmpRoot]) {
+      let real;
+      try {
+        real = ctx.fsImpl.realpathSync(base);
+      } catch {
+        continue;
+      }
+      if (real !== base && resolved.startsWith(base + path.sep)) {
+        resolved = real + resolved.slice(base.length);
+        break;
+      }
+    }
+  }
 
   // F8: every class refuses a target that equals or contains process.cwd() - the one thing that
   // is always still running right now.
@@ -465,6 +682,8 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     fsImpl: opts.fsImpl ?? fs,
     print: opts.print ?? ((line) => process.stdout.write(`${line}\n`)),
     switchedOffImpl: opts.switchedOffImpl ?? switchedOff,
+    execFileSyncImpl: opts.execFileSyncImpl ?? execFileSync,
+    idleHoursImpl: opts.idleHoursImpl ?? idleHours,
   };
 
   const parsed = parseArgv(argv);
@@ -500,7 +719,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const log = applySafe(narrowed, [], { home: ctx.home, now: ctx.now });
     const row = log.find((l) => l.action === "branch-delete");
     if (row && row.ok) {
-      ctx.print(`removed B ${parsed.branch} ${row.sha || ""}`.trimEnd());
+      // Round-2 review, MEDIUM 5: applySafe already computed a restore hint - reclaim writes no
+      // durable record of its own, so stdout is the only place that hint can ever reach an operator.
+      ctx.print(`removed B ${parsed.branch} ${row.sha || ""}${row.restore ? ` restore: ${row.restore}` : ""}`.trimEnd());
       return 0;
     }
     process.stderr.write(`reclaim: ${parsed.branch}: ${row ? row.error : "branch-delete did not run"}\n`);
@@ -527,8 +748,28 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       continue;
     }
     if (result.class === "S" || result.class === "T") {
-      ctx.fsImpl.rmSync(result.resolved, { recursive: true, force: false });
-      ctx.print(`removed ${result.class} ${rawArg} ${result.entryCount}`);
+      // Round-2 review, LOW 13: the check-to-delete window spans every other argument's own
+      // validation (including a W argument's git fetch) - re-run the same S/T checks immediately
+      // before the one rmSync that matters, shrinking the window from seconds to microseconds.
+      const recheck = finishST(result.class, result.resolved, { root: result.root }, ctx);
+      if (!recheck.ok) {
+        runtimeFailure = true;
+        ctx.print(`failed ${result.class} ${rawArg}: changed since validation (${recheck.absent ? "now absent" : recheck.reason})`);
+        continue;
+      }
+      // Round-2 review, MEDIUM 3: an rmSync failure used to be uncaught - a crash mid-loop left no
+      // line at all for what was already removed, and every later argument never ran.
+      try {
+        ctx.fsImpl.rmSync(result.resolved, { recursive: true, force: false });
+        ctx.print(`removed ${result.class} ${rawArg} ${result.entryCount}`);
+      } catch (error) {
+        if (error && error.code === "ENOENT") {
+          ctx.print(`absent ${rawArg}`); // e.g. already removed via an earlier, enclosing argument
+        } else {
+          runtimeFailure = true;
+          ctx.print(`failed ${result.class} ${rawArg}: ${(error && error.code) || "error"} (may be partially removed)`);
+        }
+      }
       continue;
     }
     // class W
@@ -542,9 +783,16 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     const log = applySafe(narrowed, [], { home: ctx.home, now: ctx.now });
     const row = log.find((l) => l.action === "worktree-remove");
     if (row && row.ok) {
-      ctx.print(`removed W ${rawArg} ${row.sha || ""}`.trimEnd());
+      // MEDIUM 5: same restore-hint reasoning as B above.
+      ctx.print(`removed W ${rawArg} ${row.sha || ""}${row.restore ? ` restore: ${row.restore}` : ""}`.trimEnd());
     } else {
       runtimeFailure = true;
+      if (row && row.partial) {
+        // MEDIUM 5: a partial removal (git deregistered it, contents already gone) is exactly the
+        // case ruling r1 named as most needing a restore line - it used to print a bare stderr
+        // error with no sha and no restore hint at all.
+        ctx.print(`partial W ${rawArg} ${row.sha || ""}${row.restore ? ` restore: ${row.restore}` : ""}`.trimEnd());
+      }
       process.stderr.write(`reclaim: ${rawArg}: ${row ? (row.error || row.skipped) : "worktree-remove did not run"}\n`);
     }
   }

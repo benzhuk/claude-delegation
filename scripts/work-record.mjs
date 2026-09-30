@@ -2010,8 +2010,34 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
   };
   const roots = rootStrings.map((r) => ({ path: r, predicate: byPredicate }));
 
+  // Round-2 review, LOW 14: the refactor must stay byte-identical to dff1e00's own ordering, which
+  // never called `git worktree list` until AFTER every host-absolute/root/lstat/symlink/realpath/
+  // fs-root/home check had already passed, AND after its own "is the repo root" equality check -
+  // calling checkRemovablePath ONCE with the full repoRoots array built it (and so ran the list)
+  // for every target, including ones an earlier, unrelated check would have refused anyway. The
+  // only intended DIFFERENCE from dff1e00 is that a failing list now also refuses a target the old
+  // code would have refused first for its own reason - never the other way around (see the round-2
+  // review test below).
+  const preCheck = checkRemovablePath(scratchPath, {
+    roots,
+    repoRoots: [],
+    home: os.homedir(),
+    platform: plat,
+    fsImpl,
+    notAbsoluteReason: "not absolute on this host (recorded on another OS)",
+    underRootReason: "does not resolve under a scratch root with --by as a whole path segment strictly between the root and the target",
+  });
+  if (!preCheck.ok) {
+    if (preCheck.absent) return { step: "scratch", result: "absent", ref: scratchPath };
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: preCheck.reason };
+  }
+
   let repoRoots = [];
   if (root) {
+    const cmp = (a, b) => (winCase ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
+    if (cmp(path.resolve(root), path.resolve(scratchPath))) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the repo root" };
+    }
     const worktrees = listWorktreesImpl(root);
     if (worktrees === null) {
       return { step: "scratch", result: "refused", ref: scratchPath, detail: "could not read git worktree list" };

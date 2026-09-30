@@ -1186,6 +1186,25 @@ test("closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branc
   assert.notEqual(git(["ls-remote", "--heads", "origin", branch], repo, env).trim(), "", "the branch must still be on origin");
 });
 
+// Round-2 (lane 59 T1) review, LOW 14: the path-safety refactor must stay byte-identical to
+// dff1e00's own ordering, which never called `git worktree list` until every other check had
+// already passed. An absent scratch path used to be reported "could not read git worktree list"
+// whenever the list itself failed, ahead of the far simpler "it's just not there" answer -
+// exercising `listWorktreesImpl: () => null` against a target that plain ENOENTs pins the order:
+// absence is decided BEFORE the list is ever consulted.
+test("closeoutRecord: LOW14 - an ABSENT scratch path is reported absent, not refused, even when git worktree list cannot be read", () => {
+  const env = fixtureEnv();
+  const { repo, branch, tip } = closedFixtureForScratch(env);
+  const { scratchPath, by } = mkScratchFixture();
+  fs.rmdirSync(scratchPath); // the leaf itself is gone; its parent (the --by segment) still exists
+  const recordRel = writeClosedRecord(repo, {
+    work: "wr-2026-09-27-low14-absent", worktree: branch, artifact: `${branch}@${tip}`, leadSession: by, scratch: scratchPath,
+  });
+  const result = closeoutRecord({ repoRoot: repo, recordPath: recordRel, closeoutBy: by, listWorktreesImpl: () => null });
+  const steps = stepsOf(result);
+  assert.equal(steps.scratch.result, "absent");
+});
+
 // R2-3(b): the scratch step's containment check (target CONTAINS a registered worktree) had no
 // test - kills mutant M-b (both containment checks off).
 test("closeoutRecord: R2-3(b) - scratch step refuses a target that CONTAINS a registered linked worktree, and the worktree's uncommitted file survives a live run", () => {
