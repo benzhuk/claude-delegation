@@ -116,6 +116,7 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
+import { pathEscapesRoot } from "./path-safety.mjs";
 import { checkWiring } from "./wiring-check.mjs";
 import { listRecords } from "./work-record.mjs";
 import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
@@ -1423,6 +1424,46 @@ function worktreeHasOpenProcess(wtPath) {
   return false;
 }
 
+// Seam review MEDIUM 3: reclaim.mjs's S/T classes need this exact same open-process check (an
+// agent's own `delegation-*` scratch or session scratchpad is just as much a live shell's cwd as a
+// worktree is) - exported under a neutral name rather than kept private, so reclaim.mjs can reuse
+// it instead of writing a second copy of the same /proc or lsof probe.
+export { worktreeHasOpenProcess as pathHasOpenProcess };
+
+/**
+ * Windows has no /proc or lsof: probe whether `target` (or anything a live process holds open
+ * beneath it) is busy by renaming it away and straight back. Windows refuses to rename a
+ * directory that is any process's cwd, or that holds an open handle beneath it, so the FIRST
+ * rename failing IS the "in use" answer.
+ * Round-1 review, finding 2: a failure on the SECOND rename (putting it back) is a different,
+ * worse outcome - the probe itself just moved something real and could not put it back. The
+ * caller must stop and record exactly where it now sits, never treat that as an ordinary skip.
+ * Seam review MEDIUM 3: pulled out of applySafe's own win32 branch (below) as its own exported
+ * function, unchanged in behavior, so reclaim.mjs's S/T classes can reuse the identical mechanism
+ * on their own top target instead of a second implementation.
+ * Returns `{ busy: false }`, `{ busy: true }`, or `{ busy: true, catastrophic: true, detail }`.
+ */
+export function winRenameBusyProbe(target) {
+  const busyMarker = `${target}.janitor-busy`;
+  try {
+    renameSync(target, busyMarker);
+  } catch {
+    return { busy: true };
+  }
+  try {
+    renameSync(busyMarker, target);
+  } catch (err) {
+    return {
+      busy: true,
+      catastrophic: true,
+      detail:
+        `in-use probe renamed this path to ${busyMarker} and could not rename it back (${String(err.message || err)}) ` +
+        `- restore by hand: rename ${busyMarker} back to ${target}`,
+    };
+  }
+  return { busy: false };
+}
+
 /**
  * Mutates and returns `log`, so a caller can still see partial progress if something outside the
  * per-item try/catches below somehow throws (defense in depth; every actual mutation site below is
@@ -1489,34 +1530,19 @@ export function applySafe(state, log = [], opts = {}) {
       // still must not be removed out from under it.
       let inUse;
       if (process.platform === "win32") {
-        // Windows has no /proc or lsof: probe by trying to rename the directory away and straight
-        // back. Windows itself refuses to rename a directory that is any process's cwd or holds an
-        // open handle beneath it, so the FIRST rename failing IS the "in use" answer.
-        const busyMarker = `${w.ref}.janitor-busy`;
-        try {
-          renameSync(w.ref, busyMarker);
-        } catch {
-          log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "in use" });
-          if (w.branch) failedWorktreeBranches.add(w.branch);
-          continue;
-        }
-        try {
-          renameSync(busyMarker, w.ref);
-        } catch (err) {
+        const probe = winRenameBusyProbe(w.ref);
+        if (probe.catastrophic) {
           // The probe itself just renamed a live worktree away, and a real handle appeared in the
           // gap before it could rename it back. Finding 2: stop the whole apply loop here rather
           // than continue guessing at more removals this run - the row records exactly where the
           // worktree now sits so it is never a half state with no record of it.
-          log.push({
-            action: "worktree-remove",
-            ref: w.ref,
-            branch: w.branch,
-            ok: false,
-            error:
-              `in-use probe renamed this worktree to ${busyMarker} and could not rename it back (${String(err.message || err)}) ` +
-              `- restore by hand: rename ${busyMarker} back to ${w.ref}`,
-          });
+          log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, error: probe.detail });
           return log;
+        }
+        if (probe.busy) {
+          log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "in use" });
+          if (w.branch) failedWorktreeBranches.add(w.branch);
+          continue;
         }
       } else if ((inUse = worktreeHasOpenProcess(w.ref))) {
         // R2-4: "unknown" (the check itself failed - /proc unreadable, lsof missing or erroring)
@@ -1692,7 +1718,14 @@ export function pathWithin(child, parent, opts = {}) {
     return platform === "win32" ? r.toLowerCase() : r;
   };
   const rel = pathImpl.relative(norm(parent), norm(child));
-  return rel === "" || (!rel.startsWith("..") && !pathImpl.isAbsolute(rel));
+  // Seam review MEDIUM 1: `rel.startsWith("..")` alone also matches a real child directory whose
+  // name merely BEGINS with two dots (e.g. "..live"), which is not an escape at all - only an
+  // exact ".." segment, or one followed by a separator, means the relative path actually climbs
+  // out. The looser test failed toward "not inside", i.e. toward removing a worktree (or running
+  // the daily act's open-shell guard as if clean) with a live shell parked in such a dir - the
+  // same defect LOW 12 fixed in path-safety.mjs and MEDIUM 3 fixed in reclaim.mjs. All three now
+  // share path-safety.mjs's single exported `pathEscapesRoot`.
+  return rel === "" || !pathEscapesRoot(rel, pathImpl);
 }
 
 export function closeoutWorktree({ root, worktreeField, branchName = null, mainBranch = "main", cwd = process.cwd(), dryRun = false, listWorktreesImpl = listWorktrees, platform = process.platform }) {
@@ -2011,7 +2044,15 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
     removed,
     safeLeft,
   };
-  const jsonPath = path.join(targetDir, `${dateStr}-${host}.json`);
+  // Seam review MEDIUM 2: a later same-day run (the integrator's `janitor --record`, a hand
+  // `--apply`) must never overwrite an earlier run's `removed` list - it is the only durable
+  // name+sha of what an act deleted. On a collision the new record gets the NY wall-clock time as
+  // a suffix instead, so both runs' removals survive under this date/host, in separate files.
+  let jsonPath = path.join(targetDir, `${dateStr}-${host}.json`);
+  if (existsSync(jsonPath)) {
+    const hms = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(/:/g, "");
+    jsonPath = path.join(targetDir, `${dateStr}-${host}-${hms}.json`);
+  }
   writeFileSync(jsonPath, `${JSON.stringify(record, null, 2)}\n`);
   const diskStr = state.drift.diskUsedKB === null ? "unknown" : String(state.drift.diskUsedKB);
   const safeLeftTotal = safeLeft.worktrees + safeLeft.branches;

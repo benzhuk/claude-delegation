@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 import { main as reclaimMain, checkS, checkT } from "./reclaim.mjs";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
@@ -203,6 +203,46 @@ test("F14: kill switch refuses every argument, exit 3, nothing removed", () => {
   assert.match(c.lines[0], /reclaim switched off/);
   assert.ok(fs.existsSync(target));
 });
+
+// Lane 59 Windows gate: a dedicated win32-host twin of the two generic-ctx groups just above
+// (F14's kill switch, and the four argv-usage-error cases) - built the same way the S/T/F3/HIGH1/
+// HIGH2 win32 twins already are (skipped everywhere but a real win32 host), even though the
+// generic tests above already build their ctx through win32Ctx() and so already run unconditionally
+// on both hosts. Recorded separately so a Windows gate run shows, by name, that this exact behavior
+// was exercised for real on that host - not merely on a ctx labelled "win32" while running on Linux.
+test(
+  "F14: kill switch refuses every argument, exit 3, nothing removed (win32 host)",
+  { skip: process.platform !== "win32" ? NO_WIN32_HOST : false },
+  () => {
+    const ctx = win32Ctx({ switchedOffImpl: (name) => name === "reclaim" });
+    const targetA = mkdir(path.join(ctx.tmpdir, "delegation-a-XXXX", "data"));
+    const targetB = mkdir(path.join(ctx.tmpdir, "delegation-b-XXXX", "data"));
+    const c = collector();
+    const code = reclaimMain([targetA, targetB], { ...ctx, print: c.print });
+    assert.equal(code, 3);
+    assert.equal(c.lines.length, 2, "every argument gets its own refusal line, not just the first");
+    assert.match(c.lines[0], /reclaim switched off/);
+    assert.match(c.lines[1], /reclaim switched off/);
+    assert.ok(fs.existsSync(targetA));
+    assert.ok(fs.existsSync(targetB));
+  },
+);
+
+test(
+  "argv usage errors: no path, unknown flag, --branch without --repo - all exit 2 (win32 host)",
+  { skip: process.platform !== "win32" ? NO_WIN32_HOST : false },
+  () => {
+    const c1 = collector();
+    assert.equal(reclaimMain([], { ...win32Ctx(), print: c1.print }), 2);
+    assert.deepEqual(c1.lines, []);
+
+    const c2 = collector();
+    assert.equal(reclaimMain(["--bogus"], { ...win32Ctx(), print: c2.print }), 2);
+
+    const c3 = collector();
+    assert.equal(reclaimMain(["--branch", "foo"], { ...win32Ctx(), print: c3.print }), 2);
+  },
+);
 
 // ---------- F8: cwd containment ----------
 
@@ -1024,6 +1064,47 @@ test("MEDIUM3: an rmSync failure prints a failed line and does not crash; later 
   assert.ok(c.lines.some((l) => l.startsWith("removed T")));
   assert.ok(!fs.existsSync(good));
 });
+
+// ---------- Seam review MEDIUM 3: S/T refuses a target a live process has as its cwd ----------
+// F8's own cwd check (above) only ever covered reclaim's OWN process. A live shell belonging to
+// ANY OTHER process, sitting in (or as) the S/T target, was never checked at all before rmSync ran
+// - the S/T twin of round-1 review finding 2's "open shell" guard for the daily act's W class.
+// Reuses janitor.mjs's own open-process check (`pathHasOpenProcess`) rather than a second copy.
+
+test(
+  "seam review MEDIUM 3: a live process with its cwd inside a T target is refused, not silently removed",
+  { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false },
+  async () => {
+    const ctx = baseCtx();
+    const { target } = tTarget(ctx);
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: target, stdio: "ignore", env: {} });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400)); // let it actually start and chdir
+      const c = collector();
+      const code = reclaimMain([target], { ...ctx, print: c.print });
+      assert.equal(code, 3);
+      assert.match(c.lines[0], /a process has its cwd here/);
+      assert.ok(fs.existsSync(target), "a target with a live process sitting in it must survive reclaim");
+    } finally {
+      child.kill(); // kill only this test's own spawned child, by its own pid
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  },
+);
+
+test(
+  "seam review MEDIUM 3: an in-use check that cannot answer ('unknown') refuses with 'in-use check failed', never a confident match",
+  { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false },
+  () => {
+    const ctx = baseCtx();
+    const { target } = tTarget(ctx);
+    const c = collector();
+    const code = reclaimMain([target], { ...ctx, openProcessImpl: () => "unknown", print: c.print });
+    assert.equal(code, 3);
+    assert.match(c.lines[0], /in-use check failed/);
+    assert.ok(fs.existsSync(target), "a target the check could not clear must survive reclaim");
+  },
+);
 
 // ---------- MEDIUM 4: B refuses a branch checked out anywhere (round-2 review) ----------
 

@@ -21,9 +21,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
-import { checkRemovablePath } from "./path-safety.mjs";
+import { checkRemovablePath, pathEscapesRoot } from "./path-safety.mjs";
 import {
   gitToplevel, listWorktrees, gatherState, applySafe, pathWithin, idleHours, IDLE_FLOOR_HOURS, refSha,
+  pathHasOpenProcess, winRenameBusyProbe,
 } from "./janitor.mjs";
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
 
@@ -44,14 +45,9 @@ function isHostAbsolute(target, platform) {
 
 class WalkRefusal extends Error {}
 
-function escapesUp(rel) {
-  // Round-2 re-review MEDIUM 3: a bare `rel.startsWith("..")` also matches a real, non-escaping
-  // path segment that merely BEGINS with two dots (e.g. a directory literally named "..m"),
-  // misreading it as an escape - the LOW 12 twin of this same defect, now fixed here too. It fails
-  // in the wrong direction (toward ALLOW, not refuse), which is what let a same-filesystem bind
-  // mount at `<top>/..m` and a cwd of `<top>/..work` both slip past their own containment checks.
-  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
-}
+// Seam review MEDIUM 1: this used to be its own copy (round-2 re-review MEDIUM 3's `escapesUp`)
+// of the same escape predicate path-safety.mjs and janitor.mjs's `pathWithin` each carried
+// separately. All three now import path-safety.mjs's single `pathEscapesRoot` instead.
 
 /**
  * Round-2 re-review HIGH 2: a git directory is not always named `.git` - a bare clone
@@ -224,7 +220,7 @@ function checkMountsUnderClassRoot(resolved, classRoot, ctx) {
   if (points === null) return { ok: false, reason: "could not read the mount table" };
   const withinOrEqual = (parent, child) => {
     const rel = path.relative(path.resolve(parent), path.resolve(child));
-    return rel === "" || !escapesUp(rel);
+    return rel === "" || !pathEscapesRoot(rel);
   };
   const resolvedClassRoot = path.resolve(classRoot);
   for (const raw of points) {
@@ -307,12 +303,11 @@ function checkAncestorsForGit(resolved, ctx) {
 
 /**
  * Round-2 re-review MEDIUM 3, part 2: F8's own cwd-containment check used janitor.mjs's
- * `pathWithin`, which carries the exact same `..`-prefix defect LOW 12 fixed in path-safety.mjs -
- * a cwd of `<top>/..work` was read as "escapes `<top>`" and so never matched, letting `<top>`
- * itself be removed while it was the live cwd. This is reclaim's own copy of the same
- * realpath + win32-case-fold logic `pathWithin` uses, with the corrected escape test - it lets T1
- * close its own surface without editing janitor.mjs (round-1's seam note to T2 about `pathWithin`
- * itself stays open for that function's OTHER callers).
+ * `pathWithin`, which (at the time) carried the exact same `..`-prefix defect LOW 12 fixed in
+ * path-safety.mjs - a cwd of `<top>/..work` was read as "escapes `<top>`" and so never matched,
+ * letting `<top>` itself be removed while it was the live cwd. This is reclaim's own copy of the
+ * realpath + win32-case-fold logic `pathWithin` uses (now sharing path-safety.mjs's single
+ * `pathEscapesRoot`, per seam review MEDIUM 1, which also fixed `pathWithin` itself).
  */
 function within(child, parent, ctx) {
   const realpath = (p) => {
@@ -327,7 +322,7 @@ function within(child, parent, ctx) {
     return ctx.platform === "win32" ? r.toLowerCase() : r;
   };
   const rel = path.relative(norm(parent), norm(child));
-  return rel === "" || !escapesUp(rel);
+  return rel === "" || !pathEscapesRoot(rel);
 }
 
 /** F6: the top scratch directory (S's `claude-<uid>`, T's `delegation-<name>-XXXX`) must be owned
@@ -550,7 +545,45 @@ function finishST(cls, resolved, classResult, ctx) {
   // HIGH 2, part 2: same-filesystem bind mounts st_dev cannot see at all.
   const mounts = checkMountsUnderClassRoot(resolved, classResult.root, ctx);
   if (!mounts.ok) return { ok: false, reason: mounts.reason };
+  // Seam review MEDIUM 3: F8's own cwd check (validateArg, above) only ever covered reclaim's OWN
+  // process - a live shell belonging to ANY OTHER process, sitting in (or as) the target, was never
+  // checked at all before rmSync ran, the S/T twin of the daily act's W-class "open shell" guard
+  // (round-1 review finding 2). Re-run here too, since this is the same function the LOW 13 re-check
+  // calls immediately before the real rmSync.
+  const busy = checkOpenProcess(resolved, ctx);
+  if (!busy.ok) return { ok: false, reason: busy.reason };
   return { ok: true, class: cls, resolved, entryCount: walk.entryCount, root: classResult.root };
+}
+
+/**
+ * Seam review MEDIUM 3: reuses janitor.mjs's own open-process check (`pathHasOpenProcess`, the
+ * exact function the daily act's W class gets through applySafe) rather than keeping a second
+ * implementation here. `ctx.openProcessImpl`/`ctx.winBusyProbeImpl` default to those real
+ * functions; tests inject their own to exercise "unknown"/busy/catastrophic without a real process.
+ *
+ * win32 has no /proc or lsof - the rename-away-and-back probe is the only mechanism, and it is a
+ * real (if self-reverting) filesystem mutation. A `--dry-run` call never removes anything, so it
+ * skips the probe entirely rather than touch disk for a prediction; the real, destructive path -
+ * both this function's first call (a live, non-dry-run argument) and the LOW 13 re-check
+ * immediately before rmSync - always goes through it.
+ *
+ * A platform this file has no mechanism for at all (neither linux/darwin's probe nor win32's) fails
+ * closed: ruling r1/r2, a check that cannot run must refuse, never silently pass.
+ */
+function checkOpenProcess(resolved, ctx) {
+  if (ctx.platform === "linux" || ctx.platform === "darwin") {
+    const open = ctx.openProcessImpl(resolved);
+    if (open) return { ok: false, reason: open === "unknown" ? "in-use check failed" : "a process has its cwd here" };
+    return { ok: true };
+  }
+  if (ctx.platform === "win32") {
+    if (ctx.dryRun) return { ok: true };
+    const probe = ctx.winBusyProbeImpl(resolved);
+    if (probe.catastrophic) return { ok: false, reason: probe.detail };
+    if (probe.busy) return { ok: false, reason: "a process has its cwd here" };
+    return { ok: true };
+  }
+  return { ok: false, reason: "in-use check failed" };
 }
 
 // ---------- class W: a SAFE, idle worktree (F1, F17) ----------
@@ -753,6 +786,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     execFileSyncImpl: opts.execFileSyncImpl ?? execFileSync,
     idleHoursImpl: opts.idleHoursImpl ?? idleHours,
     applySafeImpl: opts.applySafeImpl ?? applySafe,
+    // Seam review MEDIUM 3.
+    openProcessImpl: opts.openProcessImpl ?? pathHasOpenProcess,
+    winBusyProbeImpl: opts.winBusyProbeImpl ?? winRenameBusyProbe,
   };
 
   const parsed = parseArgv(argv);
@@ -760,6 +796,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     process.stderr.write(`reclaim: ${parsed.error}\n`);
     return 2;
   }
+  // Seam review MEDIUM 3: win32's busy check is the rename-away-and-back probe, a real (if
+  // self-reverting) filesystem mutation - checkOpenProcess() skips it on a dry run.
+  ctx.dryRun = parsed.dryRun;
 
   // F14: reclaim's own kill switch, checked before anything else.
   if (ctx.switchedOffImpl("reclaim")) {

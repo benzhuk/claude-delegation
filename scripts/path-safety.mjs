@@ -9,6 +9,25 @@ import os from "node:os";
 import path from "node:path";
 
 /**
+ * Seam review MEDIUM 1: the one escape predicate. `rel.startsWith("..")` alone also matches a
+ * segment name that merely BEGINS with two dots (e.g. a directory literally named "..repo" or
+ * "..live"), which is not an escape at all - only an exact ".." segment, or one followed by a
+ * separator, means the relative path actually climbs out. The old, looser test (once written
+ * separately here, in reclaim.mjs, and in janitor.mjs's `pathWithin`) made such a path read as
+ * "outside" in every direction each copy used it, and every failure there failed toward ALLOW,
+ * never toward refuse - the wrong direction for a removability gate. This is now the single
+ * exported copy; reclaim.mjs and janitor.mjs's `pathWithin` both import and use this one instead
+ * of keeping their own.
+ *
+ * `pathImpl` defaults to the real, host-native `path` module; pass `path.win32` to exercise the
+ * win32 separator/absolute-path rules on any host (the same pattern janitor.mjs's `pathWithin`
+ * test fixtures already use).
+ */
+export function pathEscapesRoot(rel, pathImpl = path) {
+  return rel === ".." || rel.startsWith(`..${pathImpl.sep}`) || pathImpl.isAbsolute(rel);
+}
+
+/**
  * checkRemovablePath(target, opts) -> { ok: true, real } | { ok: false, reason } | { ok: false, absent: true }
  *
  * opts:
@@ -60,14 +79,7 @@ export function checkRemovablePath(target, opts = {}) {
   const forCompare = (p) => (winCase ? normSep(p).toLowerCase() : normSep(p));
   const resolved = path.resolve(target);
 
-  // Round-2 review, finding 12: `rel.startsWith("..")` alone also matches a segment name that
-  // merely BEGINS with two dots (e.g. a directory literally named "..repo"), which is not an
-  // escape at all - only an exact ".." segment, or one followed by a separator, means the
-  // relative path actually climbs out. The old, looser test made such a path read as "outside"
-  // in every direction this file uses it (root membership below, and both containment directions
-  // further down), and every failure here fails toward ALLOW, never toward refuse - the wrong
-  // direction for a removability gate.
-  const escapes = (rel) => rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+  const escapes = (rel) => pathEscapesRoot(rel);
 
   let underRoot = false;
   for (const entry of roots) {

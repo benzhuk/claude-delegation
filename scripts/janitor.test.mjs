@@ -1948,6 +1948,46 @@ test("J1 review round 2 F7: --record is byte-identical given the same now/hostNa
   assert.equal(driftA, driftB, "identical inputs must append identical drift.md lines");
 });
 
+test("seam review MEDIUM 2: a second same-day writeRecord call never overwrites the first run's removed list - both removals survive", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+
+  const recordDir = mkTmp("janitor-record-medium2-");
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const now = new Date("2026-09-29T20:00:00Z"); // 16:00 EDT - a plausible second run, same NY date
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, now });
+
+  const first = writeRecord({
+    root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "h", act: "applied",
+    applyLog: [{ action: "worktree-remove", ref: "feature-a", branch: "feature-a", ok: true, sha: "a".repeat(40), restore: "git ..." }],
+  });
+  assert.equal(path.basename(first.jsonPath), "2026-09-29-h.json");
+  assert.equal(JSON.parse(fs.readFileSync(first.jsonPath, "utf8")).removed.length, 1);
+
+  const second = writeRecord({
+    root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "h", act: "applied",
+    applyLog: [{ action: "worktree-remove", ref: "feature-b", branch: "feature-b", ok: true, sha: "b".repeat(40), restore: "git ..." }],
+  });
+
+  assert.notEqual(second.jsonPath, first.jsonPath, "a same-day collision must land at a different path, never overwrite the first run's file");
+  const hms = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(/:/g, "");
+  assert.equal(path.basename(second.jsonPath), `2026-09-29-h-${hms}.json`);
+
+  // The first run's own file must still hold its own removal, untouched by the second run.
+  const firstAfter = JSON.parse(fs.readFileSync(first.jsonPath, "utf8"));
+  assert.equal(firstAfter.removed.length, 1);
+  assert.equal(firstAfter.removed[0].ref, "feature-a");
+  const secondRecord = JSON.parse(fs.readFileSync(second.jsonPath, "utf8"));
+  assert.equal(secondRecord.removed.length, 1);
+  assert.equal(secondRecord.removed[0].ref, "feature-b");
+
+  // Taken together, this NY date's records for this host carry both removals - neither is lost.
+  const files = fs.readdirSync(recordDir).filter((f) => f.startsWith("2026-09-29-h") && f.endsWith(".json"));
+  const allRemovedRefs = files.flatMap((f) => JSON.parse(fs.readFileSync(path.join(recordDir, f), "utf8")).removed.map((r) => r.ref));
+  assert.deepEqual(allRemovedRefs.sort(), ["feature-a", "feature-b"]);
+});
+
 // ---------------------------------------------------------------------------
 // J1 item 5: --outside - report-only visibility into ~/.agents/rollout-backups and ~/.agents/ws.
 // ---------------------------------------------------------------------------
@@ -2545,6 +2585,22 @@ test("pathWithin: posix - equal paths and a real subdirectory are 'within'; a si
   assert.equal(pathWithin("/a/b", "/a/b"), true);
   assert.equal(pathWithin("/a/b/c", "/a/b"), true);
   assert.equal(pathWithin("/a/b2", "/a/b"), false, "must not treat a prefix-sharing sibling as contained");
+});
+
+// Seam review MEDIUM 1: `pathWithin` used to treat any relative path merely BEGINNING with ".."
+// as an escape, so a real child directory literally named "..live" read as "outside" - the exact
+// defect LOW 12 fixed in path-safety.mjs and MEDIUM 3 fixed in reclaim.mjs, left open here. Only
+// an exact ".." segment (or one followed by a separator) is an actual escape.
+test("pathWithin: MEDIUM 1 - a real child dir named '..live' is inside; an actual '..' escape is not, on posix and win32", () => {
+  const d = mkTmp("janitor-pathwithin-dotdot-");
+  fs.mkdirSync(path.join(d, "..live"));
+  assert.equal(pathWithin(path.join(d, "..live"), d), true, "a directory literally named '..live' is a real child, not an escape");
+  assert.equal(pathWithin(path.join(d, ".."), d), false, "an actual '..' segment still escapes");
+  assert.equal(
+    pathWithin("C:\\a\\..x", "C:\\a", { platform: "win32", pathImpl: path.win32, realpath: (p) => p }),
+    true,
+    "the win32 form of the same fix",
+  );
 });
 
 test("closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and reports the same verdicts a live run would", () => {
@@ -3159,6 +3215,51 @@ test(
       assert.equal(row.ok, false);
       assert.equal(row.skipped, "a process has its cwd here");
       assert.ok(fs.existsSync(wt), "a worktree with a live process sitting in it must survive --apply");
+    } finally {
+      child.kill();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  },
+);
+
+// Seam review MEDIUM 1: the daily act's open-shell guard (worktreeHasOpenProcess, through
+// pathWithin) used to read a live shell's cwd as "outside" the worktree whenever it sat in a real
+// child directory whose name merely BEGAN with "..", such as "..live" - the containment test's own
+// defect, not a gap in the guard's wiring. A worktree with a live process in exactly such a
+// directory must be refused the same way the plain "review finding 2" case above is.
+test(
+  "seam review MEDIUM 1: a SAFE worktree with a live process sitting in a real '..live' child dir is still refused, not misread as outside",
+  {
+    skip: process.platform !== "linux"
+      ? "the /proc/[pid]/cwd probe is linux-only; darwin (lsof) and win32 (rename probe) use different mechanisms this fixture cannot exercise on this host"
+      : false,
+  },
+  async () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    addOrigin(root);
+    const wt = addWorktree(root, "feature-dotdotlive");
+    mergeIntoMain(root, "feature-dotdotlive");
+    pushMain(root);
+
+    const dotDotLive = path.join(wt, "..live");
+    fs.mkdirSync(dotDotLive);
+
+    const home = mkTmp("janitor-idlehome-dotdotlive-");
+    const toplevel = gitToplevel(root);
+    const { config } = loadProjectConfig(root);
+    const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+    state.act = true;
+
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: dotDotLive, stdio: "ignore", env: {} });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400)); // let it actually start and chdir
+
+      const log = applySafe(state, [], { home, now: Date.now() + 25 * 3600000 });
+      const row = log.find((l) => l.action === "worktree-remove");
+      assert.equal(row.ok, false);
+      assert.equal(row.skipped, "a process has its cwd here", "a live shell in '..live' must be seen as inside, not outside");
+      assert.ok(fs.existsSync(wt), "a worktree with a live process sitting in a '..live' child dir must survive --apply");
     } finally {
       child.kill();
       await new Promise((resolve) => setTimeout(resolve, 200));
