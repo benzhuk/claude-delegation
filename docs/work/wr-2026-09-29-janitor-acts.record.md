@@ -1,10 +1,12 @@
 Work: wr-2026-09-29-janitor-acts
 Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-59-1 part 2 and Ben's two ticks read at 5:11 PM NY 9/29, read at dff1e00c3096082c4f17da99a49debf41e83dfb2
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
-Next: seam delta review r3 by the same reviewer, then accept, merge, close
-Worktree: build/janitor-acts-59-1
+Next: accept, merge, close, RESULT to skills-fable
+Artifact: 72f736b62bce9c53ab9cf7aa3a92490bd08472c1
+Evidence: docs/work/evidence/wr-2026-09-29-janitor-acts-review.md, docs/work/evidence/wr-2026-09-29-janitor-acts-t2.md
+Worktree: /var/tmp/lane-59/wt
 Scratch: /var/tmp/lane-59
 Opened: 2026-09-29T21:13:00.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -32,6 +34,15 @@ Log: 2026-09-30T01:17:02.000Z owned skills-n Sonnet builder a0fd715a8fbe8dac0 Wi
 Log: 2026-09-30T01:38:14.000Z delivered skills-n seam fix builder a541a0f283aaf9d78 at 483af6eeecdfcc92457dd975b239a7d3621d5605 (shared escape predicate, same-day removed-list merge, reclaim refuses a live-process cwd, two win32 twins; Linux 3201 tests 0 fail, Windows 3201 tests 0 fail); docs/specs/janitor-acts-59/seamfix-build.md
 Log: 2026-09-30T01:59:42.000Z rejected skills-n seam delta review a479dfc2bf31d7c53 NEEDS_FIXES 483af6e (5: MEDIUM private PID namespace reads clean, MEDIUM win32 cwd check untested, LOW record race, LOW predicate absolute and forward-slash cases, LOW two loose copies in reclaim); reviewer hit a secret-guard false positive on an env spread in spawn options and rewrote without the environment reference, accepted as rewording; ruling-r3.md
 Log: 2026-09-30T02:13:56.000Z delivered skills-n seam fix r2 builder a24749474e913c2cb at 72f736b62bce9c53ab9cf7aa3a92490bd08472c1 (five findings per ruling r3, four new tests mutation-proven; Linux 3205 tests 0 fail, Windows 3205 tests 0 fail); docs/specs/janitor-acts-59/seamfix2-build.md
+Log: 2026-09-30T02:25:49.000Z reviewed skills-n seam Opus a479dfc2bf31d7c53 delta r3 APPROVE 72f736b62bce9c53ab9cf7aa3a92490bd08472c1 (five r2 findings fixed at the cause, new tests mutation-proven, suite 3205 tests 0 fail on Linux and Windows)
+
+Predicts: the janitor's act mode and reclaim remove scratch dirs, stale worktrees and merged build branches that lanes leave behind, and never remove anything that is live or unsure, per ruling r1. Leftover scratch and worktrees then stop piling up between lanes, and no builder needs a banned rm to clean up. Two builder stalls on rm prompts occurred today, so the stalled-on-cleanup count should drop to zero in the next census window.
+
+Observed: T2 (janitor, timer installer, mirror, skill docs) was Opus APPROVE at dbce299 after two fix rounds. T1 (path-safety, reclaim, work-record) went through three fix rounds; review r3 left two LOWs, applied at 4a11867. The seam review found three MEDIUM findings at 4a11867. A Windows gate failed 68 of the lane's own tests there, and they were fixed at 0cc8d3e. Seam delta review r2 found five more at 483af6e, including a sandboxed PID namespace that read "clean". Seam delta review r3 was APPROVE at 72f736b, with every new test mutation-proven. Full suite at 72f736b: Linux 3205 tests with 0 fail, Windows 3205 tests with 0 fail.
+
+Stall: the T1 builder sat about 90 minutes on a banned rm -rf permission prompt, and was stopped with its work committed. One builder used git worktree remove on its own scratch, which is a banned delete, logged at the time.
+
+Gap: install and `--write-allow` are not part of this artifact, and wait on Ben's tick at install time. The integrator's `janitor --apply` without `--record` in SKILL.md is a follow-up.
 
 ## Spec
 
