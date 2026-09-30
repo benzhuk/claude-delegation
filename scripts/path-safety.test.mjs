@@ -10,7 +10,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { checkRemovablePath } from "./path-safety.mjs";
+import { checkRemovablePath, pathEscapesRoot } from "./path-safety.mjs";
+
+test("seam review r2: pathEscapesRoot - a '..'-prefixed name stays inside; '..', a '..'-prefixed sibling, another drive and a UNC path escape", () => {
+  assert.equal(pathEscapesRoot("..live", path.posix), false);
+  assert.equal(pathEscapesRoot("..", path.posix), true);
+  assert.equal(pathEscapesRoot(path.posix.relative("/a/b", "/a/..b"), path.posix), true);
+  assert.equal(pathEscapesRoot("..x", path.win32), false);
+  assert.equal(pathEscapesRoot("..\\x", path.win32), true);
+  assert.equal(pathEscapesRoot("../x", path.win32), true);
+  assert.equal(pathEscapesRoot(path.win32.relative("C:\\a", "D:\\a"), path.win32), true);
+  assert.equal(pathEscapesRoot(path.win32.relative("C:\\a", "\\\\srv\\share\\a"), path.win32), true);
+  assert.equal(pathEscapesRoot(path.win32.relative("\\\\srv\\share\\a", "\\\\srv\\other\\a"), path.win32), true);
+});
 
 const tracked = [];
 function mkTmp(prefix) {

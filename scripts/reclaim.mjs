@@ -395,7 +395,7 @@ export function checkS(resolved, ctx) {
   const root = sSpecRoot(ctx);
   if (!root) return null;
   const rel = p.relative(root.path, resolved);
-  if (rel === "" || rel.startsWith("..") || p.isAbsolute(rel)) return null;
+  if (rel === "" || pathEscapesRoot(rel, p)) return null;
   if (root.kind === "darwin-unmeasured") {
     return { ok: false, reason: "S class unmeasured on darwin" };
   }
@@ -464,7 +464,7 @@ export function checkT(resolved, ctx) {
   const p = pImpl(ctx);
   for (const root of tRoots(ctx)) {
     const rel = p.relative(root, resolved);
-    if (rel === "" || rel.startsWith("..") || p.isAbsolute(rel)) continue;
+    if (rel === "" || pathEscapesRoot(rel, p)) continue;
     const segments = rel.split(p.sep).filter(Boolean);
     const topName = segments[0];
     const prefixOk = ctx.platform === "win32" ? /^delegation-/i.test(topName) : topName.startsWith("delegation-");
@@ -570,7 +570,7 @@ function finishST(cls, resolved, classResult, ctx) {
  * A platform this file has no mechanism for at all (neither linux/darwin's probe nor win32's) fails
  * closed: ruling r1/r2, a check that cannot run must refuse, never silently pass.
  */
-function checkOpenProcess(resolved, ctx) {
+export function checkOpenProcess(resolved, ctx) {
   if (ctx.platform === "linux" || ctx.platform === "darwin") {
     const open = ctx.openProcessImpl(resolved);
     if (open) return { ok: false, reason: open === "unknown" ? "in-use check failed" : "a process has its cwd here" };

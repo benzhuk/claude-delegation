@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 
-import { main as reclaimMain, checkS, checkT } from "./reclaim.mjs";
+import { main as reclaimMain, checkS, checkT, checkOpenProcess } from "./reclaim.mjs";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const tmpDirs = [];
@@ -1103,6 +1103,41 @@ test(
     assert.equal(code, 3);
     assert.match(c.lines[0], /in-use check failed/);
     assert.ok(fs.existsSync(target), "a target the check could not clear must survive reclaim");
+  },
+);
+
+test("seam review r2: checkOpenProcess refuses on every platform branch it cannot clear, on any host", () => {
+  const neverPosix = () => { throw new Error("the /proc or lsof probe must not run for a win32 ctx"); };
+  const neverWin = () => { throw new Error("the rename probe must not run on a dry run"); };
+  const win = (probe, dryRun = false) => checkOpenProcess("C:\\t", { platform: "win32", dryRun, winBusyProbeImpl: probe, openProcessImpl: neverPosix });
+  assert.deepEqual(win(() => ({ busy: true })), { ok: false, reason: "a process has its cwd here" });
+  assert.deepEqual(win(() => ({ busy: true, catastrophic: true, detail: "restore by hand: rename X.janitor-busy back to X" })), { ok: false, reason: "restore by hand: rename X.janitor-busy back to X" });
+  assert.deepEqual(win(() => ({ busy: false })), { ok: true });
+  assert.deepEqual(win(neverWin, true), { ok: true }, "a dry run never runs the mutating rename probe");
+  assert.deepEqual(checkOpenProcess("/t", { platform: "darwin", openProcessImpl: () => "unknown" }), { ok: false, reason: "in-use check failed" });
+  assert.deepEqual(checkOpenProcess("/t", { platform: "darwin", openProcessImpl: () => true }), { ok: false, reason: "a process has its cwd here" });
+  assert.deepEqual(checkOpenProcess("/t", { platform: "freebsd", openProcessImpl: () => false, winBusyProbeImpl: () => ({ busy: false }) }), { ok: false, reason: "in-use check failed" });
+});
+
+test(
+  "seam review r2: a live process whose cwd is a SUBDIRECTORY of the T target refuses the target",
+  { skip: process.platform === "win32" ? POSIX_FIXTURE_ONLY : false },
+  async () => {
+    const ctx = baseCtx();
+    const { target } = tTarget(ctx);
+    const deep = mkdir(path.join(target, "sub", "deeper"));
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: deep, stdio: "ignore", env: {} });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const c = collector();
+      const code = reclaimMain([target], { ...ctx, print: c.print });
+      assert.equal(code, 3);
+      assert.match(c.lines[0], /a process has its cwd here/);
+      assert.ok(fs.existsSync(deep));
+    } finally {
+      child.kill();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
   },
 );
 

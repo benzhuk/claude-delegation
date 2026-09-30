@@ -35,6 +35,7 @@ import {
   pathWithin,
   idleHours,
   IDLE_FLOOR_HOURS,
+  pathHasOpenProcess,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
 
@@ -1982,10 +1983,23 @@ test("seam review MEDIUM 2: a second same-day writeRecord call never overwrites 
   assert.equal(secondRecord.removed.length, 1);
   assert.equal(secondRecord.removed[0].ref, "feature-b");
 
-  // Taken together, this NY date's records for this host carry both removals - neither is lost.
+  // Seam review r2, finding 3: a THIRD writeRecord call in the very same NY second must not collide
+  // with (and truncate) the second run's own suffixed file either - it lands at a further `-2` name.
+  const third = writeRecord({
+    root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "h", act: "applied",
+    applyLog: [{ action: "worktree-remove", ref: "feature-c", branch: "feature-c", ok: true, sha: "c".repeat(40), restore: "git ..." }],
+  });
+  assert.equal(path.basename(third.jsonPath), `2026-09-29-h-${hms}-2.json`);
+  const thirdRecord = JSON.parse(fs.readFileSync(third.jsonPath, "utf8"));
+  assert.equal(thirdRecord.removed[0].ref, "feature-c");
+  // The second run's own file must still hold its own removal, untouched by the third run.
+  const secondAfter = JSON.parse(fs.readFileSync(second.jsonPath, "utf8"));
+  assert.equal(secondAfter.removed[0].ref, "feature-b");
+
+  // Taken together, this NY date's records for this host carry all three removals - none is lost.
   const files = fs.readdirSync(recordDir).filter((f) => f.startsWith("2026-09-29-h") && f.endsWith(".json"));
   const allRemovedRefs = files.flatMap((f) => JSON.parse(fs.readFileSync(path.join(recordDir, f), "utf8")).removed.map((r) => r.ref));
-  assert.deepEqual(allRemovedRefs.sort(), ["feature-a", "feature-b"]);
+  assert.deepEqual(allRemovedRefs.sort(), ["feature-a", "feature-b", "feature-c"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -3305,6 +3319,36 @@ test("review finding R2-4: a failed in-use check (darwin, no lsof on PATH) is la
     process.env.PATH = prevPath;
   }
 });
+
+// Seam review r2, finding 2: `worktreeHasOpenProcess`'s linux branch treats a readable /proc as a
+// complete view of every live process. Inside a private PID namespace (Claude Code's own linux
+// sandbox runs bwrap with --unshare-pid, its own private /proc) it would see only the sandbox's own
+// processes and call a live shell OUTSIDE that namespace "clean" - the fix's discriminator is PID 1
+// (normally root/uid 0 on a real host) reading back as owned by the caller's own uid, which only
+// happens inside such a namespace. Forced here through the exported `statImpl` seam rather than a
+// real `unshare --pid` on the host, per ruling r3.
+test(
+  "seam review r2: worktreeHasOpenProcess fails closed inside a private PID namespace, discriminated through an injected statImpl (no real unshare needed)",
+  {
+    skip: process.platform !== "linux"
+      ? "the PID-1-ownership discriminator is linux-only, matching the /proc probe it guards"
+      : false,
+  },
+  () => {
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (uid === null || uid === 0) return; // root's own uid IS 0: the discriminator can never fire for root
+
+    // Simulated private PID namespace: PID 1 reads back as owned by the caller's own uid, exactly
+    // what bwrap --unshare-pid produces (measured, seam-review-r2.md finding 2).
+    const namespaced = pathHasOpenProcess("/", { statImpl: () => ({ uid }) });
+    assert.equal(namespaced, "unknown", "PID 1 owned by the caller's own uid must fail closed, never read as clean");
+
+    // The real host: PID 1 belongs to someone else - falls through unaffected to the normal scan,
+    // which (parent "/") matches the very first readable /proc/[pid]/cwd it finds.
+    const hostLike = pathHasOpenProcess("/", { statImpl: () => ({ uid: uid + 1 }) });
+    assert.notEqual(hostLike, "unknown", "PID 1 owned by someone else must not trip the namespace guard");
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Review round 1, finding 3: a "gone anyway" (partial) worktree removal must carry its own sha and

@@ -1384,13 +1384,24 @@ function restoreHint(root, ref, sha) {
  * skip direction is identical, but a caller reporting WHY must never claim a process was actually
  * found when the check itself simply failed to answer.
  */
-function worktreeHasOpenProcess(wtPath) {
+function worktreeHasOpenProcess(wtPath, { statImpl = statSync } = {}) {
   if (process.platform === "linux") {
     let pids;
     try {
       pids = readdirSync("/proc").filter((n) => /^[0-9]+$/.test(n));
     } catch {
       return "unknown"; // /proc itself unreadable: fail closed, never "clean"
+    }
+    // Seam review r2: inside a private PID namespace (Claude Code's linux sandbox runs bwrap with
+    // --unshare-pid and its own /proc) this scan sees only the sandbox's own processes and would call a
+    // live shell outside it "clean". PID 1 owned by a non-root caller means exactly that: fail closed.
+    // `statImpl` defaults to the real fs.statSync and is only ever overridden by a test, which forces
+    // this exact condition through the seam instead of requiring a real `unshare --pid` on the host.
+    try {
+      const uid = typeof process.getuid === "function" ? process.getuid() : null;
+      if (uid !== null && uid !== 0 && statImpl("/proc/1").uid === uid) return "unknown";
+    } catch {
+      return "unknown";
     }
     for (const pid of pids) {
       let link;
@@ -2048,12 +2059,22 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
   // `--apply`) must never overwrite an earlier run's `removed` list - it is the only durable
   // name+sha of what an act deleted. On a collision the new record gets the NY wall-clock time as
   // a suffix instead, so both runs' removals survive under this date/host, in separate files.
-  let jsonPath = path.join(targetDir, `${dateStr}-${host}.json`);
-  if (existsSync(jsonPath)) {
-    const hms = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(/:/g, "");
-    jsonPath = path.join(targetDir, `${dateStr}-${host}-${hms}.json`);
+  const body = `${JSON.stringify(record, null, 2)}\n`;
+  const hms = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(/:/g, "");
+  const names = [`${dateStr}-${host}.json`, `${dateStr}-${host}-${hms}.json`];
+  for (let i = 2; i <= 99; i += 1) names.push(`${dateStr}-${host}-${hms}-${i}.json`);
+  let jsonPath = null;
+  for (const name of names) {
+    const candidate = path.join(targetDir, name);
+    try {
+      writeFileSync(candidate, body, { flag: "wx" }); // create-only: never truncates an earlier record
+      jsonPath = candidate;
+      break;
+    } catch (err) {
+      if (!(err && err.code === "EEXIST")) throw err;
+    }
   }
-  writeFileSync(jsonPath, `${JSON.stringify(record, null, 2)}\n`);
+  if (jsonPath === null) throw new Error(`no free record name for ${dateStr}-${host}-${hms}`);
   const diskStr = state.drift.diskUsedKB === null ? "unknown" : String(state.drift.diskUsedKB);
   const safeLeftTotal = safeLeft.worktrees + safeLeft.branches;
   const driftLine = `- ${dateStr} ${host}: worktrees=${state.drift.worktreeCount} branches=${state.drift.openBranchCount} untracked=${state.drift.untrackedFileCount} diskKB=${diskStr} safe=${safeLeftTotal} removed=${removed.length}\n`;

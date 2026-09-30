@@ -24,7 +24,7 @@ import path from "node:path";
  * test fixtures already use).
  */
 export function pathEscapesRoot(rel, pathImpl = path) {
-  return rel === ".." || rel.startsWith(`..${pathImpl.sep}`) || pathImpl.isAbsolute(rel);
+  return rel === ".." || rel.startsWith(`..${pathImpl.sep}`) || (pathImpl.sep === "\\" && rel.startsWith("../")) || pathImpl.isAbsolute(rel);
 }
 
 /**
