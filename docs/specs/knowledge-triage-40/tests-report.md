@@ -1,4 +1,4 @@
-VERDICT: READY 5b08cc38a0bcff0ade5facf3e7d7da69ca14182d
+VERDICT: READY fae1141adef62a762327cc772f688897e6d9f6ae
 
 # Lane40 independent contract-test report
 
@@ -94,3 +94,13 @@ node --test scripts/knowledge-triage.test.mjs scripts/knowledge-gather.test.mjs 
 ```
 
 Run that focused gate under `Global\claude-verify`. Mocked Git/chezmoi output proves operation semantics and false-positive rejection; it does not prove an actual publication. The later G1 live proof remains required for real commit/push/remote identity.
+## Windows OpenSSH ProgramData startup regression
+
+Commit `fae1141` adds one Windows-only, no-network regression in the existing gather test territory. The test builds an explicit fixture HOME with `childEnv`, filters it through production `sshEnv`, and launches the real `C:/Windows/System32/OpenSSH/ssh.exe -V` through production `runProcess`. It skips explicitly when the platform or executable is unavailable, uses a 10-second child bound inside a 15-second test bound, and never prints environment values or version output. It also injects named provider/session/Git credential markers into the sealed base and requires all of them to remain absent from the SSH child environment.
+
+Source prerequisite `dd40a7d` was cherry-picked separately as `901b105` only to restore the previously approved F1-F4 baseline. It is not part of this test delivery.
+
+The single scoped sealed gate acquired `Global\claude-verify` nonblocking and produced the expected red result against current source: 23 tests / 22 pass / 1 fail / 0 skip, Node duration 8,411.9342 ms, command wall time 9.47 s, leak check 0. The only failure is the new regression: native Windows OpenSSH returned 255 because production `sshEnv` contained only `HOME`, `Path`, `SystemRoot`, `TEMP`, `TMP`, and `USERPROFILE`; expected exit was 0. No value or child output content appears in the assertion.
+
+Raw log: `C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40-tests/Scratch/knowledge-triage-40-programdata-red.log`. The retained failed sealed root is `C:/Users/benzh/AppData/Local/Temp/delegation-test-run-46136-1AT5Jy/sealed-home-U01rvZ`; no cleanup was attempted. The gather test file is 652 physical lines, below the 800-line limit. No host connection, SSH configuration read, credential access, triage invocation, guard change, or source fix occurred.
+
