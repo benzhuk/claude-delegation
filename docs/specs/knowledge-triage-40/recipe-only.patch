@@ -1,0 +1,14 @@
+--- a/dot_claude/skills/triage/SKILL.md
++++ b/dot_claude/skills/triage/SKILL.md
+@@ -135,6 +135,11 @@
+      - **Reject** — too narrow, already obvious, superseded, incorrect on inspection,
+        duplicate, or project-specific (belongs in that repo's CLAUDE.md, or AGENTS.md
+        for Codex sessions, instead).
++   - Use the Write or Edit tool to add or update topic, INDEX and DIGEST prose. Keep
++     knowledge text out of shell command strings and heredocs. The lock, archive and
++     exact-file publication steps remain unchanged. If any tool refuses a step, stop
++     that step and report the exact denial; never retry the refused operation through
++     another tool, command shape, shell or permission mode.
+    - Never rewrite or delete EXISTING topic-file content beyond integrating the new
+      material — curated files grow; corrections to old content get flagged in the
+      digest instead of silently applied.

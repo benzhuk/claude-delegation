@@ -1,0 +1,3 @@
+# Retain the maintained dotfiles source's CRLF bytes in these hash-pinned patches.
+recipe-only.patch -text
+scheduled-only.patch -text
