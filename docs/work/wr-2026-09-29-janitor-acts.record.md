@@ -3,7 +3,7 @@ Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-5
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
-Next: apply T1 r3 LOW 1 verbatim test patch, reviewer confirms; then seam review, integrator Linux and Windows, accept
+Next: Opus seam and closing review of 4a11867, Windows suite at 4a11867; then accept and merge
 Worktree: build/janitor-acts-59-1
 Scratch: /var/tmp/lane-59
 Opened: 2026-09-29T21:13:00.000Z
@@ -25,6 +25,7 @@ Log: 2026-09-30T00:04:30.000Z owned skills-n T1 Sonnet fix builder afce7357b13b9
 Log: 2026-09-30T00:14:15.000Z owned skills-n Opus T1 delta reviewer ad5100ae750131678 NEEDS_FIXES (5: HIGH 1 a plain repo main checkout is deletable by T, against ruling r2; HIGH 2 a bare repo backing live worktrees is deletable; 2 MEDIUM, 1 LOW); docs/specs/janitor-acts-59/t1-review-r2.md
 Log: 2026-09-30T00:28:57.000Z owned skills-n T1 builder afce7357b13b9d61d fix round 2 DONE at 3c555f2 (5 of 5; suite 3183 pass, 0 fail)
 Log: 2026-09-30T00:36:21.000Z owned skills-n Opus T1 reviewer ad5100ae750131678 delta r3 NEEDS_FIXES 3c555f26c55051b9ca29bcffb90a9fea547b13c6 (2 LOW: the win32 junction test cannot reach the walk, verbatim patch given; the build report carried a mistyped full sha, corrected here by the lead); all r2 findings closed
+Log: 2026-09-30T00:38:20.000Z owned skills-n Sonnet runner a4fdfdf1dc248ff2f applied T1 r3 LOW 1 verbatim at 4a11867 (Linux suite 3183 pass, 0 fail); Opus seam and closing review and the Windows integrator spawned
 
 ## Spec
 
