@@ -3,7 +3,7 @@ Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-
 Owner: skills-n
 Status: reviewed
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: accept, merge dotfiles and plugin branches, selftest on Netcup and the desktop, chezmoi apply on Hetzner
+Next: accept waits on lane 60b (Artifact-repo: support), then merge dotfiles and plugin branches, desktop selftest, chezmoi apply on Hetzner
 Artifact: ba985167ef11bdaf74c0b380d59de7f39dcf19ba
 Evidence: docs/work/evidence/wr-2026-09-29-secret-guard-review.md, docs/work/evidence/wr-2026-09-29-secret-guard-p1.md
 Worktree: /var/tmp/lane-60/dot
@@ -28,6 +28,7 @@ Log: 2026-09-30T00:52:45.000Z delivered skills-n Sonnet builder a5f20c5e13265092
 Log: 2026-09-30T01:17:50.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 delta r2 NEEDS_FIXES 12589fc (1 HIGH: git log -L prints secret file lines; F1 to F6 and the seventh fix verified; replay confirmed 59 of 362 now pass, 0 regressions, 0 real reads in corpus; allow path 33 to 42 ms); ruling r3 makes git flags an allowlist; docs/specs/secret-guard-60/p2-review-r2.md and ruling-r3.md
 Log: 2026-09-30T01:35:50.000Z delivered skills-n builder aadd2ad769f3b7f2b phase 2 fix r2 at dotfiles ba985167ef11bdaf74c0b380d59de7f39dcf19ba (git log and diff flag allowlist, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 42 ms); docs/specs/secret-guard-60/p2-fix2-build.md
 Log: 2026-09-30T01:51:59.000Z reviewed skills-n Opus red-team afe0fae31e1989dcc delta r3 APPROVE ba985167ef11bdaf74c0b380d59de7f39dcf19ba (N2 closed, flag allowlist held against every brief vector, H and Q byte-identical to 12589fc, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 40 to 42 ms)
+Log: 2026-09-30T01:54:26.000Z reviewed skills-n accept refused sha-not-in-git: the dotfiles artifact is not resolvable from the plugin repo and no record field can name another repo; opened lane 60b (wr-2026-09-30-artifact-repo) for the cause, dotfiles merge held until accept
 
 Predicts: fewer false secret-guard denials cut the stalled and rerouted steps that agents hit on harmless commands. Replayed against the 362 desktop denials, 59 now pass with 0 regressions, so work lost or stalled to guard refusals should fall in the next census window, with no new secret reads.
 
