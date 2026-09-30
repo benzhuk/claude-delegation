@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-secret-guard
 Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-1 and Ben's tick recorded on main at f815df7, read at 1a76c54223974465a53004c8b49d92237f7fea24
 Owner: skills-n
-Status: rejected
+Status: delivered
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: phase 2 fix round 2 per ruling-r3 (git flag allowlist), then delta red-team
+Next: fresh Opus delta red-team of the ruling r3 fix
 Worktree: build/secret-guard-60-1
 Scratch: /var/tmp/lane-60
 Opened: 2026-09-29T21:39:28.000Z
@@ -24,6 +24,7 @@ Log: 2026-09-29T23:58:01.000Z delivered skills-n Sonnet builder a5f20c5e13265092
 Log: 2026-09-30T00:18:51.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 NEEDS_FIXES on fb48a92 (4 HIGH real-read bypasses: executing heredoc, substitution operand, git log patch, lister piped to reader; full-length replay 397 refused commands, 196 now pass, about 101 flagged real reads, 0 regressions); nothing applied anywhere; ruling r2 narrows each exclusion to an allowlist; docs/specs/secret-guard-60/p2-review.md and ruling-r2.md
 Log: 2026-09-30T00:52:45.000Z delivered skills-n Sonnet builder a5f20c5e13265092a phase 2 fix round 1 DONE dotfiles 12589fc (allowlist exclusions per ruling r2; full-length replay of 397 refused commands: 0 regressions, now passing 59 of 362 old denials, 2 classifier flags shown false; also found and fixed a seventh bypass in the sourcing check; selftest 67 of 67); docs/specs/secret-guard-60/p2-fix1-build.md
 Log: 2026-09-30T01:17:50.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 delta r2 NEEDS_FIXES 12589fc (1 HIGH: git log -L prints secret file lines; F1 to F6 and the seventh fix verified; replay confirmed 59 of 362 now pass, 0 regressions, 0 real reads in corpus; allow path 33 to 42 ms); ruling r3 makes git flags an allowlist; docs/specs/secret-guard-60/p2-review-r2.md and ruling-r3.md
+Log: 2026-09-30T01:35:50.000Z delivered skills-n builder aadd2ad769f3b7f2b phase 2 fix r2 at dotfiles ba985167ef11bdaf74c0b380d59de7f39dcf19ba (git log and diff flag allowlist, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 42 ms); docs/specs/secret-guard-60/p2-fix2-build.md
 
 ## Spec
 
