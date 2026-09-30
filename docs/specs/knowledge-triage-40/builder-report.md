@@ -1,4 +1,4 @@
-VERDICT: READY dd40a7d18b5e1f7c2a969454bd03ce2bb41f7a9f
+VERDICT: READY 110bbe96c4f3ad4bad81cb18ede389740c41460e
 
 # Lane40 source builder report
 
@@ -74,3 +74,9 @@ Before: gather+triage 42 tests, 37 pass, 5 fail. After (four files, `run-tests.m
 
 ## Fix round 4 — pre-edit research receipt (real clock 2026-09-29 20:51 -04:00, source = dd40a7d, tests = 8d6f6ea)
 Command (nonblocking `Global\claude-verify`, acquired): `node scripts/run-tests.mjs --no-sweep scripts/knowledge-gather.test.mjs` -> 23 tests, 22 pass, 1 fail, leak 0 (output `%TEMP%\lane40-r4-pre.txt`). Red: `production sshEnv starts native Windows OpenSSH and still excludes provider credentials` (`knowledge-gather.test.mjs:262`): `native Windows OpenSSH did not start with sshEnv names: HOME, Path, SystemRoot, TEMP, TMP, USERPROFILE`, `255 !== 0`. Minimum case: the local `ssh -V` with exactly the environment `sshEnv()` produces. Falsifiable cause: `sshEnv` allowlist omits `ProgramData`, which native Windows OpenSSH needs at startup. Discriminating check: that test, plus the allowlist line `knowledge-gather.mjs:127`. No SSH host/config inspection, no network, no direct-sh probe.
+
+
+## Fix round 4 result (real clock 2026-09-29 20:51 -04:00)
+Source SHA `110bbe96c4f3ad4bad81cb18ede389740c41460e`: one name, `ProgramData`, added to the `sshEnv` allowlist in `scripts/knowledge-gather.mjs` with a one-line cause comment.
+Cause: native Windows OpenSSH exits 255 at startup when `ProgramData` is absent from the allowlisted environment. Discriminating check: `knowledge-gather.test.mjs:262` (red before, green after). Fix location: `sshEnv`, `knowledge-gather.mjs:127`. Simplification: none needed; no other names, no full-env inheritance.
+Counts: gather file before 23 tests, 22 pass, 1 fail; after 23 tests, 23 pass, 0 fail, 0 skipped, leak 0. `node --check` 0, `git diff --check` clean. No full suite, live, SSH, network or manual proof.
