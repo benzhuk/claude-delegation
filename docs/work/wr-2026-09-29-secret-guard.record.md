@@ -3,9 +3,10 @@ Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-
 Owner: skills-n
 Status: reviewed
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: accept waits on lane 60b (Artifact-repo: support), then merge dotfiles and plugin branches, desktop selftest, chezmoi apply on Hetzner
+Next: accept via Artifact-repo: (lane 60b on main at 52ab9af), merge dotfiles and plugin branches, desktop selftest, chezmoi apply on Hetzner
 Artifact: ba985167ef11bdaf74c0b380d59de7f39dcf19ba
 Evidence: docs/work/evidence/wr-2026-09-29-secret-guard-review.md, docs/work/evidence/wr-2026-09-29-secret-guard-p1.md
+Artifact-repo: /var/tmp/lane-60/dot
 Worktree: /var/tmp/lane-60/dot
 Scratch: /var/tmp/lane-60
 Opened: 2026-09-29T21:39:28.000Z
@@ -29,6 +30,7 @@ Log: 2026-09-30T01:17:50.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 
 Log: 2026-09-30T01:35:50.000Z delivered skills-n builder aadd2ad769f3b7f2b phase 2 fix r2 at dotfiles ba985167ef11bdaf74c0b380d59de7f39dcf19ba (git log and diff flag allowlist, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 42 ms); docs/specs/secret-guard-60/p2-fix2-build.md
 Log: 2026-09-30T01:51:59.000Z reviewed skills-n Opus red-team afe0fae31e1989dcc delta r3 APPROVE ba985167ef11bdaf74c0b380d59de7f39dcf19ba (N2 closed, flag allowlist held against every brief vector, H and Q byte-identical to 12589fc, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 40 to 42 ms)
 Log: 2026-09-30T01:54:26.000Z reviewed skills-n accept refused sha-not-in-git: the dotfiles artifact is not resolvable from the plugin repo and no record field can name another repo; opened lane 60b (wr-2026-09-30-artifact-repo) for the cause, dotfiles merge held until accept
+Log: 2026-09-30T02:54:13.000Z reviewed skills-n Opus red-team afe0fae31e1989dcc APPROVE ba985167ef11bdaf74c0b380d59de7f39dcf19ba stands; Artifact-repo: /var/tmp/lane-60/dot added now that lane 60b is merged to main at 52ab9afb8da6ed9c3100a7ba7bea3f8993e66b3a
 
 Predicts: fewer false secret-guard denials cut the stalled and rerouted steps that agents hit on harmless commands. Replayed against the 362 desktop denials, 59 now pass with 0 regressions, so work lost or stalled to guard refusals should fall in the next census window, with no new secret reads.
 
