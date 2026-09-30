@@ -10,6 +10,7 @@ Worktree: /var/tmp/lane-59b/wt
 Scratch: /var/tmp/lane-59b
 Opened: 2026-09-30T13:34:35.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
+Follow-up-of: wr-2026-09-29-janitor-acts
 Spec-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
 Spec-from: 2026-09-30T13:34:00Z
 Base: b52757b9d78c328a4a3a4faaecec2581fa233e18
@@ -66,6 +67,7 @@ Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-ag
 Log: 2026-09-30T13:49:02.000Z accepted skills-n artifact 9bc94906728cb412a549d6147d44222f247fc8be
 Log: 2026-09-30T13:50:14.000Z merged skills-n build/mirror-shim-59b-1 into main at e15364735ae15b3b87fd441b2f01202409fcb840, suite 0 fail on Netcup
 Log: 2026-09-30T13:50:14.000Z closed skills-n merge e15364735ae15b3b87fd441b2f01202409fcb840
+Log: 2026-09-30T22:51:09.000Z closed skills-a retrospective lane62 parent-link annotation only, from docs/specs/mirror-shim-59b/spec.md explicit lane59 follow-up and reclaim PATH shim cause. Follow-up-of wr-2026-09-29-janitor-acts; original acceptance and Artifact unchanged.
 
 Predicts: rework after acceptance drops, because a durable-path gated count is now tested by name and one gate ran in a durable checkout before merge.
 Observed: R4 red in a durable clone before the fix and green after, on Linux and on the Windows durable checkout; one builder round, one Opus review round.
