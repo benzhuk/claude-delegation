@@ -1,7 +1,7 @@
 Work: wr-2026-09-30-page-lint-table
 Scope: docs/notes/skills-fable-lane-63-1.md: page-lint toggle extents treat lines inside a table as the opener's indent; measure: rework after acceptance (bearings pages fail lint on a false positive)
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-lane-63-1, defect fix to a fed mechanism; merge under the standing grant
 Artifact: build/page-lint-table-63@7bdb3d2db639cef4cc2759b2e552e7c480de33ce
 Worktree: build/page-lint-table-63
@@ -65,6 +65,7 @@ Four numbers: Hours ask to accepted: 0.4h; largest gap 8.6min at 2026-09-30T22:3
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o
 Log: 2026-09-30T22:53:59.000Z accepted skills-o artifact 7bdb3d2db639cef4cc2759b2e552e7c480de33ce
+Log: 2026-09-30T22:54:47.000Z closed skills-o merge 49f7bffd96d59f9d663afb68e5ffd1767b1ba688
 
 Observed: page-lint ended a toggle at Notion-flattened table rows, so the correct Goals page failed toggle-tail twice and blocked bearings publications.
 Predicts: bearings publications to the Goals page lint clean with no waiver, and toggle-tail still fires on a toggle without its tail.
