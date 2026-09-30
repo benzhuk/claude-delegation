@@ -255,6 +255,12 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.19 — the lanes closed from Sep 29 afternoon to Sep 30:
+  - The janitor acts: a daily reclaim of the safe class on every host (session scratch, plugin temp folders, finished lane worktrees, merged branches) through one deleter that refuses any other path, with a live-pane guard and a kill switch (janitor-acts, lane 59). The mirror-shim test counts the note shims by name, so a durable checkout passes (lane 59b).
+  - A record can accept and close an artifact that lives in another repo, such as dotfiles (Artifact-repo, lane 60b). The plugin side of the secret guard lands (lane 60); its Windows selftest fix is in dotfiles (lane 60c).
+  - One daily Opus triage gathers the knowledge inboxes of every host (knowledge-triage, lane 40), and the census reader is repaired (lane 40b). A hand-run baseline gives the census something to beat (baseline, lane 61).
+  - The notion-writing skill moves into the plugin with page-lint (lane 39). publish --clear-done works after accounting (lane 58). The Windows test-ipc failure is closed as not reproduced, with a trip-wire (lane 57).
+  - The continue skill, its runtime and its per-prompt epoch banner are retired after six weeks unused (retire-continue).
 - 0.20.18 — the lanes closed from Sep 28 evening to Sep 29:
   - Each test run gets one temp folder, removed at the end (test-temp-hygiene, lane 46); plugin scripts drop repo-locating git env everywhere (repo-env-everywhere, lane 47); the notes transport runs git without inherited repo env (transport-identity, lane 44).
   - The census counts per build and splits lead tokens (census-completeness, lane 38; fable-wave, lane 51); four-read refuses a census that is not build-census JSON (four-read-json, lane 54); Codex census rows restored (lane 55).
