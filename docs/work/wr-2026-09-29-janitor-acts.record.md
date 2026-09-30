@@ -3,7 +3,7 @@ Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-5
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
-Next: Windows test-portability round (running), then seam fix round (3 MEDIUM in janitor.mjs and reclaim.mjs, queued for the same builder), then seam delta review and Windows rerun
+Next: seam fix round (3 MEDIUM plus two win32 twins), then seam delta review and Windows rerun
 Worktree: build/janitor-acts-59-1
 Scratch: /var/tmp/lane-59
 Opened: 2026-09-29T21:13:00.000Z
@@ -28,6 +28,7 @@ Log: 2026-09-30T00:36:21.000Z owned skills-n Opus T1 reviewer ad5100ae750131678 
 Log: 2026-09-30T00:38:20.000Z owned skills-n Sonnet runner a4fdfdf1dc248ff2f applied T1 r3 LOW 1 verbatim at 4a11867 (Linux suite 3183 pass, 0 fail); Opus seam and closing review and the Windows integrator spawned
 Log: 2026-09-30T00:46:07.000Z owned skills-n Sonnet integrator a06b2c864690c5b6f Windows gate FAIL at 4a11867 (3190 tests, 3085 pass, 68 fail: 59 reclaim.test baseCtx calls process.getuid on win32, 1 janitor.test long filename, 7 mirror tests POSIX mode bits, plus one bundle-clone artifact); all lane-owned test defects, the integrator's pre-existing call is wrong since these tests are new in this lane; product code guards getuid
 Log: 2026-09-30T00:48:12.000Z owned skills-n Opus seam and closing reviewer ac373b711085a7be4 NEEDS_FIXES 4a11867 (3 MEDIUM: janitor pathWithin keeps the dot-dot prefix twin so the open-shell guard fails open; a second same-day act run overwrites the removed list; reclaim S and T remove a dir another live process has as cwd); queued behind the Windows test round, which owns the same test files; docs/specs/janitor-acts-59/seam-review.md
+Log: 2026-09-30T01:17:02.000Z owned skills-n Sonnet builder a0fd715a8fbe8dac0 Windows test round DONE at 0cc8d3e (test files only; Linux 3194 tests 0 fail, Windows 3194 tests 0 fail at 0cc8d3e; 46 POSIX-subject reclaim tests skip on win32 with reasons, 5 win32 twins run); the kill-switch and argv twins the brief asked for are missing, added to the seam round
 
 ## Spec
 
