@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-census-reader
 Scope: docs/specs/census-reader-40b/spec.md
 Owner: skills-a
-Status: delivered
+Status: reviewed
 Authority: skills-fable-lane-40-20 authorizes bounded lane40b, own branch/record, mid-tier source and Opus review, Windows plus second-host suites and standing-grant main merge with history bullet. No install, live triage, native log edit, census waiver or source outside pinned reader/completion territory.
-Artifact: build/census-reader-40b@37f8915b805359a717676f7cce79b5ebef9e79ba
+Artifact: build/census-reader-40b@4f4edbc4e470e6faa4f9598763dbb4800468bb3e
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/census-reader-40b
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/census-reader-40b
-Evidence: docs/work/evidence/wr-2026-09-29-census-reader-code-review-r1.md, docs/work/evidence/wr-2026-09-29-census-reader-focused-r2.md, docs/work/evidence/wr-2026-09-29-census-reader-tests-red.md
-Next: A1/A2 integrated, focused r3 then Opus delta, host suites and fresh census. Old approval is historical, no acceptance of new artifact yet.
+Evidence: docs/work/evidence/wr-2026-09-29-census-reader-code-review-r2.md, docs/work/evidence/wr-2026-09-29-census-reader-focused-r3.md, docs/work/evidence/wr-2026-09-29-census-reader-tests-red.md
+Next: full sealed Windows and Netcup gates, fresh post-gate census and four-read, strict acceptance, standing-grant merge. Diagnostic COUNTED is unaccepted.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Base: 960c7dfd11aba99778db26c7293415ddc0da0472
@@ -20,7 +20,8 @@ Log: 2026-09-30T03:22:00Z delivered skills-a Opus spec delta a91bcb4e-9df7-42f7-
 Log: 2026-09-30T03:35:08Z reviewed skills-a Claude Opus reviewer review-run 35dcba90-dae2-41ae-939b-214338d8be4a APPROVE dc53988d6add72fe8f0560b184c1ec900360335c. Identity docs/work/evidence/wr-2026-09-29-census-reader-code-review-r1.identity.json. Focused integration 306/306, reviewer 157/157, eight substantive mutants killed. One environment-redirect mutation driver was guard-refused, no retry of that approach, normal inherited-env checks completed.
 Log: 2026-09-30T03:36:00Z owned skills-a elects to close A1 missing untimed-segment retention test and A2 quadratic long-row scanning before acceptance. Sonnet applies exact reviewer A2 patch and native independent author tests A1. No host suites or acceptance yet.
 Log: 2026-09-30T03:38:00Z delivered skills-a source6120e22e and test6999b70d integrated at37f8915b. Synthetic32MB scan2965ms to14ms, focused helper5/5, untimed control1/1 and M6red. Source builder reports two delete-guard refusals for unneeded deletion and quoted deletion text, nothing deleted, no reroute. Full focused r3 and independent delta review pending.
+Log: 2026-09-30T03:41:00Z reviewed skills-a Claude Opus review-run e8a26f4e-d18a-4736-9e59-0e2ee273bd45 APPROVE 4f4edbc4e470e6faa4f9598763dbb4800468bb3e. Identity docs/work/evidence/wr-2026-09-29-census-reader-code-review-r2.identity.json. Current gate307/307, A1/A2 closed, 20000 differential cases no differences. Diagnostic native census COUNTED95 responses with complete canonical discovery and no malformed rows, provisional window only. Host slot asks sent23:13 America/New_York; no reply yet, executors use runtime process checks and existing nonblocking locks under suite authority.
 
 Predicts: LF framing and task-aware completed-child exclusion restore truthful complete census coverage without ignoring corruption or adding a new measurement mechanism.
 
-Observed: two defects independently reproduced on the previous lane source; fresh-main scout and regression proof pending. No acceptance, merged repair or refreshed lane40 census yet.
+Observed: actual-reader and temporal regressions repaired, focused307/307 and independent Opus APPROVE, both advisories closed. Provisional untouched-log census COUNTED with complete discovery, UNSUPPORTED fields retained. Full hosts, fresh acceptance census and main merge pending; lane40 unchanged.
