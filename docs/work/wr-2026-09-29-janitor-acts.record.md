@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-janitor-acts
 Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-59-1 part 2 and Ben's two ticks read at 5:11 PM NY 9/29, read at dff1e00c3096082c4f17da99a49debf41e83dfb2
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
-Next: fresh Opus seam delta review of 483af6e, then accept, merge, close
+Next: seam fix round 2 per ruling-r3 (fresh builder), then seam delta review r3
 Worktree: build/janitor-acts-59-1
 Scratch: /var/tmp/lane-59
 Opened: 2026-09-29T21:13:00.000Z
@@ -30,6 +30,7 @@ Log: 2026-09-30T00:46:07.000Z owned skills-n Sonnet integrator a06b2c864690c5b6f
 Log: 2026-09-30T00:48:12.000Z owned skills-n Opus seam and closing reviewer ac373b711085a7be4 NEEDS_FIXES 4a11867 (3 MEDIUM: janitor pathWithin keeps the dot-dot prefix twin so the open-shell guard fails open; a second same-day act run overwrites the removed list; reclaim S and T remove a dir another live process has as cwd); queued behind the Windows test round, which owns the same test files; docs/specs/janitor-acts-59/seam-review.md
 Log: 2026-09-30T01:17:02.000Z owned skills-n Sonnet builder a0fd715a8fbe8dac0 Windows test round DONE at 0cc8d3e (test files only; Linux 3194 tests 0 fail, Windows 3194 tests 0 fail at 0cc8d3e; 46 POSIX-subject reclaim tests skip on win32 with reasons, 5 win32 twins run); the kill-switch and argv twins the brief asked for are missing, added to the seam round
 Log: 2026-09-30T01:38:14.000Z delivered skills-n seam fix builder a541a0f283aaf9d78 at 483af6eeecdfcc92457dd975b239a7d3621d5605 (shared escape predicate, same-day removed-list merge, reclaim refuses a live-process cwd, two win32 twins; Linux 3201 tests 0 fail, Windows 3201 tests 0 fail); docs/specs/janitor-acts-59/seamfix-build.md
+Log: 2026-09-30T01:59:42.000Z rejected skills-n seam delta review a479dfc2bf31d7c53 NEEDS_FIXES 483af6e (5: MEDIUM private PID namespace reads clean, MEDIUM win32 cwd check untested, LOW record race, LOW predicate absolute and forward-slash cases, LOW two loose copies in reclaim); reviewer hit a secret-guard false positive on an env spread in spawn options and rewrote without the environment reference, accepted as rewording; ruling-r3.md
 
 ## Spec
 
