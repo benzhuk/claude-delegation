@@ -37,7 +37,7 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // eight-role pinned sentence. Optional here (validateRecord/parseRecord parse it like any other
 // singleton) so an old record without one still parses cleanly; the refusal/warning split lives
 // in checkScratchField below, called from both validateRecord and checkAcceptance.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch", "roleSessions", "followUpOf"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -85,6 +85,9 @@ const FIELD_LABELS = [
   // C1 ruling a (lane-closeout): a singleton, same shape as Worktree:/Superseded-by above -
   // `close --closeout` is the only reader that treats its absence as load-bearing.
   ["scratch", "Scratch"],
+  // lane62: optional singletons. Role-sessions names a repo-relative role manifest (detached sessions
+  // build-census counts with --record); Follow-up-of names the parent Work id (four-read rework link).
+  ["roleSessions", "Role-sessions"], ["followUpOf", "Follow-up-of"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
@@ -524,13 +527,16 @@ export function listRecords(dir, opts = {}) {
     .map((f) => {
       const p = path.join(dir, f);
       let text = "";
+      let unreadable = false;
       try {
         text = fsImpl.readFileSync(p, "utf8");
       } catch {
         // Removed between readdir and read; treat as an unparseable-but-present entry
         // rather than throwing through a caller like T2's hook or T4's janitor.
+        unreadable = true;
       }
-      return { path: p, record: parseRecord(text) };
+      // `unreadable` is additive (lane 62): four-read's rework corpus must tell a failed read from a Work-less record.
+      return unreadable ? { path: p, record: parseRecord(text), unreadable } : { path: p, record: parseRecord(text) };
     });
 }
 
@@ -1153,8 +1159,12 @@ function loadCensus(censusPath, fsImpl) {
   if (!isCensusFile(text)) {
     const firstLine = (text.split(/\r?\n/, 1)[0] ?? "").trim();
     const unsupported = /^VERDICT: UNSUPPORTED\b/.test(firstLine);
+    // F7 names the Claude PARTIAL header only; a Codex PARTIAL keeps its existing generic refusal (old test pins it).
+    const partial = /^VERDICT: PARTIAL Claude\b/.test(firstLine);
     throw acceptanceError(
-      unsupported
+      partial
+        ? `census file reports a PARTIAL (not complete) census, refused - use --no-census "<reason>" and attach the observations separately: ${censusPath}`
+        : unsupported
         ? `census file reports an UNSUPPORTED (not complete) census, refused - use --no-census "<reason>" and attach the observations separately: ${censusPath}`
         : `census file does not begin with the census header line, refused: ${censusPath}`,
       "census-missing",

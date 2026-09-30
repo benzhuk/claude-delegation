@@ -1,43 +1,35 @@
 #!/usr/bin/env node
 // four-read — prints the goal's four measures (docs/specs/2026-09-25-four-number-read.md,
 // Territory R1) for one build. Every number prints a computed `value` or
-// `unavailable (<reason>)` — never a guess. Parses the record's own fields itself (fields
-// may not exist in work-record.mjs in this worktree yet) rather than importing it — see docs/census.md.
+// `unavailable (<reason>)` — never a guess. Reads the record through work-record.mjs's own
+// parseRecord (lane 62: one parser for accept and four-read) — see docs/census.md.
 // node scripts/four-read.mjs --record <record.md> --census <census.json>
 //   [--spec-census <json>] [--ledger docs/ledger] [--git <repo>] [--branch <ref>] [--lead-session <id>] [--lead-slug <slug>] [--out <path>] [--json <path>] [--accept-at <iso>]
+//   [--records <dir>] [--as-of <iso>]
 // node --test scripts/four-read.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { withoutRepoLocatingGitEnv } from '../skills/multi/scripts/transport.mjs';
-// ── Record parsing (independent of scripts/work-record.mjs) ────────────────
-function fieldRegex(label) {
-  return new RegExp(`^[ \\t*+-]{0,20}${label}:\\**[ \\t]{0,20}(.+)$`, 'mi');
-}
-// -> {fields: {opened, base, artifact, 'lead-session', 'spec-session', 'spec-from'},
-//     logs: [{at, status, owner, note}]}
+import { listRecords, parseRecord } from './work-record.mjs';
+import { isTopTierModel, processedTokenTotal, topTierModelList } from './census-measures.mjs';
+// ── Record parsing (lane 62: work-record.mjs's parseRecord, adapted to this file's output shape) ────────
+// -> {fields: {opened, base, artifact, 'artifact-repo', 'lead-session', 'spec-session', 'spec-from', work,
+//              'follow-up-of', 'role-sessions'}, logs: [{at, status, owner, note}]}
+// 'artifact-repo' (lane 60b, artifact-repo-60b spec): the other repository Base/Artifact shas live in.
 export function parseRecordText(text) {
-  const lines = text.split(/\r?\n/);
-  const blankIdx = lines.findIndex((l) => l.trim() === '');
-  const headerText = (blankIdx === -1 ? lines : lines.slice(0, blankIdx)).join('\n');
+  const parsed = parseRecord(text);
   const fields = {};
-  for (const [key, label] of [
-    ['opened', 'Opened'], ['base', 'Base'], ['artifact', 'Artifact'],
-    // 'artifact-repo' (lane 60b, artifact-repo-60b spec): the other repository Base/Artifact
-    // shas live in, when this build's artifact was never in --git at all.
-    ['artifact-repo', 'Artifact-repo'],
-    ['lead-session', 'Lead-session'], ['spec-session', 'Spec-session'], ['spec-from', 'Spec-from'],
+  for (const [key, source] of [
+    ['opened', 'opened'], ['base', 'base'], ['artifact', 'artifact'], ['artifact-repo', 'artifactRepo'],
+    ['lead-session', 'leadSession'], ['spec-session', 'specSession'], ['spec-from', 'specFrom'],
+    ['work', 'work'], ['follow-up-of', 'followUpOf'], ['role-sessions', 'roleSessions'],
   ]) {
-    const m = fieldRegex(label).exec(headerText);
-    if (m) fields[key] = m[1].trim();
+    const value = parsed.fields[source];
+    if (typeof value === 'string' && value !== '') fields[key] = value;
   }
-  const logs = [];
-  for (const lm of headerText.matchAll(/^[ \t*+-]{0,20}Log:\**[ \t]{0,20}(.+)$/gim)) {
-    const parts = lm[1].trim().match(/^(\S{1,64})[ \t]{1,20}(\S{1,64})[ \t]{1,20}(\S{1,64})(?:[ \t]{1,20}(.*))?$/);
-    if (parts) logs.push({ at: parts[1], status: parts[2], owner: parts[3], note: (parts[4] ?? '').trim() });
-  }
-  return { fields, logs };
+  return { fields, logs: parsed.log };
 }
 // MINOR 9: Artifact: is the CURRENT artifact (wrong after a re-accept): fallback only with one accepted entry.
 function acceptedShaFrom(fields, note, singleAccepted) {
@@ -50,12 +42,10 @@ function tryOr(fn, fallback) { try { return fn(); } catch { return fallback; } }
 function loadJson(fsImpl, filePath) { return filePath ? tryOr(() => JSON.parse(fsImpl.readFileSync(filePath, 'utf8')), null) : null; }
 function parseDateMs(s) { if (!s) return null; const ms = Date.parse(s); return Number.isNaN(ms) ? null : ms; }
 function totalTokens(a) { return a ? (a.input_tokens || 0) + (a.cache_creation_input_tokens || 0) + (a.cache_read_input_tokens || 0) + (a.output_tokens || 0) : 0; }
-// Preserve Claude's established default. Codex has its own mapped default from
-// docs/model-tiers.md, while an explicit policy remains authoritative for either host.
-function topTierModels(census) {
-  const configured = process.env.DELEGATION_TOP_TIER;
-  const defaults = isCodexCensus(census) ? 'gpt-6-astra,gpt-5.6-sol' : 'fable,opus';
-  return (configured || defaults).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+// Lane 62: the union default (fable, opus, gpt-6-astra, gpt-5.6-sol) applies per model whatever the lead's
+// host, so a declared Claude Opus role in a Codex-led build is counted; DELEGATION_TOP_TIER still overrides.
+function topTierModels() {
+  return topTierModelList();
 }
 
 function isCodexCensus(census) { return census && census.lead && census.lead.host === 'codex'; }
@@ -135,14 +125,46 @@ function codexTokenSummary(census, tiers) {
 // ── Number 1 — top-tier tokens per build ────────────────────────────────────
 // matched models + total, and (MAJOR 5) the same sums split into the four raw fields.
 function sumTopTier(combined, tiers, useDerivedTotals = false) {
-  const matched = Object.keys(combined || {}).filter((model) => tiers.some((t) => model.toLowerCase().includes(t)));
+  const matched = Object.keys(combined || {}).filter((model) => isTopTierModel(model, tiers) === true);
+  // Lane 62: a model the tier rules do not classify taints the cell only when it carries tokens (a zero
+  // `<synthetic>` row does not); it is never silently treated as mid tier.
+  const unclassified = Object.keys(combined || {}).filter((model) => isTopTierModel(model, tiers) === null)
+    .map((model) => ({ model, tokens: useDerivedTotals && Number.isFinite(combined[model].derived_total_tokens) ? combined[model].derived_total_tokens : totalTokens(combined[model]) }))
+    .filter((u) => u.tokens > 0);
   const split = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
   for (const m of matched) {
     const a = combined[m] || {};
     split.input += a.input_tokens || 0; split.cacheWrite += a.cache_creation_input_tokens || 0;
     split.cacheRead += a.cache_read_input_tokens || 0; split.output += a.output_tokens || 0;
   }
-  return { total: matched.reduce((n, m) => n + (useDerivedTotals ? combined[m].derived_total_tokens : totalTokens(combined[m])), 0), matched, split };
+  return { total: matched.reduce((n, m) => n + (useDerivedTotals ? combined[m].derived_total_tokens : totalTokens(combined[m])), 0), matched, split, unclassified };
+}
+function unclassifiedReason(top) {
+  return top.unclassified.length
+    ? `unclassified model ${top.unclassified.map((u) => `${u.model}: ${u.tokens} tokens`).join(', ')}; observed top-tier subtotal ${top.total}`
+    : null;
+}
+// F10: the lead window alone, the only scope the hand-run baseline measured.
+function leadOnlyTopTier(census) {
+  const byModel = isCodexCensus(census) ? census.lead && census.lead.observedWindowByModel : census.lead && census.lead.windowByModel;
+  if (!byModel) return { reason: 'census has no lead window by-model sums' };
+  const tiers = topTierModels();
+  const top = sumTopTier(byModel, tiers, isCodexCensus(census));
+  const reason = unclassifiedReason(top);
+  return reason ? { reason } : { total: top.total };
+}
+function leadOnlyText(census) {
+  const l = leadOnlyTopTier(census);
+  return l.total !== undefined ? `${l.total} tokens` : `unavailable (${l.reason})`;
+}
+function scopeSuffix(census, numberOneValue) {
+  const scope = census && census.measurementScope;
+  if (!scope || numberOneValue.startsWith('unavailable')) return '';
+  const lead = leadOnlyTopTier(census);
+  const partial = (census.roleSessions || []).filter((r) => r.status !== 'complete').map((r) => `${r.host} ${r.sessionId} (${r.role}): ${r.reasons.join(', ')}`)
+    .concat((scope.omitted || []).map((o) => `${o.host} ${o.sessionId}: ${o.reason}`));
+  return `; token definition ${census.tokenDefinition ? census.tokenDefinition.id : 'processed-v1'}; scope ${scope.roles} roles (wider than the lead-only hand-run baseline: SCOPE MISMATCH unless compared with lead-only top-tier ${lead.total ?? `unavailable (${lead.reason})`})`
+    + `${partial.length ? `; PARTIAL declared roles: ${partial.join('; ')}` : ''}; limitations: ${(scope.limitations || []).join('; ')}`;
 }
 // BLOCKER 1(b): reject a census whose window doesn't match this build's own window.
 export function computeTopTierTokens(census, specCensus, fields, openedMs = null, acceptedMs = null, lastAcceptedMs = null) {
@@ -166,6 +188,8 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
   }
   const tiers = topTierModels(census);
   const build = sumTopTier(census.combined, tiers, isCodexCensus(census));
+  const buildUnclassified = unclassifiedReason(build);
+  if (buildUnclassified) return { value: `unavailable (${buildUnclassified})` };
   const buildPart = `build ${build.total}${build.matched.length ? ` (${build.matched.sort().join(', ')})` : ' (no top-tier model matched)'}`;
   if (specCensus) { // r1 BLOCKER 1's twin: the spec slice is Spec-session's Spec-from:..Opened:, checked like the census
     const sl = specCensus.lead || {}, sFrom = parseDateMs(fields['spec-from']), sStart = parseDateMs(sl.windowStartAt), sEnd = parseDateMs(sl.windowEndAt);
@@ -176,6 +200,8 @@ export function computeTopTierTokens(census, specCensus, fields, openedMs = null
     const sFile = censusLeadSessionId(specCensus);
     if (!specCensus.combined || sFile !== fields['spec-session'] || [sFrom, sStart, sEnd, openedMs].includes(null) || sStart < sFrom - tolerance || sEnd > openedMs + tolerance) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): spec-census is not Spec-session:'s Spec-from:..Opened: window` };
     const spec = sumTopTier(specCensus.combined, topTierModels(specCensus), isCodexCensus(specCensus));
+    const specUnclassified = unclassifiedReason(spec);
+    if (specUnclassified) return { value: `${build.total} tokens: ${buildPart}; partial (no spec slice): ${specUnclassified}` };
     return { value: `${build.total + spec.total} tokens: ${buildPart} + spec slice ${spec.total}` };
   }
   const reason = /^[(<[{"']*(?:none|null|undefined|unavailable|unknown|missing|unset|n.?a|tbd|pending|-+)(?![A-Za-z0-9_-])/i.test(fields['spec-session'] || 'none') || parseDateMs(fields['spec-from']) === null ? 'Spec-session:/Spec-from: missing from record' : 'spec-census not run';
@@ -547,6 +573,57 @@ export function computeReworkAfterAcceptance(fields, logs, gitDir, branch = 'HEA
     return { value: `${commitPart}; ${reacceptPart}` };
   } catch (e) { return { value: `unavailable (git: ${e.message.split('\n')[0]})` }; }
 }
+// ── Follow-up episode attribution (lane 62, F4/F5) ──────────────────────────────────────────
+// Declared Follow-up-of: links only; never inferred from files or commits. The legacy commit/re-accept count
+// stays separate and is never summed with this one. Returns {text, json}; text is appended to numbers[2].value.
+const FOLLOW_UP_WINDOW_MS = 7 * 24 * 3600000;
+export function computeReworkAttribution(fields, logs, recordPath, recordsDir, asOfMs, fsImpl = fs) {
+  const parent = fields['follow-up-of'] || null;
+  const parentText = parent ? `; this build is follow-up of ${parent}` : '';
+  const unavailable = (reason) => ({ text: `; follow-up episodes unavailable (${reason})${parentText}`, json: { status: 'unavailable', reason, followUpOf: parent } });
+  const work = fields.work;
+  if (!work) return unavailable('no Work: on the record');
+  const first = logs.find((l) => l.status.toLowerCase() === 'accepted');
+  const acceptedMs = first ? parseDateMs(first.at) : null;
+  if (acceptedMs === null) return unavailable('no accepted Log: entry');
+  if (!recordsDir) return unavailable('no record corpus directory');
+  let listing;
+  try { listing = fsImpl === fs ? listRecords(recordsDir) : listRecords(recordsDir, { fsImpl }); } catch (e) { return unavailable(`record corpus unreadable: ${e.message.split('\n')[0]}`); }
+  if (!listing.length) return unavailable('record corpus has no *.record.md files');
+  const here = recordPath ? path.resolve(recordPath) : null;
+  if (!here || !listing.some((e) => path.resolve(e.path) === here)) return unavailable('record corpus does not include the target record');
+  const partial = [];
+  const byWork = new Map();
+  for (const entry of listing) {
+    const f = (entry.record && entry.record.fields) || {};
+    if (entry.unreadable) { partial.push(`unreadable record ${path.basename(entry.path)}`); continue; }
+    if (!f.work) { if (Object.keys(f).length) partial.push(`record ${path.basename(entry.path)} has no Work:`); continue; }
+    if (byWork.has(f.work)) { partial.push(`duplicate Work: ${f.work}`); continue; }
+    byWork.set(f.work, { file: path.basename(entry.path), fields: f });
+  }
+  if (!byWork.has(work)) return unavailable('record corpus does not include the target Work:');
+  // Ancestors of the target: every declared parent must exist and the chain must not cycle.
+  const seen = new Set([work]);
+  for (let cur = byWork.get(work).fields.followUpOf; cur; cur = byWork.get(cur) ? byWork.get(cur).fields.followUpOf : null) {
+    if (seen.has(cur)) { partial.push(`follow-up cycle at ${cur}`); break; }
+    seen.add(cur);
+    if (!byWork.has(cur)) { partial.push(`ancestor ${cur} missing from the corpus`); break; }
+  }
+  const windowEndMs = acceptedMs + FOLLOW_UP_WINDOW_MS;
+  const windowEnd = new Date(windowEndMs).toISOString();
+  const children = [...byWork.entries()].filter(([, v]) => v.fields.followUpOf === work);
+  let episodes = 0;
+  for (const [childWork, child] of children) {
+    const openedMs = parseDateMs(child.fields.opened);
+    if (openedMs === null) { partial.push(`child ${childWork} has no parseable Opened:`); continue; }
+    if (openedMs >= acceptedMs && openedMs <= windowEndMs) episodes += 1;
+  }
+  const mature = asOfMs >= windowEndMs;
+  const maturity = mature ? 'mature' : `provisional until ${windowEnd}`;
+  if (partial.length) partial.sort();
+  const text = `; follow-up episodes: ${episodes} (declared links only, ${maturity}${partial.length ? `; PARTIAL: ${partial.join(', ')}` : ''})${parentText}`;
+  return { text, json: { status: partial.length ? 'PARTIAL' : 'complete', episodes, mature, windowEnd, reasons: partial, followUpOf: parent } };
+}
 // ── Ledger parsing — shared by number 4 and "notes to the lead". Line shape:
 // `<from> → <to>, M.D.YY HH:MM TZ [<id>( re <parent-id>)?] KIND: text`
 const LEDGER_LINE_RE = /^(\S+)\s+→\s+(\S+),\s+(\d{1,2}\.\d{1,2}\.\d{2,4})\s+(\d{1,2}:\d{2})\s+(\S+)\s+\[([^\]]+)\]\s+(ASK|RESULT|BLOCKED|ACK|FYI):/;
@@ -706,6 +783,18 @@ export function computeCompletenessSuffix(census, ledgerEntries, leadSlug, { ope
   return parts.join('; ');
 }
 // ── Companion lines (item 5) ─────────────────────────────────────────────────────────────
+const BASELINE_UNSUPPORTED = 'usage-limit, relaunch and missing-report stalls UNSUPPORTED (baseline-rule count is a lower bound); causal attribution UNSUPPORTED';
+function baselineGapText(census, leadTimestamps, { openedMs, acceptedMs }) {
+  const a = census && census.activity;
+  if (a) {
+    const count = a.baselineRuleGaps === null ? `unavailable (${a.reasons.join(', ') || 'no lifecycle rows'})` : `${a.baselineRuleGaps}${a.coverage === 'PARTIAL' ? ` (PARTIAL: ${a.reasons.join(', ')})` : ''}`;
+    return `baseline-rule event gaps over 120 min: ${count}; in-turn silence ${a.observedSilentGaps ?? 'unavailable'}, tool running ${a.toolRunningGaps ?? 'unavailable'}; ${BASELINE_UNSUPPORTED}`;
+  }
+  if (!leadTimestamps || openedMs === null || acceptedMs === null) return `baseline-rule event gaps over 120 min: unavailable (no verified event timeline); ${BASELINE_UNSUPPORTED}`;
+  const inWindow = leadTimestamps.filter((t) => t >= openedMs && t <= acceptedMs);
+  if (inWindow.length < 2) return `baseline-rule event gaps over 120 min: unavailable (fewer than 2 lead events in window); ${BASELINE_UNSUPPORTED}`;
+  return `baseline-rule event gaps over 120 min: ${gaps(inWindow, 'over', 120).length}; ${BASELINE_UNSUPPORTED}`;
+}
 function computeNotesToLead(ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }) {
   if (!leadSlug) return { value: 'unavailable (no --lead-slug)' };
   if (ledgerEntries === null) return { value: 'unavailable (no ledger dir)' };
@@ -837,6 +926,7 @@ export function buildFourRead(opts, fsImpl = fs) {
   const artifactRepo = fields['artifact-repo'];
   const reworkGit = artifactRepo === undefined ? opts.git
     : (path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo)) ? artifactRepo : null; // null -> unavailable (no range)
+  numberOne.value += scopeSuffix(census, numberOne.value);
   const numberThree = computeReworkAfterAcceptance(fields, logs, reworkGit, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(
     leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason,
@@ -845,6 +935,12 @@ export function buildFourRead(opts, fsImpl = fs) {
   if (!numberFour.value.startsWith('unavailable')) {
     numberFour.value = `${numberFour.value}; ${computeCompletenessSuffix(census, ledgerEntries, opts.leadSlug, windowMs, lastAcceptedMs)}`;
   }
+  // Lane 62 F2: the baseline's own rule (every consecutive-event gap strictly over 120 min, any kind) stated beside
+  // the 30-minute heuristic, with the classes no script measures named UNSUPPORTED (so the count is a lower bound).
+  if (!numberFour.value.startsWith('unavailable')) numberFour.value += `; ${baselineGapText(census, leadTimestamps, windowMs)}`;
+  const reworkAttribution = computeReworkAttribution(fields, logs, opts.record, opts.records || path.dirname(path.resolve(opts.record)),
+    opts.asOf ? Date.parse(opts.asOf) : Date.now(), fsImpl);
+  numberThree.value += reworkAttribution.text;
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
   const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason || nativeWindowReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };
@@ -860,7 +956,9 @@ export function buildFourRead(opts, fsImpl = fs) {
     companions: [
       { key: 'topTierAssistantMessagesPerBuild', label: 'Top-tier assistant messages per build', value: topTierMessages.value },
       { key: 'notesToLeadPerBuild', label: 'Notes to the lead per build', value: notesToLead.value },
+      ...(census && census.measurementScope ? [{ key: 'leadOnlyTopTierTokens', label: 'Top-tier tokens, lead only (hand-run baseline scope)', value: leadOnlyText(census) }] : []),
     ],
+    reworkAttribution: reworkAttribution.json,
   };
 }
 // ── Output formatting — deterministic JSON (sorted keys) and a markdown table ─────────────
@@ -884,9 +982,9 @@ export function formatMarkdown(report) {
   return md.join('\n');
 }
 // ── CLI ──────────────────────────────────────────────────────────────────────────────────
-const ARG_FLAGS = { '--record': 'record', '--census': 'census', '--spec-census': 'specCensus', '--ledger': 'ledger', '--git': 'git', '--branch': 'branch', '--lead-session': 'leadSession', '--lead-slug': 'leadSlug', '--out': 'out', '--json': 'json', '--accept-at': 'acceptAt' };
+const ARG_FLAGS = { '--record': 'record', '--census': 'census', '--spec-census': 'specCensus', '--ledger': 'ledger', '--git': 'git', '--branch': 'branch', '--lead-session': 'leadSession', '--lead-slug': 'leadSlug', '--out': 'out', '--json': 'json', '--accept-at': 'acceptAt', '--records': 'records', '--as-of': 'asOf' };
 export function parseArgs(argv) {
-  const opts = { record: null, census: null, specCensus: null, ledger: null, git: null, branch: 'HEAD', leadSession: null, leadSlug: null, out: null, json: null, acceptAt: null };
+  const opts = { record: null, census: null, specCensus: null, ledger: null, git: null, branch: 'HEAD', leadSession: null, leadSlug: null, out: null, json: null, acceptAt: null, records: null, asOf: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const key = ARG_FLAGS[a];
