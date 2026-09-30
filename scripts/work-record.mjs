@@ -1308,11 +1308,30 @@ export function checkAcceptance(opts = {}) {
         "sha-not-in-git",
       );
     }
+    // Artifact-repo: must name a real worktree (spec.md: "a directory inside a git worktree of
+    // the repository"), not a bare repository or a .git directory - otherwise live mode's
+    // "freshness" check means nothing, because no working tree ever exists (review F2).
+    const insideWorkTree = spawnImpl("git", ["-C", artifactRepoRaw, "rev-parse", "--is-inside-work-tree"], {
+      encoding: "utf8",
+      stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
+    });
+    if (insideWorkTree.error || insideWorkTree.status !== 0 || String(insideWorkTree.stdout ?? "").trim() !== "true") {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact-repo: ${artifactRepoRaw} is not inside a git worktree (a bare repository or a .git directory)`,
+        "sha-not-in-git",
+      );
+    }
     // The "unrelated repository" ancestry guard below only holds when Artifact-repo: genuinely
     // names a DIFFERENT repository - comparing git-common-dir realpaths (not just the two literal
     // paths) so a worktree of --repo, or a symlinked/bind-mounted alias of it, is still caught.
+    // An unreadable --repo common dir fails closed (review F3): it must never be treated as
+    // "assume different", since that would let Artifact-repo: bypass the same-repo guard entirely.
     const repoCommonDir = gitCommonDirReal(repoRoot, spawnImpl, fsImpl);
-    if (repoCommonDir !== null && repoCommonDir === artifactCommonDir) {
+    if (repoCommonDir === null) {
+      throw acceptanceError(`--repo ${repoRoot} is not a readable git repository, so Artifact-repo: cannot be proven to be a different one`, "artifact-repo-same");
+    }
+    if (repoCommonDir === artifactCommonDir) {
       throw acceptanceError(`Artifact-repo: ${artifactRepoRaw} resolves to the same repository as --repo`, "artifact-repo-same");
     }
     artifactRoot = artifactRepoRaw;
@@ -2314,7 +2333,14 @@ export function closeoutRecord(opts = {}) {
     results.push({ step: "worktree", result: "refused", detail: manualReason });
     results.push({ step: "branch", result: "refused", detail: manualReason });
     results.push({ step: "origin-branch", result: "refused", detail: manualReason });
-    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform, listWorktreesImpl }));
+    // The scratch step must also see the Artifact-repo: repository's own worktrees, or a scratch
+    // directory that contains (or lies inside) one of them is removed along with it.
+    const bothWorktreeLists = (root) => {
+      const own = listWorktreesImpl(root);
+      const foreign = listWorktreesImpl(mergeProofRoot);
+      return own === null || foreign === null ? null : [...own, ...foreign];
+    };
+    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform, listWorktreesImpl: bothWorktreeLists }));
   } else {
     // R2-2/R2-7 (C1 round 3, MAJOR blocker + MINOR): `worktreesByPath` (and the branch name it
     // resolves) is built ONCE, here, BEFORE step 3 runs - step 3 can remove the very worktree a

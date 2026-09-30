@@ -834,7 +834,10 @@ export function buildFourRead(opts, fsImpl = fs) {
   // Lane 60b: Base/the accepted sha both live in Artifact-repo: when it is present, never in
   // --git - a missing or unreadable Artifact-repo: renders as `unavailable (no range)`, same as
   // any other missing/bad --git today (runGit throws, caught below), never a confident value.
-  const numberThree = computeReworkAfterAcceptance(fields, logs, fields['artifact-repo'] || opts.git, opts.branch || 'HEAD');
+  const artifactRepo = fields['artifact-repo'];
+  const reworkGit = artifactRepo === undefined ? opts.git
+    : (path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo)) ? artifactRepo : null; // null -> unavailable (no range)
+  const numberThree = computeReworkAfterAcceptance(fields, logs, reworkGit, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(
     leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason,
     agentSpans, agentStallResults, isCodexCensus(census) ? 'native API response gap' : null,

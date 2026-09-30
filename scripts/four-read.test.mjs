@@ -488,6 +488,38 @@ test('main: Artifact-repo: redirects number 3 (rework after acceptance) to that 
   assert.match(lines[0], /"fix: rework on build file"/);
 });
 
+// Lane 60b review round 1, F5 (LOW): a relative Artifact-repo: must never be trusted to mean
+// "whatever directory the process happens to be running in" - it renders as unavailable (no
+// range), exactly like no Artifact-repo: and no --git at all, never a confident guess.
+test('main: a relative Artifact-repo: never resolves against process.cwd() - number 3 renders unavailable (no range)', async () => {
+  const dir = mkTmp('four-read-artifact-repo-relative-');
+  const unrelatedGitDir = mkTmp('four-read-artifact-repo-relative-unrelated-');
+  const env = initRepo(unrelatedGitDir);
+  const now = Date.now();
+  const iso = (offsetMs) => new Date(now + offsetMs).toISOString();
+  const acceptedSha = commit(unrelatedGitDir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000), env);
+
+  const acceptedAt = new Date(now - 1800000).toISOString();
+  const recordPath = path.join(dir, 'record.md');
+  fs.writeFileSync(recordPath, [
+    'Work: wr-2026-09-30-artifact-repo-relative',
+    'Opened: 2026-09-01T00:00:00.000Z',
+    `Base: ${acceptedSha}`,
+    `Artifact: territory/a@${acceptedSha}`,
+    'Artifact-repo: relative/path/to/repo-b',
+    'Lead-session: lead-session',
+    `Log: ${acceptedAt} accepted x artifact ${acceptedSha}`,
+    '',
+    'Observed: body',
+  ].join('\n'));
+
+  const censusPath = await buildCensusFile(dir);
+  const lines = [];
+  await main(['--record', recordPath, '--census', censusPath, '--git', unrelatedGitDir, '--branch', 'HEAD'], { write: (s) => lines.push(s) });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /unavailable \(no range\)/);
+});
+
 // ── Ledger: collectLedgerEntries / computeWorkLostOrStalled ────────────────
 
 test('collectLedgerEntries: returns null for a missing directory', () => {

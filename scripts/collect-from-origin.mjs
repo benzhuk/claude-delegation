@@ -121,6 +121,7 @@ function computeMerged(repo, artifactSha, mainFull, mainVerified) {
 // same fail-closed shape as computeMerged above; never a confident merged/unmerged guess.
 function computeMergedInArtifactRepo(artifactRepo, artifactSha) {
   if (!artifactSha) return null;
+  if (!(path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo))) return null;
   const mainFull = "refs/remotes/origin/main";
   if (refExists(artifactRepo, mainFull) !== true || !objectExists(artifactRepo, artifactSha)) return null;
   return isAncestor(artifactRepo, artifactSha, mainFull);

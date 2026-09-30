@@ -366,6 +366,49 @@ test("Artifact-repo: a missing directory renders merged as unknown (null), never
   assert.equal(row.state, "accepted-unmerged");
 });
 
+// Lane 60b review round 1, F5 (LOW): Artifact-repo: is read from an origin branch's own blob -
+// untrusted input - so a relative value must never run `git` with a relative cwd against
+// whatever directory the process happens to be in. This is only provable by making that relative
+// path resolve, relative to a REAL process.cwd(), to a genuine repo that WOULD give a confident
+// (and wrong) merged/unmerged answer if trusted - a nonexistent relative path (as in a quick
+// smoke test) fails closed anyway, proving nothing about the absolute-path guard itself.
+test("Artifact-repo: a relative value renders merged as unknown (null), even when it resolves to a real repo relative to process.cwd()", () => {
+  const root = initRepoWithOrigin();
+  const cwdParent = mkTmp("collect-artifact-repo-relative-cwd-");
+  const relativeValue = path.join("relative", "path", "to", "repo-b");
+  const otherAbs = path.join(cwdParent, relativeValue);
+  fs.mkdirSync(otherAbs, { recursive: true });
+  git(["init", "-q", "-b", "main"], otherAbs);
+  fs.writeFileSync(path.join(otherAbs, "README.md"), "repo b\n");
+  commitAll(otherAbs, "init repo b");
+  const otherBare = mkTmp("collect-artifact-repo-relative-origin-");
+  git(["init", "-q", "--bare", "-b", "main"], otherBare);
+  git(["remote", "add", "origin", otherBare], otherAbs);
+  git(["push", "-q", "origin", "main"], otherAbs);
+  const mergedSha = git(["rev-parse", "HEAD"], otherAbs).trim(); // an ancestor of repo b's own origin/main
+
+  newBranch(root, "feature/artifact-repo-relative");
+  writeRecord(root, "wr-2026-09-30-artifact-repo-relative.record.md", [
+    "Work: wr-2026-09-30-artifact-repo-relative", "Status: accepted", `Artifact: territory/a@${mergedSha}`,
+    `Artifact-repo: ${relativeValue}`, "",
+  ]);
+  commitAll(root, "artifact-repo relative record");
+  pushBranch(root, "feature/artifact-repo-relative");
+  backToMain(root);
+
+  const cwdBefore = process.cwd();
+  process.chdir(cwdParent); // relativeValue now resolves, from THIS cwd, to a real repo b that would answer merged:true
+  let rows;
+  try {
+    rows = rowsOf(root);
+  } finally {
+    process.chdir(cwdBefore);
+  }
+  const row = rows.find((r) => r.branch === "feature/artifact-repo-relative");
+  assert.equal(row.merged, null, "a relative Artifact-repo: must never be trusted, even when it happens to resolve to a real, matching repo");
+  assert.equal(row.state, "accepted-unmerged");
+});
+
 test("main branch and HEAD are never listed as rows; --skip removes a named branch", () => {
   const root = initRepoWithOrigin();
   newBranch(root, "feature/skippable");
