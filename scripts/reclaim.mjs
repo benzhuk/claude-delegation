@@ -44,6 +44,45 @@ function isHostAbsolute(target, platform) {
 
 class WalkRefusal extends Error {}
 
+function escapesUp(rel) {
+  // Round-2 re-review MEDIUM 3: a bare `rel.startsWith("..")` also matches a real, non-escaping
+  // path segment that merely BEGINS with two dots (e.g. a directory literally named "..m"),
+  // misreading it as an escape - the LOW 12 twin of this same defect, now fixed here too. It fails
+  // in the wrong direction (toward ALLOW, not refuse), which is what let a same-filesystem bind
+  // mount at `<top>/..m` and a cwd of `<top>/..work` both slip past their own containment checks.
+  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+}
+
+/**
+ * Round-2 re-review HIGH 2: a git directory is not always named `.git` - a bare clone
+ * (`git clone --bare`) or a bare repo made by hand IS the repository itself, with no `.git` child
+ * at all. This approximates git's own directory-shape test: `HEAD` is a FILE, and `objects/` and
+ * `refs/` are both DIRECTORIES, directly inside the candidate. Any lstat error other than "this
+ * entry is simply not there" is reported back to the caller to refuse with (ruling r1/r2: a check
+ * that cannot be completed must never silently pass).
+ */
+function looksLikeGitDir(dirPath, fsImpl) {
+  let headSt;
+  try {
+    headSt = fsImpl.lstatSync(path.join(dirPath, "HEAD"));
+  } catch (error) {
+    if (error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return { shaped: false };
+    return { error };
+  }
+  if (!headSt.isFile()) return { shaped: false };
+  for (const name of ["objects", "refs"]) {
+    let st;
+    try {
+      st = fsImpl.lstatSync(path.join(dirPath, name));
+    } catch (error) {
+      if (error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return { shaped: false };
+      return { error };
+    }
+    if (!st.isDirectory()) return { shaped: false };
+  }
+  return { shaped: true };
+}
+
 /**
  * F3, amended by round-2 review HIGH 2: before any S/T removal, walk the target (lstat only,
  * never following a link) and refuse the whole invocation if any entry - the target included -
@@ -92,20 +131,29 @@ function walkForMountAndLinkedWorktrees(target, fsImpl, classRoot) {
     if (typeof st.dev === "number" && typeof baseDev === "number" && st.dev !== baseDev) {
       throw new WalkRefusal(`crosses a mount point at ${p}`);
     }
-    if (path.basename(p) === ".git") {
-      if (st.isFile()) throw new WalkRefusal(`contains a linked worktree's .git file at ${p}`);
-      if (st.isDirectory()) {
-        let names = [];
-        try {
-          names = fsImpl.readdirSync(path.join(p, "worktrees"));
-        } catch (error) {
-          if (error && error.code !== "ENOENT" && error.code !== "ENOTDIR") {
-            throw new WalkRefusal(`could not read ${p}/worktrees`);
-          }
-          // no worktrees/ subdir - a standalone fixture repo, stays removable
+    const base = path.basename(p);
+    if (base === ".git" && st.isFile()) {
+      throw new WalkRefusal(`contains a linked worktree's .git file at ${p}`);
+    }
+    let isGitDir = base === ".git" && st.isDirectory();
+    if (!isGitDir && st.isDirectory()) {
+      // Round-2 re-review HIGH 2: a bare repo (or any git dir under another name) is invisible to
+      // the basename check above - it IS the repository, with no `.git` child of its own.
+      const shape = looksLikeGitDir(p, fsImpl);
+      if (shape.error) throw new WalkRefusal(`could not stat ${p}`);
+      isGitDir = shape.shaped;
+    }
+    if (isGitDir) {
+      let names = [];
+      try {
+        names = fsImpl.readdirSync(path.join(p, "worktrees"));
+      } catch (error) {
+        if (error && error.code !== "ENOENT" && error.code !== "ENOTDIR") {
+          throw new WalkRefusal(`could not read ${p}/worktrees`);
         }
-        if (names.length > 0) throw new WalkRefusal(`contains a repo with linked worktrees elsewhere at ${p}`);
+        // no worktrees/ subdir - a standalone fixture repo, stays removable
       }
+      if (names.length > 0) throw new WalkRefusal(`contains a repo with linked worktrees elsewhere at ${p}`);
     }
     if (st.isDirectory()) {
       let children;
@@ -176,7 +224,7 @@ function checkMountsUnderClassRoot(resolved, classRoot, ctx) {
   if (points === null) return { ok: false, reason: "could not read the mount table" };
   const withinOrEqual = (parent, child) => {
     const rel = path.relative(path.resolve(parent), path.resolve(child));
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    return rel === "" || !escapesUp(rel);
   };
   const resolvedClassRoot = path.resolve(classRoot);
   for (const raw of points) {
@@ -203,16 +251,38 @@ function checkMountsUnderClassRoot(resolved, classRoot, ctx) {
 }
 
 /**
- * Round-2 review HIGH 1: S/T's downward walk (above) only ever looked BELOW the target - a target
- * that is itself a path INSIDE a linked worktree (or inside a repo with other linked worktrees
- * elsewhere) fell through every check, because the worktree's own `.git` file sits ABOVE the
- * target, not below it. This walks every ancestor from the target's parent up to the filesystem
- * root (ruling r2: not merely up to the class root) and refuses on the same two shapes the
- * downward walk already refuses on, plus containment in that repo's own `git worktree list`.
+ * Round-2 review HIGH 1, tightened by the re-review that followed it: S/T's downward walk (above)
+ * only ever looked BELOW the target - a target that is itself a path INSIDE a linked worktree, an
+ * ordinary repo checkout, or a bare repo fell through every check, because the `.git` entry (or,
+ * for a bare repo, the repository directory itself) sits ABOVE the target, not below it. This
+ * walks every ancestor from the target's parent up to the filesystem root (ruling r2: not merely
+ * up to the class root) and refuses on ANY `.git` entry found above the target - the re-review's
+ * ruling: a plain repo's own main checkout is live, uncommitted work exactly the same way a linked
+ * worktree is, so this no longer distinguishes "has other linked worktrees" from "is just a
+ * checkout" - and on any ancestor that itself has a bare-repo shape (HIGH 2). The `git worktree
+ * list` branch this used to also carry is gone: it was dead weight (any repo whose list names a
+ * non-root worktree already has a non-empty `worktrees/`, already caught by the `.git` check
+ * above) and its own `listWorktrees() === null` path failed open.
  */
 function checkAncestorsForGit(resolved, ctx) {
   let dir = path.dirname(resolved);
   for (;;) {
+    // HIGH 2: `dir` itself may BE a git directory (bare or not), even though its own basename
+    // isn't `.git` - a bare clone has no `.git` child at all, the directory itself IS the repo. A
+    // directory literally named `.git` is skipped here - it always gets a more specific message
+    // below, from its OWN parent's dotGit check one iteration up ("lies inside a git checkout"),
+    // and an ordinary `.git` metadata directory happens to satisfy the very same HEAD/objects/refs
+    // shape a bare repo does, so checking it here would misreport a checkout's own `.git` as a
+    // "bare git directory" instead.
+    if (path.basename(dir) !== ".git") {
+      const shape = looksLikeGitDir(dir, ctx.fsImpl);
+      if (shape.error) {
+        return { ok: false, reason: `could not stat ${dir}` };
+      }
+      if (shape.shaped) {
+        return { ok: false, reason: `lies inside a git directory at ${dir}` };
+      }
+    }
     const dotGit = path.join(dir, ".git");
     let st = null;
     try {
@@ -223,44 +293,41 @@ function checkAncestorsForGit(resolved, ctx) {
       }
     }
     if (st) {
-      if (!st.isDirectory()) {
-        return { ok: false, reason: `lies inside a linked worktree at ${dir}` };
-      }
-      let names = [];
-      try {
-        names = ctx.fsImpl.readdirSync(path.join(dotGit, "worktrees"));
-      } catch (error) {
-        if (error && error.code !== "ENOENT" && error.code !== "ENOTDIR") {
-          return { ok: false, reason: `could not read ${dotGit}/worktrees` };
-        }
-      }
-      if (names.length > 0) {
-        return { ok: false, reason: `lies inside a repo with linked worktrees at ${dir}` };
-      }
-      // A standalone repo root (no OTHER linked worktrees, per F3's ruling: stays removable) - but
-      // ruling r2 also asks that a target lying inside any path THIS repo's own `git worktree
-      // list` names be refused, in case a linked worktree lives somewhere this ancestor scan alone
-      // would not reach.
-      let worktrees = null;
-      try {
-        worktrees = listWorktrees(dir);
-      } catch {
-        worktrees = null;
-      }
-      if (worktrees) {
-        for (const w of worktrees) {
-          if (path.resolve(w.path) === dir) continue; // the repo root itself, already handled above
-          if (pathWithin(resolved, w.path)) {
-            return { ok: false, reason: `lies inside a path in git worktree list at ${w.path}` };
-          }
-        }
-      }
+      return {
+        ok: false,
+        reason: st.isDirectory() ? `lies inside a git checkout at ${dir}` : `lies inside a linked worktree at ${dir}`,
+      };
     }
     const parent = path.dirname(dir);
     if (parent === dir) break; // filesystem root reached
     dir = parent;
   }
   return { ok: true };
+}
+
+/**
+ * Round-2 re-review MEDIUM 3, part 2: F8's own cwd-containment check used janitor.mjs's
+ * `pathWithin`, which carries the exact same `..`-prefix defect LOW 12 fixed in path-safety.mjs -
+ * a cwd of `<top>/..work` was read as "escapes `<top>`" and so never matched, letting `<top>`
+ * itself be removed while it was the live cwd. This is reclaim's own copy of the same
+ * realpath + win32-case-fold logic `pathWithin` uses, with the corrected escape test - it lets T1
+ * close its own surface without editing janitor.mjs (round-1's seam note to T2 about `pathWithin`
+ * itself stays open for that function's OTHER callers).
+ */
+function within(child, parent, ctx) {
+  const realpath = (p) => {
+    try {
+      return ctx.fsImpl.realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const norm = (p) => {
+    const r = realpath(path.resolve(p));
+    return ctx.platform === "win32" ? r.toLowerCase() : r;
+  };
+  const rel = path.relative(norm(parent), norm(child));
+  return rel === "" || !escapesUp(rel);
 }
 
 /** F6: the top scratch directory (S's `claude-<uid>`, T's `delegation-<name>-XXXX`) must be owned
@@ -603,8 +670,9 @@ function validateArg(rawArg, ctx) {
   }
 
   // F8: every class refuses a target that equals or contains process.cwd() - the one thing that
-  // is always still running right now.
-  if (pathWithin(ctx.cwd, resolved)) {
+  // is always still running right now. Uses reclaim's own `within()`, not janitor.mjs's
+  // `pathWithin` - see that function's doc comment (round-2 re-review MEDIUM 3).
+  if (within(ctx.cwd, resolved, ctx)) {
     return { ok: false, reason: "equals process.cwd() or contains it" };
   }
 
@@ -684,6 +752,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
     switchedOffImpl: opts.switchedOffImpl ?? switchedOff,
     execFileSyncImpl: opts.execFileSyncImpl ?? execFileSync,
     idleHoursImpl: opts.idleHoursImpl ?? idleHours,
+    applySafeImpl: opts.applySafeImpl ?? applySafe,
   };
 
   const parsed = parseArgv(argv);
@@ -716,7 +785,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       act: true,
       _raw: { root: result.root, mainBranch: result.mainBranch },
     };
-    const log = applySafe(narrowed, [], { home: ctx.home, now: ctx.now });
+    const log = ctx.applySafeImpl(narrowed, [], { home: ctx.home, now: ctx.now });
     const row = log.find((l) => l.action === "branch-delete");
     if (row && row.ok) {
       // Round-2 review, MEDIUM 5: applySafe already computed a restore hint - reclaim writes no
@@ -780,7 +849,7 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       act: true,
       _raw: { root: result.root, mainBranch: result.mainBranch },
     };
-    const log = applySafe(narrowed, [], { home: ctx.home, now: ctx.now });
+    const log = ctx.applySafeImpl(narrowed, [], { home: ctx.home, now: ctx.now });
     const row = log.find((l) => l.action === "worktree-remove");
     if (row && row.ok) {
       // MEDIUM 5: same restore-hint reasoning as B above.

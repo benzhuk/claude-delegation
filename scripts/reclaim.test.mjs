@@ -551,27 +551,166 @@ test("HIGH1: a target INSIDE a linked worktree living inside a T dir is refused,
   assert.ok(fs.existsSync(path.join(wt, "new.txt")), "uncommitted work must survive");
 });
 
+test("HIGH1 (re-review finding 1): a plain repo's own main checkout, with NO other linked worktrees, is refused too - ruling r2's 'any .git entry' rule, not only 'has other linked worktrees'", () => {
+  // Round-1's fix narrowed ruling r2's "refuse on any .git file or directory above the target" to
+  // "refuse a .git DIR only when its worktrees/ is non-empty" - so a plain repo's own checkout,
+  // with no linked worktrees at all, fell through to a bare fs delete even though its tracked and
+  // untracked files are exactly as live as a linked worktree's.
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
+  const top = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-plain-1"));
+  fs.chmodSync(top, 0o700);
+  const repo = mkdir(path.join(top, "r"));
+  git(["init", "-q", "-b", "main"], repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "root\n");
+  const srcDir = mkdir(path.join(repo, "src"));
+  fs.writeFileSync(path.join(srcDir, "a.txt"), "tracked\n");
+  git(["add", "."], repo);
+  git(["commit", "-q", "-m", "init"], repo);
+  fs.appendFileSync(path.join(srcDir, "a.txt"), "modified\n"); // ` M src/a.txt`
+  fs.writeFileSync(path.join(srcDir, "new.txt"), "untracked\n"); // `?? src/new.txt`
+
+  for (const target of [srcDir, path.join(srcDir, "new.txt"), path.join(repo, ".git", "objects")]) {
+    const c = collector();
+    const code = reclaimMain([target], { ...ctx, print: c.print });
+    assert.equal(code, 3, `target ${target} must be refused`);
+    assert.match(c.lines[0], /lies inside a git checkout at/);
+  }
+  assert.ok(fs.existsSync(path.join(srcDir, "a.txt")));
+  assert.ok(fs.existsSync(path.join(srcDir, "new.txt")));
+});
+
+test("HIGH1 (re-review finding 1, P2b): the T top itself is the plain repo - a target inside it is still refused", () => {
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
+  const repo = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-plain-repo-1"));
+  fs.chmodSync(repo, 0o700);
+  git(["init", "-q", "-b", "main"], repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "root\n");
+  git(["add", "."], repo);
+  git(["commit", "-q", "-m", "init"], repo);
+  const srcDir = mkdir(path.join(repo, "src"));
+  fs.writeFileSync(path.join(srcDir, "a.txt"), "untracked\n");
+  const c = collector();
+  const code = reclaimMain([srcDir], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /lies inside a git checkout at/);
+  assert.ok(fs.existsSync(path.join(srcDir, "a.txt")));
+});
+
+test("HIGH1 (re-review finding 1, P2c): a plain repo whose .git/worktrees/ is empty (its one linked worktree already removed) is still refused", () => {
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
+  const top = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-plain-gone-1"));
+  fs.chmodSync(top, 0o700);
+  const repo = mkdir(path.join(top, "r"));
+  git(["init", "-q", "-b", "main"], repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "root\n");
+  git(["add", "."], repo);
+  git(["commit", "-q", "-m", "init"], repo);
+  git(["branch", "side"], repo);
+  const wt = mkTmp("reclaim-p2cwt-");
+  fs.rmdirSync(wt);
+  git(["worktree", "add", wt, "side"], repo);
+  git(["worktree", "remove", wt], repo); // .git/worktrees/ exists but is empty again
+
+  const c = collector();
+  const code = reclaimMain([path.join(repo, "README.md")], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /lies inside a git checkout at/);
+  assert.ok(fs.existsSync(path.join(repo, "README.md")));
+});
+
+// ---------- Round-2 re-review MEDIUM 4: mutations that survived fix round 1's own proof set ----------
+
+test("H1d (mutation-provable): an unreadable ancestor .git entry refuses, rather than being treated as absent", () => {
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx, { rest: "sub" });
+  const dotGit = path.join(path.dirname(target), ".git");
+  const fsImpl = Object.create(fs);
+  fsImpl.lstatSync = (p) => {
+    if (path.resolve(p) === path.resolve(dotGit)) {
+      const err = new Error("boom");
+      err.code = "EACCES";
+      throw err;
+    }
+    return fs.lstatSync(p);
+  };
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /could not stat/);
+  assert.ok(fs.existsSync(target));
+});
+
 // ---------- HIGH 2: mount-point/bind-mount refusal (round-2 review) ----------
 
-test("HIGH2: the class-root st_dev baseline catches a target that is ITSELF a differently-mounted directory (mutation M5-provable)", () => {
+test("HIGH2 (re-review finding 2): a bare repo backing a live linked worktree with an unpushed commit is refused, and so is anything inside it", () => {
+  // P3's exact layout: a bare clone inside a T dir, with a linked worktree ELSEWHERE holding a
+  // commit that was never pushed anywhere else - the bare repo is the only copy of that commit.
+  const { repo, origin } = initRepo();
+  void origin;
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
+  const top = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-bare-1"));
+  fs.chmodSync(top, 0o700);
+  const bareRepo = path.join(top, "b.git");
+  git(["clone", "-q", "--bare", repo, bareRepo], undefined);
+  const bareWt = mkTmp("reclaim-barewt-");
+  fs.rmdirSync(bareWt);
+  git(["worktree", "add", bareWt, "main"], bareRepo);
+  fs.writeFileSync(path.join(bareWt, "unpushed.txt"), "only copy\n");
+  git(["add", "."], bareWt);
+  git(["commit", "-q", "-m", "unpushed work"], bareWt);
+
+  const c1 = collector();
+  const code1 = reclaimMain([top], { ...ctx, print: c1.print });
+  assert.equal(code1, 3);
+  assert.match(c1.lines[0], /contains a repo with linked worktrees elsewhere at/);
+  assert.ok(fs.existsSync(bareRepo));
+
+  const c2 = collector();
+  const code2 = reclaimMain([path.join(bareRepo, "objects")], { ...ctx, print: c2.print });
+  assert.equal(code2, 3);
+  assert.match(c2.lines[0], /lies inside a git directory at/);
+  assert.ok(fs.existsSync(path.join(bareRepo, "objects")));
+});
+
+test("HIGH2 (re-review finding 2): a plain delegation-* dir with no git shape at all stays removable", () => {
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx, { rest: "data" });
+  fs.writeFileSync(path.join(target, "HEAD"), "not actually a git dir\n"); // a file named HEAD alone must not trip the shape test
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, print: c.print });
+  assert.equal(code, 0);
+  assert.match(c.lines[0], /^removed T /);
+  assert.ok(!fs.existsSync(target));
+});
+
+test("HIGH2: the class-root st_dev baseline catches a target that is ITSELF a differently-mounted directory (mutation M5b-provable: the fix's own baseDev change)", () => {
   // Regression for the exact redteam measurement: a tmpfs mounted AT the T target itself always
   // matched its own children under the OLD baseline (the target's own st_dev), because every
   // descendant is naturally on the SAME device as the target. The fix compares against the CLASS
   // ROOT's st_dev instead. Simulated with an injected fsImpl (no real mount needed) so this is
   // deterministic and portable - the real end-to-end case is covered separately with `unshare -rm`.
+  //
+  // Round-2 re-review MEDIUM 4: the fake device must cover `top` AND every descendant, not just
+  // `top` itself - otherwise `inner` still differs from the (mutated) baseDev under the OLD
+  // baseline too, and mutation M5b (reverting the fix back to `baseDev = lstatSync(target).dev`)
+  // stayed green even though the fix it targets was gone. The mount table is also forced empty, so
+  // part 2 (checkMountsUnderClassRoot) cannot mask a wrong answer from part 1.
   const ctx = baseCtx();
   const { top, target } = tTarget(ctx, { rest: "inner" });
   const realLstat = fs.lstatSync.bind(fs);
   const fsImpl = Object.create(fs);
+  const topResolved = path.resolve(top);
   fsImpl.lstatSync = (p) => {
     const st = realLstat(p);
-    if (path.resolve(p) === path.resolve(top)) {
-      // Pretend `top` sits on a different device than its own parent (the class root) - the exact
-      // shape of "a tmpfs mounted AT the target".
+    const resolvedP = path.resolve(p);
+    if (resolvedP === topResolved || resolvedP.startsWith(topResolved + path.sep)) {
+      // Pretend `top` AND everything under it sits on a different device than the class root - the
+      // exact shape of "a tmpfs mounted AT the target".
       return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: 999999 });
     }
     return st;
   };
+  fsImpl.readFileSync = (p, enc) => (p === "/proc/self/mountinfo" ? "" : fs.readFileSync(p, enc));
   const c = collector();
   const code = reclaimMain([top], { ...ctx, fsImpl, print: c.print });
   assert.equal(code, 3);
@@ -619,6 +758,30 @@ test("HIGH2: an unreadable mount table fails closed (refused), never silently pa
   assert.match(c.lines[0], /mount table/);
 });
 
+test("H2c (mutation-provable): a target lying under an ANCESTOR bind mount is refused as 'lies under a bind mount', not just 'crosses'", () => {
+  // Round-2 re-review MEDIUM 4: the existing injected-mountinfo test above only ever exercises the
+  // "target IS/CONTAINS a mount point" branches (mount registered AT top, target == top) - never
+  // the "target LIES UNDER a mount registered on one of its own ancestors" branch, so disabling
+  // that branch alone left the suite green.
+  const ctx = baseCtx({ platform: "linux" });
+  const { top, target } = tTarget(ctx, { rest: "inner" });
+  const mountinfoText = [
+    "23 30 0:20 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw",
+    `24 30 254:4 /elsewhere ${top} rw,relatime - ext4 /dev/root rw`,
+    "",
+  ].join("\n");
+  const fsImpl = Object.create(fs);
+  fsImpl.readFileSync = (p, enc) => {
+    if (p === "/proc/self/mountinfo") return mountinfoText;
+    return fs.readFileSync(p, enc);
+  };
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /lies under a bind mount/);
+  assert.ok(fs.existsSync(target));
+});
+
 test("HIGH2 (measured, unshare -rm): a real same-device bind mount landing on a T target is refused and the sentinel survives", { skip: (() => {
   try {
     execFileSync("unshare", ["-rm", "true"], { stdio: "ignore" });
@@ -664,6 +827,42 @@ test("HIGH2 (measured, unshare -rm): a real same-device bind mount landing on a 
   assert.equal(out.code, 3);
   assert.ok(out.lines.some((l) => /mount point|bind mount/.test(l)));
   assert.ok(fs.existsSync(path.join(sentinel, "keep.txt")), "the sentinel outside the bind must survive");
+});
+
+// ---------- Re-review MEDIUM 3: the ".."-prefix twin of LOW 12, in reclaim's own mount check and
+// F8's cwd check (both fail toward ALLOW) ----------
+
+test("re-review MEDIUM3 (mount check): a same-filesystem bind mount at a dir literally named '..m' is still refused, not misread as an escape", () => {
+  const ctx = baseCtx({ platform: "linux" });
+  const { top } = tTarget(ctx, { rest: null });
+  const mountPoint = path.join(top, "..m");
+  fs.mkdirSync(mountPoint);
+  const mountinfoText = [
+    "23 30 0:20 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw",
+    `24 30 254:4 /elsewhere ${mountPoint} rw,relatime - ext4 /dev/root rw`,
+    "",
+  ].join("\n");
+  const fsImpl = Object.create(fs);
+  fsImpl.readFileSync = (p, enc) => {
+    if (p === "/proc/self/mountinfo") return mountinfoText;
+    return fs.readFileSync(p, enc);
+  };
+  const c = collector();
+  const code = reclaimMain([top], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /crosses a mount point/);
+});
+
+test("re-review MEDIUM3 (F8 cwd check): a cwd of '<top>/..work' still refuses <top>, not misread as escaping it", () => {
+  const ctx = baseCtx();
+  const { top } = tTarget(ctx, { rest: null });
+  const cwdDir = path.join(top, "..work");
+  fs.mkdirSync(cwdDir);
+  const forged = { ...ctx, cwd: cwdDir };
+  const c = collector();
+  const code = reclaimMain([top], { ...forged, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /equals process\.cwd\(\) or contains it/);
 });
 
 // ---------- MEDIUM 3: an rmSync failure must not crash the process (round-2 review) ----------
@@ -733,6 +932,31 @@ test("MEDIUM5: a removed W line carries a restore hint", () => {
   const code = reclaimMain([wt], { ...ctx, print: c.print });
   assert.equal(code, 0);
   assert.match(c.lines[0], /^removed W .* restore: git -C /);
+});
+
+test("M5c (mutation-provable): a partial W removal (git deregistered it, contents already gone) prints its own restore-hint line", () => {
+  // Forcing a REAL "partial" row out of git (the final rmdir failing while the worktree is already
+  // deregistered) is not reliably reproducible from a fixture - `ctx.applySafeImpl` is stubbed to
+  // return exactly the `partial: true` shape janitor.mjs's own applySafe can produce for this case,
+  // so this test exercises reclaim's OWN print logic for it, not applySafe's git plumbing (which
+  // has its own coverage in janitor.test.mjs).
+  const { repo } = initRepo();
+  const wt = addMergedWorktree(repo, "feature-partial");
+  const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-"), now: ADVANCED });
+  const sha = git(["rev-parse", "HEAD"], wt).trim();
+  const applySafeImpl = () => [{
+    action: "worktree-remove",
+    ref: wt,
+    branch: "feature-partial",
+    ok: false,
+    partial: true,
+    sha,
+    restore: `git -C ${repo} worktree add ${wt} ${sha}`,
+  }];
+  const c = collector();
+  const code = reclaimMain([wt], { ...ctx, applySafeImpl, print: c.print });
+  assert.equal(code, 1);
+  assert.match(c.lines[0], /^partial W .* restore: git -C /);
 });
 
 // ---------- MEDIUM 6: T works on darwin for the convention's own paths (round-2 review) ----------
@@ -877,6 +1101,29 @@ test("LOW11: an unreadable subdirectory during the walk refuses the whole invoca
   assert.ok(fs.existsSync(target));
 });
 
+test("L11 (mutation-provable): an unreadable subdirectory's READDIR failure refuses too, not just an lstat failure", () => {
+  // The test above only ever forces an lstat error. LOW 11's own fix also fails closed on a
+  // readdirSync error (a directory that lstats fine but cannot be listed) - disabling that half
+  // alone left the suite green.
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx);
+  const sub = mkdir(path.join(target, "sub"));
+  const fsImpl = Object.create(fs);
+  fsImpl.readdirSync = (p, ...rest) => {
+    if (path.resolve(p) === path.resolve(sub)) {
+      const err = new Error("boom");
+      err.code = "EACCES";
+      throw err;
+    }
+    return fs.readdirSync(p, ...rest);
+  };
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, fsImpl, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /could not read/);
+  assert.ok(fs.existsSync(target));
+});
+
 // ---------- LOW 13: the check-to-delete window is re-checked immediately before rmSync (round-2 review) ----------
 
 test("LOW13: a target that becomes a symlink between validation and removal is refused at the re-check, not removed", () => {
@@ -919,4 +1166,26 @@ test("a path that is neither S, T, nor a live worktree is refused", () => {
   const code = reclaimMain([stray], { ...ctx, print: c.print });
   assert.equal(code, 3);
   assert.match(c.lines[0], /unrecognized/);
+});
+
+// ---------- LOW 5: Windows junction gate (round-2 review's MEDIUM 7 note, deferred to a real
+// win32 host - see the re-review's LOW 5) ----------
+
+test("LOW5 (Windows junction gate, deferred without a win32 host): a reparse-point junction inside a T dir must never let the sentinel it points at be swept up or emptied", {
+  skip: process.platform !== "win32"
+    ? "no win32 host is available in this environment - this runs (and must be read) on a real Windows machine, per the re-review's LOW 5: either `mklink /J` refuses the walk (a reparse point treated the same as a symlink - never followed), or reclaim removes only the junction link itself and the sentinel's own contents survive either way"
+    : false,
+}, () => {
+  const ctx = baseCtx();
+  const { target } = tTarget(ctx);
+  const sentinel = mkTmp("reclaim-junction-sentinel-");
+  fs.writeFileSync(path.join(sentinel, "keep.txt"), "keep me\n");
+  const junction = path.join(target, "linked");
+  execFileSync("cmd", ["/c", "mklink", "/J", junction, sentinel], { encoding: "utf8" });
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, print: c.print });
+  // Either the whole T removal is refused because the walk treats the junction as an
+  // untraversable reparse point, or the T removal goes ahead and takes only the junction LINK
+  // with it - what must never happen is the sentinel's own contents being deleted.
+  assert.ok(code === 3 || (code === 0 && fs.existsSync(path.join(sentinel, "keep.txt"))));
 });
