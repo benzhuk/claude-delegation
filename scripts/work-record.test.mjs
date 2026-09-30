@@ -1370,6 +1370,32 @@ test("checkAcceptance: pinned mode refuses an artifact that is not an ancestor o
   }
 });
 
+// Review r3 (spec.md item 3, "Worktree: must then be an absolute directory ... in that repo"): a
+// Worktree: directory in a separate clone of Artifact-repo: refuses in both modes; a linked
+// worktree of Artifact-repo: itself (same git-common-dir) is still accepted.
+test("checkAcceptance: r3 - a Worktree: directory outside the Artifact-repo: repository refuses; its linked worktree passes", () => {
+  const f = makeAcceptanceFixture();
+  const b = makeArtifactRepoFixture(f.env);
+  const cDir = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-artifact-repo-clone-"));
+  execFileSync("git", ["clone", "-q", b.dir, cDir], { env: f.env });
+  const linked = path.join(fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-artifact-repo-linked-")), "wt");
+  execFileSync("git", ["-C", b.dir, "worktree", "add", "-q", "--detach", linked, b.sha], { env: f.env });
+  const toPosix = (p) => p.split(path.sep).join("/");
+  const recordPath = path.join(f.repo, f.record);
+  const base = fs.readFileSync(recordPath, "utf8").replace(/^Artifact: .*$/m, `Artifact: territory/a@${b.sha}`);
+  fs.writeFileSync(path.join(f.repo, f.evidence), `VERDICT: APPROVE — ${b.sha}\nIndependent review of a cross-repo artifact.\n`);
+  const withWorktree = (dir) => fs.writeFileSync(recordPath, base.replace(/^Worktree: \.$/m, `Artifact-repo: ${toPosix(b.dir)}\nWorktree: ${toPosix(dir)}`));
+  withWorktree(cDir);
+  for (const opts of [{ pinnedArtifact: b.sha }, { deliveryRef: b.sha }]) {
+    assert.throws(
+      () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, ...opts }),
+      (error) => error.code === "sha-not-in-git" && /is not a worktree of Artifact-repo:/.test(error.message),
+    );
+  }
+  withWorktree(linked);
+  assert.equal(checkAcceptance({ repoRoot: f.repo, recordPath: f.record, deliveryRef: b.sha }).ok, true);
+});
+
 // ── Lane 60b review round 1 (ruling-r1.md): F1-F5, all adopted ─────────────────────────────
 
 // F2 (MEDIUM): a bare repository is not "a directory inside a git worktree" - live mode's

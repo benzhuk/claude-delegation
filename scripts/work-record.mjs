@@ -1294,6 +1294,7 @@ export function checkAcceptance(opts = {}) {
   // byte-for-byte the same behavior as before this field existed).
   const artifactRepoRaw = typeof record.fields.artifactRepo === "string" ? record.fields.artifactRepo.trim() : "";
   let artifactRoot = repoRoot;
+  let artifactCommonDir = null;
   if (artifactRepoRaw) {
     if (!(path.posix.isAbsolute(artifactRepoRaw) || path.win32.isAbsolute(artifactRepoRaw))) {
       throw acceptanceError(`Artifact-repo: "${artifactRepoRaw}" is not an absolute directory path`, "artifact-repo-not-absolute");
@@ -1301,7 +1302,7 @@ export function checkAcceptance(opts = {}) {
     // A missing or unreadable Artifact-repo: directory fails closed as sha-not-in-git (spec.md
     // item 3): every downstream lookup below would fail the same way anyway, but this gives one
     // clear reason instead of a confusing "Artifact revision is missing" further down.
-    const artifactCommonDir = gitCommonDirReal(artifactRepoRaw, spawnImpl, fsImpl);
+    artifactCommonDir = gitCommonDirReal(artifactRepoRaw, spawnImpl, fsImpl);
     if (artifactCommonDir === null) {
       throw acceptanceError(
         `sha-not-in-git: Artifact-repo: ${artifactRepoRaw} is missing, unreadable, or not a git repository`,
@@ -1381,6 +1382,13 @@ export function checkAcceptance(opts = {}) {
     worktreeIsDir = fsImpl.statSync(worktreeTarget).isDirectory();
   } catch {
     worktreeIsDir = false;
+  }
+  // Lane 60b (spec.md item 3: "Worktree: must then be an absolute directory, or a branch name, in
+  // that repo"): a Worktree: directory must belong to the Artifact-repo: repository itself. A linked
+  // worktree shares its git-common-dir; a separate clone holding the same commit does not, and would
+  // otherwise let an artifact that no ref in Artifact-repo: reaches pass both modes (review r3).
+  if (artifactRepoRaw && worktreeIsDir && gitCommonDirReal(worktreeTarget, spawnImpl, fsImpl) !== artifactCommonDir) {
+    throw acceptanceError(`sha-not-in-git: Worktree: ${worktreeField} is not a worktree of Artifact-repo: ${artifactRepoRaw}`, "sha-not-in-git");
   }
   const worktreeGitDir = worktreeIsDir ? worktreeTarget : artifactRoot;
   const worktreeRev = worktreeIsDir ? "HEAD^{commit}" : `refs/heads/${worktreeField}^{commit}`;
