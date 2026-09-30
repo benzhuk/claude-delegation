@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-janitor-acts
 Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-59-1 part 2 and Ben's two ticks read at 5:11 PM NY 9/29, read at dff1e00c3096082c4f17da99a49debf41e83dfb2
 Owner: skills-n
-Status: reviewed
+Status: accepted
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
 Next: accept, merge, close, RESULT to skills-fable
 Artifact: 72f736b62bce9c53ab9cf7aa3a92490bd08472c1
@@ -35,6 +35,56 @@ Log: 2026-09-30T01:38:14.000Z delivered skills-n seam fix builder a541a0f283aaf9
 Log: 2026-09-30T01:59:42.000Z rejected skills-n seam delta review a479dfc2bf31d7c53 NEEDS_FIXES 483af6e (5: MEDIUM private PID namespace reads clean, MEDIUM win32 cwd check untested, LOW record race, LOW predicate absolute and forward-slash cases, LOW two loose copies in reclaim); reviewer hit a secret-guard false positive on an env spread in spawn options and rewrote without the environment reference, accepted as rewording; ruling-r3.md
 Log: 2026-09-30T02:13:56.000Z delivered skills-n seam fix r2 builder a24749474e913c2cb at 72f736b62bce9c53ab9cf7aa3a92490bd08472c1 (five findings per ruling r3, four new tests mutation-proven; Linux 3205 tests 0 fail, Windows 3205 tests 0 fail); docs/specs/janitor-acts-59/seamfix2-build.md
 Log: 2026-09-30T02:25:49.000Z reviewed skills-n seam Opus a479dfc2bf31d7c53 delta r3 APPROVE 72f736b62bce9c53ab9cf7aa3a92490bd08472c1 (five r2 findings fixed at the cause, new tests mutation-proven, suite 3205 tests 0 fail on Linux and Windows)
+Census: - leadTurns: 53
+Census: - wallClockHours: 5.22
+Census: - wakes: 2 (2 note-flush, 0 Done-tick)
+Census: - wakeSplit: wake 2, stopBlock 0, other 51 (coalescable 0 at hold 10m — see "Wake-opened turns" below)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-4-8=12923929, claude-opus-5-5=85498866, claude-sonnet-5=285044694
+Census: - by-role: unassigned=343279613
+Census: - subagentFiles: 284
+Census: - Total assistant turns, deduped (whole file): **2004**
+Census: - Window assistant turns, deduped: **230**
+Census: - leadTurns (conversational runs — see docs/census.md): **53**
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **2** (2 note-flush, 0 Done-tick)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0**
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-29T21:13:05.907Z .. 2026-09-30T02:26:00.820Z
+Census: - Turns/hour in window: **44.10**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 4006 | 5766202 | 337002740 | 1344410 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 460 | 468710 | 39542641 | 176065 |
+Census: - wakeTurns: 2, stopBlockTurns: 0, otherTurns: 51
+Census: - cache_creation per turn (M6) — wake: claude-opus-5-5=11765.0; other: claude-opus-5-5=8729.0
+Census: - coalescable (W1b, hold 10m, RESULT wakes only, Done-tick excluded): turns 0, upper (none), lower (none); ceiling (every RESULT wake turn) turns 0, (none)
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-4-8 | 224 | 241437 | 12498916 | 183352 |
+Census: | claude-opus-5-5 | 974 | 2312869 | 42420386 | 576761 |
+Census: | claude-sonnet-5 | 3970 | 4771821 | 278448968 | 1819935 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 5168 | 7326127 | 333368270 | 2580048 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-4-8 | 183352 | 12740577 |
+Census: | claude-opus-5-5 | 752826 | 84746040 |
+Census: | claude-sonnet-5 | 1819935 | 283224759 |
+Four numbers: Top-tier tokens per build: 98422795 tokens: build 98422795 (claude-opus-4-8, claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 5.2h; largest gap 31.3min at 2026-09-29T22:29:28.191Z
+Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 4 gap(s) over 30min stalled; 1 waiting-on-agents (31.3 min); agent a367a2ba2b2f5efb9 silent 60.8 min from 2026-09-29T22:28:22.508Z; agent a8ae668d19e0620ae silent 58.6 min from 2026-09-29T22:30:15.967Z; agent a96da4ee9794f0460 silent 83.0 min from 2026-09-29T22:05:55.366Z; agent a9a2e9f8daa2e2466 silent 34.5 min from 2026-09-30T00:18:23.763Z; 3 unanswered ASK(s) to skills-n: skills-fable-janitor-59-1, skills-fable-guard-60-1, skills-fable-janitor-59-2; wakes 2 (2 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
+Log: 2026-09-30T02:26:01.000Z accepted skills-n artifact 72f736b62bce9c53ab9cf7aa3a92490bd08472c1
 
 Predicts: the janitor's act mode and reclaim remove scratch dirs, stale worktrees and merged build branches that lanes leave behind, and never remove anything that is live or unsure, per ruling r1. Leftover scratch and worktrees then stop piling up between lanes, and no builder needs a banned rm to clean up. Two builder stalls on rm prompts occurred today, so the stalled-on-cleanup count should drop to zero in the next census window.
 
