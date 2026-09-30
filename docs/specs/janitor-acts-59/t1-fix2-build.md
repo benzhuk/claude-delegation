@@ -1,4 +1,4 @@
-DONE 3c555f2ac5ba1b1e01c17a3999f77c93cef2c43d
+DONE 3c555f26c55051b9ca29bcffb90a9fea547b13c6
 
 # Lane 59 T1 fix round 2: reclaim and path-safety
 
@@ -14,7 +14,7 @@ OTHER linked worktrees), not by patching around the specific probes that found t
 
 Base: c12e190a9519186f5d5254726138099409b0497c (T1 round 0). Prior fix-round-1 commit:
 cb5cda0caa87774186715984fd18e187bf28b198 (NEEDS_FIXES, 5 findings, docs/specs/janitor-acts-59/t1-review-r2.md).
-Final commit: 3c555f2ac5ba1b1e01c17a3999f77c93cef2c43d.
+Final commit: 3c555f26c55051b9ca29bcffb90a9fea547b13c6.
 
 ## Gate results
 - Territory: `TMPDIR=/var/tmp node --test scripts/path-safety.test.mjs scripts/reclaim.test.mjs
