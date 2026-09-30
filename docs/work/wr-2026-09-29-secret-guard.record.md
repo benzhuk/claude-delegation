@@ -1,9 +1,9 @@
 Work: wr-2026-09-29-secret-guard
 Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-1 and Ben's tick recorded on main at f815df7, read at 1a76c54223974465a53004c8b49d92237f7fea24
 Owner: skills-n
-Status: delivered
+Status: rejected
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: Opus red-team of phase 2 (fb48a92), with a full-length replay from Netcup transcripts
+Next: phase 2 fix round 1 per ruling-r2 (allowlist-only exclusions, full-length replay as the measure)
 Worktree: build/secret-guard-60-1
 Scratch: /var/tmp/lane-60
 Opened: 2026-09-29T21:39:28.000Z
@@ -21,6 +21,7 @@ Log: 2026-09-29T22:28:31.000Z rejected skills-n Opus reviewer a367a2ba2b2f5efb9 
 Log: 2026-09-29T23:29:02.000Z delivered skills-n Sonnet builder a8ae668d19e0620ae committed fix round 2 as dotfiles c890801 (R2-1), then sat about 60 min on a banned rm -rf permission prompt and was stopped by the lead before its report; the tree was clean, the reviewer runs the gate
 Log: 2026-09-29T23:30:02.000Z owned skills-n Opus reviewer a367a2ba2b2f5efb9 delta r3 APPROVE c890801 (selftest 31 of 31; phase 1 done); phase 2 builder spawned; docs/specs/secret-guard-60/p1-review-r3.md
 Log: 2026-09-29T23:58:01.000Z delivered skills-n Sonnet builder a5f20c5e13265092a phase 2 DONE dotfiles fb48a92 (exclusions H and Q, narrowing E; selftest 58 of 58; corpus replay 5 of 33 truncated commands now pass, 0 regressions, all 3 real reads deny); docs/specs/secret-guard-60/p2-build.md and p2-replay.md
+Log: 2026-09-30T00:18:51.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 NEEDS_FIXES on fb48a92 (4 HIGH real-read bypasses: executing heredoc, substitution operand, git log patch, lister piped to reader; full-length replay 397 refused commands, 196 now pass, about 101 flagged real reads, 0 regressions); nothing applied anywhere; ruling r2 narrows each exclusion to an allowlist; docs/specs/secret-guard-60/p2-review.md and ruling-r2.md
 
 ## Spec
 
