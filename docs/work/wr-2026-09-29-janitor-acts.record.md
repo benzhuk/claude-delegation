@@ -3,7 +3,7 @@ Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-5
 Owner: skills-n
 Status: owned
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
-Next: T1 delta re-review of cb5cda0 (fresh Opus); T2 approved at dbce299
+Next: T1 fix round 2 (5 findings, t1-review-r2.md); T2 approved at dbce299
 Worktree: build/janitor-acts-59-1
 Scratch: /var/tmp/lane-59
 Opened: 2026-09-29T21:13:00.000Z
@@ -22,6 +22,7 @@ Log: 2026-09-29T23:35:47.000Z owned skills-n T2 builder ac65bda2ed38d4aee fix ro
 Log: 2026-09-29T23:40:54.000Z owned skills-n Opus T1 reviewer acc3ad71b0a4620d6 NEEDS_FIXES (14: HIGH 1 S and T delete inside a live linked worktree when cwd is elsewhere, HIGH 2 mount point and bind mounts missed; gate green, 3148 pass 0 fail); all adopted, docs/specs/janitor-acts-59/ruling-r2.md
 Log: 2026-09-29T23:42:32.000Z owned skills-n Opus T2 reviewer a22ce43c99035fe00 delta r3 APPROVE dbce299c3dcbe6d8faa7ba8dceb84f62b1b77c1a (T2 done); docs/specs/janitor-acts-59/t2-review-r3.md
 Log: 2026-09-30T00:04:30.000Z owned skills-n T1 Sonnet fix builder afce7357b13b9d61d DONE at cb5cda0 (14 of 14; territory 388 pass, suite 3172 pass, 0 fail); fresh Opus delta re-review spawned
+Log: 2026-09-30T00:14:15.000Z owned skills-n Opus T1 delta reviewer ad5100ae750131678 NEEDS_FIXES (5: HIGH 1 a plain repo main checkout is deletable by T, against ruling r2; HIGH 2 a bare repo backing live worktrees is deletable; 2 MEDIUM, 1 LOW); docs/specs/janitor-acts-59/t1-review-r2.md
 
 ## Spec
 
