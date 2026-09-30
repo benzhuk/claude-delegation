@@ -10,6 +10,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { main as reclaimMain, checkS, checkT } from "./reclaim.mjs";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const tmpDirs = [];
 function mkTmp(prefix) {
@@ -655,8 +656,10 @@ test("HIGH2 (measured, unshare -rm): a real same-device bind mount landing on a 
     });
     fs.writeFileSync(${JSON.stringify(outFile)}, JSON.stringify({ code, lines }));
   `);
+  // N2 (skills/multi/scripts/hooks.test.mjs): this call's own text names `node` literally, so it
+  // must carry its own sealed env rather than inherit the runner's (its messaging socket/token).
   execFileSync("unshare", ["-rm", "bash", "-c",
-    `mount --bind '${sentinel}' '${bindPoint}' && node '${script}'`], { stdio: "inherit" });
+    `mount --bind '${sentinel}' '${bindPoint}' && node '${script}'`], { stdio: "inherit", env: childEnv(ctx.home) });
   const out = JSON.parse(fs.readFileSync(outFile, "utf8"));
   assert.equal(out.code, 3);
   assert.ok(out.lines.some((l) => /mount point|bind mount/.test(l)));
