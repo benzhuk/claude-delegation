@@ -1,7 +1,7 @@
 Work: wr-2026-09-30-retire-continue
 Scope: retire the unused continue skill and its continuation hook wiring, per Ben's tick read 5:51 PM 9/29 and the census docs/work/evidence/continue/census-0929.md; measure: top-tier tokens per build (the epoch banner fires on every prompt for zero use)
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable RESULT skills-fable-lane-61-2 on Ben's tick: census first, then retire if unused; merge under the standing grant, install rides the next release
 Artifact: build/retire-continue-1@d29ea541771ac501f004c9960f8e4a918e79cbf4
 Worktree: build/retire-continue-1
@@ -65,6 +65,7 @@ Four numbers: Hours ask to accepted: 0.3h; largest gap 8.6min at 2026-09-30T13:4
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o
 Log: 2026-09-30T14:05:05.000Z accepted skills-o artifact d29ea541771ac501f004c9960f8e4a918e79cbf4
+Log: 2026-09-30T14:08:57.000Z closed skills-o merge 8a807d08c513d3fad819cc7ef93b3127a750f484
 
 Observed: the continue skill had 0 invocations in six weeks, yet its epoch banner was injected into every lead prompt on every host.
 Predicts: top-tier tokens per build drop by the banner's per-prompt cost, with no change to the other three measures because nothing used the skill.
