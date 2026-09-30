@@ -68,6 +68,48 @@ function writeJsonl(filePath, objs) {
   fs.writeFileSync(filePath, objs.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n') + '\n', 'utf8');
 }
 
+test('censusLeadFile parses a literal U+2028/U+2029 assistant row as one LF-framed JSON record', async () => {
+  const dir = mkTmp('build-census-unicode-lines-');
+  const lead = path.join(dir, 'lead.jsonl');
+  const assistant = asstLine({
+    requestId: 'unicode-response', id: 'unicode-message',
+    ts: '2026-09-29T12:00:01.000Z', usageOpts: { input: 11, cacheRead: 2, output: 3 },
+  });
+  const user = userLine('start', '2026-09-29T12:00:00.000Z');
+  assistant.message.content = [{ type: 'text', text: '__SEPARATOR__' }];
+  const probe = `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`;
+  const markerByte = Buffer.from(probe, 'utf8').indexOf(Buffer.from('__SEPARATOR__'));
+  const padLength = (65535 - markerByte + 65536) % 65536;
+  assistant.message.content[0].text = `${'p'.repeat(padLength)}\u2028middle\u2029after`;
+  writeJsonl(lead, [user, assistant]);
+  const raw = fs.readFileSync(lead, 'utf8');
+  assert.equal(Buffer.from(raw, 'utf8').indexOf(Buffer.from('\u2028')) % 65536, 65535, 'U+2028 bytes straddle createReadStream default chunks');
+  assert.equal((raw.match(/\u2028/g) || []).length, 1, 'fixture contains one literal U+2028');
+  assert.equal((raw.match(/\u2029/g) || []).length, 1, 'fixture contains one literal U+2029');
+
+  const parsed = await censusLeadFile(lead);
+
+  assert.equal(parsed.totalById.size, 1, 'the Unicode-bearing assistant JSON object remains one row');
+  assert.deepEqual(parsed.totalById.get('req:unicode-response').usage, usage({ input: 11, cacheRead: 2, output: 3 }));
+  assert.equal(parsed.leadTurnsTotal, 1);
+});
+
+test('censusSubFile counts exact usage from an assistant row containing literal U+2028/U+2029', async () => {
+  const dir = mkTmp('build-census-sub-unicode-lines-');
+  const file = path.join(dir, 'agent-unicode.jsonl');
+  const assistant = asstLine({
+    requestId: 'sub-unicode-response', id: 'sub-unicode-message',
+    ts: '2026-09-29T12:00:01.000Z', usageOpts: { input: 13, cacheCreation: 5, output: 4 },
+  });
+  assistant.message.content = [{ type: 'text', text: 'before\u2028middle\u2029after' }];
+  writeJsonl(file, [assistant]);
+
+  const parsed = await censusSubFile(file);
+
+  assert.equal(parsed.byId.size, 1);
+  assert.deepEqual(parsed.byId.get('req:sub-unicode-response').usage, usage({ input: 13, cacheCreation: 5, output: 4 }));
+});
+
 // ── parseArgs ────────────────────────────────────────────────────────────────
 
 test('parseArgs: --lead is required; --tasks may be omitted entirely (the default subagents glob can stand alone)', () => {

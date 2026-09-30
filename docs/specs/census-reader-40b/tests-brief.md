@@ -1,0 +1,15 @@
+Task: Write independent regression tests for lane40b and prove discriminating reds on the unmodified base. Production implementation is separate.
+Goal: Prevent false COUNTED census and restore valid JSONL evidence without losing corruption signals.
+Work: wr-2026-09-29-census-reader-tests, parent wr-2026-09-29-census-reader.
+Inputs: integration docs/specs/census-reader-40b/{spec,implementation-contract,scout,prior-diagnosis-review}.md at C:/Users/benzh/orca/workspaces/claude-delegation/census-reader-40b.
+Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/census-reader-40b-tests. Base fb63673 contains LF interface stub.
+PROJECT FACTS: Node MJS, no dependencies. High-tier contract author because false-green measurement is a data-integrity risk. No fanout. Own only scripts/jsonl-lines.test.mjs, scripts/build-census.codex.contract.test.mjs, scripts/build-census.test.mjs, scripts/token-census.test.mjs and synthetic test fixtures if needed. Reuse helpers. Source builder owns all production. Root owns docs/work. Report and state go to external scratch.
+Required: actual reader Unicode U+2028/U+2029 with exact rows and every JSON parse, LF/CRLF, chunk boundaries through decoded streams, final remainder, blank rows, error propagation. Actual census public API Unicode fixture proves old-reader red. Three temporal children (completed pre-window excluded, incomplete pre-window PARTIAL, completed overlapping counted), trailing benign item_completed after task_complete, latest-task association, retained corrupted/conflicting evidence, completed zero-usage pre-window exclusion. No invented item_completed terminal shape: pending author ruling. Assert reasons and contributions, not merely verdicts. Stub-only red is insufficient: public API tests must fail against actual old implementation at intended assertions.
+NOT: no production edits, record edits, remote operations, private logs, config reads, guard replay, identity changes, cleanup or full suite. Any refused operation stops, no reroute. No inspection of builder's changes while authoring tests.
+Gate: focused new and modified tests only through nonblocking Windows mutex Global\claude-verify. If busy report it, don't spin. No heavy suite concurrently. Keep exact command/output and failing test names. Expected red is evidence, not permission to weaken assertions.
+Report: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/census-reader-40b/tests-report.md. VERDICT first, commit sha, test-to-contract table, expected reds, retained greens, commands and paths. Four fields: Cause:, Discriminating check:, Fix location:, Simplification:.
+State file: same directory tests-state.md.
+Autonomy: tests and synthetic fixtures only, commit own exact paths. No cherry-picks or branch changes. Root integrates.
+Un-agent-able: none required.
+ETA: 12 minutes, report progress at ETA if unfinished. JUDGMENT: tests must distinguish genuine complete evidence from missing, corrupted or wrong-task witnesses.
+Termination: write report and stop. Root will ask for post-integration green verification separately.

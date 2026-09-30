@@ -1,0 +1,13 @@
+Task: Independently review the exact lane40b candidate supplied by review-run for correctness and evidence integrity.
+Goal: Census measures all valid evidence, never reports COUNTED on corrupt/unknown/conflicting evidence.
+Work: wr-2026-09-29-census-reader.
+Inputs: docs/specs/census-reader-40b/spec.md, implementation-contract.md, terminal-ruling.md, scout.md, and reports in docs/work/evidence/wr-2026-09-29-census-reader*.md. Source territory scripts/jsonl-lines.mjs, build-census.mjs, token-census.mjs. Tests in jsonl-lines.test.mjs, build-census.codex.contract.test.mjs, build-census.test.mjs, token-census.test.mjs. Other production files are out of scope.
+PROJECT FACTS: Node MJS, no dependencies. Test author independent of mid-tier source author. Actual Node24 Unicode-separator split independently reproduced. Previous census corrupted valid JSON and lost task_complete after benign item_completed. Reviewer gets named source and synthetic fixtures only. No private transcripts, config searches, environment enumeration, SSH, identity changes or full suites. Mutation checks must use a disposable plain-file copy within review scratch, with no commits or HOME overrides. Any refusal stops that operation, no reroute.
+Attack: actual-reader LF semantics and UTF8 chunk boundaries; final remainder/CR/empty rows/errors; malformed later usage retained; completed pre-window exclusion versus incomplete history; witness for latest task; repeated task starts; missing turn ids; duplicate files/order and conflicting timestamps; preserve existing public outputs and coverageSupported meaning. Prior review class to hunt: a check passes because it is not looking, unknown rendered as a confident number. No arbitrary item_completed terminal payload allowed.
+Verify red receipts discriminate old source, and green count covers existing plus new tests. Try bounded mutations dropping witness preservation and broad pre-window exclusion if useful. Do not repeat full suite. Use Global\claude-verify nonblocking for focused tests, report busy without waiting.
+Evidence: VERDICT APPROVE exact full SHA or NEEDS_FIXES first. Severity/file:line/concrete minimal patch for findings. Required bug fields Cause:, Discriminating check:, Fix location:, Simplification:. Explicitly identify any remaining PARTIAL coverage limits and new mechanism or symptom compensation.
+Report: review-run supplied report path only. Root copies verbatim. Do not edit work records or production.
+Autonomy: bounded exact-code reads and focused checks, no fanout.
+Un-agent-able: no external access needed.
+ETA: 10 minutes. JUDGMENT: decide if accurate counting and conservative incompleteness survive adversarial rows and child timing.
+Termination: report then stop.
