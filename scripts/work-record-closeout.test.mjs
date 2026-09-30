@@ -402,6 +402,32 @@ test("closeoutRecord: F1 - the scratch step also sees Artifact-repo:'s own workt
   assert.equal(fs.existsSync(wtDir), true, "repo B's linked worktree, and its uncommitted work, must survive");
 });
 
+// F1, fail-closed half (ruling-r1.md): when Artifact-repo:'s own worktree list cannot be read, the
+// scratch step refuses - it never falls back to repoRoot's list alone.
+test("closeoutRecord: F1 - an unreadable Artifact-repo: worktree list refuses the scratch step, never removes", () => {
+  const env = fixtureEnv();
+  const { repo: repoA } = buildRepo(env);
+  const { repo: repoB } = buildRepo(env);
+  const repoBPosix = repoB.split(path.sep).join("/");
+  const bTip = git(["rev-parse", "main"], repoB, env).trim();
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repoA, {
+    work: "wr-2026-09-30-artifact-repo-f1-fail-closed",
+    worktree: "main",
+    artifact: `territory/a@${bTip}`,
+    leadSession: by,
+    scratch: scratchPath,
+    extra: { "Artifact-repo": repoBPosix },
+  });
+  const listWorktreesImpl = (root) => (path.resolve(root) === path.resolve(repoB) ? null : []);
+  const result = closeoutRecord({ repoRoot: repoA, recordPath: recordRel, closeoutBy: by, listWorktreesImpl });
+  const steps = stepsOf(result);
+  assert.match(steps.worktree.detail, /artifact-repo: cleanup is manual/); // merge proof passed
+  assert.equal(steps.scratch.result, "refused");
+  assert.match(steps.scratch.detail, /could not read git worktree list/);
+  assert.equal(fs.existsSync(scratchPath), true, "the scratch directory must survive");
+});
+
 // F4 (MEDIUM), mutants M9/M10: the merge proof's fetch must run in the Artifact-repo: repository
 // itself, and a fetch failure there must be reported (never silently ignored) - test 7 above
 // can't tell the two apart, because its unpushed commit refuses "not an ancestor" whether or not
