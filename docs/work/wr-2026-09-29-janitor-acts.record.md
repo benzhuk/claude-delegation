@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-janitor-acts
 Scope: docs/specs/janitor-acts-59/spec.md (lane 59), from skills-fable-janitor-59-1 part 2 and Ben's two ticks read at 5:11 PM NY 9/29, read at dff1e00c3096082c4f17da99a49debf41e83dfb2
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build, review, integrate, push build/janitor-acts-59-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; no install, no release, no edit of any machine's settings during the build (the allow line is written only at install time, under Ben's tick)
 Next: accept, merge, close, RESULT to skills-fable
 Artifact: 72f736b62bce9c53ab9cf7aa3a92490bd08472c1
@@ -85,6 +85,8 @@ Four numbers: Hours ask to accepted: 5.2h; largest gap 31.3min at 2026-09-29T22:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 4 gap(s) over 30min stalled; 1 waiting-on-agents (31.3 min); agent a367a2ba2b2f5efb9 silent 60.8 min from 2026-09-29T22:28:22.508Z; agent a8ae668d19e0620ae silent 58.6 min from 2026-09-29T22:30:15.967Z; agent a96da4ee9794f0460 silent 83.0 min from 2026-09-29T22:05:55.366Z; agent a9a2e9f8daa2e2466 silent 34.5 min from 2026-09-30T00:18:23.763Z; 3 unanswered ASK(s) to skills-n: skills-fable-janitor-59-1, skills-fable-guard-60-1, skills-fable-janitor-59-2; wakes 2 (2 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-30T02:26:01.000Z accepted skills-n artifact 72f736b62bce9c53ab9cf7aa3a92490bd08472c1
+Log: 2026-09-30T02:31:41.000Z accepted skills-n merged to main at e97587f2be1aa62897a28e3ab9205baca5f76301 (lead resolved one test conflict and re-gated two F12 shim tests to the durable-and-not-linked gate, Opus merge review ab5750a1708b72be1 APPROVE, docs/work/evidence/wr-2026-09-29-janitor-acts-merge-review.md; suite on the merged head 3279 tests 0 fail)
+Log: 2026-09-30T02:31:41.000Z closed skills-n merge e97587f2be1aa62897a28e3ab9205baca5f76301
 
 Predicts: the janitor's act mode and reclaim remove scratch dirs, stale worktrees and merged build branches that lanes leave behind, and never remove anything that is live or unsure, per ruling r1. Leftover scratch and worktrees then stop piling up between lanes, and no builder needs a banned rm to clean up. Two builder stalls on rm prompts occurred today, so the stalled-on-cleanup count should drop to zero in the next census window.
 
