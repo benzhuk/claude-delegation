@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { gatherKnowledge, managedNames, reconcileKnowledge, runProcess } from './knowledge-gather.mjs';
+import { gatherKnowledge, managedNames, reconcileKnowledge, runProcess, sshEnv } from './knowledge-gather.mjs';
+import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 import {
   fixtureOptions, hostRow, makeExitSshFixture, makeSshFixture, makeTarSshFixture, paxRecord,
   seedVerifiedPublication, sha, tarArchive, tarEntry, tmp, writeRemoteNote,
@@ -249,6 +250,32 @@ test('SSH uses the fixed hardening flags and forwards no caller secret, API key,
     'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no', 'RemoteCommand=none', 'RequestTTY=no',
   ]) assert.ok(call.argv.includes(exact) || call.argv.includes(`-o${exact}`), `missing SSH policy ${exact}: ${call.argv}`);
   for (const key of keys) assert.ok(!call.env.includes(key), `${key} reached fake SSH`);
+});
+
+const WINDOWS_OPENSSH = 'C:/Windows/System32/OpenSSH/ssh.exe';
+const WINDOWS_OPENSSH_SKIP = process.platform !== 'win32'
+  ? 'native Windows OpenSSH startup is Windows-only'
+  : !fs.existsSync(WINDOWS_OPENSSH)
+    ? 'native Windows OpenSSH executable is unavailable'
+    : false;
+
+test('production sshEnv starts native Windows OpenSSH and still excludes provider credentials', {
+  skip: WINDOWS_OPENSSH_SKIP,
+  timeout: 15_000,
+}, async () => {
+  const fixtureHome = tmp('knowledge-native-openssh-home-');
+  const excluded = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CLAUDE_CODE_MESSAGING_TOKEN', 'GIT_AUTHOR_NAME'];
+  const sealedBase = childEnv(fixtureHome, Object.fromEntries(excluded.map((name) => [name, `sealed-${name}`])));
+  const env = sshEnv(sealedBase);
+  const result = await runProcess({
+    cmd: [WINDOWS_OPENSSH], args: ['-V'], env, timeoutMs: 10_000, maxBytes: 1024 * 1024,
+  });
+
+  assert.equal(result.timedOut, false, 'native Windows OpenSSH startup exceeded its loose process bound');
+  assert.equal(result.error, null, 'native Windows OpenSSH failed before returning an exit status');
+  assert.equal(result.code, 0, `native Windows OpenSSH did not start with sshEnv names: ${Object.keys(env).sort().join(', ')}`);
+  assert.ok(Object.hasOwn(env, 'ProgramData'), 'production sshEnv must retain the Windows OpenSSH OS-data locator');
+  for (const name of excluded) assert.equal(Object.hasOwn(env, name), false, `${name} reached native OpenSSH`);
 });
 
 test('status-frontmatter mutation does not change original-byte identity during cross-month reconciliation', async () => {
