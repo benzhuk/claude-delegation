@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-secret-guard
 Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-1 and Ben's tick recorded on main at f815df7, read at 1a76c54223974465a53004c8b49d92237f7fea24
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
 Next: accept via Artifact-repo: (lane 60b on main at 52ab9af), merge dotfiles and plugin branches, desktop selftest, chezmoi apply on Hetzner
 Artifact: ba985167ef11bdaf74c0b380d59de7f39dcf19ba
@@ -81,6 +81,8 @@ Four numbers: Hours ask to accepted: 5.3h; largest gap 31.3min at 2026-09-29T22:
 Four numbers: Rework after acceptance: unavailable (git: Command failed: git -C /var/tmp/lane-60/dot diff --name-only 1a76c54223974465a53004c8b49d92237f7fea24..ba985167ef11bdaf74c0b380d59de7f39dcf19ba)
 Four numbers: Work lost or stalled: 4 gap(s) over 30min stalled; 1 waiting-on-agents (31.3 min); agent a367a2ba2b2f5efb9 silent 60.8 min from 2026-09-29T22:28:22.508Z; agent a8ae668d19e0620ae silent 58.6 min from 2026-09-29T22:30:15.967Z; agent a96da4ee9794f0460 silent 83.0 min from 2026-09-29T22:05:55.366Z; agent a9a2e9f8daa2e2466 silent 34.5 min from 2026-09-30T00:18:23.763Z; 0 unanswered ASKs to skills-n; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-30T02:54:29.000Z accepted skills-n artifact ba985167ef11bdaf74c0b380d59de7f39dcf19ba
+Log: 2026-09-30T02:56:05.000Z accepted skills-n dotfiles branch merged to dotfiles main at 6f183eb5af09f8222e19d750a564b34c4f529326 (selftest 74 of 74 on the merged tree); plugin branch merged to main at 20f7267d0889eb092df3ff10c2ae00816143b42e (clean, suite 3303 tests 0 fail)
+Log: 2026-09-30T02:56:05.000Z closed skills-n merge 20f7267d0889eb092df3ff10c2ae00816143b42e
 
 Predicts: fewer false secret-guard denials cut the stalled and rerouted steps that agents hit on harmless commands. Replayed against the 362 desktop denials, 59 now pass with 0 regressions, so work lost or stalled to guard refusals should fall in the next census window, with no new secret reads.
 
