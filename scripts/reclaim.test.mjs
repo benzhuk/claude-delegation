@@ -57,7 +57,10 @@ function baseCtx(overrides = {}) {
     cwd,
     home,
     platform: "linux",
-    uid: process.getuid(),
+    // win32 has no process.getuid() at all - guarded here (matching reclaim.mjs's own opts.uid
+    // default) so every test below can construct a ctx without crashing on win32; the POSIX-shaped
+    // tests that actually depend on uid ownership carry their own win32 skip (see below).
+    uid: typeof process.getuid === "function" ? process.getuid() : 0,
     tmpdir: tmpRoot,
     posixTmpRoot: tmpRoot,
     posixVarTmpRoot: varTmpRoot,
@@ -68,6 +71,36 @@ function baseCtx(overrides = {}) {
     ...overrides,
   };
 }
+
+/** A real win32 context, built the same way LOW5's does: T's win32 root is always
+ * <home>\AppData\Local\Temp, so that's what gets built here, with a real reparse-free directory
+ * tree under it. Only meaningful on an actual win32 host - `pImpl()` in reclaim.mjs forces
+ * `path.win32` string arithmetic for `ctx.platform === "win32"`, which only lines up with the
+ * REAL on-disk paths mkTmp()/path.join() produce when the host's own `path` module is win32's,
+ * i.e. on a real Windows machine. */
+function win32Ctx(overrides = {}) {
+  const home = mkTmp("reclaim-home32-");
+  const tmpdir = mkdir(path.join(home, "AppData", "Local", "Temp"));
+  const cwd = mkTmp("reclaim-cwd32-");
+  return {
+    cwd,
+    home,
+    platform: "win32",
+    uid: 0,
+    tmpdir,
+    posixTmpRoot: "/tmp",
+    posixVarTmpRoot: "/var/tmp",
+    sessionId: "sess-1",
+    now: new Date(),
+    fsImpl: fs,
+    print: () => {},
+    ...overrides,
+  };
+}
+
+const NO_WIN32_HOST = "no win32 host is available in this environment - this runs (and must be "
+  + "read) on a real Windows machine: reclaim.mjs's pImpl() forces path.win32 arithmetic for a "
+  + "win32 ctx, which only lines up with real on-disk paths when the host itself is win32.";
 
 function collector() {
   const lines = [];
@@ -106,28 +139,31 @@ const MID = new Date(Date.now() + 10 * 3600000);
 
 // ---------- usage errors (exit 2) ----------
 
+// argv parsing rejects before ctx.platform is ever consulted (parseArgv runs before any path
+// resolution), so these run against a real win32 ctx (per the Windows gate's brief) rather than
+// baseCtx()'s POSIX fixture - and pass on both hosts either way.
 test("no path given: exit 2, usage error to stderr not stdout", () => {
   const c = collector();
-  const code = reclaimMain([], { ...baseCtx(), print: c.print });
+  const code = reclaimMain([], { ...win32Ctx(), print: c.print });
   assert.equal(code, 2);
   assert.deepEqual(c.lines, []);
 });
 
 test("unknown flag: exit 2", () => {
   const c = collector();
-  const code = reclaimMain(["--bogus"], { ...baseCtx(), print: c.print });
+  const code = reclaimMain(["--bogus"], { ...win32Ctx(), print: c.print });
   assert.equal(code, 2);
 });
 
 test("--branch without --repo: exit 2", () => {
   const c = collector();
-  const code = reclaimMain(["--branch", "foo"], { ...baseCtx(), print: c.print });
+  const code = reclaimMain(["--branch", "foo"], { ...win32Ctx(), print: c.print });
   assert.equal(code, 2);
 });
 
 test("--branch combined with a path: exit 2", () => {
   const c = collector();
-  const code = reclaimMain(["--branch", "foo", "--repo", "/tmp", "/tmp/x"], { ...baseCtx(), print: c.print });
+  const code = reclaimMain(["--branch", "foo", "--repo", "/tmp", "/tmp/x"], { ...win32Ctx(), print: c.print });
   assert.equal(code, 2);
 });
 
@@ -138,8 +174,9 @@ test("F14: kill switch refuses every argument, exit 3, nothing removed", () => {
   // green even after mutating the call site from `switchedOffImpl("reclaim")` to
   // `switchedOffImpl("janitor-act")` - the test never actually checked WHICH switch name reclaim
   // asks about. Injecting a name-sensitive stub makes that mutation fail loudly instead.
-  const ctx = baseCtx({ switchedOffImpl: (name) => name === "reclaim" });
-  const target = path.join(ctx.posixTmpRoot, `claude-${ctx.uid}`, "proj", ctx.sessionId, "scratchpad", "x");
+  // The kill switch fires before any path resolution, so this runs against a real win32 ctx too.
+  const ctx = win32Ctx({ switchedOffImpl: (name) => name === "reclaim" });
+  const target = path.join(ctx.tmpdir, `claude-${ctx.uid}`, "proj", ctx.sessionId, "scratchpad", "x");
   mkdir(target);
   const c = collector();
   const code = reclaimMain([target], { ...ctx, print: c.print });
@@ -252,6 +289,25 @@ test("T: happy path removes with fs, dry-run removes nothing", () => {
   assert.ok(!fs.existsSync(target));
 });
 
+test("T: happy path removes with fs, dry-run removes nothing (win32 host)", { skip: process.platform !== "win32" ? NO_WIN32_HOST : false }, () => {
+  // T's win32 root is <home>\AppData\Local\Temp (win32Ctx() builds exactly that) - a real win32
+  // context is required here, not baseCtx()'s POSIX fixture, per the Windows gate's brief.
+  const ctx = win32Ctx();
+  const top = mkdir(path.join(ctx.tmpdir, "delegation-foo-XXXX"));
+  const target = mkdir(path.join(top, "data"));
+  const c1 = collector();
+  const code1 = reclaimMain(["--dry-run", target], { ...ctx, print: c1.print });
+  assert.equal(code1, 0);
+  assert.match(c1.lines[0], /^would-remove T /);
+  assert.ok(fs.existsSync(target));
+
+  const c2 = collector();
+  const code2 = reclaimMain([target], { ...ctx, print: c2.print });
+  assert.equal(code2, 0);
+  assert.match(c2.lines[0], /^removed T /);
+  assert.ok(!fs.existsSync(target));
+});
+
 test("T: whole delegation-<name>-XXXX directory removes as one unit", () => {
   const ctx = baseCtx();
   const { top } = tTarget(ctx);
@@ -285,6 +341,19 @@ test("T: owned by another uid is refused (no root required - inject ctx.uid)", (
 test("F3: a nested linked-worktree .git FILE inside a T dir is refused", () => {
   const ctx = baseCtx();
   const { target } = tTarget(ctx);
+  const sub = mkdir(path.join(target, "sub"));
+  fs.writeFileSync(path.join(sub, ".git"), "gitdir: /elsewhere/.git/worktrees/sub\n");
+  const c = collector();
+  const code = reclaimMain([target], { ...ctx, print: c.print });
+  assert.equal(code, 3);
+  assert.match(c.lines[0], /linked worktree's \.git file/);
+  assert.ok(fs.existsSync(target));
+});
+
+test("F3: a nested linked-worktree .git FILE inside a T dir is refused (win32 host)", { skip: process.platform !== "win32" ? NO_WIN32_HOST : false }, () => {
+  const ctx = win32Ctx();
+  const top = mkdir(path.join(ctx.tmpdir, "delegation-foo-XXXX"));
+  const target = mkdir(path.join(top, "data"));
   const sub = mkdir(path.join(target, "sub"));
   fs.writeFileSync(path.join(sub, ".git"), "gitdir: /elsewhere/.git/worktrees/sub\n");
   const c = collector();
@@ -579,6 +648,29 @@ test("HIGH1 (re-review finding 1): a plain repo's own main checkout, with NO oth
   assert.ok(fs.existsSync(path.join(srcDir, "new.txt")));
 });
 
+test("HIGH1: a plain repo's own main checkout is refused too - ancestor .git refusal (win32 host)", { skip: process.platform !== "win32" ? NO_WIN32_HOST : false }, () => {
+  const ctx = win32Ctx({ cwd: mkTmp("reclaim-cwd32-") });
+  const top = mkdir(path.join(ctx.tmpdir, "delegation-plain-1"));
+  const repo = mkdir(path.join(top, "r"));
+  git(["init", "-q", "-b", "main"], repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "root\n");
+  const srcDir = mkdir(path.join(repo, "src"));
+  fs.writeFileSync(path.join(srcDir, "a.txt"), "tracked\n");
+  git(["add", "."], repo);
+  git(["commit", "-q", "-m", "init"], repo);
+  fs.appendFileSync(path.join(srcDir, "a.txt"), "modified\n");
+  fs.writeFileSync(path.join(srcDir, "new.txt"), "untracked\n");
+
+  for (const target of [srcDir, path.join(srcDir, "new.txt"), path.join(repo, ".git", "objects")]) {
+    const c = collector();
+    const code = reclaimMain([target], { ...ctx, print: c.print });
+    assert.equal(code, 3, `target ${target} must be refused`);
+    assert.match(c.lines[0], /lies inside a git checkout at/);
+  }
+  assert.ok(fs.existsSync(path.join(srcDir, "a.txt")));
+  assert.ok(fs.existsSync(path.join(srcDir, "new.txt")));
+});
+
 test("HIGH1 (re-review finding 1, P2b): the T top itself is the plain repo - a target inside it is still refused", () => {
   const ctx = baseCtx({ cwd: mkTmp("reclaim-cwd-") });
   const repo = mkdir(path.join(ctx.posixVarTmpRoot, "delegation-plain-repo-1"));
@@ -653,6 +745,33 @@ test("HIGH2 (re-review finding 2): a bare repo backing a live linked worktree wi
   const bareRepo = path.join(top, "b.git");
   git(["clone", "-q", "--bare", repo, bareRepo], undefined);
   const bareWt = mkTmp("reclaim-barewt-");
+  fs.rmdirSync(bareWt);
+  git(["worktree", "add", bareWt, "main"], bareRepo);
+  fs.writeFileSync(path.join(bareWt, "unpushed.txt"), "only copy\n");
+  git(["add", "."], bareWt);
+  git(["commit", "-q", "-m", "unpushed work"], bareWt);
+
+  const c1 = collector();
+  const code1 = reclaimMain([top], { ...ctx, print: c1.print });
+  assert.equal(code1, 3);
+  assert.match(c1.lines[0], /contains a repo with linked worktrees elsewhere at/);
+  assert.ok(fs.existsSync(bareRepo));
+
+  const c2 = collector();
+  const code2 = reclaimMain([path.join(bareRepo, "objects")], { ...ctx, print: c2.print });
+  assert.equal(code2, 3);
+  assert.match(c2.lines[0], /lies inside a git directory at/);
+  assert.ok(fs.existsSync(path.join(bareRepo, "objects")));
+});
+
+test("HIGH2: a bare repo backing a live linked worktree with an unpushed commit is refused (win32 host)", { skip: process.platform !== "win32" ? NO_WIN32_HOST : false }, () => {
+  const { repo, origin } = initRepo();
+  void origin;
+  const ctx = win32Ctx({ cwd: mkTmp("reclaim-cwd32-") });
+  const top = mkdir(path.join(ctx.tmpdir, "delegation-bare-1"));
+  const bareRepo = path.join(top, "b.git");
+  git(["clone", "-q", "--bare", repo, bareRepo], undefined);
+  const bareWt = mkTmp("reclaim-barewt32-");
   fs.rmdirSync(bareWt);
   git(["worktree", "add", bareWt, "main"], bareRepo);
   fs.writeFileSync(path.join(bareWt, "unpushed.txt"), "only copy\n");

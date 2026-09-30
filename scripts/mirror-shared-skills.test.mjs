@@ -235,6 +235,24 @@ function fixtureHomeWithSettings(prefix, settingsText) {
 
 const PLAIN_SETTINGS = `${JSON.stringify({ permissions: { allow: ['Bash(git *)'] } }, null, 2)}\n`;
 
+/** A fake `chezmoi` binary on PATH, for chezmoiManagedStatus()'s own execFileSync('chezmoi', ...) call
+ * (no shell: true). On POSIX a `#!/bin/sh` script works directly; on win32 the equivalent is a `.cmd`
+ * file - Windows has no shebang interpreter, and execFileSync without shell:true can only resolve and
+ * run `chezmoi` via PATHEXT if the file has a recognised extension. `stdout`/`exitCode` are the only
+ * two behaviours chezmoiManagedStatus() reads. */
+function writeFakeChezmoi(dir, { stdout = '', exitCode = 0 } = {}) {
+  if (process.platform === 'win32') {
+    const bin = path.join(dir, 'chezmoi.cmd');
+    const echoLines = stdout ? stdout.split('\n').filter(Boolean).map((l) => `echo ${l}`).join('\r\n') : '';
+    fs.writeFileSync(bin, `@echo off\r\n${echoLines}\r\nexit /b ${exitCode}\r\n`);
+    return bin;
+  }
+  const bin = path.join(dir, 'chezmoi');
+  fs.writeFileSync(bin, `#!/bin/sh\n${stdout ? `echo "${stdout}"\n` : ''}exit ${exitCode}\n`);
+  fs.chmodSync(bin, 0o755);
+  return bin;
+}
+
 test('F12: the reclaim shim is gated by isDurablePath(REPO), targeting THIS repo\'s own scripts/reclaim.mjs, never the mirrored copy', () => {
   const sources = collectSources();
   const reclaimEntries = sources.filter((s) => s.kind === 'shim' && s.command === 'reclaim');
@@ -332,12 +350,19 @@ test('F11: --write-allow adds Bash(reclaim *) to an existing, unmanaged settings
   assert.deepEqual(JSON.parse(after), { permissions: { allow: ['Bash(git *)', 'Bash(reclaim *)'] } });
   // byte-for-byte round trip except for the one appended entry: same 2-space JSON.stringify shape.
   assert.equal(after, `${JSON.stringify({ permissions: { allow: ['Bash(git *)', 'Bash(reclaim *)'] } }, null, 2)}\n`);
-  assert.equal(fs.statSync(settingsPath).mode & 0o777, 0o600, 'mode must be preserved, never widened by the rename');
+  // POSIX-only: win32 has no rwx mode bits (chmodSync's 0o600 above only ever toggles the read-only
+  // attribute there, never the fine-grained owner bits this asserts on), so only the mode checks
+  // themselves are skipped there - the rest of the write/round-trip/backup behaviour still runs.
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(settingsPath).mode & 0o777, 0o600, 'mode must be preserved, never widened by the rename');
+  }
   const backupDir = path.join(home, '.agents', 'rollout-backups');
   const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith('claude-settings.json.'));
   assert.equal(backups.length, 1, 'exactly one backup, outside ~/.claude');
   assert.equal(fs.readFileSync(path.join(backupDir, backups[0]), 'utf8'), PLAIN_SETTINGS, 'the backup holds the ORIGINAL bytes');
-  assert.equal(fs.statSync(path.join(backupDir, backups[0])).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(path.join(backupDir, backups[0])).mode & 0o777, 0o600);
+  }
 });
 
 test('F11: --write-allow SKIPs (does not write) when settings.json is absent', () => {
@@ -415,8 +440,7 @@ test('F11: --write-allow SKIPs as chezmoi-managed when a fake chezmoi on PATH li
   const home = fixtureHomeWithSettings('mirror-write-allow-chezmoi-', PLAIN_SETTINGS);
   const settingsPath = path.join(home, '.claude', 'settings.json');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-chezmoi-'));
-  fs.writeFileSync(path.join(bin, 'chezmoi'), '#!/bin/sh\necho ".claude/settings.json"\n');
-  fs.chmodSync(path.join(bin, 'chezmoi'), 0o755);
+  writeFakeChezmoi(bin, { stdout: '.claude/settings.json' });
   const json = runFull(['--write-allow'], home, { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
   assert.ok(json.actions.some((a) => a === `SKIP ${settingsPath}: chezmoi-managed`), json.actions.join('\n'));
   assert.equal(fs.readFileSync(settingsPath, 'utf8'), PLAIN_SETTINGS, 'never touched');
@@ -426,8 +450,7 @@ test('F11: --write-allow SKIPs as "chezmoi check failed" when chezmoi is on PATH
   const home = fixtureHomeWithSettings('mirror-write-allow-chezmoi-err-', PLAIN_SETTINGS);
   const settingsPath = path.join(home, '.claude', 'settings.json');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-chezmoi-err-'));
-  fs.writeFileSync(path.join(bin, 'chezmoi'), '#!/bin/sh\nexit 1\n');
-  fs.chmodSync(path.join(bin, 'chezmoi'), 0o755);
+  writeFakeChezmoi(bin, { exitCode: 1 });
   const json = runFull(['--write-allow'], home, { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
   assert.ok(json.actions.some((a) => a === `SKIP ${settingsPath}: chezmoi check failed`), json.actions.join('\n'));
   assert.equal(fs.readFileSync(settingsPath, 'utf8'), PLAIN_SETTINGS, 'never touched');
@@ -483,7 +506,10 @@ test('F9: --write-allow appends the codex prefix_rule line when the rules file e
     fs.readFileSync(rulesPath, 'utf8'),
     `prefix_rule(pattern = ["git"], decision = "allow")\n${wanted}\n`,
   );
-  assert.equal(fs.statSync(rulesPath).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    // POSIX-only: win32 has no rwx mode bits to preserve here.
+    assert.equal(fs.statSync(rulesPath).mode & 0o777, 0o600);
+  }
   const backupDir = path.join(home, '.agents', 'rollout-backups');
   assert.ok(fs.readdirSync(backupDir).some((f) => f.startsWith('codex-default.rules.')));
 });
@@ -508,8 +534,7 @@ test('F9: --write-allow SKIPs the codex rules file as chezmoi-managed', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-write-allow-codex-chezmoi-'));
   const rulesPath = fixtureCodexHome(home, 'prefix_rule(pattern = ["git"], decision = "allow")\n');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-chezmoi-codex-'));
-  fs.writeFileSync(path.join(bin, 'chezmoi'), '#!/bin/sh\necho ".codex/rules/default.rules"\n');
-  fs.chmodSync(path.join(bin, 'chezmoi'), 0o755);
+  writeFakeChezmoi(bin, { stdout: '.codex/rules/default.rules' });
   const json = runFull(['--write-allow'], home, { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
   assert.ok(json.actions.some((a) => a === `SKIP ${rulesPath}: chezmoi-managed`), json.actions.join('\n'));
 });
@@ -523,7 +548,17 @@ test('F9: isCodexRulesPathCertain is true only for the single plain ~/.codex hom
     false,
     'a CODEX_HOME override makes it ambiguous, even though .codex still exists',
   );
-  const managedRoot = path.join(home, '.config', 'orca', 'codex-accounts', 'acct-a', 'home');
+  // codexHomes() (which isCodexRulesPathCertain calls) looks for the Orca-managed accounts root at a
+  // platform-specific path, keyed off the REAL process.platform (this test passes no `platform`
+  // override) - the fixture must land in the same place codexHomes() will actually look, or this
+  // "second managed home" never gets seen at all and the assertion below goes green for the wrong
+  // reason (or red, on win32, before this fix - codexHomes() looked under AppData\Roaming there while
+  // this fixture built only the POSIX .config/orca shape).
+  const managedRoot = process.platform === 'win32'
+    ? path.join(home, 'AppData', 'Roaming', 'orca', 'codex-accounts', 'acct-a', 'home')
+    : process.platform === 'darwin'
+      ? path.join(home, 'Library', 'Application Support', 'orca', 'codex-accounts', 'acct-a', 'home')
+      : path.join(home, '.config', 'orca', 'codex-accounts', 'acct-a', 'home');
   fs.mkdirSync(managedRoot, { recursive: true });
   assert.equal(
     isCodexRulesPathCertain({ home, env: {} }),
@@ -589,6 +624,14 @@ test('review finding 14: a previously-managed reclaim shim entry survives manife
 
 test('review finding R2-5: an entry merely NAMED reclaim outside LOCAL_BIN is dropped normally, not protected by the carry-forward clause', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mirror-manifest-reclaim-elsewhere-'));
+  // warnCrossSessionInbound() runs unconditionally on every plain run and reads straight off HOME
+  // (module-level, resolved from os.homedir() inside the freshly-spawned child) - this fixture home
+  // has no .claude/settings.json of its own, so without one it falls through to "nothing" and prints
+  // a WARNING action irrelevant to this test's own assertions. Giving it a fixture settings.json that
+  // already says `crossSessionInbound: "accept"` keeps that WARNING out of json.actions here, the same
+  // way a real, correctly-configured machine would never see it either.
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ crossSessionInbound: 'accept' }));
   // A skill (or anything else) that happens to be named "reclaim" but lives somewhere other than
   // ~/.local/bin must never become undroppable just because its basename matches the shim's - the
   // finding 14 carry-forward is scoped to the real shim location only (R2-5's own patch, the exact

@@ -2917,16 +2917,21 @@ test("F1: --apply skips a SAFE worktree active in the last 24h, and removes it o
 
 test(
   "review finding 10: isTreeClean() does not ENOBUFS-fail-closed on a repo whose `git ls-files -v` output exceeds the default 1 MB maxBuffer",
-  { timeout: 60000 },
+  { timeout: 120000 },
   () => {
     const root = initRepo();
-    // ~6500 files at ~208 bytes/line of `git ls-files -v` output (tag + long name + newline) comes
-    // to roughly 1.35 MB - comfortably over node's default 1 MB maxBuffer, comfortably under the
-    // fix's 256 MB ceiling.
-    const N = 6500;
-    const longName = "x".repeat(200);
+    // Windows portability (lane 59 Windows gate): the original fixture used a 200-char filename per
+    // entry, which overflows NTFS's legacy ~260-char full-path limit once combined with this test's
+    // (already long) sealed-home fixture path - `git add -A` itself failed with "Filename too long"
+    // before isTreeClean() was ever reached, on Windows only. Reaching the same >1 MB `git ls-files
+    // -v` output with many NORMAL-length names instead (well under any path-length limit on any
+    // platform) exercises the exact same ENOBUFS-fail-closed behaviour without depending on long
+    // filenames at all: ~30000 files at ~43 bytes/line (tag + name + newline) comes to roughly
+    // 1.29 MB - comfortably over node's default 1 MB maxBuffer, comfortably under the fix's 256 MB
+    // ceiling.
+    const N = 30000;
     for (let i = 0; i < N; i++) {
-      fs.writeFileSync(path.join(root, `${longName}-${i}`), "");
+      fs.writeFileSync(path.join(root, `normal-length-tracked-file-${String(i).padStart(6, "0")}`), "");
     }
     git(["add", "-A"], root);
     git(["commit", "-q", "-m", "many tracked files"], root);
