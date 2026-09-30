@@ -64,6 +64,9 @@ import { lfLines } from './jsonl-lines.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { collectLedgerEntries, countStallNudges } from './four-read.mjs';
+import { parseRecord } from './work-record.mjs';
+import { pathEscapesRoot } from './path-safety.mjs';
+import { TOKEN_DEFINITION, processedTokenTotal, computeCodexActivity } from './census-measures.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage aggregation
@@ -991,11 +994,16 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
  * Census one subagent .output/.jsonl file. Same last-line-wins de-dup, independently per
  * file. Returns { byId: Map<id, {model, usage, ts}>, firstAt, lastAt }.
  */
-export async function censusSubFile(filePath, { fsImpl = fs } = {}) {
+// `collect` (lane 62, declared roles only): additionally return the count of unparsable rows, every
+// sessionId the rows name, and give each entry its request/message id keys so a declared session can be
+// de-duplicated against native files. Legacy callers get the original shape plus a `malformed` count.
+export async function censusSubFile(filePath, { fsImpl = fs, collect = false } = {}) {
   const rl = await openLines(fsImpl, filePath);
   const byId = new Map();
   const alias = new Map();
   const uniqueCounter = { n: 0 };
+  const sessionIds = new Set();
+  let malformed = 0;
   let firstAt = null;
   let lastAt = null;
 
@@ -1005,18 +1013,21 @@ export async function censusSubFile(filePath, { fsImpl = fs } = {}) {
     try {
       obj = JSON.parse(line);
     } catch {
+      malformed += 1;
       continue;
     }
     if (obj.timestamp) {
       if (!firstAt) firstAt = obj.timestamp;
       lastAt = obj.timestamp;
     }
+    if (collect && typeof obj.sessionId === 'string') sessionIds.add(obj.sessionId);
     if (obj.type !== 'assistant' || !obj.message || !obj.message.usage) continue;
     const entry = { model: obj.message.model || 'unknown', usage: obj.message.usage, ts: obj.timestamp || lastAt };
+    if (collect) entry.ids = [obj.requestId ? `req:${obj.requestId}` : null, obj.message.id ? `msg:${obj.message.id}` : null].filter(Boolean);
     resolveAndStore(byId, alias, obj, uniqueCounter, entry);
   }
 
-  return { byId, firstAt, lastAt };
+  return { byId, firstAt, lastAt, malformed, sessionIds };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1384,6 +1395,290 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Declared roles (lane 62). The record's single `Role-sessions:` manifest names detached sessions
+// (a review-run reviewer, a launcher-spawned builder) that the native session graph cannot reach.
+// The declaration is the lane/role attribution authority (current sidecars do not attest a lane);
+// identity is proven by the sidecar's session and the native rows' own id, models always come from
+// native usage, and any source that cannot be verified taints its own coverage (PARTIAL) rather than
+// dropping out silently. Legacy runs without --record stay native-only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DECLARED_ROLES = new Set(['builder', 'reviewer', 'integrator', 'scout', 'spec-reviewer']);
+const OPENED_TOLERANCE_MS = 5 * 60000; // four-read's census-window tolerance
+
+// A confined regular file: root-relative path, no lexical or symlink escape.
+function confinedRegularFile(rootDir, relativePath, fsImpl) {
+  if (typeof relativePath !== 'string' || !relativePath || path.isAbsolute(relativePath)) return { ok: false, reason: 'path must be relative to its root' };
+  const root = path.resolve(rootDir);
+  const candidate = path.resolve(root, relativePath);
+  if (pathEscapesRoot(path.relative(root, candidate))) return { ok: false, reason: 'path escapes its root' };
+  try {
+    const realRoot = fsImpl.realpathSync(root);
+    const real = fsImpl.realpathSync(candidate);
+    if (pathEscapesRoot(path.relative(realRoot, real))) return { ok: false, reason: 'path resolves outside its root' };
+    if (!fsImpl.statSync(real).isFile()) return { ok: false, reason: 'path is not a regular file' };
+    return { ok: true, real };
+  } catch {
+    return { ok: false, reason: 'path is missing or unreadable' };
+  }
+}
+
+// --record/--repo/--from/--to rules shared by the Claude and Codex entry paths. Returns null without --record.
+function declaredRoleContext(opts, fsImpl) {
+  if (!opts.record && !opts.repo) return null;
+  if (!opts.record || !opts.repo) throw new Error('--record and --repo are required together');
+  if (opts.marker) throw new Error('--record cannot be combined with --marker (declared roles need an explicit --from/--to window)');
+  if (!opts.from || !opts.to) throw new Error('--record requires explicit --from and --to');
+  let parsed;
+  try { parsed = parseRecord(fsImpl.readFileSync(path.resolve(opts.record), 'utf8')); }
+  catch (error) { throw new Error(`--record is not readable: ${error.message}`); }
+  const work = parsed.fields.work;
+  if (!work) throw new Error('--record has no Work: field');
+  const openedMs = Date.parse(parsed.fields.opened ?? '');
+  if (Number.isNaN(openedMs)) throw new Error('--record has no parseable Opened: instant');
+  if (Date.parse(opts.from) < openedMs - OPENED_TOLERANCE_MS) {
+    throw new Error(`--from ${opts.from} is earlier than the record's Opened ${parsed.fields.opened} by more than 5 minutes`);
+  }
+  return { work, manifestPath: parsed.fields.roleSessions || null };
+}
+
+const NATIVE_ONLY_LIMITATION = 'roles: native session graph only; detached sessions are counted only when declared in a Role-sessions manifest';
+const DECLARATION_LIMITATIONS = [
+  'declared roles: the record declaration is the lane/role attribution authority (current sidecars do not attest a lane)',
+  'declared roles are the declared set only, never proof that no undeclared role exists',
+];
+const COMPARABILITY_LIMITATION = 'token totals cover the stated roles and window only; a lead-only hand-run baseline, its window, quality, rework and stall classes are not the same scope';
+
+function emptyDeclared(opts) {
+  return {
+    results: [], files: [], scope: {
+      roles: 'native-only', from: opts.from || null, to: opts.to || null, omitted: [],
+      limitations: [NATIVE_ONLY_LIMITATION, COMPARABILITY_LIMITATION],
+    },
+  };
+}
+
+function newVector() {
+  return { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 };
+}
+
+function withDerived(byModel) {
+  const out = {};
+  for (const [model, v] of Object.entries(byModel)) {
+    out[model] = { ...v, derived_total_tokens: v.input_tokens + v.cache_creation_input_tokens + v.cache_read_input_tokens + v.output_tokens };
+  }
+  return out;
+}
+
+function unreadableDeclared(reason) {
+  return { reasons: [reason], requests: null, duplicates: 0, byModel: null, files: [] };
+}
+
+async function readDeclaredClaude({ real, sessionId, role, fromMs, toMs, nativeRaw, nativeKeys, seen, opts, fsImpl }) {
+  const reasons = [];
+  const files = [];
+  const byModel = {};
+  let requests = 0;
+  let duplicates = 0;
+  let inWindow = 0;
+  let invalid = 0;
+  let unknownModel = 0;
+  let untimed = 0;
+  let malformed = 0;
+  const root = await censusSubFile(real, { fsImpl, collect: true });
+  if (!root.sessionIds.has(sessionId)) return unreadableDeclared('native identity not found in transcript rows');
+  if ([...root.sessionIds].some((id) => id !== sessionId)) reasons.push('transcript rows name another session');
+  const { specs, unreadableDirs: specDirs } = buildDirSpecs({ lead: real }, fsImpl);
+  const { collected, unreadableDirs: collectDirs } = collectTaskFiles(specs, fsImpl);
+  if (specDirs.length || collectDirs.length) reasons.push('declared subagent directory unreadable');
+  const fileEntries = [{ file: real, role, data: root }];
+  // The declared subtree rides the native default traversal; a file the native census already reads is not read twice.
+  const tagged = collected.map((item) => ({ ...item, declared: true }));
+  const survivors = dedupeByRealPath([...nativeRaw, ...tagged], fsImpl).filter((item) => item.declared);
+  const journals = new Map();
+  for (const item of survivors) {
+    if (!journals.has(item.dir)) journals.set(item.dir, readJournal(item.dir, fsImpl));
+    const resolved = resolveRole(item.filename.replace(/\.(jsonl|output)$/i, ''), journals.get(item.dir), opts.roleMap);
+    try {
+      fileEntries.push({ file: item.fullPath, role: resolved === 'unassigned' ? role : resolved, data: await censusSubFile(item.fullPath, { fsImpl, collect: true }) });
+    } catch { reasons.push('declared subagent file unreadable'); }
+  }
+  for (const { file, role: fileRole, data } of fileEntries) {
+    malformed += data.malformed;
+    const fileByModel = {};
+    let fileRequests = 0;
+    for (const [key, entry] of data.byId) {
+      const t = entry.ts ? Date.parse(entry.ts) : NaN;
+      if (Number.isNaN(t)) { untimed += 1; continue; }
+      if (t < fromMs || t > toMs) continue;
+      inWindow += 1;
+      const ids = [key, ...(entry.ids || [])];
+      if (ids.some((id) => nativeKeys.has(id) || seen.has(id))) { duplicates += 1; continue; }
+      try { processedTokenTotal('claude', entry.usage); } catch { invalid += 1; continue; }
+      for (const id of ids) seen.add(id);
+      if (entry.model === 'unknown') unknownModel += 1;
+      const model = entry.model || 'unknown';
+      for (const target of [fileByModel, byModel]) {
+        if (!target[model]) target[model] = newVector();
+        addUsage(target[model], entry.usage);
+      }
+      fileRequests += 1;
+      requests += 1;
+    }
+    files.push({ file, role: fileRole, turns: fileRequests, byModel: withDerived(fileByModel) });
+  }
+  if (malformed) reasons.push(`corrupt rows: ${malformed}`);
+  if (invalid) reasons.push(`invalid usage rows: ${invalid}`);
+  if (unknownModel) reasons.push(`usage rows without a model: ${unknownModel}`);
+  if (untimed) reasons.push(`usage rows without a timestamp: ${untimed}`);
+  if (inWindow === 0) reasons.push('no in-window usage');
+  return { reasons, requests, duplicates, byModel: withDerived(byModel), files };
+}
+
+// A declared Codex role: identity is the rollout's own session_meta; usage and descendants come from the existing reader.
+async function readDeclaredCodex({ real, sessionId, role, opts, nativeKeys, seen, codexHome, fsImpl }) {
+  const reasons = [];
+  const meta = codexFirstMeta(real, fsImpl);
+  if (meta.error || meta.meta.id !== sessionId) return unreadableDeclared('native identity mismatch: rollout session_meta id is not the declared session');
+  const window = { from: opts.from, to: opts.to };
+  const parts = [{ file: real, data: null }];
+  try { parts[0].data = await censusCodexLeadFile(real, { fsImpl, marker: null, ...window, expectedId: sessionId, child: true }); }
+  catch (error) { return unreadableDeclared(`declared Codex rollout unusable: ${error.message}`); }
+  try {
+    const leadMeta = { id: sessionId, session_id: parts[0].data.rootSessionId, timestamp: parts[0].data.firstAt };
+    const { discovery, selected } = discoverCodexChildren({ leadPath: real, leadMeta, tasksDirs: [], fsImpl, codexHome, knownId: true });
+    if (!discovery.scope.complete) reasons.push('declared Codex subtree discovery incomplete');
+    for (const child of selected) {
+      try {
+        parts.push({ file: child.file, role: child.role, data: await censusCodexLeadFile(child.file, { fsImpl, marker: null, ...window, rootSessionId: parts[0].data.rootSessionId, expectedId: child.meta.id, child: true }) });
+      } catch (error) { reasons.push(`declared Codex child unusable: ${error.message}`); }
+    }
+  } catch (error) { reasons.push(`declared Codex subtree unavailable: ${error.message}`); }
+  const byModel = {};
+  const files = [];
+  let requests = 0;
+  let duplicates = 0;
+  let inWindow = 0;
+  let unusable = 0;
+  for (const part of parts) {
+    const fileByModel = {};
+    let fileRequests = 0;
+    for (const [key, entry] of part.data.windowById) {
+      inWindow += 1;
+      if (nativeKeys.has(key) || seen.has(key)) { duplicates += 1; continue; }
+      const u = entry.usage;
+      const vector = { input_tokens: u.input_tokens, cache_creation_input_tokens: u.cache_creation_input_tokens, cache_read_input_tokens: u.cache_read_input_tokens, output_tokens: u.output_tokens };
+      if (entry.model === 'unknown' || Object.values(vector).some((n) => n === null)) { unusable += 1; continue; }
+      seen.add(key);
+      for (const target of [fileByModel, byModel]) {
+        if (!target[entry.model]) target[entry.model] = newVector();
+        addUsage(target[entry.model], vector);
+      }
+      fileRequests += 1;
+      requests += 1;
+    }
+    files.push({ file: part.file, role: part.role || role, turns: fileRequests, byModel: withDerived(fileByModel) });
+  }
+  if (unusable) reasons.push(`responses with unknown model or unavailable token categories: ${unusable}`);
+  if (inWindow === 0) reasons.push('no in-window usage');
+  return { reasons, requests, duplicates, byModel: withDerived(byModel), files };
+}
+
+/**
+ * Read the record's declared roles. A bad DECLARATION is PARTIAL, never a throw; only bad CLI use throws
+ * (--record without --repo/--from/--to, --from before Opened).
+ * leadIdentity: {host, sessionId}. native: {raw (collected native subagent files), keys (Set of canonical request keys)}.
+ */
+async function readDeclaredRoles(opts, leadIdentity, native, fsImpl) {
+  const context = declaredRoleContext(opts, fsImpl);
+  const out = emptyDeclared(opts);
+  if (!context || !context.manifestPath) return out; // no record, or a record with no Role-sessions: stays native-only
+  const omit = (host, sessionId, reason) => out.scope.omitted.push({ host: String(host), sessionId: String(sessionId), reason });
+  out.scope.roles = 'native-plus-declared';
+  out.scope.limitations = [...DECLARATION_LIMITATIONS, COMPARABILITY_LIMITATION];
+  const manifestFile = confinedRegularFile(opts.repo, context.manifestPath, fsImpl);
+  if (!manifestFile.ok) { omit('unknown', context.manifestPath, `Role-sessions manifest ${manifestFile.reason}`); return out; }
+  let manifest;
+  try { manifest = JSON.parse(fsImpl.readFileSync(manifestFile.real, 'utf8')); }
+  catch { omit('unknown', context.manifestPath, 'Role-sessions manifest is not valid JSON'); return out; }
+  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.sessions)) { omit('unknown', context.manifestPath, 'Role-sessions manifest is not version 1 with a sessions array'); return out; }
+  if (manifest.work !== context.work) { omit('unknown', context.manifestPath, `Role-sessions manifest work ${String(manifest.work)} is not the record's Work ${context.work}`); return out; }
+  const fromMs = Date.parse(opts.from);
+  const toMs = Date.parse(opts.to);
+  const codexHome = opts.codexHome || CANONICAL_CODEX_HOME;
+  // Group declarations: identical repeats collapse; any difference in role/evidence/transcript conflicts.
+  const groups = new Map();
+  for (const entry of manifest.sessions) {
+    const host = entry && entry.host;
+    const sessionId = entry && entry.sessionId;
+    if ((host !== 'claude' && host !== 'codex') || typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) { omit(host, sessionId, 'declaration has an invalid host or sessionId'); continue; }
+    const key = `${host}:${sessionId.toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  const seen = new Set();
+  for (const [, group] of [...groups].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const first = group[0];
+    const signature = (e) => JSON.stringify([e.role, e.evidence, e.transcript]);
+    const result = { host: first.host, sessionId: first.sessionId, role: DECLARED_ROLES.has(first.role) ? first.role : 'builder', evidence: String(first.evidence ?? ''),
+      status: 'PARTIAL', reasons: [], requests: null, duplicateRequests: 0, byModel: null };
+    const fail = (reason) => { if (!result.reasons.includes(reason)) result.reasons.push(reason); };
+    if (!DECLARED_ROLES.has(first.role)) fail('declaration has an invalid role');
+    if (group.some((e) => signature(e) !== signature(first))) fail('conflicting declarations for this session');
+    if (first.sessionId === leadIdentity.sessionId && first.host === leadIdentity.host) fail('declared session is the lead');
+    let real = null;
+    if (!result.reasons.length) {
+      const evidenceFile = confinedRegularFile(opts.repo, first.evidence, fsImpl);
+      let evidence = null;
+      if (!evidenceFile.ok) fail(`launch evidence ${evidenceFile.reason}`);
+      else {
+        try { evidence = JSON.parse(fsImpl.readFileSync(evidenceFile.real, 'utf8')); } catch { fail('launch evidence is not valid JSON'); }
+      }
+      if (evidence) {
+        const startedAt = evidence.started ?? evidence.startedAt;
+        if (evidence.session !== first.sessionId) fail('launch evidence session is not the declared session');
+        else if (typeof startedAt !== 'string' || Number.isNaN(Date.parse(startedAt))) fail('launch evidence has no parseable started/startedAt');
+      }
+      const root = first.host === 'claude' ? opts.claudeRoot : codexHome;
+      if (!result.reasons.length) {
+        if (!root) fail('no --claude-root for a declared Claude session');
+        else {
+          const transcript = confinedRegularFile(root, first.transcript, fsImpl);
+          if (!transcript.ok) fail(`transcript ${transcript.reason}`); else real = transcript.real;
+        }
+      }
+    }
+    if (real) {
+      try {
+        const read = first.host === 'claude'
+          ? await readDeclaredClaude({ real, sessionId: first.sessionId, role: result.role, fromMs, toMs, nativeRaw: native.raw, nativeKeys: native.keys, seen, opts, fsImpl })
+          : await readDeclaredCodex({ real, sessionId: first.sessionId, role: result.role, opts, nativeKeys: native.keys, seen, codexHome, fsImpl });
+        for (const reason of read.reasons) fail(reason);
+        result.requests = read.requests;
+        result.duplicateRequests = read.duplicates;
+        result.byModel = read.byModel;
+        for (const file of read.files) out.files.push({ ...file, host: first.host, sessionId: first.sessionId });
+      } catch (error) { fail(`declared transcript unreadable: ${error.message}`); }
+    }
+    if (!result.reasons.length) result.status = 'complete';
+    out.results.push(result);
+  }
+  return out;
+}
+
+function declaredIsPartial(declared) {
+  return declared.scope.omitted.length > 0 || declared.results.some((r) => r.status !== 'complete');
+}
+
+function declaredReasons(declared) {
+  return [
+    ...declared.scope.omitted.map((o) => `${o.host} ${o.sessionId}: ${o.reason}`),
+    ...declared.results.filter((r) => r.status !== 'complete').map((r) => `${r.host} ${r.sessionId} (${r.role}): ${r.reasons.join(', ')}`),
+  ];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Report
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1392,6 +1687,58 @@ function discoverCodexChildren({ leadPath, leadMeta, tasksDirs, fsImpl, codexHom
  * opts: { lead, tasksDirs, marker, out, json, roleMap } — see parseArgs. fsImpl defaults
  * to real node:fs.
  */
+
+// A declared vector (claude-disjoint categories + derived total) added into a Codex-shaped aggregate map. Native
+// reasoning/raw-total categories do not exist for it, so those become explicitly unavailable, never a guessed sum.
+function addDeclaredVector(map, key, vector) {
+  if (!map[key]) map[key] = newCodexAgg();
+  const target = map[key];
+  const bump = (field, value) => { if (target[field] !== null) target[field] += value; };
+  bump('native_input_tokens', vector.input_tokens + vector.cache_creation_input_tokens + vector.cache_read_input_tokens);
+  bump('input_tokens', vector.input_tokens);
+  bump('cache_creation_input_tokens', vector.cache_creation_input_tokens);
+  bump('cache_read_input_tokens', vector.cache_read_input_tokens);
+  bump('output_tokens', vector.output_tokens);
+  bump('derived_total_tokens', vector.derived_total_tokens);
+  target.reasoning_output_tokens = null;
+  target.total_tokens = null;
+  target.unavailable = [...new Set([...target.unavailable, 'reasoning_output_tokens', 'total_tokens'])].sort();
+}
+
+// Lifecycle and tool rows of every verified lead segment (LF framing; ids, instants and row numbers only, never text).
+async function readCodexActivityEvents(paths, fsImpl) {
+  const events = [];
+  let corruptRows = 0;
+  let seq = 0;
+  for (const file of paths) {
+    let row = 0;
+    for await (const line of await openLines(fsImpl, file)) {
+      row += 1;
+      if (!line.trim()) continue;
+      let obj;
+      try { obj = JSON.parse(line); } catch { corruptRows += 1; continue; }
+      const ms = Date.parse(obj && obj.timestamp);
+      const payload = obj && obj.payload && typeof obj.payload === 'object' ? obj.payload : {};
+      const type = obj && obj.type === 'event_msg' ? payload.type : null;
+      const itemType = obj && obj.type === 'response_item' ? payload.type : null;
+      const base = { ms, row, seq: seq++ };
+      let kind = 'other';
+      if (type === 'task_started') kind = 'start';
+      else if (type === 'task_complete') kind = 'complete';
+      else if (itemType === 'function_call' || itemType === 'custom_tool_call') kind = 'call';
+      else if (itemType === 'function_call_output' || itemType === 'custom_tool_call_output') kind = 'output';
+      if (Number.isNaN(ms)) { if (kind !== 'other') corruptRows += 1; continue; }
+      if (kind === 'start' || kind === 'complete') {
+        if (!isUsableCodexString(payload.turn_id)) { corruptRows += 1; continue; }
+        events.push({ ...base, kind, turnId: payload.turn_id, rootTurnId: isUsableCodexString(payload.root_turn_id) ? payload.root_turn_id : null });
+      } else if (kind === 'call' || kind === 'output') {
+        if (!isUsableCodexString(payload.call_id)) { corruptRows += 1; continue; }
+        events.push({ ...base, kind, callId: payload.call_id, turnId: isUsableCodexString(payload.turn_id) ? payload.turn_id : null });
+      } else events.push({ ...base, kind });
+    }
+  }
+  return { events, corruptRows };
+}
 
 async function runCodexCensus(opts, fsImpl) {
   const lead = await censusCodexLeadFile(opts.lead, { fsImpl, marker: opts.marker, from: opts.from, to: opts.to, expectedId: opts.leadSession || undefined });
@@ -1533,6 +1880,7 @@ async function runCodexCensus(opts, fsImpl) {
   mergeCodexAggInto(observedCombined, leadWindowByModel);
   mergeCodexAggInto(observedCombined, subTotalsByModel);
   const aggregates = Object.values(observedCombined);
+  const nativeKeys = new Set([...lead.totalById.keys(), ...subWindowById.keys()]);
   const stallNudges = computeStallNudges(opts, lead, fsImpl);
   const field = (ok, reason) => ({ status: ok ? 'COUNTED' : 'UNSUPPORTED', reason: ok ? null : reason });
   const allPresent = (name) => aggregates.length > 0 && aggregates.every((aggregate) => aggregate[name] !== null);
@@ -1586,6 +1934,22 @@ async function runCodexCensus(opts, fsImpl) {
   const requiredFields = ['inputTokens', 'cachedInputTokens', 'outputTokens', 'model', 'derivedTotalTokens'];
   const coverageSupported = temporalComplete && requiredFields.every((name) => fields[name].status === 'COUNTED');
   unavailable.push(...Object.entries(fields).filter(([, value]) => value.status === 'UNSUPPORTED').map(([name, value]) => `${name}: ${value.reason}`));
+  // Lane 62: declared roles (either host) join the existing reducers with a processed-v1 derived total; the
+  // field checks above stay over native responses only, so a declared Claude vector never blanks a Codex cell.
+  const declared = await readDeclaredRoles(opts, { host: 'codex', sessionId: lead.sessionId }, { raw: [], keys: nativeKeys }, fsImpl);
+  for (const f of declared.files) {
+    for (const [model, vector] of Object.entries(f.byModel)) {
+      addDeclaredVector(subTotalsByModel, model, vector);
+      addDeclaredVector(observedCombined, model, vector);
+      addDeclaredVector(subTotalsByRole, f.role, vector);
+    }
+    roleFileCounts[f.role] = (roleFileCounts[f.role] || 0) + 1;
+    subTotalTurns += f.turns;
+    perFile.push({ file: f.file, role: f.role, parentId: null, agentNickname: null, depth: null, turns: f.turns, byModel: f.byModel, excludedByWindow: 0, source: 'declared', host: f.host, sessionId: f.sessionId });
+  }
+  const activityFrom = opts.from ? Date.parse(opts.from) : opts.marker && lead.windowStartAt ? Date.parse(lead.windowStartAt) : null;
+  const activityRead = await readCodexActivityEvents(identityPaths, fsImpl);
+  const activity = computeCodexActivity(activityRead.events, { fromMs: Number.isNaN(activityFrom) ? null : activityFrom, toMs: opts.to ? Date.parse(opts.to) : null, corruptRows: activityRead.corruptRows });
   const endAt = lead.windowLastAt ?? lead.lastAt;
   const wallClockHours = lead.windowStartAt && endAt && new Date(endAt) > new Date(lead.windowStartAt)
     ? (new Date(endAt) - new Date(lead.windowStartAt)) / 3600000 : null;
@@ -1621,6 +1985,7 @@ async function runCodexCensus(opts, fsImpl) {
       roleFileCounts: coverageSupported ? roleFileCounts : null, perFile,
     },
     combined: coverageSupported ? observedCombined : null,
+    tokenDefinition: TOKEN_DEFINITION, measurementScope: declared.scope, roleSessions: declared.results, activity,
     stallNudges,
     marker: opts.marker || null, leadPath: opts.lead, tasksPaths: [...(opts.tasksDirs || [])], defaultSubagentsDir: null,
   };
@@ -1704,6 +2069,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
   const windowEndCutoff = opts.to ? Date.parse(opts.to) : NaN;
   const hasWindowCutoff = !Number.isNaN(windowCutoff) || !Number.isNaN(windowEndCutoff);
 
+  const nativeKeys = new Set(lead.totalById.keys());
   const subFiles = [];
   for (const f of orderedFiles) {
     let size = 1;
@@ -1726,6 +2092,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       continue;
     }
     const r = await censusSubFile(f.fullPath, { fsImpl });
+    for (const key of r.byId.keys()) nativeKeys.add(key);
     let byId = r.byId;
     let excludedByWindow = 0;
     if (hasWindowCutoff) {
@@ -1765,6 +2132,17 @@ export async function runCensus(opts, fsImpl = realFs()) {
     if (sf.unreadable) unreadableCount += 1;
     excludedByWindowTotal += sf.excludedByWindow || 0;
     perFile.push({ file: sf.file, role: sf.role, turns: sf.unreadable ? null : sf.byId.size, byModel, excludedByWindow: sf.excludedByWindow || 0 });
+  }
+
+  // Lane 62: declared detached roles ride the same reducers (per model, per role, per file), source 'declared'.
+  const declared = await readDeclaredRoles(opts, { host: 'claude', sessionId: path.basename(opts.lead).replace(/\.jsonl$/i, '') }, { raw: orderedFiles, keys: nativeKeys }, fsImpl);
+  for (const f of declared.files) {
+    mergeAggInto(subTotalsByModel, f.byModel);
+    if (!subTotalsByRole[f.role]) subTotalsByRole[f.role] = newAgg();
+    for (const a of Object.values(f.byModel)) addAggInto(subTotalsByRole[f.role], a);
+    roleFileCounts[f.role] = (roleFileCounts[f.role] || 0) + 1;
+    subTotalTurns += f.turns;
+    perFile.push({ file: f.file, role: f.role, turns: f.turns, byModel: f.byModel, excludedByWindow: 0, source: 'declared', host: f.host, sessionId: f.sessionId });
   }
 
   const leadTotalByModel = aggByModel(lead.totalById);
@@ -1841,7 +2219,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       wallClockHours,
     },
     subagents: {
-      fileCount: orderedFiles.length,
+      fileCount: orderedFiles.length + declared.files.length,
       unreadable: unreadableCount,
       unreadableDirs,
       incomplete: unreadableCount > 0 || unreadableDirs.length > 0,
@@ -1853,6 +2231,7 @@ export async function runCensus(opts, fsImpl = realFs()) {
       perFile,
     },
     combined: codex ? null : combined,
+    tokenDefinition: TOKEN_DEFINITION, measurementScope: declared.scope, roleSessions: declared.results,
     stallNudges: computeStallNudges(opts, lead, fsImpl),
     marker: opts.marker || null,
     leadPath: opts.lead,
@@ -1938,15 +2317,47 @@ function cacheCreationPerTurnFor(byModelBuckets, wakeTurns, otherTurns) {
   return { wake: perTurn(byModelBuckets.wake, wakeTurns), other: perTurn(byModelBuckets.other, otherTurns) };
 }
 
+// Lane 62 scope/definition lines, shared by both hosts. A hand-built legacy report without the additive
+// keys prints nothing new, so the text of an old census never changes.
+function reportDeclared(report) {
+  return report.measurementScope ? { scope: report.measurementScope, results: report.roleSessions || [] } : null;
+}
+
+function scopeSummaryLines(report) {
+  const declared = reportDeclared(report);
+  if (!declared) return [];
+  const partial = declared.results.filter((r) => r.status !== 'complete').length;
+  const lines = [
+    `- tokenDefinition: ${report.tokenDefinition.id} (${report.tokenDefinition.formula})`,
+    `- measurementScope: ${declared.scope.roles}; window ${declared.scope.from || '(lead window)'} .. ${declared.scope.to || '(lead window)'}`,
+    `- roleSessions: ${declared.results.length} declared (${declared.results.length - partial} complete, ${partial} PARTIAL, ${declared.scope.omitted.length} omitted)`,
+  ];
+  for (const r of declared.results) lines.push(`- roleSession: ${r.host} ${r.sessionId} ${r.role} ${r.status}${r.reasons.length ? ` (${r.reasons.join(', ')})` : ''}; requests ${r.requests ?? 'unavailable'}, duplicateRequests ${r.duplicateRequests}`);
+  for (const o of declared.scope.omitted) lines.push(`- omitted: ${o.host} ${o.sessionId} (${o.reason})`);
+  for (const limitation of declared.scope.limitations) lines.push(`- limitation: ${limitation}`);
+  return lines;
+}
+
+function activitySummaryLines(activity) {
+  if (!activity) return [];
+  const count = (n) => (n === null ? 'unavailable' : n);
+  const lines = [`- activity: coverage ${activity.coverage}; baselineRuleGaps ${count(activity.baselineRuleGaps)} (every consecutive-event gap over 120 min, any kind); observedSilentGaps ${count(activity.observedSilentGaps)}; toolRunningGaps ${count(activity.toolRunningGaps)}; causal attribution ${activity.causalAttribution}`];
+  for (const reason of activity.reasons) lines.push(`- activity reason: ${reason}`);
+  for (const i of activity.intervals) lines.push(`- activity interval: ${i.from} .. ${i.to} ${i.kind}${i.rightCensored ? ' right-censored' : ''} ${Math.round(i.durationMs / 60000)} min rows ${i.sourceRows.join(',')}`);
+  return lines;
+}
+
 function formatCodexText(report) {
   const md = [];
   const supported = report.lead.coverageSupported;
   const temporalComplete = report.lead.codex.discovery.scope.complete;
   const unavailable = report.lead.codex.unavailable;
   const unsupported = Object.entries(report.lead.codex.fields || {}).filter(([, value]) => value.status === 'UNSUPPORTED').map(([name]) => name);
-  md.push(temporalComplete
+  const declaredView = reportDeclared(report);
+  const roleReasons = declaredView && declaredIsPartial(declaredView) ? declaredReasons(declaredView) : [];
+  md.push(temporalComplete && !roleReasons.length
     ? `VERDICT: COUNTED ${report.lead.windowTurns} Codex responses (leadTurns ${report.lead.leadTurns})${unsupported.length ? `; UNSUPPORTED ${unsupported.join(', ')}` : ''}, ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`
-    : `VERDICT: PARTIAL Codex census (${report.lead.codex.discovery.scope.reason || 'temporal coverage unavailable'}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`);
+    : `VERDICT: PARTIAL Codex census (${[report.lead.codex.discovery.scope.reason, ...roleReasons].filter(Boolean).join('; ') || 'temporal coverage unavailable'}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${report.lead.leadLastMessageAt || 'unknown'}`);
   md.push('', '# Build census', '', '## Summary', '');
   md.push('- leadHost: codex');
   md.push(`- leadSessionId: ${report.lead.sessionId}`);
@@ -1960,7 +2371,8 @@ function formatCodexText(report) {
   md.push(`- stallNudges: ${stallNudgesLabel(report.stallNudges)}`);
   md.push(`- by-model: ${supported ? Object.keys(report.combined).sort().map((model) => `${model}=${report.combined[model].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);
   md.push(`- by-role: ${supported ? Object.keys(report.subagents.totalByRole).sort().map((role) => `${role}=${report.subagents.totalByRole[role].derived_total_tokens}`).join(', ') || '(none)' : 'partial/unavailable'}`);
-  md.push(`- subagentFiles: ${report.subagents.fileCount}`, '');
+  md.push(`- subagentFiles: ${report.subagents.fileCount}`);
+  md.push(...scopeSummaryLines(report), ...activitySummaryLines(report.activity), '');
   md.push(`Lead: \`${path.basename(report.leadPath)}\` | Tasks dirs: ${report.tasksPaths.length ? report.tasksPaths.map((item) => `\`${item}\``).join(', ') : '(none)'}`);
   md.push(`Window: ${report.lead.windowStartAt || '(none)'} .. ${report.lead.windowEndAt || '(none)'}`, '');
   md.push('## Codex discovery', '');
@@ -2007,7 +2419,11 @@ export function formatText(report) {
   // same number as `leadTurns`, printed alongside it here so the two aren't mistaken for
   // one another on a skim).
   const leadTurnsLabel = report.lead.leadTurns === null ? 'unsupported' : report.lead.leadTurns;
-  if (codexTokensUnsupported) {
+  const claudeDeclared = reportDeclared(report);
+  const claudeRoleReasons = claudeDeclared && declaredIsPartial(claudeDeclared) ? declaredReasons(claudeDeclared) : [];
+  if (claudeRoleReasons.length && !codexTokensUnsupported) {
+    md.push(`VERDICT: PARTIAL Claude census (${claudeRoleReasons.join('; ')}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`);
+  } else if (codexTokensUnsupported) {
     md.push(`VERDICT: UNSUPPORTED Codex complete census (${report.lead.coverageReason}), ${report.subagents.fileCount} subagent files, leadLastMessageAt: ${leadLastMessageAt || 'unknown'}`);
   } else {
     md.push(
@@ -2047,6 +2463,7 @@ export function formatText(report) {
     : Object.keys(report.subagents.totalByRole).sort().map((r) => `${r}=${totalTokens(report.subagents.totalByRole[r])}`).join(', ') || '(none)';
   md.push(`- by-role: ${roleLine}`);
   md.push(`- subagentFiles: ${report.subagents.fileCount}`);
+  md.push(...scopeSummaryLines(report));
   if (unread || unreadDirs.length) {
     const parts = [];
     if (unread) parts.push(`${unread} subagent file(s) unreadable`);
@@ -2175,6 +2592,9 @@ export function parseArgs(argv) {
     else if (a === '--to') opts.to = need('--to');
     else if (a === '--ledger-dir') opts.ledgerDir = need('--ledger-dir');
     else if (a === '--lead-slug') opts.leadSlug = need('--lead-slug');
+    else if (a === '--record') opts.record = need('--record');
+    else if (a === '--repo') opts.repo = need('--repo');
+    else if (a === '--claude-root') opts.claudeRoot = need('--claude-root');
     else if (a === '--out') opts.out = need('--out');
     else if (a === '--json') opts.json = need('--json');
     else if (a === '--role-map') {

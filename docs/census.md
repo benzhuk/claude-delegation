@@ -550,6 +550,59 @@ build or ends after its last acceptance.
 The prediction rule from the bearings: the lead writes the next build's predicted four
 numbers in the RESULT to skills-fable.
 
+## Completeness measures (lane 62)
+
+### Token definition
+
+Every census and four-read number says which token count it uses: `processed-v1`. Claude: uncached input + cache
+creation + cache read + output, once per native request (the last row per request wins; a nested
+`cache_creation` breakdown is a subset and is never added). Codex: input + output, where cached and cache-write
+input and reasoning output are subsets of those and are never re-added. A negative or non-finite category, cached +
+cache-write above input, or reasoning above output is an invalid vector: the row is rejected (PARTIAL role, or
+`sanity.invalidUsageRows` in `token-census`), not coerced. `token-census` keeps `costUnits` as its own price-ratio
+unit, separate from the processed total, and adds `tokenDefinition` to its JSON.
+
+### Declared roles and scope
+
+`build-census --record <record.md> --repo <repo> --from <iso> --to <iso> [--claude-root <dir>] [--codex-home <dir>]`
+also reads the record's `Role-sessions:` manifest (docs/work-record.md). `--record` requires `--repo`, explicit
+`--from`/`--to`, no `--marker`, and a `--from` no more than 5 minutes before the record's `Opened:`. Declared
+transcripts are read with LF-only framing, de-duplicated against the native session graph by request identity, and
+join the existing by-model, by-role and per-file reducers with `source: "declared"`. In a Codex-led census a
+declared Claude vector also gets a processed `derived_total_tokens`, so a Codex 100 + Claude Opus 10 build reads 110.
+The JSON gains `tokenDefinition`, `measurementScope` (roles, window, omitted declarations, limitations) and
+`roleSessions` (per session: host, id, role, status, reasons, requests, duplicateRequests). The verdict is
+`PARTIAL` whenever a declared role is PARTIAL or omitted; `work-record accept` refuses a PARTIAL census with a
+message that points to `--no-census "<reason>"`. Without `--record` a census is native-session-graph only and says so.
+
+Top tier is the union `fable, opus, gpt-6-astra, gpt-5.6-sol` whatever the lead's host; `DELEGATION_TOP_TIER` still
+overrides. A model in a known lower family (sonnet, haiku, gpt-5.6-terra, gpt-5.6-luna, codex-spark) is not top tier;
+a model in neither list carrying tokens makes the top-tier cell `unavailable` with the observed subtotal (a zero-token
+`<synthetic>` row does not). The four-read headline is the wider, declared-role scope and is labelled
+SCOPE MISMATCH against the lead-only hand-run baseline; the `Top-tier tokens, lead only` companion gives the
+comparable figure. No overall DONE is claimed from it.
+
+### Codex activity
+
+For a Codex lead, `activity` classifies every consecutive-event gap strictly longer than 120 minutes across all lead
+segments (timestamp order, file order on ties). `baselineRuleGaps` counts the gaps of any kind, including waits between
+turns — the rule the hand-run baseline used; an artificial `--to` boundary never adds one. `observedSilentGaps` is
+silence inside an open turn and `toolRunningGaps` a call with no output yet; a turn whose end was never observed makes
+later gaps `unknown` and the coverage PARTIAL. At exactly 120 minutes every count is 0. four-read states the
+baseline-rule count beside the 30-minute heuristic and names usage-limit, relaunch and missing-report stalls and
+causal attribution as UNSUPPORTED, so the count is a lower bound.
+
+### Follow-up episodes
+
+four-read reads the record corpus (`--records <dir>`, default the record's own directory; `--as-of <iso>`, default
+now) and appends `; follow-up episodes: <n> (declared links only, mature|provisional until <windowEnd>)` to the
+rework cell, or `; follow-up episodes unavailable (<reason>)`, plus `; this build is follow-up of <parent>` when the
+record has `Follow-up-of:`. An episode is a record whose `Follow-up-of:` names this `Work:` and whose `Opened:` lies
+within 7 days after the first acceptance; the window is mature once `--as-of` reaches its end. The corpus must include
+the target record; an unreadable or Work-less nonempty record, a duplicate Work, a missing ancestor or a cycle is
+PARTIAL. The count is separate from the commit/re-accept count and is never summed with it. The JSON carries the same
+facts under `reworkAttribution`.
+
 ## `work-census.mjs`
 
 ```
