@@ -10,7 +10,7 @@ JSONL framing is LF only; strip one trailing CR from each row. Preserve other co
 
 Every reader called by census or four-read must obey that framing. Other readline-based JSONL readers under scripts/skills are a named follow-up unless adoption is the same one-line swap to the shared splitter. No general reader rewrite or new parser policy.
 
-Codex child completion follows dispatch.md: a terminal event for that task may occur anywhere, including task_complete or an item_completed carrying the task's completion. Last-row timestamp is end time. A completed child ending before the window is excluded; an incomplete pre-window child keeps PARTIAL; a completed overlapping child is counted. Corrupt usage, unknown end coverage and conflicting evidence stay PARTIAL. A new started task must not borrow an earlier task's completion; the exact supported completion payload is pinned from existing source/schema fixtures in the scout and spec review, never guessed.
+Codex child completion follows dispatch.md as corrected by terminal-ruling.md: task_complete for that task may occur anywhere; item_completed is never a witness. Last-row timestamp is end time. A completed child ending before the window is excluded; an incomplete pre-window child keeps PARTIAL; a completed overlapping child is counted. Corrupt usage, unknown end coverage and conflicting evidence stay PARTIAL. A new started task must not borrow an earlier task's completion; the exact supported completion payload is pinned from existing source/schema fixtures in the scout and spec review, never guessed.
 
 ## Regression proof
 
@@ -32,6 +32,8 @@ Review provenance: spec-review-r1.md in work evidence, NEEDS_FIXES at fb63673. T
 8. Negative matching-id UserMessage item_completed and assistant text claiming completion stay PARTIAL with no-end-bound reason. terminal-ruling.md supersedes the unsupported speculative payload clause.
 
 Keep existing Lane55 zero-usage and known-id child tests and no-end-bound assertions byte-identical. Any excluded-child output annotation must use existing perFile information and cannot manufacture discovery evidence or hide reasons. No new persistent mechanism.
+
+Spec delta APPROVE f739541 (Opus a91bcb4e) adds N1 clarification: merged child witness requires ownerSegment.latestStartCompleted, no conflicting tie, and no invalidTaskStarted anywhere in the child's segments. Add explicit segment-invalid-start and equal-start-time/conflicting-witness retention cases. N2 stale item_completed prose above is corrected. Neither needs another spec review round.
 
 Independent tests exercise the actual production reader with literal U+2028/U+2029 strings and check exact row count plus JSON.parse for every row. Cover LF, CRLF, Unicode/chunk boundaries, blank rows, final unterminated line and stream failure where relevant. Test the three required child cases and retention of corrupt usage/unknown end/conflicting evidence. Existing actual-parser reproduction is in prior-diagnosis-review.md; no private log copies or fixture commits in scratch homes.
 
