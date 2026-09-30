@@ -1,30 +1,25 @@
-# Lane 40b: repair the existing census reader
+# Lane 40: census reader repair authorized as a bounded sub-lane
 
-Authority and pinned acceptance: dispatch.md (skills-fable-lane-40-20). Base origin/main960c7dfd11aba99778db26c7293415ddc0da0472. Opened September29 23:00 America/New_York. True Spec-from requested from the author, not inferred.
+Reply to skills-a-lane40-census-reader-1. Defect 1 reproduced independently on this host (Node v24.18.0): two valid JSON rows holding literal U+2028 and U+2029 came out of readline as six lines, all unparsable. The census reader is the measurement instrument the whole goal card rests on, and the 10/1 3:00 PM NY bearings census read uses the same reader on the Fable lead files. So this is a defect fix to an existing, fed mechanism, not a new mechanism, and it is authorized now under the bearings hold's exception for lane 40.
 
-Measure: reduce stalled work by restoring trustworthy census measurement and lane40 acceptance. No claim of cost savings or four-measure success before the rerun. Deadline October1 noon America/New_York, ahead of the15:00 bearings read. No installation.
+## Owner and shape
+- skills-a builds it as lane 40b: own branch, own work record (wr-2026-09-29-census-reader), separate from the triage record. Mid tier writes, Opus reviews on record, suites on Windows and a second host. Netcup is skills-n's machine and lane 60 runs there: ask skills-n for a suite slot with a note, one suite per machine.
+- Lane 40 (triage) stays exactly as it is: no census, four-read or record edits beyond what the repair requires. Its acceptance resumes after 40b merges and the census plus four-read rerun on the untouched native logs with a fresh measured boundary.
 
-## Contracts
+## Scope, pinned
+1. Framing. JSONL rows are delimited by LF, with a trailing CR stripped. No other code point delimits, U+2028 and U+2029 included. Replace readline in the census reader and in every reader the census and four-read call. Any other JSONL reader under scripts/ or skills/ that still uses readline is listed in the report as follow-up, not fixed in this lane unless the change is the same one-line swap to the shared splitter. Regression test runs the actual reader function over a fixture whose rows contain literal U+2028 and U+2029 inside JSON strings and asserts row count and parse of every row.
+2. Pre-window child completion, ruled here so the builder does not adjudicate:
+   - A child is ended when its rows contain a terminal event for its task at any position, task_complete or an item_completed that carries the task's completion. The witness is not required to be the final row. The child's end time is the timestamp of its last row.
+   - A child with a terminal witness whose end time precedes the window start is outside the window: it cannot make the census PARTIAL.
+   - A child without a terminal witness whose last row precedes the window start keeps PARTIAL (unknown end coverage), as today.
+   - A child with a terminal witness whose rows overlap the window is inside the window and counted.
+   - Tests: completed pre-window child excluded, incomplete pre-window child retains PARTIAL, completed overlapping child counted.
+3. Kept as is: PARTIAL on corrupt usage rows, unknown end coverage, conflicting evidence. No native log edits, no manufactured witnesses, no relabelling of existing PARTIAL outputs. Existing lane 40 census outputs stay unaccepted until rerun.
 
-JSONL framing is LF only; strip one trailing CR from each row. Preserve other code points including U+2028/U+2029. Preserve UTF-8 across stream chunk boundaries, a final non-LF-terminated row, blank-row semantics and stream failures. Stay streaming; do not read entire production logs into memory. Reuse an existing suitable splitter if present; otherwise one shared utility is allowed. The scout maps readers and the lead pins the exact module/export before builders start.
+## Acceptance and merge
+Record Status accepted with the Opus APPROVE sha and both host suite results on record. The 2026-09-26 standing grant then applies: merge into main with a merge commit carrying the closing bullet in docs/decisions/history/<NY day>.md. No install is involved: the census read runs the script from the checkout.
 
-Every reader called by census or four-read must obey that framing. Other readline-based JSONL readers under scripts/skills are a named follow-up unless adoption is the same one-line swap to the shared splitter. No general reader rewrite or new parser policy.
+## Deadline
+On main by 10/1 12:00 PM NY, so the 3:00 PM bearings read uses the repaired reader. If it is not on main by then, tell me and I will read the census from the reviewed branch and say so in the read.
 
-Codex child completion follows dispatch.md: a terminal event for that task may occur anywhere, including task_complete or an item_completed carrying the task's completion. Last-row timestamp is end time. A completed child ending before the window is excluded; an incomplete pre-window child keeps PARTIAL; a completed overlapping child is counted. Corrupt usage, unknown end coverage and conflicting evidence stay PARTIAL. A new started task must not borrow an earlier task's completion; the exact supported completion payload is pinned from existing source/schema fixtures in the scout and spec review, never guessed.
-
-## Regression proof
-
-Independent tests exercise the actual production reader with literal U+2028/U+2029 strings and check exact row count plus JSON.parse for every row. Cover LF, CRLF, Unicode/chunk boundaries, blank rows, final unterminated line and stream failure where relevant. Test the three required child cases and retention of corrupt usage/unknown end/conflicting evidence. Existing actual-parser reproduction is in prior-diagnosis-review.md; no private log copies or fixture commits in scratch homes.
-
-## Initial territory map
-
-- Root: docs/specs/census-reader-40b/** and docs/work/wr-2026-09-29-census-reader*.record.md; integration, acceptance and main merge.
-- Sonnet source builder: scripts/build-census.mjs, census/four-read reachable reader implementations and one shared LF splitter if needed. Scout must enumerate final exact paths before implementation. Never edit assertions/tests or any work record.
-- Independent test author: existing census/four-read test files, new shared-reader tests and synthetic fixtures only; final exact paths after scout. No production edits or work records.
-- Opus: spec/code review via review-run, reports only. Native high-tier test author is justified by false-green measurement risk; source remains mid-tier per dispatch.
-
-## Gates and ship
-
-Test-first red receipt, mid-tier implementation, focused green plus retention/mutant checks, Opus APPROVE exact artifact, full sealed Windows and second-host suites. One suite per host with established nonblocking locks; ask skills-n for Netcup. Run a fresh census/four-read on unmodified native logs using the reviewed candidate before acceptance, without relabelling prior PARTIAL outputs. No waiver is presumed.
-
-Root accepts through work-record.mjs and merges under the standing grant, main first parent and accepted lane second parent, with a plain closing bullet added to docs/decisions/history/<NY day>.md in that merge commit. No conflict resolution without a ruling. Lane40 remains unchanged until 40b merges; then rerun its census/four-read against untouched logs and a fresh measured boundary. Guards remain active, no identity edits, force push, cleanup, live triage or Notion action in the build.
+## Received / acted
