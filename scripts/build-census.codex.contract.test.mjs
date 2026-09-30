@@ -229,6 +229,53 @@ test('Lane40b invalid task restart after completion remains PARTIAL', async () =
   assert.equal(report.combined, null);
 });
 
+test('Lane40b segment retention: invalid start in segment B cannot borrow segment A completed witness', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'segment-a-completed.jsonl', [
+    meta('segmented-invalid-restart', ROOT, ROOT, 1),
+    taskStarted('segment-a-turn', '2026-09-27T11:00:00.000Z'),
+    context('segment-a-turn', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('segment-a-response', 'segment-a-turn', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'segment-a-turn' }, '2026-09-27T11:00:03.000Z'),
+  ]);
+  writeRollout(home, DAY, 'segment-b-invalid-start.jsonl', [
+    meta('segmented-invalid-restart', ROOT, ROOT, 1),
+    line('event_msg', { type: 'task_started' }, '2026-09-27T11:00:04.000Z'),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child segmented-invalid-restart.*end-bound witness/i);
+  assert.equal(report.lead.codex.fields.leadTurns.status, 'UNSUPPORTED', 'invalid start remains visible after segment merge');
+  assert.equal(report.combined, null, 'segment A completion cannot turn the invalid later restart into COUNTED');
+});
+
+test('Lane40b segment retention: equal latest-start timestamps with conflicting witnesses stay PARTIAL', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'segment-a-witness.jsonl', [
+    meta('segmented-start-tie', ROOT, ROOT, 1),
+    taskStarted('completed-at-tie', '2026-09-27T11:00:00.000Z'),
+    context('completed-at-tie', MODEL, '2026-09-27T11:00:01.000Z'),
+    usage('tie-completed-response', 'completed-at-tie', { output: 4, at: '2026-09-27T11:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'completed-at-tie' }, '2026-09-27T11:00:03.000Z'),
+  ]);
+  writeRollout(home, DAY, 'segment-b-open.jsonl', [
+    meta('segmented-start-tie', ROOT, ROOT, 1),
+    taskStarted('open-at-tie', '2026-09-27T11:00:00.000Z'),
+    context('open-at-tie', MODEL, '2026-09-27T11:00:01.500Z'),
+    usage('tie-open-response', 'open-at-tie', { output: 6, at: '2026-09-27T11:00:04.000Z' }),
+  ]);
+
+  const report = await boundedReport(home, lead);
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /child segmented-start-tie.*end-bound witness/i);
+  assert.equal(report.combined, null, 'a merge-order tie cannot preserve the completed segment witness');
+});
+
 test('Lane40b task completion before a benign row is a witness in open mode and contributes usage', async () => {
   const home = fixtureHome();
   const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
