@@ -1,10 +1,12 @@
 Work: wr-2026-09-29-secret-guard
 Scope: docs/specs/secret-guard-60/spec.md (lane 60), from skills-fable-guard-60-1 and Ben's tick recorded on main at f815df7, read at 1a76c54223974465a53004c8b49d92237f7fea24
 Owner: skills-n
-Status: delivered
+Status: reviewed
 Authority: build and review on dotfiles branch build/secret-guard-60-1 and plugin branch build/secret-guard-60-1; merge both on acceptance under the standing grant of 2026-09-26; chezmoi apply on Netcup and Hetzner after an Opus red-team APPROVE (Netcup waits on Ben resolving the stuck merge in its chezmoi checkout); Windows and Mac only on Ben's word; the guard stays on throughout
-Next: fresh Opus delta red-team of the ruling r3 fix
-Worktree: build/secret-guard-60-1
+Next: accept, merge dotfiles and plugin branches, selftest on Netcup and the desktop, chezmoi apply on Hetzner
+Artifact: ba985167ef11bdaf74c0b380d59de7f39dcf19ba
+Evidence: docs/work/evidence/wr-2026-09-29-secret-guard-review.md, docs/work/evidence/wr-2026-09-29-secret-guard-p1.md
+Worktree: /var/tmp/lane-60/dot
 Scratch: /var/tmp/lane-60
 Opened: 2026-09-29T21:39:28.000Z
 Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
@@ -25,6 +27,15 @@ Log: 2026-09-30T00:18:51.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 
 Log: 2026-09-30T00:52:45.000Z delivered skills-n Sonnet builder a5f20c5e13265092a phase 2 fix round 1 DONE dotfiles 12589fc (allowlist exclusions per ruling r2; full-length replay of 397 refused commands: 0 regressions, now passing 59 of 362 old denials, 2 classifier flags shown false; also found and fixed a seventh bypass in the sourcing check; selftest 67 of 67); docs/specs/secret-guard-60/p2-fix1-build.md
 Log: 2026-09-30T01:17:50.000Z rejected skills-n Opus red-team a9a2e9f8daa2e2466 delta r2 NEEDS_FIXES 12589fc (1 HIGH: git log -L prints secret file lines; F1 to F6 and the seventh fix verified; replay confirmed 59 of 362 now pass, 0 regressions, 0 real reads in corpus; allow path 33 to 42 ms); ruling r3 makes git flags an allowlist; docs/specs/secret-guard-60/p2-review-r2.md and ruling-r3.md
 Log: 2026-09-30T01:35:50.000Z delivered skills-n builder aadd2ad769f3b7f2b phase 2 fix r2 at dotfiles ba985167ef11bdaf74c0b380d59de7f39dcf19ba (git log and diff flag allowlist, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 42 ms); docs/specs/secret-guard-60/p2-fix2-build.md
+Log: 2026-09-30T01:51:59.000Z reviewed skills-n Opus red-team afe0fae31e1989dcc delta r3 APPROVE ba985167ef11bdaf74c0b380d59de7f39dcf19ba (N2 closed, flag allowlist held against every brief vector, H and Q byte-identical to 12589fc, selftest 74 of 74, replay 59 now pass, 0 regressions, 0 real reads, allow path 40 to 42 ms)
+
+Predicts: fewer false secret-guard denials cut the stalled and rerouted steps that agents hit on harmless commands. Replayed against the 362 desktop denials, 59 now pass with 0 regressions, so work lost or stalled to guard refusals should fall in the next census window, with no new secret reads.
+
+Observed: phase 1 (denial log, redaction, off switch) was Opus APPROVE at c890801 after two fix rounds. Phase 2 (exclusions H, Q and E from the desktop corpus) was rejected once for four HIGH bypasses at fb48a92 and once for the git log line-range leak at 12589fc. It was approved at ba98516 after both exclusions and the git flag handling became positive allowlists. Selftest 74 of 74. Full-length replay: 59 now pass, 0 regressions, 0 structural real reads. Allow-path cost 40 to 42 ms against a 60 ms budget.
+
+Stall: two builders sat on banned rm prompts, about 90 and 60 minutes. The fix was a transcript-silence watcher on every spawn from then on.
+
+Gap: the held third and fourth patterns (the task-sha legacy key fold and the output detector trip) and the secret-fragment variable name test (skills-fable-guard-60-4) are not in this artifact. Windows and Mac installs wait on Ben's word.
 
 ## Spec
 
