@@ -2,7 +2,7 @@ Task: Deliver only the independently approved prospective recipe-only.patch to t
 Goal: Prevent future knowledge prose from being embedded in shell commands while retaining every existing denial/publication boundary.
 Work: wr-2026-09-29-knowledge-triage. Root alone writes records.
 
-Inputs: recipe-review.md (root-supplied path); recipe-only.patch and recipe-recovery-prep-r2.md beside this brief; lock-owner-delivered.md; live-proof-r1-report.md; C:/Users/benzh/.claude/skills/triage/SKILL.md for existing lock protocol.
+Inputs: recipe-review-r2.md (root-supplied path); recipe-only.patch and recipe-recovery-prep-r3.md beside this brief; lock-owner-delivered.md; live-proof-r1-report.md; C:/Users/benzh/.claude/skills/triage/SKILL.md for existing lock protocol. Exact approved patch SHA256123b1a2946e4af60330eab03f3a80166031e1dcc4c7e5eaa0404033ef800a2ab, result skill SHA256c60feb3be5fd5f6808bb490c5147c1e3e72be53d8ba64fa909f1ead2398d3b8a. Superseded R2 pins must not be used.
 
 Authority: skills-fable-lane-40-12 authorizes a prospective recipe fix. It does not authorize replay of the denied R1 knowledge write. Only Windows skill delivery is needed for the subsequent separately scoped proof. No SSH or other-host deployment. Scheduled-only.patch is HELD until acceptance/merge.
 
