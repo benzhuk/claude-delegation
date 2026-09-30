@@ -1,7 +1,7 @@
 Work: wr-2026-09-30-artifact-repo
 Scope: docs/specs/artifact-repo-60b/spec.md (lane 60b), written by the lead at a57e2ff411c174ef9b6a40e51820602d5a47e7c7
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build and review on plugin branch build/artifact-repo-60b-1; merge on acceptance under the standing grant of 2026-09-26
 Next: Windows rerun, then accept, merge, close
 Artifact: d2fb5ccf93dd04239e7edc25faae3231e318e567
@@ -71,6 +71,8 @@ Four numbers: Hours ask to accepted: 1.0h; largest gap 10.2min at 2026-09-30T02:
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-30T02:52:47.000Z accepted skills-n artifact d2fb5ccf93dd04239e7edc25faae3231e318e567
+Log: 2026-09-30T02:53:54.000Z accepted skills-n merged to main at 52ab9afb8da6ed9c3100a7ba7bea3f8993e66b3a (clean merge, suite on the merged head 3303 tests 0 fail)
+Log: 2026-09-30T02:53:54.000Z closed skills-n merge 52ab9afb8da6ed9c3100a7ba7bea3f8993e66b3a
 
 Predicts: a lane whose code lives outside the plugin repo, dotfiles first, goes from reviewed to accepted through `accept` instead of stalling at reviewed. Lane 60's accept is the first live use. Work lost or stalled should drop by the one lane that sat reviewed with no route today.
 
