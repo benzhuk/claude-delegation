@@ -812,6 +812,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
   const conflictingResponseTurnIds = new Set();
   const stopBlocks = { window: 0, total: 0 };
   const wakes = { window: 0, windowDoneTick: 0, total: 0 };
+  const wakeReplays = new Map();
   const slugVotes = new Map();
   const startedTurns = new Set();
   const completedTurns = new Set();
@@ -876,7 +877,9 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
       currentModel = normalizeCodexModel(model);
     }
     const wake = classifyCodexWake(obj);
-    if (wake) {
+    if (wake && !wakeReplays.has(line)) {
+      // An exact replayed row (same bytes, e.g. a resumed segment re-writing history) is one wake, not two.
+      wakeReplays.set(line, { inWindow, doneTick: Boolean(wake.doneTick) });
       wakes.total += 1;
       if (inWindow) { wakes.window += 1; if (wake.doneTick) wakes.windowDoneTick += 1; }
       vote(wake.to);
@@ -972,7 +975,7 @@ export async function censusCodexLeadFile(filePath, { fsImpl = fs, marker, from,
     nativeTurnCount: totalNativeTurns.size, nativeTurnCountWindow: windowNativeTurns.size,
     tokenRecordCount, windowTokenRecordCount,
     windowLastAt: (marker || fromMs !== null || toMs !== null) ? windowLastAt : lastAt,
-    wakes: wakes.window, wakesDoneTick: wakes.windowDoneTick, wakesTotal: wakes.total,
+    wakes: wakes.window, wakesDoneTick: wakes.windowDoneTick, wakesTotal: wakes.total, wakeReplays,
     stopBlocks: stopBlocks.window, stopBlocksTotal: stopBlocks.total,
     slugVotes: [...slugVotes.entries()],
     sessionId: meta.id,
@@ -1771,6 +1774,13 @@ async function runCodexCensus(opts, fsImpl) {
     lead.invalidTaskStarted ||= part.invalidTaskStarted;
     if (part.lastStartedAt && (!lead.lastStartedAt || Date.parse(part.lastStartedAt) > Date.parse(lead.lastStartedAt))) {
       lead.lastStartedAt = part.lastStartedAt; lead.lastStartedTurn = part.lastStartedTurn;
+    }
+    // Wakes from every verified segment, exact replays collapsed; distinct rows stay distinct.
+    for (const [row, info] of part.wakeReplays) {
+      if (lead.wakeReplays.has(row)) continue;
+      lead.wakeReplays.set(row, info);
+      lead.wakesTotal += 1;
+      if (info.inWindow) { lead.wakes += 1; if (info.doneTick) lead.wakesDoneTick += 1; }
     }
     lead.hasRowAfterTo ||= part.hasRowAfterTo;
     lead.damaged ||= part.damaged;

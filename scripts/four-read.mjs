@@ -573,56 +573,100 @@ export function computeReworkAfterAcceptance(fields, logs, gitDir, branch = 'HEA
     return { value: `${commitPart}; ${reacceptPart}` };
   } catch (e) { return { value: `unavailable (git: ${e.message.split('\n')[0]})` }; }
 }
-// ── Follow-up episode attribution (lane 62, F4/F5) ──────────────────────────────────────────
+// ── Follow-up episode attribution (lane 62, F4/F5/F13; shape frozen in contracts.d.ts ReworkAttribution) ──────
 // Declared Follow-up-of: links only; never inferred from files or commits. The legacy commit/re-accept count
 // stays separate and is never summed with this one. Returns {text, json}; text is appended to numbers[2].value.
+// Default as-of: one instant per process, so repeated reads in a process (and formatJson) stay byte-identical.
+const PROCESS_AS_OF_MS = Date.now();
 const FOLLOW_UP_WINDOW_MS = 7 * 24 * 3600000;
+const WORK_ID_RE = /^wr-\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*$/;
 export function computeReworkAttribution(fields, logs, recordPath, recordsDir, asOfMs, fsImpl = fs) {
   const parent = fields['follow-up-of'] || null;
   const parentText = parent ? `; this build is follow-up of ${parent}` : '';
-  const unavailable = (reason) => ({ text: `; follow-up episodes unavailable (${reason})${parentText}`, json: { status: 'unavailable', reason, followUpOf: parent } });
+  const asOf = Number.isNaN(asOfMs) ? 'invalid' : new Date(asOfMs).toISOString();
+  const shape = (coverage, reasons, extra = {}) => ({
+    coverage, reasons, scope: 'declared-links-only', asOf, windowEnd: null, mature: false,
+    episodes: [], outsideWindow: [], episodeCount: null, followUpOf: parent, ...extra,
+  });
+  const unavailable = (reason, extra) => ({ text: `; follow-up episodes unavailable (${reason})${parentText}`, json: shape('unavailable', [reason], extra) });
+  if (Number.isNaN(asOfMs)) return unavailable('--as-of is not a valid instant');
   const work = fields.work;
   if (!work) return unavailable('no Work: on the record');
   const first = logs.find((l) => l.status.toLowerCase() === 'accepted');
   const acceptedMs = first ? parseDateMs(first.at) : null;
   if (acceptedMs === null) return unavailable('no accepted Log: entry');
-  if (!recordsDir) return unavailable('no record corpus directory');
-  let listing;
-  try { listing = fsImpl === fs ? listRecords(recordsDir) : listRecords(recordsDir, { fsImpl }); } catch (e) { return unavailable(`record corpus unreadable: ${e.message.split('\n')[0]}`); }
-  if (!listing.length) return unavailable('record corpus has no *.record.md files');
-  const here = recordPath ? path.resolve(recordPath) : null;
-  if (!here || !listing.some((e) => path.resolve(e.path) === here)) return unavailable('record corpus does not include the target record');
-  const partial = [];
-  const byWork = new Map();
-  for (const entry of listing) {
-    const f = (entry.record && entry.record.fields) || {};
-    if (entry.unreadable) { partial.push(`unreadable record ${path.basename(entry.path)}`); continue; }
-    if (!f.work) { if (Object.keys(f).length) partial.push(`record ${path.basename(entry.path)} has no Work:`); continue; }
-    if (byWork.has(f.work)) { partial.push(`duplicate Work: ${f.work}`); continue; }
-    byWork.set(f.work, { file: path.basename(entry.path), fields: f });
-  }
-  if (!byWork.has(work)) return unavailable('record corpus does not include the target Work:');
-  // Ancestors of the target: every declared parent must exist and the chain must not cycle.
-  const seen = new Set([work]);
-  for (let cur = byWork.get(work).fields.followUpOf; cur; cur = byWork.get(cur) ? byWork.get(cur).fields.followUpOf : null) {
-    if (seen.has(cur)) { partial.push(`follow-up cycle at ${cur}`); break; }
-    seen.add(cur);
-    if (!byWork.has(cur)) { partial.push(`ancestor ${cur} missing from the corpus`); break; }
-  }
   const windowEndMs = acceptedMs + FOLLOW_UP_WINDOW_MS;
   const windowEnd = new Date(windowEndMs).toISOString();
-  const children = [...byWork.entries()].filter(([, v]) => v.fields.followUpOf === work);
-  let episodes = 0;
-  for (const [childWork, child] of children) {
-    const openedMs = parseDateMs(child.fields.opened);
-    if (openedMs === null) { partial.push(`child ${childWork} has no parseable Opened:`); continue; }
-    if (openedMs >= acceptedMs && openedMs <= windowEndMs) episodes += 1;
+  const windowed = { windowEnd };
+  if (!recordsDir) return unavailable('no record corpus directory', windowed);
+  let listing;
+  try { listing = fsImpl === fs ? listRecords(recordsDir) : listRecords(recordsDir, { fsImpl }); } catch (e) { return unavailable(`record corpus unreadable: ${e.message.split('\n')[0]}`, windowed); }
+  if (!listing.length) return unavailable('record corpus has no *.record.md files', windowed);
+  const here = recordPath ? path.resolve(recordPath) : null;
+  const target = here ? listing.find((e) => path.resolve(e.path) === here) : null;
+  if (!target) return unavailable('record corpus does not include the target record', windowed);
+  if (((target.record && target.record.fields) || {}).work !== work) return unavailable('target record path does not carry the target Work:', windowed);
+  const reasons = [];
+  const partial = (text) => { if (!reasons.includes(text)) reasons.push(text); };
+  // Group by Work; an unreadable or Work-less nonempty file is PARTIAL (never swallowed as empty).
+  const byWork = new Map();
+  for (const entry of listing) {
+    const name = path.basename(entry.path);
+    const f = (entry.record && entry.record.fields) || {};
+    if (entry.unreadable) { partial(`unreadable record ${name}`); continue; }
+    if (!f.work) {
+      let size = 0;
+      try { size = fsImpl.statSync(entry.path).size; } catch { size = Object.keys(f).length ? 1 : 0; }
+      if (size > 0) partial(`record ${name} has no Work:`);
+      continue;
+    }
+    if (!byWork.has(f.work)) byWork.set(f.work, []);
+    byWork.get(f.work).push({ name, fields: f });
   }
+  const sameRecord = (a, b) => a.fields.followUpOf === b.fields.followUpOf && a.fields.opened === b.fields.opened;
+  const resolve = (id) => {
+    const group = byWork.get(id);
+    if (!group) return null;
+    if (group.some((r) => !sameRecord(r, group[0]))) return { conflict: true };
+    return group[0]; // identical duplicates collapse
+  };
+  // Ancestors of the target: declared, well-formed, present, acyclic. Only relevant records are validated.
+  const chain = new Set([work]);
+  for (let cur = target.record.fields.followUpOf, depth = 0; cur; depth += 1) {
+    if (!WORK_ID_RE.test(cur)) { partial(`parent ${cur} is not a Work id`); break; }
+    if (chain.has(cur)) { partial(cur === work ? `self-link cycle at ${cur}` : `follow-up cycle at ${cur}`); break; }
+    chain.add(cur);
+    const rec = resolve(cur);
+    if (!rec) { partial(`parent ${cur} missing from the corpus`); break; }
+    if (rec.conflict) { partial(`conflicting duplicate Work ${cur}`); break; }
+    if (depth > byWork.size) { partial('follow-up chain too deep'); break; }
+    cur = rec.fields.followUpOf;
+  }
+  const targetGroup = byWork.get(work) || [];
+  if (targetGroup.some((r) => !sameRecord(r, targetGroup[0]))) partial(`conflicting duplicate Work ${work}`);
+  // Direct children only (declared links); a grandchild is never billed to the target.
+  const episodes = [];
+  const outsideWindow = [];
+  for (const [childWork, group] of byWork) {
+    if (childWork === work || !group.some((r) => r.fields.followUpOf === work)) continue;
+    if (group.some((r) => !sameRecord(r, group[0]))) { partial(`conflicting duplicate Work ${childWork}`); continue; }
+    if (chain.has(childWork)) { partial(`follow-up cycle at ${childWork}`); continue; }
+    const openedMs = parseDateMs(group[0].fields.opened);
+    if (openedMs === null) { partial(`child ${childWork} has no parseable Opened:`); continue; }
+    if (openedMs > asOfMs) continue; // a future child never enters an earlier as-of read
+    const openedAt = new Date(openedMs).toISOString();
+    if (openedMs <= acceptedMs) outsideWindow.push({ work: childWork, reason: `opened ${openedAt}, not strictly after acceptance` });
+    else if (openedMs > windowEndMs) outsideWindow.push({ work: childWork, reason: `opened ${openedAt}, after window end ${windowEnd}` });
+    else episodes.push({ work: childWork, parent: work, admittedAt: openedAt, source: 'follow-up-of' });
+  }
+  episodes.sort((a, b) => (a.work < b.work ? -1 : 1));
+  outsideWindow.sort((a, b) => (a.work < b.work ? -1 : 1));
   const mature = asOfMs >= windowEndMs;
+  if (!mature) partial(`window open until ${windowEnd} (as-of ${asOf} is before the window end); observed count only`);
+  const coverage = reasons.length ? 'PARTIAL' : 'complete';
   const maturity = mature ? 'mature' : `provisional until ${windowEnd}`;
-  if (partial.length) partial.sort();
-  const text = `; follow-up episodes: ${episodes} (declared links only, ${maturity}${partial.length ? `; PARTIAL: ${partial.join(', ')}` : ''})${parentText}`;
-  return { text, json: { status: partial.length ? 'PARTIAL' : 'complete', episodes, mature, windowEnd, reasons: partial, followUpOf: parent } };
+  const text = `; follow-up episodes: ${episodes.length} (declared links only, ${maturity}${coverage === 'PARTIAL' ? `; PARTIAL: ${reasons.join(', ')}` : ''})${parentText}`;
+  return { text, json: shape(coverage, reasons, { windowEnd, mature, episodes, outsideWindow, episodeCount: episodes.length }) };
 }
 // ── Ledger parsing — shared by number 4 and "notes to the lead". Line shape:
 // `<from> → <to>, M.D.YY HH:MM TZ [<id>( re <parent-id>)?] KIND: text`
@@ -939,7 +983,7 @@ export function buildFourRead(opts, fsImpl = fs) {
   // the 30-minute heuristic, with the classes no script measures named UNSUPPORTED (so the count is a lower bound).
   if (!numberFour.value.startsWith('unavailable')) numberFour.value += `; ${baselineGapText(census, leadTimestamps, windowMs)}`;
   const reworkAttribution = computeReworkAttribution(fields, logs, opts.record, opts.records || path.dirname(path.resolve(opts.record)),
-    opts.asOf ? Date.parse(opts.asOf) : Date.now(), fsImpl);
+    opts.asOf ? Date.parse(opts.asOf) : PROCESS_AS_OF_MS, fsImpl);
   numberThree.value += reworkAttribution.text;
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
   const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason || nativeWindowReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
