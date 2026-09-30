@@ -3935,3 +3935,23 @@ test("acceptRecord: a strict record accepts, and the accepted Log: line itself n
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   assert.match(updated, /^Status: accepted$/m);
 });
+
+// Lane62 (census-completeness-62, F6): Role-sessions: and Follow-up-of: are known singleton labels in
+// BOTH entry paths (parseRecord and the strict accept path), not just one of them.
+test("lane62 F6: parseRecord exposes roleSessions and followUpOf with no unknown-label error", () => {
+  const parsed = parseRecord(mkRecordText({ "Role-sessions": "docs/work/roles.json", "Follow-up-of": "wr-2026-09-20-parent" }));
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.fields.roleSessions, "docs/work/roles.json");
+  assert.equal(parsed.fields.followUpOf, "wr-2026-09-20-parent");
+});
+
+test("lane62 F6: strict acceptance accepts Role-sessions:/Follow-up-of: and refuses a duplicate of either as a singleton", () => {
+  const ok = makeAcceptanceFixture({ "Role-sessions": "docs/work/roles.json", "Follow-up-of": "wr-2026-09-20-parent" });
+  assert.equal(checkAcceptance({ repoRoot: ok.repo, recordPath: ok.record, pinnedArtifact: ok.sha }).ok, true);
+  for (const [label, key, value] of [["Follow-up-of", "followUpOf", "wr-2026-09-20-parent"], ["Role-sessions", "roleSessions", "docs/work/roles.json"]]) {
+    const f = makeAcceptanceFixture({ [label]: value });
+    const recordPath = path.join(f.repo, f.record);
+    fs.writeFileSync(recordPath, fs.readFileSync(recordPath, "utf8").replace(`${label}: ${value}`, `${label}: ${value}\n${label}: ${value}`));
+    assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), new RegExp(`duplicate singleton field: ${key}`));
+  }
+});
