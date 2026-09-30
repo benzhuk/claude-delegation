@@ -62,7 +62,7 @@ const B = 'bbbbbbbb-0000-4000-8000-000000000001';
 const C = 'cccccccc-0000-4000-8000-000000000002';
 
 // Standard builder transcript: five distinct requests around the window (before, at FROM, inside,
-// at TO, after) and one streamed duplicate of the inside request. Inclusive bounds => 3 requests,
+// at TO, after) and one streamed repeat of the inside request (collapsed by native alias dedup). Inclusive bounds => 3 requests,
 // 15 processed tokens each = 45.
 function builderRows(sessionId = B) {
   return [
@@ -163,7 +163,7 @@ test('a declared detached builder becomes counted: window-clipped, inclusive bou
   assert.equal(role.status, 'complete');
   assert.equal(role.role, 'builder');
   assert.equal(role.requests, 3, 'r-from, r-mid and r-to; r-before and r-after are clipped');
-  assert.equal(role.duplicateRequests, 1, 'the streamed repeat of r-mid');
+  assert.equal(role.duplicateRequests, 0, 'no overlap with native discovery; the streamed repeat of r-mid is collapsed by requestId/message-id alias dedup first, not counted here');
   assert.equal(total(role.byModel[OPUS]), 45, 'models come from the usage rows');
   assert.equal(r.report.measurementScope.roles, 'native-plus-declared');
   assert.equal(r.report.measurementScope.from, FROM);
@@ -177,13 +177,14 @@ test('the same session reachable natively AND declared is counted once', () => {
   writeRows(path.join(fx.claudeRoot, 'projects/lane', LEAD_ID, 'subagents', `agent-${B}.jsonl`), builderRows());
   const r = runClaudeCensus(fx);
   assertControl(r);
-  assert.equal(roleOf(r).requests, 3, 'one identity, three unique requests');
+  assert.equal(roleOf(r).duplicateRequests, 3, 'the three declared in-window requests were already represented natively and are dropped, not double counted');
 });
 
 test('an identical duplicate declaration collapses; conflicting role declarations are PARTIAL', () => {
   const dup = runClaudeCensus(claudeFixture((fx) => { fx.roles.push({ ...fx.roles[0] }); }));
   assertControl(dup);
   assert.equal(dup.report.roleSessions.filter((x) => x.sessionId === B).length, 1, 'one result for one identity');
+  assert.deepEqual([roleOf(dup).requests, roleOf(dup).duplicateRequests], [3, 0], 'an identical duplicate declaration collapses once; it is not native overlap');
   const conflict = runClaudeCensus(claudeFixture((fx) => { fx.roles.push({ ...fx.roles[0], role: 'reviewer' }); }));
   assertTainted(conflict, 'same session declared as builder and reviewer');
 });
