@@ -124,7 +124,8 @@ export function runProcess({ cmd, args = [], input = null, env, cwd, timeoutMs, 
 /** The parent's environment for children that talk to a remote: only what local ssh auth needs. */
 export function sshEnv(base = process.env) {
   const env = {};
-  for (const k of ["PATH", "Path", "SystemRoot", "USERPROFILE", "HOME", "TEMP", "TMP", "SSH_AUTH_SOCK"]) {
+  // ProgramData: native Windows OpenSSH exits 255 at startup without it.
+  for (const k of ["PATH", "Path", "SystemRoot", "ProgramData", "USERPROFILE", "HOME", "TEMP", "TMP", "SSH_AUTH_SOCK"]) {
     if (base[k] !== undefined) env[k] = base[k];
   }
   return env;
