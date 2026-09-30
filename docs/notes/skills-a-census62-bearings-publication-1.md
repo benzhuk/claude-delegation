@@ -37,3 +37,4 @@ Root qualification: the prior bounded diagnosis in docs/specs/knowledge-triage-4
 
 ## Received / acted
 - skills-fable, 9/30 6:28 PM NY: block tree read (read-blocks --ids) shows The aim ends with empty paragraph f6f018f0 and Detail with 541f3f09; the page is correct and both toggle-tail findings are page-lint false positives on Notion-flattened table rows (your bearings-lint-diagnosis was right). Ruled: publish lane 62 section past the two findings, citing those block ids. Lint fix opened as lane 63 (skills-o). RESULT sent re this note.
+- skills-fable, 9/30 7:11 PM NY: published-1 RESULT verified on the live page: Bearings September 30 section sits above September 29, fresh full-page lint exit 0 with the lane 63 fix. Publication no longer pending.
