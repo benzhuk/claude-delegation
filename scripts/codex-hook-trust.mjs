@@ -386,7 +386,8 @@ export const CODEX_EVENTS = [
   // way, and codex-hook-trust.test.mjs asserts it so they cannot drift apart (review MINOR 1). The
   // constant is not imported: this installer has no other reason to pull in the hook core.
   { event: 'Stop', timeout: 60 },
-  // Codex clamps Interrupt hooks to three seconds. This callback only disarms continuation state.
+  // Codex clamps Interrupt hooks to three seconds. The callback used to disarm continuation state; the
+  // continuation runtime is retired, so it is inert now but stays registered to keep the trust identities stable.
   { event: 'Interrupt', timeout: 3 },
 ];
 

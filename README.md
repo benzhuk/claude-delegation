@@ -65,16 +65,10 @@ claude plugin install delegation@benzhuk
   UserPromptSubmit; SessionStart does not persist a classification for later events.
   Prompts without that classification or a usable card receive no new advisory.
   Confirmed children receive
-  neither new effect, and unknown identity retains only existing inbox/continuation
+  neither new effect, and unknown identity retains only existing inbox
   behavior. Codex has no bearings cadence on PostToolUse, Stop, or Interrupt;
   installed-host proof, mixed-host validation, and live Goals preservation/readback
   remain separate release gates.
-- **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
-  wave closeout, or status turn: select useful ready work, preserve its evidence identity,
-  refill genuinely free capacity, and use verified native host resume paths. On supported
-  Claude Code and Codex hooks, explicitly bind the current native episode to selected existing work
-  records for one bounded completion correction. Accounting uses current evidence;
-  a new prompt suspends the prior binding. This does not grant authority or schedule idle work.
 - **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
   default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
   a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
@@ -375,7 +369,7 @@ MIT
   bearings advisory at SessionStart and each UserPromptSubmit. This deliberate
   per-prompt tradeoff uses up to 1,200 bytes of card context plus a bounded advisory,
   with no fired/tally cadence state. Confirmed children receive no new card or bearings
-  effect, while unknown native identity keeps its established inbox/continuation behavior
+  effect, while unknown native identity keeps its established inbox behavior
   without the new advisory. `ws-off-goalcard` disables the card and its bearings advisory;
   `ws-off-bearings` disables bearings only. Codex has no new PostToolUse, Stop, or
   Interrupt cadence. This is source behavior, not an installation or live-observation

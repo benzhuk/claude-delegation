@@ -6,7 +6,6 @@ import path from "node:path";
 import test from "node:test";
 
 import { STATUSES, acceptanceMain, closeRecord, parseRecord, validateRecord, withdrawRecord } from "./work-record.mjs";
-import { selectContinuationSnapshot } from "./continuation.mjs";
 import { main as collectFromOrigin } from "./collect-from-origin.mjs";
 import { main as collectStatus } from "./collect-status.mjs";
 import { makeTempHome } from "./test-home.mjs";
@@ -86,7 +85,7 @@ test("a hand-edited closed status is invalid without the accepted and closed rec
   assert.ok(findings.some((fnd) => fnd.level === "finding"), "closed must inherit accepted checks and require its receipt");
 });
 
-test("continuation snapshots every declared status, including closed and withdrawn, without SELECTION_UNREADABLE", (t) => {
+test("every declared status, including closed and withdrawn, is a valid record fixture", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "record-closed-continuation-")); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, "docs", "work", "evidence"), { recursive: true });
   fs.writeFileSync(path.join(root, "authority.md"), "contract authority\n");
@@ -99,11 +98,8 @@ test("continuation snapshots every declared status, including closed and withdra
       : [`Log: 2026-09-21T01:00:00Z ${status} worker`];
     const text = recordText({ status, artifact: "docs/x@aaaaaaaa", extra }).replace("wr-2026-09-27-contract", `wr-2026-09-27-contract-${i}`);
     fs.writeFileSync(path.join(root, "docs", "work", `s${i}.record.md`), text);
-    assert.deepEqual(validateRecord(parseRecord(text), { repoRoot: root }), [], `fixture ${status} is valid before continuation reads it`);
+    assert.deepEqual(validateRecord(parseRecord(text), { repoRoot: root }), [], `fixture ${status} is valid`);
   }
-  const snapshot = selectContinuationSnapshot({ repo: root, roots: STATUSES.map((_, i) => `wr-2026-09-27-contract-${i}`), authorityRef: "authority.md" });
-  assert.equal(snapshot.status, "OK", snapshot.problems?.join(", "));
-  for (const status of STATUSES) assert.ok(Array.isArray(snapshot.buckets[status]), `bucket ${status}`);
 });
 
 function prefixFixture() {

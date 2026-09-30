@@ -30,11 +30,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 const MIRROR = path.join(HERE, 'mirror-shared-skills.mjs');
 
-test('PLUGIN_SKILLS includes notion-writing, dev-server, bearings, continue, and janitor', () => {
+test('PLUGIN_SKILLS includes notion-writing, dev-server, bearings, and janitor', () => {
   assert.ok(PLUGIN_SKILLS.includes('notion-writing'), 'notion-writing must be in PLUGIN_SKILLS');
   assert.ok(PLUGIN_SKILLS.includes('dev-server'), 'dev-server must be in PLUGIN_SKILLS');
   assert.ok(PLUGIN_SKILLS.includes('bearings'), 'bearings must be in PLUGIN_SKILLS');
-  assert.ok(PLUGIN_SKILLS.includes('continue'), 'continue must be in PLUGIN_SKILLS');
+  assert.ok(!PLUGIN_SKILLS.includes('continue'), 'continue is retired and must not be in PLUGIN_SKILLS');
   assert.ok(PLUGIN_SKILLS.includes('janitor'), 'janitor must be in PLUGIN_SKILLS (lane five, J2)');
 });
 
@@ -46,7 +46,7 @@ test('plugin skills actually resolve to sources under <repo>/skills/, not ~/.cla
   const sources = collectSources();
   const byName = Object.fromEntries(sources.filter((s) => s.kind === 'skill').map((s) => [s.name, s]));
 
-  for (const name of ['notion-writing', 'dev-server', 'bearings', 'continue', 'janitor']) {
+  for (const name of ['notion-writing', 'dev-server', 'bearings', 'janitor']) {
     const entry = byName[name];
     assert.ok(entry, `${name} did not resolve to any skill source at all`);
     const expected = path.join(REPO, 'skills', name);

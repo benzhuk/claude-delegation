@@ -223,7 +223,7 @@ test('functional: the manifest-derived validator rejects fake Claude and Codex w
   assert.throws(() => assertManifestParity(claudeManifest, fakeCodex, unsupportedDoc), /NATIVE_ROUTES\.FakeCodex|Codex-only allowance: Codex has an Interrupt event, Claude Code has none\./);
 });
 
-test('functional: native wrapper emits SessionStart wiring plus backlog prompt/post/stop output without erasing peer or continuation context', { timeout: 10000 }, async (t) => {
+test('functional: native wrapper emits SessionStart wiring plus backlog prompt/post/stop output without erasing peer context', { timeout: 10000 }, async (t) => {
   const root = scratch('codex-parity-route-project-');
   const home = scratch('codex-parity-route-home-');
   rmLater(t, root); rmLater(t, home);
@@ -234,14 +234,12 @@ test('functional: native wrapper emits SessionStart wiring plus backlog prompt/p
     home,
     env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
     inbox: async () => peerNotes(),
-    handleContinuationEvent: async () => ({ context: 'CONTINUATION-PARITY-MARKER' }),
     nativeRouteForLead,
   };
 
   const start = await runCodexHook({ ...input, hook_event_name: 'SessionStart' }, deps);
   assert.match(context(start), /wiring:/, 'SessionStart must put the real wiring line into native context');
   assert.match(context(start), /peer → lead/, 'wiring must preserve peer context');
-  assert.match(context(start), /CONTINUATION-PARITY-MARKER/, 'wiring must preserve continuation context');
 
   // This is a composition assertion: route output is injected through the existing runCodexHook seam
   // so all three event shapes are deterministic under a loaded host. Actual child routing remains
@@ -252,7 +250,6 @@ test('functional: native wrapper emits SessionStart wiring plus backlog prompt/p
     const rendered = `${context(result)}\n${result?.output?.systemMessage ?? ''}\n${result?.output?.reason ?? ''}`;
     assert.match(rendered, /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/, `${event} must render actual backlog output`);
     assert.match(rendered, /peer → lead/, `${event} must preserve peer delivery`);
-    assert.match(rendered, /CONTINUATION-PARITY-MARKER/, `${event} must preserve continuation delivery`);
   }
 });
 
@@ -283,13 +280,11 @@ test('functional: real SessionStart without transcript metadata still routes wir
       home,
       env: childEnv(home, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
       inbox: async () => peerNotes(),
-      handleContinuationEvent: async () => ({ context: 'NO-TRANSCRIPT-CONTINUATION' }),
       nativeRouteForLead,
     },
   );
   assert.match(context(result), /wiring:/, 'Codex callbacks do not supply transcript_path');
   assert.match(context(result), /peer → lead/, 'unknown role must retain peer delivery');
-  assert.match(context(result), /NO-TRANSCRIPT-CONTINUATION/, 'unknown role must retain continuation delivery');
   wireHealthyWiringHome(healthyHome);
   const healthy = await runCodexHook(
     { hook_event_name: 'SessionStart', session_id: LEAD, cwd: root, turn_id: 'healthy-wiring-turn' },
@@ -297,7 +292,6 @@ test('functional: real SessionStart without transcript metadata still routes wir
       home: healthyHome,
       env: childEnv(healthyHome, { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(healthyHome, '.agents'), CLAUDE_PLUGIN_ROOT: REPO }),
       inbox: async () => ({ slug: 'lead', count: 0, notes: [] }),
-      codexContinuationSupported: false,
       nativeRouteForLead,
     },
   );
@@ -327,7 +321,6 @@ test('deadline: runCodexHook outer route budget gives up silently within two sec
       inbox: async () => peerNotes(),
       goalContextForLead: async () => ({ text: 'OUTER-ADVISORY-PRESERVED' }),
       nativeRouteForLead: async () => new Promise(() => {}),
-      codexContinuationSupported: false,
     },
   );
   assert.ok(performance.now() - started < 2000, 'runCodexHook outer route budget must reject the 5-second timeout mutant');
@@ -348,7 +341,6 @@ test('functional: a real UserPromptSubmit child preserves peer and advisory outp
       inbox: async () => peerNotes(),
       goalContextForLead: async () => ({ text: 'ADVISORY-PRESERVED' }),
       nativeRouteForLead,
-      codexContinuationSupported: false,
     },
   );
   assert.match(context(result), /work: 1 runnable and unowned \(wr-2026-09-28-parity\)/, 'the real child route must reach the wrapper output');
@@ -390,7 +382,7 @@ test('functional: Claude and Codex native session ids have independent exact bac
 
   const codex = await runCodexHook(
     { hook_event_name: 'UserPromptSubmit', session_id: CODEX_SESSION, cwd: root, turn_id: 'two-session-native-route' },
-    { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) },
+    { home, env, nativeRouteForLead, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) },
   );
   assert.match(context(codex), /work: 1 runnable and unowned/, 'a different supplied Codex session must emit in the same home and project');
   const claudeSentinel = sentinelPathFor(agents, CLAUDE_SESSION);
@@ -423,13 +415,13 @@ test('functional: backlog route keeps its existing switches and cadence silent',
   const base = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, transcript_path: transcript(root), cwd: root, turn_id: 'silence-turn' };
   const env = { NOTE_SLUG: 'lead', AGENTS_HOME: path.join(home, '.agents'), CLAUDE_PLUGIN_ROOT: REPO };
   freezeParentRouteTimers(t);
-  const first = await runCodexHook(base, { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
+  const first = await runCodexHook(base, { home, env, nativeRouteForLead, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
   assert.match(context(first), /work: 1 runnable/, 'fixture proves the route is live before cadence check');
   assert.ok(fs.existsSync(sentinelPathFor(path.join(home, '.agents'), LEAD)), 'the real first route must write its supplied-session sentinel');
-  const second = await runCodexHook(base, { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
+  const second = await runCodexHook(base, { home, env, nativeRouteForLead, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
   assert.equal(second, null, 'the existing 120-second backlog cadence remains silent');
   fs.mkdirSync(path.join(home, '.agents'), { recursive: true }); fs.writeFileSync(path.join(home, '.agents', 'ws-off-backlog'), '');
-  const switched = await runCodexHook({ ...base, turn_id: 'switch-turn' }, { home, env, nativeRouteForLead, codexContinuationSupported: false, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
+  const switched = await runCodexHook({ ...base, turn_id: 'switch-turn' }, { home, env, nativeRouteForLead, inbox: async () => ({ slug: 'lead', count: 0, notes: [] }) });
   assert.equal(switched, null, 'ws-off-backlog remains silent through the native wrapper');
 });
 

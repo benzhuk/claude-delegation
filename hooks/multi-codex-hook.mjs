@@ -31,10 +31,9 @@ import {
   HANDLE_RE, readBindings, isMainModule, toPosix, codexInboxRecord, registerInbox,
 } from '../skills/multi/scripts/transport.mjs';
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
-import { handleContinuationEvent } from '../scripts/continuation.mjs';
-import { classifyCodexRole, normalizeCodexContinuation } from './continuation-native.mjs';
+import { classifyCodexRole } from './codex-role.mjs';
 import {
-  runHookEvent, writeJson, composeContinuationResult, BUDGET_MS, POST_TOOL_BUDGET_MS,
+  runHookEvent, writeJson, BUDGET_MS, POST_TOOL_BUDGET_MS,
 } from './multi-hook-core.mjs';
 
 // Native child metadata is the only positive child discriminator used here.  The hook input may
@@ -48,7 +47,7 @@ export function isConfirmedCodexChild(input = {}, fsImpl = fs) {
   return classifyCodexRole(input, fsImpl) === 'child';
 }
 
-/** Append host advisory context without replacing peer or continuation delivery. */
+/** Append host advisory context without replacing peer delivery. */
 function appendGoalContext(result, event, text, systemMessage) {
   if (!text && !systemMessage) return result;
   const next = result ? { ...result, output: result.output ? structuredClone(result.output) : null } : { ackIds: [] };
@@ -114,7 +113,7 @@ export function runRoute(script, args, input, cwd, env, timeoutMs = ROUTE_TIMEOU
   });
 }
 
-/** Native routes added to the established Codex adapter; all other events remain peer/continuation only. */
+/** Native routes added to the established Codex adapter; all other events remain peer only. */
 export async function nativeRouteForLead(input, cwd, role, env) {
   // Codex's live hook callback supplies cwd and session_id but no transcript_path, so its role is
   // unknown even for a real CLI lead. Confirmed children already returned from runCodexHook above;
@@ -255,17 +254,7 @@ export async function runCodexHook(input = {}, deps = {}) {
     event, input, cwd, home, env, fsImpl, now: deps.now ?? Date.now(),
     inbox: (argv) => run([...me9, ...hot, ...argv]),
   }) : null;
-  let continuation = null;
-  try {
-    const normalized = normalizeCodexContinuation(input, fsImpl, {
-      supported: deps.codexContinuationSupported !== false,
-    });
-    if (normalized) {
-      normalized.peerWillBlock = peer?.output?.decision === 'block';
-      continuation = await (deps.handleContinuationEvent ?? handleContinuationEvent)(normalized, deps.continuationDeps);
-    }
-  } catch { /* continuation never suppresses peer delivery */ }
-  const result = composeContinuationResult(peer, continuation, event);
+  const result = peer;
   const [advisory, route] = await Promise.all([advisoryWork, routeWork]);
   const withGoalContext = route ? appendGoalContext(result, event, route.text, route.systemMessage) : result;
   const withAdvisoryContext = advisory ? appendGoalContext(withGoalContext, event, advisory.text, advisory.systemMessage) : withGoalContext;
@@ -294,7 +283,6 @@ async function main() {
   // Emit FIRST and wait for the write to reach the pipe, THEN ack exactly what was printed. Either half
   // failing costs a repeated note, never a lost one (review MAJOR 3, MAJOR 4).
   const flushed = await writeJson(result.output);
-  try { result.continuationAfterFlush?.(flushed); } catch {}
   if (flushed && result.ackIds?.length && result.ack) {
     try { await result.ack(result.ackIds); } catch { /* delivered; it will simply repeat */ }
   }
