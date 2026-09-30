@@ -1,6 +1,6 @@
 # Lane62: one complete measurement contract
 
-Status: scouted and pinned for the one Opus spec red-team round. Root adjudicates that round in this same spec; no repeated spec-review loop. Bearings CONTINUE is recorded; publication is PENDING independently. Production build waits for spec adjudication.
+Status: the one Opus red-team round is complete at 5441aac5. Root dispositions in spec-adjudication.md are normative and supersede draft/ruling language below where they conflict. Bearings CONTINUE is recorded; publication is PENDING independently. Build may start after the F3 structural witness is retained. No second spec review.
 
 Authority: skills-fable-census-62-1, section A items1-4 of docs/plan-to-done-2026-09-30.md at a3aa244b88200a6c834933c60bd59d04d62bce9d. The deadline is October1 before15:00 America/New_York. Opened is the dispatch September30 at16:08 America/New_York. This lane repairs the existing measurement instrument, not the orchestration workflow, host installers or guards.
 

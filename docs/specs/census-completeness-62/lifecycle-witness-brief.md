@@ -1,0 +1,4 @@
+Task: Resolve F3's structural witness before implementation. Read spec-review-r1.md F3 and the existing known Codex lead using production lfLines only. No text output.
+Work: wr-2026-09-30-census-completeness. Goal: do not use a stale open-turn tally as the stall oracle.
+Output lifecycle-witness.json and lifecycle-witness.md here: task_started when another turn id is open, same/different root_turn_id counts, unknown roots, timestamp reversal count, complete-before-start or output-before-call counts when joinable. Report whether the previous 9/2 gap split is a valid oracle. Native event ids and row numbers may be retained; no message/tool content, private config/env, raw transcript copies. Read-only snapshot in memory is fine, no snapshot files. Do not infer nesting from equal root id alone without explaining shape. If unsupported say so.
+Do not edit source/tests/records/spec/review. No git commit, peer, SSH or nested agents. ETA 3 minutes. Report and stop.
