@@ -22,7 +22,7 @@ Log: 2026-09-30T02:40:29.000Z rejected skills-n reviewer ac5fd99326e600c25 delta
 Log: 2026-09-30T02:45:53.000Z rejected skills-n Opus reviewer ad1096d202d385c46 confirm r3 NEEDS_FIXES b426e8a (1 MEDIUM: a Worktree: directory in a separate clone passes both modes, since nothing ties it to the Artifact-repo: common dir; lead patch verified as the verbatim r2 test); review-r3.md
 Log: 2026-09-30T02:48:49.000Z delivered skills-n Sonnet builder adf77aef8d74bc3a1 fix round 2 at d2fb5ccf93dd04239e7edc25faae3231e318e567 (review-r3 patches verbatim, new test red on b426e8a, probes P2 P4 P5 Q3 Q4 now refuse and P6 accepts, suite 3148 tests 0 fail); builder tried a banned rm -f of a stray marker, the hook blocked it and the builder stopped that step; fix2-build.md
 Log: 2026-09-30T02:50:12.000Z reviewed skills-n Opus reviewer ad1096d202d385c46 confirm r4 APPROVE d2fb5ccf93dd04239e7edc25faae3231e318e567 (R3-F1 patches verbatim, probes refuse, suite 3148 tests 0 fail)
-Log: 2026-09-30T02:52:24.000Z reviewed skills-n integrator a848426bb78a066a9 Windows suite PASS at d2fb5ccf93dd04239e7edc25faae3231e318e567; docs/work/evidence/wr-2026-09-30-artifact-repo-windows.md
+Log: 2026-09-30T02:52:24.000Z reviewed skills-n Sonnet integrator a848426bb78a066a9 Windows suite PASS at d2fb5ccf93dd04239e7edc25faae3231e318e567; docs/work/evidence/wr-2026-09-30-artifact-repo-windows.md
 
 Predicts: a lane whose code lives outside the plugin repo, dotfiles first, goes from reviewed to accepted through `accept` instead of stalling at reviewed. Lane 60's accept is the first live use. Work lost or stalled should drop by the one lane that sat reviewed with no route today.
 
