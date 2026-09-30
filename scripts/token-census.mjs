@@ -23,6 +23,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { lfLines } from './jsonl-lines.mjs';
 import { fileURLToPath } from 'node:url';
+import { TOKEN_DEFINITION, processedTokenTotal } from './census-measures.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Classification — ported from scratchpad/census-hooks/census.js + census_r2/r3/r4.js.
@@ -115,8 +116,18 @@ export function costUnits(u) {
   return (u.input || 0) * 1 + (u.cache_creation || 0) * 1.25 + (u.cache_read || 0) * 0.1 + (u.output || 0) * 5;
 }
 
-function rawTokensOf(u) {
-  return (u.input || 0) + (u.cache_creation || 0) + (u.cache_read || 0) + (u.output || 0);
+// Lane 62: raw tokens are the shared processed-v1 total. A row with a negative or non-finite category is counted in
+// sanity.invalidUsageRows and adds nothing, never a coerced zero-plus-rest. costUnits keep their own price-ratio formula.
+function rawTokensOf(u, state) {
+  try {
+    return processedTokenTotal('claude', {
+      input_tokens: u.input || 0, cache_creation_input_tokens: u.cache_creation || 0,
+      cache_read_input_tokens: u.cache_read || 0, output_tokens: u.output || 0,
+    });
+  } catch {
+    state.sanity.invalidUsageRows += 1;
+    return 0;
+  }
 }
 
 function percentile(sortedArr, p) {
@@ -226,7 +237,7 @@ function newState() {
     coldStartTopTier[cls] = newColdBucket();
   }
   return {
-    sanity: { mainFiles: 0, subFiles: 0, malformedLines: 0, metaMissing: 0, fileErrors: 0, mainLinesSeen: 0, subLinesSeen: 0 },
+    sanity: { mainFiles: 0, subFiles: 0, malformedLines: 0, metaMissing: 0, fileErrors: 0, invalidUsageRows: 0, mainLinesSeen: 0, subLinesSeen: 0 },
     dedupe: { main: new Set(), sub: new Set() },
     byClass,
     coldStartTopTier,
@@ -244,7 +255,7 @@ function finalizeMainTurn(turn, state) {
   let raw = 0;
   for (const r of turn.apiResponses) {
     cu += costUnits(r);
-    raw += rawTokensOf(r);
+    raw += rawTokensOf(r, state);
   }
   bucket.turns += 1;
   bucket.costUnits += cu;
@@ -342,7 +353,7 @@ async function scanMainFile(fsImpl, fileInfo, window, state) {
 
     state.tier[tierOf(fam)] += cu;
     state.scope.main.costUnits += cu;
-    state.scope.main.rawTokens += rawTokensOf(rec);
+    state.scope.main.rawTokens += rawTokensOf(rec, state);
 
     if (currentTurn) currentTurn.apiResponses.push(rec);
   }
@@ -423,7 +434,7 @@ async function scanSubagentFile(fsImpl, fileInfo, window, state) {
 
     state.tier[tierOf(fam)] += cu;
     state.scope.sub.costUnits += cu;
-    state.scope.sub.rawTokens += rawTokensOf(rec);
+    state.scope.sub.rawTokens += rawTokensOf(rec, state);
     state.subHighCtx.total += cu;
     if (ctxNow >= 150000) state.subHighCtx.atOrAbove150k += cu;
   }
@@ -521,6 +532,7 @@ function buildReport(state, opts, window, projectsDir) {
     projectsDir,
     window: { startISO: new Date(window.startMs).toISOString(), endISO: new Date(window.endMs).toISOString() },
     sanity: { ...state.sanity },
+    tokenDefinition: TOKEN_DEFINITION,
     costUnitFormula: 'input x1 + cache_creation x1.25 + cache_read x0.1 + output x5 (price-ratio unit, not USD)',
     byClass,
     byTier,

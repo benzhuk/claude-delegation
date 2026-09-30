@@ -40,6 +40,8 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Next:` | yes | the next action, or the blocker and its owner |
 | `Opened:` | yes | ISO-8601 UTC |
 | `Children:` | no | comma-separated child work ids |
+| `Role-sessions:` | no | a repo-relative path to the JSON manifest naming the build's detached sessions (launcher builders, review-run reviewers) — see "Role-sessions manifest" below; `build-census --record` reads it, nothing else does |
+| `Follow-up-of:` | no | the `Work:` id of the accepted build this record is a follow-up of; the only input four-read's follow-up episode count uses (declared links only, never inferred) |
 | `Builder:` | no | model name |
 | `Rounds:` | no | source of truth for round count |
 | `Class:` | no | failure-class slug, bug fixes only |
@@ -469,3 +471,21 @@ evidence, scope-drift), wrote this doc, and updated the mandate template and the
 builder/reviewer agent text. Reviewer verified the validator against every finding
 code and APPROVEd on the first round.
 ```
+
+## Role-sessions manifest
+
+`Role-sessions:` names one JSON file, relative to the repository passed as `build-census --repo`:
+
+```json
+{"version": 1, "work": "<the record's Work:>", "sessions": [
+  {"host": "claude|codex", "sessionId": "<uuid>", "role": "builder|reviewer|integrator|scout|spec-reviewer",
+   "evidence": "<repo-relative launch-evidence JSON>", "transcript": "<path relative to --claude-root or --codex-home>"}
+]}
+```
+
+The declaration is the role and lane authority. The launch-evidence copy holds only `session`, `started` (or
+`startedAt`) and `sourceSha256`. A manifest whose `work` differs from the record, an unreadable or escaping path, a
+session whose evidence or native rows do not carry the declared id, or a declared session that is the lead makes
+that role PARTIAL in the census, never silently dropped. Identical repeated declarations collapse; conflicting ones
+are PARTIAL. `Follow-up-of:` and `Role-sessions:` are optional and follow the same one-line field syntax as the
+rest of the header.
