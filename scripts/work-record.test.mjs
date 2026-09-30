@@ -3955,3 +3955,51 @@ test("lane62 F6: strict acceptance accepts Role-sessions:/Follow-up-of: and refu
     assert.throws(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), new RegExp(`duplicate singleton field: ${key}`));
   }
 });
+
+// Lane62 F7 (accept side): a Claude census that PARTIALs because a declared role could not be measured is
+// refused by the public accept path with guidance naming --no-census; a COUNTED census from the same
+// fixture reaches acceptance. Existing fixtures suffice (makeAcceptanceFixture, withReviewedLog and the
+// real build-census CLI); no seam is added. Needs Role-sessions support in build-census, so it is red
+// at base on the PARTIAL half (unknown --record flag) while the control half is green there.
+test("lane62 F7: accept refuses a real Claude PARTIAL census with --no-census guidance; a COUNTED one reaches acceptance", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "work-record-lane62-f7-"));
+  const claudeRoot = path.join(dir, "claude-root");
+  const leadId = "eeeeeeee-0000-4000-8000-00000000000e";
+  const lead = path.join(claudeRoot, "projects", "lane", `${leadId}.jsonl`);
+  fs.mkdirSync(path.dirname(lead), { recursive: true });
+  fs.writeFileSync(lead, [
+    JSON.stringify({ type: "user", timestamp: "2026-09-24T09:00:00.000Z", message: { role: "user", content: "start" } }),
+    JSON.stringify({ type: "assistant", requestId: "l1", timestamp: "2026-09-24T09:00:05.000Z", sessionId: leadId, message: { id: "l1", model: "claude-opus-5-5", usage: { input_tokens: 1, output_tokens: 1 } } }),
+  ].join("\n") + "\n");
+  const cli = (extra, out) => spawnSync(process.execPath, [
+    fileURLToPath(new URL("./build-census.mjs", import.meta.url)), "--lead", lead, "--out", out, ...extra,
+  ], { encoding: "utf8" });
+
+  const counted = path.join(dir, "counted.md");
+  const c = cli([], counted);
+  assert.equal(c.status, 0, c.stderr);
+  assert.match(fs.readFileSync(counted, "utf8"), /^VERDICT: COUNTED\b/);
+
+  const declRepo = path.join(dir, "decl-repo");
+  fs.mkdirSync(path.join(declRepo, "docs", "work"), { recursive: true });
+  const role = { host: "claude", sessionId: "bbbbbbbb-0000-4000-8000-000000000001", role: "builder", evidence: "docs/work/evidence/b.json", transcript: "projects/lane/missing.jsonl" };
+  fs.writeFileSync(path.join(declRepo, "docs/work/roles.json"), JSON.stringify({ version: 1, work: "wr-2026-09-24-lane62-f7", sessions: [role] }));
+  fs.mkdirSync(path.join(declRepo, "docs/work/evidence"), { recursive: true });
+  fs.writeFileSync(path.join(declRepo, role.evidence), JSON.stringify({ session: role.sessionId, startedAt: "2026-09-24T08:59:00.000Z", sourceSha256: "a".repeat(64) }));
+  const declRecord = path.join(declRepo, "docs/work/lane.record.md");
+  fs.writeFileSync(declRecord, "Work: wr-2026-09-24-lane62-f7\nScope: x\nOwner: t\nStatus: delivered\nAuthority: x\nArtifact: none\nEvidence: none\nNext: x\nOpened: 2026-09-24T09:00:00Z\nRole-sessions: docs/work/roles.json\n\nObserved: x\n");
+  const partial = path.join(dir, "partial.md");
+  const p = cli(["--from", "2026-09-24T09:00:00.000Z", "--to", "2026-09-24T10:00:00.000Z", "--record", declRecord, "--repo", declRepo, "--claude-root", claudeRoot], partial);
+  assert.equal(p.status, 0, `the PARTIAL census must be produced, not refused: ${p.stderr.slice(0, 300)}`);
+  assert.match(fs.readFileSync(partial, "utf8"), /^VERDICT: PARTIAL\b/, "a declared role that cannot be measured is a PARTIAL header");
+
+  const f = makeAcceptanceFixture();
+  withReviewedLog(f, "2026-09-23T13:00:00Z");
+  assert.throws(
+    () => acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath: partial }),
+    (error) => { assert.match(error.message, /--no-census/, "refusal names the explicit escape"); return true; },
+  );
+  assert.doesNotMatch(fs.readFileSync(path.join(f.repo, f.record), "utf8"), /^Status: accepted$/m);
+  const ok = acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, censusPath: counted, now: new Date("2026-09-24T10:00:00Z") });
+  assert.equal(ok.ok, true, "control: the COUNTED census reaches acceptance");
+});
