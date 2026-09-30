@@ -1,4 +1,4 @@
-# Plan to DONE, as of 2026-09-30 12:50 PM NY
+# Plan to DONE, as of 2026-09-30 4:08 PM NY (commit a3aa244b; the header first said 12:50 PM, a clock I had not re-read)
 
 DONE (goal card): a build goes spec to accepted through the plugin, led once from Claude and once from Codex with a mixed handoff, lead under 20 turns, mid tier builds, high tier reviews, nothing lost or stalled, and the census beats the hand-run build on all four measures.
 
