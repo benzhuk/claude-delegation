@@ -107,6 +107,26 @@ export function prepare(text) {
     }
   }
 
+  // Notion's markdown export prints table rows at column 0 whatever the table's nesting. Every line strictly
+  // inside a <table ...> ... </table> (tags counted only at the start of a line; nested tables by depth) takes the opener's indent, for toggle extents only.
+  // An unclosed table inherits nothing.
+  for (const x of info) x.extentIndent = x.indent;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (info[i].fence || !/^<table\b/.test(info[i].t)) continue;
+    let depth = 0;
+    let close = -1;
+    for (let j = i; j < lines.length && close < 0; j += 1) {
+      if (info[j].fence) continue;
+      const { t } = info[j];
+      if (/^<table\b/.test(t)) depth += 1;
+      if (/^<\/table>/.test(t) || /^<table\b.*<\/table>$/.test(t)) depth -= 1;
+      if (depth <= 0) close = j;
+    }
+    if (close < 0) continue;
+    for (let j = i + 1; j < close; j += 1) info[j].extentIndent = info[i].indent;
+    i = close;
+  }
+
   const toggles = [];
   const open = [];
   for (let i = 0; i < lines.length; i += 1) {
@@ -133,7 +153,7 @@ export function prepare(text) {
       let end = i;
       for (let j = i + 1; j < lines.length; j += 1) {
         if (info[j].blank) continue;
-        if (info[j].indent <= x.indent) break;
+        if (info[j].extentIndent <= x.indent) break;
         end = j;
       }
       toggles.push({
