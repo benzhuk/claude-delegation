@@ -37,12 +37,12 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // eight-role pinned sentence. Optional here (validateRecord/parseRecord parse it like any other
 // singleton) so an old record without one still parses cleanly; the refusal/warning split lives
 // in checkScratchField below, called from both validateRecord and checkAcceptance.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
   "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner", "accepted-without-check",
-  "scratch-missing", "scratch-invalid",
+  "scratch-missing", "scratch-invalid", "artifact-repo-not-absolute",
 ];
 
 // T1 (round-2 review, MAJOR 3): before this, `Status: accepted` was enforced only by the
@@ -69,7 +69,14 @@ const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
-  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
+  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"],
+  // "artifactRepo" (lane 60b, artifact-repo-60b spec): a singleton, absolute-path field naming
+  // the OTHER repository that holds Artifact: when the artifact does not live in --repo. Placed
+  // before Worktree: in the header table (docs/work-record.md) since it names the repository
+  // Worktree: itself is then read inside. Optional here, like every other singleton above - the
+  // refusal/warning split (artifact-repo-not-absolute, artifact-repo-same, sha-not-in-git) lives
+  // in validateRecord and checkAcceptance below.
+  ["artifactRepo", "Artifact-repo"], ["worktree", "Worktree"],
   ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"], ["base", "Base"],
   // R1 (withdraw-status-1): a known, optional, single-valued label so it round-trips through
   // the parser and requireStrictRecordShape's singleton check, exactly like Worktree: above -
@@ -460,6 +467,22 @@ export function validateRecord(record, opts = {}) {
           message: `workaround "${w.cause}" was due to be removed by ${dm[1]}`,
         });
       }
+    }
+  }
+
+  // artifact-repo-not-absolute (lane 60b): Artifact-repo:, when present, must be an absolute
+  // directory path - accepted on either OS convention (F9's own rule for Scratch: above), so a
+  // record authored on Windows and read back on Linux is never flagged merely for that. A blank
+  // Artifact-repo: value is silently ignored here (nothing was named), exactly like every other
+  // optional field.
+  if (typeof fields.artifactRepo === "string" && fields.artifactRepo.trim() !== "") {
+    const artifactRepo = fields.artifactRepo.trim();
+    if (!(path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo))) {
+      findings.push({
+        code: "artifact-repo-not-absolute",
+        level: "finding",
+        message: `Artifact-repo: "${artifactRepo}" is not an absolute directory path`,
+      });
     }
   }
 
@@ -859,6 +882,28 @@ function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
   }
 }
 
+// lane 60b: the realpath of `git -C root rev-parse --git-common-dir` - the one stable identity
+// two different paths (a repo root, one of its worktrees, a bind-mount, ...) share when they
+// belong to the SAME repository. Returns null on any failure (not a git repo at all, missing
+// directory, unreadable) - checkAcceptance's callers treat null as fail-closed (sha-not-in-git),
+// never as "assume different" or "assume same".
+function gitCommonDirReal(root, spawnImpl, fsImpl) {
+  const result = spawnImpl("git", ["-C", root, "rev-parse", "--git-common-dir"], {
+    encoding: "utf8",
+    stdio: "pipe",
+    env: withoutRepoLocatingGitEnv(process.env),
+  });
+  if (result.error || result.status !== 0) return null;
+  const out = String(result.stdout ?? "").trim();
+  if (!out) return null;
+  const abs = path.isAbsolute(out) ? out : path.resolve(root, out);
+  try {
+    return fsImpl.realpathSync(abs);
+  } catch {
+    return null;
+  }
+}
+
 function resolveCommit(repoRoot, revision, label, spawnImpl) {
   if (!revision) throw acceptanceError(`${label} revision is missing`);
   try {
@@ -1243,12 +1288,63 @@ export function checkAcceptance(opts = {}) {
     }
   }
 
+  // Artifact-repo (lane 60b, artifact-repo-60b spec): when present, Artifact:,
+  // --pinned-artifact/--delivery-ref and Worktree: all resolve with `git -C <Artifact-repo>`
+  // instead of repoRoot - the record itself, its evidence, its census and its four-read stay
+  // confined to --repo throughout, unchanged. Absent, this is a no-op (artifactRoot === repoRoot,
+  // byte-for-byte the same behavior as before this field existed).
+  const artifactRepoRaw = typeof record.fields.artifactRepo === "string" ? record.fields.artifactRepo.trim() : "";
+  let artifactRoot = repoRoot;
+  let artifactCommonDir = null;
+  if (artifactRepoRaw) {
+    if (!(path.posix.isAbsolute(artifactRepoRaw) || path.win32.isAbsolute(artifactRepoRaw))) {
+      throw acceptanceError(`Artifact-repo: "${artifactRepoRaw}" is not an absolute directory path`, "artifact-repo-not-absolute");
+    }
+    // A missing or unreadable Artifact-repo: directory fails closed as sha-not-in-git (spec.md
+    // item 3): every downstream lookup below would fail the same way anyway, but this gives one
+    // clear reason instead of a confusing "Artifact revision is missing" further down.
+    artifactCommonDir = gitCommonDirReal(artifactRepoRaw, spawnImpl, fsImpl);
+    if (artifactCommonDir === null) {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact-repo: ${artifactRepoRaw} is missing, unreadable, or not a git repository`,
+        "sha-not-in-git",
+      );
+    }
+    // Artifact-repo: must name a real worktree (spec.md: "a directory inside a git worktree of
+    // the repository"), not a bare repository or a .git directory - otherwise live mode's
+    // "freshness" check means nothing, because no working tree ever exists (review F2).
+    const insideWorkTree = spawnImpl("git", ["-C", artifactRepoRaw, "rev-parse", "--is-inside-work-tree"], {
+      encoding: "utf8",
+      stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
+    });
+    if (insideWorkTree.error || insideWorkTree.status !== 0 || String(insideWorkTree.stdout ?? "").trim() !== "true") {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact-repo: ${artifactRepoRaw} is not inside a git worktree (a bare repository or a .git directory)`,
+        "sha-not-in-git",
+      );
+    }
+    // The "unrelated repository" ancestry guard below only holds when Artifact-repo: genuinely
+    // names a DIFFERENT repository - comparing git-common-dir realpaths (not just the two literal
+    // paths) so a worktree of --repo, or a symlinked/bind-mounted alias of it, is still caught.
+    // An unreadable --repo common dir fails closed (review F3): it must never be treated as
+    // "assume different", since that would let Artifact-repo: bypass the same-repo guard entirely.
+    const repoCommonDir = gitCommonDirReal(repoRoot, spawnImpl, fsImpl);
+    if (repoCommonDir === null) {
+      throw acceptanceError(`--repo ${repoRoot} is not a readable git repository, so Artifact-repo: cannot be proven to be a different one`, "artifact-repo-same");
+    }
+    if (repoCommonDir === artifactCommonDir) {
+      throw acceptanceError(`Artifact-repo: ${artifactRepoRaw} resolves to the same repository as --repo`, "artifact-repo-same");
+    }
+    artifactRoot = artifactRepoRaw;
+  }
+
   // A SHA git does not have at all is sha-not-in-git (T1 required item 4), the same code
   // as an unresolvable Worktree: below - both are "the recorded commit identity does not
   // exist in this git" - not the generic acceptance-failed used for shape errors.
   let artifact;
   try {
-    artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+    artifact = resolveCommit(artifactRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
   } catch (error) {
     throw acceptanceError(`sha-not-in-git: ${error.message}`, "sha-not-in-git");
   }
@@ -1256,7 +1352,7 @@ export function checkAcceptance(opts = {}) {
   if (opts.pinnedArtifact !== undefined && !/^[0-9a-fA-F]{4,64}$/.test(opts.pinnedArtifact)) {
     throw acceptanceError(`pinned artifact must be an explicit hexadecimal revision: ${opts.pinnedArtifact}`);
   }
-  const delivery = resolveCommit(repoRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
+  const delivery = resolveCommit(artifactRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
   if (artifact !== delivery) {
     throw acceptanceError(`Artifact ${artifact} does not match delivery ${delivery}`);
   }
@@ -1278,14 +1374,24 @@ export function checkAcceptance(opts = {}) {
   // live worktree (its own HEAD); anything else is read as `refs/heads/<name>` in this
   // repo - never a bare revision expression, so a leading "-" can never be read as an
   // option by the git child process.
-  const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(repoRoot, worktreeField);
+  // Lane 60b: "this repo" is artifactRoot - repoRoot when Artifact-repo: is absent (unchanged
+  // behavior), else the named Artifact-repo:, per spec.md item 3 ("Worktree: must then be an
+  // absolute directory, or a branch name, in that repo").
+  const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(artifactRoot, worktreeField);
   let worktreeIsDir = false;
   try {
     worktreeIsDir = fsImpl.statSync(worktreeTarget).isDirectory();
   } catch {
     worktreeIsDir = false;
   }
-  const worktreeGitDir = worktreeIsDir ? worktreeTarget : repoRoot;
+  // Lane 60b (spec.md item 3: "Worktree: must then be an absolute directory, or a branch name, in
+  // that repo"): a Worktree: directory must belong to the Artifact-repo: repository itself. A linked
+  // worktree shares its git-common-dir; a separate clone holding the same commit does not, and would
+  // otherwise let an artifact that no ref in Artifact-repo: reaches pass both modes (review r3).
+  if (artifactRepoRaw && worktreeIsDir && gitCommonDirReal(worktreeTarget, spawnImpl, fsImpl) !== artifactCommonDir) {
+    throw acceptanceError(`sha-not-in-git: Worktree: ${worktreeField} is not a worktree of Artifact-repo: ${artifactRepoRaw}`, "sha-not-in-git");
+  }
+  const worktreeGitDir = worktreeIsDir ? worktreeTarget : artifactRoot;
   const worktreeRev = worktreeIsDir ? "HEAD^{commit}" : `refs/heads/${worktreeField}^{commit}`;
   const worktreeResult = spawnImpl("git", ["-C", worktreeGitDir, "rev-parse", "--verify", worktreeRev], {
     encoding: "utf8",
@@ -1343,7 +1449,10 @@ export function checkAcceptance(opts = {}) {
       if (verdict[1] === "APPROVE") throw acceptanceError(`approval omits a revision: ${evidencePath}`);
       continue;
     }
-    const reportCommit = resolveCommit(repoRoot, verdict[2], `evidence ${evidencePath}`, spawnImpl);
+    // The evidence FILE stays confined to --repo (readConfinedRegularFile above, unchanged); only
+    // the commit sha its VERDICT line names is resolved in artifactRoot - it names a commit in
+    // the artifact's own repository, not necessarily one repoRoot's git has ever heard of.
+    const reportCommit = resolveCommit(artifactRoot, verdict[2], `evidence ${evidencePath}`, spawnImpl);
     if (reportCommit !== artifact) continue;
     if (verdict[1] === "APPROVE") approved = true;
     else blockers.push(`${verdict[1]} in ${evidencePath}`);
@@ -2141,24 +2250,43 @@ export function closeoutRecord(opts = {}) {
   const mainBranch = "main";
   const mainRef = "refs/remotes/origin/main";
 
+  // Artifact-repo (lane 60b): the merge proof below (both the fetch and the ancestry check)
+  // runs against this OTHER repository when Artifact: does not live in repoRoot - "the artifact's
+  // ancestry is checked against origin/main of the Artifact-repo: repository, after a git fetch
+  // origin there" (spec.md item 3). A relative or unresolvable Artifact-repo: is reported as its
+  // own blockedReason, exactly like every other merge-proof failure, rather than throwing past
+  // this point's own step-by-step reporting.
+  const artifactRepoRaw = typeof record.fields.artifactRepo === "string" ? record.fields.artifactRepo.trim() : "";
+  let mergeProofRoot = repoRoot;
+  let artifactRepoBlockedReason = null;
+  if (artifactRepoRaw) {
+    if (!(path.posix.isAbsolute(artifactRepoRaw) || path.win32.isAbsolute(artifactRepoRaw))) {
+      artifactRepoBlockedReason = `Artifact-repo: "${artifactRepoRaw}" is not an absolute directory path`;
+    } else {
+      mergeProofRoot = artifactRepoRaw;
+    }
+  }
+
   // 2. Merge proof.
   // M2: --prune too, so a branch already deleted on origin drops its stale local tracking ref
   // instead of being evaluated against a sha that no longer exists there.
-  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
-  const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
-  let blockedReason = null;
-  if (fetchFailed) {
-    blockedReason = "UNVERIFIABLE: fetch failed";
-  } else {
-    let artifactSha = null;
-    try {
-      artifactSha = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
-    } catch (error) {
-      blockedReason = error.message;
-    }
-    if (!blockedReason) {
-      const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
-      if (anc.error || anc.status !== 0) blockedReason = `Artifact ${artifactSha} is not an ancestor of origin/main`;
+  let blockedReason = artifactRepoBlockedReason;
+  if (!blockedReason) {
+    const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
+    if (fetchFailed) {
+      blockedReason = "UNVERIFIABLE: fetch failed";
+    } else {
+      let artifactSha = null;
+      try {
+        artifactSha = resolveCommit(mergeProofRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+      } catch (error) {
+        blockedReason = error.message;
+      }
+      if (!blockedReason) {
+        const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+        if (anc.error || anc.status !== 0) blockedReason = `Artifact ${artifactSha} is not an ancestor of origin/main`;
+      }
     }
   }
 
@@ -2167,6 +2295,25 @@ export function closeoutRecord(opts = {}) {
     for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
       results.push({ step, result: "refused", detail: blockedReason });
     }
+  } else if (artifactRepoRaw) {
+    // Cleanup steps must never delete branches or worktrees in the Artifact-repo: repository
+    // (spec.md item 3) - Worktree: itself names a path or branch INSIDE that other repo whenever
+    // Artifact-repo: is present (see checkAcceptance above), so steps 3/4 are refused outright,
+    // by name, rather than ever being pointed at repoRoot's own worktree/branch machinery with a
+    // foreign path. Step 5 (scratch) is unaffected - the lead's own scratch directory is never in
+    // the Artifact-repo: repository.
+    const manualReason = "artifact-repo: cleanup is manual";
+    results.push({ step: "worktree", result: "refused", detail: manualReason });
+    results.push({ step: "branch", result: "refused", detail: manualReason });
+    results.push({ step: "origin-branch", result: "refused", detail: manualReason });
+    // The scratch step must also see the Artifact-repo: repository's own worktrees, or a scratch
+    // directory that contains (or lies inside) one of them is removed along with it.
+    const bothWorktreeLists = (root) => {
+      const own = listWorktreesImpl(root);
+      const foreign = listWorktreesImpl(mergeProofRoot);
+      return own === null || foreign === null ? null : [...own, ...foreign];
+    };
+    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform, listWorktreesImpl: bothWorktreeLists }));
   } else {
     // R2-2/R2-7 (C1 round 3, MAJOR blocker + MINOR): `worktreesByPath` (and the branch name it
     // resolves) is built ONCE, here, BEFORE step 3 runs - step 3 can remove the very worktree a

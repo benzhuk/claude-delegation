@@ -24,6 +24,9 @@ export function parseRecordText(text) {
   const fields = {};
   for (const [key, label] of [
     ['opened', 'Opened'], ['base', 'Base'], ['artifact', 'Artifact'],
+    // 'artifact-repo' (lane 60b, artifact-repo-60b spec): the other repository Base/Artifact
+    // shas live in, when this build's artifact was never in --git at all.
+    ['artifact-repo', 'Artifact-repo'],
     ['lead-session', 'Lead-session'], ['spec-session', 'Spec-session'], ['spec-from', 'Spec-from'],
   ]) {
     const m = fieldRegex(label).exec(headerText);
@@ -828,7 +831,13 @@ export function buildFourRead(opts, fsImpl = fs) {
     : !isCodexCensus(census) && leadIdentityReason && leadSessionId ? { value: `unavailable (${leadIdentityReason})` } // the census read another session
     : windowMs.openedMs === null || windowMs.acceptedMs === null ? { value: `unavailable (${numberTwo.reason.replace(/:$/, '')}: census window cannot be checked)` } // MINOR 3 (r4): no doubled colon
     : computeTopTierTokens(census, specCensus, fields, windowMs.openedMs, windowMs.acceptedMs, lastAcceptedMs);
-  const numberThree = computeReworkAfterAcceptance(fields, logs, opts.git, opts.branch || 'HEAD');
+  // Lane 60b: Base/the accepted sha both live in Artifact-repo: when it is present, never in
+  // --git - a missing or unreadable Artifact-repo: renders as `unavailable (no range)`, same as
+  // any other missing/bad --git today (runGit throws, caught below), never a confident value.
+  const artifactRepo = fields['artifact-repo'];
+  const reworkGit = artifactRepo === undefined ? opts.git
+    : (path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo)) ? artifactRepo : null; // null -> unavailable (no range)
+  const numberThree = computeReworkAfterAcceptance(fields, logs, reworkGit, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(
     leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason,
     agentSpans, agentStallResults, isCodexCensus(census) ? 'native API response gap' : null,
