@@ -1,0 +1,583 @@
+{
+ "version": 1,
+ "work": "wr-2026-09-30-census-completeness",
+ "purpose": "sanitized numeric census metadata preserved from volatile scratch; no transcript text",
+ "sourceDir": "<Scratch of wr-2026-09-29-baseline>/out (path in docs/work/wr-2026-09-29-baseline.record.md:13)",
+ "fieldSelection": {
+  "topTierFilter": "model id contains fable or opus (case-insensitive)",
+  "formula": "input_tokens+cache_creation_input_tokens+cache_read_input_tokens+output_tokens",
+  "vectorFields": [
+   "input_tokens",
+   "cache_creation_input_tokens",
+   "cache_read_input_tokens",
+   "output_tokens"
+  ],
+  "primary": "lead.windowByModel",
+  "secondary": "combined",
+  "dropped": "leadPath dir, marker value, per-file subagent names, ledger/stall fields"
+ },
+ "builds": [
+  {
+   "id": "N3",
+   "tableRow": 1,
+   "publishedScalar": 132533844,
+   "sessionPrefix": "97a20911",
+   "leadFileBasename": "97a20911-e63c-47c5-aa8d-c0d8be3977b8.jsonl",
+   "sourceFile": "N3.json",
+   "sourceSha256": "e2cd3d3e5ef155782770740700e1f01c1a28aefc1d8e905fc6a878affa8f56ca",
+   "window": {
+    "startAt": "2026-09-15T00:55:07.387Z",
+    "endAt": "2026-09-15T13:21:30.354Z",
+    "markerPresent": false
+   },
+   "lead": {
+    "host": "claude",
+    "windowTurns": 241,
+    "totalTurns": 2200,
+    "windowByModel": {
+     "<synthetic>": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+     },
+     "claude-fable-5-1": {
+      "input_tokens": 5428,
+      "cache_creation_input_tokens": 5019485,
+      "cache_read_input_tokens": 127303184,
+      "output_tokens": 205747
+     }
+    },
+    "totalByModel": {
+     "<synthetic>": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+     },
+     "claude-fable-5-1": {
+      "input_tokens": 72974,
+      "cache_creation_input_tokens": 36202883,
+      "cache_read_input_tokens": 1034380783,
+      "output_tokens": 1367210
+     },
+     "claude-opus-5": {
+      "input_tokens": 526,
+      "cache_creation_input_tokens": 15627998,
+      "cache_read_input_tokens": 90265560,
+      "output_tokens": 154536
+     }
+    }
+   },
+   "combined": {
+    "<synthetic>": {
+     "input_tokens": 0,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 0
+    },
+    "claude-fable-5-1": {
+     "input_tokens": 5428,
+     "cache_creation_input_tokens": 5019485,
+     "cache_read_input_tokens": 127303184,
+     "output_tokens": 205747
+    },
+    "claude-opus-5": {
+     "input_tokens": 1012,
+     "cache_creation_input_tokens": 3423996,
+     "cache_read_input_tokens": 112068315,
+     "output_tokens": 435371
+    },
+    "claude-sonnet-5": {
+     "input_tokens": 1716,
+     "cache_creation_input_tokens": 2932079,
+     "cache_read_input_tokens": 188094436,
+     "output_tokens": 501394
+    }
+   },
+   "subagents": {
+    "fileCount": 91,
+    "excludedByWindow": 8451,
+    "incomplete": false,
+    "unreadable": 0,
+    "roleFileCounts": {
+     "unassigned": 13
+    },
+    "totalByModel": {
+     "claude-opus-5": {
+      "input_tokens": 1012,
+      "cache_creation_input_tokens": 3423996,
+      "cache_read_input_tokens": 112068315,
+      "output_tokens": 435371
+     },
+     "claude-sonnet-5": {
+      "input_tokens": 1716,
+      "cache_creation_input_tokens": 2932079,
+      "cache_read_input_tokens": 188094436,
+      "output_tokens": 501394
+     }
+    },
+    "totalByRole": {
+     "unassigned": {
+      "input_tokens": 2728,
+      "cache_creation_input_tokens": 6356075,
+      "cache_read_input_tokens": 300162751,
+      "output_tokens": 936765
+     }
+    }
+   },
+   "check": {
+    "topTierLeadWindow": {
+     "vector": {
+      "input_tokens": 5428,
+      "cache_creation_input_tokens": 5019485,
+      "cache_read_input_tokens": 127303184,
+      "output_tokens": 205747
+     },
+     "sum": 132533844
+    },
+    "topTierCombined": {
+     "vector": {
+      "input_tokens": 6440,
+      "cache_creation_input_tokens": 8443481,
+      "cache_read_input_tokens": 239371499,
+      "output_tokens": 641118
+     },
+     "sum": 248462538
+    },
+    "topTierLeadTotalWholeFile": {
+     "sum": 1178072470
+    },
+    "topTierSubagentTotal": {
+     "sum": 115928694,
+     "models": [
+      "claude-opus-5"
+     ]
+    },
+    "matchesPublishedScalar": {
+     "leadWindow": true,
+     "combined": false
+    },
+    "cacheReadShare": 0.9605
+   }
+  },
+  {
+   "id": "N4",
+   "tableRow": 2,
+   "publishedScalar": 46706274,
+   "sessionPrefix": "1a1af44b",
+   "leadFileBasename": "1a1af44b-b3cb-42d6-a0dd-00de6cc2ea1c.jsonl",
+   "sourceFile": "N4.json",
+   "sourceSha256": "a1144692de7ae42b8a9d912cca881b5a8e38d86e4b0fcc06b503bc952ceb1f52",
+   "window": {
+    "startAt": "2026-09-08T13:28:12.006Z",
+    "endAt": "2026-09-08T22:08:41.118Z",
+    "markerPresent": false
+   },
+   "lead": {
+    "host": "claude",
+    "windowTurns": 221,
+    "totalTurns": 464,
+    "windowByModel": {
+     "<synthetic>": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+     },
+     "claude-fable-5-1": {
+      "input_tokens": 2328,
+      "cache_creation_input_tokens": 1238527,
+      "cache_read_input_tokens": 45328515,
+      "output_tokens": 136904
+     }
+    },
+    "totalByModel": {
+     "<synthetic>": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+     },
+     "claude-fable-5-1": {
+      "input_tokens": 8300,
+      "cache_creation_input_tokens": 4838845,
+      "cache_read_input_tokens": 165285890,
+      "output_tokens": 337433
+     }
+    }
+   },
+   "combined": {
+    "<synthetic>": {
+     "input_tokens": 0,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 0
+    },
+    "claude-fable-5-1": {
+     "input_tokens": 2328,
+     "cache_creation_input_tokens": 1238527,
+     "cache_read_input_tokens": 45328515,
+     "output_tokens": 136904
+    },
+    "claude-opus-5": {
+     "input_tokens": 86,
+     "cache_creation_input_tokens": 127099,
+     "cache_read_input_tokens": 3812539,
+     "output_tokens": 3621
+    },
+    "claude-sonnet-5": {
+     "input_tokens": 198,
+     "cache_creation_input_tokens": 382564,
+     "cache_read_input_tokens": 12599351,
+     "output_tokens": 17653
+    }
+   },
+   "subagents": {
+    "fileCount": 12,
+    "excludedByWindow": 26,
+    "incomplete": false,
+    "unreadable": 0,
+    "roleFileCounts": {
+     "unassigned": 11
+    },
+    "totalByModel": {
+     "<synthetic>": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+     },
+     "claude-opus-5": {
+      "input_tokens": 86,
+      "cache_creation_input_tokens": 127099,
+      "cache_read_input_tokens": 3812539,
+      "output_tokens": 3621
+     },
+     "claude-sonnet-5": {
+      "input_tokens": 198,
+      "cache_creation_input_tokens": 382564,
+      "cache_read_input_tokens": 12599351,
+      "output_tokens": 17653
+     }
+    },
+    "totalByRole": {
+     "unassigned": {
+      "input_tokens": 284,
+      "cache_creation_input_tokens": 509663,
+      "cache_read_input_tokens": 16411890,
+      "output_tokens": 21274
+     }
+    }
+   },
+   "check": {
+    "topTierLeadWindow": {
+     "vector": {
+      "input_tokens": 2328,
+      "cache_creation_input_tokens": 1238527,
+      "cache_read_input_tokens": 45328515,
+      "output_tokens": 136904
+     },
+     "sum": 46706274
+    },
+    "topTierCombined": {
+     "vector": {
+      "input_tokens": 2414,
+      "cache_creation_input_tokens": 1365626,
+      "cache_read_input_tokens": 49141054,
+      "output_tokens": 140525
+     },
+     "sum": 50649619
+    },
+    "topTierLeadTotalWholeFile": {
+     "sum": 170470468
+    },
+    "topTierSubagentTotal": {
+     "sum": 3943345,
+     "models": [
+      "claude-opus-5"
+     ]
+    },
+    "matchesPublishedScalar": {
+     "leadWindow": true,
+     "combined": false
+    },
+    "cacheReadShare": 0.9705
+   }
+  },
+  {
+   "id": "N2",
+   "tableRow": 3,
+   "publishedScalar": 17298421,
+   "sessionPrefix": "caee6158",
+   "leadFileBasename": "caee6158-4183-42d2-9b8b-7e725955dff3.jsonl",
+   "sourceFile": "N2.json",
+   "sourceSha256": "3838eec84f1841c19c97fe621a7ca93ba7d6d6d08c0eb3f09fa115c0a893e31c",
+   "window": {
+    "startAt": "2026-08-31T18:44:40.058Z",
+    "endAt": "2026-08-31T20:19:39.845Z",
+    "markerPresent": false
+   },
+   "lead": {
+    "host": "claude",
+    "windowTurns": 111,
+    "totalTurns": 329,
+    "windowByModel": {
+     "claude-fable-5": {
+      "input_tokens": 222,
+      "cache_creation_input_tokens": 397066,
+      "cache_read_input_tokens": 16818182,
+      "output_tokens": 82951
+     }
+    },
+    "totalByModel": {
+     "claude-fable-5": {
+      "input_tokens": 12255,
+      "cache_creation_input_tokens": 3351108,
+      "cache_read_input_tokens": 102858964,
+      "output_tokens": 321584
+     }
+    }
+   },
+   "combined": {
+    "claude-fable-5": {
+     "input_tokens": 222,
+     "cache_creation_input_tokens": 397066,
+     "cache_read_input_tokens": 16818182,
+     "output_tokens": 82951
+    },
+    "claude-sonnet-5": {
+     "input_tokens": 190,
+     "cache_creation_input_tokens": 341574,
+     "cache_read_input_tokens": 9135173,
+     "output_tokens": 386
+    }
+   },
+   "subagents": {
+    "fileCount": 6,
+    "excludedByWindow": 260,
+    "incomplete": false,
+    "unreadable": 0,
+    "roleFileCounts": {
+     "unassigned": 3
+    },
+    "totalByModel": {
+     "claude-sonnet-5": {
+      "input_tokens": 190,
+      "cache_creation_input_tokens": 341574,
+      "cache_read_input_tokens": 9135173,
+      "output_tokens": 386
+     }
+    },
+    "totalByRole": {
+     "unassigned": {
+      "input_tokens": 190,
+      "cache_creation_input_tokens": 341574,
+      "cache_read_input_tokens": 9135173,
+      "output_tokens": 386
+     }
+    }
+   },
+   "check": {
+    "topTierLeadWindow": {
+     "vector": {
+      "input_tokens": 222,
+      "cache_creation_input_tokens": 397066,
+      "cache_read_input_tokens": 16818182,
+      "output_tokens": 82951
+     },
+     "sum": 17298421
+    },
+    "topTierCombined": {
+     "vector": {
+      "input_tokens": 222,
+      "cache_creation_input_tokens": 397066,
+      "cache_read_input_tokens": 16818182,
+      "output_tokens": 82951
+     },
+     "sum": 17298421
+    },
+    "topTierLeadTotalWholeFile": {
+     "sum": 106543911
+    },
+    "topTierSubagentTotal": {
+     "sum": 0,
+     "models": []
+    },
+    "matchesPublishedScalar": {
+     "leadWindow": true,
+     "combined": true
+    },
+    "cacheReadShare": 0.9722
+   }
+  },
+  {
+   "id": "W1",
+   "tableRow": 4,
+   "publishedScalar": 8446104,
+   "sessionPrefix": "59c7d404",
+   "leadFileBasename": "59c7d404-a6a3-4e5f-99e6-207b63df4c74.jsonl",
+   "sourceFile": "W1.json",
+   "sourceSha256": "32e42c67dd1106e8d35619605697a5bcbe0936232e2d20e5284893e135024dc0",
+   "window": {
+    "startAt": "2026-09-02T22:01:33.790Z",
+    "endAt": "2026-09-03T02:43:44.368Z",
+    "markerPresent": false
+   },
+   "lead": {
+    "host": "claude",
+    "windowTurns": 70,
+    "totalTurns": 135,
+    "windowByModel": {
+     "claude-fable-5-1": {
+      "input_tokens": 11291,
+      "cache_creation_input_tokens": 216460,
+      "cache_read_input_tokens": 8170104,
+      "output_tokens": 48249
+     }
+    },
+    "totalByModel": {
+     "claude-fable-5-1": {
+      "input_tokens": 15385,
+      "cache_creation_input_tokens": 1170330,
+      "cache_read_input_tokens": 21932546,
+      "output_tokens": 120030
+     }
+    }
+   },
+   "combined": {
+    "claude-fable-5-1": {
+     "input_tokens": 11291,
+     "cache_creation_input_tokens": 216460,
+     "cache_read_input_tokens": 8170104,
+     "output_tokens": 48249
+    }
+   },
+   "subagents": {
+    "fileCount": 1,
+    "excludedByWindow": 28,
+    "incomplete": false,
+    "unreadable": 0,
+    "roleFileCounts": {},
+    "totalByModel": {},
+    "totalByRole": {}
+   },
+   "check": {
+    "topTierLeadWindow": {
+     "vector": {
+      "input_tokens": 11291,
+      "cache_creation_input_tokens": 216460,
+      "cache_read_input_tokens": 8170104,
+      "output_tokens": 48249
+     },
+     "sum": 8446104
+    },
+    "topTierCombined": {
+     "vector": {
+      "input_tokens": 11291,
+      "cache_creation_input_tokens": 216460,
+      "cache_read_input_tokens": 8170104,
+      "output_tokens": 48249
+     },
+     "sum": 8446104
+    },
+    "topTierLeadTotalWholeFile": {
+     "sum": 23238291
+    },
+    "topTierSubagentTotal": {
+     "sum": 0,
+     "models": []
+    },
+    "matchesPublishedScalar": {
+     "leadWindow": true,
+     "combined": true
+    },
+    "cacheReadShare": 0.9673
+   }
+  },
+  {
+   "id": "W2",
+   "tableRow": 5,
+   "publishedScalar": 11407524,
+   "sessionPrefix": "59c7d404",
+   "leadFileBasename": "59c7d404-a6a3-4e5f-99e6-207b63df4c74.jsonl",
+   "sourceFile": "W2.json",
+   "sourceSha256": "9b75b98cd0392b7109fcd93e392ad1c6969fa6fd2991f07ccb71150ed122d6ca",
+   "window": {
+    "startAt": "2026-09-03T21:55:53.880Z",
+    "endAt": "2026-09-04T01:55:04.577Z",
+    "markerPresent": false
+   },
+   "lead": {
+    "host": "claude",
+    "windowTurns": 46,
+    "totalTurns": 135,
+    "windowByModel": {
+     "claude-fable-5-1": {
+      "input_tokens": 2895,
+      "cache_creation_input_tokens": 751159,
+      "cache_read_input_tokens": 10594630,
+      "output_tokens": 58840
+     }
+    },
+    "totalByModel": {
+     "claude-fable-5-1": {
+      "input_tokens": 15385,
+      "cache_creation_input_tokens": 1170330,
+      "cache_read_input_tokens": 21932546,
+      "output_tokens": 120030
+     }
+    }
+   },
+   "combined": {
+    "claude-fable-5-1": {
+     "input_tokens": 2895,
+     "cache_creation_input_tokens": 751159,
+     "cache_read_input_tokens": 10594630,
+     "output_tokens": 58840
+    }
+   },
+   "subagents": {
+    "fileCount": 1,
+    "excludedByWindow": 28,
+    "incomplete": false,
+    "unreadable": 0,
+    "roleFileCounts": {},
+    "totalByModel": {},
+    "totalByRole": {}
+   },
+   "check": {
+    "topTierLeadWindow": {
+     "vector": {
+      "input_tokens": 2895,
+      "cache_creation_input_tokens": 751159,
+      "cache_read_input_tokens": 10594630,
+      "output_tokens": 58840
+     },
+     "sum": 11407524
+    },
+    "topTierCombined": {
+     "vector": {
+      "input_tokens": 2895,
+      "cache_creation_input_tokens": 751159,
+      "cache_read_input_tokens": 10594630,
+      "output_tokens": 58840
+     },
+     "sum": 11407524
+    },
+    "topTierLeadTotalWholeFile": {
+     "sum": 23238291
+    },
+    "topTierSubagentTotal": {
+     "sum": 0,
+     "models": []
+    },
+    "matchesPublishedScalar": {
+     "leadWindow": true,
+     "combined": true
+    },
+    "cacheReadShare": 0.9287
+   }
+  }
+ ]
+}
