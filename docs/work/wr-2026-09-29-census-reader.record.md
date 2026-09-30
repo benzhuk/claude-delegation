@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-census-reader
 Scope: docs/specs/census-reader-40b/spec.md
 Owner: skills-a
-Status: accepted
+Status: closed
 Authority: skills-fable-lane-40-20 authorizes bounded lane40b, own branch/record, mid-tier source and Opus review, Windows plus second-host suites and standing-grant main merge with history bullet. No install, live triage, native log edit, census waiver or source outside pinned reader/completion territory.
 Artifact: build/census-reader-40b@4f4edbc4e470e6faa4f9598763dbb4800468bb3e
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/census-reader-40b
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/census-reader-40b
 Evidence: docs/work/evidence/wr-2026-09-29-census-reader-code-review-r2.md, docs/work/evidence/wr-2026-09-29-census-reader-windows.md, docs/work/evidence/wr-2026-09-29-census-reader-netcup.md, docs/work/evidence/wr-2026-09-29-census-reader-focused-r3.md
-Next: post-gate census COUNTED and strict preflight PASS. Accept reviewed4f4edbc4, then merge under standing grant with history bullet and merged-tree Windows gate before pushing main.
+Next: none for lane40b. Lane40 resumes its census and acceptance using repaired main. Separate owner follow-up: canonical-main mirror-shim R4 counts reclaim actions against a note-only expected count; diagnosis retained, no shim change in this lane.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Base: 960c7dfd11aba99778db26c7293415ddc0da0472
@@ -189,7 +189,8 @@ Four numbers: Hours ask to accepted: 0.9h; largest native API response gap (heur
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: stalled classification unavailable (native Codex Agent/Task/Workflow span/stall coverage is not established); 0 native API response gap(s) over 30min (heuristic, not stall attribution); 0 unanswered ASKs to skills-a; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-a
 Log: 2026-09-30T03:52:52.164Z accepted skills-a artifact 4f4edbc4e470e6faa4f9598763dbb4800468bb3e
+Log: 2026-09-30T04:04:34.903Z closed skills-a merge 4faa110328b9e5f7543e6a48d209a79ef859dc4c
 
 Predicts: LF framing and task-aware completed-child exclusion restore truthful complete census coverage without ignoring corruption or adding a new measurement mechanism.
 
-Observed: actual-reader and temporal regressions repaired, focused307/307, independent Opus APPROVE and both sealed hosts green with zero failures/leaks. Both advisories closed. Final untouched-log census COUNTED114 native responses, leadTurns1, complete discovery. Four-read native graph plus spec slice28259114 tokens, excluding separately launched Claude executor/review sessions; stall attribution remains UNSUPPORTED. Rework zero is only an acceptance-time observation, not a completed seven-day outcome. Main merge pending; lane40 unchanged.
+Observed: repair accepted through strict check and merged at4faa110328b9e5f7543e6a48d209a79ef859dc4c on origin/main. Focused307/307, independent Opus APPROVE4f4edbc4 and both candidate hosts green with zero failures/leaks. Both advisories closed. Merged-main Windows gate had one preexisting mirror-shim R4 failure, reproduced on first parent07671c9a with identical test/planner/reclaim blobs; no new failing name versus main, meeting the standing merge rule. Reports: docs/work/evidence/wr-2026-09-29-census-reader-windows-merge.md and wr-2026-09-29-census-reader-main-baseline.md. Final untouched-log census COUNTED114 native responses, leadTurns1, complete discovery. Four-read native graph plus spec slice28259114 tokens, excluding separately launched Claude executor/review sessions; stall attribution remains UNSUPPORTED. Rework zero is only an acceptance-time observation, not a completed seven-day outcome. Lane40 rerun now authorized; no installation in lane40b.
