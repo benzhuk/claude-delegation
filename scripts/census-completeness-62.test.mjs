@@ -123,9 +123,11 @@ function runClaudeCensus(fx) {
   if (!a.noFrom) args.push('--from', FROM);
   if (!a.noTo) args.push('--to', TO);
   if (a.marker) args.push('--marker', a.marker);
-  if (!a.noRecord) args.push('--record', path.join(fx.repo, 'docs/work/lane.record.md'));
-  if (!a.noRepo) args.push('--repo', fx.repo);
-  args.push('--claude-root', fx.claudeRoot, '--codex-home', fx.codexHome);
+  if (!a.noRecord) {
+    args.push('--record', path.join(fx.repo, 'docs/work/lane.record.md'));
+    if (!a.noRepo) args.push('--repo', fx.repo);
+    args.push('--claude-root', fx.claudeRoot, '--codex-home', fx.codexHome);
+  }
   const res = runNode(BUILD_CENSUS, args);
   const report = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')) : null;
   return { ...res, report, md, first: fs.existsSync(md) ? firstLine(md) : '', out };
@@ -582,7 +584,7 @@ function fourReadWithCombined(mutateCombined) {
   const record = path.join(root, 'docs', 'work', `${TARGET}.record.md`);
   writeText(record, recordText({ work: TARGET }));
   const out = path.join(root, 'four.json');
-  const res = runNode(FOUR_READ, ['--record', record, '--census', census, '--json', out, '--as-of', at(T_ACCEPTED, 10 * DAY)]);
+  const res = runNode(FOUR_READ, ['--record', record, '--census', census, '--json', out]); // no --as-of: this test is about the token number, not rework
   assert.equal(res.status, 0, res.stderr.slice(0, 300));
   return JSON.parse(fs.readFileSync(out, 'utf8')).numbers.find((n) => n.key === 'topTierTokensPerBuild').value;
 }
@@ -622,7 +624,7 @@ test('Codex-led mixed lane: Codex 100 + declared Claude opus 10 = four-read 110 
   const cres = runNode(BUILD_CENSUS, ['--lead', leadFile, '--codex-home', codexHome, '--from', opened, '--to', accepted, '--json', census, '--record', recPath, '--repo', repo, '--claude-root', claudeRoot]);
   assert.equal(cres.status, 0, `codex-led census with declared claude role: ${cres.stderr.slice(0, 300)}`);
   const out = path.join(home, 'four.json');
-  const fres = runNode(FOUR_READ, ['--record', recPath, '--census', census, '--json', out, '--as-of', at(accepted, 10 * DAY)]);
+  const fres = runNode(FOUR_READ, ['--record', recPath, '--census', census, '--json', out]);
   assert.equal(fres.status, 0, fres.stderr.slice(0, 300));
   const value = JSON.parse(fs.readFileSync(out, 'utf8')).numbers.find((n) => n.key === 'topTierTokensPerBuild').value;
   assert.match(value, /^110 tokens/, `Codex 100 (input+output, cached/reasoning subsets) + Claude opus 10 (${value})`);
