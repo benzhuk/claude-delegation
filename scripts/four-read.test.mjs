@@ -1156,7 +1156,7 @@ test('buildFourRead: lane10\'s real session gives exactly one agent stall (216.8
   fs.writeFileSync(censusPath, JSON.stringify(census));
   const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane10.md'), census: censusPath, ledger: null }, fs);
   const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
-  assert.equal(value, '1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a314563636ff6b931 silent 216.8 min from 2026-09-26T22:44:29.665Z; ASKs unavailable (no --lead-slug); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)');
+  assert.equal(value, '1 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); agent a314563636ff6b931 silent 216.8 min from 2026-09-26T22:44:29.665Z; ASKs unavailable (no --lead-slug); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)' + BASELINE_RULE_SUFFIX);
 });
 
 // lane16: lead 588290d9…, window 2026-09-27T06:20:18Z..2026-09-27T07:50:17Z. The lead gap of
@@ -1170,8 +1170,12 @@ test('buildFourRead: lane16\'s real session gives 0 stalled, 1 waiting-on-agents
   fs.writeFileSync(censusPath, JSON.stringify(census));
   const report = buildFourRead({ record: path.join(FIXTURES, 'record-lane16.md'), census: censusPath, ledger: null }, fs);
   const value = report.numbers.find((n) => n.key === 'workLostOrStalled').value;
-  assert.equal(value, '0 gap(s) over 30min stalled; 1 waiting-on-agents (41.8 min); ASKs unavailable (no --lead-slug); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)');
+  assert.equal(value, '0 gap(s) over 30min stalled; 1 waiting-on-agents (41.8 min); ASKs unavailable (no --lead-slug); wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)' + BASELINE_RULE_SUFFIX);
 });
+
+// Lane62 F2: the stall row now ends with the baseline event-gap rule count and its UNSUPPORTED classes.
+// The legacy text above is unchanged and exact; only this suffix is appended.
+const BASELINE_RULE_SUFFIX = '; baseline-rule event gaps over 120 min: 0; usage-limit, relaunch and missing-report stalls UNSUPPORTED (baseline-rule count is a lower bound); causal attribution UNSUPPORTED';
 
 // ── buildFourRead / formatJson / formatMarkdown (integration) ──────────────
 
@@ -1189,7 +1193,8 @@ test('buildFourRead: the fixture record + a real census over the fixture lead se
   // no --git given; still reports the re-accept Log: entry (MINOR 1)
   assert.match(report.numbers[2].value, /^unavailable \(no range\); 1 re-accept Log: entry after the first: 2026-09-02T01:00:00\.000Z/);
   assert.match(report.numbers[3].value, /1 unanswered ASK\(s\) to test-lead: fixture-ask-2/);
-  assert.equal(report.companions.length, 2);
+  assert.equal(report.companions.length, 3, 'F10 adds the lead-only top-tier companion after the two existing ones');
+  assert.equal(report.companions[2].key, 'leadOnlyTopTierTokens');
   assert.match(report.companions[0].value, /^\d+ messages; tokens: cache-read \d+, cache-write \d+, input \d+, output \d+$/);
   assert.match(report.companions[1].value, /2 note\(s\) to test-lead/);
 });
@@ -1238,7 +1243,7 @@ test('buildFourRead: a complete Codex census uses lead.sessionId instead of its 
     };
     if (prop === 'readdirSync') return (directory, ...args) => {
       const resolved = path.resolve(directory);
-      if (resolved !== path.resolve(LEDGER)) {
+      if (resolved !== path.resolve(LEDGER) && resolved !== path.resolve(path.dirname(RECORD))) { // F4: the record corpus read is required
         forbiddenFsOps.push(`readdir ${resolved}`);
         throw new Error(`unexpected native Codex directory scan: ${resolved}`);
       }
@@ -1524,13 +1529,47 @@ test('formatMarkdown: prints a "| number | value |" table with all four labels, 
   assert.match(md, /\| Notes to the lead per build \|/);
 });
 
+// Lane62: the goldens below are the pre-lane62 text. New content may only be appended: each legacy number value
+// stays an exact prefix of the current one (the top-tier row keeps its spec-slice reason), the two legacy
+// companions stay exact, and the additive lead-only companion and reworkAttribution JSON appear.
+function assertLegacyGoldenJson(actualText, legacyText) {
+  const actual = JSON.parse(actualText);
+  const legacy = JSON.parse(legacyText);
+  assert.equal(actual.acceptAt, legacy.acceptAt);
+  assert.deepEqual(actual.leadSession, legacy.leadSession);
+  assert.equal(actual.record, legacy.record);
+  assert.deepEqual(actual.companions.slice(0, legacy.companions.length), legacy.companions);
+  assert.equal(actual.companions.length, legacy.companions.length + 1);
+  assert.equal(actual.companions.at(-1).key, 'leadOnlyTopTierTokens');
+  assert.equal(actual.numbers.length, legacy.numbers.length);
+  legacy.numbers.forEach((n, i) => {
+    assert.equal(actual.numbers[i].key, n.key);
+    assert.equal(actual.numbers[i].label, n.label);
+    if (n.key === 'topTierTokensPerBuild') {
+      assert.ok(actual.numbers[i].value.startsWith(n.value.split('; partial (no spec slice)')[0]), actual.numbers[i].value);
+      assert.ok(actual.numbers[i].value.includes('; partial (no spec slice): spec-census not run'), 'legacy spec-slice reason kept');
+    } else assert.ok(actual.numbers[i].value.startsWith(n.value), `legacy text exact prefix for ${n.key}: ${actual.numbers[i].value}`);
+  });
+  assert.ok(actual.reworkAttribution && typeof actual.reworkAttribution === 'object', 'additive reworkAttribution JSON');
+}
+function assertLegacyGoldenMarkdown(actualText, legacyText) {
+  const actual = actualText.split('\n');
+  const legacy = legacyText.split('\n');
+  assert.ok(actual.length >= legacy.length);
+  legacy.forEach((line, i) => {
+    const numberRow = line.startsWith('| ') && line.endsWith(' |') && i >= 6 && i <= 9;
+    if (numberRow) assert.ok(actual[i].startsWith(line.slice(0, -2).split('; partial (no spec slice)')[0]), `legacy row prefix: ${line.slice(0, 60)}`);
+    else assert.equal(actual[i], line);
+  });
+}
+
 test('formatJson/formatMarkdown: pin exact golden content for the fixture build, not just self-equality (MINOR 6)', async () => {
   const dir = mkTmp('four-read-golden-');
   const censusPath = await buildCensusFile(dir);
   const report = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs);
   report.record = 'scripts/fixtures/four-read/record.md'; // relative, so the golden string is stable
 
-  assert.equal(formatJson(report), [
+  assertLegacyGoldenJson(formatJson(report), [
     '{',
     '  "acceptAt": null,',
     '  "companions": [',
@@ -1576,7 +1615,7 @@ test('formatJson/formatMarkdown: pin exact golden content for the fixture build,
     '}',
   ].join('\n'));
 
-  assert.equal(formatMarkdown(report), [
+  assertLegacyGoldenMarkdown(formatMarkdown(report), [
     '# Four-number read: record.md',
     '',
     "Lead session: `lead-session` (from the record's Lead-session: field)",
@@ -1618,6 +1657,7 @@ test('parseArgs: every optional flag is captured', () => {
   assert.deepEqual(opts, {
     record: 'r.md', census: 'c.json', specCensus: 's.json', ledger: 'l', git: 'g', branch: 'b',
     leadSession: 'ls', leadSlug: 'slug', out: 'o.md', json: 'o.json', acceptAt: '2026-09-25T12:00:00Z',
+    asOf: null, records: null, // Lane62 F4/F5: new options default to null
   });
 });
 

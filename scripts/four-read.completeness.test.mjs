@@ -18,6 +18,9 @@ const LEAD_FIXTURE = path.join(HERE, 'build-census.fixtures', 'completeness', 'l
 const LEDGER = path.join(HERE, 'build-census.fixtures', 'completeness', 'ledger');
 const RECORD_FIXTURE = path.join(HERE, 'fixtures', 'four-read', 'record.md');
 
+// Lane62 F2: the stall row now ends with the baseline event-gap rule suffix; the legacy text before it is unchanged.
+const BASELINE_SUFFIX_RE = '; baseline-rule event gaps over 120 min: \\d+; usage-limit, relaunch and missing-report stalls UNSUPPORTED \\(baseline-rule count is a lower bound\\); causal attribution UNSUPPORTED';
+
 const tracked = [];
 after(() => { for (const d of tracked) fs.rmSync(d, { recursive: true, force: true }); });
 
@@ -45,17 +48,17 @@ test('the L row prints wakes, Stop-blocks and stall nudges, each exactly 1, afte
   const { record, censusPath } = await setup();
   const value = row(buildFourRead({ record, census: censusPath, ledger: LEDGER, leadSlug: 'skills-o' }, fs));
   assert.match(value, /^\d+ gap\(s\) over 30min stalled/, 'the leading integer stays first (work-record.mjs parses it)');
-  assert.match(value, /; wakes 2 \(1 note-flush, 1 Done-tick\); Stop-blocks 1; stall nudges 1 to skills-o: collect-netcup-stall-build-fixture-1-abc1234-1$/);
+  assert.match(value, new RegExp(`; wakes 2 \\(1 note-flush, 1 Done-tick\\); Stop-blocks 1; stall nudges 1 to skills-o: collect-netcup-stall-build-fixture-1-abc1234-1${BASELINE_SUFFIX_RE}$`));
 });
 
 test('without a slug or ledger the stall-nudge count says why; wakes and Stop-blocks still print', async () => {
   const { record, censusPath } = await setup();
   const noSlug = row(buildFourRead({ record, census: censusPath, ledger: LEDGER }, fs));
-  assert.match(noSlug, /; wakes 2 \(1 note-flush, 1 Done-tick\); Stop-blocks 1; stall nudges unavailable \(no --lead-slug\)$/);
+  assert.match(noSlug, new RegExp(`; wakes 2 \\(1 note-flush, 1 Done-tick\\); Stop-blocks 1; stall nudges unavailable \\(no --lead-slug\\)${BASELINE_SUFFIX_RE}$`));
   const noLedger = row(buildFourRead({ record, census: censusPath, leadSlug: 'skills-o' }, fs));
-  assert.match(noLedger, /; stall nudges unavailable \(no ledger dir\)$/);
+  assert.match(noLedger, new RegExp(`; stall nudges unavailable \\(no ledger dir\\)${BASELINE_SUFFIX_RE}$`));
   const strangerSlug = row(buildFourRead({ record, census: censusPath, ledger: LEDGER, leadSlug: 'not-in-ledger' }, fs));
-  assert.match(strangerSlug, /; stall nudges unavailable \(slug not-in-ledger not in ledger\)$/);
+  assert.match(strangerSlug, new RegExp(`; stall nudges unavailable \\(slug not-in-ledger not in ledger\\)${BASELINE_SUFFIX_RE}$`));
 });
 
 test('stall nudges are counted over the record window, not the census window', async () => {
@@ -63,7 +66,7 @@ test('stall nudges are counted over the record window, not the census window', a
   // Stop-blocks are refused as "not the build window" only if the census window ends past the acceptance.
   const { record, censusPath } = await setup({ accepted: '2026-09-27T12:15:00.000Z' });
   const value = row(buildFourRead({ record, census: censusPath, ledger: LEDGER, leadSlug: 'skills-o' }, fs));
-  assert.match(value, /stall nudges 0 to skills-o$/);
+  assert.match(value, new RegExp(`stall nudges 0 to skills-o${BASELINE_SUFFIX_RE}$`));
   assert.match(value, /wakes unavailable \(census window ends 2026-09-27T12:59:00.000Z, after the last acceptance\); Stop-blocks unavailable/);
 });
 
