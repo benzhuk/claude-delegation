@@ -19,9 +19,12 @@
  *
  * Cleanup has an owner: this installer creates ONE host-native daily scheduled entry (systemd
  * `--user` service+timer on Linux, a Task Scheduler task on Windows, a launchd agent on macOS) that
- * runs `node <installed plugin>/scripts/janitor.mjs --record --repo <repo>` once a day, report-only,
- * forever. Nothing here ever passes `--apply` — that string never appears in any command this file
- * generates, checked by its own test file.
+ * runs `node <installed plugin>/scripts/janitor.mjs --record --repo <repo> --apply` once a day.
+ * Lane 59 (ruling r0, Ben's 9/29 tick "reclaim the safe class daily on every host"): the janitor
+ * job's default argv now carries `--apply` — see scheduledCommandArgv's own comment for why, and for
+ * the one off switch (janitor.mjs's `~/.agents/ws-off-janitor-act`, checked at run time; there is no
+ * installer flag for this). The collect job is untouched: `--apply` never appears in its command,
+ * checked by its own test file, same as before this lane.
  *
  * Pinned by docs/specs/janitor-daily-1/contracts.md (J1 rulings + the J1/J2 seam contract):
  *   - names: `janitor-record.service`/`.timer` (systemd --user), task `janitor-record` (Windows,
@@ -146,9 +149,23 @@ export function resolveRepo({ home, repoFlag, readFile = fs.readFileSync }) {
 }
 
 /** The one scheduled command every platform runs, as an argv array (never a pre-quoted string —
- * quoting/escaping is each platform's own generator's job). `--apply` never appears here, on
- * purpose, and this is the one function every generator below calls, so there is exactly one place
- * that could ever add it. */
+ * quoting/escaping is each platform's own generator's job) - the one function every generator below
+ * calls, so there is exactly one place that could ever add a flag to the scheduled command.
+ *
+ * Lane 59 (ruling r0, Ben's tick of 9/29 on the decisions page: "yes, reclaim the safe class daily
+ * on every host"): the janitor job's own argv now carries `--apply` by default. Before this, the
+ * daily run was report-only forever, and nothing on any host ever actually freed a merged worktree
+ * or branch - the packet's own measure (236 secret-guard-plus-rm denials on 9/29, plus the Netcup
+ * /tmp exhaustion that same day) is exactly the cost of that. There is no installer flag to opt back
+ * out of `--apply` (redteam F15: a flag would just duplicate the kill switch, and would need a
+ * reinstall on four hosts to flip - the switch file needs none); the only off path is janitor.mjs's
+ * own `~/.agents/ws-off-janitor-act` (F14), checked at RUN time, not install time. The collect job
+ * is untouched - it never carried `--apply` and still doesn't; the string still never appears
+ * anywhere in ITS generated command. The B1 refusal below (a `--repo`/`--host`/`--to`/`--out` VALUE
+ * that itself contains the literal text `--apply`) is unrelated to this and stays exactly as it was:
+ * that guards against a user-supplied value smuggling the flag in through systemd's whitespace
+ * splitting, not against the installer's own, now-intentional argv.
+ */
 export function scheduledCommandArgv({ node, pluginRoot, repo, host, job = DEFAULT_JOB, to, out, staleHours = DEFAULT_STALE_HOURS }) {
   if (job === "collect-status") {
     // contracts.md K3: "<node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>
@@ -162,6 +179,7 @@ export function scheduledCommandArgv({ node, pluginRoot, repo, host, job = DEFAU
   }
   const argv = [node, path.join(pluginRoot, "scripts", "janitor.mjs"), "--record", "--repo", repo];
   if (host) argv.push("--host", host);
+  argv.push("--apply");
   return argv;
 }
 

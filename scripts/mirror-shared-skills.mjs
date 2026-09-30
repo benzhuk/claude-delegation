@@ -25,7 +25,7 @@
  * Everything it manages is recorded in ~/.agents/skills/.mirror-manifest.json so --uninstall can
  * remove exactly what it created and nothing else.
  *
- *   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json] [--allow-downgrade]
+ *   node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json] [--allow-downgrade] [--write-allow]
  *
  * Exit 0 on success (including a no-op), 1 on any refusal or error. Idempotent.
  */
@@ -34,6 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 import {
   mergeHooksJson, trustEntriesForPlacements, upsertHooksState, pruneOurHooksState, ourTrustHashes, codexHomes,
@@ -115,6 +116,24 @@ const SHIM_SPECS = SHIM_COMMANDS.flatMap((command) => (IS_WINDOWS
   ? [{ name: `${command}.cmd`, flavour: 'cmd', command }, { name: command, flavour: 'sh', command }]
   : [{ name: command, flavour: 'sh', command }]));
 
+/**
+ * F12 (twin of the 2026-09-14 BLOCKER): unlike the note-* shims, `reclaim` does NOT run a mirrored
+ * copy. `scripts/` is never published into `~/.agents/skills/`, and reclaim.mjs imports janitor.mjs,
+ * which imports project-config, wiring-check, work-record and transport — a Windows copy-mode mirror
+ * of a single skill dir cannot host that. So the shim runs THIS checkout's own scripts/reclaim.mjs
+ * directly, which only ever makes sense from a place that will still exist tomorrow: gated on
+ * `isDurablePath(REPO)` in collectSources() below, exactly like the Codex hook script already is
+ * (:70-83, :691-701, :726) — the guard that stops a gate run from repointing a live shim at a
+ * directory about to be deleted, the same failure class that hit two live Codex homes on 2026-09-14.
+ */
+const RECLAIM_TARGET = path.join(REPO, 'scripts', 'reclaim.mjs');
+const RECLAIM_SHIM_SPECS = IS_WINDOWS
+  ? [
+      { name: 'reclaim.cmd', flavour: 'cmd', command: 'reclaim', target: RECLAIM_TARGET },
+      { name: 'reclaim', flavour: 'sh', command: 'reclaim', target: RECLAIM_TARGET },
+    ]
+  : [{ name: 'reclaim', flavour: 'sh', command: 'reclaim', target: RECLAIM_TARGET }];
+
 // `log` and `refusals` before parseArgs: refuse() pushes into them, and an unknown flag or a
 // `--codex-home` with no value must be a refusal, not a ReferenceError (review, 2026-09-14).
 const log = [];
@@ -124,11 +143,12 @@ const opts = parseArgs(process.argv.slice(2));
 function parseArgs(argv) {
   const o = {
     dryRun: false, force: false, uninstall: false, json: false,
-    codexHooksOnly: false, codexHooks: false, codexHome: null, allowDowngrade: false,
+    codexHooksOnly: false, codexHooks: false, codexHome: null, allowDowngrade: false, writeAllow: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') o.dryRun = true;
+    else if (a === '--write-allow') o.writeAllow = true;
     else if (a === '--codex-hooks-only') o.codexHooksOnly = true;
     else if (a === '--codex-hooks') o.codexHooks = true;
     else if (a === '--codex-home') {
@@ -150,7 +170,7 @@ function parseArgs(argv) {
  * is a statement of fact true in both modes (nothing is dropped or overwritten whether or not this is
  * a dry run) rather than an action about to happen, so it reads the same "refusing to…" way too.
  */
-const NO_OP = /^(up to date|already|nothing|refusing|optional source)/;
+const NO_OP = /^(up to date|already|nothing|refusing|optional source|SKIP)/;
 function say(action, detail) {
   log.push(`${opts.dryRun && !NO_OP.test(action) ? 'would ' : ''}${action}: ${detail}`);
 }
@@ -196,9 +216,240 @@ function warnCrossSessionInbound() {
     'WARNING: crossSessionInbound is not "accept"',
     `${state.path} says ${state.value === null ? 'nothing' : JSON.stringify(state.value)}. Peer notes posted `
     + 'into this machine\'s Claude sessions will be HELD behind an approval dialog in the recipient\'s pane '
-    + 'instead of delivered (multi 0.5.0). Set it yourself - this installer never edits your settings.',
+    + 'instead of delivered (multi 0.5.0). Set it yourself - this installer never changes that key '
+    + '(only --write-allow adds the reclaim allow line).',
   );
   return state;
+}
+
+// ── reclaim allow line (F9/F10/F11) ─────────────────────────────────────────
+
+/**
+ * F10 (ruling r0): Claude Code 2.1.285's `--help` gives the rule form as `Bash(git *)` — the space
+ * form, not the legacy `Bash(git:*)` colon form. "Line present" means EITHER spelling is already in
+ * `permissions.allow` (F10's own definition), so both constants exist, but only the space form is ever
+ * written.
+ */
+const CLAUDE_ALLOW_LINE = 'Bash(reclaim *)';
+const CLAUDE_ALLOW_LINE_LEGACY = 'Bash(reclaim:*)';
+/** F9 (ruling r0): measured with codex-cli 0.158.0 against a scratch rules file — `reclaim /tmp/x` and
+ * bare `reclaim` both decide "allow"; `reclaimer /x` does not match. */
+const CODEX_ALLOW_LINE = 'prefix_rule(pattern = ["reclaim"], decision = "allow")';
+const CLAUDE_SETTINGS = path.join(HOME, '.claude', 'settings.json');
+const CODEX_RULES_RELATIVE = path.join('.codex', 'rules', 'default.rules');
+
+/** F9/F10: printed on every run, write-allow or not — this is what tells a human or a probe what the
+ * allow lines ARE, independent of whether this host's files qualify for --write-allow's narrow gate. */
+function printAllowLines() {
+  log.push(`ALLOW claude: ${CLAUDE_ALLOW_LINE}`);
+  log.push(`ALLOW codex: ${CODEX_ALLOW_LINE}  # append to ~/${CODEX_RULES_RELATIVE.split(path.sep).join('/')}`);
+}
+
+function utcStamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+/** A synchronous, blocking wait — used only for F11's 200ms retry-on-EPERM/EBUSY/EACCES backoff, which
+ * must run inside a plain synchronous CLI with no event loop to hang a Promise off. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function skipLine(file, reason) { log.push(`SKIP ${file}: ${reason}`); }
+function wroteLine(file, ruleText) {
+  log.push(opts.dryRun ? `would WRITE ${file} +${ruleText}` : `WROTE ${file} +${ruleText}`);
+}
+
+/**
+ * F11: `chezmoi managed --include=files,symlinks` lists every path it controls, ONE PER LINE, relative
+ * to the destination directory (`$HOME`) — e.g. `.claude/settings.json`, never an absolute path (F11's
+ * own fix text pins exactly that relative form). Shared by both the Claude settings write and the
+ * Codex rules write (ruling r0's F9 amendment: "the same conditions as the Claude file"). A 30s
+ * timeout or any non-ENOENT error is `'chezmoi check failed'`, never a crash and never treated as
+ * "not managed" — the fail-safe direction the finding requires. `chezmoi` altogether absent from PATH
+ * but `~/.local/share/chezmoi` present is treated the same as a positive match: something manages this
+ * home's dotfiles and we cannot be sure it does not cover this file, so `--write-allow` stays out of it.
+ */
+function chezmoiManagedStatus(targetPath, { execImpl = execFileSync, home = HOME } = {}) {
+  let out;
+  try {
+    out = execImpl('chezmoi', ['managed', '--include=files,symlinks'], { encoding: 'utf8', timeout: 30000 });
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      try {
+        if (fs.statSync(path.join(home, '.local', 'share', 'chezmoi')).isDirectory()) return 'chezmoi-managed';
+      } catch { /* no local chezmoi source either: nothing manages this file */ }
+      return null;
+    }
+    return 'chezmoi check failed';
+  }
+  const normalize = (p) => {
+    let s = String(p).trim().split('\\').join('/');
+    if (IS_WINDOWS) s = s.toLowerCase();
+    return s;
+  };
+  const wanted = normalize(path.relative(home, targetPath).split(path.sep).join('/'));
+  const lines = out.split(/\r?\n/).map(normalize).filter(Boolean);
+  return lines.includes(wanted) ? 'chezmoi-managed' : null;
+}
+
+/**
+ * F11's exact write protocol — the hazards the finding measured, each with its own guard, shared by
+ * both the Claude JSON write and the Codex text-append (ruling r0's F9 amendment says "the same
+ * conditions"):
+ *   - a temp file written with the `wx` flag (never overwrites an unrelated file that raced us here);
+ *   - `chmodSync`'d to the ORIGINAL file's mode, so a 600 settings.json never widens to 664 on rename;
+ *   - the original re-read just before rename, so a concurrent writer (Claude Code itself, on
+ *     "always allow") between our read and our rename is never silently clobbered;
+ *   - up to 3 rename attempts, 200ms apart, on EPERM/EBUSY/EACCES (a Windows rename over an open
+ *     handle);
+ *   - a backup of the ORIGINAL bytes, same mode, at `backupPath` — OUTSIDE the config dir, so a later
+ *     `chezmoi add ~/.claude` (or ~/.codex) never sweeps a copy of secrets into the dotfiles repo.
+ *     (review round 1, finding 7): a backup that cannot be written (or mode-narrowed) with
+ *     `COPYFILE_EXCL` stops the write entirely — `'backup failed'`, never a silent best-effort skip.
+ * Returns `{ok:true}` or `{ok:false, reason}`, `reason` always one of F11's fixed SKIP strings:
+ * `absent`, `not a regular file`, `not valid JSON`, `formatting would change`, `line present`,
+ * `chezmoi-managed`, `chezmoi check failed`, `changed during write`, `rename failed`, or (round 1
+ * finding 7) `backup failed`.
+ */
+function writeAllowFile(file, newText, backupPath, mode) {
+  const dir = path.dirname(file);
+  const tmp = path.join(dir, `${path.basename(file)}.tmp-${process.pid}`);
+  let original;
+  try { original = fs.readFileSync(file); } catch { return { ok: false, reason: 'changed during write' }; }
+  try {
+    fs.writeFileSync(tmp, newText, { encoding: 'utf8', flag: 'wx' });
+  } catch {
+    return { ok: false, reason: 'rename failed' };
+  }
+  try { fs.chmodSync(tmp, mode); } catch { /* best effort: the re-read/rename below is what matters */ }
+  let recheck;
+  try { recheck = fs.readFileSync(file); } catch { recheck = null; }
+  if (!recheck || !recheck.equals(original)) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    return { ok: false, reason: 'changed during write' };
+  }
+  // review round 1, finding 7: a failed backup used to be swallowed ("best effort") and the write
+  // went ahead anyway - ruling r0's own F11 condition list requires "a backup written outside the
+  // config dir" as one of the write's preconditions, not an afterthought. `COPYFILE_EXCL` refuses to
+  // clobber an existing backup from a same-second retry, and a mode that cannot be narrowed to the
+  // original's (a 600 settings file may carry an `env` block) refuses too, rather than shipping a
+  // backup a person could read past its owner's own permissions.
+  try {
+    fs.mkdirSync(path.dirname(backupPath), { recursive: true });
+    fs.copyFileSync(file, backupPath, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(backupPath, mode);
+  } catch {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    return { ok: false, reason: 'backup failed' };
+  }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fs.renameSync(tmp, file);
+      return { ok: true };
+    } catch (err) {
+      if (attempt < 2 && ['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) { sleepSync(200); continue; }
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+      return { ok: false, reason: 'rename failed' };
+    }
+  }
+  return { ok: false, reason: 'rename failed' };
+}
+
+/**
+ * F11: everything gated in order, cheapest first, before any write is attempted. Returns
+ * `{ok:true, parsed, mode}` or `{ok:false, reason}` — `reason` is always one of F11's nine fixed
+ * strings, NEVER `err.message` and never a fragment of the file (the finding measured `JSON.parse`
+ * quoting the offending bytes back in its own error text — exactly what must never reach this log).
+ */
+function inspectClaudeSettings(file) {
+  let st;
+  try { st = fs.lstatSync(file); } catch { return { ok: false, reason: 'absent' }; }
+  if (!st.isFile()) return { ok: false, reason: 'not a regular file' };
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return { ok: false, reason: 'absent' }; }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return { ok: false, reason: 'not valid JSON' }; }
+  const rebuilt = `${JSON.stringify(parsed, null, 2)}\n`;
+  const normalizedRaw = raw.split('\r\n').join('\n');
+  if (rebuilt !== normalizedRaw) return { ok: false, reason: 'formatting would change' };
+  return { ok: true, parsed, mode: st.mode & 0o777 };
+}
+
+function claudeAllowLinePresent(parsed) {
+  const allow = parsed?.permissions?.allow;
+  return Array.isArray(allow) && (allow.includes(CLAUDE_ALLOW_LINE) || allow.includes(CLAUDE_ALLOW_LINE_LEGACY));
+}
+
+/** F10: "If `permissions.deny` or `permissions.ask` holds any rule starting with `Bash(reclaim`, print
+ * WARN ... and do not write" — a rule already denying/asking about reclaim outranks an allow we would
+ * add, so writing the allow line under it would be misleading about what actually happens. */
+function claudeReclaimShadowed(parsed) {
+  for (const key of ['deny', 'ask']) {
+    const rules = parsed?.permissions?.[key];
+    if (Array.isArray(rules) && rules.some((r) => typeof r === 'string' && r.startsWith('Bash(reclaim'))) return true;
+  }
+  return false;
+}
+
+function writeClaudeAllowLine() {
+  const file = CLAUDE_SETTINGS;
+  const inspected = inspectClaudeSettings(file);
+  if (!inspected.ok) { skipLine(file, inspected.reason); return; }
+  if (claudeAllowLinePresent(inspected.parsed)) { skipLine(file, 'line present'); return; }
+  if (claudeReclaimShadowed(inspected.parsed)) { log.push(`WARN ${file}: a deny/ask rule shadows reclaim`); return; }
+  const chezmoi = chezmoiManagedStatus(file);
+  if (chezmoi) { skipLine(file, chezmoi); return; }
+
+  const next = JSON.parse(JSON.stringify(inspected.parsed));
+  next.permissions = next.permissions && typeof next.permissions === 'object' && !Array.isArray(next.permissions)
+    ? next.permissions : {};
+  next.permissions.allow = Array.isArray(next.permissions.allow) ? next.permissions.allow : [];
+  next.permissions.allow.push(CLAUDE_ALLOW_LINE);
+  const newText = `${JSON.stringify(next, null, 2)}\n`;
+
+  if (opts.dryRun) { wroteLine(file, CLAUDE_ALLOW_LINE); return; }
+  const backup = path.join(HOME, '.agents', 'rollout-backups', `claude-settings.json.${utcStamp()}`);
+  const result = writeAllowFile(file, newText, backup, inspected.mode);
+  if (!result.ok) { skipLine(file, result.reason); return; }
+  wroteLine(file, CLAUDE_ALLOW_LINE);
+}
+
+/**
+ * Ruling r0's F9 amendment: certain only for the single plain `~/.codex` home — `codexHomes()`
+ * returning exactly that one entry, no `CODEX_HOME` override and no Orca-managed account homes found
+ * on this machine. Anything else (a managed multi-account machine, an overridden home) is genuinely
+ * ambiguous: which account's rules file is "the" Codex rules file is not this installer's call to
+ * make, so `--write-allow` prints only, exactly as F9 requires for an uncertain path.
+ */
+export function isCodexRulesPathCertain({ home = HOME, env = process.env } = {}) {
+  const homes = codexHomes({ home, env });
+  return homes.length === 1 && path.resolve(homes[0]) === path.resolve(path.join(home, '.codex'));
+}
+
+function writeCodexAllowLine() {
+  if (!isCodexRulesPathCertain()) {
+    log.push('SKIP codex allow line: codex rules path is not certain on this host (print only)');
+    return;
+  }
+  const file = path.join(HOME, CODEX_RULES_RELATIVE);
+  let st;
+  try { st = fs.lstatSync(file); } catch { skipLine(file, 'absent'); return; }
+  if (!st.isFile()) { skipLine(file, 'not a regular file'); return; }
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { skipLine(file, 'absent'); return; }
+  const lines = raw.split(/\r?\n/).map((l) => l.trim());
+  if (lines.includes(CODEX_ALLOW_LINE)) { skipLine(file, 'line present'); return; }
+  const chezmoi = chezmoiManagedStatus(file);
+  if (chezmoi) { skipLine(file, chezmoi); return; }
+
+  const needsNewline = raw.length > 0 && !raw.endsWith('\n');
+  const newText = `${raw}${needsNewline ? '\n' : ''}${CODEX_ALLOW_LINE}\n`;
+  if (opts.dryRun) { wroteLine(file, CODEX_ALLOW_LINE); return; }
+  const backup = path.join(HOME, '.agents', 'rollout-backups', `codex-default.rules.${utcStamp()}`);
+  const result = writeAllowFile(file, newText, backup, st.mode & 0o777);
+  if (!result.ok) { skipLine(file, result.reason); return; }
+  wroteLine(file, CODEX_ALLOW_LINE);
 }
 
 // ── manifest ─────────────────────────────────────────────────────────────────
@@ -314,6 +565,22 @@ export function collectSources() {
       src: null, dest: path.join(LOCAL_BIN, spec.name),
     });
   }
+  // F12: the reclaim shim, only from a durable checkout (see RECLAIM_SHIM_SPECS's own comment). A
+  // scratch/gate checkout leaves any existing shim untouched and says so, rather than repointing a
+  // live PATH command at a directory about to be deleted.
+  if (isDurablePath(REPO) && !isLinkedWorktree(REPO)) {
+    for (const spec of RECLAIM_SHIM_SPECS) {
+      out.push({
+        kind: 'shim', name: spec.name, flavour: spec.flavour, command: spec.command, target: spec.target,
+        src: null, dest: path.join(LOCAL_BIN, spec.name),
+      });
+    }
+  } else {
+    // review round 1, finding 6: an Orca workspace is a perfectly durable-LOOKING path that is still
+    // a linked git worktree the daily act removes once idle and merged - the reclaim shim must never
+    // point at one.
+    say('SKIP reclaim shim', isDurablePath(REPO) ? `${REPO} is a linked git worktree` : `${REPO} is not durable`);
+  }
   return out;
 }
 
@@ -324,8 +591,7 @@ export function collectSources() {
  * node on macOS (launchd runs the 1-minute flusher with a bare /usr/bin:/bin PATH — exit 127 on the
  * Mac, 2026-09-14), or nvm4w's `C:/nvm4w/nodejs/node.exe` on Windows, where fnm does not exist.
  */
-function shimContent(flavour, command) {
-  const target = shimTarget(command);
+function shimContent(flavour, command, target = shimTarget(command)) {
   if (flavour === 'cmd') {
     // Each `exit /b %ERRORLEVEL%` must be its own line: cmd expands %VAR% when it parses a whole
     // compound statement, so `node … & exit /b %ERRORLEVEL%` would return the value from BEFORE node ran.
@@ -514,9 +780,11 @@ function publishFile(entry, prev) {
   return { ...manifestEntry(entry), files: [path.basename(entry.dest)] };
 }
 
-/** The PATH shim is generated, not copied: its body names this machine's mirrored note-send. */
+/** The PATH shim is generated, not copied: its body names this machine's mirrored note-send, or (F12)
+ * the reclaim shim's own explicit `entry.target` when one is given. */
 function publishShim(entry, prev) {
-  const content = shimContent(entry.flavour, entry.command);
+  const target = entry.target || shimTarget(entry.command);
+  const content = shimContent(entry.flavour, entry.command, target);
   const previous = prev.managed.find((e) => path.resolve(e.dest) === path.resolve(entry.dest));
   const st = lstat(entry.dest);
   if (st && !previous && !opts.force) {
@@ -531,7 +799,7 @@ function publishShim(entry, prev) {
     say('up to date', entry.dest);
     return { ...manifestEntry(entry), files: [path.basename(entry.dest)] };
   }
-  say('install PATH shim', `${entry.dest} -> ${shimTarget(entry.command)}`);
+  say('install PATH shim', `${entry.dest} -> ${target}`);
   if (!opts.dryRun) {
     fs.mkdirSync(path.dirname(entry.dest), { recursive: true });
     fs.writeFileSync(entry.dest, content, 'utf8');
@@ -546,7 +814,7 @@ function manifestEntry(entry) {
     name: entry.name,
     kind: entry.kind,
     mode,
-    source: entry.src ? entry.src.split(path.sep).join('/') : `generated (target ${shimTarget(entry.command).split(path.sep).join('/')})`,
+    source: entry.src ? entry.src.split(path.sep).join('/') : `generated (target ${(entry.target || shimTarget(entry.command)).split(path.sep).join('/')})`,
     dest: entry.dest.split(path.sep).join('/'),
   };
 }
@@ -622,9 +890,15 @@ function pruneIfEmpty(dir) {
 
 const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex roles and the note-send shim.
 
-  node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json] [--allow-downgrade]
+  node scripts/mirror-shared-skills.mjs [--dry-run] [--force] [--uninstall] [--json] [--allow-downgrade] [--write-allow]
 
   --dry-run    print every action without touching anything
+  --write-allow
+               ALSO add the reclaim allow line to ~/.claude/settings.json and, when the Codex rules
+               path is certain on this host, ~/.codex/rules/default.rules — each only when the file
+               exists, parses, is unmanaged by chezmoi, and does not already carry the line (F9/F10/
+               F11). Every run prints both ALLOW lines regardless of this flag; this is what writes
+               them
   --codex-hooks
                ALSO wire (and pre-trust) the Codex hooks — note delivery AND, when hooks/delete-guard.mjs
                exists (D1's build), the recursive-delete PreToolUse guard (delete-deny D2). OFF by
@@ -643,7 +917,8 @@ const USAGE = `mirror-shared-skills — publish shared skills, their docs, Codex
                anything it manages, prints one line saying so, and still exits 0.
 
 Destinations: ~/.agents/skills/<name>, ~/.agents/skills/_docs/, ~/.codex/agents/, ~/.local/bin/.
-PATH shims: note-send, note-inbox, note-flush, note-notify (plus a .cmd for each on Windows).
+PATH shims: note-send, note-inbox, note-flush, note-notify, reclaim (plus a .cmd for each on Windows;
+reclaim only from a durable checkout — see F12).
 Never writes ~/.claude/skills: Claude Code gets these skills from the plugin cache.
 `;
 
@@ -698,6 +973,28 @@ export function isDurablePath(target, { tmpDir = os.tmpdir(), home = os.homedir(
   // A `tmp` segment anywhere is temporary too — `~/tmp/hookbuild` is exactly as disposable as `/tmp`,
   // and it is where the Netcup smokes unpack the tree.
   return !/(^|\/)(tmp|temp|scratchpad|worktrees?|wt-[^/]*)\//i.test(lower);
+}
+
+/**
+ * Review round 1, finding 6 (F12 twin): `isDurablePath` only rules out path SHAPES that look
+ * temporary (a `/tmp`-ish segment) — it has nothing to say about an Orca workspace, which lives at a
+ * perfectly ordinary-looking, non-temp path (`~/orca/workspaces/<repo>/<pane>`,
+ * `C:/Users/.../orca/workspaces/...`) and is STILL a linked git worktree: the daily act this same
+ * lane ships removes it the moment its branch merges and it goes idle. `git rev-parse --git-dir`
+ * and `--git-common-dir` are equal for the main checkout (`.git` is a real directory there) and
+ * differ for every linked worktree (`--git-dir` is `<main>/.git/worktrees/<name>`); any git error
+ * (not a repo at all, git missing) fails CLOSED — true, "linked", the direction that skips the shim
+ * rather than pointing it at something removable.
+ */
+export function isLinkedWorktree(dir) {
+  try {
+    const gitDir = execFileSync('git', ['-C', dir, 'rev-parse', '--git-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const commonDir = execFileSync('git', ['-C', dir, 'rev-parse', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const abs = (p) => path.resolve(dir, p);
+    return abs(gitDir) !== abs(commonDir);
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -881,6 +1178,9 @@ function main() {
 
   if (opts.uninstall) {
     uninstall(prev);
+    // F9/F10: printed on every run, including --uninstall — uninstall touches only what the manifest
+    // says WE created, never settings.json or the Codex rules file, so nothing here contradicts that.
+    printAllowLines();
   } else {
     // D11: disk may be genuinely AHEAD of the tree running this mirror (a stale checkout, or a
     // chezmoi apply racing an upgrade elsewhere). `newer` is `true`/`false`/`null` per F8 — `null`
@@ -924,6 +1224,19 @@ function main() {
       // Anything we managed before and no longer have a source for is stale: drop it.
       for (const old of prev.managed) {
         if (managed.some((m) => path.resolve(m.dest) === path.resolve(old.dest))) continue;
+        // review round 1, finding 14: collectSources() SKIPS the reclaim shim (never drops it) from
+        // a non-durable or linked-worktree checkout - the shim already on disk is left untouched, so
+        // its manifest entry has to be carried forward unchanged too. Without this, the very next run
+        // that forgot the shim would also forget it was ever ours: a later durable run refuses it as
+        // "not ours" (D11-style guard), and `--uninstall` stops removing it either way.
+        // Round-2 review, R2-5: carrying it forward unconditionally, matched by basename alone, meant
+        // it could NEVER be dropped even from a durable, non-worktree checkout that retired the shim
+        // on purpose, and would wrongly protect an unrelated `reclaim`-named entry outside LOCAL_BIN.
+        // The clause below is the exact complement of collectSources()'s own gate at line 571: carry
+        // forward only while THIS run would once again skip publishing it, and only the real shim path.
+        if (path.resolve(path.dirname(old.dest)) === path.resolve(LOCAL_BIN)
+          && ['reclaim', 'reclaim.cmd'].includes(path.basename(old.dest))
+          && !(isDurablePath(REPO) && !isLinkedWorktree(REPO))) { managed.push(old); continue; }
         const st = lstat(old.dest);
         if (!st) continue;
         say('drop no-longer-shared entry', old.dest);
@@ -933,6 +1246,15 @@ function main() {
     }
     // C14: said on the way past, because this is the command a fourth machine is provisioned with.
     warnCrossSessionInbound();
+    // F9/F10: printed on EVERY run, write-allow or not — this is what a human or a probe reads to
+    // learn what the allow lines are.
+    printAllowLines();
+    // F11 (Claude) / F9's ruling r0 amendment (Codex): OPT-IN, like --codex-hooks — a plain run never
+    // edits ~/.claude/settings.json or ~/.codex/rules/default.rules on its own.
+    if (opts.writeAllow) {
+      writeClaudeAllowLine();
+      writeCodexAllowLine();
+    }
     // OPT-IN (review BLOCKER 1). A plain run publishes skills and shims and touches no Codex home at
     // all: the installer edits live files Orca also owns, and a default that reached them turned every
     // gate run into a live-config edit — twice, on two machines, in one afternoon. `--codex-hooks` asks

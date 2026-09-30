@@ -106,16 +106,23 @@
 // (a genuinely unexpected, unreached exception is the sole silent-0 fail-open case, and only when
 // no destructive action has been taken yet).
 
-import { existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync, realpathSync, mkdirSync, writeFileSync, appendFileSync, readdirSync, readFileSync, statSync,
+  openSync, readSync, closeSync, renameSync, readlinkSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 
 import { loadProjectConfig, switchedOff } from "./project-config.mjs";
+import { pathEscapesRoot } from "./path-safety.mjs";
 import { checkWiring } from "./wiring-check.mjs";
 import { listRecords } from "./work-record.mjs";
 import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
+// Finding 1 (review round 1): idleHours' Codex-session widening needs the same "where Codex lives"
+// list the mirror script already uses, rather than a second, drifting copy of it.
+import { codexHomes } from "./codex-hook-trust.mjs";
 
 const UNMERGED_STALE_DAYS = 14;
 const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "development", "release", "production", "stable", "trunk"]);
@@ -329,10 +336,40 @@ export function isTreeClean(worktreePath) {
     // --ignored=matching is not optional: `git worktree remove` deletes the whole directory,
     // ignored files included, and an ignored file with content (local config, build output) is
     // work this tool did not create. Any output at all - untracked or ignored - means NOT clean.
-    return git(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], worktreePath).trim() === "";
+    if (git(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], worktreePath).trim() !== "") {
+      return false;
+    }
   } catch {
     return false;
   }
+  // F16 (redteam): `git status --porcelain` reports nothing at all for a tracked file carrying
+  // `--skip-worktree` or `--assume-unchanged` even when it has a real, uncommitted local edit -
+  // measured directly. `git ls-files -v` tags every entry with a letter that is lowercased when the
+  // file is assume-unchanged, and tagged `S` (always uppercase) when it is skip-worktree; either one
+  // means this worktree can be hiding a real edit that the status check above never saw.
+  try {
+    // review round 1, finding 10: `git()`'s execFileSync uses the default 1 MB maxBuffer - at roughly
+    // 30 bytes/line, a repo with ~35k+ tracked files overflows it (ENOBUFS), the catch below returns
+    // "not clean", and a big repo's worktrees silently go inert for SAFE forever. That is the safe
+    // direction, but the act should not go quietly dead on a big repo - a 256 MB ceiling covers a
+    // repo more than seven times that size before this file falls back to the same fail-safe "not
+    // clean" it already had.
+    const lines = execFileSync("git", ["ls-files", "-v"], {
+      cwd: worktreePath,
+      env: withoutRepoLocatingGitEnv(process.env),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 256 * 1024 * 1024,
+    }).split(/\r?\n/);
+    for (const line of lines) {
+      if (!line) continue;
+      const tag = line[0];
+      if (tag === "S" || /[a-z]/.test(tag)) return false;
+    }
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 export function isBranchMerged(root, branch, mainBranch) {
@@ -1067,6 +1104,378 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
 // ---------- apply (SAFE class only) ----------
 
 /**
+ * F1 (redteam, adopted by ruling r0): the only cwd protection classify() has is "not the worktree
+ * we are standing in" - an old, merged worktree that still holds a LIVE session (a pane, an Orca
+ * workspace) is otherwise SAFE the moment its branch lands on origin, and `git worktree remove`
+ * pulls the directory out from under whatever is running there. Idle age is `now` minus the newest
+ * mtime this function can find among:
+ *   - the worktree directory itself;
+ *   - its own git-admin dir's `HEAD`, `index` and `logs/HEAD` (resolved via
+ *     `git -C <wtPath> rev-parse --git-dir`, so a linked worktree's admin dir under the main
+ *     repo's `.git/worktrees/<name>` is read, not a nonexistent `<wtPath>/.git/HEAD`);
+ *   - the newest entry directly under `<claude-config-dir>/projects/<slug-or-slug-*>/`, for every
+ *     `<claude-config-dir>` this host has - `<home>/.claude`, every `<home>/.claude-*` that itself
+ *     has a `projects/` child (a `CLAUDE_CONFIG_DIR` account), and `process.env.CLAUDE_CONFIG_DIR`
+ *     when set - where `<slug>` is `wtPath`'s absolute form with every character outside
+ *     `[A-Za-z0-9]` replaced by `-` (Claude Code's own slugging), matched exactly, as a
+ *     `<slug>-`-prefixed subdirectory (a session launched inside the worktree, or a sibling path -
+ *     erring toward "active" is the safe direction), or - when the slug is over 200 characters -
+ *     truncated to 200 plus `-` (Claude Code's own hashed-slug rule, measured against the installed
+ *     2.1.285 binary), case-folded on win32 and darwin;
+ *   - any Codex `rollout-*.jsonl` from a session STARTED in the last 30 days (both the local and UTC
+ *     date for each day back, so a run near midnight in either direction still finds it) - R2-2: a
+ *     rollout stays in its start date's dir however long the session keeps writing after that
+ *     (measured: real rollouts written up to 4 days after their dir date), so "today or yesterday"
+ *     alone missed any session that outlived one day boundary - across every home `codexHomes()`
+ *     returns, whose own first line's `payload.cwd` (measured directly against a real Orca-runtime
+ *     rollout) is inside `wtPath`. A session started more than 30 days ago falls through to the
+ *     open-process check instead (see `worktreeHasOpenProcess` below).
+ * Round-1 review (finding 1): "found nothing" is reachable in practice only when `wtPath` itself
+ * cannot even be stat'd (it does not exist, or this run cannot read it) - every OTHER source that
+ * genuinely has nothing simply contributes zero mtimes and is otherwise silent, exactly as before.
+ * Ruling r0's "doubt resolves to active" therefore reduces to one rule: `mtimes.length === 0` means
+ * unknown, never "fully idle" (see the `NaN` return below, finding 9). Round-2 review, R2-1: an
+ * ABSENT candidate (ENOENT/ENOTDIR - no such config dir, no such file) is readable-and-empty and
+ * contributes nothing, exactly as before, but any OTHER read failure (EACCES, EPERM, EIO, EMFILE...)
+ * makes the WHOLE answer unknown (NaN), never merely "this one candidate found nothing" - an
+ * unreadable session source must never quietly turn into "idle". Two things stay exempt from that, on
+ * purpose, or every act run everywhere is blocked: a per-pid `/proc/<pid>/cwd` read (most pids belong
+ * to another uid - see `worktreeHasOpenProcess` below, an unrelated code path from idleHours but the
+ * same principle), and a Codex rollout's first line failing to parse as JSON (a session mid-write is
+ * routine, not a real read failure). `home` defaults to `os.homedir()` only when not
+ * supplied - every caller inside this file (and reclaim.mjs, T1's territory) passes one explicitly
+ * so a test's fake HOME is honoured. `now` is a number (`Date.now()`-shaped), not the `Date` object
+ * every other age function here takes - this is the pinned seam T1's reclaim.mjs codes against too.
+ * Pure and read-only: never throws, never touches the filesystem beyond stat/readdir/a small read of
+ * a rollout file's first 64 KB.
+ */
+export function idleHours(wtPath, { home, now = Date.now() } = {}) {
+  const nowMs = typeof now === "number" ? now : new Date(now).getTime();
+  const mtimes = [];
+  // R2-1: an unreadable source counts as active. ENOENT/ENOTDIR is "readable and empty"; any other
+  // error (EACCES, EPERM, EIO, EMFILE...) makes the whole answer unknown (NaN, checked below).
+  let unknown = false;
+  const unreadable = (err) => {
+    if (!err || (err.code !== "ENOENT" && err.code !== "ENOTDIR")) unknown = true;
+  };
+  const noteMtime = (p) => {
+    try {
+      mtimes.push(statSync(p).mtimeMs);
+    } catch (err) {
+      unreadable(err);
+    }
+  };
+
+  noteMtime(wtPath);
+
+  let gitDir = null;
+  try {
+    const out = execFileSync("git", ["-C", wtPath, "rev-parse", "--git-dir"], {
+      env: withoutRepoLocatingGitEnv(process.env),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    gitDir = out && path.isAbsolute(out) ? out : path.join(wtPath, out || "");
+  } catch {
+    gitDir = null;
+  }
+  if (gitDir) {
+    noteMtime(path.join(gitDir, "HEAD"));
+    noteMtime(path.join(gitDir, "index"));
+    noteMtime(path.join(gitDir, "logs", "HEAD"));
+  }
+
+  const homeDir = home || os.homedir();
+  const foldCase = process.platform === "win32" || process.platform === "darwin";
+  const fold = (s) => (foldCase ? s.toLowerCase() : s);
+  const rawSlug = path.resolve(wtPath).replace(/[^A-Za-z0-9]/g, "-");
+  const slug = fold(rawSlug);
+  // Claude Code's own hashed-slug rule for a project path over 200 characters (measured against the
+  // installed 2.1.285 binary): everything past the 200-char prefix is a base36 hash of the FULL
+  // path, which this file cannot reproduce without pulling in Claude Code's own hash function - the
+  // 200-char PREFIX plus a trailing `-` is still an exact, unambiguous match on the real directory
+  // name, so that is what is matched against.
+  const shortSlugPrefix = rawSlug.length > 200 ? `${fold(rawSlug.slice(0, 200))}-` : null;
+  const matchesSlug = (name) => {
+    const n = fold(name);
+    if (n === slug || n.startsWith(`${slug}-`)) return true;
+    return Boolean(shortSlugPrefix && n.startsWith(shortSlugPrefix));
+  };
+
+  const seenProjectsDirs = new Set();
+  const checkProjectsDir = (projectsDir) => {
+    const key = fold(path.resolve(projectsDir));
+    if (seenProjectsDirs.has(key)) return; // e.g. CLAUDE_CONFIG_DIR pointed straight at ~/.claude
+    seenProjectsDirs.add(key);
+    let names;
+    try {
+      names = readdirSync(projectsDir);
+    } catch (err) {
+      unreadable(err);
+      return;
+    }
+    for (const name of names) {
+      if (!matchesSlug(name)) continue;
+      const dir = path.join(projectsDir, name);
+      let entries;
+      try {
+        entries = readdirSync(dir);
+      } catch (err) {
+        unreadable(err);
+        continue;
+      }
+      for (const entryName of entries) noteMtime(path.join(dir, entryName));
+    }
+  };
+
+  // Finding 1, item 1: every Claude config dir this host has, not only the plain ~/.claude.
+  const claudeConfigDirs = [path.join(homeDir, ".claude")];
+  try {
+    for (const name of readdirSync(homeDir)) {
+      if (!name.startsWith(".claude-")) continue;
+      try {
+        if (statSync(path.join(homeDir, name, "projects")).isDirectory()) claudeConfigDirs.push(path.join(homeDir, name));
+      } catch {
+        // a `.claude-*` dir with no `projects` child is not a Claude config dir (or is unreadable) - skip it
+      }
+    }
+  } catch {
+    // homeDir itself unreadable: fall through with just the plain ~/.claude entry above
+  }
+  if (process.env.CLAUDE_CONFIG_DIR) claudeConfigDirs.push(process.env.CLAUDE_CONFIG_DIR);
+  for (const dir of claudeConfigDirs) checkProjectsDir(path.join(dir, "projects"));
+
+  // Finding 1, item 3: Codex sessions. `payload.cwd` on a rollout's own first (`session_meta`) line -
+  // confirmed directly against a real rollout written by Orca's codex-runtime-home.
+  try {
+    // R2-2: a rollout stays in the `sessions/YYYY/MM/DD` dir of the day its session STARTED, however
+    // long it keeps writing after that (measured: real rollouts written up to 4 days after their dir
+    // date) - "today or yesterday" alone made a long-running session invisible once it crossed a day
+    // boundary. 30 days of date-dirs is checked; the mtime prefilter below still only opens/parses a
+    // rollout that is actually fresh, so this costs a readdir per empty day, not a parse.
+    const codexDateStrings = new Set();
+    const utcFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" });
+    const localFmt = new Intl.DateTimeFormat("en-CA");
+    for (let back = 0; back <= 30; back++) {
+      const baseMs = nowMs - back * 86400000;
+      codexDateStrings.add(utcFmt.format(baseMs));
+      codexDateStrings.add(localFmt.format(baseMs));
+    }
+    for (const codexHome of codexHomes({ home: homeDir, env: process.env })) {
+      for (const dateStr of codexDateStrings) {
+        const [y, m, d] = dateStr.split("-");
+        if (!y || !m || !d) continue;
+        const sessDir = path.join(codexHome, "sessions", y, m, d);
+        let names;
+        try {
+          names = readdirSync(sessDir);
+        } catch (err) {
+          unreadable(err);
+          continue;
+        }
+        for (const name of names) {
+          if (!name.startsWith("rollout-") || !name.endsWith(".jsonl")) continue;
+          const file = path.join(sessDir, name);
+          let mtimeMs;
+          try {
+            mtimeMs = statSync(file).mtimeMs;
+          } catch (err) {
+            unreadable(err);
+            continue;
+          }
+          // Cheap prefilter before a per-file open+read+JSON.parse: a rollout already well outside
+          // any floor this file's own IDLE_FLOOR_HOURS cares about cannot become the newest candidate
+          // through a cwd match, so there is no reason to pay for parsing it.
+          if ((nowMs - mtimeMs) / 3600000 > IDLE_FLOOR_HOURS * 2) continue;
+          // R2-1: split the I/O (open/read) from the parse. An I/O failure here is a real unreadable
+          // source (counts as unknown); a first line that fails to PARSE (a session mid-write, whose
+          // JSON is truncated) is exempt on purpose - counting it would block every removal on a host
+          // with even one session actively writing at the moment the act runs.
+          let firstLine;
+          try {
+            const fd = openSync(file, "r");
+            const buf = Buffer.alloc(65536);
+            let n = 0;
+            try {
+              n = readSync(fd, buf, 0, buf.length, 0);
+            } finally {
+              closeSync(fd);
+            }
+            firstLine = buf.toString("utf8", 0, n).split("\n")[0];
+          } catch (err) {
+            unreadable(err);
+            continue;
+          }
+          let cwd;
+          try {
+            cwd = JSON.parse(firstLine)?.payload?.cwd;
+          } catch {
+            continue; // unparsable (mid-write) first line: not a candidate, and not "unreadable" either
+          }
+          if (typeof cwd === "string" && pathWithin(cwd, wtPath)) noteMtime(file);
+        }
+      }
+    }
+  } catch {
+    // codexHomes() itself failing (a bad env value, etc.): Codex simply contributes nothing
+  }
+
+  if (unknown || mtimes.length === 0) return NaN; // unknown is never "idle": every caller's `!(hrs >= floor)` skips NaN
+  return (nowMs - Math.max(...mtimes)) / 3600000;
+}
+
+/** F1's fixed floor for the daily act (and, per the ruling, reclaim's W class in T1's territory):
+ * nothing idle for less than this is ever removed by an act run, whatever else is true about it. */
+export const IDLE_FLOOR_HOURS = 24;
+
+// Round-2 review, R2-3: a restore hint is pasted into sh, cmd or PowerShell on whatever host printed
+// it. A double-quoted `JSON.stringify` still lets `$(...)`/backquotes expand under sh and PowerShell,
+// and `%VAR%` expand under cmd - all legal characters in a git refname or a path - so quoting alone
+// never made the old hint safe to paste. Instead: print a hint ONLY when every argument is built
+// entirely from an inert character set (no shell in wide use treats any of them specially), and print
+// no hint at all (keeping the row's sha, which is enough to restore by hand) otherwise. Forward
+// slashes work in git and in every Windows shell, so a Windows path's backslashes are normalized
+// first rather than doubled.
+const INERT_ARG = /^[A-Za-z0-9._/@+=:,~ -]+$/;
+const q = (s) => {
+  const v = process.platform === "win32" ? String(s).replace(/\\/g, "/") : String(s);
+  if (!INERT_ARG.test(v)) return null;
+  return process.platform === "win32" ? `"${v}"` : `'${v}'`;
+};
+
+/**
+ * Round-1 review, finding 4: the old hint (`git branch <b> <sha> && git worktree add <ref> <b>`)
+ * fails outright with "a branch named '<b>' already exists" whenever the branch itself was NOT
+ * deleted in this same run (skipped, never SAFE, or its tip moved) - which is most of the time a
+ * worktree row is removed on its own. Re-creating the worktree DETACHED at the removed tip always
+ * works, whatever happened to the branch; `-C <root>` so the hint runs from anywhere it is pasted,
+ * and both the repo root and the worktree path are quoted so a Windows path with spaces cannot break
+ * the command a human pastes back. Round-2 review, R2-3: `q()` now returns `null` for anything that
+ * is not provably inert, and this function follows through with `null` for the whole hint rather than
+ * pasting a half-quoted command - the row's sha is always there regardless, which is enough to
+ * restore by hand.
+ */
+function restoreHint(root, ref, sha) {
+  const r = q(root);
+  const p = q(ref);
+  return r && p ? `git -C ${r} worktree add ${p} ${sha}` : null;
+}
+
+/**
+ * Round-1 review, finding 2 (F1 twin): `idleHours` measures FILE writes, not presence - a shell left
+ * open overnight, or a lead's pane idle waiting on Ben, touches no mtime idleHours reads and still
+ * comes back "idle". Checked only under `state.act === true`, in `applySafe` below, immediately
+ * after the idle floor passes: a live process always wins over a passed idle floor. Never throws; an
+ * error on the checking mechanism itself fails CLOSED ("in use"), the same direction as every other
+ * unresolvable doubt in this lane.
+ *   - linux: every readable `/proc/[pid]/cwd` is a symlink; if any resolves inside the worktree, it
+ *     is in use. A pid this run cannot read (another uid, exited between readdir and readlink) is
+ *     simply not a candidate, exactly like every other unreadable source in this file. `/proc`
+ *     itself being unreadable is different - that is not "nothing found", it is "could not check",
+ *     so it fails closed too.
+ *   - darwin: `lsof -a -d cwd -Fn -u <uid>` lists every process's current directory for this uid in
+ *     one call; the `n`-prefixed lines are the paths. A 10s timeout or any other error means "in
+ *     use" - this is the only signal darwin has, so an unreadable answer cannot mean "clean".
+ *   - win32: this function is never called there. A rename probe is the real check on that
+ *     platform, and a failed rename-BACK has to stop applySafe's whole loop, not just skip one row -
+ *     a decision this function cannot make on its own, so it lives inline in applySafe instead.
+ * Round-2 review, R2-4: the two fail-closed cases (`/proc` itself unreadable; the darwin `lsof` call
+ * erroring or timing out) return the STRING `"unknown"`, not `true` - both are truthy, so the caller's
+ * skip direction is identical, but a caller reporting WHY must never claim a process was actually
+ * found when the check itself simply failed to answer.
+ */
+function worktreeHasOpenProcess(wtPath, { statImpl = statSync } = {}) {
+  if (process.platform === "linux") {
+    let pids;
+    try {
+      pids = readdirSync("/proc").filter((n) => /^[0-9]+$/.test(n));
+    } catch {
+      return "unknown"; // /proc itself unreadable: fail closed, never "clean"
+    }
+    // Seam review r2: inside a private PID namespace (Claude Code's linux sandbox runs bwrap with
+    // --unshare-pid and its own /proc) this scan sees only the sandbox's own processes and would call a
+    // live shell outside it "clean". PID 1 owned by a non-root caller means exactly that: fail closed.
+    // `statImpl` defaults to the real fs.statSync and is only ever overridden by a test, which forces
+    // this exact condition through the seam instead of requiring a real `unshare --pid` on the host.
+    try {
+      const uid = typeof process.getuid === "function" ? process.getuid() : null;
+      if (uid !== null && uid !== 0 && statImpl("/proc/1").uid === uid) return "unknown";
+    } catch {
+      return "unknown";
+    }
+    for (const pid of pids) {
+      let link;
+      try {
+        link = readlinkSync(`/proc/${pid}/cwd`);
+      } catch {
+        continue; // gone before we got there, or another uid's process - not a candidate
+      }
+      if (pathWithin(link, wtPath)) return true;
+    }
+    return false;
+  }
+  if (process.platform === "darwin") {
+    try {
+      const uid = typeof process.getuid === "function" ? String(process.getuid()) : "";
+      const out = execFileSync("lsof", ["-a", "-d", "cwd", "-Fn", "-u", uid], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 10000,
+      });
+      for (const line of out.split("\n")) {
+        if (!line.startsWith("n")) continue;
+        const p = line.slice(1);
+        if (p && pathWithin(p, wtPath)) return true;
+      }
+      return false;
+    } catch {
+      return "unknown"; // timeout or any other error: "in use" wins over "clean", but is not a finding
+    }
+  }
+  return false;
+}
+
+// Seam review MEDIUM 3: reclaim.mjs's S/T classes need this exact same open-process check (an
+// agent's own `delegation-*` scratch or session scratchpad is just as much a live shell's cwd as a
+// worktree is) - exported under a neutral name rather than kept private, so reclaim.mjs can reuse
+// it instead of writing a second copy of the same /proc or lsof probe.
+export { worktreeHasOpenProcess as pathHasOpenProcess };
+
+/**
+ * Windows has no /proc or lsof: probe whether `target` (or anything a live process holds open
+ * beneath it) is busy by renaming it away and straight back. Windows refuses to rename a
+ * directory that is any process's cwd, or that holds an open handle beneath it, so the FIRST
+ * rename failing IS the "in use" answer.
+ * Round-1 review, finding 2: a failure on the SECOND rename (putting it back) is a different,
+ * worse outcome - the probe itself just moved something real and could not put it back. The
+ * caller must stop and record exactly where it now sits, never treat that as an ordinary skip.
+ * Seam review MEDIUM 3: pulled out of applySafe's own win32 branch (below) as its own exported
+ * function, unchanged in behavior, so reclaim.mjs's S/T classes can reuse the identical mechanism
+ * on their own top target instead of a second implementation.
+ * Returns `{ busy: false }`, `{ busy: true }`, or `{ busy: true, catastrophic: true, detail }`.
+ */
+export function winRenameBusyProbe(target) {
+  const busyMarker = `${target}.janitor-busy`;
+  try {
+    renameSync(target, busyMarker);
+  } catch {
+    return { busy: true };
+  }
+  try {
+    renameSync(busyMarker, target);
+  } catch (err) {
+    return {
+      busy: true,
+      catastrophic: true,
+      detail:
+        `in-use probe renamed this path to ${busyMarker} and could not rename it back (${String(err.message || err)}) ` +
+        `- restore by hand: rename ${busyMarker} back to ${target}`,
+    };
+  }
+  return { busy: false };
+}
+
+/**
  * Mutates and returns `log`, so a caller can still see partial progress if something outside the
  * per-item try/catches below somehow throws (defense in depth; every actual mutation site below is
  * already individually guarded and never throws past this function). Only two kinds of action
@@ -1079,15 +1488,95 @@ export function gatherState({ root, config, now = new Date(), minAgeHours = DEFA
  * alone no longer saw the branch as checked out, so it was deleted anyway even though the log line
  * read "failed". The branch is the last copy of those commits if anything went wrong; when in doubt
  * it stays, and the log says exactly what happened to each.
+ *
+ * F1 (redteam): `state.act === true` is this function's only signal that it is running as part of a
+ * real daily act (main() sets it, only when `--apply` took effect and the kill switch is off) - the
+ * idle floor is checked ONLY then, never for a bare `applySafe(state, log)` call a test or
+ * `closeoutWorktree` makes directly with its own hand-built state. `opts.home` threads a fake HOME
+ * through to `idleHours` for tests; it defaults to the real `os.homedir()`.
+ *
+ * F2 (redteam): every successful removal's log row now carries the `sha` it proved merged (for a
+ * worktree, its branch's tip read right before the removal call; for a branch, the same `b.sha`
+ * this loop already re-verified) and a `restore` hint a human can paste back.
+ *
+ * F16 (redteam): `isTreeClean` is re-run on each worktree immediately before `git worktree remove` -
+ * classify() ran it once, earlier, and a skip-worktree/assume-unchanged edit (or any other change)
+ * landing in the window between classify and apply must not be deleted through silently.
+ *
+ * Round-1 review, findings 2, 3, 4, 8, 9: an idle-but-open shell is now also checked (finding 2,
+ * `worktreeHasOpenProcess`/the win32 rename probe below) before any removal; a NaN, negative, or
+ * future idle value is reported honestly rather than folded into "active in last 24h" (finding 9),
+ * and it ALSO now blocks the same second guard the "tree changed since classify" skip already had
+ * (finding 8 - `failedWorktreeBranches`, so its branch cannot be deleted on the strength of a
+ * worktree row that never actually got removed); a partial removal (git deregistered it, contents
+ * gone, only the final rmdir failed - `goneAnyway` below) now carries its own `sha`/`restore` too
+ * (finding 3); every restore hint uses `restoreHint()` (finding 4), which always works whatever
+ * happened to the branch.
  */
-export function applySafe(state, log = []) {
+export function applySafe(state, log = [], opts = {}) {
   const { root } = state._raw;
+  const home = opts.home;
+  const now = opts.now;
 
   const failedWorktreeBranches = new Set();
   for (const w of state.safe.worktrees) {
+    if (state.act === true) {
+      const hrs = idleHours(w.ref, { home, now });
+      if (!(hrs >= IDLE_FLOOR_HOURS)) {
+        // Round-1 review, finding 9 (ruling: doubt always resolves to active, never a confident
+        // number): NaN ("could not establish an idle age at all") and a negative value (a clock
+        // running ahead somewhere) are both unknowns, not "seen 0-24h ago" - each gets its own
+        // honest label instead of the one generic message every OTHER case still uses.
+        const skipped = Number.isNaN(hrs) ? "idle age unknown" : hrs < 0 ? "mtime in the future" : "active in last 24h";
+        log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped });
+        // Round-1 review, finding 8: the "tree changed since classify" skip below already adds its
+        // branch here as a second guard on top of "still checked out"; an idle-floor skip left the
+        // worktree checked out too and deserves the same second guard, not just the one `stillCheckedOut`
+        // happens to also catch.
+        if (w.branch) failedWorktreeBranches.add(w.branch);
+        continue;
+      }
+      // Round-1 review, finding 2: idle by every file-mtime signal idleHours reads is not the same
+      // as "nobody is here" - a shell sitting open, doing nothing, passes every check above and
+      // still must not be removed out from under it.
+      let inUse;
+      if (process.platform === "win32") {
+        const probe = winRenameBusyProbe(w.ref);
+        if (probe.catastrophic) {
+          // The probe itself just renamed a live worktree away, and a real handle appeared in the
+          // gap before it could rename it back. Finding 2: stop the whole apply loop here rather
+          // than continue guessing at more removals this run - the row records exactly where the
+          // worktree now sits so it is never a half state with no record of it.
+          log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, error: probe.detail });
+          return log;
+        }
+        if (probe.busy) {
+          log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "in use" });
+          if (w.branch) failedWorktreeBranches.add(w.branch);
+          continue;
+        }
+      } else if ((inUse = worktreeHasOpenProcess(w.ref))) {
+        // R2-4: "unknown" (the check itself failed - /proc unreadable, lsof missing or erroring)
+        // still skips, same direction as a real match, but must never claim a process was found
+        // when the check simply could not answer.
+        log.push({
+          action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false,
+          skipped: inUse === "unknown" ? "in-use check failed" : "a process has its cwd here",
+        });
+        if (w.branch) failedWorktreeBranches.add(w.branch);
+        continue;
+      }
+    }
+    if (!isTreeClean(w.ref)) {
+      log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: false, skipped: "tree changed since classify" });
+      if (w.branch) failedWorktreeBranches.add(w.branch);
+      continue;
+    }
+    const sha = w.branch ? refSha(root, headRef(w.branch)) : null;
     try {
       git(["worktree", "remove", "--", w.ref], root);
-      log.push({ action: "worktree-remove", ref: w.ref, ok: true });
+      const restore = sha ? restoreHint(root, w.ref, sha) : null;
+      log.push({ action: "worktree-remove", ref: w.ref, branch: w.branch, ok: true, sha, restore });
     } catch (err) {
       // A failure here can still have left git's own bookkeeping deregistered and the directory
       // emptied (only the final rmdir failed) - round-2 review found that on Windows the empty
@@ -1099,7 +1588,19 @@ export function applySafe(state, log = []) {
       const note = goneAnyway
         ? " (git no longer lists this worktree and its contents are gone; only an empty directory remains - treat it as removed, not survived)"
         : "";
-      log.push({ action: "worktree-remove", ref: w.ref, ok: false, error: `${String(err.message || err)}${note}` });
+      // Round-1 review, finding 3: a "gone anyway" removal is the one that most needs a restore
+      // line - its contents are already gone - and it used to have none; writeRecord's own `gone()`
+      // treats `partial: true` the same as `ok: true` for the evidence file below.
+      log.push({
+        action: "worktree-remove",
+        ref: w.ref,
+        branch: w.branch,
+        ok: false,
+        partial: goneAnyway,
+        sha,
+        restore: goneAnyway && sha ? restoreHint(root, w.ref, sha) : null,
+        error: `${String(err.message || err)}${note}`,
+      });
       if (w.branch) failedWorktreeBranches.add(w.branch);
     }
   }
@@ -1169,7 +1670,18 @@ export function applySafe(state, log = []) {
       // stale, the original bug. The ancestry check above is the safety; `-D`'s force is redundant
       // with it, never a substitute for it.
       git(["branch", "-D", "--", b.ref], root);
-      log.push({ action: "branch-delete", ref: b.ref, ok: true });
+      // Round-1 review, finding 4: `-C <root>` and quoting, matching restoreHint() above - a
+      // refname may itself contain a shell metacharacter, and this hint must run from anywhere.
+      // Round-2 review, R2-3: null unless both root and ref are provably inert (see q() above).
+      const rRoot = q(root);
+      const rRef = q(b.ref);
+      log.push({
+        action: "branch-delete",
+        ref: b.ref,
+        ok: true,
+        sha: b.sha,
+        restore: b.sha && rRoot && rRef ? `git -C ${rRoot} branch ${rRef} ${b.sha}` : null,
+      });
     } catch (err) {
       log.push({ action: "branch-delete", ref: b.ref, ok: false, error: String(err.message || err) });
     }
@@ -1217,7 +1729,14 @@ export function pathWithin(child, parent, opts = {}) {
     return platform === "win32" ? r.toLowerCase() : r;
   };
   const rel = pathImpl.relative(norm(parent), norm(child));
-  return rel === "" || (!rel.startsWith("..") && !pathImpl.isAbsolute(rel));
+  // Seam review MEDIUM 1: `rel.startsWith("..")` alone also matches a real child directory whose
+  // name merely BEGINS with two dots (e.g. "..live"), which is not an escape at all - only an
+  // exact ".." segment, or one followed by a separator, means the relative path actually climbs
+  // out. The looser test failed toward "not inside", i.e. toward removing a worktree (or running
+  // the daily act's open-shell guard as if clean) with a live shell parked in such a dir - the
+  // same defect LOW 12 fixed in path-safety.mjs and MEDIUM 3 fixed in reclaim.mjs. All three now
+  // share path-safety.mjs's single exported `pathEscapesRoot`.
+  return rel === "" || !pathEscapesRoot(rel, pathImpl);
 }
 
 export function closeoutWorktree({ root, worktreeField, branchName = null, mainBranch = "main", cwd = process.cwd(), dryRun = false, listWorktreesImpl = listWorktrees, platform = process.platform }) {
@@ -1379,7 +1898,13 @@ export function summarizeCounts(state) {
   };
 }
 
-function printReport(state, wiring, outsideRows) {
+function printReport(state, wiring, outsideRows, actSwitchedOff = false) {
+  // F14 (redteam): when the kill switch turned a requested --apply into record-only, that is the
+  // very first thing the report says - everything below is still a live, accurate report, just one
+  // that changed nothing.
+  if (actSwitchedOff) {
+    console.log("janitor: act switched off (~/.agents/ws-off-janitor-act)");
+  }
   // J1 item 1: a fetch that failed this run is said on the report's own first lines - every merge
   // judgment below is UNVERIFIABLE, and a stale or absent origin ref proved nothing this run.
   if (state.fetch && state.fetch.attempted && !state.fetch.ok) {
@@ -1473,8 +1998,17 @@ function baseShaFor(root, mainBranch) {
  * `hostName`, both parameters here rather than read from the live clock/os.hostname() inside this
  * function, so a test can assert exact bytes. `dir` resolves relative to `root` unless already
  * absolute; bare `--record` (no path) resolves to DEFAULT_RECORD_DIR by the caller in main().
+ *
+ * F2 (redteam): the record is now the restorable evidence of what an act run actually removed, not
+ * just a count. `act` is `"applied" | "switched-off" | "not-requested"` (main() computes it: whether
+ * `--apply` was given, and whether the kill switch was on); `applyLog` is applySafe's own log array
+ * (`[]` when apply never ran). From it: `removed` lists every row this run actually deleted, by kind,
+ * ref and sha; `safeLeft` counts SAFE rows that were NOT removed this run (never requested, switched
+ * off, or individually failed/skipped - idle, tree-changed, or any other reason). The drift.md line
+ * gains a ` safe=<safeLeft total> removed=<removed count>` suffix so the read-back Ben asked for
+ * (item 4: "the drift line shows the safe class at zero") is answerable from this file alone.
  */
-export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname() }) {
+export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname(), act = "not-requested", applyLog = [] }) {
   const host = sanitizeHost(hostName);
   // J1 review round 2 (F7): `toISOString()` is UTC. facts.md fixes Ben's clock as America/New_York,
   // so a run between 20:00 and 24:00 EDT/EST filed under UTC's tomorrow - a drift record dated a day
@@ -1483,6 +2017,27 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
   const targetDir = path.isAbsolute(dir) ? dir : path.join(root, dir);
   mkdirSync(targetDir, { recursive: true });
   const counts = summarizeCounts(state);
+
+  // Round-1 review, finding 3: a "gone anyway" worktree removal (git deregistered it, contents gone,
+  // only the final rmdir failed) used to be `ok: false`, so it was left OUT of `removed` and counted
+  // as `safeLeft` even though nothing about it is actually left. `gone()` treats `partial: true` the
+  // same as a clean success for both lists below - it is the row that most needs its restore hint.
+  const gone = (l) => l.ok === true || l.partial === true;
+  const removed = applyLog
+    .filter(gone)
+    .map((l) => ({
+      kind: l.action === "worktree-remove" ? "worktree" : "branch",
+      ref: l.ref,
+      sha: l.sha || null,
+      ...(l.partial ? { partial: true } : {}),
+    }));
+  const removedWorktreeRefs = new Set(applyLog.filter((l) => l.action === "worktree-remove" && gone(l)).map((l) => l.ref));
+  const removedBranchRefs = new Set(applyLog.filter((l) => l.action === "branch-delete" && l.ok === true).map((l) => l.ref));
+  const safeLeft = {
+    worktrees: state.safe.worktrees.filter((w) => !removedWorktreeRefs.has(w.ref)).length,
+    branches: state.safe.branches.filter((b) => !removedBranchRefs.has(b.ref)).length,
+  };
+
   const record = {
     date: dateStr,
     host,
@@ -1496,11 +2051,33 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
       remoteBranches: counts.judgmentRemoteBranches,
       overdueWorkarounds: counts.judgmentOverdueWorkarounds,
     },
+    act,
+    removed,
+    safeLeft,
   };
-  const jsonPath = path.join(targetDir, `${dateStr}-${host}.json`);
-  writeFileSync(jsonPath, `${JSON.stringify(record, null, 2)}\n`);
+  // Seam review MEDIUM 2: a later same-day run (the integrator's `janitor --record`, a hand
+  // `--apply`) must never overwrite an earlier run's `removed` list - it is the only durable
+  // name+sha of what an act deleted. On a collision the new record gets the NY wall-clock time as
+  // a suffix instead, so both runs' removals survive under this date/host, in separate files.
+  const body = `${JSON.stringify(record, null, 2)}\n`;
+  const hms = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(/:/g, "");
+  const names = [`${dateStr}-${host}.json`, `${dateStr}-${host}-${hms}.json`];
+  for (let i = 2; i <= 99; i += 1) names.push(`${dateStr}-${host}-${hms}-${i}.json`);
+  let jsonPath = null;
+  for (const name of names) {
+    const candidate = path.join(targetDir, name);
+    try {
+      writeFileSync(candidate, body, { flag: "wx" }); // create-only: never truncates an earlier record
+      jsonPath = candidate;
+      break;
+    } catch (err) {
+      if (!(err && err.code === "EEXIST")) throw err;
+    }
+  }
+  if (jsonPath === null) throw new Error(`no free record name for ${dateStr}-${host}-${hms}`);
   const diskStr = state.drift.diskUsedKB === null ? "unknown" : String(state.drift.diskUsedKB);
-  const driftLine = `- ${dateStr} ${host}: worktrees=${state.drift.worktreeCount} branches=${state.drift.openBranchCount} untracked=${state.drift.untrackedFileCount} diskKB=${diskStr}\n`;
+  const safeLeftTotal = safeLeft.worktrees + safeLeft.branches;
+  const driftLine = `- ${dateStr} ${host}: worktrees=${state.drift.worktreeCount} branches=${state.drift.openBranchCount} untracked=${state.drift.untrackedFileCount} diskKB=${diskStr} safe=${safeLeftTotal} removed=${removed.length}\n`;
   const driftPath = path.join(targetDir, "drift.md");
   appendFileSync(driftPath, driftLine);
   return { jsonPath, driftPath, record };
@@ -1604,7 +2181,22 @@ function parseFlags(argv) {
   return { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag, host };
 }
 
-export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {}) {
+/**
+ * `now` (epoch ms, `idleHours`-shaped): a test-only override for F1's idle-floor check ONLY - it is
+ * never read from the CLI, and it does not touch `gatherState`'s own, separately-defaulted `now`
+ * (the pre-existing `--min-age-hours` floor). Real `git status` calls (inside gatherState, run just
+ * above applySafe in this same function) refresh a tracked file's cached index entry - and rewrite
+ * the index file's own mtime to the real current instant - the moment its on-disk ctime/mtime looks
+ * even slightly inconsistent with what the index cached; measured directly, this makes backdating a
+ * fixture worktree's actual file mtimes to fake "idle" an unreliable way to test the floor (the very
+ * `git status` gatherState just ran resets it). Advancing `now` into the future instead of rewinding
+ * any file's mtime sidesteps that entirely, which is why this seam exists.
+ * `applyImpl` (round-1 review, finding 5): test-only, defaults to the real `applySafe` - lets a test
+ * assert that `--record` is written from the CATCH path below (F2's own pinned contract: "including
+ * when apply throws") by handing in a stand-in that pushes a log row and then throws, without
+ * needing to engineer a real filesystem failure mid-`applySafe` to prove it.
+ */
+export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, applyImpl = applySafe } = {}) {
   let startedApplying = false;
   const applyLog = [];
   try {
@@ -1641,30 +2233,52 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
       return 3;
     }
 
-    if (record) {
-      // J1 item 4: fed and measured, not printed and lost. A write failure here is reported but
-      // never blinds or fails the rest of the report - --record is additive, not load-bearing.
+    // F14 (redteam): a second, apply-scoped kill switch. `switchedOff("janitor")` above (~/.agents/
+    // ws-off or ws-off-janitor) already returned 0, silently, with no report at all - this one is
+    // narrower: while ~/.agents/ws-off-janitor-act exists, a requested --apply is treated as not
+    // given, but the report, the APPLIED table (empty) and, when asked, --record's file still run,
+    // labelled "switched-off" rather than silently doing nothing. An unreadable switch path counts
+    // as present (switchedOff's own contract), so an error here fails safe to record-only too.
+    let act = "not-requested";
+    let actSwitchedOff = false;
+    if (applyFlag) {
+      if (switchedOff("janitor-act")) {
+        act = "switched-off";
+        actSwitchedOff = true;
+      } else {
+        act = "applied";
+        state.act = true;
+      }
+    }
+
+    // F2 (redteam): --record now writes AFTER applySafe (never before it), including from the catch
+    // path below when apply throws partway - the record is the restorable account of what actually
+    // happened this run, not a snapshot of what was about to be attempted.
+    const writeRecordIfRequested = () => {
+      if (!record) return;
       try {
-        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main" };
+        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main", act, applyLog };
         if (host) recordArgs.hostName = host;
         writeRecord(recordArgs);
       } catch (err) {
         process.stderr.write(`janitor: --record failed: ${String(err && err.message ? err.message : err)}\n`);
       }
-    }
+    };
 
-    if (applyFlag) {
+    if (act === "applied") {
       startedApplying = true;
       try {
-        applySafe(state, applyLog);
+        applyImpl(state, applyLog, { now });
       } catch (err) {
         // Once we have started deleting, silence is not an option: say what was done before
         // failing. Fail-open applies to READING state, never to reporting a destructive run.
         for (const line of applyLog) process.stderr.write(`janitor: applied ${JSON.stringify(line)}\n`);
         process.stderr.write(`janitor: --apply aborted partway: ${String(err && err.message ? err.message : err)}\n`);
+        writeRecordIfRequested();
         return 1;
       }
     }
+    writeRecordIfRequested();
 
     // J5: the wiring check is its own read-only tool with its own fail-open contract - a failure
     // here must never take down janitor's own report. It is display only: it never affects janitor's
@@ -1692,6 +2306,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
             summary: summarizeCounts(state),
             wiring,
             outside: outsideRows,
+            act,
             applied: applyFlag ? applyLog : null,
           },
           null,
@@ -1699,11 +2314,13 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd() } = {})
         ),
       );
     } else {
-      printReport(state, wiring, outsideRows);
+      printReport(state, wiring, outsideRows, actSwitchedOff);
       if (applyFlag) {
         console.log("");
         console.log("APPLIED:");
-        console.log(table(applyLog, ["action", "ref", "ok", "error"]));
+        // F2 (redteam): sha and a copy-pasteable restore hint ride along on every applied row, so a
+        // removal is restorable by name from this table (or the --record evidence file) alone.
+        console.log(table(applyLog, ["action", "ref", "ok", "sha", "restore", "skipped", "error"]));
       }
     }
 
