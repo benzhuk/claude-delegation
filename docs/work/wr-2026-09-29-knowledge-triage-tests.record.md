@@ -1,13 +1,13 @@
 Work: wr-2026-09-29-knowledge-triage-tests
 Scope: docs/specs/knowledge-triage-40/tests-brief.md
 Owner: skills-a
-Status: delivered
+Status: reviewed
 Authority: parent wr-2026-09-29-knowledge-triage, spec APPROVE6fa1b4d and R4 PASS. Only assigned territory and scoped verification, no live installs or guard changes.
 Artifact: build/knowledge-triage-40-tests@fae1141adef62a762327cc772f688897e6d9f6ae
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40-tests
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40/tests
-Evidence: docs/specs/knowledge-triage-40/code-review-r3.md, docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/probe-r4-report.md
-Next: narrow independent Opus delta at80760b3 after one-variable SSH startup correction and discriminating regression. No live rerun authorized.
+Evidence: docs/specs/knowledge-triage-40/ssh-startup-review.md, docs/specs/knowledge-triage-40/code-review-r3.md, docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/probe-r4-report.md
+Next: source/tests reviewed in integrated80760b3 with fresh full host gates green. Parent holds live-proof guard blocker; no further source/test work assigned.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
