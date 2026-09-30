@@ -1,0 +1,11 @@
+Task: independent Opus delta review of the exact dotfiles branch/commit pinned by portable-cleanup-report.md, since the source base and prior approved recipe6a46fda. The plugin candidate only carries evidence; the maintained skill candidate is the separate dotfiles SHA in that report.
+Goal: remove a host-specific recipe defect without changing guard policy, lock safety or shared skill behavior.
+Work: wr-2026-09-29-knowledge-triage
+
+Read portable-cleanup-brief.md, portable-cleanup-report.md, recipe-review-r2.md and recipe-delivery-blocked.md. Verify the dotfiles commit changes only dot_claude/skills/triage/SKILL.md: the already approved prose-writing bullet and five explicit null assignments replacing the acquire finally block's environment cleanup. Check every original name is covered, no others changed, ownership/exclusive mkdir/release semantics remain byte-identical, and scheduled text is absent. The last refusal stays preserved; do not rerun its command or deliberately cause another refusal.
+
+Independently run a bounded synthetic child-process check of the NEW cleanup, with five explicit non-secret marker values and one control variable. Require the five entries absent after cleanup and control unchanged, on the installed PowerShell runtime. Use no real environment values, broad environment output, name scans, locks, live writes or alternate route for a refusal. Check the test derives its cleanup from the exact candidate so a hand-copied passing implementation cannot hide a wrong skill. Report the exact skill hash and test evidence. No full plugin suite: no plugin source has changed.
+
+The delivery route now belongs to skills-fable: branch SHA, peer review, fast-forward, push and exact one-file apply. The curated-content lock is not used for skill-text delivery under lane-40-14. This review does not deliver anything or authorize a live proof. No notes, Notion, SSH, main mutation, guard/settings edits, cleanup or subagents.
+
+Report first line VERDICT: APPROVE <plugin-evidence-fullsha> or NEEDS_FIXES (N) <plugin-evidence-fullsha>, and name the exact dotfiles candidate SHA and file hash explicitly. Include Cause, Discriminating check, Fix location, Simplification and ready patch for blockers. Keep N1/N2 from prior text review non-blocking. ETA4minutes. Stop after report.

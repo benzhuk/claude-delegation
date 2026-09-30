@@ -650,3 +650,17 @@ Fixtures are masked skeletons only (`skills/notion-writing/scripts/mask-fixture.
 
 - `stale session:`: the stale-session guard's marker; the guard logs it as rule `R0-stale` (with `hard_deny: true`); wiring-check `--line` prints the same text.
 - `leak check:`: `scripts/run-tests.mjs`'s own line, the reader for a test temp leak - `leak check: 0 new temp entries` when a run left nothing new directly under the real temp dir, otherwise the count and up to 5 names as a signal to investigate, and `leak check: nested run, not checked` when the CLI is itself running inside another run's root. It never changes the run's exit code (round 1 ruling R1: a shared host's concurrent runs made the forced exit 1 too flaky to gate on); the unit tests in run-tests.test.mjs are the gate for the mechanism itself.
+
+## Knowledge triage: fed
+
+Lane 40 (docs/specs/knowledge-triage-40/rev4.md) schedules the existing triage skill instead of adding a second mechanism. One daily Windows job on the designated writer host, `node scripts/knowledge-triage.mjs` (installed as the `knowledge-triage` job of `scripts/install-janitor-timer.mjs`), gathers the top-level pending notes from Netcup and Hetzner (Mac is a named placeholder until Ben supplies an alias), runs the skill once over the union in one nested `claude-opus-5-5` session (cap 60 oldest notes, 60 minutes), verifies the skill's own publication read-only, and only then moves each archived original into its origin host's `_inbox/_archive/`. Measure moved: work lost or stalled in the knowledge inbox.
+
+Readers that exist today:
+
+- `node scripts/knowledge-count.mjs` on each host: pending, topics, reads in 7 days. Reads exclude the job's own nested sessions, listed in `~/.agents/knowledge-triage/sessions.json`.
+- `~/.agents/knowledge-triage/last-run.json` (schema 1): per-run timestamps, status, session id, model, cap, `notesIn` (selected), `notesEligible` (union), `notesArchived`, `notesArrived` (local captures newer than the previous run's end; imported notes are counted separately per host), `topicsTouched`, `outOfSelection`, tokens (`{input, output, cacheRead, cacheCreation, total}` or `{unavailable: reason}`, never an invented zero), `dotfilesBefore`/`dotfilesSha`, per-host gather/archive/pending counts, publication identity, named residue and terminal outcomes.
+- `~/.agents/knowledge-triage/ATTENTION` exists only after a stall the job refuses to clear itself (a timeout, a repeatedly held curated lock, an unverified publication of a changed DIGEST, an out-of-selection archive); every later run skips while it exists.
+
+Prediction: while at least 60 eligible notes remain, each successful run archives at least 30, names any residue, and adds dated DIGEST lines; topic reads in 7 days excluding job sessions reach at least 3 by 2026-10-12. The first live run confounds Lane 18's Oct 4 prediction (reads rising from the count line alone); Lane 18's checker is not edited, and the record states the pre-run values. One run does not establish overall DONE or any comparative cost claim.
+
+Codex: a Codex runner for this job is an explicitly unsupported capability until it is tested; the nested call is the Claude CLI because the triage skill is a Claude skill. The lead may still be Codex.

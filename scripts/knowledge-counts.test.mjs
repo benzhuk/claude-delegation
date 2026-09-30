@@ -162,3 +162,57 @@ test('a path containing "knowledge" but outside the store is never consulted', (
   // no .claude/knowledge at all under home
   assert.equal(knowledgeCounts(home, Date.now()).storeExists, false);
 });
+
+test('R excludes only read-log rows whose final session token is in triage sessions.json', () => {
+  const home = tmpHome();
+  mkStore(home);
+  const now = Date.parse('2026-09-29T18:00:00Z');
+  const state = path.join(home, '.agents', 'knowledge-triage');
+  fs.mkdirSync(state, { recursive: true });
+  fs.writeFileSync(path.join(state, 'sessions.json'), JSON.stringify([
+    'triage-session-a',
+    'triage-session-b',
+  ]));
+  writeLog(home, [
+    `${new Date(now - 1000).toISOString()} Read C:/path with spaces/orca.md triage-session-a`,
+    `${new Date(now - 2000).toISOString()} Read C:/path with spaces/react.md human-session`,
+    `${new Date(now - 3000).toISOString()} Grep C:/another path/css.md unknown`,
+    `${new Date(now - 4000).toISOString()} Read C:/x.md triage-session-b`,
+  ]);
+  assert.equal(countReads(home, now), 2, 'human and unknown sessions remain countable');
+  assert.equal(knowledgeCounts(home, now).reads, 2);
+});
+
+test('R treats absent, corrupt, and non-array sessions.json as exclude-nothing', () => {
+  const now = Date.parse('2026-09-29T18:00:00Z');
+  for (const sessionsText of [null, '{bad json', '{"session":"triage-session"}']) {
+    const home = tmpHome();
+    mkStore(home);
+    writeLog(home, [
+      `${new Date(now - 1000).toISOString()} Read /x/orca.md triage-session`,
+      `${new Date(now - 2000).toISOString()} Read /x/react.md human-session`,
+    ]);
+    if (sessionsText !== null) {
+      const state = path.join(home, '.agents', 'knowledge-triage');
+      fs.mkdirSync(state, { recursive: true });
+      fs.writeFileSync(path.join(state, 'sessions.json'), sessionsText);
+    }
+    assert.equal(countReads(home, now), 2, `sessions fixture ${String(sessionsText)}`);
+  }
+});
+
+test('host-prefixed imports retain their leading source date for pending-age counts', () => {
+  const home = tmpHome();
+  mkStore(home, {
+    inbox: [
+      'hetzner-a1b2c3d4e5f6-2026-08-03-old-note.md',
+      'netcup-ffeeddccbbaa-2026-09-20-new-note.md',
+    ],
+  });
+  const inbox = inboxDir(home);
+  const old = Date.parse('2026-08-03T12:00:00Z') / 1000;
+  const newer = Date.parse('2026-09-20T12:00:00Z') / 1000;
+  fs.utimesSync(path.join(inbox, 'hetzner-a1b2c3d4e5f6-2026-08-03-old-note.md'), old, old);
+  fs.utimesSync(path.join(inbox, 'netcup-ffeeddccbbaa-2026-09-20-new-note.md'), newer, newer);
+  assert.deepEqual(countPending(home), { pending: 2, oldest: '2026-08-03' });
+});

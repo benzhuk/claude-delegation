@@ -77,6 +77,25 @@ export function countTopics(home) {
   return n;
 }
 
+/**
+ * Session ids the knowledge-triage job passed to its nested runs (`~/.agents/knowledge-triage/
+ * sessions.json`, appended by the job before each spawn). Tolerates a bare array of ids, an array
+ * of `{sessionId|id|session}` objects, or `{sessions: [...]}`; an absent or unreadable file
+ * excludes nothing, like every other failure mode in this module.
+ */
+function triageSessionIds(home) {
+  const ids = new Set();
+  try {
+    const raw = JSON.parse(readFileSync(join(home, ".agents", "knowledge-triage", "sessions.json"), "utf8"));
+    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.sessions) ? raw.sessions : [];
+    for (const e of list) {
+      const id = typeof e === "string" ? e : (e?.sessionId ?? e?.id ?? e?.session);
+      if (typeof id === "string" && id) ids.add(id);
+    }
+  } catch { /* nothing to exclude */ }
+  return ids;
+}
+
 /** A leading `YYYY-MM-DD` in the filename, the common shape every real inbox note already uses. */
 const DATE_PREFIX = /^(\d{4}-\d{2}-\d{2})(?:[-_.]|$)/;
 
@@ -139,13 +158,18 @@ export function countReadsInWindow(home, now, windowMs) {
   } catch {
     return 0;
   }
+  const excluded = triageSessionIds(home);
   let n = 0;
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const ts = trimmed.split(" ")[0];
+    const tokens = trimmed.split(/\s+/);
+    const ts = tokens[0];
     const parsed = Date.parse(ts);
     if (Number.isNaN(parsed)) continue;
+    // Lane 40: the knowledge-triage job's own nested sessions are not reads. The session id is the
+    // LAST token (the logged path is unquoted and may contain spaces), never a fixed position.
+    if (tokens.length >= 2 && excluded.has(tokens[tokens.length - 1])) continue;
     if (parsed <= now && now - parsed <= windowMs) n++;
   }
   return n;

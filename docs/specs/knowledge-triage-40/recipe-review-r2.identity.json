@@ -1,0 +1,82 @@
+{
+  "sha": "6a46fdac30c58334d801eee915079969286e4566",
+  "verdict": "APPROVE",
+  "exit": 0,
+  "session": "ae5b9f49-1ae1-4403-9878-875ac784ec04",
+  "model": "opus",
+  "role": {
+    "path": "C:\\Users\\benzh\\.claude\\plugins\\cache\\benzhuk\\delegation\\0.20.18\\agents\\reviewer.md",
+    "sha256": "735bfe0fd333153bfee85a2f1b64a27ca7a8bec00989e9cda81613fcc975973d"
+  },
+  "pluginVersion": "0.20.18",
+  "claudeVersion": "2.1.285",
+  "host": "Ben-Desktop",
+  "startedAt": "2026-09-30T01:20:48.399Z",
+  "endedAt": "2026-09-30T01:22:16.982Z",
+  "roleSource": "installed",
+  "pluginRoot": "C:\\Users\\benzh\\.claude\\plugins\\cache\\benzhuk\\delegation\\0.20.18",
+  "roleBodySha256": "01352d483343e88222d8b758129bf6871fc726912f65c1ba73a56e824a5fe72d",
+  "installedRoleSha256": "735bfe0fd333153bfee85a2f1b64a27ca7a8bec00989e9cda81613fcc975973d",
+  "claudeBin": "C:\\Users\\benzh\\.local\\bin\\claude.exe",
+  "resolvedModel": "claude-opus-5-5",
+  "transcriptGlob": "<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<mangled run wt path>/<session>.jsonl",
+  "usage": {
+    "input_tokens": 16,
+    "cache_creation_input_tokens": 28017,
+    "cache_read_input_tokens": 167166,
+    "output_tokens": 7341,
+    "output_tokens_details": {
+      "thinking_tokens": 906
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 28017,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 664,
+        "cache_read_input_tokens": 31026,
+        "cache_creation_input_tokens": 2946,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 2946
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 16,
+      "outputTokens": 7341,
+      "cacheReadInputTokens": 167166,
+      "cacheCreationInputTokens": 28017,
+      "webSearchRequests": 0,
+      "costUSD": 0.4044532,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 906,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "totalCostUsd": 0.4044532,
+  "numTurns": 8,
+  "durationMs": 86116,
+  "permissionDenials": 0,
+  "cleanup": "ok",
+  "replyFallback": false,
+  "childExitCode": 0,
+  "childSignal": null,
+  "stderrCaptured": false
+}
