@@ -137,7 +137,19 @@ export function computeCodexActivity(events, { fromMs = null, toMs = null, corru
   };
   let previous = null;
   for (const event of sorted) {
-    if (previous) emit(previous.ms, event.ms, previous.state, [previous.row, event.row], false);
+    // A new, unrelated turn proves the silence before it belonged to a predecessor whose end was never observed:
+    // that interval is `unknown` (counts for the baseline event-gap rule only), never in-turn silence or tool-running.
+    let supersededIds = [];
+    if (event.kind === 'start' && !seenStart.has(event.turnId)) {
+      const nestedIn = event.rootTurnId && event.rootTurnId !== event.turnId && turns.get(event.rootTurnId) && turns.get(event.rootTurnId).state === 'open';
+      if (!nestedIn) supersededIds = [...turns].filter(([, turn]) => turn.state === 'open').map(([id]) => id);
+    }
+    if (previous) {
+      const state = supersededIds.length && (previous.state.kind === 'in-turn-silence' || previous.state.kind === 'tool-running')
+        ? { kind: 'unknown', turnIds: supersededIds, callIds: [] }
+        : previous.state;
+      emit(previous.ms, event.ms, state, [previous.row, event.row], false);
+    }
     if (event.kind === 'start') {
       const known = seenStart.get(event.turnId);
       if (known !== undefined && known !== event.ms) addReason(`turn ${event.turnId} has conflicting task_started rows`);
