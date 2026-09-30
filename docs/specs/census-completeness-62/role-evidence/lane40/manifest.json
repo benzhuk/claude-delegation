@@ -1,0 +1,48 @@
+{
+ "version": 1,
+ "work": "wr-2026-09-29-knowledge-triage",
+ "sessions": [
+  {
+   "host": "claude",
+   "sessionId": "625dde50-3ac3-47bf-aeb9-06f0fe1e7a86",
+   "role": "spec-reviewer",
+   "evidence": "docs/work/evidence/census62/role-identities/spec-review-r4.identity.json",
+   "transcript": "projects/C--Users-benzh-orca-gates-01a0df4c-2809-7520-b1d7-876cc51a87ee-knowledge-triage-40-spec-review-r4-review-run-6fa1b4d-fc767af0-wt/625dde50-3ac3-47bf-aeb9-06f0fe1e7a86.jsonl"
+  },
+  {
+   "host": "claude",
+   "sessionId": "27395e06-59ed-4e3d-8a0c-27e3c9ac3fea",
+   "role": "reviewer",
+   "evidence": "docs/work/evidence/census62/role-identities/code-review-r2.identity.json",
+   "transcript": "projects/C--Users-benzh-orca-gates-01a0df4c-2809-7520-b1d7-876cc51a87ee-knowledge-triage-40-code-review-r2-review-run-7cc858a-ce311c43-wt/27395e06-59ed-4e3d-8a0c-27e3c9ac3fea.jsonl"
+  },
+  {
+   "host": "claude",
+   "sessionId": "7b7526f5-77f3-41e8-8fb1-41dc0209f504",
+   "role": "reviewer",
+   "evidence": "docs/work/evidence/census62/role-identities/code-review-r3.identity.json",
+   "transcript": "projects/C--Users-benzh-orca-gates-01a0df4c-2809-7520-b1d7-876cc51a87ee-knowledge-triage-40-code-review-r3-review-run-72ca037-13d2cff6-wt/7b7526f5-77f3-41e8-8fb1-41dc0209f504.jsonl"
+  },
+  {
+   "host": "claude",
+   "sessionId": "7214f385-bca5-42e7-b9f4-4bcd486f84a6",
+   "role": "reviewer",
+   "evidence": "docs/work/evidence/census62/role-identities/ssh-startup-review.identity.json",
+   "transcript": "projects/C--Users-benzh-orca-gates-01a0df4c-2809-7520-b1d7-876cc51a87ee-knowledge-triage-40-ssh-startup-review-review-run-80760b3-37b1a847-wt/7214f385-bca5-42e7-b9f4-4bcd486f84a6.jsonl"
+  },
+  {
+   "host": "claude",
+   "sessionId": "ae5b9f49-1ae1-4403-9878-875ac784ec04",
+   "role": "reviewer",
+   "evidence": "docs/work/evidence/census62/role-identities/recipe-review-r2.identity.json",
+   "transcript": "projects/C--Users-benzh-orca-gates-01a0df4c-2809-7520-b1d7-876cc51a87ee-knowledge-triage-40-recipe-review-r2-review-run-6a46fda-4d7c42ce-wt/ae5b9f49-1ae1-4403-9878-875ac784ec04.jsonl"
+  },
+  {
+   "host": "claude",
+   "sessionId": "350044d6-afcd-44f7-90d1-83e8d9fb97f3",
+   "role": "reviewer",
+   "evidence": "docs/work/evidence/census62/role-identities/portable-cleanup-review.identity.json",
+   "transcript": "projects/C--Users-benzh-orca-gates-01a0df4c-2809-7520-b1d7-876cc51a87ee-knowledge-triage-40-portable-cleanup-review-review-run-72408cc-28b4c428-wt/350044d6-afcd-44f7-90d1-83e8d9fb97f3.jsonl"
+  }
+ ]
+}
