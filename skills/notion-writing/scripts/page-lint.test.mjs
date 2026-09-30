@@ -194,6 +194,30 @@ test('toggle-tail: an unclosed table inherits nothing, and rows outside a table 
   assert.deepEqual(lintPage(doc(...outside), { kind: 'plain' }).map((v) => v.rule), ['toggle-tail']);
 });
 
+test('toggle-tail: tag text inside a cell or a paragraph neither opens nor closes a table', () => {
+  const cellText = [
+    '# Section {toggle="true"}',
+    ...tableAt(TT, ['<td>the <table tag</td>']),
+    `${T}- last child`,
+    '# Next {toggle="true"}',
+    `${T}text`,
+    ...tableAt(TT, ['<td>stray </table> text</td>']),
+    `${T}<empty-block/>`,
+  ];
+  assert.deepEqual(lintPage(doc(...cellText), { kind: 'plain' }).map((v) => [v.rule, v.line]), [['toggle-tail', 1]]);
+  const paraText = ['# Section {toggle="true"}', `${T}<table> opens a grid.`, `${T}- x`, '# Next {toggle="true"}', `${T}End with </table>`, `${T}<empty-block/>`];
+  assert.deepEqual(lintPage(doc(...paraText), { kind: 'plain' }).map((v) => [v.rule, v.line]), [['toggle-tail', 1]]);
+});
+
+test('toggle-tail: a one-line table is net zero, and a table inside a code fence is not an opener', () => {
+  const oneLine = ['# Section {toggle="true"}', `${T}<table><tr><td>x</td></tr></table>`, `${T}<empty-block/>`, '# Next', 'sibling'];
+  assert.deepEqual(lintPage(doc(...oneLine), { kind: 'plain' }), []);
+  const fenced = ['# Section {toggle="true"}', `${T}\`\`\`html`, `${T}<table>`, `${T}\`\`\``, 'Column zero text.', `${T}<empty-block/>`];
+  assert.deepEqual(lintPage(doc(...fenced), { kind: 'plain' }).map((v) => v.rule), ['toggle-tail']);
+  const fencedThenClose = ['# Section {toggle="true"}', `${T}\`\`\``, `${TT}<table>`, `${T}\`\`\``, 'Column zero text.', `${TT}</table>`, `${T}<empty-block/>`];
+  assert.deepEqual(lintPage(doc(...fencedThenClose), { kind: 'plain' }).map((v) => v.rule), ['toggle-tail']);
+});
+
 // ---------------------------------------------------------------------------
 // before-after
 // ---------------------------------------------------------------------------

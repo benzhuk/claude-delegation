@@ -108,7 +108,7 @@ export function prepare(text) {
   }
 
   // Notion's markdown export prints table rows at column 0 whatever the table's nesting. Every line strictly
-  // inside a <table ...> ... </table> (nested tables by depth) takes the opener's indent, for toggle extents only.
+  // inside a <table ...> ... </table> (tags counted only at the start of a line; nested tables by depth) takes the opener's indent, for toggle extents only.
   // An unclosed table inherits nothing.
   for (const x of info) x.extentIndent = x.indent;
   for (let i = 0; i < lines.length; i += 1) {
@@ -117,7 +117,9 @@ export function prepare(text) {
     let close = -1;
     for (let j = i; j < lines.length && close < 0; j += 1) {
       if (info[j].fence) continue;
-      depth += (info[j].t.match(/<table\b/g) || []).length - (info[j].t.match(/<\/table>/g) || []).length;
+      const { t } = info[j];
+      if (/^<table\b/.test(t)) depth += 1;
+      if (/^<\/table>/.test(t) || /^<table\b.*<\/table>$/.test(t)) depth -= 1;
       if (depth <= 0) close = j;
     }
     if (close < 0) continue;
