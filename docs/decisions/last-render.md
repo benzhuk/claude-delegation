@@ -1,22 +1,5 @@
 # Waiting on you now
-<details>
-<summary>**Release 0.20.19: janitor acts, notion-writing skill, daily knowledge triage**</summary>
-	Four accepted lanes sit on main unreleased. Lane 59 gives the janitor an act mode: a daily reclaim of the safe class on every host (session scratch dirs, plugin temp folders, finished lane worktrees, merged branches), one deleter script that refuses any other path, a live-pane guard, a kill switch, and an install step that prints the one allow line per machine so a session never stops at a delete prompt again. Lane 39 moves the notion-writing skill into the plugin with a page-shape check before any publish. Lane 40 adds the daily Opus knowledge triage that gathers the desktop, Netcup and Hetzner inboxes and archives what it publishes; its live proof archived all 60 selected notes, and your 9/29 5:11 PM tick already covers installing it and running it once right away, so this release is what makes that possible. Lane 40b repaired the census reader and needs no install. Since this morning the release also carries the retirement of the continue skill (census found zero invocations on every reachable host, per your tick), the fix for the one failing janitor test, and the hand-run baseline file. All passed Opus review and full suites on Linux and Windows. Install changes the plugin under the 24-hour census window that ends 10/1 3:00 PM NY, so the cleanest reading comes from installing right after that read. Your ticks asked for the reclaim, the allow line and the triage task on all four machines, so installing now is also a fair choice.
-	- [ ] Release now, install on all four machines after the 10/1 3:00 PM census read (recommended)
-	- [ ] Release and install now on Windows, Netcup and Hetzner, Mac when it answers
-	- [ ] Hold
-	No default: both lanes stay on main uninstalled until you tick
-	<empty-block/>
-</details>
-<details>
-<summary>**The narrowed secret guard is already live on Windows: keep it, or revert until its selftest passes there?**</summary>
-	Lane 60 merged tonight: the guard now logs every refusal with redaction, has an off switch, and stops refusing the harmless shapes your desktop corpus showed (59 of 362 past refusals now pass, 0 regressions, 0 real reads let through). Opus red-teamed it three rounds and approved. skills-n applied it on Hetzner, selftest 74 of 74, and left Windows and Mac for your word. But at 11:01 PM NY a full chezmoi apply ran on the Windows box, one I did not run and cannot attribute, and the new guard has been live in every Windows session since. Update 9/30 10:24 AM NY: the selftest was made portable this morning (test-only change, no install) and now passes on this Windows box against the live installed guard: 73 passed, 0 failed, 1 file-mode check skipped because Windows has no such modes. I ran it myself and it exited clean. So the guard that has been live here since last night is now tested here. Reverting would mean overwriting a chezmoi-managed file that the next apply flips back.
-	- [ ] Keep it on Windows, apply on Mac when it answers (recommended)
-	- [ ] Revert Windows to the previous guard
-	- [ ] Hold: keep Windows as it is now, decide on Mac later
-	No default: Windows keeps the new guard because it is already applied, Mac gets nothing
-	<empty-block/>
-</details>
+Nothing right now.
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Tue 5:48 PM)
@@ -45,5 +28,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Sep 29, 2026, 5:54 PM America/New_York)
+- [ ] Done (last cleared: Sep 30, 2026, 12:34 PM America/New_York)
 <empty-block/>

@@ -1,4 +1,4 @@
-since: 2026-09-29T21:48:12.876Z
+since: 2026-09-30T16:31:12.489Z
 - Lane 59 janitor acts merged 10:27 PM: daily safe-class reclaim, one deleter, live-pane guard, allow line per machine. One item below asks when to release and install it with notion-writing.
 - Lane 40 triage ran twice for real today: 111 notes into 29 topics, both SSH hosts reached. Two skill-text defects fixed on the way. Final delivery and acceptance tonight.
 - Three ticks read 5:51 PM: goal card gate queued behind the 10/1 census read; transcript retention is 365 days on three machines now; lane 61 opened for the hand-run baseline and the continue census.
