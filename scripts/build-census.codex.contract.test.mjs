@@ -276,6 +276,31 @@ test('Lane40b segment retention: equal latest-start timestamps with conflicting 
   assert.equal(report.combined, null, 'a merge-order tie cannot preserve the completed segment witness');
 });
 
+test('Lane40b segment retention: untimed start in segment B keeps an open-mode child PARTIAL', async () => {
+  const home = fixtureHome();
+  const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
+  writeRollout(home, DAY, 'segment-a-timed-completed.jsonl', [
+    meta('segmented-untimed', ROOT, ROOT, 1),
+    taskStarted('a-turn', '2026-09-27T12:00:00.000Z'),
+    context('a-turn', MODEL, '2026-09-27T12:00:01.000Z'),
+    usage('a-resp', 'a-turn', { output: 4, at: '2026-09-27T12:00:02.000Z' }),
+    line('event_msg', { type: 'task_complete', turn_id: 'a-turn' }, '2026-09-27T12:00:03.000Z'),
+  ]);
+  writeRollout(home, DAY, 'segment-b-untimed-open.jsonl', [
+    meta('segmented-untimed', ROOT, ROOT, 1),
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: 'b-turn' } },
+  ]);
+
+  const report = await runCensus({
+    lead, leadSession: ROOT, codexHome: home, tasksDirs: [], marker: null,
+    from: null, to: null, out: null,
+  });
+
+  assert.equal(report.lead.codex.discovery.scope.complete, false);
+  assert.match(report.lead.codex.discovery.scope.reason, /open or unbounded child segmented-untimed has no end-bound witness/i);
+  assert.equal(report.combined, null, 'segment A completion cannot hide segment B\'s untimed open task');
+});
+
 test('Lane40b task completion before a benign row is a witness in open mode and contributes usage', async () => {
   const home = fixtureHome();
   const lead = writeRollout(home, DAY, 'lead.jsonl', leadRows());
