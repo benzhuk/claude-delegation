@@ -66,6 +66,7 @@ Four numbers: Rework after acceptance: 0 commits touching build files within 7 d
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o
 Log: 2026-09-30T22:53:59.000Z accepted skills-o artifact 7bdb3d2db639cef4cc2759b2e552e7c480de33ce
 Log: 2026-09-30T22:54:47.000Z closed skills-o merge 49f7bffd96d59f9d663afb68e5ffd1767b1ba688
+Log: 2026-09-30T22:59:25Z verified skills-fable second host at the fix: Hetzner zhuk-vps32 full suite 3333 pass 0 fail 14 skipped at merge 49f7bffd96d59f9d663afb68e5ffd1767b1ba688, page-lint focused 61 pass; Windows rerun not performed, host low on memory
 
 Observed: page-lint ended a toggle at Notion-flattened table rows, so the correct Goals page failed toggle-tail twice and blocked bearings publications.
 Predicts: bearings publications to the Goals page lint clean with no waiver, and toggle-tail still fires on a toggle without its tail.
