@@ -12,7 +12,7 @@ The agent reads the project's current goal and work records, states how this tas
 
 The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. See [work records](work-record.md).
 
-Use `continue` at a pause or workstream closeout to select finite ready work. Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
+Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
 
 Honor an explicit user stop or pause. Otherwise, before closing, check the actual result against the requested outcome. Continue useful authorized work that remains. Close when the outcome has evidence or all remaining useful actions have concrete external dependencies; report those dependencies and the resumable work identity. Use the native binding/accounting commands below only when current hook context is available. Missing hooks do not prevent ordinary useful work, but automatic correction must remain unclaimed.
 
@@ -59,7 +59,7 @@ The native Codex package route below is an alternative for a chosen Codex host. 
 activate it together with the mirrored-hook route without an explicit duplicate-free
 coexistence observation.
 
-The native Codex package exposes the same nine skills as Claude Code, using `.codex-plugin/plugin.json` and the local marketplace. From a chosen release checkout:
+The native Codex package exposes the same eight skills as Claude Code, using `.codex-plugin/plugin.json` and the local marketplace. From a chosen release checkout:
 
 ```powershell
 codex plugin marketplace add .
@@ -67,7 +67,7 @@ codex plugin add delegation@delegation
 codex plugin list
 ```
 
-Review and trust the installed hooks through the host's supported workflow. The native hook file registers SessionStart, UserPromptSubmit, PostToolUse, Stop and Interrupt; commands resolve the shared adapter through `PLUGIN_ROOT`. Namespaced skill discovery and actual hook execution are separate checks. The expected skills are `delegation:bearings`, `delegation:continue`, `delegation:decisions`, `delegation:delegate`, `delegation:dev-server`, `delegation:janitor`, `delegation:multi`, `delegation:notion-writing`, and `delegation:team-build`.
+Review and trust the installed hooks through the host's supported workflow. The native hook file registers SessionStart, UserPromptSubmit, PostToolUse, Stop and Interrupt; commands resolve the shared adapter through `PLUGIN_ROOT`. Namespaced skill discovery and actual hook execution are separate checks. The expected skills are `delegation:bearings`, `delegation:decisions`, `delegation:delegate`, `delegation:dev-server`, `delegation:janitor`, `delegation:multi`, `delegation:notion-writing`, and `delegation:team-build`.
 
 Use the mirror when the host needs the existing role files, note-command shims and shared documentation. It publishes eight bundled orchestration/utility skills, excluding janitor, plus the optional knowledge, triage and learn sources from `~/.claude/skills` when present. Unusable optional sources are reported in the installer's `actions`; that does not establish whether a destination skill is already installed. Preview the whole package from the selected durable release checkout:
 
@@ -95,7 +95,7 @@ state. A missing card is silent; a rejected card produces its existing rejection
 at an eligible SessionStart, not once across all resumes.
 
 Confirmed children receive no new card or bearings effects. Unknown identity retains
-its existing inbox and continuation behavior without the new advisory. The switches are
+its existing inbox behavior without the new advisory. The switches are
 `~/.agents/ws-off` (all new context), `~/.agents/ws-off-goalcard` (the card and its
 bearings advisory), and `~/.agents/ws-off-bearings` (bearings only); all fail safely.
 Goal and bearings context is not reinjected on PostToolUse, Stop, or Interrupt. A receipt
@@ -121,15 +121,7 @@ claude plugin update delegation@benzhuk
 claude plugin list
 ```
 
-Use a fresh session after updating so previously loaded instructions do not mask the result. The reusable [native continuation test](native-continuation-testing.md) runs against an explicitly selected Claude executable, disposable configuration and a local synthetic provider. It proves native mechanics without copying authentication or using a paid model.
-
-## Use the bounded continuation contract
-
-The continue skill connects an explicitly authorized ongoing scope to selected existing work records. A native prompt/tool event supplies the host, session and opaque epoch needed by the bind command. Execute the documented bind in that same episode; the actual PostToolUse callback confirms it. Never substitute a guessed identity or read the newest epoch to make an old command pass.
-
-After working, account using the current work/evidence revision. An overlooked unaccounted scope gets at most one Stop correction, shared with actionable peer delivery. A new prompt suspends the old scope; interruption disarms it where its event is registered. Explicit stop remains authoritative. Missing or malformed evidence is unknown, not success. The binding grants no new authority and does not schedule idle work.
-
-Actual Claude Code 2.1.281 SDK/print and Codex 0.156.1 app-server tests exercised bind, accounted silence, one corrective Stop/refire and native interruption using synthetic provider responses. Claude additionally exercised replacement with direct stale-epoch rejection. Positive Codex child isolation covers both child-own-session metadata and the observed parent-session plus child-agent-ID form. Source tests, synthetic native scenarios and useful-model outcomes remain distinct evidence.
+Use a fresh session after updating so previously loaded instructions do not mask the result.
 
 ## What still requires live observation
 

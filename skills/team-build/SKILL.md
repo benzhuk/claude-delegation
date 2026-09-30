@@ -168,8 +168,7 @@ mention says where to find it once mirrored.
   waits until that exact prerequisite is integrated, whatever its current status
   (`owned`, `delivered`, `rejected`, or `reviewed`); record the dependency in its own
   work record. A `withdrawn` prerequisite never resolves — escalate rather than wait on
-  one. Disjoint work with no such unmet prerequisite may continue under the continue
-  skill.
+  one. Disjoint work with no such unmet prerequisite may continue.
 
 ## Iteration mechanics
 
@@ -312,9 +311,8 @@ per work id — that make the build's speed a number instead of an impression. T
 repo's `docs/pane-setup.md` names what each measure means and which script reads it;
 don't restate that here.
 
-After a release or review closeout in an ongoing goal, apply the `continue` skill before
-declaring the wave complete. Its canonical decision checks remaining outcomes and blockers;
-start independent ready work without waiting for unrelated work to finish.
+After a release or review closeout in an ongoing goal, check remaining outcomes and blockers before
+declaring the wave complete; start independent ready work without waiting for unrelated work to finish.
 
 ## Peer sessions
 

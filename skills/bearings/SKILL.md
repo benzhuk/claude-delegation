@@ -29,7 +29,7 @@ Read [references/evidence-template.md](references/evidence-template.md) before p
 The lead writes the response in its own words. It must distinguish reviewer observations from its own decision and name the next action or owner decision.
 
 - `CONTINUE`: carry out the named next action within existing authority.
-- When work resumes after a pause or a human decision wait, use the `continue` skill to select finite authorized ready work and preserve the boundary. `CONTINUE` does not mean an automatic wake-up or permission to restart an unidentified native session.
+- When work resumes after a pause or a human decision wait, select finite authorized ready work and preserve the boundary. `CONTINUE` does not mean an automatic wake-up or permission to restart an unidentified native session.
 - `RE-PLAN`: simplify or redirect the currently authorized work, recording what changed and the prediction that will show whether it helped. If two RE-PLAN responses fail to improve the named concern, reassess the architecture and evidence before choosing further patches. Do not automatically change the user's objective or authority.
 - `CUT`: stop the identified line of work and preserve agreed outcomes, evidence, and reversible artifacts. Escalate any goal, authority, or irreversible disposition decision to the owner.
 
@@ -64,7 +64,7 @@ state. A missing card is silent. A rejected card produces its existing rejection
 at an eligible SessionStart; it is not a once-per-all-resumes guarantee.
 
 Confirmed Codex children receive none of these new goal or bearings effects. Unknown
-native identity keeps only its existing inbox/continuation behavior, so child-work
+native identity keeps only its existing inbox behavior, so child-work
 detection remains incomplete. Codex has no goal-card or bearings cadence on
 PostToolUse, Stop, or Interrupt; Claude retains its own existing cadence. A receipt is
 per checkout, so a separate builder worktree can independently be due. A notice is only

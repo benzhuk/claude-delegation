@@ -47,7 +47,7 @@ export const FINDING_CODES = [
 
 // T1 (round-2 review, MAJOR 3): before this, `Status: accepted` was enforced only by the
 // prose in SKILL.md - a hand-edited Status: line went unnoticed by every reader of a
-// record (continuation.mjs, hooks/backlog-notice.js). `acceptRecord` always appends
+// record (hooks/backlog-notice.js). `acceptRecord` always appends
 // exactly one `Log: <iso> accepted <owner> artifact <40-hex>` line when it flips a
 // record; a record with no such line naming its own Artifact: was never accepted through
 // code. Gated by Opened: (not by the mere absence of Worktree:, which a hand-editor could
@@ -2205,7 +2205,7 @@ export function closeoutRecord(opts = {}) {
   const by = typeof opts.closeoutBy === "string" ? opts.closeoutBy.trim() : "";
   if (!by) throw acceptanceError("--by is required with --closeout (the session id running the closeout)", "by-missing");
   // F11 (C1 round 2, MEDIUM): a `--by` containing whitespace produces a malformed `Log:` line
-  // (MALFORMED_RECORD downstream, in continuation.mjs) rather than a clean refusal here.
+  // (MALFORMED_RECORD downstream, in the record readers) rather than a clean refusal here.
   if (!/^\S{1,64}$/.test(by)) {
     throw acceptanceError(`--by must be a single token, 1-64 non-space characters: "${by}"`, "by-malformed");
   }

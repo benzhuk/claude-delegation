@@ -16,7 +16,7 @@
  * and on Windows the copy would silently drift from the repo (red-team M11).
  *
  * Sources:
- *   <repo>/skills/{multi,delegate,team-build,decisions,notion-writing,dev-server,bearings,continue}  — always
+ *   <repo>/skills/{multi,delegate,team-build,decisions,notion-writing,dev-server,bearings}  — always
  *   ~/.claude/skills/{knowledge,triage,learn}                — when present (chezmoi-managed)
  *   <repo>/docs/{model-tiers,subagent-contract,…}.md         — always, to _docs/
  *   <repo>/codex/agents/*.toml                               — always
@@ -83,7 +83,7 @@ const CODEX_HOOK_SCRIPT = path.join(REPO, 'hooks', 'multi-codex-hook.mjs');
  */
 const DELETE_GUARD_SCRIPT = path.join(REPO, 'hooks', 'delete-guard.mjs');
 
-export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server', 'bearings', 'continue', 'janitor'];
+export const PLUGIN_SKILLS = ['multi', 'delegate', 'team-build', 'decisions', 'notion-writing', 'dev-server', 'bearings', 'janitor'];
 export const CLAUDE_SKILLS = ['knowledge', 'triage', 'learn'];
 /** The docs every mirrored skill links to. Without these, `../_docs/model-tiers.md` dangles (S1). */
 const SHARED_DOC_FILES = [

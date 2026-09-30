@@ -2871,7 +2871,7 @@ test("closeoutRecord: --by is required", () => {
 
 // F11 (C1 round 2, MEDIUM): --by must be a single token, 1-64 non-space characters, or it is
 // refused cleanly here - not left to silently produce a malformed Log: line (MALFORMED_RECORD
-// downstream in continuation.mjs).
+// downstream in the record readers).
 test("closeoutRecord: --by containing whitespace is refused (by-malformed), never reaches the Log: write", () => {
   const f = makeAcceptanceFixture();
   assert.throws(

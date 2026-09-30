@@ -57,7 +57,7 @@ test('every bundled skill has a closed frontmatter block with name and descripti
     .map((entry) => entry.name)
     .sort();
   assert.ok(skills.length > 0);
-  assert.deepEqual(skills, ['bearings', 'continue', 'decisions', 'delegate', 'dev-server', 'janitor', 'multi', 'notion-writing', 'team-build']);
+  assert.deepEqual(skills, ['bearings', 'decisions', 'delegate', 'dev-server', 'janitor', 'multi', 'notion-writing', 'team-build']);
   for (const skill of skills) {
     const text = fs.readFileSync(path.join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8');
     const end = text.indexOf('\n---', 4);

@@ -18,12 +18,12 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { STOP_REASON } from './multi-hook-core.mjs';
 import { childEnv } from '../skills/multi/scripts/test-child-env.mjs';
 import { inboxesPath, readInboxes, readBindings } from '../skills/multi/scripts/transport.mjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOOK = path.join(REPO, 'hooks', 'multi-inbox.js');
-const CONTINUATION_CLI = path.join(REPO, 'scripts', 'continuation.mjs');
 const SESSION_ID = 'fixture-session-p1-0001';
 
 /** A fixture HOME whose `.agents` is the AGENTS_HOME the child will use — never the real home. */
@@ -414,72 +414,35 @@ test('(m) a positive child agent_id leaves absent lead state untouched, so the l
   assert.match(leadOutput, /\[child-must-not-consume-1\]/, 'the lead still receives the pending note');
 });
 
-test('(n) continuation prompt lifecycle runs without a peer slug and emits the current epoch', () => {
+test('(n) retired continuation: no "Continuation epoch" banner on a prompt, with or without a peer identity', () => {
   const home = fixtureHome();
-  const transcriptPath = path.join(home, 'continuation-session.jsonl');
+  const transcriptPath = path.join(home, 'session.jsonl');
   fs.writeFileSync(transcriptPath, '');
-  const stdout = runHook(home, 'UserPromptSubmit', { transcript_path: transcriptPath }, {
+  const bare = runHook(home, 'UserPromptSubmit', { transcript_path: transcriptPath }, {
     NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '',
   });
-  const out = JSON.parse(stdout);
-  assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-  assert.match(out.hookSpecificOutput.additionalContext, /Continuation epoch [^.]+\./);
-  assert.equal(fs.existsSync(inboxesPath(home)), false, 'continuation must not invent a peer identity');
+  assert.equal(bare.trim(), '', 'no peer identity and no continuation means no output at all');
+  assert.equal(fs.existsSync(inboxesPath(home)), false, 'the hook must not invent a peer identity');
+
+  mirrorNoteFor(home, 'retire-continue-note-1', 'lead-pane');
+  const withPeer = runHook(home, 'UserPromptSubmit', { transcript_path: transcriptPath }, {
+    NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '',
+  });
+  const out = JSON.parse(withPeer);
+  assert.match(out.hookSpecificOutput.additionalContext, /\[retire-continue-note-1\]/, 'peer delivery is unchanged');
+  assert.doesNotMatch(withPeer, /Continuation/);
 });
 
-test('(o) real Claude adapter binds from actual tool-response JSON and blocks once at Stop', () => {
+test('(o) retired continuation: the peer Stop block still fires with STOP_REASON and never carries continuation text', () => {
   const home = fixtureHome();
-  const agentsHome = path.join(home, '.agents');
-  const repo = path.join(home, 'repo');
-  const transcriptPath = path.join(home, 'continuation-session.jsonl');
-  const evidence = path.join(repo, 'docs', 'work', 'evidence', 'proof.md');
-  fs.mkdirSync(path.dirname(evidence), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'authority.md'), 'authorized ongoing scope\n');
-  fs.writeFileSync(evidence, 'VERDICT: APPROVE deadbeef\nproof\n');
-  fs.writeFileSync(path.join(repo, 'docs', 'work', 'root.record.md'), [
-    'Work: wr-2026-09-23-root',
-    'Scope: scripts/example.mjs@deadbeef',
-    'Owner: worker',
-    'Status: owned',
-    'Authority: authority.md',
-    'Artifact: integrate/example@deadbeef',
-    'Evidence: docs/work/evidence/proof.md',
-    'Next: continue useful work',
-    'Opened: 2026-09-23T00:00:00Z',
-    'Children: none',
-    '',
-    'Observed: fixture',
-  ].join('\n'));
-  fs.writeFileSync(transcriptPath, '');
-  const over = { NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '', AGENTS_HOME: agentsHome };
-
-  const prompt = JSON.parse(runHook(home, 'UserPromptSubmit', { transcript_path: transcriptPath }, over));
-  const epoch = /Continuation epoch ([^.]+)\./.exec(prompt.hookSpecificOutput.additionalContext)?.[1];
-  assert.ok(epoch);
-  const bindStdout = execFileSync(process.execPath, [
-    CONTINUATION_CLI, 'bind', '--host', 'claude', '--session-id', SESSION_ID,
-    '--expected-epoch', epoch, '--repo', repo, '--root', 'wr-2026-09-23-root',
-    '--authority-ref', 'authority.md',
-  ], { encoding: 'utf8', env: childEnv(home, over) });
-  const bind = JSON.parse(bindStdout);
-  assert.deepEqual(Object.keys(bind.continuationBind).sort(), ['epoch', 'requestId']);
-
-  const userUuid = '00000000-0000-4000-8000-000000000777';
-  fs.writeFileSync(transcriptPath, `${JSON.stringify({
-    type: 'user', uuid: userUuid, isMeta: false, message: { role: 'user', content: 'continue' },
-  })}\n`);
-  const tool = runHook(home, 'PostToolUse', {
-    transcript_path: transcriptPath,
-    tool_response: { stdout: bindStdout, stderr: '', interrupted: false },
-  }, over);
-  assert.equal(tool.trim(), '', 'activation itself creates no extra model output');
-
-  const stop = JSON.parse(runHook(home, 'Stop', {
-    transcript_path: transcriptPath, stop_hook_active: false,
-  }, over));
+  mirrorNoteFor(home, 'retire-continue-stop-1', 'lead-pane');
+  const over = { NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '' };
+  const stopRaw = runHook(home, 'Stop', { stop_hook_active: false }, over);
+  const stop = JSON.parse(stopRaw);
   assert.equal(stop.decision, 'block');
-  assert.match(stop.reason, /Continuation accounting for the bound selected work/);
-  assert.equal(runHook(home, 'Stop', {
-    transcript_path: transcriptPath, stop_hook_active: true,
-  }, over).trim(), '', 'native re-fire remains silent');
+  assert.match(stop.reason, /\[retire-continue-stop-1\]/);
+  assert.ok(stop.reason.includes(STOP_REASON), 'the peer Stop reason is unchanged');
+  assert.doesNotMatch(stopRaw, /Continuation/);
+  assert.equal(runHook(home, 'Stop', { stop_hook_active: true }, over).trim(), '', 're-fire stays silent');
+  assert.equal(runHook(home, 'Stop', { stop_hook_active: false }, { NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' }).trim(), '', 'no peer identity, no Stop block');
 });

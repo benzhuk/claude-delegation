@@ -698,7 +698,7 @@ function findEnvLessSpawns(text) {
   // per-line scan and blank an inheriting value out from under it.
   // N4 (fix round 3): `ownedSpans` now holds CHARACTER ranges, not whole-line ranges - a fake call
   // shape written inside a string (e.g. a template literal holding `spawn(...)` as text, the same
-  // trick native-continuation-smoke.test.mjs's own real site uses) used to own its ENTIRE line, hiding
+  // trick the retired native-continuation smoke test's real site uses) used to own its ENTIRE line, hiding
   // a real wrapper call's `env: process.env` that happened to share that line. Matching per line with
   // `matchAll` and comparing each match's own character offset against the owned ranges fixes that.
   const inheritRe = /\benv\s*:\s*process\s*\.\s*env\b|\.\.\.\s*process\s*\.\s*env\b/;
@@ -734,13 +734,6 @@ const N2_SPAWN_ENV_EXEMPTIONS = new Map([
   // with no env - a real node-direct spawn reachable only through the shell's argv, out of lane-57
   // territory.
   ['scripts/collect-from-origin.test.mjs', { count: 1, reason: 'F3 follow-up: sh -c running process.execPath on the real CLI with no env, out of lane-57 territory' }],
-  // F4/F5 follow-up (lead ruling r1): two sites, same file - the win32-only scenario's runChild call
-  // with env set to process.env (the live full-environment handoff F4 was written for), plus a spawn
-  // call written INSIDE that scenario's own eval'd source string, which F5's removed "inert literal"
-  // escape hatch used to hide (build.md's build-round citation of ":17" as inert is wrong: that line
-  // is not a real call at this file's own scope, but the scanner reads string contents the same as
-  // code and it is a genuine second node-direct site with no env of its own).
-  ['scripts/native-continuation-smoke.test.mjs', { count: 2, reason: 'F4/F5 follow-up: a runChild call with env set to process.env, and the nested spawn literal in its eval source, win32-only, out of lane-57 territory' }],
   // F5 follow-up (lead ruling r1): the removed "inert -e literal" escape hatch used to hide these.
   ['scripts/janitor.test.mjs', { count: 1, reason: 'F5 follow-up: a trivial spawn on process.execPath with -e setInterval, as a cwd/stdio-only holder process, out of lane-57 territory' }],
   ['skills/team-build/scripts/review-run.test.mjs', { count: 2, reason: 'F5 follow-up: spawnSleeper()\'s own spawn call (opts is a function parameter, never resolved) and a trivial dead-pid probe, out of lane-57 territory' }],
@@ -874,7 +867,7 @@ test('N2 scanner: an inheriting env value counts as no env, under any function n
   }
 
   // And it's not limited to the fnRe function names: a wrapper like runChild(...) inherits the same
-  // way, and native-continuation-smoke.test.mjs:20 is exactly this shape.
+  // way, and the retired native-continuation smoke test was exactly this shape.
   const wrapperCall = "runChild(process.execPath, ['-e', source], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] }, 300);";
   assert.equal(findEnvLessSpawns(wrapperCall).length, 1, 'an inheriting env value under an unlisted function name must still be flagged');
 });

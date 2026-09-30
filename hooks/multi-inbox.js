@@ -40,8 +40,6 @@ const NOTES_DIR = path.join(os.homedir(), ".agents", "notes");
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
 const SKILL_SCRIPTS = path.join(PLUGIN_ROOT, "skills", "multi", "scripts");
 const CORE = path.join(__dirname, "multi-hook-core.mjs");
-const CONTINUATION = path.join(PLUGIN_ROOT, "scripts", "continuation.mjs");
-const CONTINUATION_NATIVE = path.join(__dirname, "continuation-native.mjs");
 const PANE_SLUG_CACHE_MS = 10 * 60 * 1000;
 
 function stampPath(slug) {
@@ -291,13 +289,6 @@ async function main() {
   // session that has just started has not asked for anything, and its first UserPromptSubmit will
   // surface whatever is waiting a moment later anyway.
   if (event === "SessionStart") {
-    try {
-      const [{ normalizeClaudeContinuation }, { handleContinuationEvent }] = await Promise.all([
-        import(pathToFileURL(CONTINUATION_NATIVE).href), import(pathToFileURL(CONTINUATION).href),
-      ]);
-      const normalized = normalizeClaudeContinuation(input, fs);
-      if (normalized) await handleContinuationEvent(normalized);
-    } catch { /* lifecycle failure must not affect peer registration */ }
     if (!hasPeerIdentity) return;
     const { slug, configBroken } = await registerMyInbox(cwd, sessionId, transcriptPath);
     // D4/F6 (red-team FIX FIRST 6): nudge a session that resolved NO slug at all, from any of the three
@@ -375,17 +366,6 @@ async function main() {
         }
       }
 
-      let continuation = null;
-      try {
-        const [{ normalizeClaudeContinuation }, { handleContinuationEvent }] = await Promise.all([
-          import(pathToFileURL(CONTINUATION_NATIVE).href), import(pathToFileURL(CONTINUATION).href),
-        ]);
-        const normalized = normalizeClaudeContinuation(input, fs);
-        if (normalized) {
-          normalized.peerWillBlock = peer?.output?.decision === "block";
-          continuation = await handleContinuationEvent(normalized);
-        }
-      } catch { /* continuation never suppresses peer delivery */ }
       if (peerError && (event === "UserPromptSubmit" || event === "")) {
         const once = warnOnce(`multi-inbox: peer notes are not being read — ${peerError.message || String(peerError)}`);
         if (once) peer = {
@@ -399,8 +379,7 @@ async function main() {
           ackIds: [],
         };
       }
-      const result = core.composeContinuationResult(peer, continuation, event);
-      if (result?.output) delivered = { ...result, inbox };
+      if (peer?.output) delivered = { ...peer, inbox };
       return undefined;
     } catch (err) {
       // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
@@ -444,7 +423,6 @@ Peer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <y
   // (Esc on a running hook, the budget above, a closed pane) then repeats a note instead of losing it —
   // the cursor is what note-flush reads to decide a wake-up is no longer needed (review MAJOR 3).
   const flushed = await emit(delivered.output);
-  try { delivered.continuationAfterFlush?.(flushed); } catch {}
   if (flushed && delivered.ackIds && delivered.ackIds.length && delivered.inbox) {
     try {
       await delivered.inbox(["--ack-ids", delivered.ackIds.join(",")]);
