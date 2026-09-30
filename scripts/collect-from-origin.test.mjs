@@ -298,6 +298,74 @@ test("bare-remote fixture: accepted-unmerged, accepted-merged, owned, rejected, 
   assert.match(written[0], /no-record/);
 });
 
+// Lane 60b (artifact-repo-60b spec.md item 4): "wherever they turn Artifact: into a sha that
+// they then look up in git, they use Artifact-repo: when it is present" - merged is checked
+// against THAT repository's own origin/main, never --repo's (which has never heard of the sha
+// at all).
+test("Artifact-repo: merged is computed against that repository's own origin/main, never --repo's", () => {
+  const root = initRepoWithOrigin();
+  const other = initRepoWithOrigin(); // repo B: a wholly independent repo + its own bare origin
+
+  // repo B's own init commit is already on its own (pushed) main/origin/main.
+  const mergedSha = git(["rev-parse", "HEAD"], other).trim();
+
+  // A second commit that exists in repo B locally but was never pushed there - unmerged in
+  // repo B's own origin/main.
+  newBranch(other, "feature/unmerged-in-b");
+  fs.writeFileSync(path.join(other, "b-work.txt"), "unmerged in repo B\n");
+  commitAll(other, "unmerged in repo B");
+  const unmergedSha = git(["rev-parse", "HEAD"], other).trim();
+  backToMain(other);
+
+  newBranch(root, "feature/artifact-repo-merged");
+  writeRecord(root, "wr-2026-09-30-artifact-repo-merged.record.md", [
+    "Work: wr-2026-09-30-artifact-repo-merged", "Status: accepted", `Artifact: territory/a@${mergedSha}`,
+    `Artifact-repo: ${other}`, "",
+  ]);
+  commitAll(root, "artifact-repo merged record");
+  pushBranch(root, "feature/artifact-repo-merged");
+
+  backToMain(root);
+  newBranch(root, "feature/artifact-repo-unmerged");
+  writeRecord(root, "wr-2026-09-30-artifact-repo-unmerged.record.md", [
+    "Work: wr-2026-09-30-artifact-repo-unmerged", "Status: accepted", `Artifact: territory/a@${unmergedSha}`,
+    `Artifact-repo: ${other}`, "",
+  ]);
+  commitAll(root, "artifact-repo unmerged record");
+  pushBranch(root, "feature/artifact-repo-unmerged");
+  backToMain(root);
+
+  const rows = rowsOf(root);
+  const merged = rows.find((r) => r.branch === "feature/artifact-repo-merged");
+  assert.equal(merged.merged, true);
+  assert.equal(merged.state, "accepted-merged");
+  const unmerged = rows.find((r) => r.branch === "feature/artifact-repo-unmerged");
+  assert.equal(unmerged.merged, false);
+  assert.equal(unmerged.state, "accepted-unmerged");
+});
+
+// "Where a lookup is only informational, a missing object must render as unknown, never as a
+// confident value" - a missing/unreadable Artifact-repo: must never be silently coerced into a
+// merged/unmerged guess.
+test("Artifact-repo: a missing directory renders merged as unknown (null), never a confident value", () => {
+  const root = initRepoWithOrigin();
+  const missing = path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "collect-from-origin-missing-artifact-repo-1");
+  const sha = git(["rev-parse", "HEAD"], root).trim(); // a real 40-hex; the repo it's checked against doesn't exist
+  newBranch(root, "feature/artifact-repo-missing");
+  writeRecord(root, "wr-2026-09-30-artifact-repo-missing.record.md", [
+    "Work: wr-2026-09-30-artifact-repo-missing", "Status: accepted", `Artifact: territory/a@${sha}`,
+    `Artifact-repo: ${missing}`, "",
+  ]);
+  commitAll(root, "artifact-repo missing record");
+  pushBranch(root, "feature/artifact-repo-missing");
+  backToMain(root);
+
+  const rows = rowsOf(root);
+  const row = rows.find((r) => r.branch === "feature/artifact-repo-missing");
+  assert.equal(row.merged, null);
+  assert.equal(row.state, "accepted-unmerged");
+});
+
 test("main branch and HEAD are never listed as rows; --skip removes a named branch", () => {
   const root = initRepoWithOrigin();
   newBranch(root, "feature/skippable");

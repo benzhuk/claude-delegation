@@ -35,6 +35,7 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Status:` | yes | one of `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `accepted`, `closed`, `blocked`, `withdrawn` |
 | `Authority:` | yes | what may happen without Ben, and what may not |
 | `Artifact:` | yes | For Git-backed work, `<branch>@<sha>`; for non-code work, an attributable stable file or URI reference; or `none` before an artifact exists. |
+| `Artifact-repo:` | no | an absolute path to a directory inside a git worktree of the repository that holds `Artifact:`, for cross-repo work only — see "Artifacts in another repository" below |
 | `Evidence:` | yes | comma-separated report paths, or `none`; each path's first line must start `VERDICT:` |
 | `Next:` | yes | the next action, or the blocker and its owner |
 | `Opened:` | yes | ISO-8601 UTC |
@@ -205,6 +206,36 @@ finding named `sha-not-in-git`, the same code a SHA git does not have at all use
 mode the artifact only has to be an ancestor of the worktree's HEAD (a pinned artifact may be
 historical); live mode requires exact equality.
 
+#### Artifacts in another repository
+
+`Artifact-repo:` names, by absolute path, a git worktree of the repository that actually holds
+`Artifact:` when it does not live in `--repo` — the plugin repo and the artifact's repo need not
+be the same one. It must be absolute and must not resolve to the same repository as `--repo`
+(compared by realpath of `git rev-parse --git-common-dir`); a relative value refuses
+(`artifact-repo-not-absolute`), and one that names `--repo` itself refuses
+(`artifact-repo-same`). Absent, behavior is byte-for-byte unchanged — every record without this
+field is still read as naming an "unrelated repository" the ancestry guards above refuse.
+
+When it is present, `accept` and `check-acceptance` resolve `Artifact:`,
+`--pinned-artifact`/`--delivery-ref`, and `Worktree:` with `git -C <Artifact-repo>` instead of
+`--repo` — `Worktree:` must then be an absolute directory or a branch name in that repo. The
+record itself, its evidence, its census, and its four-read all stay confined to `--repo`, as
+always. A missing or unreadable `Artifact-repo:` directory fails closed as `sha-not-in-git`.
+
+`close --closeout`'s merge proof checks the artifact's ancestry against `origin/main` of the
+`Artifact-repo:` repository, after a `git fetch origin` there — a fetch failure is
+`UNVERIFIABLE`, exactly as it is for `--repo`. The record's own `--merge <sha>` given to `close`
+is always the plugin-repo merge commit, checked in `--repo`, unchanged. Cleanup never deletes a
+branch or worktree in the `Artifact-repo:` repository: the worktree, branch, and origin-branch
+steps all refuse with `artifact-repo: cleanup is manual` instead; only the scratch-directory step
+still runs.
+
+`four-read.mjs` and `collect-from-origin.mjs` read `Artifact-repo:` from the record's own header
+too: wherever either turns `Artifact:` into a sha it then looks up in git, it uses
+`Artifact-repo:` when present. Where that lookup is only informational (`collect-from-origin.mjs`'s
+`merged` column, `four-read.mjs`'s rework-after-acceptance number), a missing or unreadable
+`Artifact-repo:` renders that value unknown, never a confident guess.
+
 At least one evidence file must begin exactly `VERDICT: APPROVE <sha>` or `VERDICT: APPROVE —
 <sha>` for the current artifact. A current `NEEDS_FIXES`, `FAIL`, or `REJECTED` refuses
 acceptance. Supporting verdicts and verdicts for other revisions remain history. Success prints
@@ -266,6 +297,7 @@ only attempted when both `gitDir` and `ref` are given.
 | `runnable-with-owner` | finding | `Status: runnable` and `Owner:` is present and not `none` |
 | `scratch-missing` | finding, or `info` | see "The `Scratch:` field" above — finding when `Spec-from:` is on/after `SCRATCH_FROM`, info (a warning) otherwise |
 | `scratch-invalid` | finding | `Scratch:` is present but not an absolute directory path |
+| `artifact-repo-not-absolute` | finding | `Artifact-repo:` is present but not an absolute directory path |
 
 `scope-drift`'s git check can also emit `scope-unresolvable`, level `info` — when
 `gitDir` and `ref` are both given but `git log -1` for the `Scope:` path returns no

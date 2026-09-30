@@ -284,6 +284,86 @@ test("closeoutRecord: merge proof - an Artifact: sha not an ancestor of origin/m
   }
 });
 
+// ── Artifact-repo: (lane 60b, docs/specs/artifact-repo-60b/spec.md) ─────────────────────────
+// A work record whose artifact lives in another git repository - the close/cleanup half of
+// spec.md's own numbered tests (accept/check-acceptance are covered in work-record.test.mjs,
+// which already has that fixture machinery). Repo B here is a second, wholly independent
+// `buildRepo` fixture, never repo A's own worktree list or origin.
+
+// Test 7: close with Artifact-repo: checks ancestry against repo B's origin/main (after a fetch
+// THERE), and refuses when the artifact is not merged there - never checking repo A's origin/main
+// for this (repo A's origin/main never even has the sha to ask about).
+test("closeoutRecord: merge proof with Artifact-repo: fetches and checks ancestry in repo B, refusing when the artifact is not merged into repo B's origin/main", () => {
+  const env = fixtureEnv();
+  const { repo: repoA } = buildRepo(env);
+  const { repo: repoB } = buildRepo(env);
+  const repoBPosix = repoB.split(path.sep).join("/");
+  // A commit that exists locally in repo B but was never pushed there - repo B's own
+  // `git fetch origin` succeeds (repo B has a real, reachable bare origin), but the artifact sha
+  // itself is not an ancestor of repo B's origin/main.
+  fs.writeFileSync(path.join(repoB, "unpushed.txt"), "never pushed in repo B\n");
+  git(["add", "."], repoB, env);
+  git(["commit", "-q", "-m", "unpushed work in repo B"], repoB, env);
+  const unpushedShaInB = git(["rev-parse", "HEAD"], repoB, env).trim();
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repoA, {
+    work: "wr-2026-09-30-artifact-repo-merge-proof",
+    worktree: repoBPosix,
+    artifact: `territory/a@${unpushedShaInB}`,
+    leadSession: by,
+    scratch: scratchPath,
+    extra: { "Artifact-repo": repoBPosix },
+  });
+  const result = closeoutRecord({ repoRoot: repoA, recordPath: recordRel, closeoutBy: by });
+  assert.equal(result.exitCode, 2);
+  assert.equal(result.ok, false);
+  for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
+    const row = result.steps.find((s) => s.step === step);
+    assert.equal(row.result, "refused", `step ${step}`);
+    assert.match(row.detail, /is not an ancestor of origin\/main/, `step ${step}`);
+  }
+});
+
+// Test 8: cleanup never touches repo B - the worktree/branch/origin-branch steps refuse by name
+// (artifact-repo: cleanup is manual) rather than ever running against a foreign repository's
+// worktrees or branches, even when the merge proof itself passes clean. Scratch is unaffected.
+test("closeoutRecord: Artifact-repo: refuses the worktree/branch/origin-branch cleanup steps as manual, and never touches repo B's branch", () => {
+  const env = fixtureEnv();
+  const { repo: repoA } = buildRepo(env);
+  const { repo: repoB, origin: originB } = buildRepo(env);
+  const repoBPosix = repoB.split(path.sep).join("/");
+  const branchB = "build/artifact-repo-b-1";
+  const { tip: tipB } = cutBranch(repoB, env, branchB, { worktree: false });
+  mergeNoFF(repoB, env, branchB);
+  pushMain(repoB, env);
+  pushBranch(repoB, env, branchB);
+  const { scratchPath, by } = mkScratchFixture();
+  const recordRel = writeClosedRecord(repoA, {
+    work: "wr-2026-09-30-artifact-repo-cleanup-manual",
+    worktree: branchB,
+    artifact: `territory/a@${tipB}`,
+    leadSession: by,
+    scratch: scratchPath,
+    extra: { "Artifact-repo": repoBPosix },
+  });
+  const result = closeoutRecord({ repoRoot: repoA, recordPath: recordRel, closeoutBy: by });
+  const steps = stepsOf(result);
+  assert.equal(steps.worktree.result, "refused");
+  assert.match(steps.worktree.detail, /artifact-repo: cleanup is manual/);
+  assert.equal(steps.branch.result, "refused");
+  assert.match(steps.branch.detail, /artifact-repo: cleanup is manual/);
+  assert.equal(steps["origin-branch"].result, "refused");
+  assert.match(steps["origin-branch"].detail, /artifact-repo: cleanup is manual/);
+  // Scratch is unaffected by Artifact-repo: - it still runs, still removing the lead's own scratch
+  // directory (never anything in repo B).
+  assert.equal(steps.scratch.result, "removed");
+  assert.equal(fs.existsSync(scratchPath), false);
+  // Repo B itself: the branch this record's Worktree: names must survive untouched, both locally
+  // and on its own origin - cleanup must never have run against it.
+  assert.notEqual(git(["branch", "--list", branchB], repoB, env).trim(), "");
+  assert.match(git(["ls-remote", "--heads", originB, branchB], repoB, env), new RegExp(branchB.replace(/\//g, "\\/")));
+});
+
 // R2-8 (C1 round 3), narrowed by the round-4 idempotent-closeout ruling: a record naming a branch
 // that genuinely never had a worktree is no longer a blanket refusal - the branch it names really
 // exists (only the WORKTREE half is absent), so closeout goes on to remove that branch, and the

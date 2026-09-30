@@ -90,6 +90,20 @@ function makeAcceptanceFixture(overrides = {}) {
   return { repo, env, sha, evidence, record };
 }
 
+// Lane 60b (artifact-repo-60b spec.md): a second, wholly independent real git repository - the
+// "repo B" every Artifact-repo: test below points at. Never shares a home/.gitconfig identity
+// setup of its own; callers pass the SAME `env` a makeAcceptanceFixture() built, since these
+// tests only ever need one shared committer identity across both repos.
+function makeArtifactRepoFixture(env, prefix = "work-record-artifact-repo-") {
+  const dir = fs.mkdtempSync(path.join(process.env.FIXTURE_ROOT || os.tmpdir(), prefix));
+  execFileSync("git", ["init", "-q", dir], { env });
+  fs.writeFileSync(path.join(dir, "seed.txt"), "artifact repo seed\n");
+  execFileSync("git", ["-C", dir, "add", "seed.txt"], { env });
+  execFileSync("git", ["-C", dir, "commit", "-qm", "seed"], { env });
+  const sha = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { env, encoding: "utf8" }).trim();
+  return { dir, sha };
+}
+
 // A small, hand-written census fixture (C2's own assumption about C1's header/shape -
 // see work-record.mjs's CENSUS_HEADER_RE comment): a recognisable `VERDICT: COUNTED`
 // first line, bullet-style scalar facts (leadTurns, wall clock), and by-model/by-role
@@ -242,15 +256,16 @@ test("validateRecord: a clean record with no repoRoot given produces zero findin
   assert.deepEqual(validateRecord(r), []);
 });
 
-test("FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-check plus C1's scratch-missing/scratch-invalid (sixteen total)", () => {
+test("FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-check plus C1's scratch-missing/scratch-invalid plus lane 60b's artifact-repo-not-absolute (seventeen total)", () => {
   // Documents the full set this suite must cover; the individual tests below assert each one fires.
-  assert.equal(FINDING_CODES.length, 16);
+  assert.equal(FINDING_CODES.length, 17);
   assert.deepEqual(
     [...FINDING_CODES].sort(),
     [
       "accepted-without-artifact",
       "accepted-without-check",
       "accepted-without-evidence",
+      "artifact-repo-not-absolute",
       "bad-status",
       "bad-work-id",
       "bugfix-gate-missing",
@@ -365,6 +380,22 @@ test("validateRecord: scratch-invalid is a finding-level refusal", () => {
   const findings = validateRecord(r);
   const row = findings.find((f) => f.code === "scratch-invalid");
   assert.equal(row.level, "finding");
+});
+
+// Lane 60b (artifact-repo-60b spec.md item 5): "Add a finding artifact-repo-not-absolute when
+// it is present and not absolute."
+test("validateRecord: artifact-repo-not-absolute fires (finding-level) for a relative Artifact-repo:, and is silent when it is absolute or absent", () => {
+  const relative = parseRecord(mkRecordText({ "Artifact-repo": "relative/dir" }));
+  const relativeFindings = validateRecord(relative);
+  const row = relativeFindings.find((f) => f.code === "artifact-repo-not-absolute");
+  assert.ok(row, "expected artifact-repo-not-absolute to fire for a relative Artifact-repo:");
+  assert.equal(row.level, "finding");
+
+  const absolute = parseRecord(mkRecordText({ "Artifact-repo": path.join(os.tmpdir(), "some-other-repo") }));
+  assert.equal(validateRecord(absolute).some((f) => f.code === "artifact-repo-not-absolute"), false);
+
+  const absent = parseRecord(mkRecordText());
+  assert.equal(validateRecord(absent).some((f) => f.code === "artifact-repo-not-absolute"), false);
 });
 
 test("checkAcceptance/acceptRecord: refuse with code scratch-missing when Spec-from is on/after opts.scratchFrom and there is no Scratch: line", () => {
@@ -1217,6 +1248,126 @@ test("checkAcceptance: pinned mode still passes when the artifact is an ancestor
   execFileSync("git", ["-C", f.repo, "commit", "-qm", "later"], { env: f.env });
   const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
   assert.equal(result.ok, true);
+});
+
+// ── Artifact-repo: (lane 60b, docs/specs/artifact-repo-60b/spec.md) ─────────────────────────
+// A work record whose artifact lives in another git repository - spec.md's own numbered tests.
+
+// Test 1: accept succeeds for a record in repo A whose Artifact, Worktree and Artifact-repo:
+// name a commit in repo B.
+test("checkAcceptance: Artifact-repo: resolves Artifact:, Worktree: and the pinned artifact against a separate repository (repo B)", () => {
+  const f = makeAcceptanceFixture();
+  const b = makeArtifactRepoFixture(f.env);
+  const bDirPosix = b.dir.split(path.sep).join("/");
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  text = text.replace(/^Artifact: .*$/m, `Artifact: territory/a@${b.sha}`);
+  text = text.replace(/^Worktree: \.$/m, `Artifact-repo: ${bDirPosix}\nWorktree: ${bDirPosix}`);
+  fs.writeFileSync(recordPath, text);
+  // The evidence FILE stays in repo A (readConfinedRegularFile is unaffected); only the commit
+  // sha its VERDICT line names is a repo-B sha, resolved through Artifact-repo:.
+  fs.writeFileSync(path.join(f.repo, f.evidence), `VERDICT: APPROVE — ${b.sha}\nIndependent review of a cross-repo artifact.\n`);
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: b.sha });
+  assert.equal(result.ok, true);
+  assert.equal(result.artifact, b.sha);
+  assert.equal(result.delivery, b.sha);
+});
+
+// Test 2 (regression guard, "not new red" per spec.md): the same cross-repo record, minus
+// Artifact-repo:, still refuses sha-not-in-git - repo A's git has never heard of repo B's sha.
+test("checkAcceptance: the same cross-repo record, without Artifact-repo:, still refuses sha-not-in-git", () => {
+  const f = makeAcceptanceFixture();
+  const b = makeArtifactRepoFixture(f.env);
+  const bDirPosix = b.dir.split(path.sep).join("/");
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  text = text.replace(/^Artifact: .*$/m, `Artifact: territory/a@${b.sha}`);
+  text = text.replace(/^Worktree: \.$/m, `Worktree: ${bDirPosix}`); // no Artifact-repo: line
+  fs.writeFileSync(recordPath, text);
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: b.sha });
+    assert.fail("expected checkAcceptance to throw: repo A's git has no object for repo B's sha");
+  } catch (error) {
+    assert.match(error.message, /sha-not-in-git/);
+    assert.equal(error.code, "sha-not-in-git");
+  }
+});
+
+// Test 3: an Artifact-repo: that points at repo A itself refuses artifact-repo-same.
+test("checkAcceptance: Artifact-repo: naming --repo itself refuses artifact-repo-same", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  text = text.replace(/^Worktree: \.$/m, `Artifact-repo: ${f.repo.split(path.sep).join("/")}\nWorktree: .`);
+  fs.writeFileSync(recordPath, text);
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected checkAcceptance to throw: Artifact-repo: names --repo itself");
+  } catch (error) {
+    assert.equal(error.code, "artifact-repo-same");
+  }
+});
+
+// Test 4: a relative Artifact-repo: refuses.
+test("checkAcceptance: a relative Artifact-repo: refuses (artifact-repo-not-absolute)", () => {
+  const f = makeAcceptanceFixture();
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  text = text.replace(/^Worktree: \.$/m, "Artifact-repo: relative/path\nWorktree: .");
+  fs.writeFileSync(recordPath, text);
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected checkAcceptance to throw: Artifact-repo: is relative");
+  } catch (error) {
+    assert.equal(error.code, "artifact-repo-not-absolute");
+  }
+});
+
+// Test 5: a missing Artifact-repo: directory fails closed with sha-not-in-git.
+test("checkAcceptance: a missing Artifact-repo: directory fails closed with sha-not-in-git", () => {
+  const f = makeAcceptanceFixture();
+  const missing = path.join(process.env.FIXTURE_ROOT || os.tmpdir(), "work-record-artifact-repo-missing-1");
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  text = text.replace(/^Worktree: \.$/m, `Artifact-repo: ${missing.split(path.sep).join("/")}\nWorktree: .`);
+  fs.writeFileSync(recordPath, text);
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.fail("expected checkAcceptance to throw: Artifact-repo: does not exist on disk");
+  } catch (error) {
+    assert.match(error.message, /sha-not-in-git/);
+    assert.equal(error.code, "sha-not-in-git");
+  }
+});
+
+// Test 6: pinned mode refuses an artifact that is not an ancestor of the named Worktree: in repo B.
+test("checkAcceptance: pinned mode refuses an artifact that is not an ancestor of Worktree: inside the Artifact-repo:", () => {
+  const f = makeAcceptanceFixture();
+  const b = makeArtifactRepoFixture(f.env);
+  const bDirPosix = b.dir.split(path.sep).join("/");
+  const initialBranch = execFileSync("git", ["-C", b.dir, "symbolic-ref", "--short", "HEAD"], { env: f.env, encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", b.dir, "checkout", "-qb", "feat", b.sha], { env: f.env });
+  fs.writeFileSync(path.join(b.dir, "feat.txt"), "feat\n");
+  execFileSync("git", ["-C", b.dir, "add", "feat.txt"], { env: f.env });
+  execFileSync("git", ["-C", b.dir, "commit", "-qm", "feat commit"], { env: f.env });
+  const featSha = execFileSync("git", ["-C", b.dir, "rev-parse", "HEAD"], { env: f.env, encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", b.dir, "checkout", "-q", initialBranch], { env: f.env });
+  fs.writeFileSync(path.join(b.dir, "main-only.txt"), "main only\n");
+  execFileSync("git", ["-C", b.dir, "add", "main-only.txt"], { env: f.env });
+  execFileSync("git", ["-C", b.dir, "commit", "-qm", "main-only commit"], { env: f.env });
+
+  const recordPath = path.join(f.repo, f.record);
+  let text = fs.readFileSync(recordPath, "utf8");
+  text = text.replace(/^Artifact: .*$/m, `Artifact: territory/a@${featSha}`);
+  text = text.replace(/^Worktree: \.$/m, `Artifact-repo: ${bDirPosix}\nWorktree: ${bDirPosix}`);
+  fs.writeFileSync(recordPath, text);
+  try {
+    checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: featSha });
+    assert.fail("expected checkAcceptance to throw: featSha is not an ancestor of Worktree:'s HEAD in repo B");
+  } catch (error) {
+    assert.match(error.message, /sha-not-in-git/);
+    assert.equal(error.code, "sha-not-in-git");
+  }
 });
 
 // T1 required item 2 ("branch or worktree") / round-2 review MAJOR 4: Worktree: must

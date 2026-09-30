@@ -91,6 +91,13 @@ test('parseRecordText: a record missing a field simply omits its key, never thro
   assert.equal(fields['lead-session'], undefined);
 });
 
+// Lane 60b (artifact-repo-60b spec.md item 4): the field this file reads to know Base:/the
+// accepted sha live in another repository, never --git.
+test('parseRecordText: reads Artifact-repo: like any other singleton field', () => {
+  const { fields } = parseRecordText('Work: x\nArtifact-repo: /var/tmp/some-other-repo\n\nObserved: body\n');
+  assert.equal(fields['artifact-repo'], '/var/tmp/some-other-repo');
+});
+
 // ── computeTopTierTokens (number 1) ─────────────────────────────────────────
 
 test('computeTopTierTokens: no census -> unavailable', () => {
@@ -440,6 +447,45 @@ test('computeReworkAfterAcceptance: an unresolvable git ref fails closed as unav
   const logs = [{ status: 'accepted', at: iso, owner: 'x', note: 'artifact 0123456' }];
   const r = computeReworkAfterAcceptance(fields, logs, dir, 'HEAD');
   assert.match(r.value, /^unavailable \(git: /);
+});
+
+// Lane 60b (artifact-repo-60b spec.md item 4): "wherever they turn Artifact: into a sha that
+// they then look up in git, they use Artifact-repo: when it is present" - main()'s own call
+// site, not computeReworkAfterAcceptance itself (that function's gitDir parameter is unchanged;
+// this proves main() feeds it the RIGHT directory). --git here points at a real but unrelated
+// repository that has never heard of Base:/the accepted sha at all - only Artifact-repo: does.
+test('main: Artifact-repo: redirects number 3 (rework after acceptance) to that repository, never falling back to a --git that cannot resolve the range', async () => {
+  const dir = mkTmp('four-read-artifact-repo-main-');
+  const unrelatedGitDir = mkTmp('four-read-artifact-repo-main-unrelated-');
+  initRepo(unrelatedGitDir); // --git: a real repo, but with no relationship to Base:/the accepted sha
+  const artifactRepoDir = mkTmp('four-read-artifact-repo-main-b-');
+  const env = initRepo(artifactRepoDir);
+  const now = Date.now();
+  const iso = (offsetMs) => new Date(now + offsetMs).toISOString();
+  const baseSha = commit(artifactRepoDir, 'a.txt', 'base', 'chore: base', iso(-3600000), env);
+  const acceptedSha = commit(artifactRepoDir, 'a.txt', 'accepted version', 'feat: build files', iso(-1800000), env);
+  commit(artifactRepoDir, 'a.txt', 'post-fix', 'fix: rework on build file', iso(60000), env);
+
+  const acceptedAt = new Date(now - 1800000).toISOString();
+  const recordPath = path.join(dir, 'record.md');
+  fs.writeFileSync(recordPath, [
+    'Work: wr-2026-09-30-artifact-repo-fourread',
+    'Opened: 2026-09-01T00:00:00.000Z',
+    `Base: ${baseSha}`,
+    `Artifact: territory/a@${acceptedSha}`,
+    `Artifact-repo: ${artifactRepoDir}`,
+    'Lead-session: lead-session',
+    `Log: ${acceptedAt} accepted x artifact ${acceptedSha}`,
+    '',
+    'Observed: body',
+  ].join('\n'));
+
+  const censusPath = await buildCensusFile(dir);
+  const lines = [];
+  await main(['--record', recordPath, '--census', censusPath, '--git', unrelatedGitDir, '--branch', 'HEAD'], { write: (s) => lines.push(s) });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /Rework after acceptance.*1 commit\(s\) touching build files within 7 days/s);
+  assert.match(lines[0], /"fix: rework on build file"/);
 });
 
 // ── Ledger: collectLedgerEntries / computeWorkLostOrStalled ────────────────

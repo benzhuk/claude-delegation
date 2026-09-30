@@ -112,6 +112,20 @@ function computeMerged(repo, artifactSha, mainFull, mainVerified) {
   return isAncestor(repo, artifactSha, mainFull);
 }
 
+// Lane 60b (artifact-repo-60b spec item 4): when the branch's own record names an
+// Artifact-repo:, the artifact sha lives there, never in --repo - "wherever they turn Artifact:
+// into a sha that they then look up in git, they use Artifact-repo: when it is present". Always
+// checked against that OTHER repository's own origin/main (never --main, which names a ref in
+// --repo, not in Artifact-repo:) — an unreadable/non-git Artifact-repo:, a missing origin/main
+// there, or an object it doesn't have all fall through `ok`'s own catch to null (unknown), the
+// same fail-closed shape as computeMerged above; never a confident merged/unmerged guess.
+function computeMergedInArtifactRepo(artifactRepo, artifactSha) {
+  if (!artifactSha) return null;
+  const mainFull = "refs/remotes/origin/main";
+  if (refExists(artifactRepo, mainFull) !== true || !objectExists(artifactRepo, artifactSha)) return null;
+  return isAncestor(artifactRepo, artifactSha, mainFull);
+}
+
 export function computeState(status, merged) {
   if (status === "accepted") return merged === true ? "accepted-merged" : "accepted-unmerged";
   // withdrawn (R3, withdraw-status-1): its own terminal state - never shown as owned (the
@@ -141,7 +155,10 @@ function buildRow(repo, branchInfo, filePath, mainFull, mainVerified, now, commi
   const parsed = parseRecord(blobAt(repo, branchInfo.ref, filePath) ?? "");
   const status = parsed.fields.status ?? null;
   const artifactSha = extractArtifactSha(parsed.fields.artifact);
-  const merged = computeMerged(repo, artifactSha, mainFull, mainVerified);
+  const artifactRepo = typeof parsed.fields.artifactRepo === "string" ? parsed.fields.artifactRepo.trim() : "";
+  const merged = artifactRepo
+    ? computeMergedInArtifactRepo(artifactRepo, artifactSha)
+    : computeMerged(repo, artifactSha, mainFull, mainVerified);
   return { branch: branchInfo.name, ...tipFields(commit), recordPath: filePath, status, artifactSha, merged, hoursSinceLog: hoursSinceLog(parsed.log, now), state: computeState(status, merged) };
 }
 
