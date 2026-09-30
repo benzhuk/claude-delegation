@@ -576,8 +576,9 @@ The JSON gains `tokenDefinition`, `measurementScope` (roles, window, omitted dec
 message that points to `--no-census "<reason>"`. Without `--record` a census is native-session-graph only and says so.
 
 Top tier is the union `fable, opus, gpt-6-astra, gpt-5.6-sol` whatever the lead's host; `DELEGATION_TOP_TIER` still
-overrides. A model in a known lower family (sonnet, haiku, gpt-5.6-terra, gpt-5.6-luna, codex-spark) is not top tier;
-a model in neither list carrying tokens makes the top-tier cell `unavailable` with the observed subtotal (a zero-token
+acts as a filter: a configured match counts (even an otherwise unknown name), and any other known family — a default
+top-tier one excluded by the configuration, or a known lower family (sonnet, haiku, gpt-5.6-terra, gpt-5.6-luna,
+codex-spark) — is not top tier without making the cell unavailable. A model in no known family carrying tokens makes the top-tier cell `unavailable` with the observed subtotal (a zero-token
 `<synthetic>` row does not). The four-read headline is the wider, declared-role scope and is labelled
 SCOPE MISMATCH against the lead-only hand-run baseline; the `Top-tier tokens, lead only` companion gives the
 comparable figure. No overall DONE is claimed from it.
