@@ -7,7 +7,12 @@ Next: Windows rerun, then accept, merge, close
 Artifact: d2fb5ccf93dd04239e7edc25faae3231e318e567
 Evidence: docs/work/evidence/wr-2026-09-30-artifact-repo-review.md
 Worktree: /var/tmp/lane-60b/wt
+Scratch: /var/tmp/lane-60b
 Opened: 2026-09-30T01:53:46.000Z
+Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
+Spec-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
+Spec-from: 2026-09-30T01:50:00Z
+Base: a57e2ff411c174ef9b6a40e51820602d5a47e7c7
 Log: 2026-09-30T01:53:46.000Z owned skills-n opened lane 60b, blocker for lane 60 accept (dotfiles artifact not resolvable from the plugin repo); Sonnet builder next
 Log: 2026-09-30T02:14:17.000Z delivered skills-n Sonnet builder a3bd7c499c05ad8bb at 08dbe6f14b6bd930d9d31712460c365145bfceee (Artifact-repo: field through accept, close, cleanup, four-read, collect-from-origin, validate; 9 tests red on a57e2ff; suite 0 fail); docs/specs/artifact-repo-60b/build.md
 Log: 2026-09-30T02:18:49.000Z delivered skills-n integrator a848426bb78a066a9 Windows suite PASS at 08dbe6f14b6bd930d9d31712460c365145bfceee; docs/specs/artifact-repo-60b/windows-gate.md
