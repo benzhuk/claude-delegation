@@ -1,7 +1,7 @@
 Work: wr-2026-09-29-baseline
 Scope: docs/notes/skills-fable-baseline-61-1.md, from skills-fable-baseline-61-1; measure: all four, the baseline makes them comparable to a hand-run build
 Owner: skills-o
-Status: accepted
+Status: closed
 Authority: skills-fable ASK skills-fable-baseline-61-1 on Ben's ticks read 5:51 PM NY 9/29: hand-run baseline and continue census, merge under the standing grant
 Artifact: build/baseline-61@8abcc84c2365a8e389424a95fc8dd04140ef8c1a
 Worktree: build/baseline-61
@@ -65,6 +65,7 @@ Four numbers: Hours ask to accepted: 15.8h; largest gap 916.9min at 2026-09-29T2
 Four numbers: Rework after acceptance: 1 commit(s) touching build files within 7 days: de37916 "docs: lane 61 record scratch"; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 1 gap(s) over 30min stalled: 2026-09-29T22:13:52.911Z (916.9min); 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o; wakes 3 (3 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o
 Log: 2026-09-30T13:40:10.000Z accepted skills-o artifact 8abcc84c2365a8e389424a95fc8dd04140ef8c1a
+Log: 2026-09-30T13:45:47.000Z closed skills-o merge c7db87e5926d328f1be43bb6ed5aa7a35a1a3137
 
 Observed: the census had no hand-run number to beat, so the DONE line's four-measure comparison could not be made.
 Predicts: the next plugin-led build's four-read compares against these medians, and the continue retire lane removes a skill with zero use.
