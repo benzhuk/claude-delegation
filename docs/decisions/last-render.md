@@ -1,5 +1,21 @@
 # Waiting on you now
-Nothing right now.
+<details>
+<summary>**Codex hook failure: paste the error line**</summary>
+	You said a Codex hook failed on 9/30. Every Codex hook (SessionStart, UserPromptSubmit, PostToolUse, Stop, Interrupt, the delete guard) runs clean by hand on this machine, and the Codex home the live skills-a session uses has not been found, so the cause is unknown. One line of the error text (the pane's red line, or the output of the failing command) is enough to find it.
+	- [ ] Pasted the error into the skills-fable pane
+	- [ ] It has not happened again, drop it
+	No default: item 15 of the plan stays open until you tick
+	<empty-block/>
+</details>
+<details>
+<summary>**Delete prompts on Netcup: restart the stale BTO session or drop the blanket rule**</summary>
+	You still get "rm -rf ... requires confirmation" prompts from a delegation:integrator agent on Netcup. Two causes, both verified from the session transcript: the BTO session in that pane started 2026-09-20 and still runs plugin 0.1.1, which has no delete guard, so its integrator issues deletes the current agent file forbids; and the user-level settings on Netcup list "Bash(rm -rf \*)" under ask, which outranks the project's allow lines for the two gate folders, so a prompt appears every time. The integrator waited 68 minutes across four prompts on 9/30 alone.
+	- [ ] Restart the BTO pane on Netcup: exit that Claude session and start a new one in the same folder. It picks up 0.20.18 with the delete guard and the new integrator, and the prompts stop. (recommended)
+	- [ ] Remove "Bash(rm -rf \*)" from the ask list in the Netcup user settings, keeping the session as is. Deletes under the project allow lines then run without a prompt, and any other rm -rf in any project on that box runs unprompted too.
+	- [ ] Both
+	No default: the prompts continue until you tick
+	<empty-block/>
+</details>
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Wed 12:31 PM)
