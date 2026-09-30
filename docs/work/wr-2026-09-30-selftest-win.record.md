@@ -1,7 +1,7 @@
 Work: wr-2026-09-30-selftest-win
 Scope: docs/specs/selftest-win-60c/spec.md (lane 60c), from skills-fable-guard-60-5, written by the lead at b52757b9d78c328a4a3a4faaecec2581fa233e18
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build and review on dotfiles branch build/selftest-win-60c-1 and plugin branch build/selftest-win-60c-1; test-only change; merge both on acceptance under the standing grant of 2026-09-26; no install on any machine
 Next: accept, merge dotfiles and plugin branches, close, RESULT to skills-fable
 Artifact: bfb5cd4447077b9e4fbc11143f35136674f45aef
@@ -67,6 +67,8 @@ Four numbers: Hours ask to accepted: 0.7h; largest gap 17.0min at 2026-09-30T13:
 Four numbers: Rework after acceptance: unavailable (git: Command failed: git -C /var/tmp/lane-60c/dot diff --name-only b52757b9d78c328a4a3a4faaecec2581fa233e18..bfb5cd4447077b9e4fbc11143f35136674f45aef)
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-30T14:18:47.000Z accepted skills-n artifact bfb5cd4447077b9e4fbc11143f35136674f45aef
+Log: 2026-09-30T14:20:26.000Z merged skills-n dotfiles build/selftest-win-60c-1 into dotfiles main at 42e4a60bddf862339db8f50f83368b5b516c49b2 (merged-tree selftest 74 of 74), plugin branch into main at 7da15a6aaace2f2e96734a5d71de5782690e5eec, suite 3327 pass 0 fail on Netcup; no install on any machine
+Log: 2026-09-30T14:20:26.000Z closed skills-n merge 7da15a6aaace2f2e96734a5d71de5782690e5eec
 
 Predicts: work lost or stalled drops, because the guard selftest now runs clean on the Windows desktop with no shim and aborts instead of passing vacuously when python is missing.
 Observed: Netcup 74 of 74; Windows 73 passed, 0 failed, 1 mode SKIP with no shim; no-python PATH aborts with exit 1; two builder rounds, two Opus review rounds.
