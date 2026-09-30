@@ -14,7 +14,7 @@ The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers re
 
 Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
 
-Honor an explicit user stop or pause. Otherwise, before closing, check the actual result against the requested outcome. Continue useful authorized work that remains. Close when the outcome has evidence or all remaining useful actions have concrete external dependencies; report those dependencies and the resumable work identity. Use the native binding/accounting commands below only when current hook context is available. Missing hooks do not prevent ordinary useful work, but automatic correction must remain unclaimed.
+Honor an explicit user stop or pause. Otherwise, before closing, check the actual result against the requested outcome. Continue useful authorized work that remains. Close when the outcome has evidence or all remaining useful actions have concrete external dependencies; report those dependencies and the resumable work identity.
 
 The [original native Codex authoring trial](work/evidence/native-codex-first-use-proof.md) produced a draft but its file reads were policy-blocked. The later [root-cause diagnosis and corrected read-only trial](work/evidence/codex-readonly-fixture-correction.md) showed that ignoring user configuration had also disabled selection of the provisioned Windows sandbox backend. Explicitly selecting that backend for the isolated invocation preserved read-only enforcement and let the native agent read the source and mirrored skills. Its review found the missing explicit-stop instruction above. This proves source-grounded native review, not hook execution, comparative delivery improvement, or completion of the project's goals.
 
@@ -83,7 +83,7 @@ node scripts/mirror-shared-skills.mjs --codex-hooks-only --dry-run --json
 node scripts/mirror-shared-skills.mjs --codex-hooks-only
 ```
 
-The installer merges its handlers with existing hooks and updates their trust identities. An older four-event installation needs this wiring update to gain Interrupt; merely updating adapter source does not add an event registration. Without that event, native cancellation bypasses Stop, but the stored binding is not immediately disarmed until the next prompt/session event.
+The installer merges its handlers with existing hooks and updates their trust identities. An older four-event installation needs this wiring update to gain Interrupt; merely updating adapter source does not add an event registration.
 
 When native metadata on an event positively classifies a Codex session as a lead, the
 source adapter adds the project's goal card and a due/unknown bearings advisory on
