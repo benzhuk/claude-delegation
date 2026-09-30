@@ -222,8 +222,12 @@ test('missing transcript, no in-window usage, corrupt usage, corrupt row and unk
   assertTainted(noModel, 'unknown model');
   for (const r of [missing, empty]) {
     const role = roleOf(r);
-    if (role) { assert.notEqual(role.status, 'complete'); assert.ok(role.reasons.length > 0, 'names the reason'); assert.notEqual(role.requests, 0, 'a missing source is not a confident zero request count'); }
+    if (role) { assert.notEqual(role.status, 'complete'); assert.ok(role.reasons.length > 0, 'names the reason'); }
   }
+  // contracts.d.ts: requests is number|null. An unreadable source has no known count (null); an existing
+  // transcript with no in-window usage legitimately has zero requests (PARTIAL via its reason).
+  assert.equal(roleOf(missing).requests, null, 'a missing source is not a confident zero request count');
+  assert.equal(roleOf(missing).byModel, null);
 });
 
 test('path confinement: parent-traversal and absolute transcript paths, and an escaping evidence path, are refused', () => {
@@ -469,7 +473,7 @@ test('rework: the episode count and its scope/maturity are in the copied Four-nu
   const w = reworkFixture([child('wr-2026-09-21-child-a', 60000)]);
   reworkNeed(w);
   const value = w.report.numbers.find((n) => n.key === 'reworkAfterAcceptance').value;
-  assert.match(value, /1 .*episode/i, 'episode count is in the row the operator copies');
+  assert.match(value, /episodes?:? *1\b|\b1 .*episode/i, 'episode count is in the row the operator copies');
   assert.match(value, /declared/i, 'scope limitation is in the text');
   assert.match(value, /mature/i, 'maturity is in the text');
   assert.match(value, /0 re-accept Log: entries after the first/, 'the existing re-accept companion stays separate and unchanged');
@@ -570,6 +574,8 @@ test('isTopTierModel: known non-top is false, top and configured are true, unkno
   assert.equal(isTopTierModel('zeta-9', ['zeta']), true, 'configured family matches');
   assert.equal(isTopTierModel('claude-sonnet-5-5', ['zeta']), false, 'known non-top stays false under configuration');
   assert.equal(isTopTierModel('mystery-model-1', ['zeta']), null);
+  // Root ruling: DELEGATION_TOP_TIER is a filter. A KNOWN top family excluded by it is false, not null.
+  for (const m of ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6-astra', 'gpt-5.6-sol']) assert.equal(isTopTierModel(m, ['zeta']), false, `excluded known top ${m}`);
 });
 
 function fourReadWithCombined(mutateCombined) {
