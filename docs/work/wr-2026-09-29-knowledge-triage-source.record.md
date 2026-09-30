@@ -7,7 +7,7 @@ Artifact: build/knowledge-triage-40-source@110bbe96c4f3ad4bad81cb18ede389740c414
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40-source
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40/source
 Evidence: docs/specs/knowledge-triage-40/ssh-startup-review.md, docs/specs/knowledge-triage-40/code-review-r3.md, docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/probe-r4-report.md
-Next: source/tests reviewed in integrated80760b3 with fresh full host gates green. Parent holds live-proof guard blocker; no further source/test work assigned.
+Next: no executable component work remains. Integrated source80760b3 was strictly accepted once by parent wr-2026-09-29-knowledge-triage and merged4aa46f39; parent is closed. Retain reviewed component evidence, not a separate accepted build. Installation is the parent handoff to the next release.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
@@ -24,7 +24,8 @@ Log: 2026-09-29T23:28:34.0949717Z delivered skills-a integrated final bounded re
 
 Predicts: independent source and test ownership reduces rework without blocking on the separate identifier-regression guard boundary.
 
-Observed: review causes repaired in sourcebac4849 and tests8e8c653. Integrated7cc858a sealed focused114tests111pass0fail3skip,leak0. Independent author reports six intended mutant reds. No live publication, successful full-host gates, installation or acceptance yet.
+Observed: component fixes and tests are integrated in parent80760b3 with Opus approval, two candidate host gates, clarified R2 live proof and repaired census. Parent merged4aa46f39 and closed after normal publish0c4baf3b. This component record remains reviewed; no separate acceptance or live install is claimed.
+
 
 
 
