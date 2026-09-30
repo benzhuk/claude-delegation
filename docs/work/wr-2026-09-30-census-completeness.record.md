@@ -5,7 +5,7 @@ Status: owned
 Authority: skills-fable-census-62-1, section A items1-4 at a3aa244b. One Opus spec red-team round, mid builds and tests, Opus review, two host suites and standing reviewed merge grant. No installs, release, guards or new orchestration.
 Artifact: none
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/census-completeness-62
-Evidence: none
+Evidence: docs/specs/census-completeness-62/bearings-assessment.md, docs/specs/census-completeness-62/bearings-publication.md
 Next: independent due bearings and bounded scout, then finalize one spec/contracts and one Opus red-team round before production build.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
@@ -16,3 +16,4 @@ Log: 2026-09-30T22:13:45.332Z owned skills-a late pickup acknowledged at18:11 Am
 
 Predicts: one mixed-host build reports all linked role usage, observable stall coverage, parent-attributed follow-up rework and a baseline-comparable token definition without false zeroes.
 Observed: not built. Existing native-only census and baseline limitations motivate this bounded instrument repair.
+
