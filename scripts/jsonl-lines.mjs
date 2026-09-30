@@ -12,14 +12,15 @@ export async function* lfLines(stream) {
   // for-await (not manual iteration) so an early consumer return destroys a Readable.
   for await (const chunk of stream) {
     if (typeof chunk !== 'string') throw new TypeError('lfLines expects UTF-8-decoded string chunks');
-    rest += chunk;
-    let start = 0;
-    let end;
-    while ((end = rest.indexOf('\n', start)) !== -1) {
-      yield stripCr(rest.slice(start, end));
+    let end = chunk.indexOf('\n');
+    if (end === -1) { rest += chunk; continue; }
+    yield stripCr(rest + chunk.slice(0, end));
+    let start = end + 1;
+    while ((end = chunk.indexOf('\n', start)) !== -1) {
+      yield stripCr(chunk.slice(start, end));
       start = end + 1;
     }
-    rest = rest.slice(start);
+    rest = chunk.slice(start);
   }
   if (rest.length > 0) yield stripCr(rest);
 }
