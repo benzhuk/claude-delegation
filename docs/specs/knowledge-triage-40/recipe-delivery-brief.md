@@ -1,0 +1,19 @@
+Task: Deliver only the independently approved prospective recipe-only.patch to the maintained dotfiles triage skill and its installed Windows copy. This mandate is executable only when root supplies the approving report path and exact candidate SHA in the launch prompt.
+Goal: Prevent future knowledge prose from being embedded in shell commands while retaining every existing denial/publication boundary.
+Work: wr-2026-09-29-knowledge-triage. Root alone writes records.
+
+Inputs: recipe-review.md (root-supplied path); recipe-only.patch and recipe-recovery-prep-r2.md beside this brief; lock-owner-delivered.md; live-proof-r1-report.md; C:/Users/benzh/.claude/skills/triage/SKILL.md for existing lock protocol.
+
+Authority: skills-fable-lane-40-12 authorizes a prospective recipe fix. It does not authorize replay of the denied R1 knowledge write. Only Windows skill delivery is needed for the subsequent separately scoped proof. No SSH or other-host deployment. Scheduled-only.patch is HELD until acceptance/merge.
+
+Owned paths: C:/Users/benzh/.local/share/chezmoi/dot_claude/skills/triage/SKILL.md and C:/Users/benzh/.claude/skills/triage/SKILL.md, exact reviewed patch only. Scratch receipt/evidence under the existing lane40 directory. No repo docs/work changes.
+
+Before mutation: confirm independent APPROVE and candidate identity; fresh source/live base hashes equal the reviewed base; dotfiles branch/main HEAD equals fresh origin/main; no staged files; no curated lock. Snapshot exact pre-existing dirty paths, index and their byte hashes. Preserve all unrelated dirty paths including AppleDouble and distill-session.sh. No reset, stash, clean, broad add, identity change or force push. If any predicate fails, stop and report without repair.
+
+Acquire the existing curated lock with its Node exclusive mkdir recipe, identifying this operation. Hold through exact authorized source/live update, commit/push, fresh remote and source/live verification. Retain the existing ownership token and release only exact owned lock contents on complete verified success. On failure retain lock and evidence, do not auto-recover.
+
+Apply only recipe-only.patch, after a dry-run in fresh Scratch copies succeeds. Use supported file editing for the skill; do not execute knowledge prose or the original denied payload. Stage exactly the one source skill path, require staged set exactly that path, commit using machine identity, push normal main and verify fresh remote SHA. Install only that exact skill using the established narrow chezmoi file operation, with no scripts or broad apply; source/live must equal the reviewed recipe-only candidate byte hash. Confirm all unrelated dirty status/index/hashes unchanged. If normal tooling canonicalizes bytes, stop before claiming the pin matches and report exact evidence.
+
+No scheduled text, README change, triage invocation, knowledge note write, task install, secrets, guard configuration, refused-operation retry, cleanup or new mechanism. A refusal stops its affected step and is reported verbatim; never switch tools to retry that refused operation.
+
+Evidence: first line VERDICT: DELIVERED or BLOCKED. Exact before/after source/live hashes, dotfiles commit and fresh remote verification, staged allowlist, preservation count/result, lock ownership/release status and any denial. Report to C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40/recipe-delivery-report.md. State alongside as recipe-delivery-state.md. ETA5minutes. Stop after one attempt, no automatic retry.
