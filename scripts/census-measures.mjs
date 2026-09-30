@@ -68,7 +68,10 @@ export function topTierModelList(env = process.env) {
   return list.map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
 
-/** true = top tier, false = a known lower family, null = unclassified (never silently "mid"). */
+/** true = top tier, false = a known family outside the (configured) top list, null = unclassified (never silently "mid").
+ * DELEGATION_TOP_TIER is a filter: a configured match is true (even an otherwise unknown name, by explicit override),
+ * and any other KNOWN family (default top or lower) is false, so configuring gpt-6-astra excludes Claude Opus
+ * without making the cell unavailable. Only genuinely unknown families are null. */
 export function isTopTierModel(model, configuredModels) {
   if (typeof model !== 'string' || !model.trim()) return null;
   const name = model.toLowerCase();
@@ -77,6 +80,7 @@ export function isTopTierModel(model, configuredModels) {
     : topTierModelList();
   if (tiers.some((tier) => name.includes(tier))) return true;
   if (KNOWN_NON_TOP_FAMILIES.some((family) => name.includes(family))) return false;
+  if (DEFAULT_TOP_TIER_MODELS.some((family) => name.includes(family))) return false;
   return null;
 }
 
