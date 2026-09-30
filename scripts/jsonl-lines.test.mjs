@@ -57,7 +57,7 @@ test('lfLines yields a final non-LF remainder once and does not invent a row aft
 test('lfLines rejects byte chunks instead of silently decoding a split UTF-8 sequence', async () => {
   await assert.rejects(
     () => collect(Readable.from([Buffer.from('one\n')])),
-    (error) => error instanceof TypeError && /utf8-decoded string chunks/i.test(error.message),
+    (error) => error instanceof TypeError && /utf-?8-decoded string chunks/i.test(error.message),
   );
 });
 
