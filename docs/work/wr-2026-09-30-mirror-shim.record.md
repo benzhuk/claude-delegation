@@ -1,7 +1,7 @@
 Work: wr-2026-09-30-mirror-shim
 Scope: docs/specs/mirror-shim-59b/spec.md (lane 59b), from skills-fable-janitor-59-4, written by the lead at b52757b9d78c328a4a3a4faaecec2581fa233e18
 Owner: skills-n
-Status: accepted
+Status: closed
 Authority: build and review on plugin branch build/mirror-shim-59b-1; merge on acceptance under the standing grant of 2026-09-26
 Next: accept, merge to main, close, RESULT to skills-fable
 Artifact: 9bc94906728cb412a549d6147d44222f247fc8be
@@ -64,6 +64,8 @@ Four numbers: Hours ask to accepted: 0.2h; largest gap 3.8min at 2026-09-30T13:4
 Four numbers: Rework after acceptance: 0 commits touching build files within 7 days; 0 re-accept Log: entries after the first
 Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n; wakes 0 (0 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
 Log: 2026-09-30T13:49:02.000Z accepted skills-n artifact 9bc94906728cb412a549d6147d44222f247fc8be
+Log: 2026-09-30T13:50:14.000Z merged skills-n build/mirror-shim-59b-1 into main at e15364735ae15b3b87fd441b2f01202409fcb840, suite 0 fail on Netcup
+Log: 2026-09-30T13:50:14.000Z closed skills-n merge e15364735ae15b3b87fd441b2f01202409fcb840
 
 Predicts: rework after acceptance drops, because a durable-path gated count is now tested by name and one gate ran in a durable checkout before merge.
 Observed: R4 red in a durable clone before the fix and green after, on Linux and on the Windows durable checkout; one builder round, one Opus review round.
