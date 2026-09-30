@@ -2,13 +2,13 @@ Work: wr-2026-09-29-knowledge-triage
 Scope: docs/specs/knowledge-triage-40/rev4.md
 Owner: skills-a
 Children: wr-2026-09-29-knowledge-triage-source, wr-2026-09-29-knowledge-triage-tests
-Status: owned
+Status: reviewed
 Authority: skills-fable-lane-40-1 rev4 build and manual proof, standing reviewed merge grant. skills-fable-lane-40-2 records Ben tick at17:11 America/New_York September29: install after acceptance/merge in next release, enable and start first run immediately. No hooks, janitor, other-host configuration, review-run or work-record production edits. Guards remain active.
 Artifact: build/knowledge-triage-40@72ca037be774bc043bb62dd4a5817200db2b7ff2
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/knowledge-triage-40
 Scratch: C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/knowledge-triage-40
-Evidence: docs/specs/knowledge-triage-40/focused-r4-receipt.md, docs/specs/knowledge-triage-40/code-review-r2.md, docs/specs/knowledge-triage-40/host-gates-r2-receipt.md, docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
-Next: independent Opus delta at72ca037, Netcup one-shot full gate and native Windows full suite. Then overall approval permits one manual live proof.
+Evidence: docs/specs/knowledge-triage-40/code-review-r3.md, docs/specs/knowledge-triage-40/windows-gate-r3.md, docs/specs/knowledge-triage-40/netcup-gate-r3.md, docs/specs/knowledge-triage-40/focused-r4-receipt.md, docs/specs/knowledge-triage-40/code-review-r2.md, docs/specs/knowledge-triage-40/host-gates-r2-receipt.md, docs/specs/knowledge-triage-40/focused-r3-report.md, docs/specs/knowledge-triage-40/code-review-r1.md, docs/specs/knowledge-triage-40/focused-r2-report.md, docs/specs/knowledge-triage-40/focused-r1-report.md, docs/specs/knowledge-triage-40/lock-owner-delivered.md, docs/specs/knowledge-triage-40/probe-r4-report.md, docs/specs/knowledge-triage-40/spec-review-r4.md, docs/specs/knowledge-triage-40/spec-review-r3.md, docs/specs/knowledge-triage-40/spec-r3-adjudication.md, docs/specs/knowledge-triage-40/probe-r3-report.md, docs/specs/knowledge-triage-40/lock-owner-r2-report.md, docs/specs/knowledge-triage-40/lock-owner-blocked.md, docs/specs/knowledge-triage-40/probe-r3-prep-report.md, docs/specs/knowledge-triage-40/scout-T1.md, docs/specs/knowledge-triage-40/scout-T2.md, docs/specs/knowledge-triage-40/scout-T3.md, docs/specs/knowledge-triage-40/probe-report.md, docs/specs/knowledge-triage-40/probe-r2-report.md, docs/specs/knowledge-triage-40/spec-review-r1.md, docs/specs/knowledge-triage-40/spec-review-r2.md, docs/specs/knowledge-triage-40/spec-r2-adjudication.md, docs/specs/knowledge-triage-40/bearings-assessment.md, docs/specs/knowledge-triage-40/guard-followup.md
+Next: one supervised manual live proof authorized after Opus approval and Windows green. Linux gate remains blocked by occupied Netcup verification lock; no acceptance/install before it passes.
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
 Spec-from: 2026-09-29T19:15:53Z
@@ -42,7 +42,7 @@ Log: 2026-09-29T23:28:34.0949717Z delivered skills-a integrated final bounded re
 
 Predicts: one existing Opus triage session over the gathered union lowers stalled knowledge backlog with per-host archive provenance and reported tokens, without duplicating processed notes or weakening publication guards.
 
-Observed: combined72ca037 focused158tests155pass0fail3skip, no leaks. All F1-F4 discriminating cases pass, original destructive archive mutants fail. Prior full Windows gate remains failed, Netcup untested. No live run or acceptance.
+Observed: Opus APPROVE72ca037 closes F1-F4. Windows full suite at docs-only8940a82 has3068pass0fail33skip, sealed leaks0, source/test trees identical to approved candidate. Netcup third attempt busy, zero tests. Manual proof now authorized, not yet completed. Bearings publication remains pending on full-page lint.
 
 Authority and supporting sources: docs/specs/knowledge-triage-40/rev4-intake.md, install-authority.md, territories.md, scout-ruling.md, spec-r1-adjudication.md, spec-review-r1.identity.json and bearings-lead-response.md. These are source/adjudication/publication documents, not independent verdict reports.
 
@@ -50,6 +50,7 @@ Installation update: skills-fable-lane-40-2 reports Ben's September29 17:11 Amer
 
 Log: 2026-09-29T23:47:33.8344672Z rejected skills-a independent Opus27395e06-59ed-4e3d-8a0c-27e3c9ac3fea NEEDS_FIXES4 at7cc858a, exit0 cleanup ok. Fresh independent bearings CONTINUE requires one bounded F1-F4 closure, prior prediction failed. Test-first red phase assigned, source held for red delivery. Native comparison308/308 supports role-marker diagnosis without changing guards.
 Log: 2026-09-29T23:55:14.0367627Z owned skills-a integrated independent tests5b08cc3:39pass3expected-fail, archive recovery cases green and both destructive mutants red. Warm Sonnet source receives third-round research mandate after red delivery. Publication of fresh bearings remains PENDING after full-page lint stop, no page edit.
+Log: 2026-09-30T00:13:49.3394154Z reviewed skills-a Claude Opus review-run7b7526f5-77f3-41e8-8fb1-41dc0209f504 APPROVE72ca037be774bc043bb62dd4a5817200db2b7ff2, identity docs/specs/knowledge-triage-40/code-review-r3.identity.json. Four conditions met, no new persistent state. O1 default packetless production-path mutation coverage and O2 possible loaded-host test timing remain non-blocking follow-ups. Windows native full gate green, one supervised manual proof assigned. No acceptance or install.
 
 
 
