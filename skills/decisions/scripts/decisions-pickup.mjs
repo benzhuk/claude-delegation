@@ -1615,15 +1615,24 @@ export function rebind(options, deps = {}) {
     }
     const lead = options.owner ? validateSlug('owner', options.owner) : null;
     const argv = receipt.exactSendInputs?.argv;
+    const outcome = receipt.accountingOutcome;
+    const outcomeFile = typeof outcome?.path === 'string' ? path.resolve(outcome.path) : null;
+    const movedOutcome = outcomeFile && sameOrInside(outcomeFile, path.resolve(receipt.project))
+      ? { accountingOutcome: { ...outcome, path: path.join(newProject, path.relative(path.resolve(receipt.project), outcomeFile)) } } : {};
     const rebound = {
       ...next,
+      ...movedOutcome,
       ...(Array.isArray(argv) ? { exactSendInputs: { ...receipt.exactSendInputs, argv: rebindArgv(argv, transportRepo) } } : {}),
-      ...(lead && receipt.owner && lead !== receipt.owner
+      ...(lead && receipt.owner && lead !== receipt.owner && receipt.state !== 'ACCOUNTED'
         ? { handoffStatus: 'PENDING_MANUAL_HANDOFF', requestedOwner: lead, handoffObservedAt: now.toISOString() } : {}),
     };
     const pointer = verifyPointer(rebound, fsImpl);
     if (pointer.status !== 'OK') {
       throw new PickupError(`the details pointer is not present under the new transport repository (${pointer.status})`);
+    }
+    const outcomeFailure = verifyAccountingOutcome(rebound, null, fsImpl);
+    if (outcomeFailure) {
+      throw new PickupError(`the accounting outcome does not verify under the new project (${outcomeFailure.status})`);
     }
     for (const target of targets) {
       if (target.state !== 'old') continue;

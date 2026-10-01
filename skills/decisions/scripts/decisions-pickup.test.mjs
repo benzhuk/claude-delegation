@@ -2146,3 +2146,48 @@ test('rebind 64b: the CLI verb runs through a child process and runCli, sealed t
   assert.equal(code, 1);
   assert.match(errors.join(''), /--from-project is required/);
 });
+
+async function buildAccounted(fx, outcomeDir = fx.repo) {
+  const first = await pickupOnce({ ...fx.options, owner: 'skills-a' }, deps(fx, { send: async () => ({}) }));
+  assert.equal(first.status, 'RECORDED');
+  fs.mkdirSync(outcomeDir, { recursive: true });
+  const report = path.join(outcomeDir, 'outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: fresh and checked\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+  const done = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
+  assert.equal(done.status, 'ACCOUNTED');
+  return done.receipt;
+}
+
+test('rebind 64b: an ACCOUNTED round whose outcome lived in the repo is rebound with its outcome verified', async (t) => {
+  const m = await movedRepo(t, { build: (fx) => buildAccounted(fx, path.join(fx.repo, 'docs')) });
+  assert.equal(m.receipt.state, 'ACCOUNTED');
+  const oldOutcome = m.receipt.accountingOutcome.path;
+  assert.equal(m.stat().status, 'PENDING_MANUAL_HANDOFF');
+  const out = m.run();
+  assert.equal(out.status, 'ACCOUNTED');
+  assert.equal(out.evidenceIntegrity.status, 'OK');
+  const after = m.stat();
+  assert.equal(after.status, 'ACCOUNTED');
+  assert.equal(after.evidenceIntegrity.status, 'OK');
+  const moved = after.receipt.accountingOutcome.path;
+  assert.notEqual(moved, oldOutcome);
+  assert.equal(path.relative(m.newProject, moved), path.join('docs', 'outcome.md'));
+  assert.equal(after.receipt.accountingOutcome.digest, m.receipt.accountingOutcome.digest);
+});
+
+test('rebind 64b: an ACCOUNTED round whose outcome is gone is refused with every file byte-identical', async (t) => {
+  const m = await movedRepo(t, { build: (fx) => buildAccounted(fx, path.join(fx.repo, 'docs')) });
+  fs.unlinkSync(path.join(m.moved, 'docs', 'outcome.md'));
+  const before = treeBytes(m.fx.agentsHome);
+  assert.throws(() => m.run(), (error) => error instanceof PickupError && /accounting outcome does not verify/.test(error.message));
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+});
+
+test('rebind 64b: a differing --owner sets no handoff marker on an ACCOUNTED receipt', async (t) => {
+  const m = await movedRepo(t, { build: (fx) => buildAccounted(fx, path.join(fx.repo, 'docs')) });
+  const out = m.run({ owner: 'skills-o' });
+  assert.equal(out.receipt.handoffStatus, undefined);
+  assert.equal(out.receipt.requestedOwner, undefined);
+  assert.equal(out.receipt.owner, 'skills-a');
+  assert.equal(m.stat().status, 'ACCOUNTED');
+});
