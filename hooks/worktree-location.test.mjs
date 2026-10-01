@@ -157,6 +157,8 @@ test('R4: an Agent mandate that names a Worktree: outside the folder is refused'
   for (const [line, leaf] of [
     [`Worktree: ${repo}/../wt-lane`, 'wt-lane'],
     ['Worktree: ../wt-lane', 'wt-lane'],
+    ['Worktree: ..\\wt-back', 'wt-back'],
+    ['Worktree: .\\wt-dot', 'wt-dot'],
     [`- **Worktree:** \`${path.posix.dirname(repo)}/wt-lane\` (branch build/x)`, 'wt-lane'],
     ['Worktree: C:/Users/someone/Code/wt-lane', 'wt-lane'],
   ]) {
@@ -231,13 +233,16 @@ test('R4: hooks.json routes Bash and PowerShell to this guard, and delete-guard 
 test('R4: a cd / pushd / Set-Location earlier in the same command moves the base the path is judged against', () => {
   const home = scratchHome();
   const repo = fixtureRepo();
-  const gitRunner = () => `${repo}/.git\n`; // a linked worktree answers with the main repo's .git
+  const gitRunner = (args, cwd) => { if (!fs.existsSync(cwd)) throw new Error('no such cwd'); return `${repo}/.git\n`; }; // as real git: a missing cwd fails
+  fs.mkdirSync(`${repo}/.claude/worktrees`, { recursive: true });
   const lane = `${repo}/.claude/worktrees/lane`;
   for (const [cmd, tool, leaf] of [
     [`cd ${repo} && git worktree add ../cd-escape -b y`, 'Bash', 'cd-escape'],
     [`Set-Location ${repo}; git worktree add ../sl-escape`, 'PowerShell', 'sl-escape'],
     [`pushd ${repo} && git worktree add ../pd-escape`, 'Bash', 'pd-escape'],
     [`cd "${repo}"\ngit worktree add ../q-escape`, 'Bash', 'q-escape'],
+    [`cd ${repo};git worktree add ../semi-escape`, 'Bash', 'semi-escape'],
+    [`bash -c "cd ${repo} && git worktree add ../bashc-escape"`, 'Bash', 'bashc-escape'],
   ]) {
     const r = decide(BASH(cmd, lane, tool), ctxFor(home, { gitRunner }));
     assert.deepEqual(r.rule, ['R4'], cmd);
@@ -246,6 +251,8 @@ test('R4: a cd / pushd / Set-Location earlier in the same command moves the base
   // A cd that stays inside the folder is fine, and a cd that cannot be placed is not judged.
   for (const cmd of [
     'cd .claude/worktrees && git worktree add wt-legit',
+    'cd -- .claude/worktrees && git worktree add wt-dd',
+    'bash -c "cd .claude/worktrees && git worktree add wt-bashc-legit"',
     `echo "x; cd ${repo}/.." ; git worktree add .claude/worktrees/ok`,
     'cd - && git worktree add ../wt-x',
     'cd $WT && git worktree add ../wt-x',
@@ -315,6 +322,14 @@ test('R4: executable spellings (Git, a quoted full path to git.exe) are judged, 
     'echo "a quoted & path to \\"C:\\Git\\git.exe\\" worktree add ../x"',
   ]) {
     assert.equal(decide(BASH(cmd, repo), ctxFor(home)).action, 'allow', cmd);
+  }
+  // A multi-line quoted string holding ` #` keeps its closing quote: the git after it is still judged.
+  for (const [cmd, leaf] of [
+    ['git commit -m "fix: x\nRefs #12"\ngit worktree add ../escape-a', 'escape-a'],
+    ['git commit -m "fix: x\nRefs #12" && git worktree add ../escape-b', 'escape-b'],
+    ['git commit -m "a\nb # c" && git worktree add ../escape-c', 'escape-c'],
+  ]) {
+    assert.equal(decide(BASH(cmd, repo), ctxFor(home)).text, r4Text(repo, leaf), cmd);
   }
   // A `#` with no space before it is part of a word, not a comment.
   assert.deepEqual(decide(BASH('git worktree add ../x#frag', repo), ctxFor(home)).rule, ['R4']);

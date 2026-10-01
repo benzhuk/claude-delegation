@@ -115,14 +115,13 @@ function insideFolder(target, repo, ctx) {
 // ─── command scanning ───
 
 /** Drop an unquoted `#` (at line start or after whitespace) through the end of the line. */
-function stripComment(line) {
-  let quote = null;
+function stripComment(line, state) {
   for (let i = 0; i < line.length; i += 1) {
     const c = line[i];
-    if (quote) {
-      if (c === quote) quote = null;
+    if (state.quote) {
+      if (c === state.quote) state.quote = null;
     } else if (c === '"' || c === "'") {
-      quote = c;
+      state.quote = c;
     } else if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) {
       return line.slice(0, i);
     }
@@ -134,13 +133,14 @@ function stripComment(line) {
 function stripHeredocs(command) {
   const out = [];
   let pending = null;
+  const quoteState = { quote: null }; // a quote opened on one line stays open on the next
   for (const line of command.split('\n')) {
     if (pending) {
       const t = line.trim();
       if (pending.ps ? t.startsWith(pending.term) : t === pending.term) pending = null;
       continue;
     }
-    out.push(stripComment(line));
+    out.push(stripComment(line, quoteState));
     const h = /(?<!<)<<-?[ \t]*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_]\w*))/.exec(line);
     if (h) { pending = { term: h[1] ?? h[2] ?? h[3], ps: false }; continue; }
     const t = line.trimEnd();
@@ -213,7 +213,8 @@ function argTokens(command, from) {
 }
 
 /** A directory change earlier in the same command: git sees the cwd it leaves behind. */
-const CD_RE = new RegExp(String.raw`(?:^|[;&|\n(])\s*(?:cd|pushd|chdir|set-location|sl|push-location)(?:\s+(?:-(?:literal)?path\s+)?(?![;&|)])(${VAL}))?(?=\s*(?:$|[;&|\n)]))`, 'gi');
+const CD_VAL = String.raw`(?:"[^"]*"|'[^']*'|[^\s;&|)]+)`;
+const CD_RE = new RegExp(String.raw`(?:^|[;&|\n(])\s*(?:cd|pushd|chdir|set-location|sl|push-location)(?:\s+(?:--\s+|-(?:literal)?path\s+)?(?![;&|)])(${CD_VAL}))?(?=\s*(?:$|[;&|\n)]))`, 'gi');
 
 const VALUE_FLAGS = new Set(['-b', '-B', '--reason']);
 
@@ -269,12 +270,21 @@ export function checkBashWorktreeAdd(input, ctx = {}) {
       if (/--(?:git-dir|work-tree)\b/.test(globals)) continue; // layout we cannot judge
 
       let dir = callCwd;
-      let ok = true;
-      for (const c of command.slice(0, segStart[m.index]).matchAll(CD_RE)) {
-        if (inQuote[c.index]) continue; // `echo "x; cd /y"` is text, not a directory change
-        const v = (c[1] ?? '~').replace(/^(["'])(.*)\1$/, '$2');
-        if (v === '-' || UNRESOLVABLE_RE.test(v)) { ok = false; break; } // `cd -`, `cd $X`: cannot place, allow
-        dir = joinFrom(dir, expandHome(v, home), platform);
+      const replayCd = (text, skip) => {
+        for (const c of text.matchAll(CD_RE)) {
+          if (skip(c.index)) continue;
+          const v = (c[1] ?? '~').replace(/^(["'])(.*)\1$/, '$2');
+          if (v === '-' || UNRESOLVABLE_RE.test(v)) return false; // `cd -`, `cd $X`: cannot place, allow
+          dir = joinFrom(dir, expandHome(v, home), platform);
+        }
+        return true;
+      };
+      // `echo "x; cd /y"` is text, not a directory change ...
+      let ok = replayCd(command.slice(0, segStart[m.index]), (i) => inQuote[i]);
+      // ... but `bash -c "cd /y && git worktree add .."` runs the quoted cd first.
+      if (ok && inQuote[m.index]) {
+        const q = head.search(/["']/);
+        ok = replayCd(q >= 0 ? head.slice(q + 1) : '', () => false);
       }
       if (!ok) continue;
       for (const c of globals.matchAll(new RegExp(String.raw`-C\s*(${VAL})`, 'g'))) {
@@ -336,7 +346,7 @@ export function checkAgentWorktree(input, ctx = {}) {
       const token = firstValueToken(m[1]);
       if (!token || UNRESOLVABLE_RE.test(token) || /[<>]/.test(token)) continue;
       const pathish = isAbs(toPosix(token)) || /^\/[A-Za-z]\//.test(token) || /^~\//.test(token)
-        || /^\.{1,2}[\/]/.test(token);
+        || /^\.{1,2}[\\/]/.test(token);
       if (!pathish) continue; // `none`, a branch name, prose
       const target = joinFrom(callCwd, expandHome(token, home), platform);
       if (foldFor(platform)(target).includes(`/${WORKTREE_FOLDER}/`)) continue; // a name follows (no trailing slash survives normAbs)
