@@ -1,0 +1,51 @@
+✔ PLUGIN_SKILLS includes notion-writing, dev-server, bearings, and janitor (0.7036ms)
+✔ CLAUDE_SKILLS no longer includes dev-server (0.0828ms)
+✔ plugin skills actually resolve to sources under <repo>/skills/, not ~/.claude/skills/ (2.2567ms)
+✔ lane 53 m7: the mirrored team-build copy contains scripts/review-run.mjs (Codex reaches it), not its .test.mjs twin (1.6818ms)
+✔ work-record.md resolves as a shared document into the synthetic Codex docs home (1.8896ms)
+✔ isNewerVersion: clearly newer major (0.2143ms)
+✔ isNewerVersion: clearly older major (0.1205ms)
+✔ isNewerVersion: equal versions are not "newer" (0.0694ms)
+✔ isNewerVersion: F8 table case — "0.13.0" vs "0.5.0" is newer as semver though not as a string (0.0771ms)
+✔ isNewerVersion: compares left to right — minor and patch decide when major ties (0.1858ms)
+✔ isNewerVersion: a prerelease/build suffix after the third component is ignored (0.0683ms)
+✔ isNewerVersion: malformed on either side is null, never true or false (0.0616ms)
+✔ D2: --codex-hooks-only wires the delete-guard automatically (or cleanly refuses), no separate flag needed (66.9049ms)
+✔ D2: an unknown flag (the old --codex-hooks-delete-guard) is refused, not silently accepted (67.4057ms)
+✔ lane 39: the mirrored notion-writing skill carries a runnable page-lint.mjs (copy on win32, symlink on POSIX) (499.0931ms)
+✔ F12: the reclaim shim is gated by isDurablePath(REPO), targeting THIS repo's own scripts/reclaim.mjs, never the mirrored copy (1.5803ms)
+✔ review finding 6: isLinkedWorktree() tells a linked git worktree apart from the main checkout it came from (195.4761ms)
+✔ review finding 6: isLinkedWorktree(REPO) agrees with `git rev-parse --git-dir` vs `--git-common-dir` on THIS lane's own, real checkout (70.7769ms)
+✔ F12: a run from this (non-durable) checkout prints "SKIP reclaim shim: <REPO> is not durable" and writes no reclaim shim file (128.9176ms)
+✔ F9/F10: every run prints both ALLOW lines, --write-allow or not, --dry-run or not, install or --uninstall (311.3903ms)
+✔ F11: --write-allow adds Bash(reclaim *) to an existing, unmanaged settings.json, preserving every other key/order, mode, and leaving a backup outside ~/.claude (211.7945ms)
+✔ F11: --write-allow SKIPs (does not write) when settings.json is absent (135.5518ms)
+✔ F11: --write-allow SKIPs a symlinked settings.json (chezmoi symlink_ hazard) rather than replacing it with a regular file (147.0583ms)
+✔ F11: --write-allow SKIPs invalid JSON, and the SKIP line names none of the file's own bytes (147.32ms)
+✔ F11: --write-allow SKIPs when the file does not already round-trip byte-identically through 2-space JSON.stringify (151.8089ms)
+✔ F11: --write-allow accepts a CRLF file that round-trips after CRLF-to-LF normalisation, and rewrites it LF (213.0344ms)
+✔ F10: --write-allow SKIPs with "line present" when permissions.allow already has Bash(reclaim *) (130.5564ms)
+✔ F10: --write-allow SKIPs with "line present" when permissions.allow already has Bash(reclaim:*) (132.1856ms)
+✔ F10: --write-allow WARNs and never writes when permissions.deny already has a Bash(reclaim...) rule (130.8737ms)
+✔ F10: --write-allow WARNs and never writes when permissions.ask already has a Bash(reclaim...) rule (131.861ms)
+﹣ F11: --write-allow SKIPs as chezmoi-managed when a fake chezmoi on PATH lists the settings file (relative to $HOME) (0.1036ms) # measured on the lane 59 Windows gate: chezmoiManagedStatus() calls execFileSync('chezmoi', ...) with no shell option, which throws ENOENT for a .cmd stand-in on current, patched Node (post CVE-2024-27980, a resolved .bat/.cmd is only auto-wrapped through cmd.exe when the caller passes shell:true) - a test-fixture limitation only, not a claim that chezmoi detection is unavailable on win32 itself.
+﹣ F11: --write-allow SKIPs as "chezmoi check failed" when chezmoi is on PATH but errors (0.0747ms) # measured on the lane 59 Windows gate: chezmoiManagedStatus() calls execFileSync('chezmoi', ...) with no shell option, which throws ENOENT for a .cmd stand-in on current, patched Node (post CVE-2024-27980, a resolved .bat/.cmd is only auto-wrapped through cmd.exe when the caller passes shell:true) - a test-fixture limitation only, not a claim that chezmoi detection is unavailable on win32 itself.
+✔ F11: --write-allow --dry-run writes nothing at all, but still reports the would-write line (135.02ms)
+✔ review finding 7: --write-allow SKIPs with "backup failed" (never writes settings.json unbacked) when the backup dir cannot be created (195.8079ms)
+✔ F9: --write-allow appends the codex prefix_rule line when the rules file exists, the path is certain, and the line is absent (204.5056ms)
+✔ F9: --write-allow SKIPs the codex rules file when absent (136.7375ms)
+✔ F9: --write-allow SKIPs the codex rules file with "line present" when it already carries the prefix_rule (154.9276ms)
+﹣ F9: --write-allow SKIPs the codex rules file as chezmoi-managed (0.1148ms) # measured on the lane 59 Windows gate: chezmoiManagedStatus() calls execFileSync('chezmoi', ...) with no shell option, which throws ENOENT for a .cmd stand-in on current, patched Node (post CVE-2024-27980, a resolved .bat/.cmd is only auto-wrapped through cmd.exe when the caller passes shell:true) - a test-fixture limitation only, not a claim that chezmoi detection is unavailable on win32 itself.
+✔ F9: isCodexRulesPathCertain is true only for the single plain ~/.codex home — false when CODEX_HOME overrides it or an Orca-managed account home also exists (5.0376ms)
+✔ F9: --write-allow prints a SKIP (print-only) for the codex line, never touching the file, when CODEX_HOME makes the path uncertain (148.704ms)
+✔ review finding 14: a previously-managed reclaim shim entry survives manifest reconciliation on a run that skips it, instead of being silently dropped (171.0191ms)
+✔ review finding R2-5: an entry merely NAMED reclaim outside LOCAL_BIN is dropped normally, not protected by the carry-forward clause (173.8022ms)
+✔ F10 probe P-allow: recorded as documented behavior above this test, not re-run here (needs a live claude CLI) (0.0704ms) # TODO
+ℹ tests 43
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 3
+ℹ todo 1
+ℹ duration_ms 4305.8986
