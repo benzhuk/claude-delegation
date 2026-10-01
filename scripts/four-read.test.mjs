@@ -1755,3 +1755,111 @@ test('main: --spec-census pointed at the census markdown refuses with exit 2, mi
   assert.equal(fs.existsSync(outMd), false);
   assert.equal(fs.existsSync(outJson), false);
 });
+
+// ── Lane 68 (census68): "pane silent" vs "waiting on a peer" ───────────────────────────────
+// A lead gap over 30 min, outside the Agent/Task/Workflow union, that starts while the record's
+// Status is `owned`, is named: "waiting on a peer" when the lead has an ASK to a peer unanswered
+// at the gap start, else "pane silent". The leading stalled integer keeps its meaning.
+const L68_MIN = 60000;
+const L68_T0 = Date.parse('2026-01-01T00:00:00.000Z');
+const L68_WINDOW = { openedMs: L68_T0, acceptedMs: L68_T0 + 300 * L68_MIN };
+const L68_LEAD_TS = [L68_T0 + 10 * L68_MIN, L68_T0 + 50 * L68_MIN]; // one 40 min gap from +10min
+const L68_GAP_ISO = new Date(L68_T0 + 10 * L68_MIN).toISOString();
+const l68Ledger = (lines) => {
+  const dir = mkTmp('four-read-l68-ledger-');
+  fs.writeFileSync(path.join(dir, '2026-01-01.md'), `${lines.join('\n')}\n`);
+  return collectLedgerEntries(dir, fs);
+};
+const l68Owned = [{ ms: L68_T0, status: 'owned' }, { ms: L68_T0 + 200 * L68_MIN, status: 'accepted' }];
+// The ledger clock is New York wall time; build its stamp from an absolute instant.
+const l68Stamp = (ms) => {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, year: '2-digit', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ms));
+  const g = (t) => p.find((x) => x.type === t).value;
+  return `${g('month')}.${g('day')}.${g('year')} ${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}`;
+};
+const l68Ask = (id, from, to, ms) => `${from} → ${to}, ${l68Stamp(ms)} NYC [${id}] ASK: x. Needs: none`;
+const l68Reply = (id, re, from, to, ms) => `${from} → ${to}, ${l68Stamp(ms)} NYC [${id} re ${re}] RESULT: x. Needs: none`;
+
+test('lane 68: an owned-record gap with no open ASK to a peer reads "pane silent <min> min from <ISO>", the stalled integer unchanged, no "waiting on a peer"', () => {
+  const ledger = l68Ledger([l68Ask('inbound-1', 'peer-x', 'lead-a', L68_T0 + 1 * L68_MIN)]);
+  const r = computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, l68Owned);
+  assert.match(r.value, /^1 gap\(s\) over 30min stalled: /);
+  assert.ok(r.value.includes(`; pane silent 40.0 min from ${L68_GAP_ISO}; `), r.value);
+  assert.ok(!r.value.includes('waiting on a peer'), r.value);
+});
+
+test('lane 68: an unanswered ASK from the lead to a peer at the gap start makes it "waiting on a peer", not pane silent', () => {
+  const ledger = l68Ledger([l68Ask('out-1', 'lead-a', 'peer-x', L68_T0 + 2 * L68_MIN)]);
+  const r = computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, l68Owned);
+  assert.ok(r.value.includes(`; waiting on a peer 40.0 min from ${L68_GAP_ISO} (ASK out-1 to peer-x); `), r.value);
+  assert.ok(!r.value.includes('pane silent'), r.value);
+  assert.match(r.value, /^1 gap\(s\) over 30min stalled: /);
+});
+
+test('lane 68: an ASK answered before the gap start no longer counts; one answered after it still does', () => {
+  const before = l68Ledger([
+    l68Ask('out-1', 'lead-a', 'peer-x', L68_T0 + 1 * L68_MIN),
+    l68Reply('res-1', 'out-1', 'peer-x', 'lead-a', L68_T0 + 5 * L68_MIN),
+  ]);
+  assert.ok(computeWorkLostOrStalled(L68_LEAD_TS, before, 'lead-a', L68_WINDOW, null, [], null, null, l68Owned).value.includes('pane silent 40.0 min'));
+  const after = l68Ledger([
+    l68Ask('out-1', 'lead-a', 'peer-x', L68_T0 + 1 * L68_MIN),
+    l68Reply('res-1', 'out-1', 'peer-x', 'lead-a', L68_T0 + 30 * L68_MIN),
+  ]);
+  assert.ok(computeWorkLostOrStalled(L68_LEAD_TS, after, 'lead-a', L68_WINDOW, null, [], null, null, l68Owned).value.includes('waiting on a peer 40.0 min'));
+});
+
+test('lane 68: an ASK older than the build window does not make a gap "waiting on a peer"', () => {
+  const ledger = l68Ledger([l68Ask('old-1', 'lead-a', 'peer-x', L68_T0 - 600 * L68_MIN)]);
+  const r = computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, l68Owned);
+  assert.ok(r.value.includes('pane silent 40.0 min'), r.value);
+});
+
+test('lane 68: a gap while the record is not owned keeps today\'s wording, byte for byte', () => {
+  const ledger = l68Ledger([l68Ask('inbound-1', 'peer-x', 'lead-a', L68_T0 + 1 * L68_MIN)]);
+  const legacy = computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, []).value;
+  for (const status of ['delivered', 'reviewed', 'blocked', 'runnable']) {
+    const r = computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, [{ ms: L68_T0, status }]);
+    assert.equal(r.value, legacy, status);
+  }
+  // before the first Log: entry there is no status yet
+  assert.equal(computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, [{ ms: L68_T0 + 20 * L68_MIN, status: 'owned' }]).value, legacy);
+  // and no attribution input at all (null) is today's output
+  assert.equal(computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, null).value, legacy);
+});
+
+test('lane 68: a gap inside an Agent span is waiting-on-agents, never pane silent', () => {
+  const ledger = l68Ledger([l68Ask('inbound-1', 'peer-x', 'lead-a', L68_T0 + 1 * L68_MIN)]);
+  const r = computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [[L68_T0, L68_T0 + 60 * L68_MIN]], null, null, l68Owned);
+  assert.match(r.value, /^0 gap\(s\) over 30min stalled; 1 waiting-on-agents \(40\.0 min\);/);
+  assert.ok(!r.value.includes('pane silent'), r.value);
+});
+
+test('lane 68: Status or the ledger unavailable reads "stall attribution unavailable (<reason>)", never a silent zero', () => {
+  const ledger = l68Ledger([l68Ask('inbound-1', 'peer-x', 'lead-a', L68_T0 + 1 * L68_MIN)]);
+  assert.ok(computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'lead-a', L68_WINDOW, null, [], null, null, { reason: 'no readable Log: entries in the record' }).value
+    .includes('; stall attribution unavailable (no readable Log: entries in the record); '));
+  assert.ok(computeWorkLostOrStalled(L68_LEAD_TS, null, 'lead-a', L68_WINDOW, null, [], null, null, l68Owned).value.includes('; stall attribution unavailable (no ledger dir); '));
+  assert.ok(computeWorkLostOrStalled(L68_LEAD_TS, ledger, null, L68_WINDOW, null, [], null, null, l68Owned).value.includes('; stall attribution unavailable (no --lead-slug); '));
+  assert.ok(computeWorkLostOrStalled(L68_LEAD_TS, ledger, 'ghost', L68_WINDOW, null, [], null, null, l68Owned).value.includes('; stall attribution unavailable (slug ghost not in ledger); '));
+});
+
+test('lane 68: a Codex native response-gap heuristic is not attributed', () => {
+  const r = computeWorkLostOrStalled(L68_LEAD_TS, null, 'lead-a', L68_WINDOW, null, [], null, 'native API response gap', l68Owned);
+  assert.ok(!/pane silent|waiting on a peer|stall attribution unavailable/.test(r.value), r.value);
+});
+
+test('lane 68: buildFourRead on a record that is owned across the fixture 45 min gap names it "pane silent", and the leading integer is unchanged', async () => {
+  const dir = mkTmp('four-read-l68-build-');
+  const censusPath = await buildCensusFile(dir);
+  // the fixture record logs `owned` only at 00:30, after the 00:15 gap starts: move it to 00:00
+  const owned = fs.readFileSync(RECORD, 'utf8').replace('Log: 2026-09-01T00:30:00.000Z owned', 'Log: 2026-09-01T00:00:00.000Z owned');
+  const recordPath = path.join(dir, 'record.md');
+  fs.writeFileSync(recordPath, owned);
+  const before = buildFourRead({ record: RECORD, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).numbers[3].value;
+  const after = buildFourRead({ record: recordPath, census: censusPath, ledger: LEDGER, leadSlug: 'test-lead' }, fs).numbers[3].value;
+  assert.match(before, /^1 gap\(s\) over 30min stalled: 2026-09-01T00:15:00\.000Z \(45\.0min\); 0 waiting-on-agents \(0\.0 min\); 1 unanswered ASK\(s\) to test-lead: fixture-ask-2;/);
+  assert.ok(!before.includes('pane silent'));
+  assert.match(after, /^1 gap\(s\) over 30min stalled: 2026-09-01T00:15:00\.000Z \(45\.0min\); 0 waiting-on-agents \(0\.0 min\); pane silent 45\.0 min from 2026-09-01T00:15:00\.000Z; 1 unanswered ASK\(s\) to test-lead: fixture-ask-2;/);
+  assert.equal(/^(\d+)/.exec(after)[1], /^(\d+)/.exec(before)[1]);
+});
