@@ -416,15 +416,22 @@ limit, so an agent that ignores its prompt is not stopped by the script; the lea
 overdue check (`docs/agent-pacing.md`) remains the backstop.
 
 **Loop state and resume**: with `recordPath` given, the script keeps
-`docs/work/<work-id>.loop-state.json` beside the record (inside `integrationWorktree`), one
-runner write after each of Setup, Build, Review, Fix, Integrate, Seam and Accept, and reads it
-once at launch. A state with `version` 1 and the same `baseSha` and `specPath` resumes: a
+`docs/work/<work-id>.loop-state.json` beside the record (inside `integrationWorktree`), a
+runner write after each of Setup, Build, Review, Fix, Integrate, Seam and Accept (coalesced
+across territories that finish a phase together; about one per territory per phase when they
+finish apart), and reads it once at launch. A territory never waits on its own write, so a
+hung state runner cannot stall the build. A state with `version` 1 and the same `baseSha` and `specPath` resumes: a
 territory it records as `APPROVE` (or `NEEDS_FIXES` with findings) starts from there as an
 implicit `startFrom`, an integrator recorded `PASS` over the same approved shas is not run
 again, a seam recorded `APPROVE` over the same integrator head is not run again, and a
 recorded Setup that still verifies is not redone. An explicit `startFrom` in `args` beats the
 state; a state for another base or spec is ignored (logged) and the run starts fresh. The
 file is the lead's to commit with the record, after `accept`; the runners never stage it.
+The seam row is written only after a seam round completes, so a run that dies after a seam-fix
+commit but before the seam re-review resumes with the integrator skipped and the seam reviewer
+reading a newer head than the recorded one, which fails closed as `review-sha-mismatch`:
+relaunch such a run with the integrator re-run (no state file, or delete the recorded
+integrator row), not as a plain resume.
 
 **Second host (`secondHost`, `secondHostGate`)**: `secondHost` is an ssh alias; the last
 phase has one runner run the sealed suite once there, over ssh, against the integration
@@ -449,9 +456,10 @@ as `census-stale` — then run `work-record.mjs accept --record <recordPath> --r
 (`--no-census "<reason>"` only when the census itself breaks), push the branch, merge into
 main per Ship's merge paragraph, post the Closed entry, and only
 then send ONE RESULT. The record and its evidence are committed only after `accept`
-succeeds, never between accept-prep and `accept`: accept-prep and `accept` both read the
-record's bytes, and a commit in between only makes `census-stale` and a moved `Spec-from:`
-harder to read.
+succeeds, never between accept-prep and `accept`, and before the push and merge above:
+accept-prep pins `Artifact:` to the reviewed integration head, and a commit on the
+integration branch in between moves HEAD off `Artifact:`, so live check-acceptance and
+`accept` refuse with `Artifact <sha> does not match delivery <sha>`.
 Otherwise the first of these that applies decides the one next step: a `blockers` entry
 (a territory id, `seam`, `accept-prep` when it failed (`accept-prep-failed`: the
 check-acceptance step said `FAIL`, nothing in the record changed, or the runner reported an

@@ -4015,6 +4015,7 @@ test("lane 67: skills/team-build/SKILL.md names one route, the opening fields, t
   }
   // the accept turn: commit only after accept succeeds
   assert.match(text, /committed only after `accept`\s+succeeds, never between accept-prep and `accept`/);
+  assert.match(text, /moves HEAD off `Artifact:`/);
   // the pinned census paragraph is untouched
   assert.ok(text.includes("Run the census at accept time, as its own command after the last review's `Log: ... reviewed` line is on the record:"));
 });

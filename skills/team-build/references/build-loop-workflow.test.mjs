@@ -2048,8 +2048,33 @@ test("lane 67 item 3: parallel territories coalesce their state writes: two terr
   });
   await runScript(args, stub);
   const buildReviewWrites = stub.stateCalls.filter((c) => c.opts.label === "state:Build" || c.opts.label === "state:Review").length;
-  assert.ok(buildReviewWrites <= 4, `two territories, one round: at most 2 writes per phase, saw ${buildReviewWrites}`);
+  assert.ok(buildReviewWrites < 4, `two territories, one round: coalescing must beat one write per territory per phase (4), saw ${buildReviewWrites}`);
   assert.ok(buildReviewWrites >= 2);
+});
+
+test("lane 67 item 3: a territory never waits on its own state write: the review starts while the Build write is still pending", async () => {
+  let released = false;
+  let release;
+  const pending = new Promise((r) => { release = (v) => { released = true; r(v); }; });
+  const timer = setTimeout(() => release({ path: "state-file", written: true }), 300);
+  const inner = makeAgentStub({
+    "state:Build": pending,
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "a.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(L67_GIVEN),
+  });
+  let reviewStartedWhilePending = false;
+  const agentStub = async (prompt, opts) => {
+    if (opts.label === "review:T1:r1") { reviewStartedWhilePending = !released; release({ path: "state-file", written: true }); }
+    return inner(prompt, opts);
+  };
+  agentStub.calls = inner.calls;
+  agentStub.stateCalls = inner.stateCalls;
+  const result = await runScript(L67_GIVEN, agentStub);
+  clearTimeout(timer);
+  assert.ok(reviewStartedWhilePending, "review ran before the pending state write was released");
+  assert.equal(result.territories[0].verdict, "APPROVE");
 });
 
 test("lane 67 item 3: a state write that fails (null) is logged and the build carries on", async () => {
@@ -2192,6 +2217,32 @@ test("lane 67 item 3: a seam the state records as APPROVE for the same integrato
   assert.equal(result.seam.sha, seamSha);
   assert.equal(result.seam.rounds, 2);
   assert.deepEqual(result.blockers, []);
+});
+
+test("lane 67 item 3: a seam the state records as APPROVE over a DIFFERENT integrator head is stale and the seam runs again", async () => {
+  const args = { ...L67_GIVEN, territories: [T1, T2] };
+  const oldHead = "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a";
+  const state = {
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Seam",
+    territories: [
+      { id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "APPROVE", rounds: 1, findingsPath: "a.md", blocker: null },
+      { id: "T2", phase: "Review", sha: "bbbbbbb2", verdict: "APPROVE", rounds: 1, findingsPath: "b.md", blocker: null },
+    ],
+    integrator: null,
+    seam: { verdict: "APPROVE", sha: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", rounds: 1, findingsPath: "s.md", blocker: null, integrateHead: oldHead },
+    setup: null, acceptance: null,
+  };
+  const stub = makeAgentStub({
+    "state:read": { found: true, state },
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "seam:r1": reviewResult("APPROVE", FULL_HEAD, "s2.md"),
+    "accept-prep": acceptOkFor(args),
+  });
+  const run = runScript(args, stub);
+  const result = await run;
+  assert.ok(stub.calls.some((c) => c.opts.label === "integrate"), "the integrator ran (no recorded integrator row)");
+  assert.ok(stub.calls.some((c) => c.opts.label === "seam:r1"), "a seam recorded over another integrator head is not reused");
+  assert.equal(result.seam.sha, FULL_HEAD);
 });
 
 test("lane 67 item 3: a setup-mode relaunch whose state shows Setup done reuses the recorded names, verified as today, and spawns no setup runner", async () => {

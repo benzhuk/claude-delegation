@@ -222,7 +222,7 @@ const SECOND_HOST_MANDATE =
 // agent wedged on a permission prompt or a dead tool call never returns and is NOT ended by
 // this. A harder mechanism (a run-level abort or a watchdog) is the lead's ruling to make.
 function deadlineLine() {
-  return `Wall-clock limit ${agentMinutes} minutes from your start; at ${agentMinutes} minutes stop, write your report with VERDICT: BLOCKED and the reason timeout, and return (a reviewer or integrator returns verdict BLOCKED with timeout in its note field).`
+  return `Wall-clock limit ${agentMinutes} minutes from your start; at ${agentMinutes} minutes stop, write your report with VERDICT: BLOCKED and the reason timeout, and return (a reviewer or integrator returns verdict BLOCKED with timeout in its note field; for a reviewer this overrides the APPROVE/NEEDS_FIXES first-line rule).`
 }
 
 // lane 67 item 2: does a returned BLOCKED name the timeout? Reads a note, a reason or a
@@ -398,9 +398,11 @@ function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorB
     .map((c) => `${c.id}: worktree ${c.worktree}, branch ${c.branch}, brief ${c.briefPath}`)
     .join('; ')
   // lane 67 item 4c: the integrator brief the Setup stage writes must NOT make the integrator
-  // refuse when a seam review follows. Lane fourteen's integrator refused "on seam order": the
-  // brief the runner wrote required seam sign-off before the merge, while the loop runs the seam
-  // review AFTER Integrate (the integrator never judges the seam). The sentence below closes that.
+  // refuse when a seam review follows. Lane fourteen's integrator refused "on seam order"
+  // (docs/work/wr-2026-09-27-measure-truth.record.md:19); the brief that caused it is not in the
+  // tree, so the cause below is inferred: a brief that required seam sign-off before the merge,
+  // while the loop runs the seam review AFTER Integrate (the integrator never judges the seam).
+  // The sentence below closes that.
   const integrationText = integrationWorktree
     ? ` The integrator brief names integration worktree ${integrationWorktree}${integrationBranch ? `, branch ${integrationBranch}` : ''}${integrationGate ? `, full-suite gate ${integrationGate}` : ''}.`
     : ''
@@ -602,9 +604,12 @@ function stateReadPrompt() {
 }
 
 // One write after each phase; territories run in parallel, so writes requested while one is in
-// flight coalesce into ONE more write (the state is rendered when the call starts), which keeps
-// the runner calls to about one per phase per round rather than one per territory. A failed
-// write is logged and the build carries on: the state file is a convenience, never a gate.
+// flight coalesce into ONE more write (the state is rendered when the call starts). Territories
+// that finish a phase together share a write; territories that finish minutes apart cost about
+// one write per territory per phase. A failed write is logged and the build carries on: the
+// state file is a convenience, never a gate. A territory does NOT await its own write (it starts
+// it with `void`), so a state runner that hangs never stalls the territories; the Integrate,
+// Seam and Accept flushes are awaited and join any write still in flight.
 let stateFlight = null
 let stateDirty = false
 let stateNext = null
@@ -870,7 +875,7 @@ async function runTerritory(t) {
   }
   state = { ...state, sha: build.sha, verdict: build.verdict, reportPath: build.reportPath, rounds: round }
   noteTerritory(t.id, { phase: round === 1 ? 'Build' : 'Fix', sha: build.sha, verdict: build.verdict, rounds: round, blocker: build.verdict === 'PASS' ? null : buildBlockerFor(build) })
-  await flushState(round === 1 ? 'Build' : 'Fix')
+  void flushState(round === 1 ? 'Build' : 'Fix')
   if (build.verdict !== 'PASS') {
     return { ...state, blocker: buildBlockerFor(build) }
   }
@@ -896,7 +901,7 @@ async function runTerritory(t) {
   }
   state = { ...state, sha: longerSha(build.sha, review.sha) }
   noteTerritory(t.id, { phase: 'Review', sha: state.sha, verdict: review.verdict, rounds: round, findingsPath: review.findingsPath ?? null, blocker: null })
-  await flushState('Review')
+  void flushState('Review')
 
   while (review.verdict === 'NEEDS_FIXES' && round < maxRounds) {
     round += 1
@@ -917,7 +922,7 @@ async function runTerritory(t) {
     }
     state = { ...state, sha: build.sha, verdict: build.verdict, reportPath: build.reportPath }
     noteTerritory(t.id, { phase: 'Fix', sha: build.sha, verdict: build.verdict, rounds: round, blocker: build.verdict === 'PASS' ? null : buildBlockerFor(build) })
-    await flushState('Fix')
+    void flushState('Fix')
     if (build.verdict !== 'PASS') {
       return { ...state, blocker: buildBlockerFor(build) }
     }
@@ -943,7 +948,7 @@ async function runTerritory(t) {
     }
     state = { ...state, sha: longerSha(build.sha, review.sha) }
     noteTerritory(t.id, { phase: 'Review', sha: state.sha, verdict: review.verdict, rounds: round, findingsPath: review.findingsPath ?? null, blocker: null })
-    await flushState('Review')
+    void flushState('Review')
   }
 
   if (review.verdict === 'NEEDS_FIXES') {
