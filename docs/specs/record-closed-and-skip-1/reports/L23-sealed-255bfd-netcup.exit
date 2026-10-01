@@ -1,0 +1,6 @@
+START_UTC=2026-09-27T21:18:00Z
+END_UTC=2026-09-27T21:18:24Z
+ARTIFACT=255bfd34d25a35c1932e5c048a7be9f1a2dcace3
+ORIGIN_REF=origin/build/record-closed-and-skip-1
+NODE=/home/ben/.local/state/fnm_multishells/139315_1790543849114/bin/node
+NATIVE_EXIT=0

@@ -40,8 +40,6 @@ const NOTES_DIR = path.join(os.homedir(), ".agents", "notes");
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
 const SKILL_SCRIPTS = path.join(PLUGIN_ROOT, "skills", "multi", "scripts");
 const CORE = path.join(__dirname, "multi-hook-core.mjs");
-const CONTINUATION = path.join(PLUGIN_ROOT, "scripts", "continuation.mjs");
-const CONTINUATION_NATIVE = path.join(__dirname, "continuation-native.mjs");
 const PANE_SLUG_CACHE_MS = 10 * 60 * 1000;
 
 function stampPath(slug) {
@@ -264,6 +262,18 @@ async function main() {
   // Keep this immediately after parsing so no identity lookup or hook branch can create a registry,
   // cursor, stamp, or binding side effect first.
   if (typeof input.agent_id === "string" && input.agent_id.length > 0) return;
+  // lane 53 decision 2(a): a review-run child (claude -p --agent, main thread, no agent_id)
+  // must never register either — same rule, the marker it runs under instead of agent_id.
+  // finding 12: a session whose env carries DELEGATION_REVIEW_RUN=1 is never registered and
+  // receives no notes; the marker must never be exported in a lead's shell (see SKILL.md's
+  // review-run paragraph).
+  if (process.env.DELEGATION_REVIEW_RUN === "1") {
+    const event = input.hook_event_name || process.argv[2] || "";
+    if (event === "SessionStart") {
+      process.stderr.write("multi-inbox: DELEGATION_REVIEW_RUN=1 — this session is never registered and receives no notes\n");
+    }
+    return;
+  }
   const event = input.hook_event_name || process.argv[2] || "";
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const sessionId = input.session_id;
@@ -279,13 +289,6 @@ async function main() {
   // session that has just started has not asked for anything, and its first UserPromptSubmit will
   // surface whatever is waiting a moment later anyway.
   if (event === "SessionStart") {
-    try {
-      const [{ normalizeClaudeContinuation }, { handleContinuationEvent }] = await Promise.all([
-        import(pathToFileURL(CONTINUATION_NATIVE).href), import(pathToFileURL(CONTINUATION).href),
-      ]);
-      const normalized = normalizeClaudeContinuation(input, fs);
-      if (normalized) await handleContinuationEvent(normalized);
-    } catch { /* lifecycle failure must not affect peer registration */ }
     if (!hasPeerIdentity) return;
     const { slug, configBroken } = await registerMyInbox(cwd, sessionId, transcriptPath);
     // D4/F6 (red-team FIX FIRST 6): nudge a session that resolved NO slug at all, from any of the three
@@ -363,17 +366,6 @@ async function main() {
         }
       }
 
-      let continuation = null;
-      try {
-        const [{ normalizeClaudeContinuation }, { handleContinuationEvent }] = await Promise.all([
-          import(pathToFileURL(CONTINUATION_NATIVE).href), import(pathToFileURL(CONTINUATION).href),
-        ]);
-        const normalized = normalizeClaudeContinuation(input, fs);
-        if (normalized) {
-          normalized.peerWillBlock = peer?.output?.decision === "block";
-          continuation = await handleContinuationEvent(normalized);
-        }
-      } catch { /* continuation never suppresses peer delivery */ }
       if (peerError && (event === "UserPromptSubmit" || event === "")) {
         const once = warnOnce(`multi-inbox: peer notes are not being read — ${peerError.message || String(peerError)}`);
         if (once) peer = {
@@ -387,8 +379,7 @@ async function main() {
           ackIds: [],
         };
       }
-      const result = core.composeContinuationResult(peer, continuation, event);
-      if (result?.output) delivered = { ...result, inbox };
+      if (peer?.output) delivered = { ...peer, inbox };
       return undefined;
     } catch (err) {
       // M1: a configuration error must SAY SO once, not vanish. Never on PostToolUse (it fires on every
@@ -432,7 +423,6 @@ Peer notes are still in ~/.agents/notes/ — read them with \`note-inbox --me <y
   // (Esc on a running hook, the budget above, a closed pane) then repeats a note instead of losing it —
   // the cursor is what note-flush reads to decide a wake-up is no longer needed (review MAJOR 3).
   const flushed = await emit(delivered.output);
-  try { delivered.continuationAfterFlush?.(flushed); } catch {}
   if (flushed && delivered.ackIds && delivered.ackIds.length && delivered.inbox) {
     try {
       await delivered.inbox(["--ack-ids", delivered.ackIds.join(",")]);

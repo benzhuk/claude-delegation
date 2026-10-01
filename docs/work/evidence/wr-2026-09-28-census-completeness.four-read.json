@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-28T22:28:50Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "138 messages; tokens: cache-read 11403965, cache-write 436358, input 276, output 99522"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "1 note(s) to skills-o: ASK skills-a-lane37-verify-1"
+    }
+  ],
+  "leadSession": {
+    "id": "588290d9-ee43-400b-a808-cf44c407171c",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "11940121 tokens: build 11940121 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "0.8h; largest gap 10.2min at 2026-09-28T21:42:00.854Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-o; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-o"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-28-census-completeness.record.md"
+}

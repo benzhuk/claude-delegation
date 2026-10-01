@@ -1,0 +1,25 @@
+VERDICT: APPROVE c8c16be67ef4e832e90ec2f78ebdf570001fd60f
+
+Reviewed-at UTC: 2026-09-27T23:15:46.2539696Z (September 27, 2026, 7:15:46 PM America/New_York).
+
+Inspected git HEAD: 466221ecabf8a2728d35f406c9b7647222388bba. Production source identity: c8c16be67ef4e832e90ec2f78ebdf570001fd60f, cherry-picked from bd3b5701b019f5f02d6ccb0bedb536266229c56c. The full c8c16be SHA initially supplied in the assignment was not a git object; these identities were resolved directly with git. The source files match the original builder commit, and later commits through inspected HEAD do not change hooks or skills/multi. Independent contract tests: 8a9e778. This verdict concerns the exact candidate contract and regression quality, not completion of the project goal or release.
+
+Cause: packetLocation formerly returned false even when it consulted no repository source. Both renderers also treated null as false. That combination converted an omitted lookup into an asserted missing packet.
+
+Discriminating check: I read the independent tests, baseline failure receipt and candidate receipt; I did not execute tests. The baseline gate at 2d9f4ba5b98c16b4ab78599d08012a1bd01c1188 records 67 passes and three failures, native exit 1. The candidate gate at 79d1c70a55cfed275706dd26e8e706bbfb19120d records 70 passes, zero failures and zero skips, native exit 0 (L29-contract-candidate.md and .exit). These tests exercise observable JSON and rendered text from actual fixture packets; they do not merely assert internal implementation choices. The three baseline failures discriminate unchecked rendering, packet-state output and the required paragraph. Existing present/missing and no-Details cases retain coverage.
+
+Fix location: skills/multi/scripts/note-inbox.mjs:260 adds boolean packetChecked; :332-339 tracks whether any repo source was consulted, preserving true when a packet is found and false only after a repo lookup; :269 retains the strict missing-problem guard; :369-373 selects present/missing/unchecked text. hooks/multi-hook-core.mjs:49 makes the same strict true/false distinction. skills/multi/SKILL.md:117 contains the exact contractual paragraph immediately after the idle bullet. No corrective patch is required.
+
+Simplification: The change uses the existing sources list, existence lookup and missing-problem guard. It introduces no new module or host-specific behavior. The source commit touches exactly the three authorized production files; the independent tests touch only the two authorized test files. Sender, flusher, transport and both hook entrypoints are unchanged.
+
+Adversarial boundary assessment:
+
+- With --no-repo, only the mirror source remains; packetLocation never changes checked and returns null. When resolution produces no repo source, the same branch applies. Notes without Details bypass packetLocation and retain null/false with no suffix.
+- A resolved repo with an absent or unreadable ledger is still a repo source. The packet path is explicitly queried with existsSync, independently of ledger contents. Accordingly packetChecked means consulted, as pinned; it does not mean a ledger was readable, a git root was authenticated, or packet contents were readable. transport.mjs:422-433 already falls back to the supplied start directory on git failure. This lane does not strengthen that legacy repository-resolution contract or distinguish EACCES from absence in existsSync. These are limits on broader claims, not violations of the pinned consulted-source rule.
+- packetLocation iterates repo sources, ignores mirror sources, continues after an absent packet and returns on the first present packet. Current source construction admits at most one repo, replacing it with a fallback when applicable. This change neither drops a source nor claims that every configured source must be checked after a successful lookup.
+- Both renderers distinguish true and false by strict equality, and null reaches the unchecked suffix. Renderer-specific brackets remain permitted by contracts.md. The unchecked state cannot create a missing problem. No-Details rendering remains unchanged.
+- The required Codex paragraph is contractual and present verbatim. Its categorical explanation of peer silence is not independently established by this code review; approving its placement is not a general guarantee about all Codex delivery failures or queue implementations.
+
+Findings: No blocking or nonblocking production defect found against the pinned contract. One optional coverage improvement: add a focused fixture beside note-inbox.test.mjs:148 with cwd empty, no worktree environment and no --no-repo flag; assert null/false and no missing problem. The current new tests directly exercise --no-repo but cover the other no-source route only by shared-branch inspection. This does not weaken the demonstrated baseline discrimination or require a patch for this verdict.
+
+Remaining acceptance outside this review: corrected-recipient live proof and sealed host suites, including the second host. Focused gate approval does not claim those have occurred or that installed hooks use the repository source before release/install.

@@ -8,6 +8,10 @@ reach the real machine by accident, and a test that builds its own fixture git c
 gets a scoped, disposable identity to do it with instead of resolving nothing (and
 refusing) or, worse, resolving the real one.
 
+Set `DELEGATION_PERF_ASSERT=1` to enforce the delegation-reminder hook's 400 ms timing measurement; sealed runs always print that measurement and whether the assertion is armed.
+
+`hooks/delete-guard.test.mjs` (the recursive-delete PreToolUse guard, agent-scoped) runs under this same sealed suite like every other `*.test.mjs` file.
+
 ## Shape
 
 `makeTempHome({ files, gitIdentity })` builds the fake home and returns:

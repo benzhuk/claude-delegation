@@ -4,12 +4,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import readline from "node:readline";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { makeTempHome, checkSeal } from "./test-home.mjs";
 import { runSealed } from "./run-tests.mjs";
-import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
+import { childEnv, scratchHome } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_URL = pathToFileURL(path.join(HERE, "test-home.mjs")).href;
@@ -51,6 +52,40 @@ function checkSealInChild(env) {
   return JSON.parse(result.toString());
 }
 
+/**
+ * Lane 24 (sealed-home-leak) support: spawns a `node --input-type=module -e <script>` child that is
+ * expected to print its sealed home's path as its FIRST line of stdout and then stay alive (its own
+ * script must keep the event loop open, e.g. via `setInterval`) - reads that one line, sends
+ * `signal`, and resolves with the printed home path and how the child actually exited. Real signals
+ * on a real child process, not an in-process simulation: this is the only way to prove the exit
+ * code the OS itself reports (128+n once this module's handler re-raises) and that the directory is
+ * actually gone from disk once the child is dead.
+ */
+function spawnAndSignal(script, signal) {
+  return new Promise((resolve, reject) => {
+    // N2 (lane 57): this ran with no `env` at all, so the child inherited the real environment
+    // unmodified - the script itself always calls makeTempHome() for its own, separate fixture home,
+    // so the `home` passed here is only what seals the messaging vars, never read by the script.
+    const sealedHome = scratchHome(fs, "spawn-and-signal-");
+    cleanups.push(() => fs.rmSync(sealedHome, { recursive: true, force: true }));
+    const env = childEnv(sealedHome);
+    const child = spawn(NODE, ["--input-type=module", "-e", script], { env, stdio: ["ignore", "pipe", "pipe"] });
+    const rl = readline.createInterface({ input: child.stdout });
+    let settled = false;
+    child.once("error", (e) => {
+      if (!settled) { settled = true; reject(e); }
+    });
+    rl.once("line", (line) => {
+      const home = line.trim();
+      child.once("exit", (code, gotSignal) => {
+        rl.close();
+        if (!settled) { settled = true; resolve({ home, code, signal: gotSignal }); }
+      });
+      child.kill(signal);
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // makeTempHome shape and isolation
 // ---------------------------------------------------------------------------
@@ -85,6 +120,27 @@ test("makeTempHome blanks the messaging socket/token in env (never inherits the 
   assert.equal(env.CLAUDE_CODE_MESSAGING_TOKEN, "");
 });
 
+// Lane 47, P3/FU4: an agent or git hook running the suite with GIT_DIR (or a sibling) exported in
+// the PARENT process must not be able to point a fixture git call at the real repo. Must fail on
+// base d6f5c9d (red) before the fix and pass after it (green).
+test("makeTempHome's env has none of the four repo-locating git names, even when the parent process has them set", () => {
+  const names = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"];
+  const saved = {};
+  for (const name of names) {
+    saved[name] = { had: Object.prototype.hasOwnProperty.call(process.env, name), value: process.env[name] };
+    process.env[name] = "/somewhere/.git";
+  }
+  try {
+    const { env } = tempHome();
+    for (const name of names) assert.equal(env[name], undefined, `${name} leaked into the sealed home's env`);
+  } finally {
+    for (const name of names) {
+      if (saved[name].had) process.env[name] = saved[name].value;
+      else delete process.env[name];
+    }
+  }
+});
+
 test("makeTempHome writes files passed under opts.files, relative to the new home", () => {
   const { home } = tempHome({ files: { "docs/work/wr-1.record.md": "Work: wr-1\n" } });
   const full = path.join(home, "docs", "work", "wr-1.record.md");
@@ -93,7 +149,7 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
 });
 
 // L-C7: run-tests.mjs adds no new wiring of its own - `runSealed` already forwards the WHOLE
-// `env` object `makeTempHome` returns to both spawnSync calls, so once `makeTempHome` sets
+// `env` object `makeTempHome` returns to both child launches, so once `makeTempHome` sets
 // FIXTURE_ROOT the sealed child gets it for free. This proves that end-to-end through the real
 // `runSealed`, not just that `makeTempHome`'s own return shape has the field.
 //
@@ -105,7 +161,7 @@ test("makeTempHome writes files passed under opts.files, relative to the new hom
 // Confirmed by direct check: with a deliberately-failing probe and NODE_TEST_CONTEXT left in
 // place, runSealed() returned 0 (skipped) instead of 1; stripping it, the same failing probe
 // correctly returned 1.
-test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", () => {
+test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child", async () => {
   const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-tests-fixture-root-probe-"));
   cleanups.push(() => fs.rmSync(probeDir, { recursive: true, force: true }));
   const probeFile = path.join(probeDir, "fixture-root-probe.test.mjs");
@@ -124,7 +180,7 @@ test("run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed chil
   delete process.env.NODE_TEST_CONTEXT;
   let code;
   try {
-    code = runSealed({ files: [probeFile] });
+    code = await runSealed({ files: [probeFile] });
   } finally {
     if (savedTestContext !== undefined) process.env.NODE_TEST_CONTEXT = savedTestContext;
   }
@@ -357,4 +413,128 @@ test("class test: exactly one construction of the fixture includeIf gitdir-scope
     `expected exactly one includeIf gitdir-scope construction, found: ${constructions.join(", ") || "(none)"}`,
   );
   assert.match(constructions[0], /test-home\.mjs:/, "the one construction must be makeTempHome's own");
+});
+
+// ---------------------------------------------------------------------------
+// Sealed-home leak fix (lane 24, sealed-home-leak): per-process registry + exit/signal handlers,
+// `keep()`/`unregister()`, idempotent registration. Every child here is a REAL spawned node process
+// (never simulated in-process) so the exit code and the on-disk state are what the OS actually did.
+// ---------------------------------------------------------------------------
+
+test("keep() and unregister() are the same function (alias)", () => {
+  const built = tempHome();
+  assert.equal(built.keep, built.unregister);
+  assert.equal(typeof built.keep, "function");
+});
+
+test("keep() removes a home from the leak-fix registry without deleting it from disk", () => {
+  const built = tempHome();
+  assert.ok(fs.existsSync(built.home));
+  built.keep();
+  assert.ok(fs.existsSync(built.home), "keep() must not delete the directory itself");
+  // cleanup() still works after keep(): it unregisters (already a no-op) and deletes on request.
+  built.cleanup();
+  assert.equal(fs.existsSync(built.home), false);
+});
+
+const WIN32_SIGNAL_SKIP_REASON =
+  "on win32, child.kill(signal) terminates the child directly without running any Node signal " +
+  "handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler";
+
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  test(
+    `a child killed with ${signal} removes its registered home, then re-raises so the OS reports the real signal (POSIX only)`,
+    { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+    async () => {
+      const script = [
+        `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+        "const { home } = makeTempHome();",
+        "process.stdout.write(home + '\\n');",
+        "setInterval(() => {}, 100000);",
+      ].join("\n");
+      const { home, signal: gotSignal } = await spawnAndSignal(script, signal);
+      assert.equal(gotSignal, signal, `the child must actually die from ${signal}, not be swallowed`);
+      assert.equal(fs.existsSync(home), false, `${signal} must remove the registered home`);
+    },
+  );
+}
+
+test(
+  "a kept (unregistered) home survives SIGTERM - keep() truly removes it from the leak-fix registry (POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const script = [
+      `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+      "const { home, keep } = makeTempHome();",
+      "keep();",
+      "process.stdout.write(home + '\\n');",
+      "setInterval(() => {}, 100000);",
+    ].join("\n");
+    const { home, signal: gotSignal } = await spawnAndSignal(script, "SIGTERM");
+    assert.equal(gotSignal, "SIGTERM");
+    assert.ok(fs.existsSync(home), "a kept home must survive the signal handler's sweep");
+    fs.rmSync(home, { recursive: true, force: true }); // manual: no longer registered, no longer auto-cleaned
+  },
+);
+
+// F4: this child installs its listener before makeTempHome installs ours.  The first SIGTERM
+// must therefore invoke it once; it owns the eventual normal exit.  The timer is a bounded
+// sentinel, so the old unconditional re-raise records two deliveries instead of passing by
+// exiting from the foreign listener before test-home's handler runs.
+test(
+  "an existing SIGTERM listener receives one delivery and owns the eventual exit (F4, POSIX only)",
+  { skip: process.platform === "win32" ? WIN32_SIGNAL_SKIP_REASON : false },
+  async () => {
+    const fixture = tempHome();
+    const script = [
+      `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+      "let deliveries = 0;",
+      "setInterval(() => {}, 1000);",
+      "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`deliveries=${deliveries}\\n`); process.exit(0); }, 250); });",
+      "const { home } = makeTempHome();",
+      "process.stdout.write(home + '\\n');",
+    ].join("\n");
+    const child = spawn(NODE, ["--input-type=module", "-e", script], {
+      env: childEnv(fixture.home), stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { home, stdout, code } = await new Promise((resolve, reject) => {
+      let output = "";
+      let sent = false;
+      const timeout = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} reject(new Error("F4 child did not exit within 4s")); }, 4000);
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        if (!sent && output.includes("\n")) { sent = true; child.kill("SIGTERM"); }
+      });
+      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\n")[0].trim(), stdout: output, code: exitCode }); });
+    });
+    assert.equal(code, 0, "the existing listener, not a re-raised default action, owns exit");
+    assert.match(stdout, /deliveries=1/, "the existing listener must receive SIGTERM exactly once");
+    assert.equal(fs.existsSync(home), false, "our handler must still remove its registered home");
+  },
+);
+
+test("handler registration is idempotent: exactly one listener per event, even after two homes", () => {
+  const events = process.platform === "win32" ? ["exit", "SIGINT", "SIGTERM"] : ["exit", "SIGINT", "SIGTERM", "SIGHUP"];
+  const script = [
+    `import { makeTempHome } from ${JSON.stringify(MODULE_URL)};`,
+    `const events = ${JSON.stringify(events)};`,
+    "const a = makeTempHome();",
+    "const afterFirst = Object.fromEntries(events.map((e) => [e, process.listenerCount(e)]));",
+    "const b = makeTempHome();",
+    "const afterSecond = Object.fromEntries(events.map((e) => [e, process.listenerCount(e)]));",
+    "a.cleanup(); b.cleanup();",
+    "console.log(JSON.stringify({ afterFirst, afterSecond }));",
+  ].join("\n");
+  // N2 (lane 57): this ran with no `env` at all; the script itself calls makeTempHome() for its own
+  // fixture homes, so the `home` sealed here is only what blanks the messaging vars, never read by it.
+  const sealedHome = scratchHome(fs, "handler-idempotent-");
+  cleanups.push(() => fs.rmSync(sealedHome, { recursive: true, force: true }));
+  const env = childEnv(sealedHome);
+  const out = execFileSync(NODE, ["--input-type=module", "-e", script], { env }).toString().trim();
+  const { afterFirst, afterSecond } = JSON.parse(out.split("\n").pop());
+  for (const event of events) {
+    assert.equal(afterFirst[event], 1, `expected exactly one ${event} listener after the first home`);
+    assert.equal(afterSecond[event], 1, `expected still exactly one ${event} listener after a second home (idempotent)`);
+  }
 });

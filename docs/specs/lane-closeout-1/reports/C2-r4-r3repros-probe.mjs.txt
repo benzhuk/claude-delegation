@@ -1,0 +1,24 @@
+import { detectDelete } from '/home/ben/Code/claude-delegation-wt/lane-closeout-1-C2/hooks/delete-guard.mjs';
+const NL='\n';
+const MK='r'+'m -'+'rf d';
+const cases = [
+  ['control: cat > report.md <<\'EOF\' (must NOT run)', "cat > c0.md <<'EOF'" + NL + MK + NL + 'EOF'],
+  ['C: second, unquoted heredoc glued to the cat target', "cat > c1.txt<<A <<'EOF'" + NL + '$(' + MK + ' >&2)' + NL + 'A' + NL + 'x' + NL + 'EOF'],
+  ['C: second, unquoted heredoc glued to the tee target', "tee c2.txt<<A <<'EOF'" + NL + '$(' + MK + ' >&2)' + NL + 'A' + NL + 'x' + NL + 'EOF'],
+  ['A: double quote opened in cat target', 'cat > "c3 <<\'EOF\'' + NL + '"' + NL + MK + NL + 'EOF'],
+  ['A: single quote opened in cat target', "cat > 'c4 <<'EOF'" + NL + "'" + NL + MK + NL + 'EOF'],
+  ['A: # comment as tee target', "tee #c <<'EOF'" + NL + MK + NL + 'EOF'],
+  ['B: backslash-newline in body (quoted delim)', "cat > c6.txt <<'EOF'" + NL + 'x \\' + NL + 'EOF' + NL + MK + NL + 'EOF'],
+  ['B: backtick-newline in body (quoted delim)', "cat > c7.txt <<'EOF'" + NL + 'x `' + NL + 'EOF' + NL + MK + NL + 'EOF'],
+  ['D: NBSP after delimiter', "cat > c8.txt <<'EOF' " + NL + 'EOF ' + NL + MK + NL + 'EOF'],
+  ['D: form feed after delimiter', "cat > c9.txt <<'EOF'\f" + NL + 'EOF\f' + NL + MK + NL + 'EOF'],
+];
+
+const c5 = [
+  ['two redirects, second is .sh', "cat > r1.md <<'EOF' > w1.sh" + NL + 'inert' + NL + 'EOF', 'w1.sh'],
+  ['double-quoted .sh target', 'cat > "w2.sh" <<\'EOF\'' + NL + 'inert' + NL + 'EOF', 'w2.sh'],
+  ['single-quoted .sh target (tee)', "tee 'w3.sh' <<'EOF'" + NL + 'inert' + NL + 'EOF', 'w3.sh'],
+  ['partly quoted suffix', "cat > w4.s'h' <<'EOF'" + NL + 'inert' + NL + 'EOF', 'w4.sh'],
+];
+for (const [label, cmd] of cases) console.log((detectDelete(cmd)?'refuse':'PASS  '), label);
+for (const [label, cmd] of c5) { const c = cmd.replace('inert', MK); console.log((detectDelete(c)?'refuse':'PASS  '), 'c5+delete body:', label); }

@@ -1,0 +1,81 @@
+{
+  "sha": "90beeb9b61ec83a1af6dd4adc18419c4872ef5ce",
+  "verdict": "NEEDS_FIXES",
+  "exit": 0,
+  "session": "a4480c92-4216-4d71-aab1-71444bf3fa67",
+  "model": "opus",
+  "role": {
+    "path": "/tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53/wt/agents/reviewer.md",
+    "sha256": "735bfe0fd333153bfee85a2f1b64a27ca7a8bec00989e9cda81613fcc975973d"
+  },
+  "pluginVersion": "0.20.17",
+  "claudeVersion": "2.1.284",
+  "host": "v2202608391056492408",
+  "startedAt": "2026-09-29T07:20:28.109Z",
+  "endedAt": "2026-09-29T07:25:00.323Z",
+  "roleSource": "flag",
+  "pluginRoot": "/tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-53/wt",
+  "roleBodySha256": "01352d483343e88222d8b758129bf6871fc726912f65c1ba73a56e824a5fe72d",
+  "installedRoleSha256": "deeae28efd33ff2a578cf931489a887e3b9af6f809de3f075074aefac51ecee8",
+  "claudeBin": "/run/user/1000/fnm_multishells/1829814_1790375665104/bin/claude",
+  "resolvedModel": "claude-opus-5-5",
+  "transcriptGlob": "<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<mangled run wt path>/<session>.jsonl",
+  "usage": {
+    "input_tokens": 42,
+    "cache_creation_input_tokens": 68121,
+    "cache_read_input_tokens": 884071,
+    "output_tokens": 22811,
+    "output_tokens_details": {
+      "thinking_tokens": 8900
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 68121,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 878,
+        "cache_read_input_tokens": 69396,
+        "cache_creation_input_tokens": 4436,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 4436
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard"
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 42,
+      "outputTokens": 22811,
+      "cacheReadInputTokens": 884071,
+      "cacheCreationInputTokens": 68121,
+      "webSearchRequests": 0,
+      "costUSD": 1.1781702000000003,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 8900,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "totalCostUsd": 1.1781702000000003,
+  "numTurns": 23,
+  "durationMs": 271064,
+  "permissionDenials": 2,
+  "cleanup": "ok",
+  "replyFallback": false,
+  "childExitCode": 0,
+  "childSignal": null,
+  "stderrCaptured": false
+}

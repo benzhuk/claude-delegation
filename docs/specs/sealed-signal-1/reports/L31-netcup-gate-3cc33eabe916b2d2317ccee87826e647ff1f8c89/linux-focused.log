@@ -1,0 +1,125 @@
+✔ probe (0.780412ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 58.961659
+✔ runSealed removes the sealed home when the suite passes (143.217485ms)
+✖ probe (8.551067ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 71.367692
+
+✖ failing tests:
+
+test at ../../../../tmp/run-tests-probe-YwCgGo/probe.test.mjs:3:1
+✖ probe (8.551067ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(false)
+  
+      at TestContext.<anonymous> (file:///tmp/run-tests-probe-YwCgGo/probe.test.mjs:3:30)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.start (node:internal/test_runner/test:1191:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+run-tests: leaving the sealed home for inspection: /tmp/sealed-home-PHmlQJ
+swept 1 stale sealed homes
+swept 0 stale sealed homes
+/tmp/sealed-home-8nUQxS
+✔ runSealed keeps the sealed home when the suite fails (and it survives this process's own bookkeeping) (146.967063ms)
+✔ sweepStaleHomes removes only sealed-home-* dirs older than 6h, keeps young and non-matching ones (1.176102ms)
+✔ sweepStaleHomes prints exactly one 'swept n stale sealed homes' line (1.110922ms)
+✔ sweepStaleHomes is skipped when <homeDir>/.agents/ws-off exists (shared kill switch) (0.43562ms)
+✔ sweepStaleHomes is skipped when <homeDir>/.agents/ws-off-sweep exists (lane-specific kill switch) (0.341377ms)
+✔ sweepStaleHomes never throws when the temp dir can't be read - prints an error and returns (0.416612ms)
+✔ F3: one unremovable stale entry does not abort the sweep, and the partial count is still printed (0.762635ms)
+✔ probe (0.602693ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 58.84321
+/tmp/sealed-home-Qemsqx
+✔ main() calls sweep by default, before running the suite (127.623014ms)
+✔ probe (0.66761ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 62.642632
+✔ main() does not call sweep when --no-sweep is passed (137.245925ms)
+✔ main() still rejects an unsupported flag (0.445075ms)
+✔ the real CLI honours --no-sweep end to end (spawned process, real exit code) (178.654487ms)
+✔ the real CLI keeps a failed suite's home after the process has exited (RT-18/F6) (186.334856ms)
+run-tests: leaving the sealed home for inspection: /tmp/run-tests-foreign-listener-tmp-rCzJ35/sealed-home-0MCqG8
+✔ SIGTERM to a runSealed wrapper with a foreign listener delivers once and removes its home (R1, POSIX only) (432.281313ms)
+✔ SIGTERM to only the runner terminates its immediate suite controller and removes the runner home (R1, POSIX only) (179.088924ms)
+﹣ taskkill of only the suite child keeps the runner home after its nonzero exit (R1, win32 only) (0.192081ms) # Windows taskkill contract
+✔ a SIGTERM sent to the whole process group re-raises on the runner and removes its own sealed home (F1, POSIX only) (191.919439ms)
+/tmp/sealed-home-BDHPn7
+✔ makeTempHome returns a fresh, empty, disposable home with the expected shape (2.230307ms)
+✔ makeTempHome never reuses a directory across calls (0.811729ms)
+✔ makeTempHome blanks the messaging socket/token in env (never inherits the runner's session) (0.47463ms)
+✔ makeTempHome writes files passed under opts.files, relative to the new home (2.038086ms)
+✔ FIXTURE_ROOT reaches the sealed child (0.666068ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 61.398449
+✔ run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child (144.041572ms)
+✔ cleanup removes the home directory (1.042539ms)
+✔ makeTempHome seeds .gitconfig with an includeIf scoped to the realpath'd fixtureRoot, forward slashes only (1.052374ms)
+✔ makeTempHome seeds .gitconfig-fixture with the Fixture identity, forward slashes only (0.542332ms)
+✔ gitIdentity: false leaves an empty global gitconfig (no identity anywhere under the seal) (0.502221ms)
+✔ a fixture commit succeeds under the seal with the fixture identity (22.097596ms)
+✔ a repo built under the system temp dir but OUTSIDE fixtureRoot gets no identity under the seal (L-C7 canary) (13.143109ms)
+✔ a commit attempted outside the system temp dir has no identity under the seal and is refused (4.250244ms)
+✔ gitIdentity: false refuses a commit even under fixtureRoot (12.652346ms)
+✔ checkSeal fails in a child for an unsealed home, even when AGENTS_HOME is self-consistent (35.707342ms)
+✔ checkSeal fails when AGENTS_HOME is unset (0.327487ms)
+✔ checkSeal passes inside a real sealed child process (35.345373ms)
+✔ checkSeal fails in a child when the seal is broken on purpose (AGENTS_HOME points elsewhere) (39.193581ms)
+✔ checkSeal fails in a child when AGENTS_HOME is not '<home>/.agents' (33.836229ms)
+✔ class test: exactly one construction of the fixture includeIf gitdir-scope directive anywhere in the repo (30.166983ms)
+✔ keep() and unregister() are the same function (alias) (0.403951ms)
+✔ keep() removes a home from the leak-fix registry without deleting it from disk (0.377701ms)
+✔ a child killed with SIGINT removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (36.30726ms)
+✔ a child killed with SIGTERM removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (36.752205ms)
+✔ a child killed with SIGHUP removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (38.659993ms)
+✔ a kept (unregistered) home survives SIGTERM - keep() truly removes it from the leak-fix registry (POSIX only) (34.197937ms)
+✔ an existing SIGTERM listener receives one delivery and owns the eventual exit (F4, POSIX only) (290.042941ms)
+✔ handler registration is idempotent: exactly one listener per event, even after two homes (37.980614ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 43
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 1798.094757

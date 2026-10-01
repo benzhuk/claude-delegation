@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-27T14:36:40.000Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "207 messages; tokens: cache-read 14682980, cache-write 593348, input 416, output 188553"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "2 note(s) to skills-n: ASK skills-fable-decisions-title-1, BLOCKED note-flush-decisions-title-overdue-1"
+    }
+  ],
+  "leadSession": {
+    "id": "f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "15465297 tokens: build 15465297 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.0h; largest gap 31.2min at 2026-09-27T13:44:41.017Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "0 gap(s) over 30min stalled; 1 waiting-on-agents (31.2 min); 0 unanswered ASKs to skills-n"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-27-pickup-complete.record.md"
+}

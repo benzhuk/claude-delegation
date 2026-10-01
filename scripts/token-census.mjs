@@ -21,7 +21,7 @@
 import fs, { realpathSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import readline from 'node:readline';
+import { lfLines } from './jsonl-lines.mjs';
 import { fileURLToPath } from 'node:url';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ function finalizeMainTurn(turn, state) {
 
 async function openLines(fsImpl, full) {
   const stream = fsImpl.createReadStream(full, { encoding: 'utf8' });
-  return readline.createInterface({ input: stream, crlfDelay: Infinity });
+  return lfLines(stream);
 }
 
 async function scanMainFile(fsImpl, fileInfo, window, state) {

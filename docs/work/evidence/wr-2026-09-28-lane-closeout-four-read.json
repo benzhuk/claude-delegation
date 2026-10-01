@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-29T00:53:58Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "569 messages; tokens: cache-read 53628416, cache-write 2221674, input 1144, output 642658"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "unavailable (no --lead-slug)"
+    }
+  ],
+  "leadSession": {
+    "id": "ad389ae1-f992-4dd3-8a19-2b51176675c1",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "56493892 tokens: build 56493892 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "5.6h; largest gap 105.4min at 2026-09-28T22:16:00.611Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (no range); 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "1 gap(s) over 30min stalled; 1 waiting-on-agents (105.4 min); agent a0ca12e92b60858a9 silent 109.4 min from 2026-09-28T22:12:17.420Z; ASKs unavailable (no --lead-slug); wakes 3 (3 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges unavailable (no --lead-slug)"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-28-lane-closeout.record.md"
+}

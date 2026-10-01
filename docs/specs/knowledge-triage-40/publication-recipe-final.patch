@@ -1,0 +1,13 @@
+diff --git a/dot_claude/skills/triage/SKILL.md b/dot_claude/skills/triage/SKILL.md
+index a634c39..67d00b0 100644
+--- a/dot_claude/skills/triage/SKILL.md
++++ b/dot_claude/skills/triage/SKILL.md
+@@ -104,6 +104,8 @@ Before `chezmoi add`, require that no path is already staged. If any staged path
+ stop and report it. Never unstage, reset, commit, or otherwise alter unrelated staged
+ work to make the allowlist check pass.
+ 
++Carry out all preservation, staging, publication, verification and lock-release steps specified here, including the exact-file `chezmoi add --secrets error` and the staged-set check. Do not add exploratory reads of chezmoi configuration, git configuration or hooks: the source repository is already configured. This restriction does not skip or replace any required check or command.
++
+ Release only when `token.txt` exactly equals the token printed during this invocation:
+ 
+ ```powershell

@@ -5,7 +5,14 @@
 // Territory G; amended in fix round 1 by the owner's rulings on the Opus review —
 // `review-guard-report.md` / `review-guard-rulings.md` — and again in fix round 2 on the
 // delta review — `review-guard-delta-report.md`, no separate rulings file that round, the
-// coordinator's message inlined the rulings):
+// coordinator's message inlined the rulings). A fifth rule, R0-stale, was added by the
+// stale-session guard (docs/specs/stale-session-guard-1/spec.md, 2026-09-28):
+//   R0-stale a builder/reviewer/runner/integrator spawn is denied outright when this
+//       session loaded the plugin's hooks from a cache version strictly older than every
+//       version the host has installed — the root cause of the 9/28 delete-guard miss (a
+//       session that kept 0.20.9's hooks for its whole life never saw hooks added since).
+//       This deny REFUSES, not advises: unlike R1/R2 it ignores the enforce/observe split
+//       below entirely (see `hardDeny` on `decide()`'s return). See plugin-staleness.mjs.
 //   R1  a top-tier model (opus/fable) on a spawn that is not a review or a stated
 //       judgment is denied. Execution runs on sonnet or haiku.
 //   R1b the mirror note: a spawn states a JUDGMENT but will not run on opus.
@@ -18,11 +25,11 @@
 //   R3  a long mandate that does not authorize a negative result, or names no report
 //       file, gets a note (never a deny — a thin mandate is a smell, not a stop).
 //
-// `decide(input, ctx)` is the pure core. `ctx = { home, fsImpl, now }` — tests always pass
-// a scratch `home` from `mkdtempSync` and never touch the real one. The CLI wrapper below
-// is the only thing that reads the real filesystem, and it resolves `home` from exactly
-// one place: `os.homedir()` (HOME on POSIX, USERPROFILE on Windows — Node's own resolution,
-// the same one every other hook in this repo uses).
+// `decide(input, ctx)` is the pure core. `ctx = { home, fsImpl, now, env, scriptPath }` —
+// tests always pass a scratch `home` from `mkdtempSync` and never touch the real one. The
+// CLI wrapper below is the only thing that reads the real filesystem, and it resolves `home`
+// from exactly one place: `os.homedir()` (HOME on POSIX, USERPROFILE on Windows — Node's own
+// resolution, the same one every other hook in this repo uses).
 //
 // OBSERVE-ONLY IS THE DEFAULT (round 1 ruling on MAJOR 2). A missing file must never be
 // what turns enforcement ON: enforcement requires an explicit opt-in file
@@ -39,8 +46,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readContextTokens, readTail } from './resume-size.mjs';
+import { checkStaleness, staleSessionText } from '../scripts/plugin-staleness.mjs';
+
+// This guard's OWN file path (P1, docs/specs/stale-session-guard-1/spec.md) — the running
+// version comes from where THIS script actually lives on disk, never a manifest.
+const GUARD_SCRIPT_PATH = fileURLToPath(import.meta.url);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rule text — exact strings the spec (and the round-1 rulings) pin. Exported so tests
@@ -70,6 +82,11 @@ export const R3_REPORT_TEXT = 'dispatch-guard R3: this mandate names no report f
 // ─────────────────────────────────────────────────────────────────────────────
 // Regexes
 // ─────────────────────────────────────────────────────────────────────────────
+
+// R0-stale (docs/specs/stale-session-guard-1/spec.md P5): the four spawn kinds a stale
+// session must refuse to hand safety-critical work to, matched case-insensitively at the end
+// of `subagent_type` (a namespaced form like `team:builder` still counts).
+const R0_SUBAGENT_RE = /(^|:)(builder|reviewer|runner|integrator)$/i;
 
 const R1_MODEL_RE = /opus|fable/i;
 const REVIEWER_RE = /(^|:)reviewer$/i;
@@ -446,15 +463,46 @@ export function checkResumeNotice(input, ctx = {}) {
   }
 }
 
+/**
+ * R0-stale (spec P5): a `builder`/`reviewer`/`runner`/`integrator` spawn, from a session that
+ * loaded this plugin's hooks from a cache version strictly older than every readable
+ * installed entry, is denied — a REFUSAL, not an advisory note, because the whole point is
+ * that hooks added since (the delete guard among them) are not running for it or its agents,
+ * so this guard's own observe/enforce split cannot be trusted to have caught up either.
+ * `ctx.scriptPath` lets a test stand in for `GUARD_SCRIPT_PATH`; `ctx.env` defaults to
+ * `process.env` only inside `checkStaleness` itself. Never denies on any exception —
+ * `checkStaleness` already fails open, and this is a second, redundant belt for the one rule
+ * that ignores the enforce gate entirely.
+ */
+function checkR0Stale(input, ctx) {
+  if (input?.tool_name !== 'Agent') return null;
+  const subagentType = input.tool_input?.subagent_type;
+  if (typeof subagentType !== 'string' || !R0_SUBAGENT_RE.test(subagentType)) return null;
+  try {
+    const staleness = checkStaleness({
+      scriptPath: ctx.scriptPath ?? GUARD_SCRIPT_PATH,
+      home: ctx.home ?? os.homedir(),
+      env: ctx.env ?? process.env,
+      fsImpl: ctx.fsImpl ?? fs,
+    });
+    if (!staleness.stale) return null;
+    return { id: 'R0-stale', type: 'deny', text: staleSessionText(staleness) };
+  } catch {
+    return null;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // decide() — the pure core
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * @param {object} input  the PreToolUse hook payload (parsed JSON)
- * @param {object} ctx    { home, fsImpl, now } — tests always pass a scratch `home`
+ * @param {object} ctx    { home, fsImpl, now, env, scriptPath } — tests always pass a scratch
+ *   `home`; `env`/`scriptPath` are R0-stale's own seams (default `process.env` and this
+ *   file's own path)
  * @returns {{ action: 'allow'|'deny'|'note', rule: string[], text: string|null,
- *             skip: boolean, enforced: boolean, roundMention: boolean }}
+ *             skip: boolean, enforced: boolean, roundMention: boolean, hardDeny: boolean }}
  *
  * `skip` is true only when `~/.agents/no-dispatch-guard` is present — the CLI wrapper's
  * cue to print nothing AND log nothing, as if this call was never evaluated at all.
@@ -464,13 +512,18 @@ export function checkResumeNotice(input, ctx = {}) {
  * a MISSING file must never be what turns enforcement on). In every other case rules are
  * still evaluated and logged, but the wrapper never prints.
  *
+ * `hardDeny` is true ONLY for R0-stale (spec P5) — that deny REFUSES, it does not advise, and
+ * is never gated by the enforce file the way R1/R2 are; the CLI wrapper below prints it
+ * whatever `enforced` says. The only off switch for it is `~/.agents/no-dispatch-guard`
+ * (checked first, above), which already skips this whole function.
+ *
  * `roundMention` is true when the prompt/message mentions a round number in free text
  * without declaring one (see `checkRoundMention`) — log-only, never affects `action`.
  *
- * Evaluation order is R1, R1b, R2, R3, exactly as the spec lists them. The first deny
- * (R1 or R2) wins outright and short-circuits — no later rule can change a decided deny.
- * Notes (R1b, R3) accumulate along the way and become one joined `additionalContext` if
- * no deny ever fires.
+ * Evaluation order is R0-stale, R1, R1b, R2, R3, exactly as the spec lists them (R0-stale:
+ * spec P5, "AFTER the no-dispatch-guard skip and BEFORE R1"). The first deny wins outright
+ * and short-circuits — no later rule can change a decided deny. Notes (R1b, R3) accumulate
+ * along the way and become one joined `additionalContext` if no deny ever fires.
  *
  * `ctx.now` is accepted for interface symmetry with `home`/`fsImpl` but unused today — no
  * current rule is time-dependent. Left in rather than silently dropped, in case a future
@@ -481,7 +534,12 @@ export function decide(input, ctx = {}) {
   const fsImpl = ctx.fsImpl ?? fs;
 
   if (switchPresentFailSafe(fsImpl, path.join(home, '.agents', 'no-dispatch-guard'))) {
-    return { action: 'allow', rule: [], text: null, skip: true, enforced: true, roundMention: false };
+    return { action: 'allow', rule: [], text: null, skip: true, enforced: true, roundMention: false, hardDeny: false };
+  }
+
+  const r0 = checkR0Stale(input, { ...ctx, home, fsImpl });
+  if (r0) {
+    return { action: 'deny', rule: [r0.id], text: r0.text, skip: false, enforced: false, roundMention: false, hardDeny: true };
   }
 
   const enforceOn = enforceFilePresent(fsImpl, path.join(home, '.agents', 'dispatch-guard-enforce'));
@@ -492,13 +550,13 @@ export function decide(input, ctx = {}) {
   const notes = [];
 
   const r1 = checkR1(input);
-  if (r1) return { action: 'deny', rule: [r1.id], text: r1.text, skip: false, enforced, roundMention };
+  if (r1) return { action: 'deny', rule: [r1.id], text: r1.text, skip: false, enforced, roundMention, hardDeny: false };
 
   const r1b = checkR1b(input);
   if (r1b) notes.push(r1b);
 
   const r2 = checkR2(input, fsImpl);
-  if (r2) return { action: 'deny', rule: [r2.id], text: r2.text, skip: false, enforced, roundMention };
+  if (r2) return { action: 'deny', rule: [r2.id], text: r2.text, skip: false, enforced, roundMention, hardDeny: false };
 
   for (const finding of checkR3(input)) notes.push(finding);
 
@@ -510,10 +568,11 @@ export function decide(input, ctx = {}) {
       skip: false,
       enforced,
       roundMention,
+      hardDeny: false,
     };
   }
 
-  return { action: 'allow', rule: [], text: null, skip: false, enforced, roundMention };
+  return { action: 'allow', rule: [], text: null, skip: false, enforced, roundMention, hardDeny: false };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -581,12 +640,16 @@ export async function runCli(fsImpl = fs) {
     enforced: result.enforced,
   };
   if (result.roundMention) entry.round_mention = true;
+  if (result.hardDeny) entry.hard_deny = true;
   appendLog(home, fsImpl, entry);
 
   // Resume notice: its own branch, evaluated BEFORE the observe-only return below, so it is
   // the one thing this guard can still print when not enforcing. It never denies; a deny
   // already decided above for another reason always wins over it (spec: Territory C).
-  const denyWins = result.enforced && result.action === 'deny';
+  //
+  // `result.hardDeny` (R0-stale, spec P5) wins whether or not the enforce file is present —
+  // that deny refuses, not advises, and the enforce/observe split exists for R1/R2 only.
+  const denyWins = result.action === 'deny' && (result.enforced || result.hardDeny);
   const notice = denyWins ? null : checkResumeNotice(input, { home, fsImpl, env: process.env });
   if (notice) {
     appendLog(home, fsImpl, {

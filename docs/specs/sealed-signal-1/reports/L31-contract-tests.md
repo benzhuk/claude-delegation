@@ -1,0 +1,6 @@
+# L31 contract-test handoff
+
+- F4 patch adds a real child with a prior SIGTERM listener and a 250 ms sentinel. Current unconditional re-raise delivers twice; patched behavior prints `deliveries=1`, exits through that listener's timer, and removes the home. Hard timeout: 4 s.
+- R1 patch's 10 s fixture writes a ready marker containing `process.ppid`, the immediate `node --test` controller PID. POSIX signals only runner PID, requires runner exit and home removal within 5 s, then uses a bounded `kill(pid, 0)` check to prove the owned controller has exited. A synchronous runner cannot meet the 5 s bound while the fixture timer runs.
+- Windows invokes `taskkill.exe /PID <suitePid> /F` without `/T`; it therefore tests pinned kept-on-failure at the runner boundary, rather than killing the runner too. All markers and homes are under `scratchDir`; child envs use `childEnv`.
+- This deliberately does not require controller-to-worker signal forwarding, which Node does not promise. Builder must apply R1 after making `runSealed`, `main`, `captureLog`, and `withoutNodeTestContext` promise-aware, including `test-home.test.mjs:156`; patches deliberately do not replace the existing group-signal or keep-on-failure tests.

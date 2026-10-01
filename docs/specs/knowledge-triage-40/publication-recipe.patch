@@ -1,0 +1,13 @@
+diff --git a/dot_claude/skills/triage/SKILL.md b/dot_claude/skills/triage/SKILL.md
+index a634c39..a23dd36 100644
+--- a/dot_claude/skills/triage/SKILL.md
++++ b/dot_claude/skills/triage/SKILL.md
+@@ -104,6 +104,8 @@ Before `chezmoi add`, require that no path is already staged. If any staged path
+ stop and report it. Never unstage, reset, commit, or otherwise alter unrelated staged
+ work to make the allowlist check pass.
+ 
++Publication is exactly these commands and nothing else: stage the allowlisted files, commit, push, verify the pushed hashes. Do not inspect chezmoi configuration, git configuration, hooks, or any other file first; the source repository is already configured, and any such read may hit the secret guard.
++
+ Release only when `token.txt` exactly equals the token printed during this invocation:
+ 
+ ```powershell

@@ -114,7 +114,6 @@ test('lead, missing metadata, corrupt metadata, and mismatched metadata preserve
     let reads = 0;
     const out = await runCodexHook(input, {
       home, env: { NOTE_SLUG: 'lead', CODEX_HOME: '/codex-home', AGENTS_HOME: path.join(home, '.agents') }, now: NOW,
-      continuationDeps: { env: { AGENTS_HOME: path.join(home, '.agents') } },
       inbox: async () => { reads += 1; return notes(); },
     });
     assert.equal(reads, 1, name);
@@ -142,23 +141,6 @@ test('over-cap first metadata line is bounded, closed, and remains unknown', (t)
   assert.equal(isConfirmedCodexChild({ transcript_path: '/private/transcript', session_id: CHILD }, fakeFs), false);
   assert.ok(largestAllocation <= 8 * 1024);
   assert.equal(closed, 1);
-});
-
-test('qualified native vscode lead enables the Codex continuation profile by default', async (t) => {
-  const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-  const file = transcript(home, metadata({ id: LEAD, sessionId: LEAD, source: 'vscode' }));
-  let seen = null;
-  const out = await runCodexHook({
-    hook_event_name: 'Stop', session_id: LEAD, transcript_path: file,
-    turn_id: 'turn-native', stop_hook_active: false, cwd: '/project',
-  }, {
-    home, env: {}, handleContinuationEvent: async (event) => { seen = event; return null; },
-  });
-  assert.equal(out, null);
-  assert.equal(seen?.role, 'lead');
-  assert.equal(seen?.profile, 'codex-native-turn-v1');
-  assert.equal(seen?.episodeKey, 'turn-native');
-  assert.equal(seen?.cancellationVerified, true);
 });
 
 test('a confirmed Codex lead receives the shared card and due notice at start and prompt', async (t) => {
@@ -295,4 +277,27 @@ test('an injected scratch AGENTS_HOME beats an ambient one carrying ws-off', asy
     { home, env: { AGENTS_HOME: path.join(home, '.agents') } },
   );
   assert.match(contextOf(out), /GOAL: Ship the parity hook/);
+});
+
+test('retired continuation: a lead prompt emits no "Continuation epoch" and the peer Stop block still fires', async (t) => {
+  const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const file = transcript(home, metadata({ id: LEAD, sessionId: LEAD, source: 'cli' }));
+  const base = { session_id: LEAD, transcript_path: file, turn_id: 'turn-retired', cwd: '/project' };
+
+  const bare = await runCodexHook({ ...base, hook_event_name: 'UserPromptSubmit' }, { home, env: {}, now: NOW });
+  assert.equal(bare, null, 'a lead with no peer identity gets no output at all, not an epoch banner');
+
+  const prompt = await runCodexHook({ ...base, hook_event_name: 'UserPromptSubmit' }, {
+    home, env: { NOTE_SLUG: 'lead' }, now: NOW, inbox: async () => notes(),
+  });
+  assert.match(contextOf(prompt), /peer → lead/, 'peer delivery is unchanged');
+  assert.doesNotMatch(JSON.stringify(prompt.output), /Continuation/);
+
+  const stop = await runCodexHook({ ...base, hook_event_name: 'Stop', stop_hook_active: false }, {
+    home, env: { NOTE_SLUG: 'lead' }, now: NOW, inbox: async () => notes(),
+  });
+  assert.equal(stop.output.decision, 'block');
+  assert.match(stop.output.reason, /peer-work-1/);
+  assert.doesNotMatch(JSON.stringify(stop.output), /Continuation/);
+  assert.deepEqual(stop.ackIds, ['peer-work-1']);
 });

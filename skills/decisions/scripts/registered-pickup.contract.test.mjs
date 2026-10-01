@@ -95,17 +95,59 @@ test('duplicate normalized pages and project-page binding mismatches are rejecte
   assert.deepEqual(await registered(fx, { pickupOnce: async () => { calls += 1; } }), { code: 'PICKUP_CONFIG_INVALID', ordinal: null });
   assert.equal(calls, 0, 'registered project binding mismatch must not reach pickup');
 });
+
+test('contracts.md C3: a registration entry accepts one optional topic key and rejects an invalid one', async (t) => {
+  const fx = fixture(t);
+  const seen = [];
+  fx.writeRegistration([{ ...fx.entry, topic: 'Skills' }]);
+  const ok = await registered(fx, { pickupOnce: async (entry) => { seen.push(entry); return { status: 'UNCHANGED' }; } });
+  assert.deepEqual(ok, { code: 'PICKUP_NO_ACTION', ordinal: 0 });
+  assert.equal(seen[0].topic, 'Skills');
+
+  fx.writeRegistration();
+  const noTopic = await registered(fx, { pickupOnce: async (entry) => { seen.push(entry); return { status: 'UNCHANGED' }; } });
+  assert.deepEqual(noTopic, { code: 'PICKUP_NO_ACTION', ordinal: 0 });
+  assert.equal(seen[1].topic, null, 'a missing topic key is still a valid entry');
+
+  fx.writeRegistration([{ ...fx.entry, topic: 'A'.repeat(40) }]);
+  assert.deepEqual(
+    await registered(fx, { pickupOnce: async () => ({ status: 'UNCHANGED' }) }),
+    { code: 'PICKUP_NO_ACTION', ordinal: 0 },
+    'a 40-character topic is the accepted maximum',
+  );
+
+  for (const topic of [
+    'a'.repeat(41), // one over the 40-character limit
+    'Skills: taxonomy', // a colon is the title-format separator, reserved
+    null, // present as a key but not a string value
+    '1Skills', // must start with a letter
+    '', // empty fails the leading-letter requirement
+  ]) {
+    let calls = 0;
+    fx.writeRegistration([{ ...fx.entry, topic }]);
+    const summary = await registered(fx, { pickupOnce: async () => { calls += 1; } });
+    assert.deepEqual(
+      summary, { code: 'PICKUP_CONFIG_INVALID', ordinal: null },
+      `topic ${JSON.stringify(topic)} must invalidate the whole registration`,
+    );
+    assert.equal(calls, 0, 'an invalid topic must reject before pickup runs');
+  }
+});
 test('one injected selection invokes exactly one bound entry and maps lifecycle states to safe summaries', async (t) => {
   const fx = fixture(t);
   const second = { ...fx.entry, page: 'fedcba9876543210fedcba9876543210' };
   fs.writeFileSync(path.join(fx.repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: PAGE }));
   // The second needs its own canonical project binding.
-  const repo2 = fs.mkdtempSync(path.join(fx.fixtureRoot, 'registered-project-two-'));
+  // Prefix sorts before fx.repo's 'registered-project-' under any collation, so canonical order is
+  // always [second, fx.entry] — the reverse of creation order — and the ordinal assertion bites every run.
+  const repo2 = fs.mkdtempSync(path.join(fx.fixtureRoot, 'a-registered-project-two-'));
   fs.mkdirSync(path.join(repo2, '.agents'), { recursive: true });
   fs.writeFileSync(path.join(repo2, '.agents', 'project.json'), JSON.stringify({ decisions_url: second.page }));
   second.repo = repo2;
   fx.writeRegistration([fx.entry, second]);
-  const canonical = [fx.entry, second].sort((a, b) => path.resolve(a.repo).localeCompare(path.resolve(b.repo)) || a.page.localeCompare(b.page));
+  // Mirror decisions-pickup.mjs's order: code-point compare of the normalized repo key, then page.
+  const key = (e) => `${process.platform === 'win32' ? path.normalize(e.repo).toLowerCase() : path.normalize(e.repo)}\0${e.page}`;
+  const canonical = [fx.entry, second].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   const seen = [];
   const recorded = await registered(fx, {
     selectIndex: (count) => { assert.equal(count, 2); return 1; },
@@ -127,8 +169,7 @@ test('one injected selection invokes exactly one bound entry and maps lifecycle 
     assert.deepEqual(summary, { code, ordinal: 0 });
     assert.equal(privateText(summary).includes(CANARY), false, `${outcome.status} leaked private detail`);
   }
-  // Pre-seed the claim for whichever entry canonical sort actually placed at ordinal 0 —
-  // mkdtempSync's random fixture-directory suffix, not creation order, decides that.
+  // Pre-seed the claim for the entry canonical sort places at ordinal 0 (the second-created repo).
   const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(canonical[0].repo), page: canonical[0].page });
   fs.mkdirSync(paths.claim, { recursive: true });
   const marker = path.join(fx.home, 'reader-must-not-run-for-held-claim');

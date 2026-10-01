@@ -22,6 +22,7 @@
 // session Ben has to debug.
 
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,10 +31,9 @@ import {
   HANDLE_RE, readBindings, isMainModule, toPosix, codexInboxRecord, registerInbox,
 } from '../skills/multi/scripts/transport.mjs';
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
-import { handleContinuationEvent } from '../scripts/continuation.mjs';
-import { classifyCodexRole, normalizeCodexContinuation } from './continuation-native.mjs';
+import { classifyCodexRole } from './codex-role.mjs';
 import {
-  runHookEvent, writeJson, composeContinuationResult, BUDGET_MS, POST_TOOL_BUDGET_MS,
+  runHookEvent, writeJson, BUDGET_MS, POST_TOOL_BUDGET_MS,
 } from './multi-hook-core.mjs';
 
 // Native child metadata is the only positive child discriminator used here.  The hook input may
@@ -47,7 +47,7 @@ export function isConfirmedCodexChild(input = {}, fsImpl = fs) {
   return classifyCodexRole(input, fsImpl) === 'child';
 }
 
-/** Append host advisory context without replacing peer or continuation delivery. */
+/** Append host advisory context without replacing peer delivery. */
 function appendGoalContext(result, event, text, systemMessage) {
   if (!text && !systemMessage) return result;
   const next = result ? { ...result, output: result.output ? structuredClone(result.output) : null } : { ackIds: [] };
@@ -60,6 +60,84 @@ function appendGoalContext(result, event, text, systemMessage) {
   }
   if (systemMessage) output.systemMessage = output.systemMessage ? `${output.systemMessage}\n${systemMessage}` : systemMessage;
   return next;
+}
+
+/** @type {Readonly<Record<string, readonly string[]>>} */
+export const NATIVE_ROUTES = {
+  SessionStart: ['scripts/wiring-check.mjs'],
+  UserPromptSubmit: ['hooks/backlog-notice.js'],
+  PostToolUse: ['hooks/backlog-notice.js'],
+  Stop: ['hooks/backlog-notice.js'],
+};
+
+// This stays below the 700 ms native PostToolUse ceiling. A route is advisory and must never consume
+// the time the peer-delivery path needs to surface a note.
+const ROUTE_TIMEOUT_MS = 400;
+
+/**
+ * Run one existing Claude hook as a bounded native-context producer.  The Claude entrypoints already
+ * own their kill switches, silence and cadence; this adapter only carries their declared output into
+ * Codex's one shared hook result.
+ */
+export function runRoute(script, args, input, cwd, env, timeoutMs = ROUTE_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    let child;
+    let stdout = '';
+    let done = false;
+    const finish = (value = '') => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      // Resolve only after close: returning before the child exits lets main's immediate native exit
+      // orphan it on Windows. kill() bounds the route; close confirms it was reaped.
+      try { child?.kill(); } catch { finish(''); }
+    }, timeoutMs);
+    timer.unref?.();
+    try {
+      child = spawn(process.execPath, [script, ...args], {
+        cwd,
+        env: { ...env, CLAUDE_PLUGIN_ROOT: path.resolve(HOOK_DIR, '..'), CLAUDE_PROJECT_DIR: cwd },
+        stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
+      });
+      child.stdout.on('data', (chunk) => { if (stdout.length < 16_384) stdout += chunk; });
+      child.on('error', () => finish(''));
+      child.on('close', () => finish(stdout));
+      child.stdin.end(JSON.stringify(input));
+    } catch {
+      finish('');
+    }
+  });
+}
+
+/** Native routes added to the established Codex adapter; all other events remain peer only. */
+export async function nativeRouteForLead(input, cwd, role, env) {
+  // Codex's live hook callback supplies cwd and session_id but no transcript_path, so its role is
+  // unknown even for a real CLI lead. Confirmed children already returned from runCodexHook above;
+  // unknown therefore remains eligible for these advisory-only host routes.
+  if (role === 'child') return null;
+  const event = String(input.hook_event_name ?? '');
+  const routes = NATIVE_ROUTES[event];
+  if (!routes || routes.length !== 1) return null;
+  const script = path.join(HOOK_DIR, '..', routes[0]);
+  try {
+    if (event === 'SessionStart') {
+      const text = (await runRoute(script, ['--line', '--hook'], input, cwd, env)).trim();
+      return text ? { text, systemMessage: null } : null;
+    }
+    const raw = await runRoute(script, [event], input, cwd, env);
+    const output = JSON.parse(raw || 'null');
+    // Claude deliberately shows Stop backlog only to its human. Codex must put the same line in
+    // additionalContext as well, or an autonomous lead never receives the backlog cue.
+    const text = output?.hookSpecificOutput?.additionalContext ?? output?.systemMessage ?? null;
+    const systemMessage = output?.systemMessage ?? null;
+    return text || systemMessage ? { text, systemMessage } : null;
+  } catch {
+    return null;
+  }
 }
 
 async function goalContextForLead(input, cwd, role, env) {
@@ -136,12 +214,22 @@ export async function runCodexHook(input = {}, deps = {}) {
   const me = deps.slug ? { slug: deps.slug, source: 'deps' } : codexSlug(env, home, fsImpl);
 
   const cwd = input.cwd ?? process.cwd();
-  // Goal/card work is advisory and raced separately from peer delivery, so an unresolved or rejected
-  // advisory promise (for example a slow dynamic import) drops only the goal context. The card read and
-  // bearings receipt/evidence reads are synchronous and are NOT preempted by this race: they still run
-  // on the event loop shared with peer delivery and main's BUDGET_MS.
+  // Goal/card work is advisory and raced separately from peer delivery and the native route, so an
+  // unresolved or rejected advisory promise (for example a slow dynamic import) drops only the goal
+  // context. The card read and bearings receipt/evidence reads are synchronous and are NOT preempted by
+  // this race: they still run on the event loop shared with peer delivery and main's BUDGET_MS.
   const advisoryFn = deps.goalContextForLead ?? goalContextForLead;
-  const advisoryWork = withBudget(Promise.resolve().then(() => advisoryFn(input, cwd, role, env)).catch(() => null), 500);
+  // Tests inject every filesystem-facing dependency; keep those isolated unless they explicitly
+  // opt into this native child-process route. The live CLI calls with no deps and always uses it.
+  const routeFn = deps.nativeRouteForLead ?? (Object.keys(deps).length === 0 ? nativeRouteForLead : async () => null);
+  const advisoryWork = withBudget(
+    Promise.resolve().then(() => advisoryFn(input, cwd, role, env)).catch(() => null),
+    ROUTE_TIMEOUT_MS + 50,
+  );
+  const routeWork = withBudget(
+    Promise.resolve().then(() => routeFn(input, cwd, role, env)).catch(() => null),
+    ROUTE_TIMEOUT_MS + 50,
+  );
 
   // D2 (spec 2026-09-17): register this session's inbox — the on-disk queue Codex itself watches.
   // `session_id` from this payload IS the thread id `codex queue --thread` accepts (spiked live on
@@ -166,22 +254,13 @@ export async function runCodexHook(input = {}, deps = {}) {
     event, input, cwd, home, env, fsImpl, now: deps.now ?? Date.now(),
     inbox: (argv) => run([...me9, ...hot, ...argv]),
   }) : null;
-  let continuation = null;
-  try {
-    const normalized = normalizeCodexContinuation(input, fsImpl, {
-      supported: deps.codexContinuationSupported !== false,
-    });
-    if (normalized) {
-      normalized.peerWillBlock = peer?.output?.decision === 'block';
-      continuation = await (deps.handleContinuationEvent ?? handleContinuationEvent)(normalized, deps.continuationDeps);
-    }
-  } catch { /* continuation never suppresses peer delivery */ }
-  const result = composeContinuationResult(peer, continuation, event);
-  const advisory = await advisoryWork;
-  const withGoalContext = advisory ? appendGoalContext(result, event, advisory.text, advisory.systemMessage) : result;
-  if (!withGoalContext) return null;
+  const result = peer;
+  const [advisory, route] = await Promise.all([advisoryWork, routeWork]);
+  const withGoalContext = route ? appendGoalContext(result, event, route.text, route.systemMessage) : result;
+  const withAdvisoryContext = advisory ? appendGoalContext(withGoalContext, event, advisory.text, advisory.systemMessage) : withGoalContext;
+  if (!withAdvisoryContext) return null;
   // The ack the caller runs AFTER the output is on the wire, never before it (review MAJOR 3).
-  return { ...withGoalContext, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
+  return { ...withAdvisoryContext, ack: (ids) => run([...me9, ...hot, '--ack-ids', ids.join(',')]) };
 }
 
 async function main() {
@@ -204,7 +283,6 @@ async function main() {
   // Emit FIRST and wait for the write to reach the pipe, THEN ack exactly what was printed. Either half
   // failing costs a repeated note, never a lost one (review MAJOR 3, MAJOR 4).
   const flushed = await writeJson(result.output);
-  try { result.continuationAfterFlush?.(flushed); } catch {}
   if (flushed && result.ackIds?.length && result.ack) {
     try { await result.ack(result.ackIds); } catch { /* delivered; it will simply repeat */ }
   }

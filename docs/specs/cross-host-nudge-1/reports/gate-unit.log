@@ -1,0 +1,121 @@
+/tmp/cstatus-out-a73Zd0/status.md
+/tmp/cstatus-out-a73Zd0/status.md
+/tmp/cstatus-out-nmO5mZ/status.md
+/tmp/cstatus-out-nmO5mZ/status.md
+/tmp/cstatus-out-QaVgDw/status.md
+/tmp/cstatus-out-SagSfJ/status.md
+/tmp/cstatus-out-hm6tP2/status.md
+/tmp/cstatus-out-Gzn9c0/status.md
+/tmp/cstatus-out-gIWJl8/status.md
+/tmp/cstatus-out-gIWJl8/status.md
+/tmp/cstatus-out-iUxn3P/status.md
+/tmp/cstatus-out-icnRMo/status.md
+/tmp/cstatus-out-icnRMo/status.md
+/tmp/cstatus-out-icnRMo/status.md
+/tmp/cstatus-out-fKaBbG/status.md
+/tmp/cstatus-out-oKGG42/status.md
+/tmp/cstatus-out-xmhks6/status.md
+/tmp/cstatus-out-jj2e7p/status.md
+/tmp/cstatus-out-Sf2dl3/status.md
+/tmp/cstatus-out-BMmCZ5/status.md
+/tmp/cstatus-out-BMmCZ5/status.md
+/tmp/cstatus-out-BMmCZ5/status.md
+/tmp/cstatus-out-VHe8tj/status.md
+/tmp/cstatus-out-VHe8tj/status.md
+/tmp/cstatus-out-q7I0yl/status.md
+/tmp/cstatus-out-gNpd5t/status.md
+collect-status: stall-nudge skipped, kill switch present (no-nudge)
+/tmp/cstatus-out-SEa0FU/status.md
+collect-status: stall-nudge skipped for build/owner-bad-grammar, no usable Owner
+collect-status: stall-nudge skipped for build/owner-missing, no usable Owner
+collect-status: stall-nudge skipped for build/owner-none, no usable Owner
+/tmp/cstatus-out-YU3kLX/status.md
+collect-status: stall-nudge skipped, ledger read failed: ENOTDIR: not a directory, scandir '/tmp/cstatus-repo-Ky85ye/docs/ledger'
+/tmp/cstatus-out-i3tG3V/status.md
+/tmp/cstatus-out-ZO85nD/status.md
+/tmp/cstatus-out-UB5wBB/status.md
+/tmp/cstatus-out-wxlFsn/status.md
+/tmp/cstatus-out-QZXVJ3/status.md
+✔ parseArgs: defaults and every flag (2.787071ms)
+✔ parseArgs: --stale-hours range 0.1-48 — in range carries no error, 0 and 99 set staleHoursError (lane 33 F1) (0.433735ms)
+✔ main: --stale-hours 0 or 99 is refused, exit 2, before computeAttention ever runs (lane 33 F1) (163.249247ms)
+✔ defaultOutDir: ~/.agents/collect/<basename of repo> (0.312934ms)
+✔ sanitizeHost: replaces, collapses, trims, cuts to 40; empty result -> host (0.4166ms)
+✔ computeByState: counts rows per state (0.29111ms)
+✔ computeByState: closed is counted under its own key, never folded into owned (lane 33 F2) (0.273183ms)
+✔ computeAttention: a closed row is never flagged, even with an enormous hoursSinceLog (lane 33 F2 - closed is terminal, computeAttention only ever flags state owned) (0.293875ms)
+✔ grep: 'closed' appears in collect-status.mjs only in NOTE_STATE_TOKENS and the legend line (lane 33 F2 acceptance) (0.908874ms)
+✔ computeChangeKey: order-independent (sorted), sensitive to any field change (0.338592ms)
+✔ computeAttention: accepted-unmerged boundary (over merge-hours only) (0.811036ms)
+✔ computeAttention: owned + hoursSinceLog boundary (silent-over-N-h) (0.198079ms)
+✔ computeAttention: no-record always flagged; unparseable tipDate never confidently flagged (0.176036ms)
+✔ resolveNoteSend: prefers ~/.local/bin/note-send when executable, else PATH, else null (0.629251ms)
+✔ buildStatusMd: header carries fetch: failed only on failure; attention first, then formatTable's table (16.493671ms)
+✔ buildStatusMd: 40 no-record rows still fit the 60-line budget, and the cut is marked (0.951328ms)
+✔ status.json shape: generatedAt/host/repo/fetch/main/rows/summary/changeKey/announced (175.081695ms)
+✔ change key equal across two runs with no repo change: zero note-send calls (173.379924ms)
+✔ change key different: exactly one call, kind RESULT, --no-type present (197.179996ms)
+✔ --quiet: key differs but note-send is never invoked; status still written (89.177707ms)
+✔ missing note-send on PATH: writes status anyway, exits 0, says so in status.md (85.871121ms)
+✔ missing --to: skips the send, still writes status, still exits 0 (80.899067ms)
+✔ atomic write: no temp file left behind under --out after a run (81.505503ms)
+✔ previous.json rotation: prior status.json is renamed aside, not copied, before the new write (172.407145ms)
+✔ fetch failure: still writes a status (fetch: failed), sends no note, never updates announced (98.846375ms)
+✔ a failed fetch that sees a change does not swallow it: the next good run announces it (101.034512ms)
+✔ K2 allowlist: a state outside collect-from-origin's names reaches --text only as other (seam m1) (78.022211ms)
+✔ a --main ref that doesn't resolve sends no note (no real state to report) (78.143634ms)
+✔ never writes: every file under .git is byte-identical before and after a --no-fetch run (148.601114ms)
+✔ status.md stays within the 60-line budget for a modest fixture (409.382103ms)
+✔ branchSlug: lowercases, collapses every run of non-[a-z0-9] to one '-', trims ends (0.254695ms)
+✔ buildStallTopic: stall-<branch-slug>-<sha7>; a long branch truncates only the slug, never the sha (0.243216ms)
+✔ ownerSlugOrNull: none/missing/mixed-case/spaced all null; a real slug passes through unchanged (0.129906ms)
+✔ stall-nudge: one ASK per stale owned/blocked row; none for accepted-merged/accepted-unmerged/rejected/withdrawn/no-record/closed or a 1.9h row; argv is exact (1047.637949ms)
+✔ stall-nudge: dedupe - a second run on the same tip sends nothing; a new tip idle past the threshold asks again (362.138428ms)
+✔ stall-nudge: F1 - dedupe holds across two runs when --repo is a linked worktree (note-send's ledger lives in the MAIN checkout, never a worktree) (242.195386ms)
+✔ stall-nudge: F3 - --quiet sends no ASK, even for an otherwise-stale row (attention still shows it) (168.873406ms)
+✔ stall-nudge: F6 - two stale records sharing one branch tip get exactly one ASK per run (the topic is per-tip, not per-record) (192.689312ms)
+✔ stall-nudge: S4 - the kill-switch file suppresses the ASK; the attention row stays in status.md (171.01969ms)
+✔ stall-nudge: S3 - no ASK when Owner is none, missing, or fails note-send's slug grammar (341.787118ms)
+✔ stall-nudge: S2 - a ledger read error means no ASK this run (fail closed, not open) (168.069743ms)
+✔ stall-nudge: a failed fetch never sends an ASK either, same promise as the RESULT (145.261559ms)
+✔ stall-nudge: an owner mapped in .agents/project.json's owner_hosts gets --sender-host <that host> (224.729034ms)
+✔ stall-nudge: an owner absent from owner_hosts (table present, no entry for this owner) gets no --sender-host flag (215.057841ms)
+✔ stall-nudge: with no .agents/project.json at all, no --sender-host flag is ever added (today's behaviour, unmodified) (155.855967ms)
+✔ root project-config remains a compatibility re-export of the skill-local canonical module (3.435922ms)
+✔ owner_hosts: DEFAULTS carries an empty table, and a project.json with no owner_hosts key gets the same empty default (1.004117ms)
+✔ owner_hosts: a well-formed table passes through unchanged (0.469689ms)
+✔ owner_hosts: a malformed table (wrong shape, or a non-string value) is ignored, not refused - loadProjectConfig never throws (1.022494ms)
+✔ V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT} (2.536623ms)
+✔ V3: UserPromptSubmit injects the new notes and acks them (189.479551ms)
+✔ V3: Stop blocks with the notes as the reason, then never blocks on them again (175.980704ms)
+✔ V3: stop_hook_active short-circuits — a Stop hook must never loop (59.696421ms)
+✔ V3: PostToolUse is silent until the ledger changes, then injects once (133.009695ms)
+✔ V3: a session with no pane identity produces nothing at all (169.765313ms)
+✔ V3: an empty ledger, a missing notes dir and a corrupt cursor are all silent, exit 0 (220.919217ms)
+✔ V3: my own sends and other panes' notes are never injected (91.734219ms)
+✔ M1: a hook that cannot import its script exits 0 and SAYS SO once, never silently (119.008571ms)
+✔ M1: an unwritable cursor still surfaces the notes, with the problem named (175.97067ms)
+✔ M1: a bad NOTE_SLUG is reported once instead of silencing the pane (58.605501ms)
+✔ M1/M3: Stop never emits a config warning — a broken hook must not block a stop (53.938751ms)
+✔ M3: a missing packet is surfaced in the injected context, not just on stderr (91.003325ms)
+✔ L3: a Stop reason stays small — six notes, each truncated (91.501266ms)
+✔ L1: a stale pane-slug cache entry is not used — PostToolUse never acks the previous slug (132.514868ms)
+✔ V3: malformed stdin is not a crash (76.286288ms)
+✔ H4: a wedged orca cannot hold a prompt open — the hook returns inside its own budget (2553.10719ms)
+✔ H4: PostToolUse never pays for orca at all, wedged or not (53.759812ms)
+✔ D2: a session with a messaging socket registers its inbox, and prints no token (89.514084ms)
+✔ D2: a session with NOTHING waiting still registers - being reachable is the point (77.837171ms)
+✔ D2: Stop registers too, and a session without the env vars registers nothing (162.155785ms)
+✔ C4: SessionStart registers and does nothing else - a session that starts idle is reachable (60.163056ms)
+✔ C6: no session_id in the payload means no registration at all (90.326423ms)
+✔ D2: a GUESSED slug never registers - that would send another session its notes (173.186674ms)
+✔ S1: no hook child can register anything the fixture did not give it (385.250089ms)
+✔ N2: no test file in this suite inherits the runner environment on its own (18.616478ms)
+ℹ tests 75
+ℹ suites 0
+ℹ pass 75
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5747.151005

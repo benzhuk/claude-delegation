@@ -1,0 +1,26 @@
+✔ Codex contract: verified ancestry, root namespace, distinct child response ids, and native turns (12.7463ms)
+✔ Codex contract: selected root namespace with an unverifiable parent edge is partial and excluded (3.5823ms)
+✔ Codex contract: depth four and unknown model remain unavailable, never zero (10.5651ms)
+✔ Codex contract: explicit tasks adds eligible outside-home rollout and de-dups a copied lead identity (5.4078ms)
+✔ Codex contract: a context before --from supplies the model for an in-window response (3.0326ms)
+✔ Codex contract: each missing cache breakdown stays unavailable while derived total remains known (9.4028ms)
+✔ Codex contract: mixed complete and missing-cache responses derive 30 without a fake zero split (3.3541ms)
+✔ Codex contract: missing reasoning and raw total are named unavailable, not substituted with zero (3.1016ms)
+✔ Codex contract: whitelist-native fixture discovers next-day child and preserves model/root accounting (7.187ms)
+✔ Codex contract: a duplicate response with a conflicting model throws by name (2.9217ms)
+✔ Codex contract: a duplicate response with a conflicting timestamp throws by name (7.1684ms)
+✔ Codex contract: a duplicate response with conflicting raw optional evidence throws by name (3.096ms)
+✔ Codex contract: an exact repeated response is deduplicated once (2.6493ms)
+✔ Codex contract: a lead-only marker includes child responses at and after its shared boundary (8.029ms)
+✔ Codex contract: implicit third-day coverage is partial, but an explicit in-horizon slice remains complete (19.7455ms)
+✔ Codex contract: logical lead and child identity conflicts stay permanently unresolved (14.1056ms)
+✔ Codex contract: a missing explicit tasks directory is partial while a missing default next-day directory is normal (5.8672ms)
+✔ Codex contract: rejected root-namespace parent cannot authenticate its grandchild (4.4322ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 201.299

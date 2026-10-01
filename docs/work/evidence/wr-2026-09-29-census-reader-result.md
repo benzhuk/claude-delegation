@@ -1,0 +1,15 @@
+# Lane 40b result
+
+Merged on origin/main at 4faa110328b9e5f7543e6a48d209a79ef859dc4c, main first parent07671c9a and accepted lane second parentfdb59ca1. Record wr-2026-09-29-census-reader is closed. Review artifact4f4edbc4e470e6faa4f9598763dbb4800468bb3e, independent Opus delta APPROVE with no findings. Original history bullet is in the merge commit; this closeout clarifies the baseline gate failure below.
+
+The shared LF reader preserves literal Unicode separators and UTF8 decoding. Child completion uses a matching positional task_complete, survives benign trailing rows, and excludes clean completed pre-window children. Corrupt, conflicting, invalid-start or unknown-end evidence stays PARTIAL. No invented item_completed witness. The long-row scan is linear in chunk scanning, synthetic32MB2965ms to14ms. No installation.
+
+Independent actual-base regressions:14 expected reds,141 retained greens, then final focused307/307. Opus reproduced reader and completion mutants; the added untimed-segment test kills the remaining substantive mutant. Twenty thousand differential sequences found no splitter behavior difference after the performance patch.
+
+Candidate sealed gates: Windows3327 total3236pass90skip1TODO0fail/leak, Netcup3327 total3314pass12skip1TODO0fail/leak. Reports and raw-log locations are retained in sibling evidence files.
+
+Merged-main gate:3327 total3235pass90skip1TODO1fail0leak. The only failure is skills/multi/scripts/mirror-shim.test.mjs:177, R4 Windows shims expected8 but planned10. Same failure reproduced on first-parent07671c9a modeled as a durable main checkout. Test, planner and reclaim blobs are identical in first parent, reviewed candidate and merge. A linked checkout suppresses reclaim.cmd/reclaim; canonical main adds them. The test counts all PATH-shim actions against the four note-command pairs. This meets the standing rule of no new failing test name versus main; it is not called a green merged gate. No shim or reclaim fix was made. Owner follow-up requested through this result; diagnosis is wr-2026-09-29-census-reader-main-baseline.md.
+
+Post-gate native census is COUNTED114 responses, native leadTurns1, complete canonical discovery,58 descendant files and no malformed rows. Four-read reports28259114 top-tier tokens across native graph plus spec slice and approximately0.9h ask to accepted. This excludes detached Claude executors/reviewers. Stall attribution is UNSUPPORTED; zero heuristic gaps is not proof of zero stalls. Acceptance-time rework0 is not a completed seven-day outcome. Original lane40 PARTIAL outputs remain unchanged; lane40 reruns next against repaired main with a fresh boundary.
+
+Retained worktrees: census-reader-40b, census-reader-40b-source, census-reader-40b-tests under C:/Users/benzh/orca/workspaces/claude-delegation. Scratch is C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/census-reader-40b. No cleanup or denied-operation retry is authorized by this result. Source/test territory records were explicitly superseded into the parent, with no false independent acceptance.

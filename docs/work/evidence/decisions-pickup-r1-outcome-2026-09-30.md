@@ -1,0 +1,12 @@
+Owner-attestation: skills-a
+Requested-owner: ben
+Round: 1
+Page: 3e1da11277a18174bccfea187d5c3972
+Authority: skills-fable-pickup-1 resolves the prior owner-handoff question; the saved receipt owner remains skills-a. This outcome uses the official account command only and does not reassign ownership or edit receipt JSON.
+Fresh-page-reconciliation: September 30, 2026, 09:34 America/New_York. A fresh notion.js markdown read shows Done unchecked, last cleared September 29 at17:54 America/New_York. The three captured items are retired, and the live session summary records the goal-card queue,365-day retention on three hosts and lane61 for baseline/continue census. The exact round1 capture was reopened through decisions-pickup open and contains precisely the three selections accounted below. No new page edit or Done clearing is performed.
+
+Accounted-ref: selection-001 Goal card gate. Ben selected "Yes, open the goal card gate lane after the census read (recommended)". Commit42763cdb0d081198d11e9c02e5717e2959c5b10f, already in main ancestry, quotes this verbatim in docs/decisions/history/2026-09-29.md and retires waiting/goal-card-gate.md. Outcome is queued after the October1 15:00 America/New_York census read, not built or completed.
+Accounted-ref: selection-002 Hand-run baseline. Ben selected "Yes, raise retention now and open the baseline lane (recommended)". The same commit quotes this verbatim and retires waiting/hand-run-baseline.md. History reports365-day retention applied on Windows, Netcup and Hetzner with backups, Mac pending reachability, and lane61 opened for five historical hand-run builds with Opus adjudication. This accounting attributes host changes to the retained main record; it does not claim a fresh host audit or completed baseline.
+Accounted-ref: selection-003 Continue census. Ben selected "Yes, census first, then retire if unused (recommended)". The same commit quotes this verbatim and retires waiting/retire-continue.md. Outcome is folded into lane61 as the second report, with a retire lane conditional on low measured use. Skills-o reports lane61 currently paused on a secret-guard alert awaiting Ben; no completed census or retirement is claimed.
+
+Evidence: commit42763cdb0d081198d11e9c02e5717e2959c5b10f; docs/decisions/history/2026-09-29.md; skills-fable-pickup-1; skills-o-lane-40-1. Fresh read and validated original capture retained under C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/pickup-r1-fresh-0930.md and pickup-r1-capture-0930.md.

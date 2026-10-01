@@ -4,25 +4,50 @@
 // guard's bounded shape: a [ \t]-only class with an explicit {0,20} bound, never \s.
 
 import fs from "node:fs";
+import { realpathSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
 
-export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "blocked"];
+// C1 ruling b (lane-closeout): `close --closeout` reuses janitor.mjs's one new export
+// (closeoutWorktree) for the worktree/branch step, and its existing isRemoteBranchMergedIntoOrigin
+// for the origin-branch step's last refusal. janitor.mjs already imports listRecords from this
+// file - a circular import, deliberately: both directions only ever touch the other's bindings
+// inside function bodies, at call time, well after both modules finish evaluating.
+import { closeoutWorktree, isRemoteBranchMergedIntoOrigin, listWorktrees } from "./janitor.mjs";
+import { checkRemovablePath } from "./path-safety.mjs";
+
+export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "closed", "blocked", "withdrawn"];
+// R2 (withdraw-status-1): the only statuses `withdrawRecord` may withdraw FROM. `withdrawn`
+// itself is terminal and one-way - never in this set, never reachable a second time, never
+// reachable from `accepted`.
+export const WITHDRAWABLE_STATUSES = ["rejected", "blocked", "runnable", "owned"];
 export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority", "artifact", "evidence", "next", "opened"];
 // "worktree" (T1, loop-gates spec item 2): the git worktree or branch path that produced
 // Artifact:. Optional for validateRecord/parseRecord (an old record without it still
 // parses cleanly) but checkAcceptance requires it - see the sha-not-in-git check below.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "worktree"];
+// "leadSession"/"specSession"/"specFrom" (R2, four-number read spec.md item 1): the
+// session that led this build, and the spec session's own usage window - optional here,
+// same as "worktree", because the enforcement (lead session required, spec fields a
+// WARN) lives in checkAcceptance below, not in validateRecord's generic missing-field.
+// "scratch" (C1 ruling a, lane-closeout): a singleton header field, `Scratch: <absolute dir>` -
+// the directory the lead created for this lane's temp files, named in the brief per the
+// eight-role pinned sentence. Optional here (validateRecord/parseRecord parse it like any other
+// singleton) so an old record without one still parses cleanly; the refusal/warning split lives
+// in checkScratchField below, called from both validateRecord and checkAcceptance.
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
   "evidence-unreachable", "bugfix-gate-missing", "runnable-with-owner", "accepted-without-check",
+  "scratch-missing", "scratch-invalid", "artifact-repo-not-absolute",
 ];
 
 // T1 (round-2 review, MAJOR 3): before this, `Status: accepted` was enforced only by the
 // prose in SKILL.md - a hand-edited Status: line went unnoticed by every reader of a
-// record (continuation.mjs, hooks/backlog-notice.js). `acceptRecord` always appends
+// record (hooks/backlog-notice.js). `acceptRecord` always appends
 // exactly one `Log: <iso> accepted <owner> artifact <40-hex>` line when it flips a
 // record; a record with no such line naming its own Artifact: was never accepted through
 // code. Gated by Opened: (not by the mere absence of Worktree:, which a hand-editor could
@@ -44,18 +69,92 @@ const FIELD_LABELS = [
   ["work", "Work"], ["scope", "Scope"], ["owner", "Owner"], ["status", "Status"],
   ["authority", "Authority"], ["artifact", "Artifact"], ["evidence", "Evidence"],
   ["next", "Next"], ["opened", "Opened"], ["children", "Children"],
-  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"], ["worktree", "Worktree"],
+  ["builder", "Builder"], ["rounds", "Rounds"], ["class", "Class"],
+  // "artifactRepo" (lane 60b, artifact-repo-60b spec): a singleton, absolute-path field naming
+  // the OTHER repository that holds Artifact: when the artifact does not live in --repo. Placed
+  // before Worktree: in the header table (docs/work-record.md) since it names the repository
+  // Worktree: itself is then read inside. Optional here, like every other singleton above - the
+  // refusal/warning split (artifact-repo-not-absolute, artifact-repo-same, sha-not-in-git) lives
+  // in validateRecord and checkAcceptance below.
+  ["artifactRepo", "Artifact-repo"], ["worktree", "Worktree"],
+  ["leadSession", "Lead-session"], ["specSession", "Spec-session"], ["specFrom", "Spec-from"], ["base", "Base"],
+  // R1 (withdraw-status-1): a known, optional, single-valued label so it round-trips through
+  // the parser and requireStrictRecordShape's singleton check, exactly like Worktree: above -
+  // `withdrawRecord` is the only writer, but any hand-written record may carry it too.
+  ["supersededBy", "Superseded-by"],
+  // C1 ruling a (lane-closeout): a singleton, same shape as Worktree:/Superseded-by above -
+  // `close --closeout` is the only reader that treats its absence as load-bearing.
+  ["scratch", "Scratch"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
 // as WORKAROUND/Log - `accept --census` writes one per copied summary line - never a
 // FIELD_LABELS singleton, so several may coexist without tripping the duplicate-singleton
 // check in requireStrictRecordShape.
-const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census"]);
+// "four numbers" (R2, four-number read spec.md item 3): a repeatable header line, same
+// shape as census above - `accept --four-read <json>` writes one per copied number.
+const KNOWN_LABELS = new Set([...FIELD_LABELS.map(([, l]) => l.toLowerCase()), "workaround", "log", "census", "four numbers"]);
 const HEADER_LINE_RE = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.+)$/;
 
 function rtrim(s) {
   return s.replace(/[\r \t]+$/, "");
+}
+
+// R2 item 2 (seam-review M4): a session id is one real token, never a placeholder like
+// "none"/"unavailable"/"tbd" - the facts file tells leads to write "unavailable" in these
+// fields when a value is genuinely missing, so a bare-presence check alone passes every
+// placeholder and checks nothing. Used by both the lead-session refusal (unconditional)
+// and the spec-session WARN (m1: WARN on content, not just presence).
+const PLACEHOLDER_ID_RE = /^[(<[{"']*(?:none|null|undefined|unavailable|unknown|missing|unset|n\/?a|tbd|pending|-+)\b/i;
+function isSessionId(v) {
+  const t = typeof v === "string" ? v.trim() : "";
+  return /^\S{6,}$/.test(t) && /\d/.test(t) && !PLACEHOLDER_ID_RE.test(t);
+}
+
+// C1 ruling a (lane-closeout): the lead sets this to this lane's merge time in the merge
+// commit - the instant on/after which a record's own Spec-from: requires a Scratch: line. No
+// CLI flag exists to move this (same discipline as STRICT_FROM below): `opts.scratchFrom` is
+// for tests only.
+export const SCRATCH_FROM = "2026-09-29T00:54:00Z";
+
+// opts: { scratchFrom? } -> { refusal: { code, message } | null, warning: string | null }.
+// Shared by validateRecord (an info-level finding on `warning`, a finding-level one on
+// `refusal`) and checkAcceptance/acceptRecord (throws on `refusal`, ignores `warning`).
+// - A Scratch: value that is present but not absolute is `scratch-invalid`, at any date.
+// - A record with no Scratch: line is `scratch-missing` only when Spec-from: is parseable
+//   AND on or after scratchFrom; any other record with no Scratch: line is a warning only.
+export function checkScratchField(record, opts = {}) {
+  const scratchFrom = opts.scratchFrom ?? SCRATCH_FROM;
+  const scratchFromMs = Date.parse(scratchFrom);
+  const scratch = typeof record.fields.scratch === "string" ? record.fields.scratch.trim() : "";
+  if (scratch) {
+    // F9 (C1 round 2): a record can be written on either host - accept a value absolute on
+    // EITHER path convention (posix or win32), not just this reader's own `path.isAbsolute`,
+    // so a Windows-authored `Scratch: C:/...` is never `scratch-invalid` merely for being read
+    // back on Linux (or the reverse).
+    if (!(path.posix.isAbsolute(scratch) || path.win32.isAbsolute(scratch))) {
+      return {
+        refusal: { code: "scratch-invalid", message: `Scratch: "${scratch}" is not an absolute directory path` },
+        warning: null,
+      };
+    }
+    return { refusal: null, warning: null };
+  }
+  const specFromMs = Date.parse(record.fields.specFrom ?? "");
+  const required = !Number.isNaN(specFromMs) && !Number.isNaN(scratchFromMs) && specFromMs >= scratchFromMs;
+  if (required) {
+    return {
+      refusal: {
+        code: "scratch-missing",
+        message: `Scratch: is missing, and Spec-from: (${record.fields.specFrom}) is on or after SCRATCH_FROM (${scratchFrom}); set Scratch: to the absolute directory the lead created for this lane`,
+      },
+      warning: null,
+    };
+  }
+  return {
+    refusal: null,
+    warning: "scratch-missing: no Scratch: line present (not refused: Spec-from is absent, unparseable, or before SCRATCH_FROM)",
+  };
 }
 
 function fieldRegex(label) {
@@ -123,7 +222,16 @@ export function parseRecord(text) {
     census.push(rtrim(cm[1]).trim());
   }
 
-  return { fields, workarounds, log, census, errors };
+  // four numbers (R2, four-number read): every `Four numbers:` line, verbatim, in file
+  // order - the same repeatable, copy-only shape as census just above; this file never
+  // re-derives one of the four numbers, only stores the read's own text.
+  const fourNumbers = [];
+  const fourNumbersRe = /^[ \t*+-]{0,20}Four numbers:\**[ \t]{0,20}(.+)$/gim;
+  for (const fm of headerText.matchAll(fourNumbersRe)) {
+    fourNumbers.push(rtrim(fm[1]).trim());
+  }
+
+  return { fields, workarounds, log, census, fourNumbers, errors };
 }
 
 function isInsideRepo(repoRoot, evidencePath) {
@@ -175,7 +283,9 @@ export function validateRecord(record, opts = {}) {
     });
   }
 
-  const isAccepted = fields.status === "accepted";
+  // A closed record retains every proof required for acceptance. Closing only records
+  // the merge after that proof; it must never provide a back door around it.
+  const isAccepted = fields.status === "accepted" || fields.status === "closed";
 
   if (isAccepted && (fields.artifact === undefined || fields.artifact === "none")) {
     findings.push({
@@ -280,6 +390,20 @@ export function validateRecord(record, opts = {}) {
     });
   }
 
+  if (fields.status === "closed") {
+    const closedThroughCode = log.some((l) => {
+      if ((l.status ?? "").toLowerCase() !== "closed" || l.owner !== fields.owner) return false;
+      return /^merge[ \t]+[0-9a-f]{40}$/i.test((l.note ?? "").trim());
+    });
+    if (!closedThroughCode) {
+      findings.push({
+        code: "accepted-without-check",
+        level: "finding",
+        message: "Status: closed but no Log: closed <Owner> merge <40-hex> line records the merged commit",
+      });
+    }
+  }
+
   // stale-result-candidate (RT-8, A4): an owner-change Log line is one whose owner differs
   // from the immediately preceding Log line's owner (the first line always counts).
   const artifactLogs = log.filter((l) => /^artifact[ \t]+\S+/i.test(l.note ?? ""));
@@ -306,6 +430,7 @@ export function validateRecord(record, opts = {}) {
       try {
         const out = execImpl("git", ["-C", opts.gitDir, "log", "-1", "--format=%H", opts.ref, "--", scopePath], {
           encoding: "utf8",
+          env: withoutRepoLocatingGitEnv(process.env),
         }).trim();
         if (!out) {
           // git ran fine and answered "no history for this path at this ref" - an unresolvable
@@ -343,6 +468,30 @@ export function validateRecord(record, opts = {}) {
         });
       }
     }
+  }
+
+  // artifact-repo-not-absolute (lane 60b): Artifact-repo:, when present, must be an absolute
+  // directory path - accepted on either OS convention (F9's own rule for Scratch: above), so a
+  // record authored on Windows and read back on Linux is never flagged merely for that. A blank
+  // Artifact-repo: value is silently ignored here (nothing was named), exactly like every other
+  // optional field.
+  if (typeof fields.artifactRepo === "string" && fields.artifactRepo.trim() !== "") {
+    const artifactRepo = fields.artifactRepo.trim();
+    if (!(path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo))) {
+      findings.push({
+        code: "artifact-repo-not-absolute",
+        level: "finding",
+        message: `Artifact-repo: "${artifactRepo}" is not an absolute directory path`,
+      });
+    }
+  }
+
+  // scratch (C1 ruling a, lane-closeout): see checkScratchField above.
+  const scratchCheck = checkScratchField(record, { scratchFrom: opts.scratchFrom });
+  if (scratchCheck.refusal) {
+    findings.push({ code: scratchCheck.refusal.code, level: "finding", message: scratchCheck.refusal.message });
+  } else if (scratchCheck.warning) {
+    findings.push({ code: "scratch-missing", level: "info", message: scratchCheck.warning });
   }
 
   // bugfix-gate-missing (RT-23)
@@ -412,6 +561,29 @@ export function formatLogLine(at, status, owner, note) {
   return note ? `${base} ${note}` : base;
 }
 
+// R2 item 3 (seam-review B1): copies four-read.mjs's own numbers[] shape (an ARRAY of
+// exactly four { key, label, value } entries, each value already the formatted "value or
+// unavailable (<reason>)" text) - never guesses at a different shape, since this file
+// never re-derives one of the four numbers itself. A wrong-shaped or partial file refuses
+// (four-read-invalid) rather than silently stringifying whatever it finds; flat() collapses
+// any embedded newlines/whitespace in a copied label or value so a value can never inject
+// a blank line or a header-looking line into the record (M1).
+const FOUR_READ_KEYS = ["topTierTokensPerBuild", "hoursAskToAccepted", "reworkAfterAcceptance", "workLostOrStalled"];
+function fourReadLines(parsed) {
+  const rows = parsed && Array.isArray(parsed.numbers) ? parsed.numbers : null;
+  const flat = (s) => String(s).replace(/\s+/g, " ").trim();
+  if (
+    !rows || rows.length !== 4
+    || !rows.every((r, i) => r && r.key === FOUR_READ_KEYS[i] && typeof r.label === "string" && flat(r.label) && typeof r.value === "string" && flat(r.value))
+  ) {
+    throw acceptanceError(
+      "--four-read is not four-read.mjs JSON: expected numbers[4] of { label, value } strings",
+      "four-read-invalid",
+    );
+  }
+  return rows.map((r) => `Four numbers: ${flat(r.label)}: ${flat(r.value)}`);
+}
+
 const SINGLETON_LABELS = new Map(FIELD_LABELS.map(([key, label]) => [label.toLowerCase(), key]));
 const DECIDING_VERDICTS = new Set(["APPROVE", "NEEDS_FIXES", "FAIL", "REJECTED"]);
 // Seam S2: the loop's REVIEW_MANDATE and reviewer briefs ask for a `VERDICT: NEEDS_FIXES
@@ -426,6 +598,259 @@ function acceptanceError(message, code = "acceptance-failed") {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+// ── measure-truth-1 (contracts.md R1-R4) ────────────────────────────────────────────
+//
+// R1: strict cutoff. This lane's own Opened: - a record whose effective opened instant
+// is at or after this is "strict" and gets the R2/R3 refusals below instead of warnings.
+// No CLI flag exists to move this: `strictFrom` in opts is for tests only (contracts.md
+// R1).
+export const STRICT_FROM = "2026-09-27T08:32:15Z";
+
+const STALL_WORD_RE = /\b(hung|stall(ed|s|ing)?|relaunch(ed|es|ing)?)\b/i;
+// R3 review round 1, M1: these two tokens are the loop's own literal words (the verdict
+// word APPROVE, the seam's literal SKIPPED) - not one of R3's model tokens, so they stay
+// case-sensitive on purpose. A lowercase "skipped" in ordinary prose (e.g. "the Windows
+// suite skipped") must never exempt a model-less reviewed/APPROVE line, and "approve" in
+// prose like "waiting for Ben to approve the merge" must never trip log-model-missing.
+const APPROVE_WORD_RE = /\bAPPROVE\b/;
+const SKIPPED_WORD_RE = /\bSKIPPED\b/;
+// R2: strict Spec-from must be a UTC instant ending in Z; an offset (`-04:00`) is
+// refused even though it is a valid ISO-8601 timestamp - the census reads Spec-from as a
+// window start and needs a fixed zone. SPEC_FROM_OFFSET_RE recognises the offset shape so
+// the refusal's fix line can name it specifically.
+const SPEC_FROM_STRICT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/;
+const SPEC_FROM_OFFSET_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?[+-]\d{2}:?\d{2}$/;
+const BASE_SHA_RE = /^[0-9a-fA-F]{40}$/;
+
+// R3: the tiers table's own tokens (docs/model-tiers.md), hardcoded here and kept in
+// sync by a test that parses that table's rows and fails if they differ.
+export const MODEL_TIER_TOKENS = [
+  ["top", "Fable"], ["top", "GPT-6-Astra"],
+  ["high", "Opus"], ["high", "GPT-5.6-Sol"],
+  ["mid", "Sonnet"], ["mid", "GPT-5.6-Terra"],
+  ["fast", "Haiku"], ["fast", "GPT-5.6-Luna"], ["fast", "GPT-5.3-Codex-Spark"],
+];
+
+function escapeToken(t) {
+  return t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Whole-word, case-insensitive, bounded by a non-[A-Za-z0-9.] character or a string edge
+// (R3) - "claude-opus-5-5" counts as Opus because "-" sits outside that class on both
+// sides of the match.
+function tokenMatchIndexes(text, token) {
+  const re = new RegExp(`(?<![A-Za-z0-9.])${escapeToken(token)}(?![A-Za-z0-9.])`, "gi");
+  const indexes = [];
+  let m;
+  while ((m = re.exec(text)) !== null) indexes.push(m.index);
+  return indexes;
+}
+
+// R3 negation: "no", "not" or "without" within the two words immediately before the
+// match - e.g. "no Opus reviewer was used" names no model. Punctuation around the
+// negating word is stripped before comparing.
+function isNegatedMatch(text, index) {
+  const raw = text.slice(0, index);
+  // Round 1 review, m1: when the match sits inside a compound (claude-opus-5-5), the
+  // fragment immediately before it ("claude-") is that token's own prefix, not a
+  // separate word - strip it before taking the two words that precede the token.
+  const before = (raw === "" || /\s$/.test(raw) ? raw : raw.replace(/\S+$/, "")).trim();
+  const words = before.split(/\s+/).filter(Boolean).slice(-2);
+  return words.some((w) => /^[("'[]*(no|not|without)[.,;:!?)"'\]]*$/i.test(w));
+}
+
+// -> Set of tiers ("top"/"high"/"mid"/"fast") whose token is present in `note`, whole-word
+// and not negated. Exported so a test can assert the negation/boundary rules directly.
+export function countedModelTiers(note) {
+  const text = note ?? "";
+  const tiers = new Set();
+  for (const [tier, token] of MODEL_TIER_TOKENS) {
+    for (const index of tokenMatchIndexes(text, token)) {
+      if (!isNegatedMatch(text, index)) tiers.add(tier);
+    }
+  }
+  return tiers;
+}
+
+// R1: the effective opened instant is the later of Opened: and the author time of the
+// first git commit that added the record file - or Opened: alone when there is no
+// repoRoot/recordPath to check (a fresh, uncommitted record), or git has no add-commit
+// for that path at all. Never throws: a git failure here just falls back to Opened:.
+function effectiveOpenedMs(record, opts) {
+  const openedMs = Date.parse(record.fields.opened ?? "");
+  if (!opts.repoRoot || !opts.recordPath) return openedMs;
+  const spawnImpl = opts.spawnImpl ?? spawnSync;
+  try {
+    const result = spawnImpl(
+      "git",
+      ["-C", opts.repoRoot, "log", "--diff-filter=A", "--format=%aI", "--", opts.recordPath],
+      { encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) },
+    );
+    if (result.error || result.status !== 0) return openedMs;
+    const stamps = String(result.stdout ?? "")
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((l) => Date.parse(l))
+      .filter((t) => !Number.isNaN(t));
+    if (stamps.length === 0) return openedMs;
+    const firstAddMs = Math.min(...stamps);
+    return Number.isNaN(openedMs) ? firstAddMs : Math.max(openedMs, firstAddMs);
+  } catch {
+    return openedMs;
+  }
+}
+
+// R1: opts: { strictFrom?, repoRoot?, recordPath?, spawnImpl? }. `strictFrom` defaults to
+// the frozen STRICT_FROM constant; only tests override it.
+export function isStrictRecord(record, opts = {}) {
+  const strictFrom = opts.strictFrom ?? STRICT_FROM;
+  const cutoffMs = Date.parse(strictFrom);
+  const openedMs = effectiveOpenedMs(record, opts);
+  // Round 1 review, M2: an unparseable Opened: (no add-commit to fall back on) is an
+  // unknown instant, never a known-early one - it must never read as strict-exempt.
+  if (Number.isNaN(openedMs)) return true;
+  return !Number.isNaN(cutoffMs) && openedMs >= cutoffMs;
+}
+
+// A body paragraph starting unindented `Stall:` or `Gap:` (R4's named exemption) -
+// deliberately simple (this check is "coarse" by the doc's own word): any body line, at
+// column zero, starting with one of those two labels and nonempty content.
+function hasStallOrGapParagraph(text) {
+  const lines = text.split(/\r?\n/);
+  const blank = lines.findIndex((l) => l.trim() === "");
+  const body = blank === -1 ? [] : lines.slice(blank + 1);
+  return body.some((line) => /^(Stall|Gap):[ \t]*\S/.test(line));
+}
+
+/**
+ * The measure-truth-1 rules (contracts.md R1-R4), factored out of checkAcceptance so a
+ * caller (a test, in particular R5's real-record fixtures) can run exactly these
+ * field/format/model/stall checks against a record's own text without a git-backed
+ * worktree, artifact, or evidence - none of which these rules touch. Throws
+ * acceptanceError (named field + fix, or an offending Log: line's timestamp) exactly as
+ * contracts.md R1-R4 specify; returns `{ strict, warnings }` on success. Every other
+ * acceptance concern (Status/shape/git identity/evidence) is checkAcceptance's own job,
+ * before and after this call.
+ * opts: { repoRoot?, recordPath?, spawnImpl?, strictFrom?, now?, acceptAt? }
+ */
+export function checkMeasureTruthRules(text, record, opts = {}) {
+  const strictFrom = opts.strictFrom ?? STRICT_FROM;
+  const strictFromMs = Date.parse(strictFrom);
+  const strict = isStrictRecord(record, opts);
+  const warnings = [];
+
+  // R2: Base - unconditional, strict or not. "Every record is refused on Base: unless it
+  // is exactly one 40-hex sha."
+  const base = typeof record.fields.base === "string" ? record.fields.base.trim() : "";
+  if (!BASE_SHA_RE.test(base)) {
+    throw acceptanceError(
+      `Base: is "${record.fields.base ?? "<missing>"}", not exactly one 40-hex sha; set Base: to the single 40-character git sha this build's Base pinned`,
+      "base-invalid",
+    );
+  }
+
+  if (strict) {
+    // R2: Spec-session/Spec-from are refusals, not warnings, on a strict record.
+    if (!isSessionId(record.fields.specSession)) {
+      throw acceptanceError(
+        "Spec-session: is absent or a placeholder; set Spec-session: to the real session id that authored the spec this build reads",
+        "spec-session-missing",
+      );
+    }
+    const specFrom = typeof record.fields.specFrom === "string" ? record.fields.specFrom.trim() : "";
+    if (!SPEC_FROM_STRICT_RE.test(specFrom)) {
+      const isOffset = SPEC_FROM_OFFSET_RE.test(specFrom);
+      throw acceptanceError(
+        isOffset
+          ? `Spec-from: "${specFrom}" is an offset, not a UTC Z instant; convert it to UTC and write the Z form`
+          : "Spec-from: is absent, or not an ISO-8601 UTC instant ending in Z; set Spec-from: to a UTC timestamp such as 2026-09-27T08:32:15Z",
+        "spec-from-missing",
+      );
+    }
+
+    // R3: model tokens on reviewed/APPROVE Log lines dated on/after STRICT_FROM.
+    let hasHighTopApprove = false;
+    for (const line of record.log ?? []) {
+      const ms = Date.parse(line.at);
+      // Round 1 review, M3: an unparseable `at` (parseRecord accepts any \S{1,64}) is
+      // never treated as "before STRICT_FROM" - only a *parseable*, earlier timestamp
+      // skips the check. An undated line is judged, never exempted.
+      if (!Number.isNaN(ms) && ms < strictFromMs) continue;
+      const status = (line.status ?? "").toLowerCase();
+      const note = line.note ?? "";
+      const approves = APPROVE_WORD_RE.test(note);
+      const isReviewed = status === "reviewed";
+      if (!isReviewed && !approves) continue; // not covered by R3 at all
+      const tiers = countedModelTiers(note);
+      if (isReviewed && SKIPPED_WORD_RE.test(note)) {
+        // The loop's "seam SKIPPED" needs no model of its own, but when the same line also
+        // names the territory reviews' high/top-tier APPROVE it still satisfies the
+        // at-least-one rule below (seam review: the loop's only reviewed line).
+        if (approves && (tiers.has("high") || tiers.has("top"))) hasHighTopApprove = true;
+        continue;
+      }
+      if (tiers.size === 0) {
+        throw acceptanceError(
+          `Log: ${line.at} ${status} line's note names no counted model token (docs/model-tiers.md); add one, e.g. "Opus reviewer"`,
+          "log-model-missing",
+        );
+      }
+      if (isReviewed && approves && (tiers.has("high") || tiers.has("top"))) hasHighTopApprove = true;
+    }
+    if (!hasHighTopApprove) {
+      throw acceptanceError(
+        "no Log: reviewed line dated on/after STRICT_FROM names both a high- or top-tier model token and the word APPROVE",
+        "log-model-missing",
+      );
+    }
+  } else {
+    warnings.push(`strict-exempt: Opened before ${strictFrom}; Spec-session/Spec-from/model rules are warnings for this record`);
+  }
+
+  // R4: stall-word check - every record, strict or not, scoped to [Opened, accept instant].
+  const openedMs = Date.parse(record.fields.opened ?? "");
+  const acceptInstant = opts.acceptAt !== undefined ? new Date(opts.acceptAt) : (opts.now ?? new Date());
+  const acceptMs = acceptInstant.getTime();
+  const stallLines = (record.log ?? []).filter((line) => {
+    const ms = Date.parse(line.at);
+    // Round 1 review, M3: dropped the earlier `if (Number.isNaN(ms)) return false` -
+    // that let an undated Log line (parseRecord accepts any \S{1,64} as `at`) dodge R4
+    // entirely. A NaN `ms` now simply never satisfies either comparison below (NaN
+    // comparisons are always false), so an undated line falls through and is judged.
+    if (!Number.isNaN(openedMs) && ms < openedMs) return false;
+    if (!Number.isNaN(acceptMs) && ms > acceptMs) return false;
+    return STALL_WORD_RE.test(line.note ?? "");
+  });
+  if (stallLines.length > 0) {
+    // Round 1 review, B1: this accept's own --four-read (opts.fourNumbers, threaded in by
+    // checkAcceptance) is the source of truth when present - the file's pre-existing
+    // `Four numbers:` lines (from a PRIOR accept/rework cycle) are stale and must never be
+    // read as this accept's numbers. `not run` (accept's own marker for "no --four-read
+    // given") is filtered out so it is never counted as a present line.
+    const fourNumbers = (opts.fourNumbers ?? record.fourNumbers ?? []).filter(
+      (l) => typeof l === "string" && !/^not run$/i.test(l.trim()),
+    );
+    if (fourNumbers.length === 0) {
+      warnings.push(
+        `stall-word-check-skipped: no Four numbers: line present (no --four-read run); the hung/stall/relaunch check on Log: ${stallLines[0].at} was skipped`,
+      );
+    } else {
+      const fourNumberLine = fourNumbers.find((l) => /^Work lost or stalled:/i.test(l));
+      const leadingMatch = fourNumberLine ? /^Work lost or stalled:\s*(\d+)/i.exec(fourNumberLine) : null;
+      const nonZero = leadingMatch ? Number(leadingMatch[1]) !== 0 : false;
+      if (!nonZero && !hasStallOrGapParagraph(text)) {
+        throw acceptanceError(
+          `Log: ${stallLines[0].at} ${stallLines[0].status} names a hung/stall/relaunch word, but Four numbers: Work lost or stalled: has no non-zero leading integer (zero, unavailable, or missing) and no Stall:/Gap: body paragraph explains it`,
+          "stall-word-unexplained",
+        );
+      }
+    }
+  }
+
+  return { strict, warnings };
 }
 
 function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
@@ -457,12 +882,35 @@ function readConfinedRegularFile(repoReal, repoRoot, relativePath, fsImpl) {
   }
 }
 
+// lane 60b: the realpath of `git -C root rev-parse --git-common-dir` - the one stable identity
+// two different paths (a repo root, one of its worktrees, a bind-mount, ...) share when they
+// belong to the SAME repository. Returns null on any failure (not a git repo at all, missing
+// directory, unreadable) - checkAcceptance's callers treat null as fail-closed (sha-not-in-git),
+// never as "assume different" or "assume same".
+function gitCommonDirReal(root, spawnImpl, fsImpl) {
+  const result = spawnImpl("git", ["-C", root, "rev-parse", "--git-common-dir"], {
+    encoding: "utf8",
+    stdio: "pipe",
+    env: withoutRepoLocatingGitEnv(process.env),
+  });
+  if (result.error || result.status !== 0) return null;
+  const out = String(result.stdout ?? "").trim();
+  if (!out) return null;
+  const abs = path.isAbsolute(out) ? out : path.resolve(root, out);
+  try {
+    return fsImpl.realpathSync(abs);
+  } catch {
+    return null;
+  }
+}
+
 function resolveCommit(repoRoot, revision, label, spawnImpl) {
   if (!revision) throw acceptanceError(`${label} revision is missing`);
   try {
     const result = spawnImpl("git", ["-C", repoRoot, "-c", "core.warnAmbiguousRefs=true", "rev-parse", "--verify", `${revision}^{commit}`], {
       encoding: "utf8",
       stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
     });
     if (result.error || result.status !== 0 || String(result.stderr ?? "").trim()) {
       throw result.error ?? new Error(String(result.stderr ?? "Git could not resolve revision").trim());
@@ -519,7 +967,7 @@ function requireStrictRecordShape(text, record) {
   const blank = lines.findIndex((line) => line.trim() === "");
   const header = blank === -1 ? lines : lines.slice(0, blank);
   const counts = new Map();
-  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z ]{0,40}):\**[ \t]{0,20}(.*)$/;
+  const strictHeaderRe = /^[ \t*+-]{0,20}([A-Za-z][A-Za-z -]{0,40}):\**[ \t]{0,20}(.*)$/;
   for (const line of header) {
     const match = line.match(strictHeaderRe);
     if (!match) continue;
@@ -748,6 +1196,54 @@ export function checkAcceptance(opts = {}) {
   const record = parseRecord(text);
   requireStrictRecordShape(text, record);
 
+  // lead-session-missing (R2, four-number read spec.md item 2): the record must name the
+  // session that led this build - "no override: a record without its lead session cannot
+  // be read". Unconditional on every checkAcceptance call, live or pinned, exactly like
+  // the Worktree: check below - there is no cutoff date grandfathering an older record in.
+  if (!isSessionId(record.fields.leadSession)) {
+    throw acceptanceError(
+      "Lead-session: field is required (the session id that led this build); none is present, or it is a placeholder",
+      "lead-session-missing",
+    );
+  }
+
+  // scratch (C1 ruling a, lane-closeout): both accept and check-acceptance refuse on
+  // scratch-missing/scratch-invalid - see checkScratchField above. opts.scratchFrom lets a test
+  // move SCRATCH_FROM the same way opts.strictFrom moves STRICT_FROM.
+  const scratchCheck = checkScratchField(record, { scratchFrom: opts.scratchFrom });
+  if (scratchCheck.refusal) {
+    throw acceptanceError(scratchCheck.refusal.message, scratchCheck.refusal.code);
+  }
+
+  // measure-truth-1 (contracts.md R1-R4): strict cutoff, Base/Spec-session/Spec-from
+  // field refusals, model tokens on reviewed/APPROVE Log lines, and the hung/stall/
+  // relaunch check - factored into one call so R5's real-record fixtures can exercise it
+  // directly (see checkMeasureTruthRules above) without any of the git-backed checks
+  // below it. Throws before any of them run; on success, its warnings (strict-exempt,
+  // or the stall-check-skipped notice) are merged into the result below.
+  //
+  // Round 1 review, B1: R4 must judge THIS accept's --four-read, not whatever
+  // Four numbers: lines the record's own text happens to carry - acceptRecord only
+  // splices its Four numbers: lines into the file AFTER checkAcceptance passes, so at
+  // check time a Status: reviewed record normally has none yet (or, after a prior
+  // accept/rework cycle, stale ones from the LAST accept). Read and validate --four-read
+  // here, before the call, and thread its numbers in as opts.fourNumbers; fourReadText is
+  // carried on the result so acceptRecord's own, necessarily separate read of the same
+  // path can be checked for TOCTOU drift instead of trusted a second time.
+  let fourReadText;
+  let fourReadNumbers;
+  if (opts.fourReadPath !== undefined) {
+    let parsedFourRead;
+    try {
+      fourReadText = fsImpl.readFileSync(opts.fourReadPath, "utf8");
+      parsedFourRead = JSON.parse(fourReadText);
+    } catch (error) {
+      throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
+    }
+    fourReadNumbers = fourReadLines(parsedFourRead).map((l) => l.replace(/^Four numbers:\s*/, ""));
+  }
+  const measureTruth = checkMeasureTruthRules(text, record, { ...opts, repoRoot, spawnImpl, fourNumbers: fourReadNumbers });
+
   // census-stale (C2 spec item 2): opt-in here - only runs when a caller passes
   // --census, so every census-agnostic caller (check-acceptance's existing read-only
   // uses, and every pre-census test of this function) is unaffected. The MANDATORY
@@ -792,12 +1288,63 @@ export function checkAcceptance(opts = {}) {
     }
   }
 
+  // Artifact-repo (lane 60b, artifact-repo-60b spec): when present, Artifact:,
+  // --pinned-artifact/--delivery-ref and Worktree: all resolve with `git -C <Artifact-repo>`
+  // instead of repoRoot - the record itself, its evidence, its census and its four-read stay
+  // confined to --repo throughout, unchanged. Absent, this is a no-op (artifactRoot === repoRoot,
+  // byte-for-byte the same behavior as before this field existed).
+  const artifactRepoRaw = typeof record.fields.artifactRepo === "string" ? record.fields.artifactRepo.trim() : "";
+  let artifactRoot = repoRoot;
+  let artifactCommonDir = null;
+  if (artifactRepoRaw) {
+    if (!(path.posix.isAbsolute(artifactRepoRaw) || path.win32.isAbsolute(artifactRepoRaw))) {
+      throw acceptanceError(`Artifact-repo: "${artifactRepoRaw}" is not an absolute directory path`, "artifact-repo-not-absolute");
+    }
+    // A missing or unreadable Artifact-repo: directory fails closed as sha-not-in-git (spec.md
+    // item 3): every downstream lookup below would fail the same way anyway, but this gives one
+    // clear reason instead of a confusing "Artifact revision is missing" further down.
+    artifactCommonDir = gitCommonDirReal(artifactRepoRaw, spawnImpl, fsImpl);
+    if (artifactCommonDir === null) {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact-repo: ${artifactRepoRaw} is missing, unreadable, or not a git repository`,
+        "sha-not-in-git",
+      );
+    }
+    // Artifact-repo: must name a real worktree (spec.md: "a directory inside a git worktree of
+    // the repository"), not a bare repository or a .git directory - otherwise live mode's
+    // "freshness" check means nothing, because no working tree ever exists (review F2).
+    const insideWorkTree = spawnImpl("git", ["-C", artifactRepoRaw, "rev-parse", "--is-inside-work-tree"], {
+      encoding: "utf8",
+      stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
+    });
+    if (insideWorkTree.error || insideWorkTree.status !== 0 || String(insideWorkTree.stdout ?? "").trim() !== "true") {
+      throw acceptanceError(
+        `sha-not-in-git: Artifact-repo: ${artifactRepoRaw} is not inside a git worktree (a bare repository or a .git directory)`,
+        "sha-not-in-git",
+      );
+    }
+    // The "unrelated repository" ancestry guard below only holds when Artifact-repo: genuinely
+    // names a DIFFERENT repository - comparing git-common-dir realpaths (not just the two literal
+    // paths) so a worktree of --repo, or a symlinked/bind-mounted alias of it, is still caught.
+    // An unreadable --repo common dir fails closed (review F3): it must never be treated as
+    // "assume different", since that would let Artifact-repo: bypass the same-repo guard entirely.
+    const repoCommonDir = gitCommonDirReal(repoRoot, spawnImpl, fsImpl);
+    if (repoCommonDir === null) {
+      throw acceptanceError(`--repo ${repoRoot} is not a readable git repository, so Artifact-repo: cannot be proven to be a different one`, "artifact-repo-same");
+    }
+    if (repoCommonDir === artifactCommonDir) {
+      throw acceptanceError(`Artifact-repo: ${artifactRepoRaw} resolves to the same repository as --repo`, "artifact-repo-same");
+    }
+    artifactRoot = artifactRepoRaw;
+  }
+
   // A SHA git does not have at all is sha-not-in-git (T1 required item 4), the same code
   // as an unresolvable Worktree: below - both are "the recorded commit identity does not
   // exist in this git" - not the generic acceptance-failed used for shape errors.
   let artifact;
   try {
-    artifact = resolveCommit(repoRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+    artifact = resolveCommit(artifactRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
   } catch (error) {
     throw acceptanceError(`sha-not-in-git: ${error.message}`, "sha-not-in-git");
   }
@@ -805,7 +1352,7 @@ export function checkAcceptance(opts = {}) {
   if (opts.pinnedArtifact !== undefined && !/^[0-9a-fA-F]{4,64}$/.test(opts.pinnedArtifact)) {
     throw acceptanceError(`pinned artifact must be an explicit hexadecimal revision: ${opts.pinnedArtifact}`);
   }
-  const delivery = resolveCommit(repoRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
+  const delivery = resolveCommit(artifactRoot, deliveryInput, opts.deliveryRef !== undefined ? "delivery ref" : "pinned artifact", spawnImpl);
   if (artifact !== delivery) {
     throw acceptanceError(`Artifact ${artifact} does not match delivery ${delivery}`);
   }
@@ -827,18 +1374,29 @@ export function checkAcceptance(opts = {}) {
   // live worktree (its own HEAD); anything else is read as `refs/heads/<name>` in this
   // repo - never a bare revision expression, so a leading "-" can never be read as an
   // option by the git child process.
-  const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(repoRoot, worktreeField);
+  // Lane 60b: "this repo" is artifactRoot - repoRoot when Artifact-repo: is absent (unchanged
+  // behavior), else the named Artifact-repo:, per spec.md item 3 ("Worktree: must then be an
+  // absolute directory, or a branch name, in that repo").
+  const worktreeTarget = path.isAbsolute(worktreeField) ? worktreeField : path.resolve(artifactRoot, worktreeField);
   let worktreeIsDir = false;
   try {
     worktreeIsDir = fsImpl.statSync(worktreeTarget).isDirectory();
   } catch {
     worktreeIsDir = false;
   }
-  const worktreeGitDir = worktreeIsDir ? worktreeTarget : repoRoot;
+  // Lane 60b (spec.md item 3: "Worktree: must then be an absolute directory, or a branch name, in
+  // that repo"): a Worktree: directory must belong to the Artifact-repo: repository itself. A linked
+  // worktree shares its git-common-dir; a separate clone holding the same commit does not, and would
+  // otherwise let an artifact that no ref in Artifact-repo: reaches pass both modes (review r3).
+  if (artifactRepoRaw && worktreeIsDir && gitCommonDirReal(worktreeTarget, spawnImpl, fsImpl) !== artifactCommonDir) {
+    throw acceptanceError(`sha-not-in-git: Worktree: ${worktreeField} is not a worktree of Artifact-repo: ${artifactRepoRaw}`, "sha-not-in-git");
+  }
+  const worktreeGitDir = worktreeIsDir ? worktreeTarget : artifactRoot;
   const worktreeRev = worktreeIsDir ? "HEAD^{commit}" : `refs/heads/${worktreeField}^{commit}`;
   const worktreeResult = spawnImpl("git", ["-C", worktreeGitDir, "rev-parse", "--verify", worktreeRev], {
     encoding: "utf8",
     stdio: "pipe",
+    env: withoutRepoLocatingGitEnv(process.env),
   });
   if (worktreeResult.error || worktreeResult.status !== 0 || String(worktreeResult.stderr ?? "").trim()) {
     throw acceptanceError(`sha-not-in-git: could not resolve HEAD in Worktree: ${worktreeField}`, "sha-not-in-git");
@@ -867,6 +1425,7 @@ export function checkAcceptance(opts = {}) {
     const ancestry = spawnImpl("git", ["-C", worktreeGitDir, "merge-base", "--is-ancestor", artifact, worktreeHead], {
       encoding: "utf8",
       stdio: "pipe",
+      env: withoutRepoLocatingGitEnv(process.env),
     });
     if (ancestry.error || ancestry.status !== 0) {
       throw acceptanceError(
@@ -890,7 +1449,10 @@ export function checkAcceptance(opts = {}) {
       if (verdict[1] === "APPROVE") throw acceptanceError(`approval omits a revision: ${evidencePath}`);
       continue;
     }
-    const reportCommit = resolveCommit(repoRoot, verdict[2], `evidence ${evidencePath}`, spawnImpl);
+    // The evidence FILE stays confined to --repo (readConfinedRegularFile above, unchanged); only
+    // the commit sha its VERDICT line names is resolved in artifactRoot - it names a commit in
+    // the artifact's own repository, not necessarily one repoRoot's git has ever heard of.
+    const reportCommit = resolveCommit(artifactRoot, verdict[2], `evidence ${evidencePath}`, spawnImpl);
     if (reportCommit !== artifact) continue;
     if (verdict[1] === "APPROVE") approved = true;
     else blockers.push(`${verdict[1]} in ${evidencePath}`);
@@ -898,12 +1460,30 @@ export function checkAcceptance(opts = {}) {
   if (blockers.length > 0) throw acceptanceError(`current artifact has refusing evidence: ${blockers.join(", ")}`);
   if (!approved) throw acceptanceError("no evidence has an exact APPROVE verdict for the current artifact");
 
-  // censusText is only ever present as a key when --census was actually given - every
-  // pre-census caller (and every census-agnostic call, like check-acceptance without
-  // --census) keeps the exact result shape it always had.
-  return censusText !== undefined
-    ? { ok: true, work: record.fields.work, artifact, delivery, censusText }
-    : { ok: true, work: record.fields.work, artifact, delivery };
+  // spec-session/spec-from (R2, four-number read spec.md item 2): missing is a WARN, not
+  // a refusal - the read itself prints the token number as "partial (no spec slice)"
+  // when these are absent; this only surfaces the fact for a caller to see. Unchanged by
+  // measure-truth-1 (contracts.md R1: "Keep the existing WARN text for non-strict
+  // records") - on a strict record these same fields are refused above, in
+  // checkMeasureTruthRules, before this point is ever reached.
+  const warnings = [...measureTruth.warnings];
+  if (scratchCheck.warning) warnings.push(scratchCheck.warning);
+  if (!isSessionId(record.fields.specSession)) {
+    warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/.test(record.fields.specFrom ?? "")) {
+    warnings.push("spec-from-missing: Spec-from: is absent or not a timestamp; the four-read's token number will be partial (no spec slice)");
+  }
+
+  // censusText/warnings are only ever present as keys when there is one to report - every
+  // caller that never opted into --census, and every record that already carries both
+  // spec fields, keeps the exact result shape it always had (a bare `assert.deepEqual`
+  // against `{ ok, work, artifact, delivery }` still holds).
+  const result = { ok: true, work: record.fields.work, artifact, delivery };
+  if (censusText !== undefined) result.censusText = censusText;
+  if (fourReadText !== undefined) result.fourReadText = fourReadText;
+  if (warnings.length > 0) result.warnings = warnings;
+  return result;
 }
 
 /**
@@ -1012,13 +1592,46 @@ export function acceptRecord(opts = {}) {
     censusLines = [`Census: skipped — ${noCensusReason}`];
   }
 
-  const at = (opts.now ?? new Date()).toISOString();
+  // Four numbers (R2, four-number read spec.md item 3): --four-read is optional - accept
+  // still passes without it, the record just shows the numbers were not run.
+  let fourNumberLines, parsed;
+  if (opts.fourReadPath !== undefined) {
+    let fourReadTextNow;
+    try {
+      fourReadTextNow = fsImpl.readFileSync(opts.fourReadPath, "utf8");
+      parsed = JSON.parse(fourReadTextNow);
+    } catch (error) {
+      throw acceptanceError(`unreadable or invalid --four-read JSON: ${opts.fourReadPath} (${error.message})`, "four-read-invalid");
+    }
+    // TOCTOU guard (round 1 review, B1's "also required"): checkAcceptance above already
+    // read and validated this same --four-read path once (R4's stall-word check ran
+    // against those exact bytes). This is a second, independent read; if the file
+    // changed in between, the numbers spliced into the record below could be ones R4
+    // never judged. Fail closed, mirroring the --census TOCTOU guard just above.
+    if (result.fourReadText !== undefined && fourReadTextNow !== result.fourReadText) {
+      throw acceptanceError(
+        "four-read file changed during acceptance: re-run accept against the current --four-read file",
+        "four-read-invalid",
+      );
+    }
+    fourNumberLines = fourReadLines(parsed);
+  } else {
+    fourNumberLines = ["Four numbers: not run"];
+  }
+
+  // MAJOR 2 (seam): --at T is the shared timestamp four-read.mjs's --accept-at T stood in
+  // for at read time — refuse a T before the record's own last Log:, or too far ahead.
+  const atDate = opts.acceptAt !== undefined ? new Date(opts.acceptAt) : (opts.now ?? new Date());
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  if (opts.acceptAt !== undefined && (Number.isNaN(atDate.getTime()) || atDate.getTime() < Math.max(lastLogMs, Date.now() - 600000) || atDate.getTime() > Date.now() + 300000)) throw acceptanceError(`invalid --at: ${opts.acceptAt} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
+  if (parsed?.acceptAt && Date.parse(parsed.acceptAt) !== atDate.getTime()) throw acceptanceError(`--four-read was measured to ${parsed.acceptAt} but accept stamps ${atDate.toISOString()}: pass --at ${parsed.acceptAt}`, "four-read-invalid");
+  const at = atDate.toISOString();
   const logLine = formatLogLine(at, "accepted", record.fields.owner ?? "", `artifact ${result.artifact}`);
 
   const lines = text.split(/\r?\n/);
   const blankIdx = lines.findIndex((line) => line.trim() === "");
   const insertAt = blankIdx === -1 ? lines.length : blankIdx;
-  lines.splice(insertAt, 0, ...censusLines, logLine);
+  lines.splice(insertAt, 0, ...censusLines, ...fourNumberLines, logLine);
   const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}accepted${post}`);
 
   if (censusCopy) {
@@ -1028,10 +1641,892 @@ export function acceptRecord(opts = {}) {
   }
   const absPath = path.resolve(repoRoot, opts.recordPath);
   fsImpl.writeFileSync(absPath, updated);
-  // censusText was only ever an internal comparison value (MINOR 5 above) - never part
-  // of the public result shape (it could be an entire census report's worth of bytes).
-  const { censusText: _censusText, ...publicResult } = result;
+  // censusText/fourReadText were only ever internal comparison values (MINOR 5 above,
+  // and its B1 round-1-review mirror for --four-read) - never part of the public result
+  // shape (either could be an entire report's worth of bytes).
+  const { censusText: _censusText, fourReadText: _fourReadText, ...publicResult } = result;
   return { ...publicResult, path: absPath };
+}
+
+/**
+ * withdraw (R2, withdraw-status-1 spec.md Territory W1 item 2): the only code-mediated way a
+ * record's Status: moves to `withdrawn` - a terminal state, one Log line, one optional
+ * Superseded-by: header, every other byte of the record preserved (same discipline as
+ * acceptRecord). Allowed from rejected, blocked, runnable or owned; refused, exit non-zero,
+ * file untouched, otherwise (no --reason, empty reason, an unresolvable --superseded-by, a
+ * source status outside that set, or a record already withdrawn).
+ * opts: { repoRoot, recordPath, reason, supersededBy?, by, at, fsImpl }
+ */
+export function withdrawRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+
+  // Refuse on the cheap, argument-only checks first - none of these need the record's bytes.
+  const reason = typeof opts.reason === "string" ? opts.reason.replace(/\s+/g, " ").trim() : "";
+  if (!reason) {
+    throw acceptanceError('--reason is required to withdraw (a non-empty one-sentence reason)', "reason-missing");
+  }
+  const by = typeof opts.by === "string" ? opts.by.trim() : "";
+  if (!by) throw acceptanceError("--by is required to withdraw (the session id withdrawing the record)", "by-missing");
+  if (!/^\S{1,64}$/.test(by)) throw acceptanceError(`--by must be one token of at most 64 non-space characters (the Log: owner slot): ${opts.by}`, "by-missing");
+  const atInput = typeof opts.at === "string" ? opts.at.trim() : "";
+  const atMs = Date.parse(atInput);
+  if (!atInput || Number.isNaN(atMs)) {
+    throw acceptanceError(`--at is required and must be a parseable ISO-8601 timestamp: ${opts.at ?? "<missing>"}`, "at-missing");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(atInput)) {
+    throw acceptanceError(`--at must be an ISO-8601 timestamp with a zone: ${opts.at}`, "at-missing");
+  }
+  const at = new Date(atMs).toISOString();
+  if (!opts.repoRoot) throw acceptanceError("--repo is required");
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+
+  let repoRoot;
+  let repoReal;
+  try {
+    repoRoot = path.resolve(opts.repoRoot);
+    repoReal = fsImpl.realpathSync(repoRoot);
+  } catch (error) {
+    throw acceptanceError(`repository is unreadable: ${error.message}`);
+  }
+
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  const record = parseRecord(text);
+  const currentStatus = record.fields.status;
+  if (currentStatus === "withdrawn") {
+    throw acceptanceError("record is already withdrawn", "already-withdrawn");
+  }
+  if (!WITHDRAWABLE_STATUSES.includes(currentStatus)) {
+    throw acceptanceError(
+      `cannot withdraw from Status: "${currentStatus ?? "<missing>"}" - only ${WITHDRAWABLE_STATUSES.join(", ")} may be withdrawn`,
+      "not-withdrawable",
+    );
+  }
+
+  // --at must not move the record's Log: backwards in time (MINOR 3): a backdated withdraw
+  // would make collect-from-origin.mjs's hoursSinceLog report a false age.
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  if (atMs < lastLogMs) {
+    throw acceptanceError(`--at ${at} is before the record's last Log: (${record.log.at(-1).at})`, "at-missing");
+  }
+
+  // --superseded-by is a work id (R2), resolved against the record's OWN docs/work directory,
+  // never the caller's cwd or repo root - a record filed anywhere else names its neighbour by
+  // slug only, and it can never name itself.
+  let supersededBy = null;
+  if (opts.supersededBy !== undefined && String(opts.supersededBy).trim() !== "") {
+    supersededBy = String(opts.supersededBy).trim();
+    if (!/^wr-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/.test(supersededBy)) {
+      throw acceptanceError(`--superseded-by must be a work id (wr-<yyyy-mm-dd>-<slug>), not a path: ${supersededBy}`, "superseded-by-missing");
+    }
+    if (supersededBy === record.fields.work) {
+      throw acceptanceError("--superseded-by cannot name the record being withdrawn", "superseded-by-missing");
+    }
+    const recordDir = path.posix.dirname(String(opts.recordPath).replace(/\\/g, "/"));
+    const supersededRelative = path.posix.join(recordDir, `${supersededBy}.record.md`);
+    try {
+      readConfinedRegularFile(repoReal, repoRoot, supersededRelative, fsImpl);
+    } catch {
+      throw acceptanceError(
+        `--superseded-by names a record that does not exist on disk: ${supersededBy}`,
+        "superseded-by-missing",
+      );
+    }
+  }
+
+  // The Status: line is rewritten in place, matched against the record's OWN current status
+  // word (never a fixed literal) - every other byte is preserved untouched, same discipline as
+  // acceptRecord's statusRe swap.
+  const statusRe = new RegExp(`^([ \\t*+-]{0,20}Status:\\**[ \\t]{0,20})${currentStatus}([ \\t]*)$`, "mi");
+  if (!statusRe.test(text)) {
+    throw acceptanceError("could not find the record's Status: header line to withdraw");
+  }
+
+  const logLine = formatLogLine(at, "withdrawn", by, reason);
+  const lines = text.split(/\r?\n/);
+  const blankIdx = lines.findIndex((line) => line.trim() === "");
+  const insertAt = blankIdx === -1 ? lines.length : blankIdx;
+  const newLines = supersededBy ? [`Superseded-by: ${supersededBy}`, logLine] : [logLine];
+  lines.splice(insertAt, 0, ...newLines);
+  const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}withdrawn${post}`);
+
+  const absPath = path.resolve(repoRoot, opts.recordPath);
+  fsImpl.writeFileSync(absPath, updated);
+  return { ok: true, work: record.fields.work, path: absPath, status: "withdrawn", supersededBy };
+}
+
+/**
+ * close is the sole code-mediated transition from accepted to closed. It resolves the
+ * supplied merge revision to a full commit id and proves it is already on main; no fetch
+ * occurs because closure records the main the caller actually inspected.
+ * opts: { recordPath, repoRoot?, merge, at, main?, fsImpl, execImpl, now? }
+ */
+export function closeRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+  const execImpl = opts.execImpl ?? execFileSync;
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+  const merge = typeof opts.merge === "string" ? opts.merge.trim() : "";
+  if (!merge) throw acceptanceError("--merge is required", "merge-missing");
+  let repoRoot;
+  let repoReal;
+  try {
+    repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
+    repoReal = fsImpl.realpathSync(repoRoot);
+  } catch (error) {
+    throw acceptanceError(`repository is unreadable: ${error.message}`);
+  }
+  const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  const record = parseRecord(text);
+  if (record.fields.status === "closed") throw acceptanceError("record is already closed", "already-closed");
+  if (record.fields.status !== "accepted") {
+    throw acceptanceError(`cannot close from Status: \"${record.fields.status ?? "<missing>"}\" - only accepted may be closed`, "not-accepted");
+  }
+  if (validateRecord(record, { repoRoot, fsImpl, execImpl }).some((finding) => finding.level === "finding")) {
+    throw acceptanceError("accepted record does not satisfy closure validation", "invalid-accepted");
+  }
+  let fullMerge;
+  try {
+    fullMerge = String(execImpl("git", ["rev-parse", "--verify", `${merge}^{commit}`], { cwd: repoRoot, encoding: "utf8", env: withoutRepoLocatingGitEnv(process.env) })).trim();
+  } catch {
+    throw acceptanceError(`--merge is not a commit available in --repo: ${merge}`, "merge-missing");
+  }
+  const main = opts.main ?? "origin/main";
+  try {
+    execImpl("git", ["merge-base", "--is-ancestor", fullMerge, main], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: withoutRepoLocatingGitEnv(process.env) });
+  } catch {
+    throw acceptanceError(`--merge ${fullMerge} is not an ancestor of --main ${main}`, "merge-not-ancestor");
+  }
+  const atInput = typeof opts.at === "string" ? opts.at.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(atInput)) {
+    throw acceptanceError(`--at is required and must be an ISO-8601 timestamp with a zone: ${opts.at ?? "<missing>"}`, "invalid-at");
+  }
+  const atDate = new Date(atInput);
+  const lastLogMs = record.log.length ? Date.parse(record.log.at(-1).at) : -Infinity;
+  const nowMs = (opts.now ?? new Date()).getTime();
+  // An unparseable final Log: must not enter Math.max: Math.max(NaN, x) is NaN and
+  // silently turns the lower-bound comparison false, allowing a stale close write.
+  if (record.log.length && !Number.isFinite(lastLogMs)) {
+    throw acceptanceError(`invalid final Log: timestamp: ${record.log.at(-1).at}`, "invalid-at");
+  }
+  if (Number.isNaN(atDate.getTime()) || atDate.getTime() < lastLogMs || atDate.getTime() < nowMs - 600000 || atDate.getTime() > nowMs + 300000) {
+    throw acceptanceError(`invalid --at: ${opts.at} (before the record's last Log:, more than 10 minutes old, or more than 5 minutes in the future)`, "invalid-at");
+  }
+  const statusRe = /^([ \t*+-]{0,20}Status:\**[ \t]{0,20})accepted([ \t]*)$/mi;
+  if (!statusRe.test(text)) throw acceptanceError("could not find a Status: accepted header line to close");
+  const lines = text.split(/\r?\n/);
+  const blankIdx = lines.findIndex((line) => line.trim() === "");
+  const insertAt = blankIdx === -1 ? lines.length : blankIdx;
+  lines.splice(insertAt, 0, formatLogLine(atDate.toISOString(), "closed", record.fields.owner ?? "", `merge ${fullMerge}`));
+  const updated = lines.join("\n").replace(statusRe, (m, pre, post) => `${pre}closed${post}`);
+  const absPath = path.resolve(repoRoot, opts.recordPath);
+  fsImpl.writeFileSync(absPath, updated);
+  return { ok: true, work: record.fields.work, path: absPath, status: "closed", merge: fullMerge };
+}
+
+// ── close --closeout / sweep-origin (C1 rulings b, c) ───────────────────────────────
+
+/** A read-through fsImpl proxy whose writeFileSync is a no-op - lets `closeRecord` run every
+ * one of its own validation/refusal checks for real (dry-run must still refuse a record that
+ * genuinely cannot close) while guaranteeing "--dry-run ... changes nothing" for the one write
+ * closeRecord itself would otherwise perform. */
+function noWriteFs(fsImpl) {
+  return new Proxy(fsImpl, {
+    get(target, prop) {
+      if (prop === "writeFileSync") return () => {};
+      return target[prop];
+    },
+  });
+}
+
+/** F4/F10 (C1 round 2): strips ref-qualifier prefixes and a trailing slash, so
+ * "origin/build/x", "refs/heads/build/x", "refs/remotes/origin/build/x", "build/x/" and
+ * "build/x" all compare equal. */
+function normalizeBranchName(name) {
+  let s = String(name ?? "").trim().replace(/\/+$/, "");
+  s = s.replace(/^refs\/heads\//, "").replace(/^refs\/remotes\/origin\//, "").replace(/^origin\//, "");
+  return s;
+}
+
+/** R2-1 (C1 round 3, P6): the ONE realpath-normalized, win32-case-folded key both
+ * `buildWorktreesByPath`'s map AND every lookup against it must use - round 2 built the map with
+ * this key but looked it up with a plain `path.resolve`, so a `Worktree:` value that was itself a
+ * symlinked path (resolving to the same real worktree `git worktree list` reports by its real,
+ * already-resolved path) silently missed the map and fell through to "no match", exactly the
+ * "named by an open record" protection this key exists to provide. */
+function worktreePathKey(p) {
+  let r = path.resolve(p);
+  try { r = realpathSync.native(r); } catch { /* best effort */ }
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+
+/** F4/F7 (C1 round 2): `path` -> branch name, from `listWorktrees(root)`, keyed by
+ * `worktreePathKey` so a `Worktree:` absolute path resolves to its branch even across a
+ * symlinked ancestor or win32 case folding. `null` when `listWorktrees` itself failed (caller
+ * must treat that as fail-closed, not "no match" - see R2-2). */
+function buildWorktreesByPath(root, listWorktreesImpl = listWorktrees) {
+  const worktrees = listWorktreesImpl(root);
+  if (worktrees === null) return null;
+  const map = new Map();
+  for (const w of worktrees) {
+    if (w.path && w.branch) map.set(worktreePathKey(w.path), w.branch);
+  }
+  return map;
+}
+
+/** R2-1 (C1 round 3, MAJOR ruling, L8 fallback): when a record's `Worktree:` IS a path but
+ * `worktreesByPath` cannot resolve it (a Windows path read on Linux, a missing directory, any
+ * path `git worktree list` no longer reports), the record still protects a branch whose OWN last
+ * path segment equals that path's basename, compared case-insensitively - the only signal left
+ * once the path itself can't be resolved. Returns the lowercased basename, or null when
+ * `Worktree:` isn't an unresolved path at all (nothing for this fallback to claim). */
+function unresolvedWorktreeBasename(record, worktreesByPath) {
+  const wt = typeof record.fields.worktree === "string" ? record.fields.worktree.trim() : "";
+  if (!wt) return null;
+  const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
+  if (!isPath) return null;
+  if (worktreesByPath && worktreesByPath.get(worktreePathKey(wt))) return null; // resolved fine, not a fallback case
+  const base = wt.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  return base ? base.toLowerCase() : null;
+}
+
+/** F4 (C1 round 2, MAJOR): the branch step 4 (and sweep-origin) work from: "taken from
+ * Worktree: or the Artifact: ref" - Worktree: read as a bare branch name when it isn't an
+ * absolute path (POSIX or win32 - a Windows-authored path is a path on any host, never a
+ * literal branch name), else resolved through `worktreesByPath` (built from `git worktree
+ * list`) when Worktree: IS a path, else the text before Artifact:'s trailing `@<sha>`. Every
+ * result is normalized (see normalizeBranchName). */
+function deriveRecordBranch(record, worktreesByPath) {
+  const wt = typeof record.fields.worktree === "string" ? record.fields.worktree.trim() : "";
+  if (wt) {
+    const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
+    if (!isPath) return normalizeBranchName(wt);
+    if (worktreesByPath) {
+      const found = worktreesByPath.get(worktreePathKey(wt));
+      if (found) return normalizeBranchName(found);
+    }
+  }
+  const artifact = typeof record.fields.artifact === "string" ? record.fields.artifact : "";
+  const m = /^(.*)@[0-9a-fA-F]{4,64}$/.exec(artifact);
+  return m ? normalizeBranchName(m[1]) : null;
+}
+
+/** F4 (C1 round 2, MAJOR): the FULL set of branch names a record can be read as claiming -
+ * every one of these is "this record's own branch" for the "not this record's own"/"named by
+ * an active record" checks below, not just whichever one `deriveRecordBranch` happens to
+ * prefer: the normalized Worktree: (when not a path), the branch `worktreesByPath` resolves
+ * Worktree: to (when it IS a path), and the normalized Artifact: ref - real records
+ * occasionally carry more than one of these, and an open record usually has no Artifact: yet,
+ * so relying on only one form let three of the four E10 name variants slip through undetected. */
+function recordBranchNames(record, worktreesByPath) {
+  const names = new Set();
+  const wt = typeof record.fields.worktree === "string" ? record.fields.worktree.trim() : "";
+  if (wt) {
+    const isPath = path.posix.isAbsolute(wt) || path.win32.isAbsolute(wt);
+    if (!isPath) {
+      names.add(normalizeBranchName(wt));
+    } else if (worktreesByPath) {
+      const found = worktreesByPath.get(worktreePathKey(wt));
+      if (found) names.add(normalizeBranchName(found));
+    }
+  }
+  const artifact = typeof record.fields.artifact === "string" ? record.fields.artifact : "";
+  const m = /^(.*)@[0-9a-fA-F]{4,64}$/.exec(artifact);
+  if (m) names.add(normalizeBranchName(m[1]));
+  return names;
+}
+
+/** L1 (C1 round 2 ruling): a CONDITIONAL delete, never a force - `--force-with-lease` only ever
+ * deletes origin's ref for `name` when it is still exactly `tip`, the sha this run evaluated
+ * right after its own fetch. A branch that moved since (another push landed in the window
+ * between the fetch and this delete) fails the lease; that failure is reported `moved`, never
+ * retried as a force, and nothing is deleted. */
+function deleteOriginBranchWithLease(execImpl, repoRoot, name, tip) {
+  const ref = `refs/heads/${name}`;
+  try {
+    execImpl("git", ["push", `--force-with-lease=${ref}:${tip}`, "origin", `:${ref}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    return { ok: true };
+  } catch (error) {
+    const msg = String((error.stderr || error.message || error)).trim();
+    // R2-6 (C1 round 3, MINOR): git's `--force-with-lease` failure text is ` ! [rejected] <ref>
+    // (stale info)` - that literal marker, and only that marker, is a genuinely lost race.
+    // `failed to push some refs` is printed on EVERY rejected push (denied deletes, a hook
+    // veto, ...), so matching it here reported "moved" - a race - even when origin simply
+    // forbids the delete outright, telling the lead the wrong story about what happened.
+    const moved = /\(stale info\)/.test(msg);
+    return { ok: false, moved, error: msg };
+  }
+}
+
+/** show-ref (never rev-parse's DWIM order - see janitor.mjs's own long note on this) - existence
+ * plus the tip, in one call, or null when the ref is absent. */
+function resolveRefSha(root, fullRef, spawnImpl) {
+  const r = spawnImpl("git", ["show-ref", "--verify", fullRef], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+  if (r.error || r.status !== 0) return null;
+  const out = String(r.stdout ?? "").trim();
+  return out.split(/\s+/)[0] || null;
+}
+
+/** C1 ruling b item 4, fifth refusal: "there must be a commit M in `git rev-list --first-parent
+ * --merges origin/main` such that the tip is reachable from `M^2` and not from `M^1`" - i.e. the
+ * tip was merged in through some --no-ff merge's SECOND parent, never picked up as a first-parent
+ * fast-forward or an unmerged, dangling ancestor of main's own mainline. */
+function tipBehindMergeCommit(root, tip, mainRef, spawnImpl) {
+  const merges = spawnImpl("git", ["rev-list", "--first-parent", "--merges", mainRef], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+  if (merges.error || merges.status !== 0) return false;
+  const shas = String(merges.stdout ?? "").trim().split(/\r?\n/).filter(Boolean);
+  for (const m of shas) {
+    const p2 = spawnImpl("git", ["rev-parse", `${m}^2`], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    if (p2.error || p2.status !== 0) continue;
+    const p2sha = String(p2.stdout ?? "").trim();
+    const p1 = spawnImpl("git", ["rev-parse", `${m}^1`], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    if (p1.error || p1.status !== 0) continue;
+    const p1sha = String(p1.stdout ?? "").trim();
+    const reachP2 = spawnImpl("git", ["merge-base", "--is-ancestor", tip, p2sha], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    if (reachP2.error || reachP2.status !== 0) continue;
+    const reachP1 = spawnImpl("git", ["merge-base", "--is-ancestor", tip, p1sha], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    const onFirstParent = !(reachP1.error || reachP1.status !== 0);
+    if (!onFirstParent) return true;
+  }
+  return false;
+}
+
+/**
+ * Shared by close --closeout step 4 and sweep-origin (C1 ruling c): every refusal from ruling b
+ * item 4, minus "not the record's own" when `ownWorkId` is undefined (sweep-origin's own change).
+ * opts: { root, mainRef, mainBranch, spawnImpl, records: parsed record[], ownWorkId?, exclude? }
+ * -> { verdict: "delete"|"keep", reason, tip? }
+ */
+function evaluateOriginBranch(name, tipOrNull, opts) {
+  const { root, mainRef, mainBranch, spawnImpl, records, ownWorkId, exclude, worktreesByPath } = opts;
+  const normName = normalizeBranchName(name);
+  if (exclude && exclude.has(normName)) return { verdict: "keep", reason: "excluded" };
+  if (!/^build\//.test(normName)) return { verdict: "keep", reason: "not under build/" };
+  const tip = tipOrNull ?? resolveRefSha(root, `refs/remotes/origin/${normName}`, spawnImpl);
+  if (!tip) return { verdict: "keep", reason: "not found on origin" };
+  // The status-scoped check runs BEFORE the any-status "not this record's own" check: an other
+  // record that is still active (neither closed nor withdrawn) gets its own, more specific
+  // reason; "not this record's own" is left for the remaining case - another record claims the
+  // same branch, but every one of those claims is already closed/withdrawn, so there is still no
+  // positive proof the branch is THIS record's own. Running these in the other order would make
+  // the status-scoped reason unreachable for close --closeout (ownWorkId is always set there):
+  // any other claimant, active or not, would already have matched the any-status check first.
+  // F4 (C1 round 2): matched against the FULL set of name forms a record can claim
+  // (recordBranchNames), not just one preferred derivation - a record's Worktree: given as
+  // "origin/build/x", "refs/heads/build/x", "build/x/", or an absolute path all now count.
+  const activeOther = (records || []).find((r) => {
+    if (ownWorkId !== undefined && r.fields.work === ownWorkId) return false;
+    if (!recordBranchNames(r, worktreesByPath).has(normName)) return false;
+    return r.fields.status !== "closed" && r.fields.status !== "withdrawn";
+  });
+  if (activeOther) {
+    return {
+      verdict: "keep",
+      reason: `named by ${activeOther.fields.work} (Status: ${activeOther.fields.status ?? "<missing>"}), not closed/withdrawn`,
+      tip,
+    };
+  }
+  // R2-1 (C1 round 3, MAJOR ruling, L8 fallback): an open record whose Worktree: path cannot be
+  // resolved through git worktree list still protects every origin branch whose last path
+  // segment equals that path's basename, case-insensitively - real records on this host carry
+  // Worktree: values written on a different OS (a Windows-authored path read on Linux), and such
+  // a record usually has Artifact: none yet, so without this fallback nothing at all protected
+  // its branch.
+  const basenameProtected = (records || []).find((r) => {
+    if (ownWorkId !== undefined && r.fields.work === ownWorkId) return false;
+    if (r.fields.status === "closed" || r.fields.status === "withdrawn") return false;
+    const base = unresolvedWorktreeBasename(r, worktreesByPath);
+    return base && base === normName.split("/").pop().toLowerCase();
+  });
+  if (basenameProtected) {
+    return { verdict: "keep", reason: `open-record-unresolved ${basenameProtected.fields.work}`, tip };
+  }
+  if (ownWorkId !== undefined) {
+    const otherOwn = (records || []).find((r) => r.fields.work !== ownWorkId && recordBranchNames(r, worktreesByPath).has(normName));
+    if (otherOwn) return { verdict: "keep", reason: "not this record's own", tip };
+  }
+  const ancestor = spawnImpl("git", ["merge-base", "--is-ancestor", tip, mainRef], { cwd: root, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+  if (ancestor.error || ancestor.status !== 0) return { verdict: "keep", reason: "tip is not an ancestor of origin/main", tip };
+  const mainTip = resolveRefSha(root, mainRef, spawnImpl);
+  if (mainTip && tip === mainTip) return { verdict: "keep", reason: "tip equals origin/main's current sha", tip };
+  if (!tipBehindMergeCommit(root, tip, mainRef, spawnImpl)) {
+    return { verdict: "keep", reason: "tip is not on the mainline behind a merge commit", tip };
+  }
+  if (!isRemoteBranchMergedIntoOrigin(root, normName, mainBranch)) {
+    return { verdict: "keep", reason: "isRemoteBranchMergedIntoOrigin does not report this branch as merged", tip };
+  }
+  return { verdict: "delete", reason: "merged into origin/main via a merge commit, tip proven safe", tip };
+}
+
+/** C1 ruling b item 5: every named check, in order, on the ONE file-delete path this whole
+ * plugin has. `record`/`by` gate the `--by` == `Lead-session:` check; `root` (the target repo)
+ * supplies the repo-root/worktree-list checks. Returns a step row; performs `fs.rmSync` itself
+ * only when every check passed and `dryRun` is false. */
+
+/** C1 round 2 rewrite (F3, F8, F9, M3), L5 REPLACED in round 3: every named check from the
+ * pinned scratch sentence's own contract. F9: a value recorded on the OTHER OS's path convention
+ * (e.g. `C:/...` read on Linux) is refused outright rather than resolved against this host's own
+ * cwd - `checkScratchField` accepts either convention (the record is valid wherever it was
+ * written); only the actual delete has to be this host's own kind of absolute. F8/L6: the `--by`
+ * session id is a whole path segment strictly between the root and the target, at ANY depth -
+ * matching the real `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/<lane>` layout, where
+ * the session id is not the first segment under `/tmp`. F3/L5 (round 3 ruling, replacing round
+ * 2's recursive `.git` walk): the walk is DROPPED - lanes keep fixture git repos in their own
+ * scratch, so it refused almost every real closeout (R2-5). The scratch step now refuses only
+ * when the target equals, contains, or lies inside any path from `git worktree list`, or the
+ * repo root/`--repo` (both directions - R2-4 closes the reverse case the walk used to catch by
+ * accident); `listWorktrees` failing is fail-CLOSED. An unregistered git repo inside the lead's
+ * own session scratch is throwaway by construction and is removed with the directory. M3: only
+ * ENOENT is `absent`; anything else `lstat` reports (EACCES, ...) is refused, not silently
+ * "nothing to remove", and a target that is a file, not a directory, is refused rather than
+ * removed. `platform` is test-only, defaulting to the real `process.platform` (same convention
+ * used elsewhere in this file). */
+// C1 (spec.md, factored to scripts/path-safety.mjs): removeScratchDirectory keeps its own
+// scratch-root rule (a scratch root, with --by as a whole path segment strictly between the root
+// and the target) and its own wording, but every check that is not specific to that rule -
+// host-absolute, symlink, realpath-ancestor, drive/fs root, home, repo-root/worktree-list
+// containment - now runs through path-safety.mjs's checkRemovablePath, byte-identical in
+// behavior and in every refusal string this file's own tests pin.
+function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl, platform, listWorktreesImpl = listWorktrees }) {
+  if (!scratchPath) return { step: "scratch", result: "absent" };
+  if (record.fields.leadSession !== by) {
+    return {
+      step: "scratch", result: "refused", ref: scratchPath,
+      detail: `--by ${by} does not match this record's Lead-session: ${record.fields.leadSession ?? "<missing>"}`,
+    };
+  }
+  const plat = platform ?? process.platform;
+  const winCase = plat === "win32";
+
+  const rootStrings = [];
+  try {
+    rootStrings.push(fsImpl.realpathSync(os.tmpdir()));
+  } catch {
+    // tmpdir unreadable - no root from this source
+  }
+  if (!winCase) rootStrings.push("/tmp");
+  const envRoots = process.env.DELEGATION_SCRATCH_ROOTS;
+  if (envRoots) {
+    for (const entry of envRoots.split(path.delimiter)) {
+      const t = entry.trim();
+      if (t && path.isAbsolute(t)) rootStrings.push(t);
+    }
+  }
+  // F8/L6: the session id is a whole path segment strictly between the root and the target, at
+  // ANY depth - not only the first segment directly under the root, which never matched this
+  // project's own real scratch layout (the session id sits several segments deep under `/tmp`).
+  const byPredicate = (segments) => {
+    const idx = segments.findIndex((s) => (winCase ? String(s).toLowerCase() === String(by).toLowerCase() : s === by));
+    return idx !== -1 && idx < segments.length - 1;
+  };
+  const roots = rootStrings.map((r) => ({ path: r, predicate: byPredicate }));
+
+  // Round-2 review, LOW 14: the refactor must stay byte-identical to dff1e00's own ordering, which
+  // never called `git worktree list` until AFTER every host-absolute/root/lstat/symlink/realpath/
+  // fs-root/home check had already passed, AND after its own "is the repo root" equality check -
+  // calling checkRemovablePath ONCE with the full repoRoots array built it (and so ran the list)
+  // for every target, including ones an earlier, unrelated check would have refused anyway. The
+  // only intended DIFFERENCE from dff1e00 is that a failing list now also refuses a target the old
+  // code would have refused first for its own reason - never the other way around (see the round-2
+  // review test below).
+  const preCheck = checkRemovablePath(scratchPath, {
+    roots,
+    repoRoots: [],
+    home: os.homedir(),
+    platform: plat,
+    fsImpl,
+    notAbsoluteReason: "not absolute on this host (recorded on another OS)",
+    underRootReason: "does not resolve under a scratch root with --by as a whole path segment strictly between the root and the target",
+  });
+  if (!preCheck.ok) {
+    if (preCheck.absent) return { step: "scratch", result: "absent", ref: scratchPath };
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: preCheck.reason };
+  }
+
+  let repoRoots = [];
+  if (root) {
+    const cmp = (a, b) => (winCase ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
+    if (cmp(path.resolve(root), path.resolve(scratchPath))) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "is the repo root" };
+    }
+    const worktrees = listWorktreesImpl(root);
+    if (worktrees === null) {
+      return { step: "scratch", result: "refused", ref: scratchPath, detail: "could not read git worktree list" };
+    }
+    repoRoots = [
+      { path: root, kind: "the repo root" },
+      ...worktrees.map((w) => ({ path: w.path, kind: "a path in git worktree list" })),
+    ];
+  }
+
+  const check = checkRemovablePath(scratchPath, {
+    roots,
+    repoRoots,
+    home: os.homedir(),
+    platform: plat,
+    fsImpl,
+    notAbsoluteReason: "not absolute on this host (recorded on another OS)",
+    underRootReason: "does not resolve under a scratch root with --by as a whole path segment strictly between the root and the target",
+  });
+  if (!check.ok) {
+    if (check.absent) return { step: "scratch", result: "absent", ref: scratchPath };
+    return { step: "scratch", result: "refused", ref: scratchPath, detail: check.reason };
+  }
+
+  if (!dryRun) fsImpl.rmSync(path.resolve(scratchPath), { recursive: true });
+  return { step: "scratch", result: "removed", ref: scratchPath };
+}
+
+function formatCloseoutLine(r, dryRun) {
+  const verb = dryRun ? `would ${r.result}` : r.result;
+  const ref = r.ref ? ` ${r.ref}` : "";
+  const sha = r.sha ? ` ${r.sha}` : "";
+  const restore = r.step === "origin-branch" && r.result === "removed" && r.ref && r.sha
+    ? ` restore: git push origin ${r.sha}:refs/heads/${r.ref}`
+    : "";
+  const detail = r.detail ? ` (${r.detail})` : "";
+  return `${r.step}: ${verb}${ref}${sha}${detail}${restore}`;
+}
+
+/**
+ * `work-record.mjs close --closeout --by <session-id> [--dry-run]` (C1 ruling b). Runs the
+ * existing close (or accepts an already-closed record), then four cleanup steps - merge proof,
+ * worktree+local-branch, origin branch, scratch directory - each producing exactly one
+ * `removed`/`refused <reason>`/`absent`/`dirty` line. A failed merge proof (fetch failure, or the
+ * Artifact: sha not an ancestor of origin/main) refuses every cleanup step with that one reason,
+ * rather than attempting any of them. `--dry-run` performs no mutation anywhere (including the
+ * close write itself - see noWriteFs above) and prints every line prefixed `would `.
+ * opts: same as closeRecord, plus { closeoutBy, dryRun?, spawnImpl? }.
+ */
+export function closeoutRecord(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+  const execImpl = opts.execImpl ?? execFileSync;
+  const spawnImpl = opts.spawnImpl ?? spawnSync;
+  const listWorktreesImpl = opts.listWorktreesImpl ?? listWorktrees;
+  const dryRun = Boolean(opts.dryRun);
+  const by = typeof opts.closeoutBy === "string" ? opts.closeoutBy.trim() : "";
+  if (!by) throw acceptanceError("--by is required with --closeout (the session id running the closeout)", "by-missing");
+  // F11 (C1 round 2, MEDIUM): a `--by` containing whitespace produces a malformed `Log:` line
+  // (MALFORMED_RECORD downstream, in the record readers) rather than a clean refusal here.
+  if (!/^\S{1,64}$/.test(by)) {
+    throw acceptanceError(`--by must be a single token, 1-64 non-space characters: "${by}"`, "by-malformed");
+  }
+
+  let repoRoot;
+  let repoReal;
+  try {
+    repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
+    repoReal = fsImpl.realpathSync(repoRoot);
+  } catch (error) {
+    throw acceptanceError(`repository is unreadable: ${error.message}`);
+  }
+
+  let text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+  let record = parseRecord(text);
+  let closeLine;
+
+  // L3 (C1 round 2 ruling): `--by` gates the WHOLE closeout, not just the scratch step - refuse
+  // before any step runs, including step 1 (close) itself and the dry run's own `would` lines,
+  // when it does not equal this record's Lead-session:. Nothing is read, closed or written past
+  // this point on that path.
+  if (record.fields.leadSession !== by) {
+    const detail = `--by ${by} does not match this record's Lead-session: ${record.fields.leadSession ?? "<missing>"}`;
+    const steps = ["worktree", "branch", "origin-branch", "scratch"].map((step) => ({ step, result: "refused", detail }));
+    const lines = [`close: refused (${detail})`, ...steps.map((r) => formatCloseoutLine(r, dryRun))];
+    return { lines, ok: false, exitCode: 2, steps };
+  }
+
+  // 1. Close (or accept an already-closed record).
+  if (record.fields.status === "closed") {
+    closeLine = "close: closed (already)";
+  } else if (dryRun) {
+    closeRecord({ ...opts, fsImpl: noWriteFs(fsImpl), execImpl }); // validates for real; write is a no-op
+    closeLine = "close: would close";
+  } else {
+    closeRecord({ ...opts, fsImpl, execImpl });
+    text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
+    record = parseRecord(text);
+    closeLine = "close: closed";
+  }
+
+  const mainBranch = "main";
+  const mainRef = "refs/remotes/origin/main";
+
+  // Artifact-repo (lane 60b): the merge proof below (both the fetch and the ancestry check)
+  // runs against this OTHER repository when Artifact: does not live in repoRoot - "the artifact's
+  // ancestry is checked against origin/main of the Artifact-repo: repository, after a git fetch
+  // origin there" (spec.md item 3). A relative or unresolvable Artifact-repo: is reported as its
+  // own blockedReason, exactly like every other merge-proof failure, rather than throwing past
+  // this point's own step-by-step reporting.
+  const artifactRepoRaw = typeof record.fields.artifactRepo === "string" ? record.fields.artifactRepo.trim() : "";
+  let mergeProofRoot = repoRoot;
+  let artifactRepoBlockedReason = null;
+  if (artifactRepoRaw) {
+    if (!(path.posix.isAbsolute(artifactRepoRaw) || path.win32.isAbsolute(artifactRepoRaw))) {
+      artifactRepoBlockedReason = `Artifact-repo: "${artifactRepoRaw}" is not an absolute directory path`;
+    } else {
+      mergeProofRoot = artifactRepoRaw;
+    }
+  }
+
+  // 2. Merge proof.
+  // M2: --prune too, so a branch already deleted on origin drops its stale local tracking ref
+  // instead of being evaluated against a sha that no longer exists there.
+  let blockedReason = artifactRepoBlockedReason;
+  if (!blockedReason) {
+    const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+    const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
+    if (fetchFailed) {
+      blockedReason = "UNVERIFIABLE: fetch failed";
+    } else {
+      let artifactSha = null;
+      try {
+        artifactSha = resolveCommit(mergeProofRoot, artifactRevision(record.fields.artifact), "Artifact", spawnImpl);
+      } catch (error) {
+        blockedReason = error.message;
+      }
+      if (!blockedReason) {
+        const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+        if (anc.error || anc.status !== 0) blockedReason = `Artifact ${artifactSha} is not an ancestor of origin/main`;
+      }
+    }
+  }
+
+  const results = [];
+  if (blockedReason) {
+    for (const step of ["worktree", "branch", "origin-branch", "scratch"]) {
+      results.push({ step, result: "refused", detail: blockedReason });
+    }
+  } else if (artifactRepoRaw) {
+    // Cleanup steps must never delete branches or worktrees in the Artifact-repo: repository
+    // (spec.md item 3) - Worktree: itself names a path or branch INSIDE that other repo whenever
+    // Artifact-repo: is present (see checkAcceptance above), so steps 3/4 are refused outright,
+    // by name, rather than ever being pointed at repoRoot's own worktree/branch machinery with a
+    // foreign path. Step 5 (scratch) is unaffected - the lead's own scratch directory is never in
+    // the Artifact-repo: repository.
+    const manualReason = "artifact-repo: cleanup is manual";
+    results.push({ step: "worktree", result: "refused", detail: manualReason });
+    results.push({ step: "branch", result: "refused", detail: manualReason });
+    results.push({ step: "origin-branch", result: "refused", detail: manualReason });
+    // The scratch step must also see the Artifact-repo: repository's own worktrees, or a scratch
+    // directory that contains (or lies inside) one of them is removed along with it.
+    const bothWorktreeLists = (root) => {
+      const own = listWorktreesImpl(root);
+      const foreign = listWorktreesImpl(mergeProofRoot);
+      return own === null || foreign === null ? null : [...own, ...foreign];
+    };
+    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform, listWorktreesImpl: bothWorktreeLists }));
+  } else {
+    // R2-2/R2-7 (C1 round 3, MAJOR blocker + MINOR): `worktreesByPath` (and the branch name it
+    // resolves) is built ONCE, here, BEFORE step 3 runs - step 3 can remove the very worktree a
+    // path-form Worktree: names, so deriving the branch name AFTER step 3 (round 2's order) made
+    // a live run disagree with its own dry run (R2-7), and building it without checking for
+    // `null` left every path-form "named by an open record" check silently fail OPEN the moment
+    // `git worktree list` itself failed (R2-2) - `buildWorktreesByPath`'s own doc comment already
+    // says a `null` result is fail-closed, not "no claims".
+    const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
+    const worktreesByPath = buildWorktreesByPath(repoRoot, listWorktreesImpl);
+    const ownBranchName = worktreesByPath === null ? null : deriveRecordBranch(record, worktreesByPath);
+
+    // 3. Worktree and local branch.
+    const wt = closeoutWorktree({
+      root: repoRoot, worktreeField: record.fields.worktree, branchName: ownBranchName, mainBranch, cwd: process.cwd(), dryRun, listWorktreesImpl,
+    });
+    for (const s of wt.steps) results.push(s);
+    if (!wt.steps.some((s) => s.step === "branch")) results.push({ step: "branch", result: "absent" });
+
+    // 4. Origin branch.
+    const branchName = ownBranchName;
+    if (worktreesByPath === null) {
+      results.push({ step: "origin-branch", result: "refused", detail: "UNVERIFIABLE: could not read git worktree list" });
+    } else if (!branchName) {
+      results.push({ step: "origin-branch", result: "refused", detail: "no branch name could be derived from Worktree:/Artifact:" });
+    } else {
+      const verdict = evaluateOriginBranch(branchName, null, {
+        root: repoRoot, mainRef, mainBranch, spawnImpl, records, ownWorkId: record.fields.work, worktreesByPath,
+      });
+      if (verdict.verdict !== "delete" && verdict.reason === "not found on origin") {
+        // Idempotent closeout (C1 round 4): a re-run finds the branch this record itself already
+        // had removed from origin - that is not a refusal, it is the closeout having already
+        // happened. Every OTHER "keep" reason (still named by an open record, excluded, not under
+        // build/, ...) is a real, distinct protection and stays a "refused".
+        // R4-5 (C1 round 5, MINOR): `evaluateOriginBranch`'s "not found on origin" reason trusts a
+        // missing refs/remotes/origin/<name> tracking ref, which a narrow fetch refspec (a
+        // single-branch clone) never creates even when the branch is genuinely still on origin -
+        // confirm absence against the remote itself with one `ls-remote` before calling it absent.
+        const ls = spawnImpl("git", ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branchName}`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+        if (!ls.error && ls.status === 2) {
+          results.push({ step: "origin-branch", result: "absent", ref: branchName });
+        } else {
+          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: ls.status === 0 ? "on origin, but no refs/remotes/origin tracking ref (check the fetch refspec)" : "UNVERIFIABLE: git ls-remote failed" });
+        }
+      } else if (verdict.verdict !== "delete") {
+        results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: verdict.reason });
+      } else if (dryRun) {
+        results.push({ step: "origin-branch", result: "removed", ref: branchName, sha: verdict.tip });
+      } else {
+        // L1 (C1 round 2 ruling): a lease, not a force - see deleteOriginBranchWithLease.
+        const del = deleteOriginBranchWithLease(execImpl, repoRoot, branchName, verdict.tip);
+        if (del.ok) {
+          results.push({ step: "origin-branch", result: "removed", ref: branchName, sha: verdict.tip });
+        } else {
+          results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: del.moved ? "moved" : del.error.replace(/\s+/g, " ").trim() });
+        }
+      }
+    }
+
+    // 5. Scratch directory.
+    results.push(removeScratchDirectory({ scratchPath: record.fields.scratch, record, root: repoRoot, by, dryRun, fsImpl, platform: opts.platform, listWorktreesImpl }));
+  }
+
+  const lines = [closeLine, ...results.map((r) => formatCloseoutLine(r, dryRun))];
+  const ok = results.every((r) => r.result === "removed" || r.result === "absent");
+  const exitCode = ok ? 0 : 2;
+
+  if (!dryRun) {
+    const summary = results.map((r) => `${r.step}=${r.result}`).join(" ");
+    const at = new Date().toISOString();
+    // F6 (C1 round 2, MAJOR): the Log: owner slot is the record's own Owner: slug, never the
+    // closeout session id - a session id there reads to validateRecord as an owner CHANGE after
+    // the newest artifact note, which is exactly its own `stale-result-candidate` signal, turning
+    // every successfully closed-out record invalid. The session id that actually ran this is
+    // still recorded, in the note text, never dropped.
+    const logLine = formatLogLine(at, "closeout", record.fields.owner ?? by, `by ${by} ${summary}`);
+    // M5: preserve the record's own line ending (a CRLF file must not come back out as LF), and
+    // write through the same realpath-confined path the read above resolved, not a second,
+    // independently-resolved `path.resolve` that a symlink swapped underneath could disagree with.
+    const eol = /\r\n/.test(text) ? "\r\n" : "\n";
+    const closedLines = text.split(/\r?\n/);
+    const blankIdx = closedLines.findIndex((l) => l.trim() === "");
+    const insertAt = blankIdx === -1 ? closedLines.length : blankIdx;
+    closedLines.splice(insertAt, 0, logLine);
+    const realAbsPath = fsImpl.realpathSync(path.resolve(repoRoot, opts.recordPath));
+    // R2-9 (C1 round 3, MINOR): the realpath above resolves again (a concurrent-swap window
+    // since the read), but round 2 never actually checked the result against the repo root it
+    // claimed to be confined to - this is the check that makes it a real confinement, not just a
+    // second `realpathSync` call.
+    const relReal = path.relative(repoReal, realAbsPath);
+    if (relReal.startsWith("..") || path.isAbsolute(relReal)) {
+      // R3-5 (C1 round 4, MINOR): a `throw` here discards `lines`, including every step's own
+      // `restore:` line (the only record of an already-deleted origin branch's sha) - by this
+      // point the worktree, the origin branch and the scratch dir may already be gone, so this
+      // must return the refusal, not throw it away.
+      lines.push(`log: refused (path resolves outside repository: ${opts.recordPath})`);
+      return { lines, ok: false, exitCode: 2, steps: results };
+    }
+    fsImpl.writeFileSync(realAbsPath, closedLines.join(eol));
+  }
+
+  return { lines, ok, exitCode, steps: results };
+}
+
+/**
+ * `work-record.mjs sweep-origin --repo <dir> [--exclude <name,...>] [--apply]` (C1 ruling c).
+ * Dry run by default: lists every `origin/build/*` branch with its verdict. Applies the same
+ * rules as close --closeout's origin-branch step, minus "not the record's own" (there is no one
+ * record to be the owner of here) plus a keep-list from `--exclude`. `--apply` deletes only the
+ * branches marked `delete`. Tests use a bare fixture origin, never the real remote.
+ */
+export function sweepOrigin(opts = {}) {
+  const fsImpl = opts.fsImpl ?? fs;
+  const spawnImpl = opts.spawnImpl ?? spawnSync;
+  const execImpl = opts.execImpl ?? execFileSync;
+  const listWorktreesImpl = opts.listWorktreesImpl ?? listWorktrees;
+  if (!opts.repoRoot) throw acceptanceError("--repo is required");
+  const repoRoot = path.resolve(opts.repoRoot);
+  const apply = Boolean(opts.apply);
+  // F10 (C1 round 2): every --exclude entry is normalized (see normalizeBranchName) the same way
+  // an origin/build/* name and a record's own claimed name are, so "origin/build/x", "build/x/"
+  // etc. all match the same excluded branch, not just its one literal spelling.
+  const exclude = new Set(
+    (typeof opts.exclude === "string" ? opts.exclude.split(",") : [])
+      .map((s) => normalizeBranchName(s.trim()))
+      .filter(Boolean),
+  );
+  const mainBranch = "main";
+  const mainRef = `refs/remotes/origin/${mainBranch}`;
+
+  // L2 (C1 round 2, F2 CRITICAL): fetch first, ALWAYS - dry run included - so every verdict here
+  // is read against origin's CURRENT tip, never a stale local tracking ref left over from
+  // whenever this repo last happened to fetch. A fetch that fails refuses every branch outright
+  // (exit 2), rather than silently falling back to whatever refs are on disk.
+  const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
+  if (fetchResult.error || fetchResult.status !== 0) {
+    return { rows: [], lines: ["refused UNVERIFIABLE: fetch failed"], apply, applied: [], exitCode: 2 };
+  }
+
+  const records = listRecords(path.join(repoRoot, "docs", "work"), { fsImpl }).map((e) => e.record);
+  // R2-2 (C1 round 3, MAJOR blocker): a failed `git worktree list` must refuse EVERYTHING here,
+  // not silently claim nothing for every path-form Worktree: (buildWorktreesByPath's own doc
+  // comment already says "caller must treat null as fail-closed" - round 2 built the map but
+  // never checked for null before using it).
+  const worktreesByPath = buildWorktreesByPath(repoRoot, listWorktreesImpl);
+  if (worktreesByPath === null) {
+    return { rows: [], lines: ["refused UNVERIFIABLE: could not read git worktree list"], apply, applied: [], exitCode: 2 };
+  }
+
+  const list = spawnImpl("git", ["for-each-ref", "refs/remotes/origin/build", "--format=%(refname)"], {
+    cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env),
+  });
+  // M4: a for-each-ref that itself fails must not read as "there are no branches" - that silently
+  // reported nothing to the caller rather than the truth, that the list could not be read at all.
+  if (list.error || list.status !== 0) {
+    return { rows: [], lines: ["refused UNVERIFIABLE: could not list origin/build/* branches"], apply, applied: [], exitCode: 2 };
+  }
+  const names = String(list.stdout ?? "").trim().split(/\r?\n/).filter(Boolean).map((r) => r.replace(/^refs\/remotes\/origin\//, ""));
+
+  const rows = names.map((name) => {
+    const verdict = evaluateOriginBranch(name, null, { root: repoRoot, mainRef, mainBranch, spawnImpl, records, exclude, worktreesByPath });
+    return { name, tip: verdict.tip ?? null, verdict: verdict.verdict, reason: verdict.reason };
+  });
+
+  const lines = rows.map((r) => (r.verdict === "delete"
+    ? `delete ${r.name} ${r.tip}`
+    : `keep ${r.name} ${r.tip ?? "-"} ${r.reason}`));
+  // F10: warn about a --exclude entry that matched nothing, rather than silently accepting a
+  // typo as if it had done its job.
+  for (const ex of exclude) {
+    if (!names.some((n) => normalizeBranchName(n) === ex)) lines.push(`warn exclude ${ex} matches no origin/build/* branch`);
+  }
+
+  const applied = [];
+  let anyFailed = false;
+  if (apply) {
+    for (const r of rows) {
+      if (r.verdict !== "delete") continue;
+      // L1: a lease, not a force - see deleteOriginBranchWithLease.
+      const del = deleteOriginBranchWithLease(execImpl, repoRoot, r.name, r.tip);
+      if (del.ok) {
+        applied.push({ name: r.name, tip: r.tip, ok: true });
+        lines.push(`deleted ${r.name} ${r.tip} restore: git push origin ${r.tip}:refs/heads/${r.name}`);
+      } else {
+        anyFailed = true;
+        const detail = del.moved ? "moved" : del.error.replace(/\s+/g, " ").trim();
+        applied.push({ name: r.name, tip: r.tip, ok: false, error: detail });
+        lines.push(`delete-failed ${r.name} ${detail}`);
+      }
+    }
+  }
+
+  // M4: exit 2 whenever any delete failed, never a blanket 0 that hides it.
+  return { rows, lines, apply, applied, exitCode: anyFailed ? 2 : 0 };
+}
+
+export function parseWithdrawArgs(argv) {
+  if (argv[0] !== "withdraw") throw acceptanceError("expected command: withdraw");
+  const recordPath = argv[1];
+  if (!recordPath || recordPath.startsWith("--")) {
+    throw acceptanceError("withdraw requires a record path as its first argument");
+  }
+  const opts = { command: "withdraw", recordPath };
+  const names = new Map([
+    ["--reason", "reason"], ["--superseded-by", "supersededBy"],
+    ["--by", "by"], ["--at", "at"], ["--repo", "repoRoot"],
+  ]);
+  for (let i = 2; i < argv.length; i += 2) {
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+  }
+  return opts;
 }
 
 export function parseAcceptanceArgs(argv) {
@@ -1042,7 +2537,7 @@ export function parseAcceptanceArgs(argv) {
   const names = new Map([
     ["--record", "recordPath"], ["--repo", "repoRoot"],
     ["--delivery-ref", "deliveryRef"], ["--pinned-artifact", "pinnedArtifact"],
-    ["--census", "censusPath"], ["--no-census", "noCensusReason"],
+    ["--census", "censusPath"], ["--no-census", "noCensusReason"], ["--four-read", "fourReadPath"], ["--at", "acceptAt"],
   ]);
   for (let i = 1; i < argv.length; i += 2) {
     const key = names.get(argv[i]);
@@ -1052,14 +2547,100 @@ export function parseAcceptanceArgs(argv) {
   return opts;
 }
 
+export function parseCloseArgs(argv) {
+  if (argv[0] !== "close") throw acceptanceError("expected command: close");
+  const opts = { command: "close", main: "origin/main" };
+  const names = new Map([
+    ["--record", "recordPath"], ["--repo", "repoRoot"], ["--merge", "merge"], ["--at", "at"], ["--main", "main"],
+    // C1 ruling b: --by is the closeout's own session id (distinct from close's own --merge/--at
+    // shape), and --closeout/--dry-run are bare flags, not name/value pairs.
+    ["--by", "closeoutBy"],
+  ]);
+  const boolFlags = new Set(["--closeout", "--dry-run"]);
+  let i = 1;
+  while (i < argv.length) {
+    if (boolFlags.has(argv[i])) {
+      opts[argv[i] === "--closeout" ? "closeout" : "dryRun"] = true;
+      i += 1;
+      continue;
+    }
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+    i += 2;
+  }
+  return opts;
+}
+
+// C1 ruling c: `sweep-origin --repo <dir> [--exclude <name,...>] [--apply]`. --apply is a bare
+// flag; --repo/--exclude are name/value pairs, same shape as every other parse* here.
+export function parseSweepOriginArgs(argv) {
+  if (argv[0] !== "sweep-origin") throw acceptanceError("expected command: sweep-origin");
+  const opts = { command: "sweep-origin" };
+  const names = new Map([["--repo", "repoRoot"], ["--exclude", "exclude"]]);
+  let i = 1;
+  while (i < argv.length) {
+    if (argv[i] === "--apply") {
+      opts.apply = true;
+      i += 1;
+      continue;
+    }
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    // F10 (C1 round 2): a repeated --exclude accumulates (comma-joined) instead of the last
+    // one silently overwriting the previous ones.
+    opts[key] = key === "exclude" && opts.exclude !== undefined ? `${opts.exclude},${argv[i + 1]}` : argv[i + 1];
+    i += 2;
+  }
+  return opts;
+}
+
 export function acceptanceMain(argv = process.argv.slice(2), io = process) {
   try {
+    // withdraw (R2) has its own positional-record-path shape, checked and dispatched before
+    // parseAcceptanceArgs - which stays exactly as it was for check-acceptance/accept, so its
+    // own "unrecognized command" refusal (and message) is unaffected for any argv[0] that
+    // isn't literally "withdraw".
+    if (argv[0] === "withdraw") {
+      const { command, ...opts } = parseWithdrawArgs(argv);
+      const result = withdrawRecord(opts);
+      io.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+    if (argv[0] === "close") {
+      const { command, ...opts } = parseCloseArgs(argv);
+      if (opts.closeout) {
+        const result = closeoutRecord(opts);
+        for (const line of result.lines) io.stdout.write(`${line}\n`);
+        return result.exitCode;
+      }
+      // F5 (C1 round 2, MAJOR): plain `close` (no `--closeout`) must stay byte-identical to base,
+      // which throws on an argv it does not recognize - `--dry-run`/`--by` are only meaningful
+      // together with `--closeout`; silently accepting and ignoring them here would let a plain
+      // `close --dry-run` perform a REAL close (base refused that argv outright).
+      if (opts.dryRun || opts.closeoutBy !== undefined) {
+        throw acceptanceError("--dry-run and --by are only valid with --closeout", "closeout-flag-without-closeout");
+      }
+      const result = closeRecord(opts);
+      io.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+    if (argv[0] === "sweep-origin") {
+      const { command, ...opts } = parseSweepOriginArgs(argv);
+      const result = sweepOrigin(opts);
+      for (const line of result.lines) io.stdout.write(`${line}\n`);
+      return result.exitCode ?? 0;
+    }
     const { command, ...opts } = parseAcceptanceArgs(argv);
     const result = command === "accept" ? acceptRecord(opts) : checkAcceptance(opts);
-    // censusText (MINOR 5) is an internal comparison value only, never part of the CLI's
-    // printed result - it can be an entire census report's worth of bytes.
-    const { censusText: _censusText, ...printable } = result;
+    // censusText (MINOR 5) and fourReadText (its B1 round-1-review mirror) are internal
+    // comparison values only, never part of the CLI's printed result - check-acceptance
+    // itself can now carry fourReadText too (B1), so strip both here as well.
+    const { censusText: _censusText, fourReadText: _fourReadText, ...printable } = result;
     io.stdout.write(`${JSON.stringify(printable)}\n`);
+    // m2 (seam review): a lead scanning stdout for a WARN would otherwise see only the
+    // JSON blob. Exit code stays 0 - a WARN is visible, not a refusal.
+    for (const w of printable.warnings ?? []) io.stderr.write(`work-record: WARN ${w}\n`);
     return 0;
   } catch (error) {
     io.stderr.write(`work-record: [${error.code ?? "error"}] ${error.message}\n`);

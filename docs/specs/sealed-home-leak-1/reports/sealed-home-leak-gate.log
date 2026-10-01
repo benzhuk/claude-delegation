@@ -1,0 +1,116 @@
+✔ probe (0.719085ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 69.960155
+✖ probe (7.92279ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 68.617749
+
+✖ failing tests:
+
+test at ../../../../../run-tests-probe-PfsQGN/probe.test.mjs:3:1
+✖ probe (7.92279ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(false)
+  
+      at TestContext.<anonymous> (file:///tmp/run-tests-probe-PfsQGN/probe.test.mjs:3:30)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.start (node:internal/test_runner/test:1191:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+run-tests: leaving the sealed home for inspection: /tmp/sealed-home-pj9n1j
+swept 1 stale sealed homes
+/tmp/sealed-home-0oq9Xr
+✔ probe (0.631274ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 60.919819
+/tmp/sealed-home-t5J9sW
+✔ probe (1.013581ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 71.716109
+✔ runSealed removes the sealed home when the suite passes (162.627798ms)
+✔ runSealed keeps the sealed home when the suite fails (and it survives this process's own bookkeeping) (149.132318ms)
+✔ sweepStaleHomes removes only sealed-home-* dirs older than 6h, keeps young and non-matching ones (2.240335ms)
+✔ sweepStaleHomes prints exactly one 'swept n stale sealed homes' line (4.528611ms)
+✔ sweepStaleHomes is skipped when <homeDir>/.agents/ws-off exists (shared kill switch) (0.617474ms)
+✔ sweepStaleHomes is skipped when <homeDir>/.agents/ws-off-sweep exists (lane-specific kill switch) (0.393155ms)
+✔ sweepStaleHomes never throws when the temp dir can't be read - prints an error and returns (0.352232ms)
+✔ main() calls sweep by default, before running the suite (140.739159ms)
+✔ main() does not call sweep when --no-sweep is passed (144.897081ms)
+✔ main() still rejects an unsupported flag (0.422377ms)
+✔ the real CLI honours --no-sweep end to end (spawned process, real exit code) (172.690537ms)
+/tmp/sealed-home-yaFfyw
+✔ FIXTURE_ROOT reaches the sealed child (0.739527ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 64.145132
+✔ makeTempHome returns a fresh, empty, disposable home with the expected shape (2.952731ms)
+✔ makeTempHome never reuses a directory across calls (2.46902ms)
+✔ makeTempHome blanks the messaging socket/token in env (never inherits the runner's session) (0.748281ms)
+✔ makeTempHome writes files passed under opts.files, relative to the new home (0.566746ms)
+✔ run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child (148.133309ms)
+✔ cleanup removes the home directory (0.838547ms)
+✔ makeTempHome seeds .gitconfig with an includeIf scoped to the realpath'd fixtureRoot, forward slashes only (0.806869ms)
+✔ makeTempHome seeds .gitconfig-fixture with the Fixture identity, forward slashes only (0.651412ms)
+✔ gitIdentity: false leaves an empty global gitconfig (no identity anywhere under the seal) (0.582058ms)
+✔ a fixture commit succeeds under the seal with the fixture identity (24.198706ms)
+✔ a repo built under the system temp dir but OUTSIDE fixtureRoot gets no identity under the seal (L-C7 canary) (12.218769ms)
+✔ a commit attempted outside the system temp dir has no identity under the seal and is refused (4.298084ms)
+✔ gitIdentity: false refuses a commit even under fixtureRoot (12.294112ms)
+✔ checkSeal fails in a child for an unsealed home, even when AGENTS_HOME is self-consistent (36.167236ms)
+✔ checkSeal fails when AGENTS_HOME is unset (0.371752ms)
+✔ checkSeal passes inside a real sealed child process (33.734091ms)
+✔ checkSeal fails in a child when the seal is broken on purpose (AGENTS_HOME points elsewhere) (36.647262ms)
+✔ checkSeal fails in a child when AGENTS_HOME is not '<home>/.agents' (33.86574ms)
+✔ class test: exactly one construction of the fixture includeIf gitdir-scope directive anywhere in the repo (25.209493ms)
+✔ keep() and unregister() are the same function (alias) (0.510111ms)
+✔ keep() removes a home from the leak-fix registry without deleting it from disk (0.495299ms)
+✔ a child killed with SIGINT removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (34.779932ms)
+✔ a child killed with SIGTERM removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (40.732102ms)
+✔ a child killed with SIGHUP removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (42.586664ms)
+✔ a kept (unregistered) home survives SIGTERM - keep() truly removes it from the leak-fix registry (POSIX only) (46.585505ms)
+✔ handler registration is idempotent: exactly one listener per event, even after two homes (41.462366ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 847.111443

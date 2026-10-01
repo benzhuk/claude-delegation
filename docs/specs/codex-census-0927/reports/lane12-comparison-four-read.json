@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-26T23:47:46.354Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "97 verified top-tier native API response(s) (lead only); tokens: total 14751869; cache-read 14454016, cache-write 0, input 263384, output 34469"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "1 note(s) to skills-a: ASK skills-fable-gate-under-load-1"
+    }
+  ],
+  "leadSession": {
+    "id": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "14751869 tokens: build 14751869 (gpt-6-astra); partial (no spec slice): Spec-session:/Spec-from: missing from record"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.1h; largest native API response gap 2.6min at 2026-09-26T23:39:31.526Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "1 commit(s) touching build files within 7 days: 1f08add \"feat(hooks): add delete-guard PreToolUse hook for agent-scoped recursive deletes\"; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "0 native API response gaps over 30min; 0 unanswered ASKs to skills-a"
+    }
+  ],
+  "record": "C:\\Users\\benzh\\Code\\claude-delegation\\docs\\work\\wr-2026-09-26-gate-under-load.record.md"
+}

@@ -58,6 +58,24 @@ function writeJsonl(filePath, objs) {
   fs.writeFileSync(filePath, objs.map((o) => JSON.stringify(o)).join('\n') + '\n', 'utf8');
 }
 
+test('runCensus counts a literal U+2028/U+2029 assistant row through the production token reader', async () => {
+  const projectsDir = mkTmp('token-census-unicode-lines-');
+  const now = new Date('2026-09-29T12:00:00.000Z');
+  const assistant = assistantLine({ id: 'unicode-response', ts: now.toISOString(), usageOpts: { input: 11, output: 3 } });
+  assistant.message.content = [{ type: 'text', text: 'before\u2028middle\u2029after' }];
+  const file = mainFilePath(projectsDir, 'proj-a', 'session-1');
+  writeJsonl(file, [userLine('start'), assistant]);
+  const raw = fs.readFileSync(file, 'utf8');
+  assert.equal((raw.match(/\u2028/g) || []).length, 1);
+  assert.equal((raw.match(/\u2029/g) || []).length, 1);
+
+  const report = await runCensus({ projectsDir, days: 7 }, undefined, now.getTime());
+
+  assert.equal(report.sanity.malformedLines, 0, 'valid JSON containing Unicode separators is not corruption');
+  assert.equal(report.byClass.find((row) => row.cls === 'HUMAN').turns, 1);
+  assert.equal(report.mainVsSub.main.rawTokens, 14, 'the Unicode-bearing response contributes its exact usage');
+});
+
 function mainFilePath(projectsDir, project, session) {
   return path.join(projectsDir, project, `${session}.jsonl`);
 }

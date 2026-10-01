@@ -19,8 +19,18 @@ test('Codex 0.156 native manifest exposes shared skills and verified lifecycle h
   assert.equal(manifest.hooks, './hooks/codex-hooks.json');
   assert.equal(fs.existsSync(path.join(ROOT, 'plugin.json')), false);
   const nativeHooks = readJson('hooks/codex-hooks.json').hooks;
-  assert.deepEqual(Object.keys(nativeHooks).sort(), ['Interrupt', 'PostToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
-  for (const groups of Object.values(nativeHooks)) {
+  const adapterEvents = ['Interrupt', 'PostToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit'];
+  assert.deepEqual(Object.keys(nativeHooks).sort(), [...adapterEvents, 'PreToolUse'].sort());
+  assert.deepEqual(nativeHooks.PreToolUse, [{
+    matcher: 'Bash',
+    hooks: [{
+      type: 'command',
+      command: 'node "${PLUGIN_ROOT}/hooks/delete-guard.mjs"',
+      timeout: 10,
+    }],
+  }]);
+  for (const event of adapterEvents) {
+    const groups = nativeHooks[event];
     for (const group of groups) for (const hook of group.hooks) {
       assert.equal(hook.type, 'command');
       assert.equal(hook.command, 'node "${PLUGIN_ROOT}/hooks/multi-codex-hook.mjs"');
@@ -47,7 +57,7 @@ test('every bundled skill has a closed frontmatter block with name and descripti
     .map((entry) => entry.name)
     .sort();
   assert.ok(skills.length > 0);
-  assert.deepEqual(skills, ['bearings', 'continue', 'decisions', 'delegate', 'dev-server', 'janitor', 'multi', 'notion-writing', 'team-build']);
+  assert.deepEqual(skills, ['bearings', 'decisions', 'delegate', 'dev-server', 'janitor', 'multi', 'notion-writing', 'team-build']);
   for (const skill of skills) {
     const text = fs.readFileSync(path.join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8');
     const end = text.indexOf('\n---', 4);

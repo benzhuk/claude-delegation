@@ -1,0 +1,25 @@
+# Lane 28, render-guard: publish refuses a dirty docs/decisions tree, and the exit-6 JSON hint tells the truth
+
+Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31 (skills-fable). Spec-from: 2026-09-27T22:55:00Z. Base: 5a9ffb1 or later origin/main. Revision 2 after an Opus red-team (SCRATCH guard-spec-redteam-report.md, 2026-09-27 ~6:50 PM New York); every finding is applied. Same lane flow, record metadata, rules and time rule as docs/specs/2026-09-27-followup-bundle.md. Two small fixes found live today; each names the measure it moves.
+
+## Territory
+
+`skills/decisions/scripts/decisions-render-publish.mjs` (the publish pipeline lives here; `decisions-render.mjs` only re-exports it) and `decisions-render-publish.test.mjs`; `decisions-render.mjs` only if the usage line changes; `skills/decisions/SKILL.md`, the publish exit list only. `skills/multi/scripts/note-send.mjs` line 537 (the exit-6 JSON hint) and the two pins in `note-send.test.mjs` (lines 1115 and 1121). NOT `docs/decisions/**` content, NOT the note-send prose or `skills/multi/SKILL.md`, NOT `note-flush.mjs`, NOT `goals-mirror.mjs` or `docs/pane-setup.md` (lane 27 in flight). No timer, cron or hook invokes either script.
+
+## Fix 1: publish refuses a dirty docs/decisions tree (work lost or stalled)
+
+Found by lane 26's live check (docs/notes/skills-o-lane-26-2.md): `publish` renders the working tree and commits only `last-render.md`, so an edited `session.md` reached the page while main still held the old bytes; the lane committed it by hand afterwards (aecde11). The next publisher on another host would have rendered the old text and drifted the page back.
+
+What already exists: `checkOnMain` (decisions-render-publish.mjs:266-291, exit 2) fetches origin, refuses unless the branch is `main` and HEAD equals origin/main, and runs before every page write (lines 440 and 467). Unpushed commits, a branch ahead of main and a detached HEAD are therefore already exit 2 and stay so. The one uncovered case is the dirty tree.
+
+Pinned rule: right after step 1 (fresh read) and before step 2, ahead of any write, `publish` runs `git status --porcelain -- docs/decisions` in `--repo`. Any modified, staged or untracked path under `docs/decisions/` other than `docs/decisions/last-render.md` is exit 7 with the list and this message: "publish renders only what origin/main holds. Commit and push the listed files if they are intended, otherwise git restore -- <files>, then rerun." A checkout that is both dirty and off main reports exit 7 with the list and then the exit-2 detail. Under `--dry-run` the list is printed to stderr as `warning:` and the run continues, so a lead can preview an edit before committing. No bypass flag: tests fake `status --porcelain` through `deps.execGit`, and every bypass flag is a rule that is not mechanical. `last-render.md` stays exempt because step 8 writes it; a dirty `last-render.md` still feeds the step-3 drift compare (line 402), and `--adopt-live` remains the documented recovery there. A crash between the `--clear-done` write of `session.md` (lines 516-519) and its commit leaves `session.md` dirty; the exit-7 message above is the recovery.
+
+## Fix 2: the exit-6 JSON hint names a form that works (work lost or stalled)
+
+Lane 25 proved live (docs/notes/skills-h-multi-cross-host-2.md, point 1) that the JSON hint at note-send.mjs:537, "or pass --sender-host <this host>", is wrong for a local run: `--sender-host` names the machine the sender came FROM and mirrors only when note-send runs on another machine, so following the hint yields exit 6 again. The prose at note-send.mjs:529-534 and skills/multi/SKILL.md lines 380 and 433 are already correct (they put `--sender-host` inside the ssh'd command and name `--local-ok`) and stay untouched.
+
+Change only the JSON hint and its two test pins, byte for byte, to: `run note-send on the recipient's machine over ssh: ssh <user@host> '~/.local/bin/note-send ... --packet-file -' < packet.md; pass --local-ok if this machine's ledger is what the recipient reads`. `failureJson` already carries `err.hint`, so the exit-6 JSON test needs only the new pin.
+
+## Acceptance
+
+Unit tests (existing fakes: `deps.execGit` records every git call and answers `status`): exit 7 for a modified, a staged and an untracked file under docs/decisions; a lane-branch caller with a clean tree still gets exit 2; a dirty checkout off main gets exit 7 with both the list and the exit-2 detail; `--dry-run` warns on stderr and still prints the render; `last-render.md` alone dirty is not exit 7; the exit-7 message contains `git restore`; the exit-6 JSON hint does not contain `--sender-host <this host>` and does contain `--packet-file -`. SKILL.md publish exit list gains 7. Live proof in the record: from an up-to-date `main` checkout (otherwise it proves exit 2, not 7), one `publish` attempt on the real page with an uncommitted `session.md` edit refused with exit 7 and the page untouched (fresh read before and after identical); then the edit committed, pushed and published normally; one local `note-send` refusal on the lead's host printing the new hint. Sealed suite green on a second host.

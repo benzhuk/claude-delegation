@@ -1,0 +1,11 @@
+# Root adjudication — September 29, 2026, America/New_York
+
+The independent review at7614dec returns NEEDS_FIXES for five evidence corrections, while affirming the substantive conclusion: the approved recipe de16056 and runner80760b3 do not require the denied settings read. The narrower claim is sufficient for the bearings prediction. Other user-scope instructions were not inspected and remain unknown. Neither the mapping nor review proves why the nested model chose the read.
+
+I adopt F1-F5. The document corrections fix the later recipe-delivery refusal being attributed to R1, limit absence claims to the inspected instruction sources, remove the suggestion that recurrence alone justifies an edit, label external-tool behavior unverified, and distinguish runner outcomes from unobserved nested checks. These are evidence corrections, not a new source or recipe candidate. The Opus verdict remains NEEDS_FIXES; a root check of exact corrections must not be presented as an independent delta APPROVE.
+
+The reviewer reported one guard refusal on a combined helper read and configuration-filename search, outside the narrow mandate. It states that the operation stopped without retry or substitution. I retain that disclosure and exclude the unread helper bodies from this adjudication. There is no permission to repeat or reroute that inspection. The remaining conclusion is grounded in the directly inspected recipe and runner plus the R2 report, not the refused inspection.
+
+R2 remains FAIL, with publication success retained as a separate verified outcome. No further production patch has an established cause in this packet. No additional live run, acceptance, merge, installation or release follows from this document. The next dependency is a ruling on the failed zero-denial acceptance condition and any separately authorized next proof scope. This does not ask to replay the denied read or inspect protected settings.
+
+The first consecutive RE-PLAN's offline mapping prediction is met within the stated source boundary. This is not a second bearings verdict; STOP has not fired. Notion publication remains PENDING on the documented full-page lint issue, with no completion attestation. Source80760b3 and the existing green host gates are unchanged.

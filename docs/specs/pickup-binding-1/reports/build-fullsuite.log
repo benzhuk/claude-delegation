@@ -1,0 +1,26 @@
+node scripts/run-tests.mjs (full sealed suite, run once per Lane 34's gate)
+
+Summary:
+  tests 2592
+  pass 2586
+  fail 1
+  cancelled 0
+  skipped 5
+  todo 0
+  duration_ms 21699.793202
+
+Failing test (pre-existing, unrelated to this territory's diff — confirmed via
+`git diff HEAD -- docs/GOALS.md scripts/work-record.test.mjs` showing zero changes to
+either file before this run; docs/GOALS.md is explicitly out of this territory's scope):
+
+test at scripts/work-record.test.mjs:2340:1
+docs/GOALS.md and docs/goals/card.md carry no phrase this build's evidence contradicts (STALE regexes, doesNotMatch)
+  AssertionError: the unsourced 152-turn baseline must be marked as such
+  expected: /152 turns \(no source record/
+  (docs/GOALS.md's "Lead spends judgment" section states "152 hand-run (no source record; ...)"
+   without the exact phrase this test's stale-regex expects; a pre-existing drift between
+   docs/GOALS.md's wording and scripts/work-record.test.mjs's pinned regex, outside
+   Lane 34/pickup-binding's territory to fix.)
+
+Every other test in the full sealed suite passed, including all 490 under
+skills/decisions/scripts/ (see build-gate.log) plus everything else in the repo.

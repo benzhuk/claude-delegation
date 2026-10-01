@@ -1,0 +1,25 @@
+{
+  "acceptAt": "2026-09-26T23:47:46.354Z",
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (Codex census UNSUPPORTED: complete per-build response coverage is not established)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "1.1h; gap unavailable (Codex lead turns are unsupported)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (seven-day observation window has not elapsed)"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "unavailable (Codex conversational lead turns and complete child attribution are unsupported; idle baseline UTC intervals were not retained)"
+    }
+  ]
+}

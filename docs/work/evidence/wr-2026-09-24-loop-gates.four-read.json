@@ -1,0 +1,42 @@
+{
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted: census window cannot be checked)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted)"
+    }
+  ],
+  "leadSession": {
+    "id": "7ce97c6a-d864-448c-ac6a-4251cab72bb0",
+    "note": "id came from --lead-session on the command line; the census file names the lead session file it read",
+    "source": "cli"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted: census window cannot be checked)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (no range); 1 re-accept Log: entry after the first: 2026-09-25T03:02:25.078Z artifact 693cd94823cc26b336ec16578b89b5c914c26150"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "unavailable (record opened at acceptance: no Log: entry before the first accepted)"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-24-loop-gates.record.md"
+}

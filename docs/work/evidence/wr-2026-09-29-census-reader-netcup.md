@@ -1,0 +1,10 @@
+VERDICT: PASS 4f4edbc4e470e6faa4f9598763dbb4800468bb3e
+Command (one run, no retry): ssh ben@100.69.249.18 'bash -l -s' < remote.sh, which ran `node scripts/run-tests.mjs --no-sweep` in a fresh detached clone of https://github.com/benzhuk/claude-delegation.git.
+Resolved SHA: 4f4edbc4e470e6faa4f9598763dbb4800468bb3e (HEAD is "docs: record final focused reader gate 307 of 307").
+Host: v2202608391056492408 (Netcup), Node v24.18.1. SSH exit 0, suite exit 0.
+Times: precheck 2026-09-30T03:42:52Z; suite start 03:42:55Z; end 03:43:23Z (NYC 23:42:55 to 23:43:23 on 9/29); duration 28.3 s.
+Slot: the process check found no concurrent run-tests.mjs or node --test suite; /tmp/claude-verify.lock was acquired by the single nonblocking mkdir and released by the trap (my own lock only). No reply from skills-n was needed or awaited.
+Totals: tests 3327, pass 3314, fail 0, cancelled 0, skipped 12, todo 1. Seal leak check: "leak check: 0 new temp entries" (leak 0). Gate rule (exit 0, fail 0, leak 0) met.
+Failed test names: none. Note for honesty: the raw log contains a "✖ probe" and a "failing tests" block at lines 1614-1632. That is the output of a nested deliberate assert.ok(false) probe run by the "runSealed removes the sealed home" style tests inside run-tests' own test suite; the outer totals report fail 0 and exit 0.
+Skips (12; reasons as printed): 8 win32-only or no-win32-host tests (Windows path semantics, case-insensitive lowercased path, Windows empty-directory-shell, win32 kill switch and argv usage, win32 happy path, nested worktree .git file, plain-repo main checkout, bare repo backing a worktree, Windows junction gate, taskkill runner home); "timeout terminates the exact owned descendant tree" (# SKIP); others in the same win32 family are in raw.log at lines 464, 1234, 1244, 1421, 1516-1591, 1684. The 1 todo is "F10 probe P-allow: recorded as documented behavior, needs a live claude CLI".
+Files (this directory): raw.log (complete output), remote.sh (script run), ssh-exit.txt. Remote checkout and logs left in place at /tmp/lane40b-gate-1623787 on Netcup; nothing cleaned up.

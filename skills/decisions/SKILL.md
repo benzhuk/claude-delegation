@@ -40,40 +40,133 @@ reader (not checked).
 
 `scripts/decisions-read.mjs` reads a comment from a line starting with the escaped
 `\*\*` Notion produces from the owner's typed asterisks — plain agent bold
-(`**like this**`) is never one (checked by `scripts/decisions-read.mjs`). Never
+(`**like this**`) is never one (checked by `scripts/decisions-read.mjs`). The
+decisions-page renderer refuses, before publishing, a bare filename ending in .md,
+.sh, .io, .ai, .co, .me, .so or .py, a bare `~`, or an unwrapped `www.`/`http(s)://`
+span that Notion would otherwise autolink on the way back, with no exemption for a
+quoted owner line (Lane 32, checked by `scripts/decisions-render.test.mjs`). Never
 re-type or quote the owner's line when answering it: a copied `\*\*` prefix forges a
 second comment that never clears (not checked). Write and read the page through the
 `notion-writing` skill: markdown endpoints only, one request per page, never a
 whole-page replace, read fresh seconds before writing, a multi-line edit built from a
 script with the old and new text loaded from files, not argv (not checked). On the
-decisions page and the goals page, write only with anchored edits, `notion.js edit
+goals page, write only with anchored edits, `notion.js edit
 --safe` — never `publish` or `replace-md`; render Goals with `goals-mirror.mjs render`,
 then use a fresh read and targeted edits of agent-owned sections. Exit 3 or exit 4 from that edit stops the
 pass: reread the page fresh, do not retry the same edit blind (checked by
 `skill-text.test.mjs` that this rule is written down; the stop itself is not checked
 by any script).
 
-The page callout's owner instruction reads, written on the page as one line: "Tick a
-box, or add a line starting with ** anywhere; every such line is acted on and removed
-before this page comes back to you." (not checked)
+The decisions page is different (Lane 26, `pack/spec.md`): it is a render of
+`docs/decisions/**`, never edited in place, so it can never drift back into an append
+log. `replace-md`, `replace-range`, `append-md`, `publish` and every hand or anchored
+edit are banned there for every agent — `scripts/decisions-render.mjs` (the renderer)
+excepted — because that script is the ONLY way the page is ever written. Write it only
+by running `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
+<decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done` when the
+fresh read shows owner input, per "Reading answers" below). `publish` runs from any
+clean checkout on branch main of the registered repository; `--clear-done` finds the
+pickup round only from the registered checkout or one of its linked worktrees (`git
+worktree add`), never from a separate clone (Lane 34, pickup-binding).
 
-New items go inside the open section, never appended past the page-level Done control
-(`append-md` must not be used for this) (not checked). A checked `Done` means the owner
-has submitted choices/comments for accounting; it grants no authority by itself. Account
-those inputs, reconcile a changed fresh read if necessary, then clear it as `- [ ] Done
-(last cleared: <America/New_York timestamp>)`. An unchecked Done is valid with zero or
-open decisions; an absent Done line blocks the hand-back.
+When the record on origin says accepted, its Opus verdicts are in its evidence, and the
+sealed suite is green on a second host from origin (a Windows host when built on Linux, a
+Linux host when built on Windows — the lane lead runs it through ssh as a prior lane did,
+or asks the spec lead, with that second-host gate log already written into the record's
+evidence before `accept` ran (committed with the accepted record), since any record
+change after `accept` needs a fresh check; not checked by any script), the lane lead
+merges its branch into main with a merge commit that also appends ONE plain bullet —
+never starting with bold — to `docs/decisions/history/<today>.md`:
+`Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.` —
+pushes; then runs `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
+<decisions-page-id> --reader ~/.claude/scripts/notion.js` (Lane 26), and only then
+sends its RESULT. No Waiting item is
+posted for an ordinary accepted merge. Any other conflict when merging into main, of any kind,
+means no merge: post a decision item under Waiting (template shape, with options) naming
+the conflicting paths instead. An append-only conflict on the day file is resolved by
+keeping both bullets in commit order; it is not a decision item. When
+`origin/main` is not an ancestor of the branch tip, the merge result is a new tree: run
+the sealed suite on the merge commit (at least the lead's own host, no new failing test
+name vs main) before pushing main. Releases and installs to the owner's machines stay per
+the owner's own word: the release item keeps the ordinary decision shape from "Writing an
+item" above, its evidence made of the merged changelog lines rather than the merge
+itself.
 
-Keep the page in two sections the owner reads, `# Waiting on you now` and `# Closed`;
-status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this
-page (not checked). Existing extra sections are not deleted by this skill; whether to
-remove one is the lead's call with the owner (not checked).
+Two publishers never race: `decisions-render.mjs publish` reads the page fresh at
+step 3 and refuses with exit 4 when the live page has drifted from
+`docs/decisions/last-render.md` — a normalised diff against a stale base never lands.
+If that fresh read shows Done checked and `--clear-done` was not passed, it refuses at
+step 2 instead; the merge bullet goes verbatim into the RESULT and a later `publish`
+picks it up. Its own last step commits and pushes `last-render.md`, so git is the lock:
+a publisher who loses that race gets a normal git push rejection, fetches main, and
+publishes again — nothing here reads or writes the Notion page by hand to resolve a
+race. Before any of that (right after the fresh read, ahead of every check and write),
+`publish` also refuses with exit 7 when `docs/decisions/` itself is dirty — a modified,
+staged or untracked file other than `last-render.md` — naming the files and pointing at
+`git restore`; commit and push them first, or restore them, then rerun (Lane 28,
+render-guard).
+
+The page callout's owner instruction is composed by `decisions-render.mjs render` itself
+(the callout icon and text are the renderer's, never hand-typed): "To comment, start a
+line with `**` anywhere on this page, then tick Done to submit; the answer appears here
+and the exchange is kept in that day's history file." (the callout's position, right
+after History and before Done, is checked by `decisions-render.test.mjs`; its exact
+wording is not — a future change to `COMMENT_CALLOUT` in `decisions-render-core.mjs`
+would leave this quote stale again)
+
+New items are files, not page edits: write one under `docs/decisions/waiting/` (template
+shape, `templates/decision-item.md`) and `decisions-render.mjs render`/`publish` composes
+it above the page-level Done control itself — there is no way to append past Done any
+more (Lane 26). A checked `Done` means the owner has submitted choices/comments for
+accounting; it grants no authority by itself. Account those inputs, reconcile a changed
+fresh read if necessary, then run `decisions-render.mjs publish --clear-done`, which
+writes `- [ ] Done (last cleared: <America/New_York timestamp>)` itself — no one hand-writes
+that line. An unchecked Done is valid with zero or open decisions; an absent Done line
+blocks the hand-back. In a registered pickup round the order is the reverse — clear Done
+first (`publish --clear-done`), then account — because any page edit while that round's
+Done is still checked moves its receipt to NEEDS_RECONCILIATION (the Done-window rules
+under "Reading answers") (not checked). Either order reaches a working `publish
+--clear-done`: it also accepts an already-`ACCOUNTED` round whose Done is still checked
+from that same round (the Done line unchanged since the capture, never cleared and
+re-checked) and whose owner inputs still match, so accounting first no longer strands the
+page (checked by `decisions-render-publish.test.mjs`).
+
+The page is composed only of the sections `decisions-render.mjs render` builds —
+`# Waiting on you now`, `# What is going on`, `# This session (since your tick at …)`,
+and `# History` — never a hand-added section; there is no `# Closed` section any more (a
+closed item's record lives in `docs/decisions/history/<today>.md`, per "Closing" below).
+Status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this page
+(not checked).
+
+Everything under Waiting is a decision item with options, including a request for
+the owner to do something by hand: post it with a `Done by hand` option (never a bare
+`Done`, which the reader takes for the page's Done), per the template's action-request
+shape, and close it the turn its evidence lands. The reader warns on a `<details>` item
+under Waiting with no options and on an item past its default date; a lead treats any
+WARN from its post-write check as its own defect to fix in the same turn (checked by
+`scripts/decisions-read.mjs`).
+
+Existing extra sections are not deleted by this skill; whether to remove one is the
+lead's call with the owner (not checked).
 
 An optionless summary below the exact, top-level `# Closed` heading is historical rather
 than a malformed active decision. Its owner comments and any checkbox options remain live
 reader signals; archive scope never hides them. The scope ends at the next top-level level-one
 (`#`) heading. An optionless summary under any other top-level section blocks both pickup and
 hand-back.
+
+`decisions-render.mjs publish` itself runs
+`node <skill-dir>/scripts/decisions-title.mjs set --page <decisions-page-id>` as the last step
+of its own pipeline (spec's step 7), right after the readback verifies, so the owner sees the
+topic and the last-change time in the Notion toolbar without opening the page (not checked).
+No agent calls `decisions-title.mjs` directly for the decisions page any more — this is
+`publish`'s own step, not the pickup's: `decisions-pickup.mjs` never edits the page or clears
+Done (above), so no call to `decisions-title.mjs` is added there either. Pass `--topic <Topic>` when neither
+the page's registration nor its current title supplies one, to `publish` itself
+(exit 2 names this). Exit 3 or exit 4 means the
+title was not changed: `publish` itself fails at that step, before its final commit ever lands;
+report it, and the hand-back check below will block on the stale title
+(not checked).
 
 ## Reading answers
 
@@ -170,6 +263,21 @@ admitted only after this host has observed a valid unchecked page; an invisible 
 uncheck/recheck between reads cannot be detected. `UNKNOWN` has no automatic repair in
 this first slice.
 
+A lane lead's own merge bullet (the merge rule above) no longer touches the decisions
+page at all, so it can never wedge a pickup round: the bullet goes straight into
+`docs/decisions/history/<today>.md` in the merge commit, and the next `publish` (by
+anyone, on any host, whenever it next runs) picks it up — carried or not, since nothing
+but `publish` ever writes that page. The pickup round itself still holds three rules.
+First, the owner lead's own first write in a pickup round clears Done
+(`publish --clear-done`), then works items from the saved capture (`open`) plus a fresh
+read, then runs `account`. Second, a lane lead whose own fresh read shows Done already
+checked does not run `publish` itself: it carries whatever it would have posted verbatim
+in its RESULT instead, for the owner lead to fold in once Done is next cleared. Third,
+every round ends with `account`, or a later Done tick wakes no one. The pickup host is
+the host where the owner lead's inbox lives — `note-send` delivers only on the
+recipient's own host, so registering pickup on the wrong host silently dead-letters the
+wake (not checked).
+
 `node ~/.claude/scripts/notion.js read <page-id> | node scripts/decisions-read.mjs`
 (path per above; page id from `.agents/project.json`'s `decisions_url`, else from the
 owner — never search, it's fuzzy). Exit 1: act, below. Exit 0: OPEN/REPLIED only —
@@ -182,6 +290,17 @@ change nothing (checked by `scripts/decisions-read.mjs`).
 - TICKED: `scripts/decisions-read.mjs` reports the ticked option; act on it (not
   checked). An unhandled owner note on the same item still needs handling (next
   bullet) — a tick never cancels it (checked by `scripts/decisions-read.mjs`).
+- On the decisions page specifically (Lane 26): `decisions-pickup.mjs` captures the
+  owner's ticks and `\*\*` lines privately, without editing the live page. For each
+  captured line, write the answer, with Ben's full text verbatim, into today's
+  `docs/decisions/history/<today>.md` file (an instruction, or a question now closed) or
+  into the relevant `docs/decisions/waiting/<slug>.md` item (a question on something
+  still open there); then run `decisions-render.mjs publish --clear-done`, which
+  refuses (exit 3) unless every captured line's text landed verbatim in one of those two
+  places, and which composes the whole page fresh — so a handled owner note simply never
+  reappears, nothing is deleted in place; then run `account`. The bulleted flow below
+  (writing under `# Closed`, deleting the owner's line by anchored edit) describes the
+  goals page only, unchanged.
 - An owner note (a line starting with the escaped `\*\*`, on either the decisions page
   or the goals page) is one of two kinds, told apart by what the lead does, never by
   parsing the owner's text:
@@ -227,29 +346,47 @@ change nothing (checked by `scripts/decisions-read.mjs`).
 
 ## Closing
 
-DELETE the item's toggle, checkboxes and all, and write ONE plain bullet in Closed:
-title, what was chosen, the date, the OBSERVED result — never move or copy the toggle
-(not checked). Closing an item deletes its toggle. A closed toggle left in Closed
-keeps reporting TICKED or OPEN forever (partly checked: a leftover ticked toggle
-reports TICKED and blocks `scripts/decisions-handback.mjs`; a leftover unticked one
-reads as a live OPEN item and nothing flags it).
+On the goals page, DELETE the item's toggle, checkboxes and all, and write ONE plain
+bullet in Closed: title, what was chosen, the date, the OBSERVED result — never move or
+copy the toggle (not checked). Closing an item deletes its toggle. A closed toggle left
+in Closed keeps reporting TICKED or OPEN forever (partly checked: a leftover ticked
+toggle reports TICKED and blocks `scripts/decisions-handback.mjs`; a leftover unticked
+one reads as a live OPEN item and nothing flags it).
+
+On the decisions page there is no page-level Closed section any more (Lane 26): closing
+an item means deleting its file under `docs/decisions/waiting/` in the same commit that
+appends the item's outcome — title, what was chosen, the date, the OBSERVED result — as
+one bullet to `docs/decisions/history/<today>.md`, then running `decisions-render.mjs
+publish`. A file left in `waiting/` after its outcome is recorded keeps rendering the
+item as open forever (not checked).
 
 ## Handing the page back
 
 Before giving the owner the decisions URL, run the hand-back check on fresh reads of
 both pages (a read is two `notion.js read` calls, run through a mid-tier native-provider
-runner choice is not checked):
+runner choice is not checked) plus one `decisions-title.mjs meta` read of the decisions
+page's own title and last-edit time. The check also compares the decisions read against
+`docs/decisions/last-render.md`, normalised the same way `decisions-render.mjs` does,
+prints a `DRIFT` line and ends with `HANDBACK page-drift` (rescued by the kill switch like
+any other content objection) when they differ (Lane 26) — a page a hand or a crashed
+publish edited since the last successful render is caught here, not handed back:
 
 ```
 node ~/.claude/scripts/notion.js read <decisions-page-id> > <scratch>/decisions.md
 node ~/.claude/scripts/notion.js read <goals-page-id> > <scratch>/goals.md
-node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
+node <skill-dir>/scripts/decisions-title.mjs meta --page <decisions-page-id> > <scratch>/title-meta.json
+node <skill-dir>/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo . --title-meta <scratch>/title-meta.json
 ```
 
 Run from the project root; `<skill-dir>` is this skill's folder (`skills/decisions` in
 this repo), `<scratch>` the session's scratch folder, and `<goals-page-id>` the id on
 the `[child page: Goals] (<id>)` line of `node ~/.claude/scripts/notion.js read-blocks
-<goals_parent_page>` (not checked).
+<goals_parent_page>` (not checked). `<decisions-page-id>` is the bare 32-hex id (the last 32 hex
+characters of `decisions_url` when that is a URL): `decisions-title.mjs` refuses a URL with exit
+2 (checked by `scripts/decisions-title.mjs`). `--title-meta` is required, like `--goals`; a missing
+flag prints `TITLE unchecked: run decisions-title.mjs meta --page <id> and pass
+--title-meta` and blocks the hand-back the same as a stale or off-pattern title (checked
+by `scripts/decisions-handback.mjs`).
 
 ### Copied layout
 
@@ -260,7 +397,8 @@ not the skill directory:
 
 ```powershell
 node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --config --repo .
-node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo .
+node ~/.agents/skills/decisions/scripts/decisions-title.mjs meta --page <decisions-page-id> > <scratch>/title-meta.json
+node ~/.agents/skills/decisions/scripts/decisions-handback.mjs --decisions <scratch>/decisions.md --goals <scratch>/goals.md --repo . --title-meta <scratch>/title-meta.json
 ```
 
 An explicit `--goals` remains safe when a page is already known. An absent project config uses
@@ -281,8 +419,15 @@ files it is given, so rerun both reads every time). The check prints, just befor
 <sha>` line — paste it verbatim as the last line of the hand-back message, so the line
 cannot exist unless the check ran (not checked by any script: the owner sees whether
 the line is there). Exit 3 means a page could not be read: do not hand back, fix the
-read first — rerun both `notion.js read` calls and the check (checked by
+read first — rerun both `notion.js read` calls, the `decisions-title.mjs meta` read, and the check (checked by
 `scripts/decisions-handback.mjs`'s exit code).
+
+The check also prints exactly one title line: `title ok: <title>` (fresh — the last edit
+ended with `decisions-title.mjs set`, above) or one of `TITLE off-pattern: <title>`,
+`TITLE stale: <title> vs last edit <ISO>`, `TITLE unchecked: run decisions-title.mjs meta
+--page <id> and pass --title-meta` — every one of these three blocks `HANDBACK ok` with
+exit 1, the same as a COMMENTED or UNATTACHED line (checked by
+`scripts/decisions-handback.mjs`).
 
 ## Keeping the goals mirror current
 

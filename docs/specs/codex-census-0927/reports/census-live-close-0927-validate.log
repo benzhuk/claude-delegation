@@ -1,0 +1,10 @@
+{
+  "status": "closed",
+  "findings": [
+    {
+      "code": "scope-drift",
+      "level": "finding",
+      "message": "Scope: sha e1b31f7159d3f1f7ba15181d9d312f63fa201151 for docs/specs/codex-census-0927/spec.md does not match HEAD's latest commit touching it (986cc383adb3ff30ea279fd9d18cf22eba8f0e6f)"
+    }
+  ]
+}

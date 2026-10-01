@@ -1,0 +1,75 @@
+diff --git a/scripts/test-home.test.mjs b/scripts/test-home.test.mjs
+--- a/scripts/test-home.test.mjs
++++ b/scripts/test-home.test.mjs
+@@ -464,1 +464,2 @@
+       "let deliveries = 0;",
++      "setInterval(() => {}, 1000);",
+@@ -468 +469 @@
+-    ].join("\\n");
++    ].join("\n");
+@@ -479 +480 @@
+-        if (!sent && output.includes("\\n")) { sent = true; child.kill("SIGTERM"); }
++        if (!sent && output.includes("\n")) { sent = true; child.kill("SIGTERM"); }
+@@ -481 +482 @@
+-      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\\n")[0].trim(), stdout: output, code: exitCode }); });
++      child.once("exit", (exitCode) => { clearTimeout(timeout); resolve({ home: output.split("\n")[0].trim(), stdout: output, code: exitCode }); });
+diff --git a/scripts/run-tests.test.mjs b/scripts/run-tests.test.mjs
+--- a/scripts/run-tests.test.mjs
++++ b/scripts/run-tests.test.mjs
+@@ -14,1 +14,1 @@
+-import { fileURLToPath } from "node:url";
++import { fileURLToPath, pathToFileURL } from "node:url";
+@@ -456,2 +456,47 @@ async function startForwardRunner(probe) {
+ }
+
++async function startForeignListenerRunner(probe) {
++  const tmp = scratchDir("run-tests-foreign-listener-tmp-");
++  const fixtureHome = scratchDir("run-tests-foreign-listener-home-");
++  const env = childEnv(fixtureHome, { TMPDIR: tmp, TEMP: tmp, TMP: tmp });
++  delete env.NODE_TEST_CONTEXT;
++  const script = [
++    `import { runSealed } from ${JSON.stringify(pathToFileURL(RUN_TESTS_MODULE).href)};`,
++    "let deliveries = 0;",
++    "process.on('SIGTERM', () => { deliveries += 1; setTimeout(() => { process.stdout.write(`foreign-deliveries=${deliveries}\\n`); process.exit(73); }, 250); });",
++    `runSealed({ files: [${JSON.stringify(probe.file)}] }).then((code) => { process.exitCode = code; });`,
++  ].join("\n");
++  const runner = spawn(NODE, ["--input-type=module", "-e", script], { env, stdio: ["ignore", "pipe", "inherit"] });
++  let stdout = "";
++  const home = await new Promise((resolve, reject) => {
++    const timeout = setTimeout(() => reject(new Error("foreign-listener runner did not print its home within 4s")), 4000);
++    runner.once("error", (error) => { clearTimeout(timeout); reject(error); });
++    runner.stdout.on("data", (chunk) => {
++      stdout += chunk;
++      if (stdout.includes("\n")) { clearTimeout(timeout); resolve(stdout.split("\n")[0].trim()); }
++    });
++  });
++  const suitePid = Number(await waitForMarker(probe.ready, "foreign-listener suite ready marker"));
++  assert.ok(Number.isInteger(suitePid) && suitePid > 0, "ready marker must identify runner's immediate suite child");
++  return { runner, suitePid, home, stdout: () => stdout };
++}
++
++test(
++  "SIGTERM to a runSealed wrapper with a foreign listener delivers once and removes its home (R1, POSIX only)",
++  { skip: process.platform === "win32" ? WIN32_GROUP_SIGNAL_SKIP_REASON : false },
++  async () => {
++    const probe = writeForwardProbe();
++    const { runner, suitePid, home, stdout } = await startForeignListenerRunner(probe);
++    cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} try { process.kill(suitePid, "SIGKILL"); } catch {} });
++    const exited = waitForExit(runner, "foreign-listener runner");
++    const sentAt = Date.now();
++    process.kill(runner.pid, "SIGTERM");
++    const { code } = await exited;
++    assert.ok(Date.now() - sentAt < 5000, "the wrapper must not wait for the 10s fixture");
++    assert.equal(code, 73, "the foreign listener owns the wrapper's bounded exit");
++    assert.match(stdout(), /foreign-deliveries=1/, "the foreign listener must receive SIGTERM exactly once");
++    assert.equal(fs.existsSync(home), false, "the wrapper's registered home must be removed on SIGTERM");
++    await waitForOwnedPidGone(suitePid, "foreign-listener immediate suite controller");
++  },
++);
++
+@@ -482,1 +527,2 @@ test(
+     cleanups.push(() => { try { process.kill(runner.pid, "SIGKILL"); } catch {} });
++    const exited = waitForExit(runner, "runner after taskkill");
+@@ -488,1 +534,1 @@ test(
+-    const { code } = await waitForExit(runner, "runner after taskkill");
++    const { code } = await exited;

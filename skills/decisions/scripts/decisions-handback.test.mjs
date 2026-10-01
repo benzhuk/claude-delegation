@@ -13,7 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
 import {
   run, extractPageSha, shaMatch, computeToday, countNotesToday, agentsHome, killSwitchActive,
+  titleTimeMillis,
 } from './decisions-handback.mjs';
+import { formatTitle } from './decisions-title.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const SCRIPT_PATH = path.join(HERE, 'decisions-handback.mjs');
@@ -35,26 +37,67 @@ function readFileStub(map) {
   };
 }
 
+// A virtual (never-on-disk) key `runWith` uses for the auto-injected fresh --title-meta, so
+// every pre-existing test in this file keeps exercising exactly what it did before `--title-meta`
+// became required (spec P3.3), without having to name a real title-meta file of its own.
+const DEFAULT_TITLE_META_KEY = '__default-title-meta__';
+
+/** A `meta`-shaped JSON string whose title is fresh as of `now` (title ok, never blocks). */
+function freshTitleMetaJson(overrides = {}) {
+  const now = overrides.now || new Date('2026-09-22T16:00:00.000Z');
+  const topic = overrides.topic ?? 'Test';
+  const title = overrides.title ?? formatTitle(topic, now);
+  const page = overrides.page ?? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const lastEditedTime = overrides.lastEditedTime ?? now.toISOString();
+  return JSON.stringify({ page, title, last_edited_time: lastEditedTime });
+}
+
+/** Writes a fresh (never-stale, on-pattern) title-meta JSON file to `dir` and returns its path,
+ * for the real spawnSync CLI tests below (which cannot use the virtual `readFile` stub). */
+function writeFreshTitleMetaFile(dir, overrides = {}) {
+  const file = path.join(dir, 'title-meta.json');
+  fs.writeFileSync(file, freshTitleMetaJson(overrides), 'utf8');
+  return file;
+}
+
 /**
  * In-process run(), with fs/git stubbed and AGENTS_HOME pointed at a scratch dir by default.
  * `readGoalsParentPage` defaults to "configured" (round-2 F2) so every pre-F2 test in this file
  * keeps exercising the full mirror check unchanged, exactly as before F2 landed; the F2-specific
- * tests below override it explicitly to pin the two new outcomes.
+ * tests below override it explicitly to pin the two new outcomes. `readDecisionsUrl` defaults to
+ * "not configured" so the title-meta page-match constraint never fires on the synthetic
+ * '--repo r'-style paths this file uses throughout; a test that cares about the page-match check
+ * overrides it explicitly. A test whose own `argv` already includes `--title-meta` is left
+ * alone; a test that deliberately wants the missing-flag behaviour passes `omitTitleMeta: true`.
  */
 function runWith({
-  argv = [], files = {}, head = 'aaaaaaa', env, execGit, readGoalsParentPage,
+  argv = [], files = {}, head = 'aaaaaaa', env, execGit, readGoalsParentPage, readDecisionsUrl,
+  readLastRender, omitTitleMeta = false,
 } = {}) {
   const out = [];
   const err = [];
   const home = tmpdir('decisions-handback-home-');
+  const hasTitleMeta = argv.includes('--title-meta');
+  const finalArgv = hasTitleMeta || omitTitleMeta ? argv : [...argv, '--title-meta', DEFAULT_TITLE_META_KEY];
+  const finalFiles = hasTitleMeta || omitTitleMeta
+    ? files
+    : { ...files, [DEFAULT_TITLE_META_KEY]: freshTitleMetaJson() };
+  // Default: last-render.md always matches whatever --decisions names, so every pre-existing test
+  // in this file (written before Lane 26's page-drift check existed) keeps exercising exactly what
+  // it did before, without having to name a matching last-render.md file of its own. Tests below
+  // that care about drift pass their own `readLastRender`.
+  const decisionsIdx = finalArgv.indexOf('--decisions');
+  const decisionsKey = decisionsIdx === -1 ? null : finalArgv[decisionsIdx + 1];
   const exitCode = run({
-    argv,
-    readFile: readFileStub(files),
+    argv: finalArgv,
+    readFile: readFileStub(finalFiles),
     execGit: execGit || (() => { throw new Error('execGit should not be called when --head is given'); }),
     write: (s) => out.push(s),
     writeErr: (s) => err.push(s),
     env: env || { AGENTS_HOME: home },
     readGoalsParentPage: readGoalsParentPage || (() => ({ configured: true })),
+    readDecisionsUrl: readDecisionsUrl || (() => null),
+    readLastRender: readLastRender || (() => (decisionsKey === null ? '' : finalFiles[decisionsKey])),
   });
   return { exitCode, stdout: out.join(''), stderr: err.join(''), home };
 }
@@ -595,9 +638,12 @@ test('F2 CLI: a real project.json with no goals_parent_page key — mirror check
   const root = repoWithProjectJson(JSON.stringify({ decisions_url: 'abc' }));
   const decisionsPath = path.join(root, 'decisions.md');
   fs.writeFileSync(decisionsPath, CLEAN_DECISIONS, 'utf8');
+  fs.mkdirSync(path.join(root, 'docs', 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'decisions', 'last-render.md'), CLEAN_DECISIONS, 'utf8');
   const home = tmpdir('decisions-handback-home-');
+  const titleMetaPath = writeFreshTitleMetaFile(home, { page: 'abc' }); // matches this project's decisions_url
   const result = spawnSync(process.execPath, [
-    SCRIPT_PATH, '--decisions', decisionsPath, '--repo', root, '--today', '9-22',
+    SCRIPT_PATH, '--decisions', decisionsPath, '--repo', root, '--today', '9-22', '--title-meta', titleMetaPath,
   ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: home }) });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /goals mirror at none \(not configured\)/);
@@ -624,8 +670,57 @@ test('F2 CLI: a real project.json WITH goals_parent_page, but the goals read is 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reviewer attack brief points not covered above
+// Lane 26: the decisions page is a render; last-render.md is the repo's record of what it
+// should still match. A page that has drifted from it (a crashed publish, a hand edit — never
+// this project's own decisions-render.mjs) is caught here, before the hand-back check trusts
+// anything else it read.
 // ─────────────────────────────────────────────────────────────────────────────
+
+test('page-drift: a decisions read that no longer matches last-render.md (normalised) blocks with a DRIFT line, rescued by the kill switch like any other content objection', () => {
+  const drifted = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => `${CLEAN_DECISIONS}\nExtra line that was never rendered.`,
+  });
+  assert.equal(drifted.exitCode, 1);
+  assert.match(drifted.stdout, /^DRIFT\tdecisions page differs from docs\/decisions\/last-render\.md \(normalised\)$/m);
+  // Review round-2 M3: the spec names a distinct terminal token for this objection.
+  assert.match(drifted.stdout, /HANDBACK page-drift\n$/);
+
+  // A CRLF-only difference, or a single trailing blank line, is not drift: `normalize()` is the
+  // same one `decisions-render.mjs` uses for every other comparison in this lane.
+  const crlfOnly = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => `${CLEAN_DECISIONS.replace(/\n/g, '\r\n')}\n\n`,
+  });
+  assert.equal(crlfOnly.exitCode, 0);
+  assert.doesNotMatch(crlfOnly.stdout, /^DRIFT\t/m);
+  assert.match(crlfOnly.stdout, /HANDBACK ok\n$/);
+
+  // An unreadable last-render.md is BLIND, the same as an unreadable page — never silently "no
+  // drift".
+  const unreadable = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => { throw new Error('ENOENT: no such file'); },
+  });
+  assert.equal(unreadable.exitCode, 3);
+  assert.match(unreadable.stdout, /HANDBACK blind\n$/);
+
+  // The kill switch disables the whole hand-back check, page-drift included — same as any other
+  // content objection (WARN, UNATTACHED, ...).
+  const home = tmpdir('decisions-handback-home-');
+  fs.writeFileSync(path.join(home, 'ws-off-decisions'), '', 'utf8');
+  const drifiedButDisabled = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readLastRender: () => `${CLEAN_DECISIONS}\nExtra line that was never rendered.`,
+    env: { AGENTS_HOME: home },
+  });
+  assert.equal(drifiedButDisabled.exitCode, 0);
+  assert.match(drifiedButDisabled.stdout, /HANDBACK disabled\n$/);
+});
 
 test('a REPLIED pair never blocks the hand-back', () => {
   const decisions = L(
@@ -759,13 +854,22 @@ test('agentsHome / killSwitchActive: injected AGENTS_HOME, never the real ~/.age
 
 test('CLI: a real process, real files, --head override — exits 0 and prints HANDBACK ok', () => {
   const home = tmpdir('decisions-handback-home-');
+  // An isolated repo (its own .agents/project.json) rather than this checkout's own root: Lane
+  // 26's page-drift check needs a docs/decisions/last-render.md that actually matches the
+  // --decisions fixture below, which this real checkout's own (real page) last-render.md does
+  // not. Its decisions_url still matches the title-meta page, same as before.
+  const root = repoWithProjectJson(JSON.stringify({ decisions_url: '3e1da11277a18174bccfea187d5c3972' }));
+  fs.mkdirSync(path.join(root, 'docs', 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'decisions', 'last-render.md'), CLEAN_DECISIONS, 'utf8');
+  const titleMetaPath = writeFreshTitleMetaFile(home, { page: '3e1da11277a18174bccfea187d5c3972' });
   const result = spawnSync(process.execPath, [
     SCRIPT_PATH,
     '--decisions', path.join(FIXTURES, 'decisions-clean.md'),
     '--goals', path.join(FIXTURES, 'goals-clean.md'),
-    '--repo', HERE,
+    '--repo', root,
     '--head', '889887a',
     '--today', '9-22',
+    '--title-meta', titleMetaPath,
   ], { encoding: 'utf8', env: childEnv(home, { AGENTS_HOME: home }) });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /HANDBACK ok\n$/);
@@ -801,7 +905,7 @@ test('CLI: real process, without --head, calls real git for the head sha (does n
   // this test is that the real (non-`--head`) code path runs end to end without crashing, not
   // to assert which of the three outcomes it lands on. The in-process tests above (round-2 M1)
   // pin the actual branching (match/stale/empty/failure) with an injected `execGit`.
-  assert.match(result.stdout, /HANDBACK (ok|blocked|blind)\n$/);
+  assert.match(result.stdout, /HANDBACK (ok|blocked|blind|page-drift)\n$/);
   assert.doesNotMatch(result.stderr, /cannot determine/, 'a real repo must resolve origin/main, not fall through to BLIND for lack of a head sha');
 });
 
@@ -817,6 +921,8 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
     decisions_url: 'decisions-page', goals_parent_page: 'goals-page',
   }));
   const unconfigured = repoWithProjectJson(undefined);
+  fs.mkdirSync(path.join(unconfigured, 'docs', 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(unconfigured, 'docs', 'decisions', 'last-render.md'), CLEAN_DECISIONS, 'utf8');
   const decisionsPath = path.join(unrelated, 'decisions.md');
   const cleanGoalsPath = path.join(unrelated, 'goals-clean.md');
   const defectiveGoalsPath = path.join(unrelated, 'goals-defective.md');
@@ -825,8 +931,20 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
   fs.writeFileSync(defectiveGoalsPath, fixture('goals-unattached-heading.md'), 'utf8');
   fs.mkdirSync(mirroredSkillDir, { recursive: true });
   fs.cpSync(path.join(HERE, '..'), mirroredSkillDir, { recursive: true });
+  // Lane 47, P2: decisions-handback.mjs now imports withoutRepoLocatingGitEnv from
+  // skills/multi/scripts/transport.mjs — a real dependency the actual mirror always ships
+  // alongside skills/decisions (mirror-shared-skills.mjs's Sources list), so the detached copy
+  // here mirrors that same sibling layout rather than declaring decisions dependency-free.
+  const mirroredMultiDir = path.join(home, '.agents', 'skills', 'multi');
+  fs.mkdirSync(mirroredMultiDir, { recursive: true });
+  fs.cpSync(path.join(HERE, '..', '..', 'multi'), mirroredMultiDir, { recursive: true });
+  // decisions-render-core imports the sibling notion-writing skill (page-lint), as the real mirror lays it out.
+  fs.cpSync(path.join(HERE, "..", "..", "notion-writing"), path.join(home, ".agents", "skills", "notion-writing"), { recursive: true });
   const mirroredScript = path.join(mirroredSkillDir, 'scripts', 'decisions-handback.mjs');
   const env = childEnv(home, { AGENTS_HOME: path.join(home, '.agents') });
+  // `unconfigured` has no decisions_url, so the title-meta page-match constraint never fires;
+  // any page string is fine here.
+  const titleMetaPath = writeFreshTitleMetaFile(unrelated);
 
   const configResult = spawnSync(process.execPath, [
     mirroredScript,
@@ -849,6 +967,7 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
     '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
+    '--title-meta', titleMetaPath,
   ], { encoding: 'utf8', cwd: unrelated, env });
   assert.equal(unconfiguredResult.status, 0, unconfiguredResult.stderr);
   assert.match(unconfiguredResult.stdout, /goals mirror at none \(not configured\)/);
@@ -860,6 +979,7 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
     '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
+    '--title-meta', titleMetaPath,
   ], { encoding: 'utf8', cwd: unrelated, env });
   assert.equal(explicitGoalsResult.status, 0, explicitGoalsResult.stderr);
   assert.match(explicitGoalsResult.stdout, /HANDBACK ok\n$/);
@@ -908,9 +1028,244 @@ test('CLI: detached copied skill resolves only its skill-local project config', 
     '--repo', unconfigured,
     '--head', '889887a',
     '--today', '9-22',
+    '--title-meta', titleMetaPath,
   ], { encoding: 'utf8', cwd: unrelated, env });
   assert.equal(missingDependencyExplicitGoals.status, 0, missingDependencyExplicitGoals.stderr);
   assert.match(missingDependencyExplicitGoals.stdout, /HANDBACK ok\n$/);
+  // MINOR-4 (round-2 review): with the loader gone, the page-match check could not run at all —
+  // a distinct unknown from "no decisions_url configured" — and the fresh title line says so
+  // rather than reading as an unqualified, confident pass.
+  assert.match(
+    missingDependencyExplicitGoals.stdout,
+    /^title ok: .+ \(page unverified: project-config\.mjs not found\)$/m,
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C5 --title-meta: the four output lines (fresh/stale/off-pattern/missing-flag), and the
+// malformed/wrong-page BLIND cases. Every runWith() call above this point exercised the "fresh"
+// line implicitly via the auto-injected default; the tests below pin all four explicitly, plus
+// the two BLIND edges (attack brief: "a meta file for a different page", and a meta whose
+// last_edited_time is unparsable must never be treated as fresh).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('--title-meta fresh: "title ok: <title>" is printed and never blocks a clean hand-back', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /^title ok: Test: \d{1,2}\/\d{1,2} \d{1,2}:\d{2}(AM|PM) Decisions$/m);
+  assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+test('--title-meta stale: last_edited_time more than 2 minutes after the title time blocks with "TITLE stale: ... vs last edit ..."', () => {
+  // Minute-aligned instants (no seconds/ms) so formatTitle's minute truncation never introduces
+  // ambiguity into the exact 2-minute tolerance boundary this test is pinning.
+  const titleMoment = new Date('2026-09-22T16:00:00.000Z');
+  const lastEdited = new Date('2026-09-22T16:03:00.000Z'); // 3 minutes later
+  const meta = freshTitleMetaJson({ now: titleMoment, lastEditedTime: lastEdited.toISOString() });
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^TITLE stale: .+ vs last edit .+$/m);
+  assert.doesNotMatch(stdout, /^title ok:/m);
+  assert.match(stdout, /HANDBACK blocked\n$/);
+});
+
+test('--title-meta stale: exactly 2 minutes (the tolerance boundary) is still fresh, not stale', () => {
+  const titleMoment = new Date('2026-09-22T16:00:00.000Z');
+  const lastEdited = new Date('2026-09-22T16:02:00.000Z'); // exactly 2 minutes later
+  const meta = freshTitleMetaJson({ now: titleMoment, lastEditedTime: lastEdited.toISOString() });
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /^title ok:/m);
+});
+
+test('--title-meta off-pattern: a title that does not parse by C2 blocks with "TITLE off-pattern: <title>"', () => {
+  const meta = JSON.stringify({
+    page: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', title: 'just some other page title', last_edited_time: new Date().toISOString(),
+  });
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^TITLE off-pattern: just some other page title$/m);
+  assert.match(stdout, /HANDBACK blocked\n$/);
+});
+
+test('--title-meta missing flag: blocks with "TITLE unchecked: run decisions-title.mjs meta --page <id> and pass --title-meta"', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readDecisionsUrl: () => null,
+    omitTitleMeta: true,
+  });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^TITLE unchecked: run decisions-title\.mjs meta --page <id> and pass --title-meta$/m);
+  assert.match(stdout, /HANDBACK blocked\n$/);
+});
+
+test('--title-meta missing flag: names the actual page id when decisions_url is configured', () => {
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+    readDecisionsUrl: () => '3e1da11277a18174bccfea187d5c3972',
+    omitTitleMeta: true,
+  });
+  assert.equal(exitCode, 1);
+  assert.match(
+    stdout,
+    /^TITLE unchecked: run decisions-title\.mjs meta --page 3e1da11277a18174bccfea187d5c3972 and pass --title-meta$/m,
+  );
+});
+
+test('--title-meta BLIND: an unreadable title-meta file is exit 3, like an unreadable page', () => {
+  const { exitCode, stdout, stderr } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'does-not-exist',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS },
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+  assert.match(stderr, /decisions-handback:/);
+});
+
+test('--title-meta BLIND: a malformed (not valid JSON) title-meta file is exit 3', () => {
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': '{ not json' },
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+test('--title-meta BLIND: a title-meta file missing page/title/last_edited_time is exit 3', () => {
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': JSON.stringify({ page: 'a'.repeat(32) }) },
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+});
+
+test('--title-meta BLIND: a meta for a different page than this project\'s decisions_url is exit 3, never accepted as fresh', () => {
+  const meta = freshTitleMetaJson({ page: 'b'.repeat(32) });
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+    readDecisionsUrl: () => 'a'.repeat(32),
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+  assert.doesNotMatch(stdout, /^title ok:/m);
+});
+
+test('--title-meta BLIND: an unparsable last_edited_time is never silently treated as fresh', () => {
+  const meta = JSON.stringify({
+    page: 'a'.repeat(32), title: 'Test: 9/22 12:00PM Decisions', last_edited_time: 'not-a-date',
+  });
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+  });
+  assert.equal(exitCode, 3);
+  assert.match(stdout, /HANDBACK blind\n$/);
+  assert.doesNotMatch(stdout, /^title ok:/m);
+});
+
+test('--title-meta: page match is dash/case-insensitive (canonicalPageId both sides)', () => {
+  const meta = freshTitleMetaJson({ page: '3E1DA112-77A1-8174-BCCF-EA187D5C3972' });
+  const { exitCode, stdout } = runWith({
+    argv: [
+      '--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22',
+      '--title-meta', 'title-meta',
+    ],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+    readDecisionsUrl: () => '3e1da11277a18174bccfea187d5c3972',
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /^title ok:/m);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// titleTimeMillis: the year-recovery rule (C5), including the New Year's Eve edge the attack
+// brief names explicitly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('titleTimeMillis: an ordinary same-year title/last-edit pair', () => {
+  const lastEdited = Date.parse('2026-09-22T16:03:00.000Z'); // 12:03PM NY
+  const parsed = { month: 9, day: 22, hour24: 12, minute: 0 }; // title says 12:00PM
+  const titleMillis = titleTimeMillis(parsed, lastEdited);
+  assert.equal(lastEdited - titleMillis, 3 * 60 * 1000);
+});
+
+test('titleTimeMillis: New Year — a title written 12/31 11:59PM read back the following January', () => {
+  // Title moment: 2026-12-31 23:59 NY == 2027-01-01T04:59:00Z. The retitle's last_edited_time,
+  // rounded to the minute, lands a minute later: 2027-01-01T05:00:00Z (2027-01-01 00:00 NY).
+  const titleInstant = Date.parse('2027-01-01T04:59:00.000Z');
+  const lastEdited = Date.parse('2027-01-01T05:00:00.000Z');
+  const parsed = { month: 12, day: 31, hour24: 23, minute: 59 };
+  const titleMillis = titleTimeMillis(parsed, lastEdited);
+  assert.equal(titleMillis, titleInstant);
+  assert.equal(lastEdited - titleMillis, 60 * 1000); // within the 2-minute tolerance
+});
+
+test('titleTimeMillis: spring-forward — 3/8 3:00AM EDT read back a minute later is fresh', () => {
+  const lastEdited = Date.parse('2026-03-08T07:01:00.000Z'); // 3:01AM EDT
+  const parsed = { month: 3, day: 8, hour24: 3, minute: 0 };
+  assert.equal(lastEdited - titleTimeMillis(parsed, lastEdited), 60 * 1000);
+});
+
+test('titleTimeMillis: fall-back — the first 1:30AM (EDT) read back a minute later is fresh', () => {
+  const lastEdited = Date.parse('2026-11-01T05:31:00.000Z'); // 1:31AM EDT
+  const parsed = { month: 11, day: 1, hour24: 1, minute: 30 };
+  assert.equal(lastEdited - titleTimeMillis(parsed, lastEdited), 60 * 1000);
+});
+
+test('titleTimeMillis: fall-back — the repeated 1:30AM (EST) resolves to EDT, so it reads stale (deliberate, fail-closed)', () => {
+  const lastEdited = Date.parse('2026-11-01T06:31:00.000Z'); // 1:31AM EST, second pass
+  const parsed = { month: 11, day: 1, hour24: 1, minute: 30 };
+  assert.equal(lastEdited - titleTimeMillis(parsed, lastEdited), 61 * 60 * 1000);
+});
+
+test('--title-meta across DST: a fresh retitle on fall-back day after 2:00AM EST is title ok', () => {
+  const meta = freshTitleMetaJson({ now: new Date('2026-11-01T07:10:00.000Z'), lastEditedTime: '2026-11-01T07:11:00.000Z' });
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--goals', 'g', '--repo', 'r', '--head', '889887a', '--today', '9-22', '--title-meta', 'title-meta'],
+    files: { d: CLEAN_DECISIONS, g: CLEAN_GOALS, 'title-meta': meta },
+  });
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /^title ok: Test: 11\/1 2:10AM Decisions$/m);
 });
 
 test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {

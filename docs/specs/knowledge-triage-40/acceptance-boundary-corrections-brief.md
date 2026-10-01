@@ -1,0 +1,8 @@
+Task: Apply only the five exact text corrections from acceptance-boundary-review.md to acceptance-boundary-report.md. The review concluded no production patch is supported. This is a mechanical document correction, no new research.
+Work: wr-2026-09-29-knowledge-triage.
+Inputs: only acceptance-boundary-review.md and acceptance-boundary-report.md in this directory.
+Territory: acceptance-boundary-report.md and acceptance-boundary-corrections.md only. No other writes or commits.
+NOT: no source/helper/recipe/configuration reads, searches, raw transcript, environment inspection, tests, live invocation, SSH or peer messages. The reviewer was denied a combined helper/config-filename search; that operation stays stopped and must not be retried or substituted. No private instruction discovery.
+Apply F1-F5 verbatim where exact replacement text is supplied; where the reviewer describes a qualifier, use that qualifier with narrow wording. Ensure the opening and dependency/section4 statements are consistently scoped to the approved skill and runner, and the tool-behavior paragraph is explicitly unverified rather than an established assumption. Remove any suggestion that recurrence itself justifies a patch. Do not claim independent APPROVE: the review verdict remains NEEDS_FIXES with these corrections applied for root adjudication.
+Report: acceptance-boundary-corrections.md, line1 VERDICT: APPLIED, list each finding and changed line, plus a concise diff summary. Read only the two inputs and your outputs; no new evidence collection. A guard refusal means stop, not reroute.
+ETA: 3 minutes. Termination: apply text corrections, write report, stop.
