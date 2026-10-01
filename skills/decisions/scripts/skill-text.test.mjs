@@ -87,3 +87,27 @@ test('SKILL.md names all four --title-meta output lines and that only "title ok"
   assert.equal(skillText.includes('TITLE stale: <title> vs last edit <ISO>'), true);
   assert.match(skillText, /TITLE unchecked: run decisions-title\.mjs meta\n--page <id> and pass --title-meta/);
 });
+
+// Lane 64 (decisions-wedge): clearing Done and accounting the round are one step, the attestation
+// follows the lead that runs the accounting, and a history-quoted stuck round is closable.
+test('SKILL.md says publish --clear-done accounts the round in the same step and takes --owner', () => {
+  assert.match(skillText, /clearing Done and accounting the round\nare ONE step \(Lane 64\): `publish --clear-done` accounts the round itself/);
+  assert.equal(skillText.includes('--owner\n<your-session-name>'), true);
+  assert.equal(skillText.includes('`publish --clear-done --owner <your-session-name>`, which also accounts the round'), true);
+  assert.equal(skillText.includes('the order is the reverse'), false, 'the clear-then-account order is gone');
+});
+
+test('SKILL.md pins account --owner, accountedBy, and the history-quoted stuck-round admission', () => {
+  assert.equal(skillText.includes('--outcome <existing-report-path> [--owner <your-session-name>]'), true);
+  assert.equal(skillText.includes('recorded as `accountedBy`'), true);
+  assert.equal(skillText.includes('quoted in a committed `docs/decisions/history/` file on origin/main'), true);
+});
+
+test('SKILL.md pins the fix-round-2 rules: --owner required, counted history quotes, accounted-from-reconciliation', () => {
+  const flat = skillText.replace(/\s+/g, ' ');
+  assert.equal(flat.includes('(required when the step accounts the round)'), true);
+  assert.equal(flat.includes('the history/verbatim check is the proof; the attestation records who ran it'), true);
+  assert.equal(flat.includes('an input text that appears N times must be quoted N times'), true);
+  assert.equal(flat.includes('for a round accounted from NEEDS_RECONCILIATION'), true);
+  assert.equal(flat.includes('If the page changed after the pickup last read it, the step refuses (exit 3); let one tick run and retry.'), true);
+});
