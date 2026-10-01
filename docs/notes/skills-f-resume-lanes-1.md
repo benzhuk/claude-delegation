@@ -28,7 +28,8 @@ Scope, pinned:
 3. Sync, mirror and test runners exclude `.claude/worktrees/`; it is gitignored.
 4. `skills/team-build`, `skills/delegate`, the builder and runner agent files and `docs/pane-setup.md` state the path once each.
 5. `scripts/install-janitor-timer.mjs` line 156 defaults to `Code/zhuk-infra/claude-delegation`, falling back to the old `Code/claude-delegation` only when the new path is absent. Sweep the repo for other hardcoded `Code/claude-delegation` and fix the ones that are live code. The chezmoi mirror templates are NOT in this lane (they wait for the Mac move).
-6. Tests for 1, 2, 3 and 5.
+6. Tests for 1, 2, 3, 5 and 7.
+7. Added 10/1 3:45 PM NY, before this packet was read: the janitor appends a line a day to the tracked file `docs/work/evidence/janitor/drift.md` in every durable checkout, and that local edit made `git pull --ff-only` refuse on Netcup and Hetzner during the 0.20.19 install (`docs/work/evidence/2026-10-01-install-0.20.19.md`). The janitor writes its drift log outside the tracked tree (under `~/.agents/`), the tracked file stops being written, and nothing a scheduled job does leaves a durable checkout dirty.
 Due on main: 10/1 11:30 PM NY.
 
 ## Lane 66: land `build/fresh-walk-1`. Measure: hours ask to accepted (a fresh host installs from the docs without the lead).
