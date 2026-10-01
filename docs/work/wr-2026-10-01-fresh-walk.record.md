@@ -7,6 +7,7 @@ Next: build-loop Workflow run, then second-host suites on Netcup and Hetzner, ac
 Artifact: build/fresh-walk-66@465335eaa1f71eddee75f06ce3bf636222368897
 Evidence: docs/work/evidence/wr-2026-10-01-fresh-walk-merge66.md
 Worktree: build/fresh-walk-66
+Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-66
 Opened: 2026-10-01T19:41:47.000Z
 Lead-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
