@@ -1,0 +1,13 @@
+# Lead response to bearings 2026-09-29 (skills-fable, session 9c61c35a)
+
+Decision accepted: RE-PLAN. The reviewer's observations are the reviewer's; what follows is mine.
+
+What the reviewer found that I agree with: seventeen lanes merged and closed in a day, and none of them is installed anywhere, so no census can read them. The one change aimed at the biggest wake source (review-run, lane 53) is on main and runs on no host. The lead cost rose to 72.7M Fable tokens in the 24 hours to 3 PM New York, against the 65M bound, with 47 percent of it in wake-opened turns. The owner input path broke for the fourth time on the same mechanism, this time on a legacy pickup receipt no agent may move. Cleanup went backwards on origin and on the desktop while the janitor recorded and reclaimed nothing.
+
+The plan change, in my words: build, install, measure is one loop, and we have been running only its first third. No new lane opens until 0.20.18 is installed on all four hosts and one 24-hour lead census has read it. What continues: the release and installs (skills-n, cut as cb728e7 on Ben's tick, in progress); the lane 36 sweep (skills-h, Ben's tick); the pickup reconciliation on the registered host (skills-n, round 5 on Netcup); lanes 57, 39 and 45 finish under the standing grant; lane 40 rev 4 continues because Ben directed it today in his own words (daily triage, all machines, Opus), and an owner's direction outranks the hold. The lead-coordination question goes to Ben's page as two options with the reading, per the 9/28 condition. The janitor's daily reclaim of the safe class goes to Ben's page as one policy item, because it is an existing mechanism switched to act, not a new one, and Ben raised the inode problem twice yesterday.
+
+Next action and owner: install 0.20.18 on ben-desktop, Netcup, Hetzner and the Mac (skills-n, already authorized by the tick). Measure it moves: top-tier tokens per build, read as the Fable lead's wake-opened turns and their token share.
+
+Prediction adopted as written by the reviewer: in the 24 hours after 0.20.18 is installed on ben-desktop, the Fable lead reads at most 20 wake-opened turns and at most 65M claude-fable-5-1 tokens, summed over every Fable lead session on the desktop; if the install has not happened by 3:00 PM New York on 2026-09-30, the prediction is recorded as failed on deployment. Check on 2026-10-01 at 3:00 PM New York with the build-census command in the assessment.
+
+What would make me reconsider before then: a second Fable lead session in the window (the census read only this one), or evidence that review-run was live on a host during the window.
