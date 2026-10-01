@@ -87,3 +87,18 @@ test('SKILL.md names all four --title-meta output lines and that only "title ok"
   assert.equal(skillText.includes('TITLE stale: <title> vs last edit <ISO>'), true);
   assert.match(skillText, /TITLE unchecked: run decisions-title\.mjs meta\n--page <id> and pass --title-meta/);
 });
+
+// Lane 64 (decisions-wedge): clearing Done and accounting the round are one step, the attestation
+// follows the lead that runs the accounting, and a history-quoted stuck round is closable.
+test('SKILL.md says publish --clear-done accounts the round in the same step and takes --owner', () => {
+  assert.match(skillText, /clearing Done and accounting the round\nare ONE step \(Lane 64\): `publish --clear-done` accounts the round itself/);
+  assert.equal(skillText.includes('--owner\n<your-session-name>'), true);
+  assert.equal(skillText.includes('`publish --clear-done --owner <your-session-name>`, which also accounts the round'), true);
+  assert.equal(skillText.includes('the order is the reverse'), false, 'the clear-then-account order is gone');
+});
+
+test('SKILL.md pins account --owner, accountedBy, and the history-quoted stuck-round admission', () => {
+  assert.equal(skillText.includes('--outcome <existing-report-path> [--owner <your-session-name>]'), true);
+  assert.equal(skillText.includes('recorded as `accountedBy`'), true);
+  assert.equal(skillText.includes('quoted in a committed `docs/decisions/history/` file on origin/main'), true);
+});
