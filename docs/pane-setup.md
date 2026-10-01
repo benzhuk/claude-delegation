@@ -60,6 +60,8 @@ never guesses a slug from a title. When none of the three resolve, nothing regis
 the pane never appears in `inboxes.json` — it misses peer notes until something sets one;
 the `SessionStart` hook says so once, with the `/rename <slug>` fix.
 
+Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else.
+
 The fallback, for when `/rename`/`--name` were not used: state the slug in the `--command`
 string `orca terminal create` already accepts —
 

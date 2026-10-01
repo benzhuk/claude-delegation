@@ -350,7 +350,7 @@ twice. Static contract, tests, and pinned agent-type/model pairs:
 **Launch turn**: have ready — the spec pack on disk (spec, pinned contracts, territory
 map, Setup step 1), your lead session id (the hook's `Host: claude; session: <uuid>`
 context line, resolving to `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`), and `startedAt`
-(an ISO timestamp; the script has no clock). Cut the integration worktree/branch from
+(an ISO timestamp; the script has no clock). Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else. The dispatch guard (R4) refuses one created elsewhere. Cut the integration worktree/branch from
 `baseSha` and open ONE work record for the whole build inside it (`recordPath`,
 repo-relative to `integrationWorktree`; Setup step 7's fields, not one per territory).
 When a build needs two bases, make the merge commit on the integration branch yourself
