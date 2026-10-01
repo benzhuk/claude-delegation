@@ -528,8 +528,8 @@ function checkR0Stale(input, ctx) {
  * `roundMention` is true when the prompt/message mentions a round number in free text
  * without declaring one (see `checkRoundMention`) — log-only, never affects `action`.
  *
- * Evaluation order is R0-stale, R1, R1b, R2, R3, exactly as the spec lists them (R0-stale:
- * spec P5, "AFTER the no-dispatch-guard skip and BEFORE R1"). The first deny wins outright
+ * Evaluation order is R0-stale, R4 (lane 65), R1, R1b, R2, R3 (R0-stale and R1-R3 as the spec
+ * lists them; R0-stale: spec P5, "AFTER the no-dispatch-guard skip and BEFORE R1"). The first deny wins outright
  * and short-circuits — no later rule can change a decided deny. Notes (R1b, R3) accumulate
  * along the way and become one joined `additionalContext` if no deny ever fires.
  *

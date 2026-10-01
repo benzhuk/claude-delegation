@@ -7,10 +7,12 @@
 //     resolved against the call's cwd (and any `git -C <dir>`), `<repo>` is the MAIN checkout
 //     (git's common dir, so a linked worktree resolves to the repo that owns it), and the call
 //     is refused unless the path is strictly inside `<repo>/.claude/worktrees/`.
-//   * an Agent spawn whose mandate carries a `Worktree: <path>` line (`checkAgentWorktree`):
-//     refused unless the path has a `/.claude/worktrees/<name>` segment (an Agent call has no
+//   * an Agent spawn whose mandate carries a `Worktree: <path>` declaration (line start, or after
+//     a sentence end as build-loop-workflow.js writes it) (`checkAgentWorktree`): refused unless
+//     the path already exists or has a `/.claude/worktrees/<name>` segment (an Agent call has no
 //     path field of its own; `isolation: worktree` with no `Worktree:` line is allowed, since
-//     Claude Code creates that one in the right place).
+//     Claude Code creates that one in the right place). This arm is advisory hygiene; the Bash
+//     arm is the enforcement.
 //
 // Failure posture: ANY error, unresolvable path (a `$VAR`, a glob, `--git-dir`), non-git
 // directory or unusual repo layout (bare repo, submodule) returns null — allow. A guard that
@@ -112,6 +114,22 @@ function insideFolder(target, repo, ctx) {
 
 // ─── command scanning ───
 
+/** Drop an unquoted `#` (at line start or after whitespace) through the end of the line. */
+function stripComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
 /** Drop heredoc bodies and PowerShell here-strings: prose that merely names the command. */
 function stripHeredocs(command) {
   const out = [];
@@ -122,7 +140,7 @@ function stripHeredocs(command) {
       if (pending.ps ? t.startsWith(pending.term) : t === pending.term) pending = null;
       continue;
     }
-    out.push(line);
+    out.push(stripComment(line));
     const h = /(?<!<)<<-?[ \t]*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_]\w*))/.exec(line);
     if (h) { pending = { term: h[1] ?? h[2] ?? h[3], ps: false }; continue; }
     const t = line.trimEnd();
@@ -159,9 +177,11 @@ function scanCommand(command) {
 const DISPLAY_HEAD_RE = /^\s*(?:echo|printf|grep|egrep|fgrep|rg|cat|head|tail|sed|awk|write-output|write-host|select-string|git(?:\.exe)?\s+(?:commit|tag|notes)|gh|note-send)\b/i;
 const EXECUTOR_HEAD_RE = /^\s*(?:(?:sudo|env|time|nohup)\s+)*(?:bash|sh|zsh|dash|pwsh|powershell|cmd|eval)\b/i;
 
+const QUOTED_GIT_HEAD_RE = /^\s*(?:&|\.)?\s*["'][^"']*$/;
+
 const VAL = String.raw`(?:"[^"]*"|'[^']*'|\S+)`;
 const WORKTREE_ADD_RE = new RegExp(
-  String.raw`\bgit(?:\.exe)?["']?((?:\s+(?:-C\s*${VAL}|-c\s*${VAL}|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)\s+${VAL}|--[a-zA-Z-]+(?:=\S+)?|-[pP])){0,6})\s+worktree\s+add\b`,
+  String.raw`\b[Gg][Ii][Tt](?:\.[Ee][Xx][Ee])?["']?((?:\s+(?:-C\s*${VAL}|-c\s*${VAL}|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)\s+${VAL}|--[a-zA-Z-]+(?:=\S+)?|-[pP])){0,6})\s+worktree\s+add\b`,
   'g',
 );
 
@@ -177,6 +197,9 @@ function argTokens(command, from) {
     } else if (c === '"' || c === "'") {
       quote = c;
       cur ??= '';
+    } else if ((c === '\\' || c === '`') && (command[i + 1] === '\n' || (command[i + 1] === '\r' && command[i + 2] === '\n'))) {
+      if (cur !== null) { tokens.push(cur); cur = null; } // a line continuation is whitespace
+      i += command[i + 1] === '\r' ? 2 : 1;
     } else if (SEPARATORS.has(c) || c === ')') {
       break;
     } else if (c === ' ' || c === '\t') {
@@ -188,6 +211,9 @@ function argTokens(command, from) {
   if (cur !== null) tokens.push(cur);
   return tokens;
 }
+
+/** A directory change earlier in the same command: git sees the cwd it leaves behind. */
+const CD_RE = new RegExp(String.raw`(?:^|[;&|\n(])\s*(?:cd|pushd|chdir|set-location|sl|push-location)(?:\s+(?:-(?:literal)?path\s+)?(?![;&|)])(${VAL}))?(?=\s*(?:$|[;&|\n)]))`, 'gi');
 
 const VALUE_FLAGS = new Set(['-b', '-B', '--reason']);
 
@@ -232,7 +258,10 @@ export function checkBashWorktreeAdd(input, ctx = {}) {
     while ((m = WORKTREE_ADD_RE.exec(command))) {
       const head = command.slice(segStart[m.index], m.index);
       if (inQuote[m.index]) {
-        if (!EXECUTOR_HEAD_RE.test(head)) continue; // text inside a quote that nothing executes
+        // Text inside a quote that nothing executes, unless the quote is a quoted path to git
+        // itself: & "C:\Program Files\Git\cmd\git.exe" worktree add ...
+        const quotedGit = /^[Gg][Ii][Tt](?:\.[Ee][Xx][Ee])?["']/.test(m[0]) && QUOTED_GIT_HEAD_RE.test(head);
+        if (!quotedGit && !EXECUTOR_HEAD_RE.test(head)) continue;
       } else if (DISPLAY_HEAD_RE.test(head)) {
         continue; // echo/grep/git commit -m ...: prose about the command, not the command
       }
@@ -241,6 +270,13 @@ export function checkBashWorktreeAdd(input, ctx = {}) {
 
       let dir = callCwd;
       let ok = true;
+      for (const c of command.slice(0, segStart[m.index]).matchAll(CD_RE)) {
+        if (inQuote[c.index]) continue; // `echo "x; cd /y"` is text, not a directory change
+        const v = (c[1] ?? '~').replace(/^(["'])(.*)\1$/, '$2');
+        if (v === '-' || UNRESOLVABLE_RE.test(v)) { ok = false; break; } // `cd -`, `cd $X`: cannot place, allow
+        dir = joinFrom(dir, expandHome(v, home), platform);
+      }
+      if (!ok) continue;
       for (const c of globals.matchAll(new RegExp(String.raw`-C\s*(${VAL})`, 'g'))) {
         const v = c[1].replace(/^(["'])(.*)\1$/, '$2');
         if (UNRESOLVABLE_RE.test(v)) { ok = false; break; }
@@ -251,6 +287,7 @@ export function checkBashWorktreeAdd(input, ctx = {}) {
       const operand = worktreePathOperand(argTokens(command, m.index + m[0].length));
       if (operand === null || UNRESOLVABLE_RE.test(operand)) continue;
       const target = joinFrom(dir, expandHome(operand, home), platform);
+      if (!path.posix.basename(target)) continue; // a root or empty operand is a parse miss, not a placement
 
       const repo = mainRepoOf(dir, ctx);
       if (!repo) continue; // not a repo we can place: allow
@@ -265,7 +302,9 @@ export function checkBashWorktreeAdd(input, ctx = {}) {
 
 // ─── Agent mandate: a `Worktree:` line ───
 
-const WORKTREE_LINE_RE = /^[ \t>*+-]{0,20}Worktree:\**[ \t]*(.+)$/mi;
+// A declaration starts a line (bullets and `Your ` allowed) or follows a sentence end, which is
+// the shape build-loop-workflow.js writes: `Build territory t1. Brief: b. Worktree: <path>. Gate: g.`
+const WORKTREE_LINE_RE = /(?:^|(?<=[.;][ \t]))[ \t>*+-]{0,20}(?:Your[ \t]+)?Worktree:\**[ \t]*([^\n]+)/gmi;
 
 /** First path-ish token of a `Worktree:` value: a quoted/backticked span or up to whitespace. */
 function firstValueToken(value) {
@@ -275,29 +314,37 @@ function firstValueToken(value) {
 }
 
 /**
- * R4, Agent shape. A `Worktree: <path>` line in the mandate whose path is clearly a path (an
- * absolute path, or a relative one with a slash) must have a `/.claude/worktrees/<name>`
- * segment. `Worktree: none`, `Worktree: <path>` and prose never match. Returns a finding or null.
+ * R4, Agent shape. Every `Worktree: <path>` declaration in the mandate whose path is clearly a
+ * path (an absolute path, or a relative one with a slash) and does not exist yet must have a
+ * `/.claude/worktrees/<name>` segment. A path that already exists is not a creation (a reviewer
+ * or cleanup mandate may name an existing stray worktree), so it is allowed. `Worktree: none`,
+ * `Worktree: <path>` and prose never match. This arm is advisory hygiene: the Bash arm
+ * (`checkBashWorktreeAdd`) is the enforcement, since it sees the `git worktree add` itself.
+ * Returns a finding or null.
  */
 export function checkAgentWorktree(input, ctx = {}) {
   try {
     if (input?.tool_name !== 'Agent') return null;
     const prompt = input.tool_input?.prompt;
     if (typeof prompt !== 'string' || !/Worktree:/i.test(prompt)) return null;
-    const m = WORKTREE_LINE_RE.exec(prompt);
-    if (!m) return null;
-    const token = firstValueToken(m[1]);
-    if (!token || UNRESOLVABLE_RE.test(token) || /[<>]/.test(token)) return null;
     const platform = ctx.platform ?? process.platform;
-    const pathish = isAbs(toPosix(token)) || /^\/[A-Za-z]\//.test(token) || /^~\//.test(token)
-      || /^\.{1,2}[\\/]/.test(token);
-    if (!pathish) return null; // `none`, a branch name, prose
     const home = ctx.home ?? os.homedir();
     const callCwd = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
-    const target = joinFrom(callCwd, expandHome(token, home), platform);
-    if (foldFor(platform)(target).includes(`/${WORKTREE_FOLDER}/`)) return null; // a name follows (no trailing slash survives normAbs)
-    const repo = mainRepoOf(callCwd, ctx);
-    return { id: 'R4', type: 'deny', text: r4Text(repo, path.posix.basename(target)) };
+    const fsImpl = ctx.fsImpl ?? fs;
+    WORKTREE_LINE_RE.lastIndex = 0;
+    for (const m of prompt.matchAll(WORKTREE_LINE_RE)) {
+      const token = firstValueToken(m[1]);
+      if (!token || UNRESOLVABLE_RE.test(token) || /[<>]/.test(token)) continue;
+      const pathish = isAbs(toPosix(token)) || /^\/[A-Za-z]\//.test(token) || /^~\//.test(token)
+        || /^\.{1,2}[\/]/.test(token);
+      if (!pathish) continue; // `none`, a branch name, prose
+      const target = joinFrom(callCwd, expandHome(token, home), platform);
+      if (foldFor(platform)(target).includes(`/${WORKTREE_FOLDER}/`)) continue; // a name follows (no trailing slash survives normAbs)
+      try { if (fsImpl.existsSync(target)) continue; } catch { continue; } // already there: not a creation
+      const repo = mainRepoOf(callCwd, ctx);
+      return { id: 'R4', type: 'deny', text: r4Text(repo, path.posix.basename(target)) };
+    }
+    return null;
   } catch {
     return null;
   }

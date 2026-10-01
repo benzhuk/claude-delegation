@@ -225,3 +225,97 @@ test('R4: hooks.json routes Bash and PowerShell to this guard, and delete-guard 
   const del = groups.find((g) => g.hooks.some((h) => h.command.includes('delete-guard.mjs')));
   assert.equal(del.matcher, 'Bash|PowerShell');
 });
+
+// ─── review round 1 fixes ───
+
+test('R4: a cd / pushd / Set-Location earlier in the same command moves the base the path is judged against', () => {
+  const home = scratchHome();
+  const repo = fixtureRepo();
+  const gitRunner = () => `${repo}/.git\n`; // a linked worktree answers with the main repo's .git
+  const lane = `${repo}/.claude/worktrees/lane`;
+  for (const [cmd, tool, leaf] of [
+    [`cd ${repo} && git worktree add ../cd-escape -b y`, 'Bash', 'cd-escape'],
+    [`Set-Location ${repo}; git worktree add ../sl-escape`, 'PowerShell', 'sl-escape'],
+    [`pushd ${repo} && git worktree add ../pd-escape`, 'Bash', 'pd-escape'],
+    [`cd "${repo}"\ngit worktree add ../q-escape`, 'Bash', 'q-escape'],
+  ]) {
+    const r = decide(BASH(cmd, lane, tool), ctxFor(home, { gitRunner }));
+    assert.deepEqual(r.rule, ['R4'], cmd);
+    assert.equal(r.text, r4Text(repo, leaf), cmd);
+  }
+  // A cd that stays inside the folder is fine, and a cd that cannot be placed is not judged.
+  for (const cmd of [
+    'cd .claude/worktrees && git worktree add wt-legit',
+    `echo "x; cd ${repo}/.." ; git worktree add .claude/worktrees/ok`,
+    'cd - && git worktree add ../wt-x',
+    'cd $WT && git worktree add ../wt-x',
+  ]) {
+    assert.equal(decide(BASH(cmd, repo), ctxFor(home, { gitRunner })).action, 'allow', cmd);
+  }
+  // `cd ..` out of the repo lands in a non-repo directory: nothing to judge (real git refuses it).
+  assert.equal(decide(BASH('cd .. && git worktree add wt-cd', repo), ctxFor(home)).action, 'allow');
+});
+
+test('R4: a Bash line continuation is whitespace, not the path operand', () => {
+  const home = scratchHome();
+  const repo = fixtureRepo();
+  for (const [cmd, tool] of [
+    ['git worktree add \\\n  .claude/worktrees/cont -b y', 'Bash'],
+    ['git worktree add -b y \\\n  .claude/worktrees/cont2', 'Bash'],
+    ['git worktree add \\\r\n  .claude/worktrees/cont3', 'Bash'],
+    ['git worktree add `\n  .claude/worktrees/ps-cont -b y', 'PowerShell'],
+  ]) {
+    assert.equal(decide(BASH(cmd, repo, tool), ctxFor(home)).action, 'allow', JSON.stringify(cmd));
+  }
+  for (const [cmd, tool] of [
+    ['git worktree add \\\n  ../cont-out', 'Bash'],
+    ['git worktree add -b y \\\n  ../cont-out', 'Bash'],
+    ['git worktree add `\n  ../cont-out', 'PowerShell'],
+  ]) {
+    const r = decide(BASH(cmd, repo, tool), ctxFor(home));
+    assert.equal(r.text, r4Text(repo, 'cont-out'), JSON.stringify(cmd));
+  }
+  // A bare root operand is a parse miss, not a placement.
+  assert.equal(checkBashWorktreeAdd(BASH('git worktree add /', repo), ctxFor(home)), null);
+});
+
+test('R4 Agent: the build-loop mid-line mandate, a second Worktree: line and a brief-style bullet are judged; an existing path is not', () => {
+  const repo = fixtureRepo();
+  const home = scratchHome();
+  const outside = `${path.posix.dirname(repo)}/wt-sib`;
+  for (const prompt of [
+    `Build territory t1. Brief: b.md. Worktree: ${outside}. Gate: node --test x.`,
+    `Worktree: none\nWorktree: ${outside}\nReport: r.md`,
+    `- Your worktree: ${outside}, branch build/x\n`,
+  ]) {
+    const r = decide(AGENT(repo, prompt), ctxFor(home));
+    assert.deepEqual(r.rule, ['R4'], prompt);
+    assert.equal(r.text, r4Text(repo, 'wt-sib'), prompt);
+  }
+  assert.equal(decide(AGENT(repo, `Build territory t1. Brief: b.md. Worktree: ${repo}/.claude/worktrees/wt-t1. Gate: g.`),
+    ctxFor(home)).action, 'allow');
+  // A reviewer or cleanup mandate that names a stray worktree which already exists creates nothing.
+  fs.mkdirSync(outside, { recursive: true });
+  assert.equal(decide(AGENT(repo, `Review it.\nWorktree: ${outside}\n`), ctxFor(home)).action, 'allow');
+});
+
+test('R4: executable spellings (Git, a quoted full path to git.exe) are judged, and a # comment is not a command', () => {
+  const home = scratchHome();
+  const repo = fixtureRepo();
+  assert.deepEqual(decide(BASH('Git worktree add ../capital', repo, 'PowerShell'), ctxFor(home)).rule, ['R4']);
+  assert.deepEqual(decide(BASH('& "C:\\Program Files\\Git\\cmd\\git.exe" worktree add ../fullpath', repo, 'PowerShell'),
+    ctxFor(home)).rule, ['R4']);
+  assert.deepEqual(decide(BASH("& 'C:/Program Files/Git/cmd/git.exe' worktree add ../fullpath2", repo, 'PowerShell'),
+    ctxFor(home)).rule, ['R4']);
+  assert.equal(decide(BASH('& "C:\\Program Files\\Git\\cmd\\git.exe" worktree add .claude/worktrees/ok', repo, 'PowerShell'),
+    ctxFor(home)).action, 'allow');
+  for (const cmd of [
+    'git worktree add .claude/worktrees/x -b y # then later git worktree add ../z',
+    '# git worktree add ../z\ngit status',
+    'echo "a quoted & path to \\"C:\\Git\\git.exe\\" worktree add ../x"',
+  ]) {
+    assert.equal(decide(BASH(cmd, repo), ctxFor(home)).action, 'allow', cmd);
+  }
+  // A `#` with no space before it is part of a word, not a comment.
+  assert.deepEqual(decide(BASH('git worktree add ../x#frag', repo), ctxFor(home)).rule, ['R4']);
+});
