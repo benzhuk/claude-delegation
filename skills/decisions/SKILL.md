@@ -127,14 +127,16 @@ are ONE step (Lane 64): `publish --clear-done` accounts the round itself, after 
 has passed and before it writes the page, so no path clears Done and leaves the round
 unaccounted (any page edit while that round's Done is still checked moves its receipt to
 NEEDS_RECONCILIATION — the Done-window rules under "Reading answers"). Pass `--owner
-<your-session-name>`: the attestation the step records is that lead's, not the lead that
-first ran the pickup; without it the saved owner is used. If the round is stuck in
+<your-session-name>` (required when the step accounts the round): the attestation the step
+records is that lead's, not the lead that first ran the pickup. In this one-step path the
+history/verbatim check is the proof; the attestation records who ran it. If the round is stuck in
 NEEDS_RECONCILIATION because the page changed after the note was recorded, `publish
 --clear-done` closes it too when every owner input (the round's and the fresh page's) is
-quoted in a committed `docs/decisions/history/` file on origin/main, any day. The older
+quoted in a committed `docs/decisions/history/` file on origin/main, any day, counted (an input text that appears N times must be quoted N times). The older
 order still works: it also accepts an already-`ACCOUNTED` round whose Done is still checked
 from that same round (the Done line unchanged since the capture, never cleared and
-re-checked) and whose owner inputs still match (checked by
+re-checked) and whose owner inputs still match (or, for a round accounted from NEEDS_RECONCILIATION,
+whose fresh inputs add nothing or are all quoted in origin history) (checked by
 `decisions-render-publish.test.mjs` and `decisions-pickup.test.mjs`).
 
 The page is composed only of the sections `decisions-render.mjs render` builds —

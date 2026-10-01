@@ -363,7 +363,16 @@ function ownerInputsChanged(receipt, doc, now, base, fsImpl) {
   const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
   if (!original) return true;
   const fresh = ownerInputs(capturedItems(doc));
-  return !isSubMultiset(fresh, original);
+  if (isSubMultiset(fresh, original)) return false;
+  // Lane 64 F1: a round admitted from NEEDS_RECONCILIATION keeps its ORIGINAL capture as the
+  // receipt baseline, so the page that caused the wedge would re-wedge it on the next tick. The
+  // reconciliation capture (the page the closing step verified) is also a valid baseline.
+  if (receipt.state === 'ACCOUNTED' && receipt.accountedFrom === 'NEEDS_RECONCILIATION'
+      && receipt.reconciliationPrivateCaptureRef) {
+    const reconciled = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, now, base, fsImpl);
+    if (reconciled && isSubMultiset(fresh, reconciled)) return false;
+  }
+  return true;
 }
 
 function capturedItems(doc) {
@@ -1333,6 +1342,26 @@ export function quotedInHistory(triple, historyText) {
 }
 
 /**
+ * Lane 64 F2: every input list is quoted in history by count, not only by presence. Each distinct
+ * text must occur as `"text"` at least as many times as its largest multiplicity in any one list
+ * (original capture, reconciliation capture), so a stale quote of a short answer such as "yes"
+ * cannot close a round whose new answers are not recorded. Overlapping lists are not double-counted.
+ */
+export function allQuotedInHistory(tripleLists, historyText) {
+  const need = new Map();
+  for (const list of tripleLists) {
+    const counts = new Map();
+    for (const triple of list) counts.set(triple?.[2], (counts.get(triple?.[2]) ?? 0) + 1);
+    for (const [text, n] of counts) need.set(text, Math.max(need.get(text) ?? 0, n));
+  }
+  for (const [text, n] of need) {
+    if (typeof text !== 'string' || !text || !historyText) return false;
+    if (historyText.split(`"${text}"`).length - 1 < n) return false;
+  }
+  return true;
+}
+
+/**
  * Lane 64 item 3: the lead that runs the accounting is the owner of the attestation. `--owner`
  * names that lead; without it the receipt's saved owner is used, as before. The receipt's own
  * `owner` field is never rewritten: it is part of what every saved private capture is verified
@@ -1418,7 +1447,7 @@ function settleRound(options, deps, outcomeFor) {
           const history = deps.readHistory
             ? deps.readHistory(receipt.transportRepo)
             : readOriginHistory(receipt.transportRepo, deps.git ?? gitRunner);
-          if ([...original, ...reconciliation].every((triple) => quotedInHistory(triple, history))) admittedBy = 'history';
+          if (allQuotedInHistory([original, reconciliation], history)) admittedBy = 'history';
         }
       }
     }

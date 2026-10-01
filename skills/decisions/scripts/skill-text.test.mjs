@@ -102,3 +102,11 @@ test('SKILL.md pins account --owner, accountedBy, and the history-quoted stuck-r
   assert.equal(skillText.includes('recorded as `accountedBy`'), true);
   assert.equal(skillText.includes('quoted in a committed `docs/decisions/history/` file on origin/main'), true);
 });
+
+test('SKILL.md pins the fix-round-2 rules: --owner required, counted history quotes, accounted-from-reconciliation', () => {
+  const flat = skillText.replace(/\s+/g, ' ');
+  assert.equal(flat.includes('(required when the step accounts the round)'), true);
+  assert.equal(flat.includes('the history/verbatim check is the proof; the attestation records who ran it'), true);
+  assert.equal(flat.includes('an input text that appears N times must be quoted N times'), true);
+  assert.equal(flat.includes('for a round accounted from NEEDS_RECONCILIATION'), true);
+});

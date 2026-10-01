@@ -1523,7 +1523,7 @@ const W_HISTORY = [
   '',
 ].join('\n');
 
-async function buildWedge(fx) {
+async function buildWedge(fx, changed = W_CHANGED) {
   const send = async () => ({});
   const first = await pickupOnce({ ...fx.options, owner: 'skills-a' }, deps(fx, { readPage: async () => W_ROUND, send }));
   assert.equal(first.status, 'RECORDED');
@@ -1532,7 +1532,7 @@ async function buildWedge(fx) {
   let stuck;
   // Two passes: the live receipt's previousState was clobbered to NEEDS_RECONCILIATION by a second pass.
   for (let pass = 0; pass < 2; pass += 1) {
-    stuck = await pickupOnce({ ...fx.options, owner: 'ben' }, deps(fx, { readPage: async () => W_CHANGED, send }));
+    stuck = await pickupOnce({ ...fx.options, owner: 'ben' }, deps(fx, { readPage: async () => changed, send }));
   }
   assert.equal(stuck.status, 'NEEDS_RECONCILIATION');
   assert.equal(stuck.receipt.owner, 'skills-a');
@@ -1617,7 +1617,7 @@ test('wedge 9/30 item 1: publish --clear-done accounts the round in the same ste
   const recorded = await pickupOnce({ ...fx.options, owner: 'skills-a' }, deps(fx, { readPage: async () => page }));
   assert.equal(recorded.status, 'RECORDED');
   const history = { '2026-10-01': `# Oct 1, 2026\nSummary: the hook answer is recorded.\n- Ben ticked "${W_HOOK[0]}".\n` };
-  const harness = wedgePublish(fx, { fresh: page, history, lastRender: clean });
+  const harness = wedgePublish(fx, { fresh: page, history, lastRender: clean, owner: 'skills-a' });
   await assert.doesNotReject(() => harness.run());
   assert.equal(harness.notionWrites.length, 1, 'the page was written with Done cleared');
   const after = status(fx.options, { agentsHome: fx.agentsHome });
@@ -1740,4 +1740,122 @@ test('readOriginHistory reads every committed history day from origin/main, and 
   assert.equal(pickupModule.quotedInHistory(['comment', 't', 'no'], 'Ben wrote "no".'), true);
   assert.equal(pickupModule.quotedInHistory(['selection', 't', 'Yes'], 'the Yes branch'), false);
   assert.equal(pickupModule.quotedInHistory(['selection', 't', 'Yes'], 'Ben ticked "Yes".'), true);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 64 fix round 2: an ACCOUNTED round admitted from NEEDS_RECONCILIATION keeps its original
+// capture as the receipt baseline; it must still be clearable and must survive a pickup tick.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('wedge 9/30: a history-accounted round with Done still checked is cleared by publish --clear-done', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await buildWedge(fx);
+  const report = path.join(fx.repo, 'o.md');
+  fs.writeFileSync(report, 'Owner-attestation: skills-fable\nFresh-page-reconciliation: all quoted in history\nAccounted-ref: selection-001 a\nAccounted-ref: selection-002 b\n');
+  account({ ...fx.options, owner: 'skills-fable', outcome: report }, { agentsHome: fx.agentsHome, now: NOW, readHistory: () => W_HISTORY });
+  const h = wedgePublish(fx, { fresh: W_CHANGED, history: { [W_HISTORY_DAY]: W_HISTORY }, owner: 'skills-fable' });
+  await assert.doesNotReject(() => h.run());
+  assert.equal(h.notionWrites.length, 1);
+  assert.equal(h.accountCalls.length, 0, 'an accounted round is not accounted twice');
+});
+
+test('wedge 9/30: a failed page write after the one-step accounting survives a pickup tick and a retry', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await buildWedge(fx);
+  const history = { [W_HISTORY_DAY]: W_HISTORY };
+  const h = wedgePublish(fx, { fresh: W_CHANGED, history, owner: 'skills-fable' });
+  const push = h.notionWrites.push.bind(h.notionWrites);
+  let fail = true;
+  h.notionWrites.push = (md) => { if (fail) { fail = false; throw new Error('notion 502'); } return push(md); };
+  await assert.rejects(h.run());
+  const tick = await pickupOnce({ ...fx.options, owner: 'ben' }, deps(fx, { readPage: async () => W_CHANGED, send: async () => ({}) }));
+  assert.equal(tick.status, 'ACCOUNTED', 'a tick with Done still checked must not re-wedge the accounted round');
+  const retry = wedgePublish(fx, { fresh: W_CHANGED, history, owner: 'skills-fable' });
+  await assert.doesNotReject(() => retry.run());
+  assert.equal(retry.notionWrites.length, 1);
+});
+
+// F2: history admission counts. Two new `yes` comments are not closed by one stale older-day quote.
+test('wedge 9/30: a stale older-day quote of a short answer does not close a round with two new answers of that text', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const yesPage = wedgePage([
+    wedgeBlock('Codex hook failure', W_HOOK), wedgeBlock('Delete prompts on Netcup', W_NETCUP),
+    wedgeBlock('Leftover folders', W_FOLDERS, { comments: ['yes'] }),
+    wedgeBlock('Branch triage', W_TRIAGE, { comments: ['yes'] }),
+  ], true);
+  await buildWedge(fx, yesPage);
+  const stale = [
+    '# Sep 23, 2026',
+    `- Ben ticked "${W_HOOK[0]}" and "${W_NETCUP[0]}".`,
+    '- Ben wrote "yes" about something unrelated.',
+    '',
+  ].join('\n');
+  const history = { '2026-09-23': stale };
+  const report = path.join(fx.repo, 'o.md');
+  fs.writeFileSync(report, 'Owner-attestation: skills-fable\nFresh-page-reconciliation: x\nAccounted-ref: selection-001 a\nAccounted-ref: selection-002 b\n');
+  assert.throws(
+    () => account({ ...fx.options, owner: 'skills-fable', outcome: report }, { agentsHome: fx.agentsHome, now: NOW, readHistory: () => stale }),
+    /cannot account a round outside RECORDED/,
+  );
+  const h = wedgePublish(fx, { fresh: yesPage, history, owner: 'skills-fable' });
+  await assert.rejects(h.run(), (error) => error.code === 3 && /not every owner input is quoted/.test(error.message) && error.message.includes('yes'));
+  assert.equal(h.notionWrites.length, 0);
+  assert.equal(h.accountCalls.length, 0);
+  assert.equal(status(fx.options, { agentsHome: fx.agentsHome }).status, 'NEEDS_RECONCILIATION');
+});
+
+test('allQuotedInHistory counts each text by its largest multiplicity in any one list, without double-counting overlaps', () => {
+  const t = (text) => ['comment', 'x', text];
+  assert.equal(pickupModule.allQuotedInHistory([[t('yes')], [t('yes'), t('yes')]], 'a "yes" b'), false);
+  assert.equal(pickupModule.allQuotedInHistory([[t('yes')], [t('yes'), t('yes')]], '"yes" "yes"'), true);
+  assert.equal(pickupModule.allQuotedInHistory([[t('yes')], [t('yes')]], '"yes"'), true, 'the same input in both lists needs one quote');
+  assert.equal(pickupModule.allQuotedInHistory([[t('no')]], ''), false);
+});
+
+// F4: a stuck round with uncertain delivery is never closed by history, at account or at publish.
+test('wedge 9/30: a stuck round with uncertain delivery stays refused even with every input quoted in history', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const stuck = await buildWedge(fx);
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  fs.writeFileSync(paths.receipt, `${JSON.stringify({ ...stuck, uncertainAt: NOW }, null, 2)}\n`);
+  assert.throws(
+    () => pickupModule.closeRound({ ...fx.options, owner: 'skills-fable', reconciliation: 'x' }, { agentsHome: fx.agentsHome, now: NOW, readHistory: () => W_HISTORY }),
+    /outside RECORDED/,
+  );
+  const h = wedgePublish(fx, { fresh: W_CHANGED, history: { [W_HISTORY_DAY]: W_HISTORY }, owner: 'skills-fable' });
+  await assert.rejects(h.run(), (error) => error.code === 3);
+  assert.equal(h.notionWrites.length, 0);
+});
+
+// F4: publish --clear-done on a round that never reached RECORDED is refused (it used to clear Done).
+test('publish --clear-done refuses a round still WAITING_OWNER: the round cannot be accounted, Done stays checked', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const waiting = await pickupOnce({ ...fx.options, owner: undefined }, deps(fx, { readPage: async () => W_ROUND }));
+  assert.equal(waiting.status, 'WAITING_OWNER');
+  const history = { '2026-10-01': `# Oct 1, 2026\nSummary: the answers are recorded.\n- Ben ticked "${W_HOOK[0]}" and "${W_NETCUP[0]}".\n` };
+  const clean = wedgePage([wedgeBlock('Codex hook failure', W_HOOK), wedgeBlock('Delete prompts on Netcup', W_NETCUP)], false);
+  const h = wedgePublish(fx, { fresh: W_ROUND, history, owner: 'skills-fable', lastRender: clean });
+  await assert.rejects(h.run(), (error) => error.code === 3 && /could not be accounted, so Done was not cleared/.test(error.message));
+  assert.equal(h.notionWrites.length, 0);
+});
+
+// F4: "origin only" on a real repository: an unpushed local commit and an uncommitted file are ignored.
+test('readOriginHistory on a real repo reads only what origin/main holds, never an unpushed commit or the working tree', (t) => {
+  const fx = gitMainFixture(); t.after(fx.cleanup);
+  const git = (...args) => execFileSync('git', args, { cwd: fx.repo, env: fx.env, encoding: 'utf8' });
+  const bare = path.join(fx.fixtureRoot, 'origin-only.git');
+  execFileSync('git', ['init', '--quiet', '--bare', bare], { env: fx.env });
+  git('branch', '-M', 'main');
+  git('remote', 'add', 'origin', bare);
+  const dir = path.join(fx.repo, 'docs', 'decisions', 'history');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '2026-09-30.md'), '# Sep 30\n- pushed "answer one".\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'history day pushed'); git('push', '-q', '-u', 'origin', 'main');
+  fs.writeFileSync(path.join(dir, '2026-10-01.md'), '# Oct 1\n- unpushed "answer two".\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'history day not pushed');
+  fs.writeFileSync(path.join(dir, '2026-10-02.md'), '# Oct 2\n- uncommitted "answer three".\n');
+  const text = pickupModule.readOriginHistory(fx.repo);
+  assert.match(text, /pushed "answer one"/);
+  assert.equal(text.includes('answer two'), false, 'an unpushed local commit is not origin history');
+  assert.equal(text.includes('answer three'), false, 'the working tree is not origin history');
 });

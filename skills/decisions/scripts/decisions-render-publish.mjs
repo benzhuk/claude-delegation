@@ -150,7 +150,9 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
   return {
     round, tickAt, triples: ownerInputTriples(doc),
     ...(st.status === 'ACCOUNTED' ? { accounted: true, doneLabel: doc.doneLabel } : {}),
-    ...(stuckRound ? { reconciling: true } : {}),
+    // An ACCOUNTED-from-reconciliation round keeps its original capture, so it is compared the same way.
+    ...(stuckRound || (st.status === 'ACCOUNTED' && st.receipt.accountedFrom === 'NEEDS_RECONCILIATION')
+      ? { reconciling: true } : {}),
   };
 }
 
@@ -272,6 +274,19 @@ function readAllHistory(execGit, repo) {
 /** An owner input counts as quoted in history only in its exact quoted form (selection or comment). */
 function quotedInAllHistory([, , text], historyText) {
   return typeof text === 'string' && text !== '' && historyText.includes(`"${text}"`);
+}
+
+/** Lane 64 F2: the triples of these lists not quoted in history by count (each text must occur as
+ * `"text"` at least as many times as its largest multiplicity in any one list). */
+function unquotedInHistory(tripleLists, historyText) {
+  const need = new Map();
+  for (const list of tripleLists) {
+    const counts = new Map();
+    for (const t of list) counts.set(t[2], (counts.get(t[2]) ?? 0) + 1);
+    for (const [text, n] of counts) need.set(text, Math.max(need.get(text) ?? 0, n));
+  }
+  return tripleLists.flat().filter((t) => !quotedInAllHistory(t, historyText)
+    || historyText.split(`"${t[2]}"`).length - 1 < need.get(t[2]));
 }
 
 const OPTION_LINE_RE = /^\s*-\s*\[[ xX]\]/;
@@ -517,7 +532,7 @@ export async function publish(opts, deps = {}) {
       const addsNothing = multisetExtra(freshTriples, capture.triples).length === 0;
       if (!addsNothing) {
         allHistory = readAllHistory(execGit, repo);
-        const unquoted = [...capture.triples, ...freshTriples].filter((t) => !quotedInAllHistory(t, allHistory));
+        const unquoted = unquotedInHistory([capture.triples, freshTriples], allHistory);
         if (unquoted.length) {
           throw new PublishError(3, `clear-done: the round is stuck in reconciliation and not every owner input is quoted in a committed history file on origin/main: ${JSON.stringify(unquoted)}`);
         }
@@ -542,6 +557,11 @@ export async function publish(opts, deps = {}) {
     doneLineForRender = `- [ ] Done (last cleared: ${formatClearedTimestamp(now)})`;
     sessionSince = capture.tickAt ?? now.toISOString();
     roundToAccount = capture.accounted ? null : { ownerInputCount: freshTriples.length };
+    // Lane 64 F3: in this one-step path the history/verbatim check above is the proof; the
+    // attestation only records who ran it, so the running lead must name itself.
+    if (roundToAccount && !owner && !dryRun) {
+      throw new PublishError(2, "clear-done: pass --owner <your-session-name>; this step accounts the round in that lead's name");
+    }
   } else {
     doneLineForRender = extractDoneLineVerbatim(doc);
   }
@@ -616,7 +636,8 @@ export async function publish(opts, deps = {}) {
   // Lane 64 item 1: clearing Done and accounting the round are one step. Every check above has
   // passed, so the round is accounted here, BEFORE the page is written: a failure from here on
   // leaves an ACCOUNTED round with Done still checked (the lane-58 state this same command can
-  // finish), never a cleared Done with an unaccounted round. A refusal to account stops the publish.
+  // finish, including a round accounted from NEEDS_RECONCILIATION whose fresh inputs add nothing or
+  // are all quoted in origin history), never a cleared Done with an unaccounted round. A refusal to account stops the publish.
   if (roundToAccount) {
     try {
       await accountRound({
