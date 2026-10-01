@@ -61,5 +61,7 @@ lines — Cause:, Discriminating check:, Fix location:, Simplification: — chec
 requirement explicitly; a reviewer omits these four lines only when the mandate is not
 a bug-fix review.
 
+If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
+
 Termination: report to the path above, first line `VERDICT: <word>`, then stop. A bare
 "Done" means read the file; nothing is trusted from a final message alone.

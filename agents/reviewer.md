@@ -27,6 +27,7 @@ other file.
 <!-- safety-block:end -->
 
 - Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
+- If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
 - You have a shell for verification only: running tests and other read-only commands
   (typecheck, the territory's test suite, a build) to check a claim before you write it
   down. You never edit, stage or commit the code under review — your only written file
