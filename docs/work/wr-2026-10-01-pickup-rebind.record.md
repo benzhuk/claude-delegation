@@ -16,6 +16,6 @@ Base: 34a8c290d7ae5c735d9c8be5b3d6aabb0c186782
 Log: 2026-10-01T20:53:00.000Z owned skills-o opened lane 64b after lane 64's live publish refused on the moved repo path; build-loop Workflow next
 
 Measure: work lost or stalled
-Workflow: pending
+Workflow: wf_e8b06a14-737
 
 Observed: pending.
