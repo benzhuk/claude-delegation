@@ -186,7 +186,8 @@ hours (see "Cadence" above). The one off switch is `~/.agents/ws-off-janitor-act
 `--apply` still writes its record and drift line, but removes nothing, and the report's
 first line says so. The switch applies to every `--apply`, typed by hand or scheduled.
 
-- **Which repo it watches**: `~/Code/claude-delegation`, or the path in
+- **Which repo it watches**: `~/Code/zhuk-infra/claude-delegation` (the old `~/Code/claude-delegation`
+  only when that path does not exist), or the path in
   `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both. The installer
   refuses (no files written) when the janitor script or that repo does not exist, so a
   misconfigured host is told at install time rather than getting a green `installed.json` that
