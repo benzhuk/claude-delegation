@@ -21,3 +21,8 @@ Due on main: 10/2 3:00 PM America/New_York.
 
 ## Added 10/1 5:40 PM NY (lead ruling, before the lane started)
 6. The build-loop's per-phase state-file write runs on Haiku, not Sonnet (`build-loop-workflow.js` near line 567). One model and one test assertion; nothing else changes.
+
+## Territory map (lead, skills-o, 10/1)
+- **hooks68**: items 1 and 2: the SessionStart version advisory and the inbox registration rule (hook scripts under `hooks/` and `skills/multi/scripts/` that register inboxes), their tests, plus the brief-template sentence check from item 3 (team-build, delegate, runner and builder brief templates).
+- **census68**: the census half of item 3 (pane silent vs waiting on a peer), item 4 (guard denials per build, and the narrowed detector pattern with its test), and item 6 (Haiku state-file write in `skills/team-build/references/build-loop-workflow.js` plus its test assertion).
+A file both need is owned by census68; hooks68 codes against it and notes it.
