@@ -18,3 +18,6 @@ Through the build-loop Workflow as lane 67 left it, so this lane's record carrie
 Every execution brief carries: if any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
 
 Due on main: 10/2 3:00 PM America/New_York.
+
+## Added 10/1 5:40 PM NY (lead ruling, before the lane started)
+6. The build-loop's per-phase state-file write runs on Haiku, not Sonnet (`build-loop-workflow.js` near line 567). One model and one test assertion; nothing else changes.
