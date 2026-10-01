@@ -75,7 +75,7 @@ function stripLeadingExport(source) {
 // (R3/R4/R5 add Setup, Seam, Accept to the original Build, Review, Fix, Integrate).
 // ---------------------------------------------------------------------------
 
-test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail} objects titled Setup, Build, Review, Fix, Integrate, Seam, Accept in order", () => {
+test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail} objects titled Setup, Build, Review, Fix, Integrate, Seam, Accept, Second host in order", () => {
   const literal = extractMetaLiteral(SOURCE);
   assert.ok(!literal.includes("..."), "meta must not spread");
   assert.ok(!literal.includes("${"), "meta must not template-interpolate");
@@ -95,7 +95,8 @@ test("L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail}
     assert.equal(typeof p.detail, "string");
   }
   const titles = meta.phases.map((p) => p.title);
-  assert.deepEqual(titles, ["Setup", "Build", "Review", "Fix", "Integrate", "Seam", "Accept"]);
+  // lane 67 item 5 adds the last phase deliberately: Second host, after Accept.
+  assert.deepEqual(titles, ["Setup", "Build", "Review", "Fix", "Integrate", "Seam", "Accept", "Second host"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -276,10 +277,21 @@ function throwingPipelineStub() {
  */
 function makeAgentStub(byLabel = {}) {
   const calls = [];
+  // lane 67 item 3: the loop-state runner calls (label "state:<phase>") never count as a build,
+  // review or accept call, so `calls` stays what every older test counts; they land in
+  // `stateCalls` (and every call, in order, in `allCalls`). An unscripted state label answers a
+  // benign default (nothing found on read, written on write); a scripted one answers its entry.
+  const stateCalls = [];
+  const allCalls = [];
   const seenPerLabel = new Map();
   async function agentStub(prompt, opts) {
-    calls.push({ prompt, opts });
     const label = opts && opts.label;
+    const isState = typeof label === "string" && label.startsWith("state:");
+    allCalls.push({ prompt, opts });
+    (isState ? stateCalls : calls).push({ prompt, opts });
+    if (isState && !Object.prototype.hasOwnProperty.call(byLabel, label)) {
+      return label === "state:read" ? { found: false, state: null } : { path: "state-file", written: true };
+    }
     if (!label || !Object.prototype.hasOwnProperty.call(byLabel, label)) {
       throw new Error(`unscripted agent() call for label ${label}`);
     }
@@ -292,6 +304,8 @@ function makeAgentStub(byLabel = {}) {
     return entry;
   }
   agentStub.calls = calls;
+  agentStub.stateCalls = stateCalls;
+  agentStub.allCalls = allCalls;
   return agentStub;
 }
 
@@ -611,7 +625,8 @@ test("given path: returns the full R7 superset shape and nothing else", async ()
     integrate: integrateResult(),
   });
   const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
-  assert.deepEqual(Object.keys(result).sort(), ["acceptance", "blockers", "integrator", "seam", "setup", "territories"].sort());
+  assert.deepEqual(Object.keys(result).sort(), ["acceptance", "blockers", "integrator", "secondHost", "seam", "setup", "territories"].sort());
+  assert.equal(result.secondHost, null, "secondHost is null when none was requested");
   assert.equal(result.setup, null, "setup is null when territories arrived already given");
   assert.equal(result.seam, null, "seam is null when integrationWorktree is absent");
   assert.equal(result.acceptance, null, "acceptance is null when integrationWorktree is absent");
@@ -1185,14 +1200,22 @@ test("setup path: full fixture run produces setup, builds, reviews, integrate, s
       `unpinned {agentType: ${entry.agentType}, model: ${entry.model}}`,
     );
   }
+  // lane 67 item 3: recordPath is in SETUP_ARGS, so the loop-state runner calls (label
+  // state:<phase>) are in the journal too: one read at launch, then writes after each phase.
+  // The eight work calls below are unchanged; the state labels are asserted on their own.
+  const workLabels = journal.filter((e) => e.type === "agent" && !e.label.startsWith("state:")).map((e) => e.label).sort();
   assert.deepEqual(
-    journal
-      .filter((e) => e.type === "agent")
-      .map((e) => e.label)
-      .sort(),
+    workLabels,
     ["accept-prep", "build:L1:r1", "build:L2:r1", "integrate", "review:L1:r1", "review:L2:r1", "seam:r1", "setup"],
   );
   assert.equal(stub.calls.length, 8, "setup + 2 builds + 2 reviews + integrate + seam + accept-prep = 8 calls, one launch");
+  const stateLabels = journal.filter((e) => e.type === "agent" && e.label.startsWith("state:")).map((e) => e.label);
+  assert.equal(stateLabels[0], "state:read", "the state read is the first call of the run");
+  assert.equal(stateLabels.filter((l) => l === "state:read").length, 1, "exactly one state read per launch");
+  assert.deepEqual(
+    [...new Set(stateLabels)].sort(),
+    ["state:Accept", "state:Build", "state:Integrate", "state:Review", "state:Seam", "state:Setup", "state:read"],
+  );
 });
 
 test("given path (integrationWorktree absent): seam:null, acceptance:null even with two territories", async () => {

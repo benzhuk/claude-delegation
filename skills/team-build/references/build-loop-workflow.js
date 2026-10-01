@@ -9,6 +9,7 @@ export const meta = {
     { title: 'Integrate', detail: 'one Sonnet integrator runs the mechanical gates over every approved territory' },
     { title: 'Seam', detail: 'one Opus reviewer checks the cross-territory joints after Integrate, when an integration worktree is given' },
     { title: 'Accept', detail: 'one Sonnet runner builds the census, copies the deciding reports, and runs check-acceptance read-only' },
+    { title: 'Second host', detail: 'when secondHost is given, one Sonnet runner runs the sealed suite once on that host over ssh against the integration branch tip' },
   ],
 }
 
@@ -38,6 +39,13 @@ export const meta = {
 //   worktreeRoot?: string       default: integrationWorktree's parent directory
 //   leadSession?, recordPath?, censusMarker?: string    accept-prep inputs (R8)
 //   seam?: boolean              force/suppress Seam; default territories.length >= 2
+//   agentMinutes?: number       default 45; the wall-clock limit every agent prompt carries
+//     (a PROMPT-LEVEL limit: the Workflow API has no per-agent time limit, see deadlineLine)
+//   secondHost?: string         an ssh alias; the last phase runs the sealed suite once there
+//   secondHostGate?: string     the suite command, default "node scripts/run-tests.mjs"
+//   (state file: when recordPath is given, a runner writes docs/work/<work-id>.loop-state.json
+//   beside the record after each phase and reads it at launch, so a relaunch with the same
+//   arguments skips what is done; an explicit startFrom on a territory overrides it)
 //
 // Returns exactly one object:
 //   {
@@ -46,6 +54,7 @@ export const meta = {
 //     seam: { verdict, sha, rounds, findingsPath, blocker } | null,
 //     acceptance: ACCEPT_PREP | { skipped: reason } | null,
 //     setup: { reportPath, reviewerBriefPath, integratorBriefPath, seamBriefPath } | null,
+//     secondHost: { host, verdict, passed, failed, logPath, headSha } | null,
 //     blockers: [{ id, reason }],
 //   }
 // seam and acceptance are null only when integrationWorktree is absent (the old,
@@ -66,14 +75,17 @@ const BUILD = {
   required: ['sha', 'verdict', 'reportPath', 'note'],
 }
 
+// lane 67: a reviewer that hits its wall-clock limit (deadlineLine) returns BLOCKED with the
+// word timeout in note; every other path is unchanged, and note is optional.
 const REVIEW = {
   type: 'object',
   properties: {
-    verdict: { type: 'string', enum: ['APPROVE', 'NEEDS_FIXES'] },
+    verdict: { type: 'string', enum: ['APPROVE', 'NEEDS_FIXES', 'BLOCKED'] },
     sha: { type: 'string' },
     findingsPath: { type: 'string' },
     blockerCount: { type: 'number' },
     majorCount: { type: 'number' },
+    note: { type: 'string' },
   },
   required: ['verdict', 'sha', 'findingsPath', 'blockerCount', 'majorCount'],
 }
@@ -86,6 +98,7 @@ const INTEGRATE = {
     reportPath: { type: 'string' },
     failedGate: { type: 'string' },
     territory: { type: 'string' },
+    note: { type: 'string' },
   },
   required: ['verdict', 'headSha', 'reportPath', 'failedGate', 'territory'],
 }
@@ -137,8 +150,44 @@ const ACCEPT_PREP = {
       required: ['exitCode', 'verdict', 'output'],
     },
     reportPath: { type: 'string' },
+    // lane 67 addendum (h): optional; a runner that could not run accept-prep at all says why here.
+    error: { type: ['string', 'null'] },
   },
   required: ['censusPath', 'censusNote', 'integrationHead', 'evidencePaths', 'checkAcceptance', 'reportPath'],
+}
+
+// lane 67 item 3: the loop-state file's runner calls. The read returns the parsed object (or
+// found: false); the write returns the path it wrote.
+const STATE_READ = {
+  type: 'object',
+  properties: {
+    found: { type: 'boolean' },
+    state: { type: ['object', 'null'] },
+  },
+  required: ['found', 'state'],
+}
+
+const STATE_WRITE = {
+  type: 'object',
+  properties: {
+    path: { type: 'string' },
+    written: { type: 'boolean' },
+  },
+  required: ['path', 'written'],
+}
+
+// lane 67 item 5: the second-host suite runner's schema.
+const SECOND_HOST = {
+  type: 'object',
+  properties: {
+    host: { type: 'string' },
+    verdict: { type: 'string', enum: ['PASS', 'FAIL', 'BLOCKED'] },
+    passed: { type: 'number' },
+    failed: { type: 'number' },
+    logPath: { type: 'string' },
+    headSha: { type: 'string' },
+  },
+  required: ['host', 'verdict', 'passed', 'failed', 'logPath', 'headSha'],
 }
 
 // One mandate line per stage, named once here rather than restated in every prompt — see
@@ -155,6 +204,32 @@ const SETUP_MANDATE =
   'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf); never push. Never send peer notes.'
 const ACCEPT_MANDATE =
   'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you never call accept and never write Status: accepted; no destructive git; never push. Never send peer notes.'
+
+// lane 67 item 3 / item 5: the state-file runner and the second-host runner. Neither writes a
+// report with a VERDICT line of its own except the second-host suite log, which its own prompt
+// names; both carry the note-send prohibition like every other mandate.
+const STATE_MANDATE =
+  'Touch that one file only; your only other output is the schema-forced return (when you hit the wall-clock limit, return written false); never run git, never stage or commit the file, never delete anything; never set or switch a git identity; never push. Never send peer notes.'
+const SECOND_HOST_MANDATE =
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push; never start the suite on a Windows machine or on a machine already running one. Never send peer notes.'
+
+// lane 67 item 2: a hung agent ends. The Workflow API gives an agent call no per-agent
+// time limit (its opts are label, phase, schema, model, effort, agentType and nothing that
+// bounds time), and this script has no clock or timers, so the nearest mechanism that needs no
+// new part is a PROMPT-LEVEL limit: every builder, reviewer, integrator, runner and seam-fix
+// prompt carries this one line, and the script maps a returned BLOCKED naming timeout to the
+// territory blocker agent-timeout. It binds only an agent that reads and obeys its prompt; an
+// agent wedged on a permission prompt or a dead tool call never returns and is NOT ended by
+// this. A harder mechanism (a run-level abort or a watchdog) is the lead's ruling to make.
+function deadlineLine() {
+  return `Wall-clock limit ${agentMinutes} minutes from your start; at ${agentMinutes} minutes stop, write your report with VERDICT: BLOCKED and the reason timeout, and return (a reviewer or integrator returns verdict BLOCKED with timeout in its note field).`
+}
+
+// lane 67 item 2: does a returned BLOCKED name the timeout? Reads a note, a reason or a
+// failedGate string; a timeout is the word timeout or "timed out", never a guess from silence.
+function namesTimeout(...values) {
+  return values.some((v) => typeof v === 'string' && /time-?out|timed out/i.test(v))
+}
 
 // T1 (loop-gates spec item 3, "the builder likewise"): the builder must also get its sha
 // from git, never type one from memory, so build.sha and review.sha are two independent
@@ -191,12 +266,24 @@ function stripExt(name) {
 // root. Used to compare a setup-agent-returned path against the script's own computed
 // one without being fooled by a relative-vs-absolute rendering of the same file, or by a
 // harmless "../" detour that still lands on the same normalized path.
+//
+// lane 67 item 4b: an absolute path is a leading "/" OR a Windows drive prefix ("C:/"). The
+// old check read only a leading "/", so a "C:/..." path was taken as relative on a Windows
+// host and had integrationWorktree prepended. The drive letter is upper-cased (a drive letter
+// is case-insensitive); the rest of the path keeps its case.
+function isAbsolutePath(p) {
+  const s = String(p ?? '')
+  return s.startsWith('/') || /^[A-Za-z]:\//.test(s)
+}
+
 function normalizePath(p) {
   const s = String(p ?? '').replace(/\/+$/, '')
   if (s === '') return s
-  const isAbs = s.startsWith('/')
+  const drive = /^([A-Za-z]):(?=\/|$)/.exec(s)
+  const root = drive ? `${drive[1].toUpperCase()}:/` : s.startsWith('/') ? '/' : ''
+  const isAbs = root !== ''
   const out = []
-  for (const seg of s.split('/')) {
+  for (const seg of (drive ? s.slice(2) : s).split('/')) {
     if (seg === '' || seg === '.') continue
     if (seg === '..') {
       if (out.length && out[out.length - 1] !== '..') out.pop()
@@ -206,7 +293,7 @@ function normalizePath(p) {
       out.push(seg)
     }
   }
-  return (isAbs ? '/' : '') + out.join('/')
+  return root + out.join('/')
 }
 
 // R7: resolves `p` against `base` when `p` is not already absolute, then normalizes —
@@ -215,7 +302,7 @@ function normalizePath(p) {
 // leading slash.
 function resolveAgainst(base, p) {
   const s = String(p ?? '')
-  if (s.startsWith('/')) return normalizePath(s)
+  if (isAbsolutePath(s)) return normalizePath(s)
   const b = String(base ?? '')
   return normalizePath(b ? `${b}/${s}` : s)
 }
@@ -234,9 +321,9 @@ function workIdFromRecordPath(p) {
 
 function buildPrompt(t, round, findingsPath) {
   if (findingsPath) {
-    return `Fix round ${round} for territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. Reviewer findings: ${findingsPath}. Apply every reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
+    return `Fix round ${round} for territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. Reviewer findings: ${findingsPath}. Apply every reviewer-verified finding in one round. ${SHA_FROM_GIT} ${deadlineLine()} ${BUILD_MANDATE}`
   }
-  return `Build territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
+  return `Build territory ${t.id}. Brief: ${t.briefPath}. Worktree: ${t.worktree}. Gate: ${t.gate}. ${SHA_FROM_GIT} ${deadlineLine()} ${BUILD_MANDATE}`
 }
 
 // Both build.sha and review.sha now come from separate, independent `git rev-parse HEAD`
@@ -281,7 +368,7 @@ function longerSha(x, y) {
 // below) compares that independently-computed value to what the builder reported -
 // never a value read out of this prompt's text.
 function reviewPrompt(reviewerBriefPath, t, round, build, priorBuildSha, priorFindingsPath) {
-  let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Worktree: ${t.worktree}. Builder report: ${build.reportPath}. Run \`git rev-parse HEAD\` in the worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${REVIEW_MANDATE}`
+  let p = `Review territory ${t.id}, round ${round}. Reviewer brief: ${reviewerBriefPath}. Territory brief: ${t.briefPath}. Worktree: ${t.worktree}. Builder report: ${build.reportPath}. Run \`git rev-parse HEAD\` in the worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${deadlineLine()} ${REVIEW_MANDATE}`
   // MINOR 4 (T1 round-2 review): if a fix-round builder made no new commit, priorBuildSha
   // equals build.sha, and appending "priorBuildSha..HEAD" would put the exact sha the
   // reviewer is supposed to derive independently into the rendered prompt text for an
@@ -301,7 +388,7 @@ function integratePrompt(integratorBriefPath, baseSha, approved, excluded, integ
   const where = integration && integration.worktree
     ? ` Integration worktree: ${integration.worktree}${integration.branch ? ` (branch ${integration.branch})` : ''}; merge the approved territories there and report headSha as the full 40-character output of \`git rev-parse HEAD\` run in it.${integration.gate ? ` Full-suite gate: ${integration.gate}.` : ''}`
     : ''
-  return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}.${where} Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. ${INTEGRATE_MANDATE}`
+  return `Integrator brief: ${integratorBriefPath}. Base sha: ${baseSha}. Approved territories and shas: ${approvedText}. Excluded (blocked) territories: ${excludedText}.${where} Include a territory only after its reviewer explicitly returned APPROVE for that exact sha; do not infer approval from an absent, NEEDS_FIXES, or mismatched review. A seam review, when the loop runs one, comes AFTER you: it is a separate reviewer's job on your merged head, never a precondition for your merge and never a reason for you to refuse, wait or stop; run your gates and report as normal. ${deadlineLine()} ${INTEGRATE_MANDATE}`
 }
 
 // R3: the Setup stage's prompt — one runner, one pass, per-territory names computed HERE
@@ -310,17 +397,22 @@ function setupPrompt(specPath, baseSha, computed, reviewerBriefPath, integratorB
   const rows = computed
     .map((c) => `${c.id}: worktree ${c.worktree}, branch ${c.branch}, brief ${c.briefPath}`)
     .join('; ')
+  // lane 67 item 4c: the integrator brief the Setup stage writes must NOT make the integrator
+  // refuse when a seam review follows. Lane fourteen's integrator refused "on seam order": the
+  // brief the runner wrote required seam sign-off before the merge, while the loop runs the seam
+  // review AFTER Integrate (the integrator never judges the seam). The sentence below closes that.
   const integrationText = integrationWorktree
     ? ` The integrator brief names integration worktree ${integrationWorktree}${integrationBranch ? `, branch ${integrationBranch}` : ''}${integrationGate ? `, full-suite gate ${integrationGate}` : ''}.`
     : ''
-  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed ABSOLUTE names, never your own choice and never a relative equivalent of the same path — report worktree and briefPath back exactly as written here, verbatim: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}.${integrationText} Report path: ${reportPath}. ${SETUP_MANDATE}`
+  const seamOrderText = ' The integrator brief must say that the seam review runs AFTER Integrate, on the merged head, as a separate reviewer\'s job: the integrator merges the approved territories and runs its gates whether or not a seam review follows, never requires seam sign-off before its merge, and never refuses, waits or stops because a seam review is on.'
+  return `Setup. Spec pack: ${specPath}. Base sha: ${baseSha}. Per territory, run \`git worktree add <worktree> -b <branch> ${baseSha}\` then \`git -C <worktree> rev-parse HEAD\`, reporting its full output verbatim as that territory's headSha (never copy the base sha from this prompt), using exactly these computed ABSOLUTE names, never your own choice and never a relative equivalent of the same path — report worktree and briefPath back exactly as written here, verbatim: ${rows}. Scout every territory per skills/team-build/references/scout-brief.md, writing briefs/scout-<id>.md next to the spec, then write each territory's brief from the spec pack (spec, contracts, its own scout addendum, all by path) using the mandate template at docs/mandate-template.md, plus the reviewer brief at ${reviewerBriefPath}, the integrator brief at ${integratorBriefPath}, and the seam brief at ${seamBriefPath}.${integrationText}${seamOrderText} Report path: ${reportPath}. ${deadlineLine()} ${SETUP_MANDATE}`
 }
 
 // R4: the Seam stage's review prompt — same independent-git-read shape as reviewPrompt,
 // scoped to the integration worktree rather than one territory's.
 function seamPrompt(seamBriefPath, integrationWorktree, approvedIds, round, priorHead, priorFindingsPath, fixSha) {
   const idsText = approvedIds.length ? approvedIds.join(', ') : 'none'
-  let p = `Seam review round ${round}. Seam brief: ${seamBriefPath}. Integration worktree: ${integrationWorktree}. Approved territories: ${idsText}. Run \`git rev-parse HEAD\` in the integration worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${REVIEW_MANDATE}`
+  let p = `Seam review round ${round}. Seam brief: ${seamBriefPath}. Integration worktree: ${integrationWorktree}. Approved territories: ${idsText}. Run \`git rev-parse HEAD\` in the integration worktree yourself and report its full 40-character output as your sha field; never take a delivered sha on faith or echo one handed to you. ${deadlineLine()} ${REVIEW_MANDATE}`
   // M2 (twin of MINOR 4 in reviewPrompt): a no-commit seam-fix round makes priorHead the
   // live HEAD, so appending "priorHead..HEAD" would hand an echoing reviewer the exact sha
   // it is supposed to derive independently. Only append the range when the fix round's own
@@ -335,7 +427,7 @@ function seamPrompt(seamBriefPath, integrationWorktree, approvedIds, round, prio
 // R4: the seam fix-round builder's prompt — a builder call on the INTEGRATION worktree,
 // gated by integrationGate rather than any one territory's gate.
 function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round) {
-  return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate ?? 'the full-suite gate named in the integrator brief'}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${BUILD_MANDATE}`
+  return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate ?? 'the full-suite gate named in the integrator brief'}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${deadlineLine()} ${BUILD_MANDATE}`
 }
 
 // R1/R2: the accept-prep runner's prompt. A Workflow script has no fs or shell, so a
@@ -363,6 +455,7 @@ function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, le
   p += `Then, with the delegation plugin root (the same directory you pass as --plugin-root) as your working directory, run exactly this one command, filling in only the three bracketed values yourself (--plugin-root, --owner and --lead) and changing nothing else — this command is the ONLY way you may change the record; never hand-edit its header, its Status:, or any Log: line any other way: \`${cmd}\`. `
   p += `Report recordChanged from that command's own JSON output; integrationHead from running \`git rev-parse HEAD\` in ${integrationWorktree} yourself (never copy ${artifactSha} verbatim); censusPath, censusNote (explain a null censusPath), and checkAcceptance verbatim from the command's JSON output; evidencePaths as the evidence destination paths listed above; and reportPath. `
   p += `Report path: ${reportPath}. `
+  p += `${deadlineLine()} `
   p += ACCEPT_MANDATE
   return p
 }
@@ -380,17 +473,24 @@ const integratorBriefPath = a.integratorBriefPath
 const seamBriefPath = a.seamBriefPath
 const maxRoundsCandidate = Number(a.maxRounds)
 const maxRounds = a.maxRounds != null && Number.isFinite(maxRoundsCandidate) ? maxRoundsCandidate : 3
+// lane 67 item 2: the wall-clock limit (minutes) every rendered agent prompt carries, validated
+// like maxRounds (a finite number) and also positive; default 45.
+const agentMinutesCandidate = Number(a.agentMinutes)
+const agentMinutes = a.agentMinutes != null && Number.isFinite(agentMinutesCandidate) && agentMinutesCandidate > 0 ? agentMinutesCandidate : 45
 const integrationWorktree = a.integrationWorktree
 const integrationBranch = a.integrationBranch
 const integrationGate = a.integrationGate
 const leadSession = a.leadSession
 const recordPath = a.recordPath
 const censusMarker = a.censusMarker
+// lane 67 item 5: the optional second-host suite, the last phase after Accept.
+const secondHost = typeof a.secondHost === 'string' && a.secondHost.trim() !== '' ? a.secondHost.trim() : null
+const secondHostGate = typeof a.secondHostGate === 'string' && a.secondHostGate.trim() !== '' ? a.secondHostGate.trim() : 'node scripts/run-tests.mjs'
 
 log(`build-loop: ${specPath ?? '(no specPath given)'} at ${baseSha ?? '(no baseSha given)'}, started ${startedAt ?? '(no startedAt given)'}, ${territories.length} territories, maxRounds ${maxRounds}`)
 
 function earlyReturn(blockers) {
-  return { territories: [], integrator: null, seam: null, acceptance: null, setup: null, blockers }
+  return { territories: [], integrator: null, seam: null, acceptance: null, setup: null, secondHost: null, blockers }
 }
 
 // R2: missing-args, checked before anything else — nothing spawns.
@@ -451,6 +551,110 @@ for (const t of territories) {
 }
 
 // ---------------------------------------------------------------------------
+// lane 67 item 3: a run survives its session. When recordPath is given, a mid-tier runner
+// writes ONE json file, docs/work/<work-id>.loop-state.json, beside the record after each phase
+// (the script has no fs, so the runner is the writer; listRecords only reads *.record.md, so
+// the file never disturbs the record census). Started again with the same arguments, one
+// runner reads it first (label state:read) and the script skips what is done: a territory
+// whose state says APPROVE or NEEDS_FIXES at a sha resumes as startFrom, an already-PASS
+// integrator or APPROVE seam is skipped, a recorded Setup is reused (verified as today). A
+// state whose baseSha or specPath differs from the args is ignored; an explicit startFrom in
+// args wins for its territory. No recordPath, or no state file, is today's run exactly.
+// ---------------------------------------------------------------------------
+
+const stateEnabled = typeof recordPath === 'string' && recordPath !== ''
+const stateDir = stateEnabled ? dirName(recordPath) : '.'
+const loopStatePath = stateEnabled
+  ? resolveAgainst(integrationWorktree ?? '', `${stateDir === '.' ? '' : `${stateDir}/`}${workIdFromRecordPath(recordPath)}.loop-state.json`)
+  : null
+
+const stateRows = new Map()
+let stateSetup = null
+let stateIntegrator = null
+let stateSeam = null
+let stateAcceptance = null
+
+function noteTerritory(id, patch) {
+  const prior = stateRows.get(id) ?? { id, phase: null, sha: null, verdict: null, rounds: 0, findingsPath: null, blocker: null }
+  stateRows.set(id, { ...prior, ...patch })
+}
+
+function stateSnapshot(phaseName) {
+  return {
+    version: 1,
+    baseSha,
+    specPath,
+    phase: phaseName,
+    territories: [...stateRows.values()],
+    integrator: stateIntegrator,
+    seam: stateSeam,
+    setup: stateSetup,
+    acceptance: stateAcceptance,
+  }
+}
+
+function stateWritePrompt(phaseName) {
+  return `Loop state, after ${phaseName}. Write exactly this JSON text, unchanged, as the whole contents of ${loopStatePath} (create the file, or overwrite it when present): ${JSON.stringify(stateSnapshot(phaseName))} Then return that path as path and written true. ${deadlineLine()} ${STATE_MANDATE}`
+}
+
+function stateReadPrompt() {
+  return `Loop state, launch read. Read ${loopStatePath} and change nothing. When the file does not exist or is not valid JSON, return found false and state null; otherwise return found true and state as the parsed JSON object, exactly as stored. ${deadlineLine()} ${STATE_MANDATE}`
+}
+
+// One write after each phase; territories run in parallel, so writes requested while one is in
+// flight coalesce into ONE more write (the state is rendered when the call starts), which keeps
+// the runner calls to about one per phase per round rather than one per territory. A failed
+// write is logged and the build carries on: the state file is a convenience, never a gate.
+let stateFlight = null
+let stateDirty = false
+let stateNext = null
+async function flushState(phaseName) {
+  if (!stateEnabled) return
+  stateDirty = true
+  stateNext = phaseName
+  if (stateFlight) return stateFlight
+  stateFlight = (async () => {
+    try {
+      while (stateDirty) {
+        stateDirty = false
+        const lbl = stateNext
+        const stateOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: STATE_WRITE, phase: lbl, label: `state:${lbl}` }
+        const wrote = await agent(stateWritePrompt(lbl), stateOpts)
+        if (wrote === null || wrote.written !== true) log(`state: write after ${lbl} failed, carrying on without it`)
+      }
+    } catch (err) {
+      log(`state: write failed (${String(err && err.message ? err.message : err)}), carrying on without it`)
+    }
+    stateFlight = null
+  })()
+  return stateFlight
+}
+
+let priorState = null
+if (stateEnabled) {
+  const stateReadOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: STATE_READ, label: 'state:read' }
+  const read = await agent(stateReadPrompt(), stateReadOpts)
+  let parsed = read && read.found ? read.state : null
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch (err) {
+      parsed = null
+    }
+  }
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.version === 1 && sameSha(parsed.baseSha, baseSha) && samePath(integrationWorktree ?? '', parsed.specPath, specPath)) {
+      priorState = parsed
+      log(`build-loop: loop-state read from ${loopStatePath}, resuming what it records as done`)
+    } else {
+      log(`build-loop: loop-state at ${loopStatePath} ignored (its version, baseSha or specPath differs from the arguments)`)
+    }
+  } else {
+    log(`build-loop: no loop-state at ${loopStatePath}, a fresh run`)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // R3: Setup stage — only when every territory arrived unsetup.
 // ---------------------------------------------------------------------------
 
@@ -487,14 +691,54 @@ if (setupMode) {
     label: 'setup',
   }
   const setupPromptText = setupPrompt(specPath, baseSha, computed, setupReviewerBriefPath, setupIntegratorBriefPath, setupSeamBriefPath, integrationWorktree, integrationBranch, integrationGate, setupReportPath)
-  let setupResult = await agent(setupPromptText, setupOpts)
-  if (setupResult === null) {
-    log('setup: agent died, respawning once')
-    setupResult = await agent(setupPromptText, setupOpts)
+  // R7 / M5, as one function so a Setup recorded in the loop-state file is verified the very
+  // same way a fresh runner's return is (lane 67 item 3: "verified as today"). Returns null when
+  // every name checks out, else { id, message } for the setup-failed blocker.
+  const pathBase = integrationWorktree ?? ''
+  function setupFailure(result) {
+    const rows = new Map((Array.isArray(result.territories) ? result.territories : []).map((r) => [r.id, r]))
+    for (const c of computed) {
+      const row = rows.get(c.id)
+      const mismatch =
+        !row ||
+        !samePath(pathBase, row.worktree, c.worktree) ||
+        normalizePath(row.branch) !== normalizePath(c.branch) ||
+        !samePath(pathBase, row.briefPath, c.briefPath) ||
+        !sameSha(row.headSha, baseSha)
+      if (mismatch) return { id: c.id, message: `setup: territory ${c.id} failed verification, nothing built` }
+    }
+    if (
+      !samePath(pathBase, result.reviewerBriefPath, setupReviewerBriefPath) ||
+      !samePath(pathBase, result.integratorBriefPath, setupIntegratorBriefPath) ||
+      !samePath(pathBase, result.seamBriefPath, setupSeamBriefPath) ||
+      !samePath(pathBase, result.reportPath, setupReportPath)
+    ) {
+      return { id: '*', message: 'setup: returned reviewer/integrator/seam brief path or report path differs from the computed one, nothing built' }
+    }
+    return null
   }
-  if (setupResult === null) {
-    log('setup: agent died twice, giving up, nothing built')
-    return earlyReturn([{ id: '*', reason: 'setup-failed' }])
+
+  // lane 67 item 3: a setup-mode relaunch whose loop-state shows Setup done is treated as given,
+  // using the recorded names, but only when they verify exactly as a fresh runner's would.
+  let setupResult = null
+  const recordedSetup = priorState && priorState.setup && typeof priorState.setup === 'object' ? priorState.setup : null
+  if (recordedSetup && !setupFailure(recordedSetup)) {
+    setupResult = recordedSetup
+    log('setup: already done per the loop-state file, recorded names verified, not spawning the setup runner')
+  } else if (recordedSetup) {
+    log('setup: the loop-state file records a Setup whose names no longer verify, running Setup again')
+  }
+  const setupFresh = setupResult === null
+  if (setupFresh) {
+    setupResult = await agent(setupPromptText, setupOpts)
+    if (setupResult === null) {
+      log('setup: agent died, respawning once')
+      setupResult = await agent(setupPromptText, setupOpts)
+    }
+    if (setupResult === null) {
+      log('setup: agent died twice, giving up, nothing built')
+      return earlyReturn([{ id: '*', reason: 'setup-failed' }])
+    }
   }
 
   // R7: a correct but RELATIVE worktree/briefPath (relative to integrationWorktree) is
@@ -503,19 +747,10 @@ if (setupMode) {
   // slash, resolve "." and ".." segments, resolve a relative path against
   // integrationWorktree). No other leniency: a different file is still a mismatch.
   const byId = new Map((Array.isArray(setupResult.territories) ? setupResult.territories : []).map((r) => [r.id, r]))
-  const pathBase = integrationWorktree ?? ''
-  for (const c of computed) {
-    const row = byId.get(c.id)
-    const mismatch =
-      !row ||
-      !samePath(pathBase, row.worktree, c.worktree) ||
-      normalizePath(row.branch) !== normalizePath(c.branch) ||
-      !samePath(pathBase, row.briefPath, c.briefPath) ||
-      !sameSha(row.headSha, baseSha)
-    if (mismatch) {
-      log(`setup: territory ${c.id} failed verification, nothing built`)
-      return earlyReturn([{ id: c.id, reason: 'setup-failed' }])
-    }
+  const failure = setupFailure(setupResult)
+  if (failure) {
+    log(failure.message)
+    return earlyReturn([{ id: failure.id, reason: 'setup-failed' }])
   }
 
   finalTerritories = computed.map((c) => {
@@ -525,16 +760,8 @@ if (setupMode) {
 
   // M5: the reviewer/integrator/seam brief paths are ALSO computed in the script (R3);
   // trust the computed names, but only after confirming the runner actually wrote where
-  // it was told, so a wrong or attacker-controlled path can never be silently substituted.
-  if (
-    !samePath(pathBase, setupResult.reviewerBriefPath, setupReviewerBriefPath) ||
-    !samePath(pathBase, setupResult.integratorBriefPath, setupIntegratorBriefPath) ||
-    !samePath(pathBase, setupResult.seamBriefPath, setupSeamBriefPath) ||
-    !samePath(pathBase, setupResult.reportPath, setupReportPath)
-  ) {
-    log('setup: returned reviewer/integrator/seam brief path or report path differs from the computed one, nothing built')
-    return earlyReturn([{ id: '*', reason: 'setup-failed' }])
-  }
+  // it was told (setupFailure above checks them too), so a wrong or attacker-controlled path
+  // can never be silently substituted.
   reviewerBriefPathFinal = setupReviewerBriefPath
   integratorBriefPathFinal = setupIntegratorBriefPath
   seamBriefPathFinal = setupSeamBriefPath
@@ -544,11 +771,55 @@ if (setupMode) {
     integratorBriefPath: integratorBriefPathFinal,
     seamBriefPath: seamBriefPathFinal,
   }
+  // lane 67 item 3: record Setup as done (the verified runner return, verbatim) so a relaunch
+  // with the same arguments reuses it; a Setup that was itself resumed needs no second write.
+  stateSetup = setupResult
+  for (const c of computed) noteTerritory(c.id, {})
+  if (setupFresh) await flushState('Setup')
 }
 
 // ---------------------------------------------------------------------------
 // Build / Review / Fix — R6 (startFrom) generalizes the entry round.
 // ---------------------------------------------------------------------------
+
+// lane 67 item 2: a builder BLOCKED that names timeout is the named territory blocker
+// agent-timeout (the territory is excluded, the others carry on); any other BLOCKED stays
+// builder-blocked, and a non-PASS non-BLOCKED stays build-failed.
+function buildBlockerFor(build) {
+  if (build.verdict === 'BLOCKED') return namesTimeout(build.note) ? 'agent-timeout' : 'builder-blocked'
+  return 'build-failed'
+}
+
+// lane 67 item 3: a territory the loop-state file records as APPROVE (or NEEDS_FIXES with its
+// findings) at a valid sha resumes as the same startFrom a lead would hand-write. An explicit
+// startFrom in args wins; a row with no usable sha, or any other verdict, runs from round 1.
+function resumeFromState(t) {
+  if (t.startFrom || !priorState) return t
+  const rows = Array.isArray(priorState.territories) ? priorState.territories : []
+  const row = rows.find((r) => r && r.id === t.id)
+  if (!row) return t
+  const sha = String(row.sha ?? '').trim()
+  if (!startFromShaRe.test(sha)) return t
+  let startFrom = null
+  if (row.verdict === 'APPROVE' && !row.blocker) {
+    startFrom = { sha, verdict: 'APPROVE' }
+    if (row.findingsPath) startFrom.findingsPath = row.findingsPath
+  } else if (row.verdict === 'NEEDS_FIXES' && row.findingsPath) {
+    startFrom = { sha, verdict: 'NEEDS_FIXES', findingsPath: row.findingsPath }
+  }
+  if (!startFrom) return t
+  log(`${t.id}: resumed from the loop-state file at ${startFrom.verdict} ${sha}`)
+  noteTerritory(t.id, { phase: row.phase ?? null, sha, verdict: startFrom.verdict, rounds: Number(row.rounds) || 0, findingsPath: row.findingsPath ?? null, blocker: null })
+  return { ...t, startFrom }
+}
+
+// lane 67 item 2: a reviewer that returns BLOCKED naming timeout is agent-timeout; any other
+// BLOCKED review is review-not-approved (it never approved anything).
+function reviewBlocked(state, review) {
+  const blocker = namesTimeout(review.note) ? 'agent-timeout' : 'review-not-approved'
+  log(`${state.id}: review returned BLOCKED (${blocker})`)
+  return { ...state, verdict: 'BLOCKED', blocker }
+}
 
 async function runTerritory(t) {
   const startFrom = t.startFrom
@@ -598,8 +869,10 @@ async function runTerritory(t) {
     return { ...state, blocker: 'agent-died' }
   }
   state = { ...state, sha: build.sha, verdict: build.verdict, reportPath: build.reportPath, rounds: round }
+  noteTerritory(t.id, { phase: round === 1 ? 'Build' : 'Fix', sha: build.sha, verdict: build.verdict, rounds: round, blocker: build.verdict === 'PASS' ? null : buildBlockerFor(build) })
+  await flushState(round === 1 ? 'Build' : 'Fix')
   if (build.verdict !== 'PASS') {
-    return { ...state, blocker: build.verdict === 'BLOCKED' ? 'builder-blocked' : 'build-failed' }
+    return { ...state, blocker: buildBlockerFor(build) }
   }
 
   phase('Review')
@@ -613,12 +886,17 @@ async function runTerritory(t) {
     log(`${t.id}: review agent died twice in round ${round}, giving up`)
     return { ...state, blocker: 'agent-died' }
   }
+  if (review.verdict === 'BLOCKED') {
+    return reviewBlocked(state, review)
+  }
   state = { ...state, findingsPath: review.findingsPath }
   if (!sameSha(review.sha, build.sha)) {
     log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
     return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
   }
   state = { ...state, sha: longerSha(build.sha, review.sha) }
+  noteTerritory(t.id, { phase: 'Review', sha: state.sha, verdict: review.verdict, rounds: round, findingsPath: review.findingsPath ?? null, blocker: null })
+  await flushState('Review')
 
   while (review.verdict === 'NEEDS_FIXES' && round < maxRounds) {
     round += 1
@@ -638,8 +916,10 @@ async function runTerritory(t) {
       return { ...state, blocker: 'agent-died' }
     }
     state = { ...state, sha: build.sha, verdict: build.verdict, reportPath: build.reportPath }
+    noteTerritory(t.id, { phase: 'Fix', sha: build.sha, verdict: build.verdict, rounds: round, blocker: build.verdict === 'PASS' ? null : buildBlockerFor(build) })
+    await flushState('Fix')
     if (build.verdict !== 'PASS') {
-      return { ...state, blocker: build.verdict === 'BLOCKED' ? 'builder-blocked' : 'build-failed' }
+      return { ...state, blocker: buildBlockerFor(build) }
     }
 
     phase('Review')
@@ -653,12 +933,17 @@ async function runTerritory(t) {
       log(`${t.id}: review agent died twice in round ${round}, giving up`)
       return { ...state, blocker: 'agent-died' }
     }
+    if (review.verdict === 'BLOCKED') {
+      return reviewBlocked(state, review)
+    }
     state = { ...state, findingsPath: review.findingsPath }
     if (!sameSha(review.sha, build.sha)) {
       log(`${t.id}: review sha ${review.sha} did not match build sha ${build.sha}`)
       return { ...state, verdict: 'BLOCKED', blocker: 'review-sha-mismatch' }
     }
     state = { ...state, sha: longerSha(build.sha, review.sha) }
+    noteTerritory(t.id, { phase: 'Review', sha: state.sha, verdict: review.verdict, rounds: round, findingsPath: review.findingsPath ?? null, blocker: null })
+    await flushState('Review')
   }
 
   if (review.verdict === 'NEEDS_FIXES') {
@@ -673,7 +958,8 @@ async function runTerritory(t) {
   return { ...state, verdict: 'APPROVE', blocker: null }
 }
 
-const parallelResults = await parallel(finalTerritories.map((t) => () => runTerritory(t)))
+const resumedTerritories = finalTerritories.map(resumeFromState)
+const parallelResults = await parallel(resumedTerritories.map((t) => () => runTerritory(t)))
 const results = finalTerritories.map((t, index) => {
   const result = Array.isArray(parallelResults) ? parallelResults[index] : null
   if (result != null) return result
@@ -692,17 +978,34 @@ const results = finalTerritories.map((t, index) => {
 phase('Integrate')
 const approved = results.filter((r) => r.verdict === 'APPROVE' && !r.blocker)
 const excluded = results.filter((r) => r.blocker)
+// lane 67 item 3: the final territory rows (what the run decided, blockers included) go into
+// the state before the integrator runs.
+for (const r of results) noteTerritory(r.id, { sha: r.sha, verdict: r.verdict, rounds: r.rounds, findingsPath: r.findingsPath ?? null, blocker: r.blocker ?? null })
+const approvedKey = approved.map((r) => `${r.id}@${String(r.sha ?? '').trim().toLowerCase().slice(0, 7)}`).join(',')
 const integrateOpts = { agentType: 'delegation:integrator', model: 'sonnet', schema: INTEGRATE, phase: 'Integrate', label: 'integrate' }
 const integrationInfo = { worktree: integrationWorktree, branch: integrationBranch, gate: integrationGate }
-let integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded, integrationInfo), integrateOpts)
-if (integrate === null) {
-  log('integrate: agent died, respawning once')
+// lane 67 item 3: an integrator the state records as PASS over exactly this approved set (same
+// ids at the same shas) is skipped; any change in what was approved runs it again.
+const priorIntegrator = priorState && priorState.integrator && typeof priorState.integrator === 'object' ? priorState.integrator : null
+let integrate
+if (priorIntegrator && priorIntegrator.verdict === 'PASS' && startFromShaRe.test(String(priorIntegrator.headSha ?? '').trim()) && priorIntegrator.approvedKey === approvedKey && approved.length > 0) {
+  log(`integrate: already PASS at ${priorIntegrator.headSha} per the loop-state file for the same approved set, skipped`)
+  integrate = { verdict: 'PASS', headSha: priorIntegrator.headSha, reportPath: priorIntegrator.reportPath ?? null, failedGate: priorIntegrator.failedGate ?? '', territory: priorIntegrator.territory ?? '' }
+} else {
   integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded, integrationInfo), integrateOpts)
+  if (integrate === null) {
+    log('integrate: agent died, respawning once')
+    integrate = await agent(integratePrompt(integratorBriefPathFinal, baseSha, approved, excluded, integrationInfo), integrateOpts)
+  }
+  if (integrate === null) {
+    log('integrate: agent died twice, giving up')
+    integrate = { verdict: 'BLOCKED', headSha: null, reportPath: null, failedGate: 'agent-died', territory: null }
+  }
 }
-if (integrate === null) {
-  log('integrate: agent died twice, giving up')
-  integrate = { verdict: 'BLOCKED', headSha: null, reportPath: null, failedGate: 'agent-died', territory: null }
-}
+// lane 67 item 2: an integrator BLOCKED that names timeout is reported as agent-timeout.
+const integratorTimedOut = integrate.verdict === 'BLOCKED' && namesTimeout(integrate.failedGate, integrate.note)
+stateIntegrator = { verdict: integrate.verdict, headSha: integrate.headSha ?? null, reportPath: integrate.reportPath ?? null, failedGate: integrate.failedGate ?? null, territory: integrate.territory ?? null, approvedKey }
+await flushState('Integrate')
 
 // ---------------------------------------------------------------------------
 // R4: Seam stage — after Integrate, only when an integration worktree is given.
@@ -711,12 +1014,26 @@ if (integrate === null) {
 let seam = null
 const seamEnabled = typeof a.seam === 'boolean' ? a.seam : finalTerritories.length >= 2
 
+// lane 67 item 3: a seam the state records as APPROVE over the very integrator head this run
+// has (priorSeam.integrateHead names it) is skipped; a different head means the seam is stale.
+const priorSeam = priorState && priorState.seam && typeof priorState.seam === 'object' ? priorState.seam : null
+const priorSeamUsable =
+  priorSeam !== null &&
+  priorSeam.verdict === 'APPROVE' &&
+  !priorSeam.blocker &&
+  startFromShaRe.test(String(priorSeam.sha ?? '').trim()) &&
+  sameSha(priorSeam.integrateHead, integrate.headSha)
+
 if (!integrationWorktree) {
   seam = null
 } else if (!seamEnabled || integrate.verdict !== 'PASS') {
   // m3: only mark the Seam phase entered when it actually runs.
   phase('Seam')
   seam = { verdict: 'SKIPPED', sha: null, rounds: 0, findingsPath: null, blocker: null }
+} else if (priorSeamUsable) {
+  phase('Seam')
+  log(`seam: already APPROVE at ${priorSeam.sha} per the loop-state file for this integrator head, skipped`)
+  seam = { verdict: 'APPROVE', sha: priorSeam.sha, rounds: Number(priorSeam.rounds) || 0, findingsPath: priorSeam.findingsPath ?? null, blocker: null }
 } else {
   // m3: only mark the Seam phase entered when it actually runs.
   phase('Seam')
@@ -735,6 +1052,10 @@ if (!integrationWorktree) {
   if (seamReview === null) {
     log('seam: agent died twice, giving up')
     seam = { verdict: 'BLOCKED', sha: null, rounds: seamRound, findingsPath: null, blocker: 'agent-died' }
+  } else if (seamReview.verdict === 'BLOCKED') {
+    const seamBlocker = namesTimeout(seamReview.note) ? 'agent-timeout' : 'review-not-approved'
+    log(`seam: review returned BLOCKED (${seamBlocker})`)
+    seam = { verdict: 'BLOCKED', sha: null, rounds: seamRound, findingsPath: seamReview.findingsPath ?? null, blocker: seamBlocker }
   } else if (!sameSha(seamReview.sha, integrate.headSha)) {
     log(`seam: review sha ${seamReview.sha} did not match integrator headSha ${integrate.headSha}`)
     seam = { verdict: 'BLOCKED', sha: null, rounds: seamRound, findingsPath: seamReview.findingsPath, blocker: 'review-sha-mismatch' }
@@ -763,7 +1084,7 @@ if (!integrationWorktree) {
         break
       }
       if (seamFixBuild.verdict !== 'PASS') {
-        blocker = seamFixBuild.verdict === 'BLOCKED' ? 'builder-blocked' : 'build-failed'
+        blocker = buildBlockerFor(seamFixBuild)
         verdict = 'BLOCKED'
         break
       }
@@ -778,6 +1099,12 @@ if (!integrationWorktree) {
       if (reReview === null) {
         log(`seam: review agent died twice in round ${seamRound}, giving up`)
         blocker = 'agent-died'
+        verdict = 'BLOCKED'
+        break
+      }
+      if (reReview.verdict === 'BLOCKED') {
+        blocker = namesTimeout(reReview.note) ? 'agent-timeout' : 'review-not-approved'
+        log(`seam: review returned BLOCKED in round ${seamRound} (${blocker})`)
         verdict = 'BLOCKED'
         break
       }
@@ -806,6 +1133,12 @@ if (!integrationWorktree) {
   }
 }
 
+// lane 67 item 3: one state write after Seam (the seam row names the integrator head it judged).
+if (seam !== null) {
+  stateSeam = { ...seam, integrateHead: integrate.headSha ?? null }
+  await flushState('Seam')
+}
+
 // ---------------------------------------------------------------------------
 // R5: Accept-prep stage — last, only when integrationWorktree and recordPath are given
 // and seam is APPROVE or SKIPPED (and the integrator PASSed).
@@ -817,6 +1150,13 @@ let acceptance = null
 
 let acceptHeadMismatch = false
 let acceptReportMismatch = false
+let acceptPrepFailed = false
+
+// lane 67 item 4b: the spec directory as an ABSOLUTE path (a drive-letter specPath such as
+// C:/repo/... is absolute, never prefixed with integrationWorktree).
+function specDirAbsolute() {
+  return isAbsolutePath(specPath) ? dirName(specPath) : `${integrationWorktree}/${dirName(specPath)}`
+}
 
 if (!integrationWorktree) {
   acceptance = null
@@ -849,9 +1189,7 @@ if (!integrationWorktree) {
   // is trusted to pick itself.
   const expectedHead = seam && seam.verdict === 'APPROVE' ? seam.sha : integrate.headSha
 
-  const acceptReportPath = specPath.startsWith('/')
-    ? `${dirName(specPath)}/reports/accept-prep.md`
-    : `${integrationWorktree}/${dirName(specPath)}/reports/accept-prep.md`
+  const acceptReportPath = `${specDirAbsolute()}/reports/accept-prep.md`
   const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
   const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, expectedHead, acceptReportPath)
   let acceptResult = await agent(acceptPromptText, acceptOpts)
@@ -864,6 +1202,17 @@ if (!integrationWorktree) {
     acceptance = { skipped: 'agent-died' }
   } else {
     acceptance = acceptResult
+    // lane 67 addendum (h): a failed accept-prep is reported as itself. The runner's own
+    // checkAcceptance verdict FAIL, an empty recordChanged list, or a reported error means
+    // accept-prep (or the check-acceptance step it runs) did not succeed; the check output rides
+    // in acceptance.checkAcceptance.output. The report-path check below then runs only when
+    // accept-prep itself succeeded, so report-path-mismatch never masks the failure.
+    const acceptCheck = acceptResult.checkAcceptance
+    acceptPrepFailed =
+      (acceptCheck != null && acceptCheck.verdict === 'FAIL') ||
+      (Array.isArray(acceptResult.recordChanged) && acceptResult.recordChanged.length === 0) ||
+      (typeof acceptResult.error === 'string' && acceptResult.error !== '')
+    if (acceptPrepFailed) log('accept-prep: the runner reported a failed accept-prep (check-acceptance FAIL, nothing changed, or an error), see acceptance.checkAcceptance.output')
     // M3: check what the accept-prep agent returns, per R1, rather than taking its
     // integrationHead on faith — it must name the same head the seam or integrator
     // already verified, never an unreviewed one (including a literal echo like "HEAD").
@@ -873,9 +1222,65 @@ if (!integrationWorktree) {
     }
     // s11 (twin of M5's brief-path check): trust the computed report path, but only after
     // confirming the runner actually wrote where it was told.
-    if (acceptResult.reportPath !== acceptReportPath) {
+    if (!acceptPrepFailed && acceptResult.reportPath !== acceptReportPath) {
       log(`accept-prep: returned reportPath ${acceptResult.reportPath} did not match computed ${acceptReportPath}`)
       acceptReportMismatch = true
+    }
+  }
+}
+
+// lane 67 item 3: one state write after Accept.
+if (acceptance !== null) {
+  stateAcceptance = acceptance.skipped
+    ? { skipped: acceptance.skipped }
+    : { reportPath: acceptance.reportPath ?? null, verdict: acceptance.checkAcceptance ? acceptance.checkAcceptance.verdict : null, integrationHead: acceptance.integrationHead ?? null }
+  await flushState('Accept')
+}
+
+// ---------------------------------------------------------------------------
+// lane 67 item 5: the second-host suite, the last phase after Accept. Only when secondHost (an
+// ssh alias) is given and acceptance did not skip. One runner runs the sealed suite once on that
+// host over ssh against the integration branch tip and writes reports/second-host.md beside the
+// spec. One suite per machine at a time and none on Windows: a Windows-looking host is refused
+// here with a blockers entry and nothing spawned.
+// ---------------------------------------------------------------------------
+
+function secondHostPrompt(host, gate, headSha, logPath) {
+  return `Second-host suite. Host: ${host} (an ssh alias; reach it with ssh ${host}). Integration worktree: ${integrationWorktree}, branch ${integrationBranch}, tip ${headSha}. Run the sealed suite ONCE on that host, over ssh, against exactly that tip: get commit ${headSha} onto the host without pushing to any remote (for example a git bundle over ssh), check it out there in a clean checkout, then run \`${gate}\` in it, redirecting its output to a log and reading only the tail and the failing test names. One suite per machine at a time and none on Windows: when the host is a Windows machine, or already runs a suite, stop and return verdict BLOCKED without starting one. Write the log to ${logPath} with line 1 VERDICT: PASS, VERDICT: FAIL or VERDICT: BLOCKED, then the pass and fail counts and the failing test names. Return host, verdict, passed and failed (counts from the tail), logPath as ${logPath}, and headSha as the full output of \`git rev-parse HEAD\` run on the host in that checkout (never type a sha from memory). ${deadlineLine()} ${SECOND_HOST_MANDATE}`
+}
+
+let secondHostResult = null
+let secondHostBlocker = null
+if (secondHost !== null && acceptance !== null && !acceptance.skipped) {
+  if (/^win/i.test(secondHost) || /windows|ben-desktop/i.test(secondHost)) {
+    log(`second-host: ${secondHost} looks like a Windows host, no suite runs there, nothing spawned`)
+    secondHostBlocker = { id: 'second-host', reason: 'windows-host' }
+  } else {
+    phase('Second host')
+    const reviewedHead = seam && seam.verdict === 'APPROVE' ? seam.sha : integrate.headSha
+    const secondHostLogPath = `${specDirAbsolute()}/reports/second-host.md`
+    const secondHostOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: SECOND_HOST, phase: 'Second host', label: 'second-host' }
+    const secondHostPromptText = secondHostPrompt(secondHost, secondHostGate, reviewedHead, secondHostLogPath)
+    let ran = await agent(secondHostPromptText, secondHostOpts)
+    if (ran === null) {
+      log('second-host: agent died, respawning once')
+      ran = await agent(secondHostPromptText, secondHostOpts)
+    }
+    if (ran === null) {
+      log('second-host: agent died twice, giving up')
+      secondHostResult = { host: secondHost, verdict: 'BLOCKED', passed: 0, failed: 0, logPath: null, headSha: null }
+      secondHostBlocker = { id: 'second-host', reason: 'agent-died' }
+    } else {
+      secondHostResult = ran
+      if (ran.verdict === 'FAIL') secondHostBlocker = { id: 'second-host', reason: 'suite-failed' }
+      else if (ran.verdict === 'BLOCKED') secondHostBlocker = { id: 'second-host', reason: 'suite-blocked' }
+      else if (!sameSha(ran.headSha, reviewedHead)) {
+        log(`second-host: suite ran at ${ran.headSha}, not the reviewed head ${reviewedHead}`)
+        secondHostBlocker = { id: 'second-host', reason: 'review-sha-mismatch' }
+      } else if (ran.logPath !== secondHostLogPath) {
+        log(`second-host: returned logPath ${ran.logPath} did not match computed ${secondHostLogPath}`)
+        secondHostBlocker = { id: 'second-host', reason: 'log-path-mismatch' }
+      }
     }
   }
 }
@@ -883,8 +1288,11 @@ if (!integrationWorktree) {
 const blockers = [
   ...excluded.map((r) => ({ id: r.id, reason: r.blocker })),
   ...(seam && seam.blocker ? [{ id: 'seam', reason: seam.blocker }] : []),
+  ...(integratorTimedOut ? [{ id: 'integrator', reason: 'agent-timeout' }] : []),
+  ...(acceptPrepFailed ? [{ id: 'accept-prep', reason: 'accept-prep-failed' }] : []),
   ...(acceptHeadMismatch ? [{ id: 'accept-prep', reason: 'review-sha-mismatch' }] : []),
   ...(acceptReportMismatch ? [{ id: 'accept-prep', reason: 'report-path-mismatch' }] : []),
+  ...(secondHostBlocker ? [secondHostBlocker] : []),
 ]
 
 return {
@@ -893,5 +1301,6 @@ return {
   seam,
   acceptance,
   setup: setupInfo,
+  secondHost: secondHostResult,
   blockers,
 }
