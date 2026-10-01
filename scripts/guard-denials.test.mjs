@@ -120,6 +120,7 @@ test('$XDG_STATE_HOME wins over <home>/.local/state when set', () => {
   assert.equal(denialsLogPath(home, env), path.join(home, 'xdg', 'secret-guard', 'denials.log'));
   assert.equal(denialsLogPath(home, {}), path.join(home, LOG_REL));
   assert.equal(denialsLogPath(home, { XDG_STATE_HOME: '  ' }), path.join(home, LOG_REL));
+  assert.equal(denialsLogPath(home, { XDG_STATE_HOME: 'rel/dir' }), path.join(home, LOG_REL), 'a relative value is ignored, as the guard ignores it');
   assert.deepEqual(readGuardDenials({ home, env, fromMs: FROM, toMs: TO, host: 'h' }).byPattern, { from_xdg: 2 });
   assert.deepEqual(readGuardDenials({ home, env: {}, fromMs: FROM, toMs: TO, host: 'h' }).byPattern, { from_home: 1 });
 });
@@ -143,4 +144,14 @@ test('the reader adds no switch, flag or environment variable of its own and doe
   assert.ok(!/process\.env|process\.argv|os\.homedir|os\.hostname/.test(source), 'home, env and host are all injected');
   assert.ok(!/writeFile|appendFile|mkdir|unlink|rmSync|renameSync/.test(source), 'read-only');
   assert.deepEqual([...source.matchAll(/ws-off-[a-z-]+/g)].map((m) => m[0]), ['ws-off-guard-log', 'ws-off-guard-log']);
+});
+
+test('a rotation copies the newer half of .1 into the new log; those lines count once', () => {
+  const L = (m, n) => line(`2026-10-01T10:${String(m).padStart(2, '0')}:00Z`, 'PreToolUse', 'Bash', n);
+  const before = [L(1, 'a'), L(2, 'a'), L(3, 'b'), L(4, 'b')];
+  const home = homeWith({
+    [`${LOG_REL}.1`]: `${before.join('\n')}\n`,
+    [LOG_REL]: `${[...before.slice(2), L(5, 'c')].join('\n')}\n`,
+  });
+  assert.equal(formatGuardDenials(readGuardDenials({ home, env: {}, fromMs: FROM, toMs: TO, host: 'h' })), '5 on h (a 2, b 2, c 1)');
 });

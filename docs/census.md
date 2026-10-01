@@ -534,8 +534,11 @@ count is for the host the census runs on, labelled with `os.hostname()`; a build
 hosts needs one read per host. A missing log, an unreadable log, or the guard's own off
 switch (`~/.agents/ws-off-guard-log` present, so nothing was logged) reads
 `unavailable (<reason>)`, never 0. The reader has no flag, switch or environment variable of
-its own. Not yet wired: `four-read.mjs` does not print the row until the lead applies the
-wiring patch in the census68 report (the step was stopped by a guard-hook denial).
+its own. The CLI passes the reader the home directory, the host name and the one
+`XDG_STATE_HOME` value only; `buildFourRead` prints the row only when it is given that source,
+so a call without it leaves the report byte-identical. After a log rotation the guard copies
+the newer half of `denials.log.1` into the new `denials.log`; the reader counts those copied
+lines once.
 
 Two companion lines print beside the four: top-tier assistant messages per build (each
 one re-reads the whole context, so this is the cost driver, not the turn count alone),

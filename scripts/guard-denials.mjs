@@ -19,7 +19,8 @@ const PATTERN_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 /** `$XDG_STATE_HOME/secret-guard/denials.log` when set, else `<home>/.local/state/secret-guard/denials.log`. */
 export function denialsLogPath(home, env = {}) {
-  const xdg = env && typeof env.XDG_STATE_HOME === 'string' && env.XDG_STATE_HOME.trim() !== '' ? env.XDG_STATE_HOME : null;
+  // The guard honors it only when absolute (secret-guard.sh write_denial_log: `case ... in /*`).
+  const xdg = env && typeof env.XDG_STATE_HOME === 'string' && (path.isAbsolute(env.XDG_STATE_HOME) || env.XDG_STATE_HOME.startsWith('/')) ? env.XDG_STATE_HOME : null;
   return xdg ? path.join(xdg, 'secret-guard', 'denials.log') : path.join(home, '.local', 'state', 'secret-guard', 'denials.log');
 }
 
@@ -42,6 +43,29 @@ function parseFields1to4(line) {
   if (!STRICT_UTC_RE.test(stamp) || !PATTERN_NAME_RE.test(pattern)) return null;
   const ms = Date.parse(stamp);
   return Number.isNaN(ms) ? null : { ms, pattern };
+}
+
+function splitLines(text) {
+  return text.split('\n').map((raw) => (raw.endsWith('\r') ? raw.slice(0, -1) : raw)).filter((l) => l !== '');
+}
+
+// Text before the fourth tab (fields 1 to 4), or the whole line when it has fewer fields.
+function head4(line) {
+  let at = -1;
+  for (let n = 0; n < 4; n += 1) { at = line.indexOf('\t', at + 1); if (at < 0) return line; }
+  return line.slice(0, at);
+}
+
+// .1's lines minus the suffix the current log begins with (the rotation's copied half).
+function withoutCopiedTail(oldLines, curLines) {
+  for (let start = 0; start < oldLines.length; start += 1) {
+    const k = oldLines.length - start;
+    if (k > curLines.length) continue;
+    let same = true;
+    for (let i = 0; i < k; i += 1) if (head4(oldLines[start + i]) !== head4(curLines[i])) { same = false; break; }
+    if (same) return oldLines.slice(0, start);
+  }
+  return oldLines;
 }
 
 function readText(fsImpl, file) {
@@ -73,17 +97,16 @@ export function readGuardDenials({ fsImpl = fs, home, env = {}, fromMs, toMs, ho
   const byPattern = {};
   let total = 0;
   let skipped = 0;
-  for (const text of [rotated.text, current.text]) {
-    if (text === undefined) continue;
-    for (const raw of text.split('\n')) {
-      const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
-      if (line === '') continue;
-      const f = parseFields1to4(line);
-      if (!f) { skipped += 1; continue; }
-      if (f.ms < fromMs || f.ms > toMs) continue;
-      byPattern[f.pattern] = (byPattern[f.pattern] || 0) + 1;
-      total += 1;
-    }
+  const currentLines = splitLines(current.text);
+  // The guard rotates by `mv log log.1` then `tail -n <newer half> log.1 > log`: the current log
+  // STARTS with a copy of .1's last lines. Count only the .1 lines before that copy.
+  const rotatedLines = rotated.text === undefined ? [] : withoutCopiedTail(splitLines(rotated.text), currentLines);
+  for (const line of [...rotatedLines, ...currentLines]) {
+    const f = parseFields1to4(line);
+    if (!f) { skipped += 1; continue; }
+    if (f.ms < fromMs || f.ms > toMs) continue;
+    byPattern[f.pattern] = (byPattern[f.pattern] || 0) + 1;
+    total += 1;
   }
   return { available: true, total, byPattern, skipped, host };
 }
