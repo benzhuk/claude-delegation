@@ -10,7 +10,7 @@ Open the target project in Codex or Claude Code after choosing the installed rou
 
 The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team: one mid-tier builder and one independent reviewer are enough, and a top- or high-tier lead writes no code itself beyond a single-file edit. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
 
-The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. **Before opening a record, read [work records](work-record.md) for the exact field schema** (`Work:`, `Scope:`, `Owner:`, `Status:`, `Authority:`, `Artifact:`, `Evidence:`, `Next:`, `Opened:`, `Worktree:`, plus repeatable `Log:` lines and an `Observed:` paragraph) — `work-record.mjs check-acceptance`/`accept` parse it strictly and reject a hand-guessed shape.
+The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. **Before opening a record, read [work records](work-record.md) for the exact field schema** (`Work:`, `Scope:`, `Owner:`, `Status:`, `Authority:`, `Artifact:`, `Evidence:`, `Next:`, `Opened:`, `Worktree:`, `Lead-session:`, `Base:`, `Spec-session:`, `Spec-from:`, `Scratch:`, plus repeatable `Log:` lines and an `Observed:` paragraph) — `work-record.mjs check-acceptance`/`accept` parse it strictly and reject a hand-guessed shape.
 
 Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication — a `claude -p` started from inside a bound pane inherits `ORCA_TERMINAL_HANDLE`/`NOTE_SLUG`, claims the pane's slug, and receives and acks its peer notes; start a nested session with `env -u ORCA_TERMINAL_HANDLE -u NOTE_SLUG claude -p …` to keep it out of the pane's inbox. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
 
@@ -65,10 +65,14 @@ records](work-record.md): a `Work:` line matching `wr-<yyyy-mm-dd>-<slug>` (lowe
 digits and hyphens only — e.g. `wr-2026-09-26-wordcount`) — any other shape fails with
 `invalid Work: <value>` and no further hint; `Status: reviewed`; `Worktree: <path or
 branch of the build's worktree>`; on plugin 0.20.10 and later `Lead-session: <the lead
-session's id>`; a top-level `Observed:` paragraph after a blank line; the reviewer's
-report (first line `VERDICT: APPROVE <sha>`) listed in `Evidence:`; and a line `Log:
-<ISO-8601 UTC> reviewed
-<reviewer-id> artifact <sha>` written by the lead session when the review lands. Every `Log:` stamp is the real UTC
+session's id>`; `Base: <the 40-hex sha the build started from>` (refused on every record
+without it); `Spec-session: <the session id that wrote the spec>` and `Spec-from: <ISO-8601
+UTC instant ending in Z>`; `Scratch: <absolute directory for this build's temp files>`; a
+top-level `Observed:` paragraph after a blank line; the reviewer's report (first line
+`VERDICT: APPROVE <sha>`) listed in `Evidence:`; and a line
+`Log: <ISO-8601 UTC> reviewed <reviewer-id> artifact <sha> APPROVE (Opus reviewer)` — its
+note must name `APPROVE` and a high- or top-tier model token from the plugin's
+`docs/model-tiers.md` — written by the lead session when the review lands. Every `Log:` stamp is the real UTC
 time of the event it records (`date -u +%Y-%m-%dT%H:%M:%SZ` taken then); never back-fill
 an earlier event with a guessed time. Then take
 the census of that same, still-running lead session: a census is dated by its first
