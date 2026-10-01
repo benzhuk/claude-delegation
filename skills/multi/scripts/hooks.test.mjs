@@ -88,7 +88,8 @@ test('V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT
   // C4: SessionStart is what makes a session that starts and sits idle reachable at all.
   assert.match(cfg.hooks.SessionStart[0].hooks[0].command, /multi-inbox\.js" SessionStart/);
   // The dispatch guard must stay narrow: a catch-all matcher would put a node cold start on every tool call.
-  assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Agent|SendMessage');
+  // Lane 65 (R4, worktree location) widened it by exactly the two shell tools that can run `git worktree add`.
+  assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Agent|SendMessage|Bash|PowerShell');
   assert.match(cfg.hooks.PreToolUse[0].hooks[0].command, /agent-dispatch-guard\.mjs"$/);
 });
 

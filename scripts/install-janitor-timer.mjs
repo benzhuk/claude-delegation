@@ -142,9 +142,11 @@ function escapeXml(value) {
 /** Repo path resolution (contracts.md J1 rulings, "Repo path"): `--repo` overrides everything; else
  * `~/.agents/janitor-repo` if that file exists (bare path string — the scout's open question on this
  * file's shape is answered here with the simplest reading, per the brief's autonomy note); else
- * `~/Code/claude-delegation`. Always resolved to an absolute path, matching installed.json's pinned
+ * `~/Code/zhuk-infra/claude-delegation` (lane 65 item 5: the repo moved under `zhuk-infra`), falling
+ * back to the old `~/Code/claude-delegation` ONLY when the new path is absent (`exists` is injectable
+ * so a test never depends on a real home). Always resolved to an absolute path, matching installed.json's pinned
  * `"repo":"<abs repo path>"`. */
-export function resolveRepo({ home, repoFlag, readFile = fs.readFileSync }) {
+export function resolveRepo({ home, repoFlag, readFile = fs.readFileSync, exists = fs.existsSync }) {
   if (repoFlag) return path.resolve(repoFlag);
   const overrideFile = path.join(home, ".agents", "janitor-repo");
   try {
@@ -153,7 +155,14 @@ export function resolveRepo({ home, repoFlag, readFile = fs.readFileSync }) {
   } catch {
     // absent or unreadable: fall through to the default, exactly like a missing file would
   }
-  return path.resolve(path.join(home, "Code", "claude-delegation"));
+  const moved = path.resolve(path.join(home, "Code", "zhuk-infra", "claude-delegation"));
+  let movedPresent = false;
+  try {
+    movedPresent = exists(moved);
+  } catch {
+    // an unreadable path counts as absent: the old default is the safe fallback
+  }
+  return movedPresent ? moved : path.resolve(path.join(home, "Code", "claude-delegation"));
 }
 
 /** The one scheduled command every platform runs, as an argv array (never a pre-quoted string —
@@ -521,7 +530,7 @@ function usageText() {
     "  --stale-hours <n>  collect-status's own attention threshold, 0.1-48 (default 2; collect-status only)",
     "  --to <slug>   note recipient slug (required for --job collect-status)",
     "  --out <dir>   collect-status output dir override, passed through as-is",
-    "  --repo <path> repo to watch (default ~/.agents/janitor-repo, else ~/Code/claude-delegation)",
+    "  --repo <path> repo to watch (default ~/.agents/janitor-repo, else ~/Code/zhuk-infra/claude-delegation, or ~/Code/claude-delegation when that is absent)",
     "  --host <name> host name baked into the scheduled command (default: this machine's hostname)",
     "  --name <name> scheduled entry name (tests only; default janitor-record, or collect-status)",
     "  --help, -h    show this help and exit",

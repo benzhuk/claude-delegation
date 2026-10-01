@@ -138,9 +138,10 @@ test("installed.json is byte-stable and matches the pinned seam shape exactly (k
   assert.equal(text, '{"schema":1,"repo":"/r","node":"/n","hour":6,"scheduler":"systemd-user","name":"janitor-record"}\n');
 });
 
-test("resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if present; else ~/Code/claude-delegation", () => {
+test("resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if present; else the repo default", () => {
   const home = mkTmp("janitor-timer-repo-home-");
   assert.equal(resolveRepo({ home, repoFlag: "/explicit/repo" }), path.resolve("/explicit/repo"));
+  // Neither default exists in this fixture home: the old path is the fallback.
   assert.equal(resolveRepo({ home, repoFlag: null }), path.join(home, "Code", "claude-delegation"));
 
   fs.mkdirSync(path.join(home, ".agents"), { recursive: true });
@@ -148,6 +149,38 @@ test("resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if p
   assert.equal(resolveRepo({ home, repoFlag: null }), path.resolve("/from/override/file"));
   // --repo still wins even when the override file exists.
   assert.equal(resolveRepo({ home, repoFlag: "/explicit/repo" }), path.resolve("/explicit/repo"));
+});
+
+// Lane 65 item 5 (docs/specs/worktree-location-65/spec.md): the default repo is
+// `<home>/Code/zhuk-infra/claude-delegation`, falling back to the old `<home>/Code/claude-delegation`
+// ONLY when the new path is absent.
+test("resolveRepo (lane 65 item 5): defaults to Code/zhuk-infra/claude-delegation when it exists, even if the old path also exists", () => {
+  const home = mkTmp("janitor-timer-repo-moved-");
+  const moved = path.join(home, "Code", "zhuk-infra", "claude-delegation");
+  const old = path.join(home, "Code", "claude-delegation");
+  fs.mkdirSync(moved, { recursive: true });
+  assert.equal(resolveRepo({ home, repoFlag: null }), moved, "new path present, old absent");
+  fs.mkdirSync(old, { recursive: true });
+  assert.equal(resolveRepo({ home, repoFlag: null }), moved, "both present: the new path wins");
+});
+
+test("resolveRepo (lane 65 item 5): falls back to the old Code/claude-delegation only when the new path is absent", () => {
+  const home = mkTmp("janitor-timer-repo-oldonly-");
+  fs.mkdirSync(path.join(home, "Code", "claude-delegation"), { recursive: true });
+  assert.equal(resolveRepo({ home, repoFlag: null }), path.join(home, "Code", "claude-delegation"));
+});
+
+test("resolveRepo (lane 65 item 5): the existence check is injectable, an unreadable path counts as absent, and the override file and --repo still win", () => {
+  const home = "/fixture/home";
+  const seen = [];
+  const present = (p) => { seen.push(p); return true; };
+  assert.equal(resolveRepo({ home, repoFlag: null, readFile: () => { throw new Error("none"); }, exists: present }),
+    path.resolve("/fixture/home/Code/zhuk-infra/claude-delegation"));
+  assert.deepEqual(seen, [path.resolve("/fixture/home/Code/zhuk-infra/claude-delegation")], "only the new path is probed");
+  const boom = () => { throw new Error("EACCES"); };
+  assert.equal(resolveRepo({ home, repoFlag: null, readFile: boom, exists: boom }), path.resolve("/fixture/home/Code/claude-delegation"));
+  assert.equal(resolveRepo({ home, repoFlag: null, readFile: () => "/from/override\n", exists: present }), path.resolve("/from/override"));
+  assert.equal(resolveRepo({ home, repoFlag: "/flag", readFile: boom, exists: present }), path.resolve("/flag"));
 });
 
 test("refuses to install from a temporary/worktree checkout unless --force-root, and writes nothing when refused", () => {

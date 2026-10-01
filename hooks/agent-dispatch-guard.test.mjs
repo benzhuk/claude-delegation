@@ -1383,7 +1383,7 @@ test('R0-stale CLI: a stale cache copy prints permissionDecision deny WITHOUT th
   const versionDir = path.join(home, '.claude', 'plugins', 'cache', 'benzhuk', 'delegation', '0.20.9');
   fs.mkdirSync(path.join(versionDir, 'hooks'), { recursive: true });
   fs.mkdirSync(path.join(versionDir, 'scripts'), { recursive: true });
-  for (const f of ['agent-dispatch-guard.mjs', 'resume-size.mjs']) fs.copyFileSync(path.join(HERE, f), path.join(versionDir, 'hooks', f));
+  for (const f of ['agent-dispatch-guard.mjs', 'resume-size.mjs', 'worktree-location.mjs']) fs.copyFileSync(path.join(HERE, f), path.join(versionDir, 'hooks', f));
   fs.copyFileSync(path.join(HERE, '..', 'scripts', 'plugin-staleness.mjs'), path.join(versionDir, 'scripts', 'plugin-staleness.mjs'));
   fs.writeFileSync(path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
     JSON.stringify({ version: 2, plugins: { 'delegation@benzhuk': [{ scope: 'user', version: '0.20.16' }] } }));
