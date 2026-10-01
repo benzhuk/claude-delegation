@@ -138,6 +138,14 @@ test('R4: prose about the command (echo, grep, commit message, heredoc, here-str
   assert.deepEqual(decide(BASH('bash -c "git worktree add ../x"', repo), ctxFor(home)).rule, ['R4']);
   // And a heredoc does not hide a real command that follows it.
   assert.deepEqual(decide(BASH("cat <<'EOF'\nhi\nEOF\ngit worktree add ../x", repo), ctxFor(home)).rule, ['R4']);
+  // ... and neither does a PowerShell here-string, or a command on its terminator line.
+  for (const [cmd, leaf] of [
+    ["git commit -m @'\nmsg\n'@\ngit worktree add ../hs-escape", 'hs-escape'],
+    ['$m = @"\nnotes\n"@\ngit worktree add ../hs2-escape', 'hs2-escape'],
+    ["git commit -m @'\nmsg\n'@; git worktree add ../hs4-escape", 'hs4-escape'],
+  ]) {
+    assert.equal(decide(BASH(cmd, repo, 'PowerShell'), ctxFor(home)).text, r4Text(repo, leaf), cmd);
+  }
 });
 
 test('R4: ~/.agents/no-dispatch-guard turns it off entirely', () => {

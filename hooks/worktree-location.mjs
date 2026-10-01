@@ -137,15 +137,23 @@ function stripHeredocs(command) {
   for (const line of command.split('\n')) {
     if (pending) {
       const t = line.trim();
-      if (pending.ps ? t.startsWith(pending.term) : t === pending.term) pending = null;
+      if (pending.ps ? t.startsWith(pending.term) : t === pending.term) {
+        // `'@ | Set-Content x` or `'@; git ...`: the rest of the terminator line still runs
+        if (pending.ps) out.push(stripComment(t.slice(pending.term.length), quoteState));
+        pending = null;
+      }
       continue;
     }
     out.push(stripComment(line, quoteState));
     const h = /(?<!<)<<-?[ \t]*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_]\w*))/.exec(line);
     if (h) { pending = { term: h[1] ?? h[2] ?? h[3], ps: false }; continue; }
-    const t = line.trimEnd();
-    if (t.endsWith("@'")) pending = { term: "'@", ps: true };
-    else if (t.endsWith('@"')) pending = { term: '"@', ps: true };
+    const ps = /@(['"])$/.exec(line.trimEnd());
+    if (ps) {
+      pending = { term: `${ps[1]}@`, ps: true };
+      // the here-string is one closed string: its opening quote must not swallow what follows
+      out[out.length - 1] = out[out.length - 1].replace(/@(['"])\s*$/, '$1$1');
+      quoteState.quote = null;
+    }
   }
   return out.join('\n');
 }
