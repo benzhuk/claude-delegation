@@ -177,3 +177,20 @@ export function staleSessionText({ key, running, installed }) {
     + 'one fix: start a fresh session (claude --resume keeps the conversation). Off switch: '
     + '~/.agents/no-dispatch-guard';
 }
+
+/**
+ * The SessionStart restart advisory (lane 68, item 1): exactly one line, nothing else.
+ * `plugin <running> running, <installed> installed: restart this pane`. Built from the same
+ * `checkStaleness` result the guard and `--line` use (never a second staleness read), and
+ * only for plain numeric x.y.z versions; anything else returns null so a caller prints
+ * nothing. Never throws.
+ */
+export function restartAdvisoryLine(result) {
+  try {
+    if (!result || result.stale !== true) return null;
+    if (parseVersion(result.running) === null || parseVersion(result.installed) === null) return null;
+    return `plugin ${result.running} running, ${result.installed} installed: restart this pane`;
+  } catch {
+    return null;
+  }
+}
