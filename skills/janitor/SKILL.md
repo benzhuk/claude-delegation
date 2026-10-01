@@ -146,7 +146,9 @@ what turns it into something janitor (or the next builder) can act on.
 ## Cadence: fed, not run on a whim
 
 After every accepted build, the lane's integrator runs `janitor --record` and then
-`janitor --apply`, in that order, and pastes the JUDGMENT table into the RESULT. Once a
+`janitor --apply`, in that order, and pastes the JUDGMENT table into the RESULT (a bare
+`--record` writes under `~/.agents/janitor-evidence/`; to keep a record as in-repo evidence,
+pass `--record <dir>` explicitly). Once a
 day per host, the installed timer (below) now does the same, unattended — a node script,
 never a Sonnet or Opus turn, so the SAFE class is kept down to zero at zero top-tier
 token cost. JUDGMENT is never sent to the owner piecemeal: every JUDGMENT line from a run
@@ -186,7 +188,8 @@ hours (see "Cadence" above). The one off switch is `~/.agents/ws-off-janitor-act
 `--apply` still writes its record and drift line, but removes nothing, and the report's
 first line says so. The switch applies to every `--apply`, typed by hand or scheduled.
 
-- **Which repo it watches**: `~/Code/claude-delegation`, or the path in
+- **Which repo it watches**: `~/Code/zhuk-infra/claude-delegation` (the old `~/Code/claude-delegation`
+  only when that path does not exist), or the path in
   `~/.agents/janitor-repo` if that file exists, or `--repo <path>` to override both. The installer
   refuses (no files written) when the janitor script or that repo does not exist, so a
   misconfigured host is told at install time rather than getting a green `installed.json` that
@@ -194,11 +197,15 @@ first line says so. The switch applies to every `--apply`, typed by hand or sche
 - **Which host name it records under**: the installing machine's own hostname, baked into the
   scheduled command at install time — stable even if the machine is later renamed — or `--host
   <name>` to set it explicitly.
-- **Where the record lands**: the same place a manual `--record` already writes to —
-  `docs/work/evidence/janitor/<date>-<host>.json` plus one appended `docs/work/evidence/
-  janitor/drift.md` line, in the watched repo. Ben's page links `drift.md` directly, so
-  a host that never installs this timer is a host whose drift line never updates on its
-  own.
+- **Where the record lands**: `~/.agents/janitor-evidence/` on the host that ran it, OUTSIDE the
+  watched repo: `<date>-<host>.json` plus one appended `drift.md` line. A bare `--record` (what the
+  timer runs) goes there; an explicit `--record <dir>` writes exactly where you point it. Nothing a
+  scheduled run does leaves the durable checkout dirty: the old default, the tracked
+  `docs/work/evidence/janitor/`, made `git pull --ff-only` refuse on two hosts during the 0.20.19
+  install (lane 65 item 7). That tracked `drift.md` is now frozen history, never written by a bare
+  `--record` (left in place on purpose: Ben's page links it, and deleting a tracked file would
+  conflict with the local line an older-version janitor already appended on a host). A host's drift
+  line now lives only on that host, so read it there.
 - **The timer's own log**: `~/.agents/janitor/last-run.log` (stdout+stderr, truncated
   every run — always today's run, never last week's).
 - **Idempotent, self-repairing**: re-running the installer after a node upgrade (or a

@@ -72,6 +72,13 @@
 //   UNSTARTED remote branch (F2: same first-parent-chain test) is its own row instead, "a person
 //   decides", with no delete command - it is never called "merged".
 //   `--record <dir>` feeds the four drift numbers to `<dir>/<date>-<host>.json` + `<dir>/drift.md`.
+//   A BARE `--record` (what the daily timer runs) writes to `~/.agents/janitor-evidence/`, OUTSIDE the
+//   watched repo (lane 65 item 7): the old default, the tracked `docs/work/evidence/janitor/`, left every
+//   durable checkout with a local edit to the tracked `drift.md` plus an untracked json daily, and that
+//   edit made `git pull --ff-only` refuse on two hosts during the 0.20.19 install. Nothing a default or
+//   scheduled run writes lands in a checkout any more; an explicit `--record <dir>` still writes exactly
+//   there. The tracked `docs/work/evidence/janitor/drift.md` is frozen history and is never written by
+//   a bare `--record`.
 //   `--outside` (report-only) lists `~/.agents/rollout-backups/*` and `~/.agents/ws/*`.
 //
 // round-1 fix note: the artifact registry (scripts/artifact-registry.mjs) and commit-check
@@ -129,8 +136,12 @@ const PROTECTED_BRANCH_NAMES = new Set(["main", "master", "develop", "developmen
 const PROTECTED_BRANCH_PREFIXES = ["release/", "hotfix/"];
 // J1 item 2: nothing younger than this is ever SAFE, whatever else is true about it.
 const DEFAULT_MIN_AGE_HOURS = 6;
-// J1 item 4: default --record directory when the flag is given bare (no path after it).
-const DEFAULT_RECORD_DIR = "docs/work/evidence/janitor/";
+// J1 item 4 / lane 65 item 7: default --record directory when the flag is given bare (no path after it):
+// `<home>/.agents/janitor-evidence/`, outside every repo. `home` is injectable (main's `home` option) so a
+// test never writes to the real home; production passes nothing and gets `os.homedir()`.
+export function defaultRecordDir(home = os.homedir()) {
+  return path.join(home, ".agents", "janitor-evidence");
+}
 
 /**
  * Round-2/3 invariant, checked by hand against every git() call site in this file (see the table in
@@ -1997,7 +2008,8 @@ function baseShaFor(root, mainBranch) {
  * base sha, the host) and appends one line to `<dir>/drift.md`. Deterministic apart from `now` and
  * `hostName`, both parameters here rather than read from the live clock/os.hostname() inside this
  * function, so a test can assert exact bytes. `dir` resolves relative to `root` unless already
- * absolute; bare `--record` (no path) resolves to DEFAULT_RECORD_DIR by the caller in main().
+ * absolute; bare `--record` (no path) resolves to `defaultRecordDir()` (under `~/.agents/`, never the
+ * watched repo) by the caller in main() - so neither the json nor the `drift.md` line ever dirties a checkout.
  *
  * F2 (redteam): the record is now the restorable evidence of what an act run actually removed, not
  * just a count. `act` is `"applied" | "switched-off" | "not-requested"` (main() computes it: whether
@@ -2143,9 +2155,9 @@ export function gatherOutside({ agentsDir = path.join(os.homedir(), ".agents") }
 // ---------- main ----------
 
 /** All CLI flag parsing in one place. `--record` takes an optional path (defaulting to
- * DEFAULT_RECORD_DIR when bare or immediately followed by another flag); `--min-age-hours` takes a
+ * `defaultRecordDir(home)` when bare or immediately followed by another flag); `--min-age-hours` takes a
  * required number (defaulting to DEFAULT_MIN_AGE_HOURS when absent or unparsable). */
-function parseFlags(argv) {
+function parseFlags(argv, home) {
   const applyFlag = argv.includes("--apply");
   const jsonFlag = argv.includes("--json");
   const outsideFlag = argv.includes("--outside");
@@ -2164,7 +2176,7 @@ function parseFlags(argv) {
   const recordIdx = argv.indexOf("--record");
   if (recordIdx !== -1) {
     const next = argv[recordIdx + 1];
-    record = next && !next.startsWith("--") ? next : DEFAULT_RECORD_DIR;
+    record = next && !next.startsWith("--") ? next : defaultRecordDir(home);
   }
 
   // J1 (janitor-daily-1): a scheduled --record run's os.hostname() is not guaranteed to match the
@@ -2195,8 +2207,11 @@ function parseFlags(argv) {
  * assert that `--record` is written from the CATCH path below (F2's own pinned contract: "including
  * when apply throws") by handing in a stand-in that pushes a log row and then throws, without
  * needing to engineer a real filesystem failure mid-`applySafe` to prove it.
+ * `home` (lane 65 item 7): the home `~/.agents/janitor-evidence/` is resolved under for a bare `--record`,
+ * and the home `applySafe`'s idle check reads; defaults to the real `os.homedir()` (read at call time, so
+ * a test that sets HOME/USERPROFILE still works), and a test passes a fixture dir so nothing real is touched.
  */
-export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, applyImpl = applySafe } = {}) {
+export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, applyImpl = applySafe, home = os.homedir() } = {}) {
   let startedApplying = false;
   const applyLog = [];
   try {
@@ -2218,7 +2233,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
       return 3;
     }
 
-    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag, host } = parseFlags(argv);
+    const { applyFlag, jsonFlag, outsideFlag, minAgeHours, record, noFetchFlag, host } = parseFlags(argv, home);
     if (applyFlag && noFetchFlag) {
       // J1 round 2 (MAJOR 1): `-D` is reached only from the SAFE class after THIS run's own fetch
       // proved the origin ancestry - `--no-fetch` has no such fetch to point to, so it reports as of
@@ -2268,7 +2283,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
     if (act === "applied") {
       startedApplying = true;
       try {
-        applyImpl(state, applyLog, { now });
+        applyImpl(state, applyLog, { now, home });
       } catch (err) {
         // Once we have started deleting, silence is not an option: say what was done before
         // failing. Fail-open applies to READING state, never to reporting a destructive run.

@@ -21,6 +21,7 @@ import {
   snapshotLeakNames,
   describeLeak,
   TEST_RUN_ROOT_PREFIX,
+  walkTestFiles,
 } from "./run-tests.mjs";
 // N2 (windows-r1-f8aa816.log, skills/multi/scripts/hooks.test.mjs:429): every spawned child's env
 // must be built by `childEnv`, never a bare object spread of the runner's own environment - that
@@ -931,4 +932,37 @@ test("R2: a nested run (this CLI's own os.tmpdir() is itself another run's per-r
   assert.equal(r.status, 0, "the inner suite itself still passes normally");
   assert.match(r.stdout, /^leak check: nested run, not checked$/m);
   assert.ok(!/^leak check: \d+ new temp entries/m.test(r.stdout), "a nested run must never print the counted form");
+});
+
+// Lane 65 item 3 (docs/specs/worktree-location-65/spec.md): every worktree lives under
+// `<repo>/.claude/worktrees/`, and each one holds a full copy of the suite. A runner that walked
+// into them would run every test once per worktree (and, for a stale one, run OLD code).
+test("lane 65 item 3: walkTestFiles skips a .claude/worktrees tree at the root and nested at any depth", () => {
+  const root = scratchDir("run-tests-walk-");
+  const put = (rel) => {
+    const full = path.join(root, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, "");
+  };
+  put("scripts/real.test.mjs");
+  put("hooks/real.test.mjs");
+  put(".claude/worktrees/lane-1/scripts/copy.test.mjs");
+  put(".claude/worktrees/lane-1/hooks/copy.test.mjs");
+  put("skills/x/.claude/worktrees/lane-2/deep.test.mjs");
+  put("node_modules/dep/dep.test.mjs");
+  const found = walkTestFiles(root).map((p) => path.relative(root, p).split(path.sep).join("/")).sort();
+  assert.deepEqual(found, ["hooks/real.test.mjs", "scripts/real.test.mjs"]);
+});
+
+test("lane 65 item 3: .gitignore carries .claude/worktrees/ (and never the whole .claude/, whose settings.json is tracked)", () => {
+  const repoRoot = path.resolve(HERE, "..");
+  const lines = fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8").split(/\r?\n/).map((l) => l.trim());
+  assert.ok(lines.includes(".claude/worktrees/"), ".gitignore must list .claude/worktrees/");
+  for (const bad of [".claude", ".claude/", ".claude/*", "/.claude", "/.claude/"]) {
+    assert.ok(!lines.includes(bad), `.gitignore must not ignore ${bad}: .claude/settings.json is tracked`);
+  }
+  const env = childEnv(scratchDir("run-tests-ignore-home-"));
+  const check = (rel) => spawnSync("git", ["check-ignore", "-q", rel], { cwd: repoRoot, env, encoding: "utf8" }).status;
+  assert.equal(check(".claude/worktrees/lane-x/hooks/anything.mjs"), 0, "a file inside a worktree is ignored");
+  assert.equal(check(".claude/settings.json"), 1, "the tracked settings file is not ignored");
 });

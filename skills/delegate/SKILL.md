@@ -25,7 +25,7 @@ description: "Use when a prompt decomposes into independent research, review, au
    `Explore` (opens at about 19k, far under `general-purpose`, and has no Write
    tool, so ask it for its conclusion inline); a shell job, data pull,
    census, diff, or doc edit through a CLI goes to `delegation:runner`; use
-   `general-purpose` only when neither of those fits.
+   `general-purpose` only when neither of those fits. Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else.
 2. **Tier the models** (`docs/model-tiers.md`, shipped next to this skill as
    `../_docs/model-tiers.md` when mirrored, and in the plugin repo's `docs/`
    otherwise): the mid tier (Claude Sonnet /
