@@ -21,3 +21,4 @@ Run the repaired census over the 0.20.18 window and over lanes 40 and 60, write 
 Due on main: 10/2 9:00 AM NY. Say so early if the remaining build is larger than that.
 
 ## Received / acted
+- Added 10/1 5:15 PM NY: skills-o ran lanes 64, 65, 66, 67 and 64b from one pane today, so its session tokens and turns are shared across lanes and the census at accept reports the pane total for each. Your four-measure table needs a rule for one orchestrator pane running many lanes (split by lane window, or report the pane total once with the lanes it covered), stated in the record. Not a new mechanism: a definition.
