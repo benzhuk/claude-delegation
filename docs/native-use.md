@@ -8,15 +8,82 @@ Open the target project in Codex or Claude Code after choosing the installed rou
 
 > Deliver [outcome] in this project. Success means [observable acceptance evidence]. You may [authorized actions]; stay within [constraints and any budget]. Use the installed harness skills and existing project conventions. Keep independent ready work moving in parallel, diagnose causes, and simplify the design. Continue useful work within this scope without waiting for me; record decisions only I can make and advance other work while those wait. Finish with evidence of the outcome, or the specific external dependencies that prevent further useful work.
 
-The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
+The agent reads the project's current goal and work records, states how this task advances the goal, and selects the applicable skills. If the project has none, capture the stated outcome, acceptance evidence and authority in a small goal document and open only the work records needed for the admitted task; clarify a missing user objective instead of inventing one. `delegate` handles independent research/review; `team-build` handles substantial builds with separate builders, independent review and one integration gate. Small changes do not need an invented team: one mid-tier builder and one independent reviewer are enough, and a top- or high-tier lead writes no code itself beyond a single-file edit. Agree shared interfaces and file ownership before parallel work; a consumer waits for its exact prerequisite while independent lanes proceed.
 
-The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. See [work records](work-record.md).
+The orchestrator owns `docs/work/<work-id>.record.md`; builders and reviewers return reports rather than editing that record. Reuse the project's goal and evidence conventions. A software deliverable may need tests and exact-artifact review; a document or research task needs its own attributable sources and acceptance evidence. Preserve failed checks and unknowns, and measure important hypotheses against the outcome rather than activity counts. **Before opening a record, read [work records](work-record.md) for the exact field schema** (`Work:`, `Scope:`, `Owner:`, `Status:`, `Authority:`, `Artifact:`, `Evidence:`, `Next:`, `Opened:`, `Worktree:`, `Lead-session:`, `Base:`, `Spec-session:`, `Spec-from:`, `Scratch:`, plus repeatable `Log:` lines and an `Observed:` paragraph) — `work-record.mjs check-acceptance`/`accept` parse it strictly and reject a hand-guessed shape.
 
-Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
+Use `bearings` when evidence challenges the direction. `decisions` maintains the owner's choices and comments in the designated document; `multi` handles authorized equal-session communication — a `claude -p` started from inside a bound pane inherits `ORCA_TERMINAL_HANDLE`/`NOTE_SLUG`, claims the pane's slug, and receives and acks its peer notes; start a nested session with `env -u ORCA_TERMINAL_HANDLE -u NOTE_SLUG claude -p …` to keep it out of the pane's inbox. An unresolved choice blocks its dependent work only. These skills neither grant new authority nor create unattended scheduling.
 
 Honor an explicit user stop or pause. Otherwise, before closing, check the actual result against the requested outcome. Continue useful authorized work that remains. Close when the outcome has evidence or all remaining useful actions have concrete external dependencies; report those dependencies and the resumable work identity.
 
 The [original native Codex authoring trial](work/evidence/native-codex-first-use-proof.md) produced a draft but its file reads were policy-blocked. The later [root-cause diagnosis and corrected read-only trial](work/evidence/codex-readonly-fixture-correction.md) showed that ignoring user configuration had also disabled selection of the provisioned Windows sandbox backend. Explicitly selecting that backend for the isolated invocation preserved read-only enforcement and let the native agent read the source and mirrored skills. Its review found the missing explicit-stop instruction above. This proves source-grounded native review, not hook execution, comparative delivery improvement, or completion of the project's goals.
+
+### Script paths, the goal card, and closing a build in a fresh project
+
+The scripts named below (`goal-card.mjs`, `build-census.mjs`, `work-record.mjs` under
+`<plugin-root>/scripts/`, and `bearings-state.mjs` under
+`<plugin-root>/skills/bearings/scripts/`) are **the installed plugin's own scripts**, not
+files that exist in your project. Run them from the installed plugin root, not
+`scripts/<name>.mjs` relative to your project: find that root as `installPath` in `claude
+plugin list --json` (typically `~/.claude/plugins/cache/benzhuk/delegation/<version>/`),
+then invoke `node <plugin-root>/scripts/<name>.mjs ...` with your project as `--repo .` or
+by running from your project's own working directory.
+
+The goal card is the five-line file the routing-reminder hook injects at session start.
+It lives at `docs/goals/card.md` by default (override with `.agents/project.json`'s
+`goal_card` key), in exactly this shape — five labelled lines, each non-empty, nothing
+else:
+
+```
+GOAL: <the one outcome this project is trying to reach>
+NOT: <one or more non-goals, all on this line>
+DONE: <the acceptance test>
+KILL: <the kill criterion and the budget>
+SOURCE: <path of the full goals doc> (parent: <path of its parent doc, or none>)
+```
+
+Check it with `node <plugin-root>/scripts/goal-card.mjs check` (0 valid/off, 1
+malformed, 3 cannot see the project) and preview the injected text with
+`... goal-card.mjs show`. The full format, byte caps and worked example are in
+`<plugin-root>/templates/goal-card.md`. `.agents/project.json` also carries `main_branch`
+for `janitor` (default `main`; a repo whose default branch is anything else — a plain
+`git init` gives `master` — must set it, e.g. `{"main_branch": "master"}`, or janitor sees
+nothing as merged and reports empty tables).
+
+To close a build once a reviewer has approved it: take a census of the lead session's own
+transcript (`~/.claude/projects/<project-slug>/<session-id>.jsonl`) with
+`node <plugin-root>/scripts/build-census.mjs --lead <transcript.jsonl> > docs/work/<id>.census.md`,
+confirm the record parses with
+`node <plugin-root>/scripts/work-record.mjs check-acceptance --repo . --record docs/work/<id>.record.md --pinned-artifact <sha>`
+(read-only; it takes the same one of `--delivery-ref`/`--pinned-artifact` as `accept`),
+then close it with that same flag plus either `--census <file>` or
+`--no-census "<reason>"`:
+`node <plugin-root>/scripts/work-record.mjs accept --repo . --record docs/work/<id>.record.md --pinned-artifact <sha> --census docs/work/<id>.census.md`.
+
+Before `check-acceptance`, the record needs, besides the fields in [work
+records](work-record.md): a `Work:` line matching `wr-<yyyy-mm-dd>-<slug>` (lowercase,
+digits and hyphens only — e.g. `wr-2026-09-26-wordcount`) — any other shape fails with
+`invalid Work: <value>` and no further hint; `Status: reviewed`; `Worktree: <path or
+branch of the build's worktree>`; on plugin 0.20.10 and later `Lead-session: <the lead
+session's id>`; `Base: <the 40-hex sha the build started from>` (refused on every record
+without it); `Spec-session: <the session id that wrote the spec>` and `Spec-from: <ISO-8601
+UTC instant ending in Z>`; `Scratch: <absolute directory for this build's temp files>`; a
+top-level `Observed:` paragraph after a blank line; the reviewer's report (first line
+`VERDICT: APPROVE <sha>`) listed in `Evidence:`; and a line
+`Log: <ISO-8601 UTC> reviewed <reviewer-id> artifact <sha> APPROVE (Opus reviewer)` — its
+note must name `APPROVE` and a high- or top-tier model token from the plugin's
+`docs/model-tiers.md` — written by the lead session when the review lands. Every `Log:` stamp is the real UTC
+time of the event it records (`date -u +%Y-%m-%dT%H:%M:%SZ` taken then); never back-fill
+an earlier event with a guessed time. Then take
+the census of that same, still-running lead session: a census is dated by its first
+line's `leadLastMessageAt` (the lead transcript's last message), not by when you run it,
+and `accept` refuses one whose `leadLastMessageAt` is older than the last `reviewed` entry.
+
+Running `bearings` to completion (a published assessment plus a recorded completion
+receipt) needs a configured Notion page for this project; without one it still writes the
+packet, assessment and lead-response files under `docs/bearings/` and gives a verdict, but
+stays `due` indefinitely because nothing gets published or receipted. That is expected on
+a project with no Notion page yet, not a failure of the skill.
 
 ## Choose the route
 

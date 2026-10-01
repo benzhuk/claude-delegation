@@ -289,8 +289,10 @@ edits either file.
 
 ## Adapters
 
-Tool-neutral by design: reads `.agents/project.json` for `main_branch` and
-`scratch_patterns`, nothing project-specific. `git worktree` / `git branch` are the only
+Tool-neutral by design: reads `.agents/project.json` for `main_branch` (default `main`; a
+repo whose default branch is anything else — a plain `git init` gives `master` — must set
+it, e.g. `{"main_branch": "master"}`, or janitor sees nothing as merged and reports empty
+tables) and `scratch_patterns`, nothing project-specific. `git worktree` / `git branch` are the only
 VCS assumed; `vcs: "none"` in project config makes every git-dependent check a silent
 no-op. No adapter has been written for a non-git VCS; a project on one should either set
 `vcs: "none"` (janitor stays silent) or extend the git wrappers in `janitor.mjs` behind
