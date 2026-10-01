@@ -143,7 +143,7 @@ function matchField(lines, headerEnd, label) {
 const SINGLETON_LABELS = [
   "Work", "Scope", "Owner", "Status", "Authority", "Artifact", "Evidence", "Next", "Opened",
   "Children", "Builder", "Rounds", "Class", "Worktree", "Lead-session", "Spec-session",
-  "Spec-from", "Base",
+  "Spec-from", "Base", "Artifact-repo", "Superseded-by", "Scratch", "Workflow", "Measure",
 ];
 const SINGLETON_LINE_RE = new RegExp(`^[ \\t*+-]{0,20}(${SINGLETON_LABELS.join("|")}):`, "i");
 
@@ -177,10 +177,12 @@ function writeAtomic(targetPath, content) {
 }
 
 // -> array of the field names actually changed, in the order they were touched. Throws
-// AcceptPrepError('missing-field') if Status:/Artifact:/Evidence: (required fields that
-// must already exist on any record reaching accept-prep) are absent — accept-prep has no
-// in-place setter for a field it cannot find, so it fails closed with a named finding
-// rather than guessing where to put one.
+// AcceptPrepError('missing-field') if Status: (a required field that must already exist on
+// any record reaching accept-prep) is absent — accept-prep has no in-place setter for it, so
+// it fails closed with a named finding rather than guessing where to put one. Artifact: and
+// Evidence: are inserted when absent (lane 67 addendum d: a record opened per SKILL.md Setup
+// step 7 need not carry them yet), the same insert-if-absent path Worktree: uses, after the
+// last singleton header line, so every unowned line keeps its exact bytes (R3a).
 export function editRecord(opts) {
   const recordAbsPath = path.resolve(opts.repo, opts.recordPath);
   const original = fs.readFileSync(recordAbsPath, "utf8");
@@ -197,23 +199,30 @@ export function editRecord(opts) {
   changed.push("Status");
 
   const artifactMatch = matchField(lines, headerEnd, "Artifact");
-  if (!artifactMatch) {
-    throw new AcceptPrepError("no Artifact: header line found; accept-prep has no in-place setter for a missing field", "missing-field");
+  if (artifactMatch) {
+    lines[artifactMatch.idx].text = `${artifactMatch.prefix}${opts.deliveryRef}@${opts.artifactSha}`;
+  } else {
+    const insertAt = lastSingletonIdx(lines, headerEnd) + 1;
+    insertLine(lines, insertAt, `Artifact: ${opts.deliveryRef}@${opts.artifactSha}`, eol);
+    headerEnd += 1;
   }
-  lines[artifactMatch.idx].text = `${artifactMatch.prefix}${opts.deliveryRef}@${opts.artifactSha}`;
   changed.push("Artifact");
 
   const evidenceMatch = matchField(lines, headerEnd, "Evidence");
-  if (!evidenceMatch) {
-    throw new AcceptPrepError("no Evidence: header line found; accept-prep has no in-place setter for a missing field", "missing-field");
-  }
-  const existingEvidence = splitEvidenceList(evidenceMatch.value);
+  const existingEvidence = evidenceMatch ? splitEvidenceList(evidenceMatch.value) : [];
   const newEvidence = splitEvidenceList(String(opts.evidence));
   const mergedEvidence = [...existingEvidence];
   for (const p of newEvidence) {
     if (!mergedEvidence.includes(p)) mergedEvidence.push(p);
   }
-  lines[evidenceMatch.idx].text = `${evidenceMatch.prefix}${mergedEvidence.length ? mergedEvidence.join(", ") : "none"}`;
+  const evidenceText = mergedEvidence.length ? mergedEvidence.join(", ") : "none";
+  if (evidenceMatch) {
+    lines[evidenceMatch.idx].text = `${evidenceMatch.prefix}${evidenceText}`;
+  } else {
+    const insertAt = lastSingletonIdx(lines, headerEnd) + 1;
+    insertLine(lines, insertAt, `Evidence: ${evidenceText}`, eol);
+    headerEnd += 1;
+  }
   changed.push("Evidence");
 
   const worktreeMatch = matchField(lines, headerEnd, "Worktree");
