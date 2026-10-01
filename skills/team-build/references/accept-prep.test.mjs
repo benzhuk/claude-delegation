@@ -211,6 +211,94 @@ test("R3a: editRecord throws missing-field, changes nothing on disk, when Status
   assert.equal(fs.readFileSync(recordAbsPath, "utf8"), text, "a failed edit must never touch the file");
 });
 
+// lane 67 addendum (d): a record opened per SKILL.md Setup step 7 carries no Artifact: or
+// Evidence: line yet; accept-prep inserts them (the same insert-if-absent path Worktree: uses)
+// instead of exiting [missing-field]. Status: stays required (the test above).
+test("lane 67 (d): editRecord inserts Artifact: and Evidence: when absent, after the last singleton header line, every unowned line byte-identical", () => {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-open.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  const text = [
+    "Work: wr-2026-10-01-open",
+    "Scope: docs/specs/open/spec.md",
+    "Owner: skills-f",
+    "Status: owned",
+    "Authority: build on the lane branch",
+    "Next: run the loop",
+    "Opened: 2026-10-01T10:00:00.000Z",
+    "Lead-session: sess-0123456789",
+    "Scratch: /tmp/scratch/sess/lane",
+    "Workflow: wf_abc123",
+    "Log: 2026-10-01T10:00:00.000Z owned skills-f opened",
+    "",
+    "Observed: pending.",
+    "",
+  ].join("\n");
+  fs.writeFileSync(recordAbsPath, text);
+  const changed = editRecord({
+    repo, recordPath: recordRel, deliveryRef: "build/open", artifactSha: "9".repeat(40),
+    worktree: "build/open", owner: "skills-f", logNote: "note",
+    evidence: "docs/work/evidence/wr-open-L1.md,docs/work/evidence/wr-open-seam.md", now: "2026-10-01T12:00:00.000Z",
+  });
+  assert.deepEqual(changed, ["Status", "Artifact", "Evidence", "Worktree", "Log"]);
+  const expected = [
+    "Work: wr-2026-10-01-open",
+    "Scope: docs/specs/open/spec.md",
+    "Owner: skills-f",
+    "Status: reviewed",
+    "Authority: build on the lane branch",
+    "Next: run the loop",
+    "Opened: 2026-10-01T10:00:00.000Z",
+    "Lead-session: sess-0123456789",
+    "Scratch: /tmp/scratch/sess/lane",
+    "Workflow: wf_abc123",
+    "Artifact: build/open@9999999999999999999999999999999999999999",
+    "Evidence: docs/work/evidence/wr-open-L1.md, docs/work/evidence/wr-open-seam.md",
+    "Worktree: build/open",
+    "Log: 2026-10-01T10:00:00.000Z owned skills-f opened",
+    "Log: 2026-10-01T12:00:00.000Z reviewed skills-f note",
+    "",
+    "Observed: pending.",
+    "",
+  ].join("\n");
+  assert.equal(fs.readFileSync(recordAbsPath, "utf8"), expected);
+});
+
+test("lane 67 (d): inserting Artifact: and Evidence: keeps CRLF endings and a missing trailing newline", () => {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-open2.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  fs.writeFileSync(recordAbsPath, ["Work: wr-x", "Status: owned", "Base: x"].join("\r\n"));
+  editRecord({
+    repo, recordPath: recordRel, deliveryRef: "b", artifactSha: "a".repeat(40),
+    worktree: "b", owner: "o", logNote: "n", evidence: "none", now: "2026-10-01T12:00:00.000Z",
+  });
+  const updated = fs.readFileSync(recordAbsPath, "utf8");
+  assert.equal(
+    updated,
+    ["Work: wr-x", "Status: reviewed", "Base: x", `Artifact: b@${"a".repeat(40)}`, "Evidence: none", "Worktree: b", "Log: 2026-10-01T12:00:00.000Z reviewed o n"].join("\r\n"),
+  );
+});
+
+test("lane 67 (d): main() on a record with no Artifact:/Evidence: lines does not exit missing-field (it proceeds to the census step)", () => {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-open3.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  fs.writeFileSync(recordAbsPath, "Work: wr-x\nStatus: owned\nOpened: 2026-10-01T10:00:00.000Z\n\nObserved: x.\n");
+  const stderr = [];
+  const io = { stdout: { write() {} }, stderr: { write: (c) => stderr.push(c) } };
+  main([
+    "--record", recordRel, "--repo", repo, "--plugin-root", path.join(repo, "no-plugin-root"), "--delivery-ref", "b",
+    "--artifact-sha", "b".repeat(40), "--worktree", "b", "--owner", "o", "--log-note", "n", "--evidence", "none",
+    "--lead", path.join(repo, "lead.jsonl"), "--census-out", "docs/work/evidence/c.md", "--json",
+  ], io);
+  assert.ok(!stderr.join("").includes("missing-field"), "a missing Artifact:/Evidence: line must not exit missing-field");
+  assert.ok(/Artifact: b@/.test(fs.readFileSync(recordAbsPath, "utf8")));
+});
+
 // B1 (round 2 fix, review finding): a header-only record with NO trailing newline must
 // never have its last unowned line glued onto the newly inserted line. Both edge cases
 // the reviewer named: a record ending on its sixth Log line, and one ending at Base: with

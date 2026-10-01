@@ -11,7 +11,7 @@ import {
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
   isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs, closeRecord, parseCloseArgs,
   STRICT_FROM, MODEL_TIER_TOKENS, countedModelTiers, isStrictRecord, checkMeasureTruthRules,
-  SCRATCH_FROM, checkScratchField, closeoutRecord,
+  SCRATCH_FROM, checkScratchField, closeoutRecord, WORKFLOW_FROM,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -45,6 +45,10 @@ function mkRecordText(overrides = {}, extraLines = [], body = "Prose body.") {
     // care about Scratch: stays free of the scratch-missing warning; a test of that ruling
     // overrides this to `undefined` (omitted) or an explicit bad value.
     Scratch: path.join(os.tmpdir(), "work-record-fixture-scratch", "lead-session-1", "lane-1"),
+    // lane 67 (build-loop-fed): a run id by default so every fixture that doesn't care about
+    // Workflow: stays free of the workflow-missing warning; a test of that rule overrides this
+    // to `undefined` (omitted) or an explicit value.
+    Workflow: "wf_fixture-run",
   };
   const merged = { ...defaults, ...overrides };
   const lines = Object.entries(merged)
@@ -418,6 +422,63 @@ test("checkAcceptance: a record with no Scratch: line and Spec-from before opts.
   const f = makeAcceptanceFixture({ Scratch: undefined, "Spec-from": "2020-01-01T00:00:00Z" });
   const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, scratchFrom: "2026-09-28T00:00:00Z" });
   assert.ok(result.warnings?.some((w) => w.startsWith("scratch-missing:")));
+});
+
+// lane 67 (build-loop-fed) item 1 and addendum (e): Workflow:/Measure: are known header
+// labels, and accept refuses a record with no Workflow: line from WORKFLOW_FROM on.
+test("lane 67: Workflow: and Measure: in the header parse as known fields (no unknown-label error), and a record carrying both passes the strict shape check inside checkAcceptance", () => {
+  const text = mkRecordText({ Workflow: "wf_3dacfee5-54a", Measure: "lead turns per build under 20" });
+  const r = parseRecord(text);
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.fields.workflow, "wf_3dacfee5-54a");
+  assert.equal(r.fields.measure, "lead turns per build under 20");
+  assert.deepEqual(validateRecord(r).filter((f) => /unknown/.test(f.message)), []);
+  const f = makeAcceptanceFixture({ Workflow: "wf_3dacfee5-54a", Measure: "lead turns per build under 20" });
+  assert.doesNotThrow(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }));
+});
+
+test("lane 67: WORKFLOW_FROM is the pinned cutoff 2026-10-01T00:00:00Z", () => {
+  assert.equal(WORKFLOW_FROM, "2026-10-01T00:00:00Z");
+});
+
+test("checkAcceptance: refuse with code workflow-missing when Spec-from is on/after opts.workflowFrom and there is no Workflow: line", () => {
+  const f = makeAcceptanceFixture({ Workflow: undefined, "Spec-from": "2026-10-01T00:00:00Z" });
+  assert.throws(
+    () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }),
+    (err) => err.code === "workflow-missing",
+  );
+  // test-movable exactly like scratchFrom: a later cutoff lets the same record through with a warning.
+  const loose = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, workflowFrom: "2026-10-02T00:00:00Z" });
+  assert.ok(loose.warnings?.some((w) => w.startsWith("workflow-missing:")));
+});
+
+test("acceptRecord: a record with no Workflow: line and a current Spec-from is refused by accept itself (workflow-missing), Status unchanged", () => {
+  const f = makeAcceptanceFixture({ Workflow: undefined, "Spec-from": "2026-10-01T00:00:00Z" });
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  assert.throws(
+    () => acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, noCensusReason: "lane 67 test, unrelated to census" }),
+    (err) => err.code === "workflow-missing",
+  );
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+});
+
+test("checkAcceptance: a record with no Workflow: line and Spec-from before workflowFrom is not refused, and carries the workflow-missing warning", () => {
+  const f = makeAcceptanceFixture({ Workflow: undefined, "Spec-from": "2020-01-01T00:00:00Z" });
+  const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+  assert.ok(result.warnings?.some((w) => w.startsWith("workflow-missing:")));
+});
+
+test("checkAcceptance: Workflow: none, <reason> and Workflow: <run id> both pass; a bare `none` is workflow-invalid", () => {
+  for (const value of ["wf_3dacfee5-54a", "none, the spec was a one-line edit"]) {
+    const f = makeAcceptanceFixture({ Workflow: value, "Spec-from": "2026-10-01T00:00:00Z" });
+    const result = checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha });
+    assert.ok(!(result.warnings ?? []).some((w) => w.startsWith("workflow-missing:")), value);
+  }
+  const bad = makeAcceptanceFixture({ Workflow: "none", "Spec-from": "2020-01-01T00:00:00Z" });
+  assert.throws(
+    () => checkAcceptance({ repoRoot: bad.repo, recordPath: bad.record, pinnedArtifact: bad.sha }),
+    (err) => err.code === "workflow-invalid",
+  );
 });
 
 test("validateRecord: bad-status fires on a status outside STATUSES", () => {
@@ -3934,4 +3995,37 @@ test("acceptRecord: a strict record accepts, and the accepted Log: line itself n
   assert.equal(result.ok, true);
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   assert.match(updated, /^Status: accepted$/m);
+});
+
+// lane 67 (build-loop-fed): SKILL.md documents what the scripts now enforce. Each phrase below is
+// a thing a lead acts on, so a later edit that drops one fails here rather than silently.
+test("lane 67: skills/team-build/SKILL.md names one route, the opening fields, the new blockers, and when the record is committed", () => {
+  const text = fs.readFileSync(fileURLToPath(new URL("../skills/team-build/SKILL.md", import.meta.url)), "utf8");
+  assert.ok(!/Below two territories, run Setup through Ship above by hand/.test(text), "the by-hand single-territory route is gone");
+  assert.match(text, /the ONE way to run a build on a host with the Workflow tool/);
+  // Setup step 7's opening fields
+  const step7 = text.slice(text.indexOf("7. **Open one work record per territory"), text.indexOf("## Roles"));
+  for (const field of ["`Workflow:`", "`Measure:`", "`Scratch:`"]) assert.ok(step7.includes(field), `step 7 names ${field}`);
+  assert.match(step7, /<scratch root>\/<lead session id>\/<lane>\//);
+  assert.match(step7, /2026-09-29/);
+  assert.match(step7, /2026-10-01/);
+  // the blockers list and the new args
+  for (const word of ["agent-timeout", "accept-prep-failed", "windows-host", "agentMinutes", "secondHost", "secondHostGate", "loop-state.json", "PROMPT-LEVEL"]) {
+    assert.ok(text.includes(word), `SKILL.md mentions ${word}`);
+  }
+  // the accept turn: commit only after accept succeeds
+  assert.match(text, /committed only after `accept`\s+succeeds, never between accept-prep and `accept`/);
+  assert.match(text, /moves HEAD off `Artifact:`/);
+  // the pinned census paragraph is untouched
+  assert.ok(text.includes("Run the census at accept time, as its own command after the last review's `Log: ... reviewed` line is on the record:"));
+});
+
+test("lane 67: docs/work-record.md documents Workflow: and Measure: and the WORKFLOW_FROM refusal", () => {
+  const text = fs.readFileSync(fileURLToPath(new URL("../docs/work-record.md", import.meta.url)), "utf8");
+  assert.match(text, /^\| `Workflow:` \|/m);
+  assert.match(text, /^\| `Measure:` \|/m);
+  assert.match(text, /WORKFLOW_FROM/);
+  assert.match(text, /workflow-missing/);
+  assert.match(text, /workflow-invalid/);
+  assert.ok(text.includes("2026-10-01T00:00:00Z"));
 });

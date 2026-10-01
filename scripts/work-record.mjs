@@ -37,7 +37,7 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // eight-role pinned sentence. Optional here (validateRecord/parseRecord parse it like any other
 // singleton) so an old record without one still parses cleanly; the refusal/warning split lives
 // in checkScratchField below, called from both validateRecord and checkAcceptance.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch", "workflow", "measure"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -85,6 +85,12 @@ const FIELD_LABELS = [
   // C1 ruling a (lane-closeout): a singleton, same shape as Worktree:/Superseded-by above -
   // `close --closeout` is the only reader that treats its absence as load-bearing.
   ["scratch", "Scratch"],
+  // lane 67 (build-loop-fed): `Workflow: <run id>` or `Workflow: none, <reason>` names the
+  // build-loop Workflow run that built this record's lane (checkWorkflowField below refuses
+  // accept without it from WORKFLOW_FROM on); `Measure:` is the free-text line a record uses
+  // to state the measure it moves. Both are singletons in the header, round-trip through the
+  // parser and requireStrictRecordShape like Scratch: above.
+  ["workflow", "Workflow"], ["measure", "Measure"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
@@ -154,6 +160,48 @@ export function checkScratchField(record, opts = {}) {
   return {
     refusal: null,
     warning: "scratch-missing: no Scratch: line present (not refused: Spec-from is absent, unparseable, or before SCRATCH_FROM)",
+  };
+}
+
+// lane 67 (build-loop-fed): the instant on/after which a record's own Spec-from: requires a
+// `Workflow:` header line at accept time (the build-loop Workflow is the only route; a build
+// that did not use it says `Workflow: none, <reason>`). Same discipline as SCRATCH_FROM: no
+// CLI flag moves it, `opts.workflowFrom` is for tests only.
+export const WORKFLOW_FROM = "2026-10-01T00:00:00Z";
+
+// opts: { workflowFrom? } -> { refusal: { code, message } | null, warning: string | null }.
+// Used by checkAcceptance (and therefore accept and accept-prep's check-acceptance step).
+// - Present and `<run id>` or `none, <reason>`: fine at any date.
+// - Present as a bare `none` (no reason): `workflow-invalid` at any date.
+// - Absent: `workflow-missing` when Spec-from: is parseable AND on or after workflowFrom;
+//   any other record without the line gets a warning only.
+export function checkWorkflowField(record, opts = {}) {
+  const workflowFrom = opts.workflowFrom ?? WORKFLOW_FROM;
+  const workflowFromMs = Date.parse(workflowFrom);
+  const workflow = typeof record.fields.workflow === "string" ? record.fields.workflow.trim() : "";
+  if (workflow) {
+    if (/^none\b/i.test(workflow) && !/^none\s*,\s*\S/i.test(workflow)) {
+      return {
+        refusal: { code: "workflow-invalid", message: `Workflow: "${workflow}" must be a run id, or "none, <reason>" saying why the build-loop Workflow was not used` },
+        warning: null,
+      };
+    }
+    return { refusal: null, warning: null };
+  }
+  const specFromMs = Date.parse(record.fields.specFrom ?? "");
+  const required = !Number.isNaN(specFromMs) && !Number.isNaN(workflowFromMs) && specFromMs >= workflowFromMs;
+  if (required) {
+    return {
+      refusal: {
+        code: "workflow-missing",
+        message: `Workflow: is missing, and Spec-from: (${record.fields.specFrom}) is on or after WORKFLOW_FROM (${workflowFrom}); set Workflow: to the build-loop run id, or "none, <reason>"`,
+      },
+      warning: null,
+    };
+  }
+  return {
+    refusal: null,
+    warning: "workflow-missing: no Workflow: line present (not refused: Spec-from is absent, unparseable, or before WORKFLOW_FROM)",
   };
 }
 
@@ -1215,6 +1263,14 @@ export function checkAcceptance(opts = {}) {
     throw acceptanceError(scratchCheck.refusal.message, scratchCheck.refusal.code);
   }
 
+  // workflow (lane 67, build-loop-fed): the same refusal/warning split as scratch above; see
+  // checkWorkflowField. opts.workflowFrom moves WORKFLOW_FROM the way opts.scratchFrom moves
+  // SCRATCH_FROM.
+  const workflowCheck = checkWorkflowField(record, { workflowFrom: opts.workflowFrom });
+  if (workflowCheck.refusal) {
+    throw acceptanceError(workflowCheck.refusal.message, workflowCheck.refusal.code);
+  }
+
   // measure-truth-1 (contracts.md R1-R4): strict cutoff, Base/Spec-session/Spec-from
   // field refusals, model tokens on reviewed/APPROVE Log lines, and the hung/stall/
   // relaunch check - factored into one call so R5's real-record fixtures can exercise it
@@ -1468,6 +1524,7 @@ export function checkAcceptance(opts = {}) {
   // checkMeasureTruthRules, before this point is ever reached.
   const warnings = [...measureTruth.warnings];
   if (scratchCheck.warning) warnings.push(scratchCheck.warning);
+  if (workflowCheck.warning) warnings.push(workflowCheck.warning);
   if (!isSessionId(record.fields.specSession)) {
     warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
   }

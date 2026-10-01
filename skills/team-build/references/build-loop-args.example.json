@@ -3,6 +3,7 @@
   "baseSha": "cc81d0c19e910d947d640040a658b10b67a0be7f",
   "startedAt": "2026-09-21T14:05:00-04:00",
   "maxRounds": 3,
+  "agentMinutes": 45,
   "territories": [
     { "id": "T1" },
     { "id": "T2" }
@@ -11,5 +12,7 @@
   "integrationBranch": "build/example-build",
   "integrationGate": "node scripts/run-tests.mjs",
   "leadSession": "/home/ben/.claude/projects/-home-ben-Code-claude-delegation/00000000-0000-0000-0000-000000000000.jsonl",
-  "recordPath": "docs/work/wr-2026-09-21-example-build.record.md"
+  "recordPath": "docs/work/wr-2026-09-21-example-build.record.md",
+  "secondHost": "netcup",
+  "secondHostGate": "node scripts/run-tests.mjs"
 }
