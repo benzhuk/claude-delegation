@@ -1,16 +1,16 @@
-VERDICT: COUNTED 24 lead requests (leadTurns 3), 69 subagent files, leadLastMessageAt: 2026-10-01T21:56:16.893Z
+VERDICT: COUNTED 26 lead requests (leadTurns 3), 69 subagent files, leadLastMessageAt: 2026-10-01T21:57:05.336Z
 
 # Build census
 
 ## Summary
 
 - leadTurns: 3
-- wallClockHours: 0.76
+- wallClockHours: 0.77
 - wakes: 1 (1 note-flush, 0 Done-tick)
 - wakeSplit: wake 1, stopBlock 0, other 2 (coalescable 0 at hold 10m — see "Wake-opened turns" below)
 - stopBlocks: 0
 - stallNudges: unavailable (ledger dir unreadable)
-- by-model: claude-opus-5-5=13201147, claude-sonnet-5-5=20020444
+- by-model: claude-opus-5-5=13658077, claude-sonnet-5-5=20020444
 - by-role: accept-prep=174342, build=13651677, integrate=395620, review=6631317, seam=1499923, setup=4928247, state=870558
 - subagentFiles: 69
 
@@ -19,27 +19,27 @@ Window marker: given (not echoed)
 
 ## Lead transcript
 
-- Total assistant turns, deduped (whole file): **107**
-- Window assistant turns, deduped: **24**
+- Total assistant turns, deduped (whole file): **109**
+- Window assistant turns, deduped: **26**
 - leadTurns (conversational runs — see docs/census.md): **3** (of 14 in the whole file, unwindowed)
 - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **1** (1 note-flush, 0 Done-tick) (of 1 in the whole file, unwindowed)
 - Stop-blocks (multi-inbox Stop hook blocks): **0** (of 0 in the whole file, unwindowed)
 - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
-- Window: 2026-10-01T21:10:40.857Z .. 2026-10-01T21:56:16.893Z
-- Turns/hour in window: **31.58**
+- Window: 2026-10-01T21:10:40.857Z .. 2026-10-01T21:57:05.336Z
+- Turns/hour in window: **33.61**
 
 ### Lead tokens by model — whole file (deduped)
 
 | model | input | cache_creation | cache_read | output |
 |---|---|---|---|---|
 | <synthetic> | 0 | 0 | 0 | 0 |
-| claude-opus-5-5 | 212 | 231679 | 16497379 | 59680 |
+| claude-opus-5-5 | 216 | 233310 | 16951528 | 60826 |
 
 ### Lead tokens by model — window (deduped)
 
 | model | input | cache_creation | cache_read | output |
 |---|---|---|---|---|
-| claude-opus-5-5 | 48 | 32289 | 5023687 | 13883 |
+| claude-opus-5-5 | 52 | 33920 | 5477836 | 15029 |
 
 ### Wake-opened turns against the rest (window)
 
@@ -47,10 +47,10 @@ Window marker: given (not echoed)
 
 | bucket | model | input | cache_creation | cache_read | output | sum | share |
 |---|---|---|---|---|---|---|---|
-| wake | claude-opus-5-5 | 4 | 1636 | 389865 | 303 | 391808 | 7.7% |
-| other | claude-opus-5-5 | 44 | 30653 | 4633822 | 13580 | 4678099 | 92.3% |
+| wake | claude-opus-5-5 | 4 | 1636 | 389865 | 303 | 391808 | 7.1% |
+| other | claude-opus-5-5 | 48 | 32284 | 5087971 | 14726 | 5135029 | 92.9% |
 
-- cache_creation per turn (M6) — wake: claude-opus-5-5=1636.0; other: claude-opus-5-5=15326.5
+- cache_creation per turn (M6) — wake: claude-opus-5-5=1636.0; other: claude-opus-5-5=16142.0
 - coalescable (W1b, hold 10m, RESULT wakes only, Done-tick excluded): turns 0, upper (none), lower (none); ceiling (every RESULT wake turn) turns 0, (none)
 
 ## Subagents (69 files, 388 turns total, deduped)
@@ -153,5 +153,5 @@ Window-excluded subagent turns (timestamped before the marker window; dropped fr
 
 | model | output_tokens | input+cache_creation+cache_read |
 |---|---|---|
-| claude-opus-5-5 | 125293 | 13075854 |
+| claude-opus-5-5 | 126439 | 13531638 |
 | claude-sonnet-5-5 | 205351 | 19815093 |
