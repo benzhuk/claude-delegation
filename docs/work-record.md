@@ -47,6 +47,8 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Log:` | no, repeatable | `<ISO-8601 UTC> <status> <owner> [<note>]`, append-only, one per status or owner change |
 | `Superseded-by:` | no | the work id of the record that made this one moot; written by `withdraw` (below) |
 | `Scratch:` | conditional (see below) | an absolute directory: `<scratch root>/<lead session id>/<lane>/` — the one place temp files this build wrote may live; removed by `close --closeout` |
+| `Workflow:` | conditional (see below) | how the build ran: the build-loop Workflow's run id, or `none, <reason>` when it was not used (for example `none, Codex-led: no Workflow tool`) |
+| `Measure:` | no | the one census measure this build is expected to move: top-tier tokens per build, hours ask to accepted, rework after acceptance, or work lost or stalled |
 
 ### Status meanings
 
@@ -86,6 +88,27 @@ in `validateRecord`, `checkAcceptance`, and `acceptRecord` alike:
 
 `checkScratchField(record, opts)` takes `opts.scratchFrom` the same way the strict-cutoff
 check above takes `opts.strictFrom` — for tests only; there is no CLI flag to move it.
+
+### The `Workflow:` field, and the one route
+
+The build-loop Workflow (`skills/team-build/references/build-loop-workflow.js`) is the only
+route for a build on a host that has the Workflow tool, one territory included. `Workflow:` is
+a singleton header field naming the run: `Workflow: <run id>`, or `Workflow: none, <reason>`
+for a build that did not use it (a Codex-led build has no Workflow tool). Checked at accept
+time, by `checkAcceptance` and `acceptRecord` (and so by accept-prep's check-acceptance step):
+
+- A record with **no** `Workflow:` line is refused (`workflow-missing`) only when `Spec-from:`
+  is parseable *and* on or after `WORKFLOW_FROM` (`export const WORKFLOW_FROM` in
+  `scripts/work-record.mjs`, `2026-10-01T00:00:00Z`). Any other record missing `Workflow:`
+  gets a warning only, in the `"warnings":[...]` array.
+- A `Workflow:` value that is a bare `none` with no reason is refused (`workflow-invalid`) at
+  any date.
+
+`checkWorkflowField(record, opts)` takes `opts.workflowFrom` the way `checkScratchField` takes
+`opts.scratchFrom`: for tests only, there is no CLI flag to move it. `Workflow:` and `Measure:`
+are known labels, so a record carrying them never trips the unknown-label check. The census
+(`scripts/work-census.mjs`) prints each record's `Workflow:` value as a `workflow` field on its row and in a
+`## Workflow` table, `(none)` when the line is absent.
 
 ### Migration debt
 
@@ -297,6 +320,8 @@ only attempted when both `gitDir` and `ref` are given.
 | `runnable-with-owner` | finding | `Status: runnable` and `Owner:` is present and not `none` |
 | `scratch-missing` | finding, or `info` | see "The `Scratch:` field" above — finding when `Spec-from:` is on/after `SCRATCH_FROM`, info (a warning) otherwise |
 | `scratch-invalid` | finding | `Scratch:` is present but not an absolute directory path |
+| `workflow-missing` | refusal (accept), or warning | no `Workflow:` line; a refusal when `Spec-from:` is on/after `WORKFLOW_FROM`, a warning otherwise (see "The `Workflow:` field" above) |
+| `workflow-invalid` | refusal (accept) | `Workflow:` is a bare `none` with no reason |
 | `artifact-repo-not-absolute` | finding | `Artifact-repo:` is present but not an absolute directory path |
 
 `scope-drift`'s git check can also emit `scope-unresolvable`, level `info` — when

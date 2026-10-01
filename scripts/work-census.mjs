@@ -113,6 +113,9 @@ function perWorkReport(entry) {
     firstReviewed: timingValue(firstOfStatus(log, 'reviewed')),
     firstAccepted: timingValue(firstOfStatus(log, 'accepted')),
     rounds: countRounds(fields, log),
+    // lane 67 (build-loop-fed): the record's own `Workflow:` header line, verbatim (a run id or
+    // `none, <reason>`), or null when the record has none - the census reports it per build.
+    workflow: typeof fields.workflow === 'string' && fields.workflow.trim() !== '' ? fields.workflow.trim() : null,
     elapsedMs: elapsed.ms,
     elapsedEndAt: elapsed.endAt,
     elapsedLabel: elapsed.label,
@@ -149,6 +152,15 @@ export function formatText(report) {
   md.push('|---|---|---|---|');
   for (const r of report.perWork) {
     md.push(`| ${r.work} | ${fmtMinutes(r.elapsedMs)} | ${r.elapsedEndAt || '(none)'} | ${r.elapsedLabel} |`);
+  }
+  // lane 67 (build-loop-fed): the build-loop run each record names, one line per build.
+  md.push('');
+  md.push('## Workflow (the build-loop run each record names, or none with its reason)');
+  md.push('');
+  md.push('| work | workflow |');
+  md.push('|---|---|');
+  for (const r of report.perWork) {
+    md.push(`| ${r.work} | ${r.workflow || '(none)'} |`);
   }
   return md.join('\n');
 }

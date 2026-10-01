@@ -1,0 +1,33 @@
+✔ found the four expected agent files (1.0531ms)
+✔ builder.md: has an explicit tools list (0.124ms)
+✔ builder.md: omitClaudeMd is true (0.0679ms)
+✔ builder.md: declares a model (0.0915ms)
+✔ builder.md: tools list never names Agent or Task (0.1809ms)
+✔ integrator.md: has an explicit tools list (0.048ms)
+✔ integrator.md: omitClaudeMd is true (0.0446ms)
+✔ integrator.md: declares a model (0.6843ms)
+✔ integrator.md: tools list never names Agent or Task (0.0797ms)
+✔ reviewer.md: has an explicit tools list (0.1061ms)
+✔ reviewer.md: omitClaudeMd is true (0.0493ms)
+✔ reviewer.md: declares a model (0.0369ms)
+✔ reviewer.md: tools list never names Agent or Task (0.0629ms)
+✔ runner.md: has an explicit tools list (0.0323ms)
+✔ runner.md: omitClaudeMd is true (0.051ms)
+✔ runner.md: declares a model (0.0288ms)
+✔ runner.md: tools list never names Agent or Task (0.0401ms)
+✔ safety blocks are byte-identical across all four agent files (0.2168ms)
+✔ builder and runner ship a model that is neither opus nor fable (0.0928ms)
+✔ builder body names all six state file sections, in order (0.0743ms)
+✔ the safety block still carries every rule it is there to carry (0.4565ms)
+✔ the safety block stays under the 2100-character token-cost ceiling (0.0698ms)
+✔ builder.md states it never writes the work record (0.1984ms)
+✔ reviewer.md states a bug-fix review carries the four C4 fields (0.1022ms)
+✔ the pinned scratch sentence appears, verbatim and on its own line, in all eight role files (35.8732ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 111.9865
