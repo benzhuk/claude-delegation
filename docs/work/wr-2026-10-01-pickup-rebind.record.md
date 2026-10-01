@@ -5,7 +5,7 @@ Status: reviewed
 Authority: build and review on branch build/pickup-rebind-64b; merge into main under the 2026-09-26 standing grant; then the lead runs rebind and publish live on page 3e1da11277a18174bccfea187d5c3972; no release, no install
 Next: build-loop Workflow run, suites on Netcup and Hetzner, accept, merge, live rebind and publish
 Artifact: acf861883084a1c742428a785b4039930bd973e7
-Evidence: docs/work/evidence/wr-2026-10-01-pickup-rebind-rebind64b.md
+Evidence: docs/work/evidence/wr-2026-10-01-pickup-rebind-rebind64b.md, docs/work/evidence/wr-2026-10-01-pickup-rebind-suites.md, docs/work/evidence/wr-2026-10-01-pickup-rebind-live.md
 Worktree: build/pickup-rebind-64b
 Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-64b
 Opened: 2026-10-01T20:53:00.000Z
