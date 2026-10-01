@@ -63,7 +63,7 @@ log. `replace-md`, `replace-range`, `append-md`, `publish` and every hand or anc
 edit are banned there for every agent — `scripts/decisions-render.mjs` (the renderer)
 excepted — because that script is the ONLY way the page is ever written. Write it only
 by running `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
-<decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done` when the
+<decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done --owner <your-session-name>` when the
 fresh read shows owner input, per "Reading answers" below). `publish` runs from any
 clean checkout on branch main of the registered repository; `--clear-done` finds the
 pickup round only from the registered checkout or one of its linked worktrees (`git

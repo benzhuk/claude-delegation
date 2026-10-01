@@ -1383,6 +1383,14 @@ test('defaultAccountRound (lane 64): calls the pickup closeRound with the lead, 
   assert.deepEqual(calls[1], [{ repo: REPO, page: 'PAGE', reconciliation: 'r' }, {}]);
 });
 
+test('defaultAccountRound (lane 64 F6): forwards the fresh page triples so the pickup can refuse an uncaptured page', async () => {
+  const calls = [];
+  const pickup = { closeRound: (opts, deps) => { calls.push([opts, deps]); return { status: 'ACCOUNTED' }; } };
+  const freshInputs = [['comment', 'Leftover folders', 'and the temp dirs under scratch too']];
+  await defaultAccountRound({ repo: REPO, page: 'PAGE', owner: 'skills-fable', reconciliation: 'r', freshInputs }, { pickup });
+  assert.deepEqual(calls[0], [{ repo: REPO, page: 'PAGE', owner: 'skills-fable', reconciliation: 'r', freshInputs }, {}]);
+});
+
 test('CLI run() (lane 64): --owner is an accepted publish argument, not an unrecognized one', async () => {
   const errors = [];
   const code = await run({
