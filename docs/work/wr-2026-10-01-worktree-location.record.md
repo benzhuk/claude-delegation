@@ -16,6 +16,6 @@ Base: f976ca0a5958eeb90607492c2c42db8c5f28534b
 Log: 2026-10-01T19:41:47.000Z owned skills-o opened lane 65 from skills-f-resume-lanes-1; build-loop Workflow next
 
 Measure: work lost or stalled
-Workflow: wf_5d4b8a2b-326
+Workflow: wf_5d4b8a2b-326 (3 rounds, NEEDS_FIXES 1 MINOR at 1364cdfd), resumed as wf_e2449efc-0ab from that findings file
 
 Observed: pending.
