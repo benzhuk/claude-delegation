@@ -119,7 +119,7 @@ shape, `templates/decision-item.md`) and `decisions-render.mjs render`/`publish`
 it above the page-level Done control itself — there is no way to append past Done any
 more (Lane 26). A checked `Done` means the owner has submitted choices/comments for
 accounting; it grants no authority by itself. Account those inputs, reconcile a changed
-fresh read if necessary, then run `decisions-render.mjs publish --clear-done`, which
+fresh read if necessary, then run `decisions-render.mjs publish --clear-done --owner <your-session-name>`, which
 writes `- [ ] Done (last cleared: <America/New_York timestamp>)` itself — no one hand-writes
 that line. An unchecked Done is valid with zero or open decisions; an absent Done line
 blocks the hand-back. In a registered pickup round, clearing Done and accounting the round
@@ -128,7 +128,7 @@ has passed and before it writes the page, so no path clears Done and leaves the 
 unaccounted (any page edit while that round's Done is still checked moves its receipt to
 NEEDS_RECONCILIATION — the Done-window rules under "Reading answers"). Pass `--owner
 <your-session-name>` (required when the step accounts the round): the attestation the step
-records is that lead's, not the lead that first ran the pickup. In this one-step path the
+records is that lead's, not the lead that first ran the pickup. If the page changed after the pickup last read it, the step refuses (exit 3); let one tick run and retry. In this one-step path the
 history/verbatim check is the proof; the attestation records who ran it. If the round is stuck in
 NEEDS_RECONCILIATION because the page changed after the note was recorded, `publish
 --clear-done` closes it too when every owner input (the round's and the fresh page's) is
@@ -312,7 +312,7 @@ change nothing (checked by `scripts/decisions-read.mjs`).
   captured line, write the answer, with Ben's full text verbatim, into today's
   `docs/decisions/history/<today>.md` file (an instruction, or a question now closed) or
   into the relevant `docs/decisions/waiting/<slug>.md` item (a question on something
-  still open there); then run `decisions-render.mjs publish --clear-done`, which
+  still open there); then run `decisions-render.mjs publish --clear-done --owner <your-session-name>`, which
   refuses (exit 3) unless every captured line's text landed verbatim in one of those two
   places, and which composes the whole page fresh — so a handled owner note simply never
   reappears, nothing is deleted in place, and which accounts the round in the same step. The bulleted flow below

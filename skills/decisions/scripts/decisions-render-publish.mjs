@@ -161,11 +161,11 @@ const STUCK_ROUND_REASON = 'checked page bytes changed during the active round';
 /** Lane 64 item 1: the default one-step close, `decisions-pickup.mjs`'s `closeRound` (the same
  * rules `account` enforces, with the outcome written by the call itself). Throws on refusal. */
 export async function defaultAccountRound({
-  repo, page, owner, reconciliation, now,
+  repo, page, owner, reconciliation, now, freshInputs,
 }, { pickup } = {}) {
   const pickupMod = pickup ?? await import('./decisions-pickup.mjs');
   return pickupMod.closeRound({
-    repo, page, ...(owner ? { owner } : {}), reconciliation,
+    repo, page, ...(owner ? { owner } : {}), reconciliation, ...(freshInputs ? { freshInputs } : {}),
   }, now ? { now } : {});
 }
 
@@ -556,7 +556,7 @@ export async function publish(opts, deps = {}) {
     }
     doneLineForRender = `- [ ] Done (last cleared: ${formatClearedTimestamp(now)})`;
     sessionSince = capture.tickAt ?? now.toISOString();
-    roundToAccount = capture.accounted ? null : { ownerInputCount: freshTriples.length };
+    roundToAccount = capture.accounted ? null : { ownerInputCount: freshTriples.length, freshInputs: freshTriples };
     // Lane 64 F3: in this one-step path the history/verbatim check above is the proof; the
     // attestation only records who ran it, so the running lead must name itself.
     if (roundToAccount && !owner && !dryRun) {
@@ -644,6 +644,7 @@ export async function publish(opts, deps = {}) {
         repo,
         page,
         owner,
+        freshInputs: roundToAccount.freshInputs,
         reconciliation: `publish --clear-done at ${now.toISOString()}: the ${roundToAccount.ownerInputCount} owner input(s) on the fresh page were verified quoted verbatim in committed history on origin/main, and Done is cleared in this same step.`,
         now,
       });

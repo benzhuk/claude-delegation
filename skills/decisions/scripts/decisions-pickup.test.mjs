@@ -1597,7 +1597,7 @@ function wedgePublish(fx, { fresh, history, now = '2026-10-01T19:00:00Z', owner,
     accountRound: async (ctx) => {
       accountCalls.push(ctx);
       return pickupModule.closeRound({
-        repo: ctx.repo, page: ctx.page, owner: ctx.owner, reconciliation: ctx.reconciliation,
+        repo: ctx.repo, page: ctx.page, owner: ctx.owner, reconciliation: ctx.reconciliation, freshInputs: ctx.freshInputs,
       }, {
         agentsHome: fx.agentsHome, now: ctx.now, readHistory: () => Object.values(history).join('\n'),
       });
@@ -1771,6 +1771,34 @@ test('wedge 9/30: a failed page write after the one-step accounting survives a p
   const tick = await pickupOnce({ ...fx.options, owner: 'ben' }, deps(fx, { readPage: async () => W_CHANGED, send: async () => ({}) }));
   assert.equal(tick.status, 'ACCOUNTED', 'a tick with Done still checked must not re-wedge the accounted round');
   const retry = wedgePublish(fx, { fresh: W_CHANGED, history, owner: 'skills-fable' });
+  await assert.doesNotReject(() => retry.run());
+  assert.equal(retry.notionWrites.length, 1);
+});
+
+test('wedge 9/30: a page edited after the pickup last read it is not accounted until a tick has captured it', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await buildWedge(fx);
+  const extra = 'and the temp dirs under scratch too';
+  const edited = wedgePage([
+    wedgeBlock('Codex hook failure', W_HOOK), wedgeBlock('Delete prompts on Netcup', W_NETCUP),
+    wedgeBlock('Leftover folders', W_FOLDERS, { ticked: [0], comments: [W_COMMENT_FOLDERS, extra] }),
+    wedgeBlock('Branch triage', W_TRIAGE, { ticked: [0], comments: [W_COMMENT_TRIAGE] }),
+  ], true);
+  const history = { [W_HISTORY_DAY]: `${W_HISTORY}- Ben also wrote "${extra}".
+` };
+  const early = wedgePublish(fx, { fresh: edited, history, owner: 'skills-fable' });
+  await assert.rejects(early.run(), (error) => error.code === 3 && /changed after the pickup last read it/.test(error.message));
+  assert.equal(early.notionWrites.length, 0);
+  assert.equal(status(fx.options, { agentsHome: fx.agentsHome }).status, 'NEEDS_RECONCILIATION');
+  await pickupOnce({ ...fx.options, owner: 'ben' }, deps(fx, { readPage: async () => edited, send: async () => ({}) }));
+  const h = wedgePublish(fx, { fresh: edited, history, owner: 'skills-fable' });
+  const push = h.notionWrites.push.bind(h.notionWrites);
+  let fail = true;
+  h.notionWrites.push = (md) => { if (fail) { fail = false; throw new Error('notion 502'); } return push(md); };
+  await assert.rejects(h.run());
+  const tick = await pickupOnce({ ...fx.options, owner: 'ben' }, deps(fx, { readPage: async () => edited, send: async () => ({}) }));
+  assert.equal(tick.status, 'ACCOUNTED', 'the accounted baseline covers the page publish verified');
+  const retry = wedgePublish(fx, { fresh: edited, history, owner: 'skills-fable' });
   await assert.doesNotReject(() => retry.run());
   assert.equal(retry.notionWrites.length, 1);
 });

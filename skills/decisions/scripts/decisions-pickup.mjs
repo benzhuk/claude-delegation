@@ -1449,6 +1449,12 @@ function settleRound(options, deps, outcomeFor) {
             : readOriginHistory(receipt.transportRepo, deps.git ?? gitRunner);
           if (allQuotedInHistory([original, reconciliation], history)) admittedBy = 'history';
         }
+        // Lane 64 F6: the one-step close must account the page it verified. A fresh page in neither
+        // saved capture would leave the ACCOUNTED baseline stale, and the next tick would re-wedge it.
+        if (admittedBy && Array.isArray(options.freshInputs)
+            && !isSubMultiset(options.freshInputs, reconciliation) && !isSubMultiset(options.freshInputs, original)) {
+          throw new PickupError('the page changed after the pickup last read it; let one pickup tick run, then retry');
+        }
       }
     }
     if (receipt.state !== 'RECORDED' && !admittedBy) {

@@ -5,7 +5,7 @@
  *
  *   node decisions-render.mjs render --repo <dir> [--done-line <text>] [--drop-owner-lines <file>]
  *   node decisions-render.mjs publish --repo <dir> --page <id> --reader <path-to-notion.js>
- *     [--clear-done [--owner <your-session>]] [--adopt-live] [--dry-run] [--topic <Topic>]
+ *     [--clear-done --owner <your-session>] [--adopt-live] [--dry-run] [--topic <Topic>]   (--owner is required whenever the step accounts a round)
  *
  * `render` is pure (the one optional side effect is an injectable, read-only `git ls-tree`
  * against `origin/main`); `publish` is the numbered 8-step pipeline. `--reader <path>` is the

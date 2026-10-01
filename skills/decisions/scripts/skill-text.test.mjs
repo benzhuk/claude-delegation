@@ -109,4 +109,5 @@ test('SKILL.md pins the fix-round-2 rules: --owner required, counted history quo
   assert.equal(flat.includes('the history/verbatim check is the proof; the attestation records who ran it'), true);
   assert.equal(flat.includes('an input text that appears N times must be quoted N times'), true);
   assert.equal(flat.includes('for a round accounted from NEEDS_RECONCILIATION'), true);
+  assert.equal(flat.includes('If the page changed after the pickup last read it, the step refuses (exit 3); let one tick run and retry.'), true);
 });
