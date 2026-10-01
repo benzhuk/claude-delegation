@@ -103,3 +103,14 @@ Machine-local, `C:\Users\benzh\.agents\handoff-0930\` (copies of the closed sess
 ## First message to Ben
 
 Say what is left in one short list (steps 1 to 6), ask whether he ran the delete script, and ask which sessions are still open. Then start on step 2 and 3 with what needs no answer.
+
+## Status update, 10/1 12:10 AM America/New_York (supersedes the lists above where they differ)
+
+- Ben kept the cleanup in the original session. The plugin work resumes later from `docs/RESUME-plugin-work.md`.
+- Worktrees: none left for this repo on any machine except `orca\workspaces\claude-delegation\gudgeon` on Windows (the lead's own pane). Forced removals were done on Ben's word "Do it".
+- Branches: Windows main plus three lane 62 branches; Netcup main; Hetzner main and fresh-walk-1; origin main, three lane 62 branches, fresh-walk-1. Lane 62's uncommitted notes were committed and pushed.
+- Move done on Hetzner and Netcup: `~/Code/zhuk-infra/{infra,claude-delegation}`. Units, janitor pin and collector pin repointed, backups `.bak-0930-move`. Orca on both still lists the old repo path; Ben re-adds it in Orca.
+- Move NOT done on the Mac (did not answer) and NOT done on Windows (Orca holds `Code\zhuk-infra`; task changes need an elevated shell). Windows script for Ben: `C:\Users\benzh\move-zhuk-infra.ps1`, run elevated with Orca closed. After it runs this repo is at `C:\Users\benzh\Code\zhuk-infra\claude-delegation`.
+- After all four machines: chezmoi mirror templates (commit from Netcup) and `scripts/install-janitor-timer.mjs` line 156 still name `Code/claude-delegation`.
+- Not started: trimming the top level of Code on each machine (Netcup has loose logs, temp files, scratch folders, `f2r4-verify`, `reserve`). The 53-path delete script on Windows appears to have been run by Ben.
+- Reports: `C:\Users\benzh\.agents\handoff-0930\move-*-report.md`.
