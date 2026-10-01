@@ -71,7 +71,17 @@ mention says where to find it once mirrored.
    (`docs/work-record.md`, shipped next to this skill as `../_docs/work-record.md` when
    mirrored, and in the plugin repo's `docs/` otherwise, has the full field list): `Status:
    runnable`, `Owner: none`, `Scope:` the spec or brief path and the commit it was read at,
-   `Authority:` what may happen without Ben and what may not. Set `Opened:` to when YOU
+   `Authority:` what may happen without Ben and what may not, `Workflow:` how the build
+   runs (the build-loop Workflow's run id once launched; a build that did not use it says
+   `none, <reason>`, for example `none, Codex-led: no Workflow tool`), `Measure:` the one
+   census measure this build is expected to move (top-tier tokens per build, hours ask to
+   accepted, rework after acceptance, or work lost or stalled), and `Scratch:` the absolute
+   directory `<scratch root>/<lead session id>/<lane>/` where this build's temp files live
+   (required when `Spec-from:` is on or after 2026-09-29; `close --closeout` removes it).
+   `work-record.mjs accept` refuses a record with no `Workflow:` line when `Spec-from:` is on
+   or after 2026-10-01 (`workflow-missing`; an older record only warns), and a bare `none`
+   with no reason (`workflow-invalid`); the census prints each record's `Workflow:` value.
+   Set `Opened:` to when YOU
    start the build (the ask/spec dispatch time), never later and never at accept time — a
    record whose `Opened:` sits minutes before its own acceptance measures nothing but the
    tail end of review, not the build (`docs/census.md`). **You are this record's ONLY
@@ -337,10 +347,13 @@ you spawned and own; a peer note goes to a session you don't.
 
 ## Running the loop from an Opus pane
 
-This is the DEFAULT way to run a build with two or more territories — two lead turns,
-launch and accept — from an Opus orchestrator pane only, never Fable, never a builder or
-lead pane at a lower tier. Below two territories, run Setup through Ship above by hand;
-the loop earns its keep on genuine fan-out, not a single-file fix.
+This is the ONE way to run a build on a host with the Workflow tool, however many
+territories it has, one included — two lead turns, launch and accept — from an Opus
+orchestrator pane only, never Fable, never a builder or lead pane at a lower tier. There is
+no by-hand route for a single territory: a one-territory launch gets the same deadline
+line, loop-state resume and accept-prep as a ten-territory one, and the record's
+`Workflow:` line names the run. Only a host without the Workflow tool (Codex, below) runs
+the stages by hand, and its record says `Workflow: none, <reason>`.
 `skills/team-build/references/build-loop-workflow.js` is the Workflow script; one
 `runTerritory(t)` drives each territory's build/review/fix loop concurrently under
 `parallel()` until every territory reaches `APPROVE`, exhausts `maxRounds`, or dies
@@ -359,10 +372,10 @@ record then carries `Base: <merge sha>` in its header and the two parents in its
 (e.g. `Base parents: <sha>, <sha>` after the header's blank line), never as a header line.
 Then make ONE Workflow call, `{scriptPath:
 "skills/team-build/references/build-loop-workflow.js"}`, with `args`
-`{ specPath, baseSha, startedAt, maxRounds?, territories: [{ id, gate?, briefPath?,
+`{ specPath, baseSha, startedAt, maxRounds?, agentMinutes?, territories: [{ id, gate?, briefPath?,
 worktree?, branch?, startFrom? }], reviewerBriefPath?, integratorBriefPath?,
 integrationWorktree?, integrationBranch?, integrationGate?, worktreeRoot?, leadSession?,
-recordPath?, censusMarker?, seam? }` (worked examples:
+recordPath?, censusMarker?, seam?, secondHost?, secondHostGate? }` (worked examples:
 `references/build-loop-args.example.json`). A territory with
 `briefPath`/`worktree`/`branch` all given is "given", with all three absent the launch's
 setup stage cuts it from `baseSha` and writes its briefs; never mix the two in one call
@@ -374,11 +387,11 @@ gate; a setup launch also needs `worktreeRoot` or `integrationWorktree`, whose p
 the default root); in an all-given call that reviewer brief is also the seam brief, so
 give it a seam section; `leadSession` gives it the census (without it, `censusPath` comes
 back `null`). The stages run in this order inside that one call: Setup (setup territories
-only), Build, Review, Fix, Integrate, Seam, Accept (accept-prep's census-and-check), which
-returns once, at the end:
-`{ territories, integrator, seam, acceptance, setup, blockers }` — `territories` one row
+only), Build, Review, Fix, Integrate, Seam, Accept (accept-prep's census-and-check), then,
+only when `secondHost` is given, Second host, which returns once, at the end:
+`{ territories, integrator, seam, acceptance, setup, secondHost, blockers }` — `territories` one row
 each (`id`, `sha`, `verdict`, `rounds`, `reportPath`, `findingsPath`, `blocker`: `null` on
-a normal end, else `agent-died`, `builder-blocked`, `build-failed`,
+a normal end, else `agent-died`, `agent-timeout`, `builder-blocked`, `build-failed`,
 `review-sha-mismatch`, `review-not-approved`, `rounds-exhausted` or
 `parallel-result-missing`; launch errors come
 back only in `blockers`, as id `*` `missing-args`/`mixed-territory-modes` or as
@@ -389,13 +402,45 @@ APPROVE/NEEDS_FIXES, NEEDS_FIXES without `findingsPath`, or on a setup territory
 `mixed-territory-modes`; seam failures as id `seam`); `setup` is the setup stage's
 report and brief paths, or `null`;
 `seam`/`acceptance` are `null` only when no `integrationWorktree` was given; `blockers`
-is the territory, seam and accept-prep failures flattened to `[{ id, reason }]` (never the
-integrator's — read `integrator.verdict`).
+is the territory, seam, accept-prep and second-host failures flattened to `[{ id, reason }]`
+(the integrator's only as `{ id: 'integrator', reason: 'agent-timeout' }` when it hit its
+deadline; any other integrator failure is `integrator.verdict`).
+
+**Hung agents (`agentMinutes`, default 45)**: every prompt the script renders carries one
+deadline line: wall-clock limit N minutes from the agent's start, at N stop, write the
+report with `VERDICT: BLOCKED` and the reason `timeout`, and return. A builder, reviewer or
+integrator that reports BLOCKED naming a timeout is the blocker `agent-timeout` (the other
+territories carry on; the integrator's shows as `{ id: 'integrator', reason: 'agent-timeout' }`),
+not `builder-blocked`. This is a PROMPT-LEVEL limit: the Workflow API has no per-agent
+limit, so an agent that ignores its prompt is not stopped by the script; the lead's own
+overdue check (`docs/agent-pacing.md`) remains the backstop.
+
+**Loop state and resume**: with `recordPath` given, the script keeps
+`docs/work/<work-id>.loop-state.json` beside the record (inside `integrationWorktree`), one
+runner write after each of Setup, Build, Review, Fix, Integrate, Seam and Accept, and reads it
+once at launch. A state with `version` 1 and the same `baseSha` and `specPath` resumes: a
+territory it records as `APPROVE` (or `NEEDS_FIXES` with findings) starts from there as an
+implicit `startFrom`, an integrator recorded `PASS` over the same approved shas is not run
+again, a seam recorded `APPROVE` over the same integrator head is not run again, and a
+recorded Setup that still verifies is not redone. An explicit `startFrom` in `args` beats the
+state; a state for another base or spec is ignored (logged) and the run starts fresh. The
+file is the lead's to commit with the record, after `accept`; the runners never stage it.
+
+**Second host (`secondHost`, `secondHostGate`)**: `secondHost` is an ssh alias; the last
+phase has one runner run the sealed suite once there, over ssh, against the integration
+branch tip (`secondHostGate`, default `node scripts/run-tests.mjs`) and write
+`<specdir>/reports/second-host.md`; the result is `secondHost` in the return
+(`{ host, verdict, passed, failed, logPath, headSha }`, else `null`). One suite per machine
+at a time, none on Windows: a Windows-looking alias (`win*`, `windows`, `ben-desktop`) is the
+blocker `{ id: 'second-host', reason: 'windows-host' }` and nothing is spawned; a failing,
+blocked, wrong-head or dead suite is its own `second-host` blocker. It is skipped when
+acceptance skipped.
 
 **Accept turn**: read the return. Accept only when `blockers` is empty (every territory
 `APPROVE`, seam `APPROVE` or `SKIPPED`) AND `acceptance.checkAcceptance.verdict` is
 `PASS`: first push the integration branch and write the second-host suite's gate log
-into the record's evidence (Ship's merge paragraph: before `accept`, never after); then
+into the record's evidence (Ship's merge paragraph: before `accept`, never after; with
+`secondHost` given, that log is `secondHost.logPath`, already written); then
 re-run the census now (Ship's `build-census.mjs` command, `--out
 <integrationWorktree>/docs/work/evidence/<work-id>-census.md`) — accept-prep's
 `acceptance.censusPath` predates its own `Log: ... reviewed` line, so `accept` refuses it
@@ -403,18 +448,25 @@ as `census-stale` — then run `work-record.mjs accept --record <recordPath> --r
 <integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
 (`--no-census "<reason>"` only when the census itself breaks), push the branch, merge into
 main per Ship's merge paragraph, post the Closed entry, and only
-then send ONE RESULT.
+then send ONE RESULT. The record and its evidence are committed only after `accept`
+succeeds, never between accept-prep and `accept`: accept-prep and `accept` both read the
+record's bytes, and a commit in between only makes `census-stale` and a moved `Spec-from:`
+harder to read.
 Otherwise the first of these that applies decides the one next step: a `blockers` entry
-(a territory id, `seam`, `accept-prep` when its `integrationHead` is not the reviewed
-head (`review-sha-mismatch`) or its `reportPath` is not the one the script computed
-(`report-path-mismatch`), or `*` for a launch error), `integrator.verdict` other than `PASS` (its
+(a territory id, `seam`, `accept-prep` when it failed (`accept-prep-failed`: the
+check-acceptance step said `FAIL`, nothing in the record changed, or the runner reported an
+error; read `acceptance.checkAcceptance.output`), when its `integrationHead` is not the
+reviewed head (`review-sha-mismatch`) or its `reportPath` is not the one the script
+computed (`report-path-mismatch`, checked only after a successful accept-prep),
+`second-host`, or `*` for a launch error), `integrator.verdict` other than `PASS` (its
 `failedGate`/`territory`; integrator failure is never in `blockers`), `acceptance.skipped`,
 or `checkAcceptance.output` on `FAIL`; `acceptance: null` with no blockers and
 `integrator.verdict` `PASS` means this call ran without `integrationWorktree`, so seam and
 acceptance are still yours to run by hand.
 
 Inside the loop the accept-prep runner is the one sanctioned second writer to the
-record: exactly `Status: reviewed`, `Artifact:`, `Worktree:`, `Evidence:` (the copied
+record: exactly `Status: reviewed` (the one line that must already exist), `Artifact:`
+(inserted when absent), `Worktree:`, `Evidence:` (inserted when absent; the copied
 deciding reports in `docs/work/evidence/`) and one `Log: ... reviewed ...` line naming the
 seam round and sha, or `seam SKIPPED`, never `accepted`; per-event record moves (Ship)
 collapse into that one write, so don't pre-write them.

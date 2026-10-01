@@ -1714,6 +1714,10 @@ test("build-loop-args.example.json (new one-launch shape) parses and matches the
   assert.equal(typeof example.integrationGate, "string");
   assert.equal(typeof example.leadSession, "string");
   assert.equal(typeof example.recordPath, "string");
+  // lane 67: the new optional args are shown.
+  assert.equal(example.agentMinutes, 45);
+  assert.equal(typeof example.secondHost, "string");
+  assert.equal(example.secondHostGate, "node scripts/run-tests.mjs");
 });
 
 test("build-loop-args.legacy.example.json (old given-worktree shape) parses and matches the given-territory shape", () => {
@@ -1771,10 +1775,19 @@ test("both example arg files launch cleanly against the given/setup detection wi
         checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
         reportPath: acceptReportPathFor(example),
       }],
+      ["second-host", {
+        host: example.secondHost,
+        verdict: "PASS",
+        passed: 1,
+        failed: 0,
+        logPath: `${dirOf(example.specPath).startsWith("/") ? "" : example.integrationWorktree + "/"}${dirOf(example.specPath)}/reports/second-host.md`,
+        headSha: "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      }],
     ]),
   );
   const exampleResult = await runScript(example, exampleStub);
   assert.deepEqual(exampleResult.blockers, []);
+  assert.equal(exampleResult.secondHost.host, example.secondHost);
 });
 
 // ===========================================================================

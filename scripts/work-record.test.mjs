@@ -3996,3 +3996,35 @@ test("acceptRecord: a strict record accepts, and the accepted Log: line itself n
   const updated = fs.readFileSync(path.join(f.repo, f.record), "utf8");
   assert.match(updated, /^Status: accepted$/m);
 });
+
+// lane 67 (build-loop-fed): SKILL.md documents what the scripts now enforce. Each phrase below is
+// a thing a lead acts on, so a later edit that drops one fails here rather than silently.
+test("lane 67: skills/team-build/SKILL.md names one route, the opening fields, the new blockers, and when the record is committed", () => {
+  const text = fs.readFileSync(fileURLToPath(new URL("../skills/team-build/SKILL.md", import.meta.url)), "utf8");
+  assert.ok(!/Below two territories, run Setup through Ship above by hand/.test(text), "the by-hand single-territory route is gone");
+  assert.match(text, /the ONE way to run a build on a host with the Workflow tool/);
+  // Setup step 7's opening fields
+  const step7 = text.slice(text.indexOf("7. **Open one work record per territory"), text.indexOf("## Roles"));
+  for (const field of ["`Workflow:`", "`Measure:`", "`Scratch:`"]) assert.ok(step7.includes(field), `step 7 names ${field}`);
+  assert.match(step7, /<scratch root>\/<lead session id>\/<lane>\//);
+  assert.match(step7, /2026-09-29/);
+  assert.match(step7, /2026-10-01/);
+  // the blockers list and the new args
+  for (const word of ["agent-timeout", "accept-prep-failed", "windows-host", "agentMinutes", "secondHost", "secondHostGate", "loop-state.json", "PROMPT-LEVEL"]) {
+    assert.ok(text.includes(word), `SKILL.md mentions ${word}`);
+  }
+  // the accept turn: commit only after accept succeeds
+  assert.match(text, /committed only after `accept`\s+succeeds, never between accept-prep and `accept`/);
+  // the pinned census paragraph is untouched
+  assert.ok(text.includes("Run the census at accept time, as its own command after the last review's `Log: ... reviewed` line is on the record:"));
+});
+
+test("lane 67: docs/work-record.md documents Workflow: and Measure: and the WORKFLOW_FROM refusal", () => {
+  const text = fs.readFileSync(fileURLToPath(new URL("../docs/work-record.md", import.meta.url)), "utf8");
+  assert.match(text, /^\| `Workflow:` \|/m);
+  assert.match(text, /^\| `Measure:` \|/m);
+  assert.match(text, /WORKFLOW_FROM/);
+  assert.match(text, /workflow-missing/);
+  assert.match(text, /workflow-invalid/);
+  assert.ok(text.includes("2026-10-01T00:00:00Z"));
+});
