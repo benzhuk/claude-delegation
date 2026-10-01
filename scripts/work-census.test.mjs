@@ -307,3 +307,28 @@ test('the retired measures are absent from the SOURCE, not merely from the retur
     assert.ok(!src.includes(ident), `${ident} must not survive anywhere in work-census.mjs`);
   }
 });
+
+// lane 67 (build-loop-fed) item 1: the census reports the `Workflow:` line per build.
+test('lane 67: the per-record row carries the Workflow: header line (run id, none-with-reason, or null) and formatText prints it', () => {
+  const dir = mkTmp('work-census-workflow-');
+  const withRun = `Work: wr-2026-10-01-census-w1
+Opened: 2026-10-01T00:00:00.000Z
+Workflow: wf_3dacfee5-54a
+Log: 2026-10-01T00:00:00.000Z runnable none
+`;
+  const withNone = `Work: wr-2026-10-01-census-w2
+Opened: 2026-10-01T01:00:00.000Z
+Workflow: none, one-line edit
+Log: 2026-10-01T01:00:00.000Z runnable none
+`;
+  const records = writeFixtures(dir, { 'w1.record.md': withRun, 'w2.record.md': withNone, 't3.record.md': T3 });
+  const report = computeWorkCensus(records);
+  const byWork = Object.fromEntries(report.perWork.map((r) => [r.work, r.workflow]));
+  assert.equal(byWork['wr-2026-10-01-census-w1'], 'wf_3dacfee5-54a');
+  assert.equal(byWork['wr-2026-10-01-census-w2'], 'none, one-line edit');
+  assert.equal(byWork['wr-2026-01-01-census-t3'], null);
+  const text = formatText(report);
+  assert.ok(text.includes('| wr-2026-10-01-census-w1 | wf_3dacfee5-54a |'));
+  assert.ok(text.includes('| wr-2026-10-01-census-w2 | none, one-line edit |'));
+  assert.ok(text.includes('| wr-2026-01-01-census-t3 | (none) |'));
+});
