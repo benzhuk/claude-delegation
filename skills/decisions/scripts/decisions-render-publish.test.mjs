@@ -1067,6 +1067,7 @@ test('publish: since: is set only under --clear-done — an ordinary publish nev
 });
 
 test('publish --clear-done: the accepted round\'s commit adds session.md alongside last-render.md', async () => {
+  const accounted = [];
   const live = pageWithComment('please look at this');
   const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
     + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
@@ -1080,9 +1081,11 @@ test('publish --clear-done: the accepted round\'s commit adds session.md alongsi
     gitOverrides: {
       show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }),
     },
+    deps: { accountRound: async (ctx) => { accounted.push(ctx); } },
   });
   const result = await publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps);
   assert.equal(result.code, 0);
+  assert.equal(accounted.length, 1, 'a non-accounted round is accounted by the same publish that clears Done');
   assert.ok(calls.some((c) => c[0] === 'add' && c.includes('docs/decisions/session.md')));
   assert.match(fsMap.get(p('docs', 'decisions', 'session.md')), /^since: 2026-09-27T19:05:00Z/);
 });
