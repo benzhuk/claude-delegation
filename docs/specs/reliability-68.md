@@ -21,3 +21,4 @@ Due on main: 10/2 3:00 PM America/New_York.
 
 ## Added 10/1 5:40 PM NY (lead ruling, before the lane started)
 6. The build-loop's per-phase state-file write runs on Haiku, not Sonnet (`build-loop-workflow.js` near line 567). One model and one test assertion; nothing else changes.
+7. Added 5:30 PM NY from the 64b and 65 reports: the lead-side merge step refuses when the lane's record is not `Status: accepted` on the branch being merged, with a test. Accept before merge, always.
