@@ -28,7 +28,11 @@ const SESSION_ID = 'fixture-session-p1-0001';
 
 /** A fixture HOME whose `.agents` is the AGENTS_HOME the child will use — never the real home. */
 function fixtureHome() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'multi-inbox-home-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-inbox-home-'));
+  // The hook registers only from inside a git checkout (lane 68 item 2) and these tests pass the
+  // fixture home as the session cwd, so the fixture home is one.
+  fs.mkdirSync(path.join(home, '.git'));
+  return home;
 }
 
 /** This session's messaging coordinates: without both, `claudeInboxRecord` refuses to build a
@@ -445,4 +449,65 @@ test('(o) retired continuation: the peer Stop block still fires with STOP_REASON
   assert.doesNotMatch(stopRaw, /Continuation/);
   assert.equal(runHook(home, 'Stop', { stop_hook_active: true }, over).trim(), '', 're-fire stays silent');
   assert.equal(runHook(home, 'Stop', { stop_hook_active: false }, { NOTE_SLUG: '', ORCA_TERMINAL_HANDLE: '' }).trim(), '', 'no peer identity, no Stop block');
+});
+
+test('(p) lane 68: a session whose cwd is not inside a git checkout registers nothing, on every event, and says nothing', () => {
+  for (const event of ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']) {
+    const home = fixtureHome();
+    const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-inbox-probe-')); // no .git anywhere above it
+    const output = runHook(home, event, { cwd: probe }, {
+      NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '',
+      CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+    });
+    assert.equal(output.trim(), '', `${event}: no output`);
+    assert.deepEqual(readInboxes(home), {}, `${event}: nothing registered for a non-checkout cwd`);
+    assert.equal(fs.existsSync(inboxesPath(home)), false, `${event}: the registry file was not even created`);
+  }
+});
+
+test('(p2) lane 68: a cwd that is a subdirectory of a git checkout still registers', () => {
+  const home = fixtureHome();
+  const sub = path.join(home, 'src', 'deep');
+  fs.mkdirSync(sub, { recursive: true });
+  runHook(home, 'SessionStart', { cwd: sub }, {
+    NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: '',
+    CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+  });
+  assert.equal(readInboxes(home)['lead-pane'].sessionId, SESSION_ID);
+});
+
+test('(q) lane 68: a child-shaped payload with a non-string agent_id never registers or touches the lead state', () => {
+  // Claude Code names a child's callback with `agent_id`. The hook used to honour only a non-empty
+  // STRING there; any other non-empty value (a number, an object) fell through to registration.
+  for (const agentId of [42, { id: 'child-1' }, true]) {
+    for (const event of ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop']) {
+      const home = fixtureHome();
+      const notes = seedPopulatedLeadState(home);
+      const before = snapshotTree(notes);
+      const output = runHook(home, event, { agent_id: agentId }, {
+        NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: 'term_fixture',
+        CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+      });
+      assert.equal(output.trim(), '', `${event}/${JSON.stringify(agentId)}: no lead context for a child`);
+      assert.deepEqual(snapshotTree(notes), before, `${event}/${JSON.stringify(agentId)}: lead state byte-for-byte unchanged`);
+    }
+  }
+});
+
+test('(q2) lane 68: a child-shaped payload (agent_id) never re-registers the lead inbox under the child cwd', () => {
+  // The incident shape: the lead is registered at its own checkout; a subagent event carrying the
+  // child's working directory must not move that registration.
+  const home = fixtureHome();
+  const notes = seedPopulatedLeadState(home);
+  const childCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-inbox-child-'));
+  fs.mkdirSync(path.join(childCwd, '.git')); // even a checkout cwd: the guard is the agent_id, not the cwd
+  runHook(home, 'PostToolUse', { agent_id: 'child-agent-42', cwd: childCwd, session_id: 'other-session' }, {
+    NOTE_SLUG: 'lead-pane', ORCA_TERMINAL_HANDLE: 'term_fixture',
+    CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN,
+  });
+  const reg = readInboxes(home);
+  assert.equal(reg['lead-pane'].cwd, home, 'the lead keeps its own cwd');
+  assert.equal(reg['lead-pane'].sessionId, SESSION_ID);
+  assert.deepEqual(Object.keys(reg), ['lead-pane']);
+  assert.ok(fs.existsSync(notes));
 });

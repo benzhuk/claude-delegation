@@ -1636,6 +1636,53 @@ export function registerInbox(home, slug, record, opts = {}) {
   }
 }
 
+/**
+ * Lane 68 item 2: is `dir` inside a git checkout? Cheap on purpose (a hook path with a 700 ms
+ * budget): walk up from `dir` looking for a `.git` entry with `fs.existsSync`, never a git spawn.
+ * A `.git` FILE counts (a linked worktree), so does a `.git` directory. A bare repo directory has
+ * no `.git` entry and is not a checkout. Never throws; anything unreadable answers false.
+ */
+export function insideGitCheckout(dir, fsImpl = fs) {
+  try {
+    if (typeof dir !== 'string' || dir.length === 0) return false;
+    let cur = path.resolve(dir);
+    for (let i = 0; i < 256; i += 1) {
+      if (fsImpl.existsSync(path.join(cur, '.git'))) return true;
+      const parent = path.dirname(cur);
+      if (parent === cur) return false;
+      cur = parent;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lane 68 item 2: the one registration entry point for a hook that has already decided the event is
+ * the MAIN session's own. Registers nothing, silently, when the record's `cwd` is not inside a git
+ * checkout (a probe folder, a removed workspace, a scratch directory): a registration pointing there
+ * is how a note ledger line once landed in a folder nobody reads. Same return shape as
+ * `registerInbox`; the refusal reads `reason: 'not-a-git-checkout'`. Never throws.
+ */
+export function registerMainSessionInbox(home, slug, record, opts = {}) {
+  const fsImpl = opts.fs ?? opts.fsImpl ?? fs;
+  try {
+    if (record && !insideGitCheckout(record.cwd, fsImpl)) {
+      return {
+        written: false, reason: 'not-a-git-checkout', slug: String(slug ?? ''), inbox: null, error: null,
+        removedSlug: null, removedSlugs: [],
+      };
+    }
+    return registerInbox(home, slug, record, opts);
+  } catch (err) {
+    return {
+      written: false, reason: 'error', slug: String(slug ?? ''), inbox: null, error: err?.message ?? String(err),
+      removedSlug: null, removedSlugs: [],
+    };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pane bindings (spec 2026-09-14) — "this pane IS <slug>", said by the pane itself
 // ─────────────────────────────────────────────────────────────────────────────
