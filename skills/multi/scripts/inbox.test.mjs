@@ -1228,6 +1228,7 @@ test('C9: a registered inbox needs no pane, so no orca call is made at all', asy
 
 test('C11: an interactive send bounds its own inbox post', async () => {
   const home = tmp();
+  fs.mkdirSync(path.join(home, '.git')); // lane 68: a registered cwd must be a git checkout to be used
   writeInbox(home, 'nucleus', codexRecord({ cwd: home }), { now: NOW });
   let budget = null;
   await runNoteSend(SEND_ARGS, {
