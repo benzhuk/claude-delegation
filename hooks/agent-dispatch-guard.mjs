@@ -13,6 +13,13 @@
 //       session that kept 0.20.9's hooks for its whole life never saw hooks added since).
 //       This deny REFUSES, not advises: unlike R1/R2 it ignores the enforce/observe split
 //       below entirely (see `hardDeny` on `decide()`'s return). See plugin-staleness.mjs.
+//   R4  a worktree outside `<repo>/.claude/worktrees/` is denied outright (lane 65,
+//       docs/specs/worktree-location-65/spec.md item 1): a Bash/PowerShell `git worktree add
+//       <path>`, or an Agent spawn whose mandate names a `Worktree: <path>`. Like R0-stale it
+//       REFUSES (`hardDeny`, ignores the enforce file); only `~/.agents/no-dispatch-guard`
+//       turns it off. The logic is hooks/worktree-location.mjs. The hook matcher therefore also
+//       lists Bash|PowerShell; those calls are logged ONLY when R4 fires, so the log keeps its
+//       one-line-per-dispatch meaning.
 //   R1  a top-tier model (opus/fable) on a spawn that is not a review or a stated
 //       judgment is denied. Execution runs on sonnet or haiku.
 //   R1b the mirror note: a spawn states a JUDGMENT but will not run on opus.
@@ -49,6 +56,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readContextTokens, readTail } from './resume-size.mjs';
 import { checkStaleness, staleSessionText } from '../scripts/plugin-staleness.mjs';
+import { checkBashWorktreeAdd, checkAgentWorktree } from './worktree-location.mjs';
 
 // This guard's OWN file path (P1, docs/specs/stale-session-guard-1/spec.md) — the running
 // version comes from where THIS script actually lives on disk, never a manifest.
@@ -512,7 +520,7 @@ function checkR0Stale(input, ctx) {
  * a MISSING file must never be what turns enforcement on). In every other case rules are
  * still evaluated and logged, but the wrapper never prints.
  *
- * `hardDeny` is true ONLY for R0-stale (spec P5) — that deny REFUSES, it does not advise, and
+ * `hardDeny` is true ONLY for R0-stale (spec P5) and R4 (lane 65) — that deny REFUSES, it does not advise, and
  * is never gated by the enforce file the way R1/R2 are; the CLI wrapper below prints it
  * whatever `enforced` says. The only off switch for it is `~/.agents/no-dispatch-guard`
  * (checked first, above), which already skips this whole function.
@@ -540,6 +548,11 @@ export function decide(input, ctx = {}) {
   const r0 = checkR0Stale(input, { ...ctx, home, fsImpl });
   if (r0) {
     return { action: 'deny', rule: [r0.id], text: r0.text, skip: false, enforced: false, roundMention: false, hardDeny: true };
+  }
+
+  const r4 = checkBashWorktreeAdd(input, { ...ctx, home, fsImpl }) ?? checkAgentWorktree(input, { ...ctx, home, fsImpl });
+  if (r4) {
+    return { action: 'deny', rule: [r4.id], text: r4.text, skip: false, enforced: false, roundMention: false, hardDeny: true };
   }
 
   const enforceOn = enforceFilePresent(fsImpl, path.join(home, '.agents', 'dispatch-guard-enforce'));
@@ -627,6 +640,8 @@ export async function runCli(fsImpl = fs) {
 
   const result = decide(input, { home, fsImpl });
   if (result.skip) return; // no-dispatch-guard: print nothing, log nothing.
+  // Bash/PowerShell calls reach this guard only for R4: no rule fired means nothing to log.
+  if ((input?.tool_name === 'Bash' || input?.tool_name === 'PowerShell') && result.rule.length === 0) return;
 
   const entry = {
     at: new Date().toISOString(),

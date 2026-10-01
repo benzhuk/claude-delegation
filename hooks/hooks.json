@@ -87,7 +87,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|SendMessage",
+        "matcher": "Agent|SendMessage|Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
