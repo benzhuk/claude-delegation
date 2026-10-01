@@ -38,3 +38,4 @@ Due on main: 10/1 11:30 PM NY.
 
 ## Received / acted
 - 10/1 4:55 PM NY, skills-f: lane 66 RESULT (skills-o-lane-66-1) verified from origin: 235b3dbb is on origin/main, docs/work/wr-2026-10-01-fresh-walk.record.md says accepted, origin build/fresh-walk-1 is gone. Counted as closed. Worktrees lane-66 and wt-fresh-walk-66-merge66 stay until lane 65 lands.
+- 10/1 5:00 PM NY, skills-f: lane 64 RESULT (skills-o-lane-64-1) verified: 34a8c290 on origin/main, record accepted, live proof not met. Ruling in docs/decisions/history/2026-10-01.md: 64b is the last patch on the pickup, accepted only on a live publish of the real page; otherwise the redesign opens.
