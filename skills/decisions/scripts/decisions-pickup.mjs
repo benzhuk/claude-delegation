@@ -1524,8 +1524,130 @@ export function openPrivateCapture(options, deps = {}) {
   }
 }
 
+const CAPTURE_FILE = /^r[1-9][0-9]*(?:-changed-[0-9a-f]{64})?\.json$/;
+
+function pathAbsent(target, fsImpl = fs) {
+  try {
+    fsImpl.lstatSync(target);
+    return false;
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return true;
+    throw new PickupError(`cannot prove the old project path is gone (${safeErrorCode(error)})`);
+  }
+}
+
+function rebindArgv(argv, transportRepo) {
+  return argv.map((value, index) => (
+    index > 0 && (argv[index - 1] === '--recipient-repo' || argv[index - 1] === '--sender-repo') ? transportRepo : value
+  ));
+}
+
+// One saved capture, judged at the identity it still carries: `old` (verify, then rewrite) or
+// `new` (an earlier crashed rebind already rewrote it; skip). `named` captures are the receipt's
+// own, checked exactly like status does; any other file under the saved scope is an earlier round
+// or an orphan, checked by page, scope, project, transport and digest.
+function rebindCaptureState({ receipt, next, full, relative, digest, named, base, fsImpl }) {
+  if (named) {
+    if (verifyOnePrivateCapture(receipt, relative, digest, base, fsImpl).status === 'OK') return 'old';
+    if (verifyOnePrivateCapture(next, relative, digest, base, fsImpl).status === 'OK') return 'new';
+    throw new PickupError(`cannot rebind: saved capture ${relative} is not intact`);
+  }
+  let capture;
+  try { capture = JSON.parse(fsImpl.readFileSync(full, 'utf8')); } catch {
+    throw new PickupError(`cannot rebind: saved capture ${relative} is unreadable`);
+  }
+  const bytes = Buffer.from(String(capture.originalBytes ?? ''), 'base64');
+  const identity = (project, transportRepo) => capture.project === project && capture.transportRepo === transportRepo;
+  if (capture.version !== RECEIPT_VERSION || capture.type !== 'decisions-pickup-private-capture'
+      || capture.originalEncoding !== 'utf8-base64' || capture.page !== receipt.page
+      || capture.projectScope !== receipt.projectScope || sha256(bytes) !== capture.digest
+      || !(identity(receipt.project, receipt.transportRepo) || identity(next.project, next.transportRepo))) {
+    throw new PickupError(`cannot rebind: saved capture ${relative} is not intact`);
+  }
+  return identity(next.project, next.transportRepo) ? 'new' : 'old';
+}
+
+/**
+ * Lane 64b: move a pickup receipt's project binding after a repo move. Refuses unless the saved
+ * project is `--from-project` and that path no longer exists, so a live project is never taken
+ * over. Everything is verified before the first write; captures are rewritten first and the
+ * receipt last, so a crash midway is finished by running the same command again.
+ */
+export function rebind(options, deps = {}) {
+  const fsImpl = deps.fsImpl ?? fs;
+  const git = deps.git ?? gitRunner;
+  const now = new Date(deps.now ?? Date.now());
+  const base = deps.agentsHome ?? agentsHome(deps.env);
+  if (!options.fromProject) throw new PickupError('--from-project is required');
+  const newProject = registeredProject(options.repo, options.page, fsImpl, git);
+  const paths = receiptPaths({ agentsHome: base, project: newProject, page: options.page });
+  acquireClaim(paths.claim, fsImpl);
+  try {
+    const receipt = readJson(paths.receipt, fsImpl);
+    if (!receipt) throw new PickupError('no pickup receipt to rebind for this page');
+    if (receipt.version !== RECEIPT_VERSION) throw new PickupError('a version-1 legacy receipt cannot be rebound');
+    const oldProject = canonicalThroughExistingAncestor(options.fromProject, fsImpl);
+    if (canonicalPathKey(receipt.project) !== canonicalPathKey(oldProject)) {
+      throw new PickupError('the saved project binding is not --from-project');
+    }
+    if (!pathAbsent(oldProject, fsImpl)) {
+      throw new PickupError('the old project path still exists; a live project is never taken over');
+    }
+    if (!/^[0-9a-f]{64}$/.test(String(receipt.projectScope))) throw new PickupError('saved project scope is invalid');
+    const transportRepo = durableTransportRepo(newProject, git, fsImpl);
+    const next = { ...receipt, project: newProject, transportRepo };
+    const targets = [];
+    const seen = new Set();
+    const consider = (relative, digest, named) => {
+      if (!relative || seen.has(relative)) return;
+      seen.add(relative);
+      const full = resolvePrivateCapture(receipt, relative, base, fsImpl);
+      targets.push({ full, state: rebindCaptureState({ receipt, next, full, relative, digest, named, base, fsImpl }) });
+    };
+    consider(receipt.privateCaptureRef, receipt.digest, true);
+    consider(receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, true);
+    let entries = [];
+    try { entries = fsImpl.readdirSync(path.join(paths.captures, receipt.projectScope)); } catch (error) {
+      if (error?.code !== 'ENOENT') throw new PickupError(`saved captures unreadable (${safeErrorCode(error)})`);
+    }
+    for (const name of entries.filter((entry) => CAPTURE_FILE.test(entry)).sort()) {
+      consider(`captures/${receipt.projectScope}/${name}`, null, false);
+    }
+    const lead = options.owner ? validateSlug('owner', options.owner) : null;
+    const argv = receipt.exactSendInputs?.argv;
+    const outcome = receipt.accountingOutcome;
+    const outcomeFile = typeof outcome?.path === 'string' ? path.resolve(outcome.path) : null;
+    const movedOutcome = outcomeFile && sameOrInside(outcomeFile, path.resolve(receipt.project))
+      ? { accountingOutcome: { ...outcome, path: path.join(newProject, path.relative(path.resolve(receipt.project), outcomeFile)) } } : {};
+    const rebound = {
+      ...next,
+      ...movedOutcome,
+      ...(Array.isArray(argv) ? { exactSendInputs: { ...receipt.exactSendInputs, argv: rebindArgv(argv, transportRepo) } } : {}),
+      ...(lead && receipt.owner && lead !== receipt.owner && receipt.state !== 'ACCOUNTED'
+        ? { handoffStatus: 'PENDING_MANUAL_HANDOFF', requestedOwner: lead, handoffObservedAt: now.toISOString() } : {}),
+    };
+    const pointer = verifyPointer(rebound, fsImpl);
+    if (pointer.status !== 'OK') {
+      throw new PickupError(`the details pointer is not present under the new transport repository (${pointer.status})`);
+    }
+    const outcomeFailure = verifyAccountingOutcome(rebound, null, fsImpl);
+    if (outcomeFailure) {
+      throw new PickupError(`the accounting outcome does not verify under the new project (${outcomeFailure.status})`);
+    }
+    for (const target of targets) {
+      if (target.state !== 'old') continue;
+      const capture = JSON.parse(fsImpl.readFileSync(target.full, 'utf8'));
+      atomicJson(target.full, { ...capture, project: newProject, transportRepo }, fsImpl);
+    }
+    atomicJson(paths.receipt, rebound, fsImpl);
+    return { ...receiptStatus(rebound, paths.claim, base, fsImpl, false), rebound: { from: receipt.project, to: newProject } };
+  } finally {
+    releaseClaim(paths.claim, fsImpl);
+  }
+}
+
 function parseArgs(argv) {
-  const command = ['status', 'account', 'open'].includes(argv[0]) ? argv.shift() : (argv.includes('--once') ? 'once' : null);
+  const command = ['status', 'account', 'open', 'rebind'].includes(argv[0]) ? argv.shift() : (argv.includes('--once') ? 'once' : null);
   const options = {};
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -1537,13 +1659,17 @@ function parseArgs(argv) {
     options[key] = value;
     i += 1;
   }
-  if (!command) throw new PickupError('use --once, status, account, or open');
+  if (!command) throw new PickupError('use --once, status, account, open, or rebind');
   for (const required of ['page', 'repo']) if (!options[required]) throw new PickupError(`--${required} is required`);
   if (command === 'once') {
     for (const required of ['from', 'reader']) if (!options[required]) throw new PickupError(`--${required} is required`);
   }
   if (command === 'account' && !options.outcome) throw new PickupError('--outcome is required');
   if (command === 'open' && !options.round) throw new PickupError('--round is required');
+  if (command === 'rebind') {
+    if (!options['from-project']) throw new PickupError('--from-project is required');
+    options.fromProject = options['from-project'];
+  }
   return { command, options };
 }
 
@@ -1554,7 +1680,8 @@ export async function runCli({ argv = process.argv.slice(2), write = (text) => p
       write(openPrivateCapture(options));
       return 0;
     }
-    const result = command === 'once' ? await pickupOnce(options) : command === 'status' ? status(options) : account(options);
+    const result = command === 'once' ? await pickupOnce(options) : command === 'status' ? status(options)
+      : command === 'rebind' ? rebind(options) : account(options);
     write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } catch (error) {

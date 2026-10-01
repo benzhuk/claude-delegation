@@ -111,3 +111,7 @@ test('SKILL.md pins the fix-round-2 rules: --owner required, counted history quo
   assert.equal(flat.includes('for a round accounted from NEEDS_RECONCILIATION'), true);
   assert.equal(flat.includes('If the page changed after the pickup last read it, the step refuses (exit 3); let one tick run and retry.'), true);
 });
+
+test('SKILL.md names the pickup rebind verb for a repo move', () => {
+  assert.equal(skillText.includes('decisions-pickup.mjs rebind --page <id> --repo <new project root> --from-project <old path> [--owner <lead>]'), true);
+});

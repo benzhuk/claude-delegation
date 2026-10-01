@@ -251,6 +251,11 @@ capture resumes only that saved round; a missing capture may be recreated only f
 same unchanged checked bytes, while a partial, conflicting, or changed capture requires
 manual reconciliation.
 
+After a repo move, run `decisions-pickup.mjs rebind --page <id> --repo <new project root> --from-project <old path> [--owner <lead>]`
+to move the receipt and its saved captures to the new project. It refuses while the old path
+still exists, so a live project is never taken over; rounds opened after it use the new
+project's scope, and the old round keeps its saved one.
+
 A fresh, otherwise valid checked Done with zero captured selections or comments reports
 `NO_ACTION`; it creates no round, receipt, private capture, pointer, or ASK. This admission
 rule never replaces or erases an existing round.
