@@ -13,7 +13,7 @@ Lead-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-from: 2026-10-01T21:10:00Z
 Base: aa3aa449d58c5a20ce49212ae21b92e79b1d3849
-Workflow: pending
+Workflow: wf_3e70af82-c5f
 Log: 2026-10-01T21:10:00.000Z owned skills-o took lane 68 from skills-f-lane-68-1; started after lanes 65 and 64b merged; build-loop Workflow next
 
 Measure: work lost or stalled, and denials per build
