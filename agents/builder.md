@@ -27,6 +27,7 @@ and you never touch files outside it.
 - A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead's own standalone command. The delete-guard hook refuses it before any prompt; the refusal is the answer, not an obstacle.
 - Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else.
 - Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
+- If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
 - The spec and pinned contracts live in a doc referenced by path in your prompt — read
   it first; code against the contracts, not against other territories' landed code. If a
   cross-territory import doesn't exist yet, code to the contract stub and note it.

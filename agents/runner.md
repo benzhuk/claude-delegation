@@ -29,6 +29,7 @@ with a file-ownership contract.
 
 - Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else.
 - Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
+- If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
 - Your prompt names the exact job and its scope — do only that job. If it turns out to
   need judgment your prompt didn't authorize (a quality verdict, a design call, touching
   files outside what you were told), stop and report rather than improvising.

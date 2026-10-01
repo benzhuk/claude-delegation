@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { gitRunner, mainCheckout, toPosix, withoutRepoLocatingGitEnv } from './transport.mjs';
+import { gitRunner, mainCheckout, toPosix, withoutRepoLocatingGitEnv, insideGitCheckout, registerMainSessionInbox, readInboxes, codexInboxRecord } from './transport.mjs';
 // N2 (hooks.test.mjs): every child environment in this suite is built through childEnv(), never by
 // spreading process.env in a .test.mjs file directly — that is the one thing that leaked a live
 // session's messaging token into a fixture on 2026-09-17. scratchHome gives childEnv a fixture home
@@ -147,4 +147,67 @@ test('mainCheckout still strips a real /.git component', () => {
     throw new Error(`unexpected git call: ${args.join(' ')}`);
   };
   assert.equal(mainCheckout('/home/dev/project', runner), '/home/dev/project');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 68 item 2: registration only from inside a git checkout
+// ─────────────────────────────────────────────────────────────────────────────
+
+function plainDir(prefix) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+test('lane 68: insideGitCheckout finds a .git directory, a .git file (linked worktree), and walks up', () => {
+  const repo = plainDir('igc-repo-');
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.mkdirSync(path.join(repo, 'a', 'b'), { recursive: true });
+  assert.equal(insideGitCheckout(repo), true);
+  assert.equal(insideGitCheckout(path.join(repo, 'a', 'b')), true, 'a subdirectory of a checkout is inside it');
+
+  const linked = plainDir('igc-linked-');
+  fs.writeFileSync(path.join(linked, '.git'), 'gitdir: /somewhere/else');
+  assert.equal(insideGitCheckout(linked), true, 'a .git FILE counts');
+});
+
+test('lane 68: insideGitCheckout is false for a plain directory, a missing path, and junk input, and never throws', () => {
+  const plain = plainDir('igc-plain-');
+  assert.equal(insideGitCheckout(plain), false);
+  assert.equal(insideGitCheckout(path.join(plain, 'does', 'not', 'exist')), false);
+  for (const bad of [undefined, null, '', 42, {}]) assert.equal(insideGitCheckout(bad), false);
+  const throwing = { existsSync() { throw new Error('boom'); } };
+  assert.equal(insideGitCheckout(plain, throwing), false);
+});
+
+test('lane 68: insideGitCheckout spawns nothing (existsSync only)', () => {
+  const calls = [];
+  const fake = { existsSync(p) { calls.push(p); return p.endsWith(path.join('x', '.git')); } };
+  assert.equal(insideGitCheckout(path.resolve('/q/x/y'), fake), true);
+  assert.ok(calls.length >= 2, 'walked up at least one level before finding .git');
+});
+
+test('lane 68: registerMainSessionInbox registers when the record cwd is a checkout', () => {
+  const home = toPosix(plainDir('rmsi-home-'));
+  const repo = plainDir('rmsi-repo-');
+  fs.mkdirSync(path.join(repo, '.git'));
+  const record = codexInboxRecord({ CODEX_HOME: '/codex' }, { threadId: 't-1', cwd: repo, home });
+  const out = registerMainSessionInbox(home, 'lead-pane', record);
+  assert.equal(out.written, true);
+  assert.equal(readInboxes(home)['lead-pane'].threadId, 't-1');
+});
+
+test('lane 68: registerMainSessionInbox registers nothing, silently, when the cwd is not a checkout', () => {
+  const home = toPosix(plainDir('rmsi-home-'));
+  const probe = plainDir('rmsi-probe-');
+  const record = codexInboxRecord({ CODEX_HOME: '/codex' }, { threadId: 't-1', cwd: probe, home });
+  const out = registerMainSessionInbox(home, 'lead-pane', record);
+  assert.equal(out.written, false);
+  assert.equal(out.reason, 'not-a-git-checkout');
+  assert.equal(out.error, null);
+  assert.deepEqual(readInboxes(home), {}, 'nothing was written');
+  assert.equal(fs.existsSync(path.join(home, '.agents', 'notes', 'inboxes.json')), false);
+  // A record with no cwd at all cannot be shown to be in a checkout either.
+  const noCwd = codexInboxRecord({ CODEX_HOME: '/codex' }, { threadId: 't-2', home });
+  assert.equal(registerMainSessionInbox(home, 'lead-pane', noCwd).written, false);
+  // A missing record keeps registerInbox's own reason, and never throws.
+  assert.equal(registerMainSessionInbox(home, 'lead-pane', null).reason, 'no-inbox-in-env');
 });

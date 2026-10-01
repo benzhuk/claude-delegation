@@ -309,13 +309,20 @@ const messagingEnv = (over = {}) => ({
   CLAUDE_CODE_MESSAGING_SOCKET: SOCKET, CLAUDE_CODE_MESSAGING_TOKEN: TOKEN, ...over,
 });
 
+/** Lane 68 item 2: the hook registers only from inside a git checkout, and these tests pass `home`
+ * as the session cwd. A bare `.git` directory is all the cheap walk-up check looks for. */
+function asCheckout(home) {
+  fs.mkdirSync(path.join(home, '.git'), { recursive: true });
+  return home;
+}
+
 function inboxes(home) {
   const file = path.join(home, '.agents/notes/inboxes.json');
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).inboxes : null;
 }
 
 test('D2: a session with a messaging socket registers its inbox, and prints no token', () => {
-  const home = tmp();
+  const home = asCheckout(tmp());
   mirror(home, [note('astra-pr137-1')]);
   const out = runHook('UserPromptSubmit', home, {}, messagingEnv());
   const reg = inboxes(home);
@@ -332,13 +339,13 @@ test('D2: a session with a messaging socket registers its inbox, and prints no t
 });
 
 test('D2: a session with NOTHING waiting still registers - being reachable is the point', () => {
-  const home = tmp();
+  const home = asCheckout(tmp());
   assert.equal(runHook('UserPromptSubmit', home, {}, messagingEnv()), null, 'silent, as always');
   assert.equal(inboxes(home).taxonomy.socket, SOCKET);
 });
 
 test('D2: Stop registers too, and a session without the env vars registers nothing', () => {
-  const home = tmp();
+  const home = asCheckout(tmp());
   runHook('Stop', home, {}, messagingEnv());
   assert.equal(inboxes(home).taxonomy.socket, SOCKET);
   const bare = tmp();
@@ -347,7 +354,7 @@ test('D2: Stop registers too, and a session without the env vars registers nothi
 });
 
 test('C4: SessionStart registers and does nothing else - a session that starts idle is reachable', () => {
-  const home = tmp();
+  const home = asCheckout(tmp());
   mirror(home, [note('astra-pr137-1')]);
   const out = runHook('SessionStart', home, { source: 'startup' }, messagingEnv());
   assert.equal(out, null, 'registration only: no inbox read, no context, nothing in the transcript');
@@ -370,7 +377,7 @@ test('C6: no session_id in the payload means no registration at all', () => {
 });
 
 test('D2: a GUESSED slug never registers - that would send another session its notes', () => {
-  const home = tmp();
+  const home = asCheckout(tmp());
   mirror(home, [note('astra-pr137-1')]);
   const cache = path.join(home, '.agents/notes/.pane-slug.json');
   fs.mkdirSync(path.dirname(cache), { recursive: true });

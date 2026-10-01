@@ -109,7 +109,8 @@ test('lead, missing metadata, corrupt metadata, and mismatched metadata preserve
   ];
   for (const [name, sessionId, content] of cases) {
     const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-    const input = { hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: '/project' };
+    fs.mkdirSync(path.join(home, '.git')); // registration needs a git checkout cwd (lane 68 item 2)
+    const input = { hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: home };
     if (content !== null) input.transcript_path = transcript(home, content);
     let reads = 0;
     const out = await runCodexHook(input, {
@@ -300,4 +301,39 @@ test('retired continuation: a lead prompt emits no "Continuation epoch" and the 
   assert.match(stop.output.reason, /peer-work-1/);
   assert.doesNotMatch(JSON.stringify(stop.output), /Continuation/);
   assert.deepEqual(stop.ackIds, ['peer-work-1']);
+});
+
+test('lane 68: a Codex lead whose cwd is not inside a git checkout registers nothing but still reads its notes', async (t) => {
+  const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const probe = tmp(); t.after(() => fs.rmSync(probe, { recursive: true, force: true })); // no .git above it
+  let reads = 0;
+  const out = await runCodexHook({ hook_event_name: 'UserPromptSubmit', session_id: LEAD, cwd: probe }, {
+    home, env: { NOTE_SLUG: 'lead', CODEX_HOME: '/codex-home', AGENTS_HOME: path.join(home, '.agents') }, now: NOW,
+    inbox: async () => { reads += 1; return notes(); },
+  });
+  assert.equal(reads, 1, 'delivery is unchanged');
+  assert.ok(out?.output?.hookSpecificOutput?.additionalContext);
+  assert.deepEqual(readInboxes(home), {}, 'a probe-folder cwd is never registered');
+  assert.equal(fs.existsSync(path.join(home, '.agents', 'notes', 'inboxes.json')), false);
+});
+
+test('lane 68: a Codex payload naming an agent_id never registers, even when its transcript metadata is unreadable', async (t) => {
+  const home = tmp(); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(home, '.git')); // a checkout cwd: only the agent_id stops it
+  const env = { NOTE_SLUG: 'lead', CODEX_HOME: '/codex-home', AGENTS_HOME: path.join(home, '.agents') };
+  const base = { hook_event_name: 'UserPromptSubmit', session_id: LEAD, cwd: home };
+  // Missing and corrupt metadata classify as 'unknown' (lead-like for delivery), so the role gate
+  // alone cannot keep this child-shaped payload from re-registering the lead's inbox.
+  for (const [name, extra] of [
+    ['no transcript', {}],
+    ['corrupt transcript', { transcript_path: transcript(home, '{not json}\n') }],
+  ]) {
+    await runCodexHook({ ...base, agent_id: CHILD, ...extra }, {
+      home, env, now: NOW, inbox: async () => notes(),
+    });
+    assert.deepEqual(readInboxes(home), {}, `${name}: agent_id payload registers nothing`);
+  }
+  // The same payload without agent_id is the lead's own event and registers.
+  await runCodexHook(base, { home, env, now: NOW, inbox: async () => notes() });
+  assert.equal(readInboxes(home).lead.threadId, LEAD);
 });

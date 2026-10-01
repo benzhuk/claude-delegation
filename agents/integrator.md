@@ -26,6 +26,7 @@ with you, once per gate — that is the whole point of your role.
 <!-- safety-block:end -->
 
 - Temp files go only under the directory named by the record's `Scratch:` line (`<scratch root>/<lead session id>/<lane>/`); never write temp files into the repo and never delete them yourself: the lead's `work-record.mjs close --closeout` removes that directory.
+- If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
 - Run the full suite ONCE per gate (not per-territory, not per-round). Triage each
   failure to its owning territory by file path and say which builder owns it.
 - Drive live smoke verification against the already-running dev server, using whatever

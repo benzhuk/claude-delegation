@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { checkStaleness, staleSessionText } from './plugin-staleness.mjs';
+import { checkStaleness, staleSessionText, restartAdvisoryLine } from './plugin-staleness.mjs';
 
 // Every fixture lives under a fresh mkdtempSync scratch dir — this suite never touches the
 // real ~/.claude or ~/.agents, whatever machine runs it.
@@ -303,4 +303,23 @@ test('staleSessionText substitutes a different key name', () => {
 test('staleSessionText falls back to "delegation" when key is missing or malformed', () => {
   assert.match(staleSessionText({ key: null, running: '1.0.0', installed: '1.2.0' }), /^stale session: this session loaded delegation hooks/);
   assert.match(staleSessionText({ running: '1.0.0', installed: '1.2.0' }), /^stale session: this session loaded delegation hooks/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 68 item 1: the one-line restart advisory
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('restartAdvisoryLine builds the exact one-liner from a stale result', () => {
+  assert.equal(
+    restartAdvisoryLine({ stale: true, running: '0.20.18', installed: '0.20.19', key: 'delegation@benzhuk' }),
+    'plugin 0.20.18 running, 0.20.19 installed: restart this pane',
+  );
+});
+
+test('restartAdvisoryLine is null when not stale, malformed, or given nothing (never throws)', () => {
+  assert.equal(restartAdvisoryLine({ stale: false, running: '0.20.18', installed: null }), null);
+  assert.equal(restartAdvisoryLine({ stale: true, running: '0.20.18-beta', installed: '0.20.19' }), null);
+  assert.equal(restartAdvisoryLine({ stale: true, running: '0.20.18', installed: null }), null);
+  assert.equal(restartAdvisoryLine(null), null);
+  assert.equal(restartAdvisoryLine(undefined), null);
 });

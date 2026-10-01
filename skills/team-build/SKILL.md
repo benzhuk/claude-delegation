@@ -29,7 +29,10 @@ mention says where to find it once mirrored.
    path; never restate its content in prompts. Start each builder's prompt, the
    mandate, from `docs/mandate-template.md`, shipped next to this skill as
    `../_docs/mandate-template.md` when mirrored, and in the plugin repo's `docs/`
-   otherwise.
+   otherwise. Every mandate carries this line, verbatim:
+
+   If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
+
 2. **Scout** — one cheap (mid-tier) agent, per BUILD, not per territory: after the
    territory map exists and before any territory's worktree is created, it surveys every
    territory in one pass and writes one output file per territory
