@@ -91,7 +91,7 @@ import {
   ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
   readInboxes, wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
-  killSwitchActive, withoutIds, undeliveredIds,
+  killSwitchActive, withoutIds, undeliveredIds, insideGitCheckout,
 } from './transport.mjs';
 
 import { drainQuietly, deliverToInbox } from './note-flush.mjs';
@@ -658,7 +658,9 @@ export async function runNoteSend(argv, deps = {}) {
     // `mainCheckout` answers "write where you were told" for a directory that is not a checkout, and
     // only a path that does not EXIST here is a real dead end - a worktree the recipient has since
     // removed, or a cwd from another machine. Both are the fallback; neither may be silent.
-    const recipientRepo = inboxRecord.cwd && fsImpl.existsSync(inboxRecord.cwd)
+    // Lane 68 item 2: a cwd that EXISTS but is not inside a git checkout (a probe folder a session was
+    // started in) is the same dead end as a missing one - never write a ledger line into it.
+    const recipientRepo = inboxRecord.cwd && fsImpl.existsSync(inboxRecord.cwd) && insideGitCheckout(inboxRecord.cwd, fsImpl)
       ? mainCheckout(inboxRecord.cwd, git)
       : null;
     targetRepo = recipientRepo ?? mainCheckout(worktreePathFromEnv(env) ?? process.cwd(), git);
@@ -667,7 +669,7 @@ export async function runNoteSend(argv, deps = {}) {
     }
     if (!recipientRepo) {
       warnings.push(
-        `"${toRaw}" registered ${inboxRecord.cwd ? `cwd ${inboxRecord.cwd}, which does not exist here` : 'no cwd'}, `
+        `"${toRaw}" registered ${inboxRecord.cwd ? `cwd ${inboxRecord.cwd}, which ${fsImpl.existsSync(inboxRecord.cwd) ? 'is not a git checkout' : 'does not exist here'}` : 'no cwd'}, `
         + `so the ledger line went to ${targetRepo} (this session's repo), not the recipient's. The `
         + '~/.agents/notes mirror is what note-inbox reads, so the note still arrives; pass '
         + '--recipient-repo to put the repo copy where you want it.',
