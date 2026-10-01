@@ -309,12 +309,12 @@ function makeAgentStub(byLabel = {}) {
   return agentStub;
 }
 
-function runScript(args, agentStub, { parallelImpl = parallelStub, pipelineImpl = throwingPipelineStub, logImpl } = {}) {
+function runScript(args, agentStub, { parallelImpl = parallelStub, pipelineImpl = throwingPipelineStub, logImpl, phaseImpl = () => {} } = {}) {
   const body = stripLeadingExport(SOURCE);
   const logs = [];
   const log = logImpl ?? ((msg) => logs.push(msg));
   const fn = new AsyncFunction("agent", "parallel", "pipeline", "phase", "log", "args", "budget", body);
-  const resultPromise = fn(agentStub, parallelImpl, pipelineImpl, () => {}, log, args, {
+  const resultPromise = fn(agentStub, parallelImpl, pipelineImpl, phaseImpl, log, args, {
     total: null,
     spent: () => 0,
     remaining: () => Infinity,
@@ -1775,4 +1775,681 @@ test("both example arg files launch cleanly against the given/setup detection wi
   );
   const exampleResult = await runScript(example, exampleStub);
   assert.deepEqual(exampleResult.blockers, []);
+});
+
+// ===========================================================================
+// lane 67 (build-loop-fed): items 2 to 5 and the addendum, script side. Stubs prove the
+// script's side only: a real Workflow run's timeout and state-file behaviour is the lead's.
+// ===========================================================================
+
+const FULL_HEAD = "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4";
+const L67_GIVEN = {
+  ...BASE_ARGS,
+  territories: [T1],
+  integrationWorktree: "/repo/wt-integrate",
+  integrationBranch: "build/x",
+  recordPath: "docs/work/wr-x.record.md",
+  leadSession: "/home/lead/s.jsonl",
+};
+
+function acceptOkFor(args, extra = {}) {
+  return {
+    censusPath: null,
+    censusNote: "ok for test",
+    integrationHead: FULL_HEAD,
+    evidencePaths: [],
+    checkAcceptance: { exitCode: 0, verdict: "PASS", output: "ok" },
+    reportPath: acceptReportPathFor(args),
+    ...extra,
+  };
+}
+
+function happyStub(args, extra = {}) {
+  return makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "docs/work/evidence/T1-review.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(args),
+    ...extra,
+  });
+}
+
+const DEADLINE_RE = (n) => new RegExp(`Wall-clock limit ${n} minutes from your start; at ${n} minutes stop, write your report with VERDICT: BLOCKED and the reason timeout, and return`);
+
+function stateWriteJson(call) {
+  const m = call.prompt.match(/unchanged, as the whole contents of \S+ \(create the file, or overwrite it when present\): (\{.*\}) Then return/);
+  assert.ok(m, `a state write prompt carries its JSON: ${call.prompt.slice(0, 120)}`);
+  return JSON.parse(m[1]);
+}
+
+// ---- item 2: the deadline line and agent-timeout ---------------------------------------------
+
+test("lane 67 item 2: every builder, reviewer, integrator, runner and seam-fix prompt carries the deadline line, default 45 minutes", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl", secondHost: "netcup" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("aaaaaaa2"),
+    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa2", "f1b.md"),
+    "build:T2:r1": buildResult("bbbbbbb1"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb1", "f2.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "seam:r1": reviewResult("NEEDS_FIXES", FULL_HEAD, "seam1.md"),
+    "seam-fix:r2": buildResult("e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "seam:r2": reviewResult("APPROVE", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", "seam2.md"),
+    "accept-prep": acceptOkFor(args, { integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5" }),
+    "second-host": { host: "netcup", verdict: "PASS", passed: 10, failed: 0, logPath: "/repo/wt-integrate/docs/specs/example/reports/second-host.md", headSha: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5" },
+  });
+  await runScript(args, stub);
+  const labels = stub.allCalls.map((c) => c.opts.label);
+  for (const wanted of ["build:T1:r1", "build:T1:r2", "review:T1:r1", "integrate", "seam:r1", "seam-fix:r2", "accept-prep", "second-host", "state:read", "state:Build"]) {
+    assert.ok(labels.includes(wanted), `the run exercised ${wanted}`);
+  }
+  assert.ok(stub.allCalls.length >= 12);
+  for (const call of stub.allCalls) {
+    assert.match(call.prompt, DEADLINE_RE(45), `prompt for ${call.opts.label} carries the 45-minute deadline line`);
+  }
+});
+
+test("lane 67 item 2: the setup runner's prompt carries the deadline line too, and agentMinutes sets N", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }], agentMinutes: 20, recordPath: undefined, leadSession: undefined };
+  const stub = makeAgentStub({
+    setup: setupResultFor(args),
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript(args, stub);
+  assert.ok(stub.calls.length >= 4);
+  for (const call of stub.calls) assert.match(call.prompt, DEADLINE_RE(20), `prompt for ${call.opts.label}`);
+});
+
+test("lane 67 item 2: agentMinutes is validated like maxRounds: a non-number, zero or negative falls back to 45", async () => {
+  for (const bad of ["soon", 0, -3, NaN, null]) {
+    const stub = makeAgentStub({
+      "build:T1:r1": buildResult("aaaaaaa1"),
+      "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+      integrate: integrateResult(),
+    });
+    await runScript({ ...BASE_ARGS, territories: [T1], agentMinutes: bad }, stub);
+    for (const call of stub.calls) assert.match(call.prompt, DEADLINE_RE(45), `agentMinutes ${String(bad)} falls back for ${call.opts.label}`);
+  }
+  const stub = makeAgentStub({ "build:T1:r1": buildResult("aaaaaaa1"), "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"), integrate: integrateResult() });
+  await runScript({ ...BASE_ARGS, territories: [T1], agentMinutes: "30" }, stub);
+  assert.match(stub.calls[0].prompt, DEADLINE_RE(30), "a numeric string is accepted the way maxRounds accepts one");
+});
+
+test("lane 67 item 2: a builder BLOCKED whose note names timeout is the blocker agent-timeout; the other territory carries on", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2] };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1", "BLOCKED", "docs/work/t1.report.md", "reason timeout: hit the 45 minute limit"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.territories[0].blocker, "agent-timeout");
+  assert.equal(result.territories[1].verdict, "APPROVE");
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "agent-timeout" }]);
+  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
+  assert.match(integrateCall.prompt, /T2@bbbbbbb2/);
+  assert.match(integrateCall.prompt, /Excluded \(blocked\) territories: T1 \(agent-timeout\)/);
+});
+
+test("lane 67 item 2: a builder BLOCKED with any other note stays builder-blocked", async () => {
+  const stub = makeAgentStub({ "build:T1:r1": buildResult("aaaaaaa1", "BLOCKED", "r.md", "needs a decision from the lead"), integrate: integrateResult() });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].blocker, "builder-blocked");
+});
+
+test("lane 67 item 2: a fix-round builder BLOCKED naming timeout is agent-timeout", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "build:T1:r2": buildResult("aaaaaaa2", "BLOCKED", "r2.md", "timeout"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].blocker, "agent-timeout");
+  assert.equal(result.territories[0].rounds, 2);
+});
+
+test("lane 67 item 2: a reviewer BLOCKED naming timeout is agent-timeout (the review schema allows BLOCKED and a note)", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": { verdict: "BLOCKED", sha: "", findingsPath: "", blockerCount: 0, majorCount: 0, note: "timeout at 45 minutes" },
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "BLOCKED");
+  assert.equal(result.territories[0].blocker, "agent-timeout");
+  assert.deepEqual(result.blockers, [{ id: "T1", reason: "agent-timeout" }]);
+  const reviewOpts = stub.calls.find((c) => c.opts.label === "review:T1:r1").opts;
+  assert.ok(reviewOpts.schema.properties.verdict.enum.includes("BLOCKED"));
+});
+
+test("lane 67 item 2: a seam-fix builder or a seam reviewer timeout is the seam blocker agent-timeout", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const base = {
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+  };
+  const fixTimeout = await runScript(args, makeAgentStub({ ...base, "seam:r1": reviewResult("NEEDS_FIXES", FULL_HEAD, "s1.md"), "seam-fix:r2": buildResult("e5e5e5e", "BLOCKED", "x.md", "timeout") }));
+  assert.equal(fixTimeout.seam.blocker, "agent-timeout");
+  assert.deepEqual(fixTimeout.blockers, [{ id: "seam", reason: "agent-timeout" }]);
+  const reviewTimeout = await runScript(args, makeAgentStub({ ...base, "seam:r1": { verdict: "BLOCKED", sha: "", findingsPath: "", blockerCount: 0, majorCount: 0, note: "timed out" } }));
+  assert.equal(reviewTimeout.seam.blocker, "agent-timeout");
+});
+
+test("lane 67 item 2: an integrator BLOCKED naming timeout is reported as the blocker integrator agent-timeout", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: { verdict: "BLOCKED", headSha: "", reportPath: "r.md", failedGate: "timeout", territory: "" },
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.deepEqual(result.blockers, [{ id: "integrator", reason: "agent-timeout" }]);
+});
+
+test("lane 67 item 2: the script says plainly that the deadline is a prompt-level limit because the Workflow API has no per-agent limit", () => {
+  assert.match(SOURCE, /PROMPT-LEVEL limit/);
+  assert.match(SOURCE, /no per-agent/);
+  assert.match(SOURCE, /'agent-timeout'/);
+});
+
+// ---- item 3: the loop-state file ---------------------------------------------------------------
+
+test("lane 67 item 3: without recordPath there is no state call at all, and the run is today's run", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x" };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(stub.stateCalls.length, 0);
+  assert.deepEqual(stub.calls.map((c) => c.opts.label), ["build:T1:r1", "review:T1:r1", "integrate"]);
+  assert.deepEqual(result.acceptance, { skipped: "no-record-path" });
+});
+
+test("lane 67 item 3: the first call reads the state file beside the record (path computed in pure JS), schema-forced, sonnet runner", async () => {
+  const stub = happyStub(L67_GIVEN);
+  await runScript(L67_GIVEN, stub);
+  const first = stub.allCalls[0];
+  assert.equal(first.opts.label, "state:read");
+  assert.equal(first.opts.agentType, "delegation:runner");
+  assert.equal(first.opts.model, "sonnet");
+  assert.ok(first.opts.schema && first.opts.schema.required.includes("found"));
+  assert.ok(first.prompt.includes("/repo/wt-integrate/docs/work/wr-x.loop-state.json"), "relative recordPath resolved against integrationWorktree, same dir, .loop-state.json");
+  assert.equal(stub.stateCalls.filter((c) => c.opts.label === "state:read").length, 1, "one read at launch");
+});
+
+test("lane 67 item 3: an absolute recordPath, a drive-letter one included, names its loop-state file beside it", async () => {
+  const win = { ...L67_GIVEN, recordPath: "C:/repo/wt/docs/work/wr-x.record.md" };
+  const stubWin = happyStub(win);
+  await runScript(win, stubWin);
+  assert.ok(stubWin.allCalls[0].prompt.includes("C:/repo/wt/docs/work/wr-x.loop-state.json"));
+  const posix = { ...L67_GIVEN, recordPath: "/srv/lane/docs/work/wr-y.record.md" };
+  const stubPosix = happyStub(posix);
+  await runScript(posix, stubPosix);
+  assert.ok(stubPosix.allCalls[0].prompt.includes("/srv/lane/docs/work/wr-y.loop-state.json"));
+});
+
+test("lane 67 item 3: a state write follows Build, Review, Integrate, Seam and Accept, each carrying version 1, baseSha, specPath, territory rows, integrator and seam", async () => {
+  const stub = happyStub(L67_GIVEN);
+  await runScript(L67_GIVEN, stub);
+  const writes = stub.stateCalls.filter((c) => c.opts.label !== "state:read");
+  const labels = writes.map((c) => c.opts.label);
+  for (const wanted of ["state:Build", "state:Review", "state:Integrate", "state:Seam", "state:Accept"]) assert.ok(labels.includes(wanted), `${wanted} written`);
+  const lastIdx = (l) => labels.lastIndexOf(l);
+  assert.ok(lastIdx("state:Build") < lastIdx("state:Review") && lastIdx("state:Review") < lastIdx("state:Integrate") && lastIdx("state:Integrate") < lastIdx("state:Seam") && lastIdx("state:Seam") < lastIdx("state:Accept"), "phases written in order");
+  for (const w of writes) {
+    assert.equal(w.opts.agentType, "delegation:runner");
+    assert.equal(w.opts.model, "sonnet");
+    assert.ok(w.prompt.includes("/repo/wt-integrate/docs/work/wr-x.loop-state.json"));
+  }
+  const afterReview = stateWriteJson(writes.find((c) => c.opts.label === "state:Review"));
+  assert.equal(afterReview.version, 1);
+  assert.equal(afterReview.baseSha, BASE_ARGS.baseSha);
+  assert.equal(afterReview.specPath, BASE_ARGS.specPath);
+  assert.deepEqual(afterReview.territories, [{ id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "APPROVE", rounds: 1, findingsPath: "docs/work/evidence/T1-review.md", blocker: null }]);
+  const afterAccept = stateWriteJson(writes.find((c) => c.opts.label === "state:Accept"));
+  assert.equal(afterAccept.integrator.verdict, "PASS");
+  assert.equal(afterAccept.integrator.headSha, FULL_HEAD);
+  assert.equal(afterAccept.seam.verdict, "SKIPPED");
+  assert.equal(afterAccept.acceptance.verdict, "PASS");
+});
+
+test("lane 67 item 3: parallel territories coalesce their state writes: two territories finishing together cost fewer writes than one per territory per phase", async () => {
+  const args = { ...BASE_ARGS, territories: [T1, T2], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", seam: false };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "a.md"),
+    "build:T2:r1": buildResult("bbbbbbb2"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb2", "b.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(args),
+  });
+  await runScript(args, stub);
+  const buildReviewWrites = stub.stateCalls.filter((c) => c.opts.label === "state:Build" || c.opts.label === "state:Review").length;
+  assert.ok(buildReviewWrites <= 4, `two territories, one round: at most 2 writes per phase, saw ${buildReviewWrites}`);
+  assert.ok(buildReviewWrites >= 2);
+});
+
+test("lane 67 item 3: a state write that fails (null) is logged and the build carries on", async () => {
+  const stub = happyStub(L67_GIVEN, { "state:Build": null, "state:Review": null, "state:Integrate": null, "state:Seam": null, "state:Accept": null });
+  const run = runScript(L67_GIVEN, stub);
+  const result = await run;
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.ok(run.logs.some((l) => /state: write after .* failed/.test(l)));
+});
+
+test("lane 67 item 3: a state recording APPROVE at a sha resumes that territory as startFrom: no build, no review", async () => {
+  const state = {
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Review",
+    territories: [{ id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "APPROVE", rounds: 2, findingsPath: "docs/work/evidence/T1-review.md", blocker: null }],
+    integrator: null, seam: null, setup: null, acceptance: null,
+  };
+  const stub = makeAgentStub({ "state:read": { found: true, state }, integrate: integrateResult("PASS", FULL_HEAD), "accept-prep": acceptOkFor(L67_GIVEN) });
+  const run = runScript(L67_GIVEN, stub);
+  const result = await run;
+  assert.ok(!stub.calls.some((c) => c.opts.label.startsWith("build:") || c.opts.label.startsWith("review:")), "nothing rebuilt or re-reviewed");
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(result.territories[0].sha, "aaaaaaa1");
+  assert.equal(result.territories[0].findingsPath, "docs/work/evidence/T1-review.md");
+  const integrateCall = stub.calls.find((c) => c.opts.label === "integrate");
+  assert.match(integrateCall.prompt, /T1@aaaaaaa1/);
+  assert.ok(run.logs.some((l) => /T1: resumed from the loop-state file at APPROVE aaaaaaa1/.test(l)));
+});
+
+test("lane 67 item 3: a state recording NEEDS_FIXES with findings resumes at a fix round (round 2) against those findings", async () => {
+  const state = {
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Review",
+    territories: [{ id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "NEEDS_FIXES", rounds: 1, findingsPath: "docs/work/evidence/T1-r1.md", blocker: null }],
+    integrator: null, seam: null, setup: null, acceptance: null,
+  };
+  const stub = makeAgentStub({
+    "state:read": { found: true, state },
+    "build:T1:r2": buildResult("aaaaaaa2"),
+    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa2", "docs/work/evidence/T1-r2.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(L67_GIVEN),
+  });
+  const result = await runScript(L67_GIVEN, stub);
+  assert.ok(!stub.calls.some((c) => c.opts.label === "build:T1:r1" || c.opts.label === "review:T1:r1"));
+  const fixCall = stub.calls.find((c) => c.opts.label === "build:T1:r2");
+  assert.match(fixCall.prompt, /Reviewer findings: docs\/work\/evidence\/T1-r1\.md/);
+  assert.equal(result.territories[0].rounds, 2);
+});
+
+test("lane 67 item 3: an explicit startFrom in args overrides the state file for that territory", async () => {
+  const state = {
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Review",
+    territories: [{ id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "APPROVE", rounds: 1, findingsPath: "old.md", blocker: null }],
+    integrator: null, seam: null, setup: null, acceptance: null,
+  };
+  const args = { ...L67_GIVEN, territories: [{ ...T1, startFrom: { sha: "bbbbbbb2", verdict: "NEEDS_FIXES", findingsPath: "explicit.md" } }] };
+  const stub = makeAgentStub({
+    "state:read": { found: true, state },
+    "build:T1:r2": buildResult("bbbbbbb3"),
+    "review:T1:r2": reviewResult("APPROVE", "bbbbbbb3", "new.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(args),
+  });
+  await runScript(args, stub);
+  const fixCall = stub.calls.find((c) => c.opts.label === "build:T1:r2");
+  assert.ok(fixCall, "the explicit NEEDS_FIXES startFrom ran a fix round, the state's APPROVE did not skip it");
+  assert.match(fixCall.prompt, /Reviewer findings: explicit\.md/);
+});
+
+test("lane 67 item 3: a state whose baseSha or specPath differs from the args is ignored with a log, and the run starts fresh", async () => {
+  const mk = (over) => ({
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Review",
+    territories: [{ id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "APPROVE", rounds: 1, findingsPath: "old.md", blocker: null }],
+    integrator: { verdict: "PASS", headSha: FULL_HEAD, reportPath: "i.md", failedGate: "", territory: "", approvedKey: "T1@aaaaaaa" },
+    seam: null, setup: null, acceptance: null, ...over,
+  });
+  for (const stale of [mk({ baseSha: "1111111111111111111111111111111111111111" }), mk({ specPath: "docs/specs/other/spec.md" }), mk({ version: 2 })]) {
+    const stub = makeAgentStub({
+      "state:read": { found: true, state: stale },
+      "build:T1:r1": buildResult("ccccccc3"),
+      "review:T1:r1": reviewResult("APPROVE", "ccccccc3", "fresh.md"),
+      integrate: integrateResult("PASS", FULL_HEAD),
+      "accept-prep": acceptOkFor(L67_GIVEN),
+    });
+    const run = runScript(L67_GIVEN, stub);
+    const result = await run;
+    assert.ok(stub.calls.some((c) => c.opts.label === "build:T1:r1"), "built from scratch");
+    assert.ok(stub.calls.some((c) => c.opts.label === "integrate"), "integrator ran again");
+    assert.equal(result.territories[0].sha, "ccccccc3");
+    assert.ok(run.logs.some((l) => /loop-state at .* ignored/.test(l)), "ignored with a log");
+  }
+});
+
+test("lane 67 item 3: no state file (found false) or a dead read is a fresh run", async () => {
+  for (const readValue of [{ found: false, state: null }, null]) {
+    const stub = happyStub(L67_GIVEN, { "state:read": readValue });
+    const result = await runScript(L67_GIVEN, stub);
+    assert.ok(stub.calls.some((c) => c.opts.label === "build:T1:r1"));
+    assert.equal(result.territories[0].verdict, "APPROVE");
+  }
+});
+
+test("lane 67 item 3: an integrator the state records as PASS over the same approved set is skipped; a different approved set runs it again", async () => {
+  const state = (sha) => ({
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Integrate",
+    territories: [{ id: "T1", phase: "Review", sha, verdict: "APPROVE", rounds: 1, findingsPath: "f.md", blocker: null }],
+    integrator: { verdict: "PASS", headSha: FULL_HEAD, reportPath: "i.md", failedGate: "", territory: "", approvedKey: "T1@aaaaaaa" },
+    seam: null, setup: null, acceptance: null,
+  });
+  const skipStub = makeAgentStub({ "state:read": { found: true, state: state("aaaaaaa1") }, "accept-prep": acceptOkFor(L67_GIVEN) });
+  const skipRun = runScript(L67_GIVEN, skipStub);
+  const skipped = await skipRun;
+  assert.ok(!skipStub.calls.some((c) => c.opts.label === "integrate"), "integrator skipped");
+  assert.equal(skipped.integrator.verdict, "PASS");
+  assert.equal(skipped.integrator.headSha, FULL_HEAD);
+  assert.ok(skipRun.logs.some((l) => /integrate: already PASS/.test(l)));
+  assert.equal(skipped.acceptance.checkAcceptance.verdict, "PASS", "accept still runs on the resumed integrator head");
+
+  const reRunStub = makeAgentStub({ "state:read": { found: true, state: state("aaaaaaa9") }, integrate: integrateResult("PASS", FULL_HEAD), "accept-prep": acceptOkFor(L67_GIVEN) });
+  await runScript({ ...L67_GIVEN, territories: [{ ...T1, startFrom: { sha: "fffffff1", verdict: "APPROVE", findingsPath: "g.md" } }] }, reRunStub);
+  assert.ok(reRunStub.calls.some((c) => c.opts.label === "integrate"), "an approved sha that differs from the one integrated runs the integrator again");
+});
+
+test("lane 67 item 3: a seam the state records as APPROVE for the same integrator head is skipped", async () => {
+  const args = { ...L67_GIVEN, territories: [T1, T2] };
+  const seamSha = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+  const state = {
+    version: 1, baseSha: BASE_ARGS.baseSha, specPath: BASE_ARGS.specPath, phase: "Seam",
+    territories: [
+      { id: "T1", phase: "Review", sha: "aaaaaaa1", verdict: "APPROVE", rounds: 1, findingsPath: "a.md", blocker: null },
+      { id: "T2", phase: "Review", sha: "bbbbbbb2", verdict: "APPROVE", rounds: 1, findingsPath: "b.md", blocker: null },
+    ],
+    integrator: { verdict: "PASS", headSha: FULL_HEAD, reportPath: "i.md", failedGate: "", territory: "", approvedKey: "T1@aaaaaaa,T2@bbbbbbb" },
+    seam: { verdict: "APPROVE", sha: seamSha, rounds: 2, findingsPath: "s.md", blocker: null, integrateHead: FULL_HEAD },
+    setup: null, acceptance: null,
+  };
+  const stub = makeAgentStub({ "state:read": { found: true, state }, "accept-prep": acceptOkFor(args, { integrationHead: seamSha }) });
+  const result = await runScript(args, stub);
+  assert.deepEqual(stub.calls.map((c) => c.opts.label), ["accept-prep"], "only accept-prep ran");
+  assert.equal(result.seam.verdict, "APPROVE");
+  assert.equal(result.seam.sha, seamSha);
+  assert.equal(result.seam.rounds, 2);
+  assert.deepEqual(result.blockers, []);
+});
+
+test("lane 67 item 3: a setup-mode relaunch whose state shows Setup done reuses the recorded names, verified as today, and spawns no setup runner", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const setup = setupResultFor(args);
+  const state = { version: 1, baseSha: args.baseSha, specPath: args.specPath, phase: "Build", territories: [{ id: "L1", phase: null, sha: null, verdict: null, rounds: 0, findingsPath: null, blocker: null }], integrator: null, seam: null, setup, acceptance: null };
+  const stub = makeAgentStub({
+    "state:read": { found: true, state },
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+    "accept-prep": acceptOkFor(args),
+  });
+  const result = await runScript(args, stub);
+  assert.ok(!stub.calls.some((c) => c.opts.label === "setup"), "no setup runner");
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(result.setup.reportPath, setup.reportPath);
+  const buildCall = stub.calls.find((c) => c.opts.label === "build:L1:r1");
+  assert.ok(buildCall.prompt.includes(`Brief: ${setup.territories[0].briefPath}`), "builds with the recorded brief name");
+});
+
+test("lane 67 item 3: a recorded Setup whose names no longer verify is not trusted: Setup runs again", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const setup = setupResultFor(args);
+  const bad = { ...setup, territories: [{ ...setup.territories[0], worktree: "/elsewhere/wt-L1" }] };
+  const state = { version: 1, baseSha: args.baseSha, specPath: args.specPath, phase: "Build", territories: [], integrator: null, seam: null, setup: bad, acceptance: null };
+  const stub = makeAgentStub({
+    "state:read": { found: true, state },
+    setup,
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+    "accept-prep": acceptOkFor(args),
+  });
+  await runScript(args, stub);
+  assert.ok(stub.calls.some((c) => c.opts.label === "setup"));
+  assert.ok(stub.stateCalls.some((c) => c.opts.label === "state:Setup"), "a fresh Setup is written to the state");
+});
+
+test("lane 67 item 3: a fresh setup run records Setup in the state file, setup block verbatim", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }] };
+  const setup = setupResultFor(args);
+  const stub = makeAgentStub({ setup, "build:L1:r1": buildResult("aaaaaaa1"), "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"), integrate: integrateResult(), "accept-prep": acceptOkFor(args) });
+  await runScript(args, stub);
+  const write = stub.stateCalls.find((c) => c.opts.label === "state:Setup");
+  assert.ok(write);
+  assert.deepEqual(stateWriteJson(write).setup, setup);
+});
+
+// ---- item 4: the known defects -------------------------------------------------------------------
+
+test("lane 67 item 4a: the short-versus-full sha check accepts a 7+ hex prefix in both directions and still refuses a different commit", async () => {
+  const full = "5743ce80c59f72c67e9d89012ff947d44ee70bb2";
+  const fullBuilder = makeAgentStub({ "build:T1:r1": buildResult(full), "review:T1:r1": reviewResult("APPROVE", "5743ce8"), integrate: integrateResult() });
+  const a1 = await runScript({ ...BASE_ARGS, territories: [T1] }, fullBuilder);
+  assert.equal(a1.territories[0].verdict, "APPROVE");
+  assert.equal(a1.territories[0].sha, full, "the longer of the two reads is kept");
+  const different = makeAgentStub({ "build:T1:r1": buildResult("5743ce8"), "review:T1:r1": reviewResult("APPROVE", "5743ce9" + "0".repeat(33)), integrate: integrateResult() });
+  const a2 = await runScript({ ...BASE_ARGS, territories: [T1] }, different);
+  assert.equal(a2.territories[0].blocker, "review-sha-mismatch");
+  const tooShort = makeAgentStub({ "build:T1:r1": buildResult("5743ce"), "review:T1:r1": reviewResult("APPROVE", full), integrate: integrateResult() });
+  const a3 = await runScript({ ...BASE_ARGS, territories: [T1] }, tooShort);
+  assert.equal(a3.territories[0].blocker, "review-sha-mismatch", "a 6-character prefix is not enough");
+});
+
+const WIN_SETUP_ARGS = {
+  specPath: "C:/repo/lane/docs/specs/win/spec.md",
+  baseSha: "cc81d0c19e910d947d640040a658b10b67a0be7f",
+  startedAt: "2026-10-01T14:00:00Z",
+  territories: [{ id: "W1" }],
+  integrationWorktree: "C:/repo/lane",
+  integrationBranch: "build/win-1",
+  integrationGate: "node --test x.test.mjs",
+  recordPath: undefined,
+};
+
+test("lane 67 item 4b: a drive-letter specPath is absolute: setup accepts returned paths relative to the integration worktree, and the same paths spelled with a lower-case drive", async () => {
+  const absolute = setupResultFor(WIN_SETUP_ARGS);
+  // the runner answers relative to integrationWorktree (R7 allows it): "briefs/W1.md" against C:/repo/lane is NOT the computed
+  // C:/repo/lane/docs/specs/win/briefs/W1.md, so build the relative spelling from the computed absolute one.
+  const relative = (p) => p.replace("C:/repo/lane/", "");
+  const asRelative = {
+    ...absolute,
+    territories: absolute.territories.map((t) => ({ ...t, worktree: t.worktree.startsWith("C:/repo/") ? `../${t.worktree.slice("C:/repo/".length)}` : t.worktree, briefPath: relative(t.briefPath) })),
+    reviewerBriefPath: relative(absolute.reviewerBriefPath),
+    integratorBriefPath: relative(absolute.integratorBriefPath),
+    seamBriefPath: relative(absolute.seamBriefPath),
+    reportPath: relative(absolute.reportPath),
+  };
+  const stubRel = makeAgentStub({ setup: asRelative, "build:W1:r1": buildResult("aaaaaaa1"), "review:W1:r1": reviewResult("APPROVE", "aaaaaaa1"), integrate: integrateResult() });
+  const rel = await runScript(WIN_SETUP_ARGS, stubRel);
+  assert.deepEqual(rel.blockers, [], "relative renderings of the C:/ paths verify");
+
+  const lower = JSON.parse(JSON.stringify(absolute).replaceAll("C:/", "c:/"));
+  const stubLower = makeAgentStub({ setup: lower, "build:W1:r1": buildResult("aaaaaaa1"), "review:W1:r1": reviewResult("APPROVE", "aaaaaaa1"), integrate: integrateResult() });
+  const low = await runScript(WIN_SETUP_ARGS, stubLower);
+  assert.deepEqual(low.blockers, [], "a drive letter's case is not a different file");
+  // and a genuinely different C:/ path still fails
+  const wrong = { ...absolute, territories: [{ ...absolute.territories[0], worktree: "C:/repo/other/wt-win-1-W1" }] };
+  const bad = await runScript(WIN_SETUP_ARGS, makeAgentStub({ setup: wrong }));
+  assert.deepEqual(bad.blockers, [{ id: "W1", reason: "setup-failed" }]);
+});
+
+test("lane 67 item 4b: the accept-prep report path for a C:/ specPath is the spec directory itself, never prefixed with integrationWorktree", async () => {
+  const args = { ...WIN_SETUP_ARGS, recordPath: "C:/repo/lane/docs/work/wr-win.record.md", leadSession: "C:/Users/x/s.jsonl" };
+  const stub = makeAgentStub({
+    setup: setupResultFor(args),
+    "build:W1:r1": buildResult("aaaaaaa1"),
+    "review:W1:r1": reviewResult("APPROVE", "aaaaaaa1", "C:/repo/lane/f.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(args, { reportPath: "C:/repo/lane/docs/specs/win/reports/accept-prep.md" }),
+  });
+  const result = await runScript(args, stub);
+  const acceptCall = stub.calls.find((c) => c.opts.label === "accept-prep");
+  assert.ok(acceptCall.prompt.includes("Report path: C:/repo/lane/docs/specs/win/reports/accept-prep.md."), acceptCall.prompt.slice(-400));
+  assert.ok(!acceptCall.prompt.includes("C:/repo/lane/C:/"), "never integrationWorktree + a drive path");
+  assert.deepEqual(result.blockers, []);
+});
+
+test("lane 67 item 4c: the setup prompt makes the integrator brief say the seam review runs AFTER Integrate and never gates the merge; the integrate prompt says so too", async () => {
+  const args = { ...SETUP_ARGS, territories: [{ id: "L1" }, { id: "L2" }] };
+  const stub = makeAgentStub({
+    setup: setupResultFor(args),
+    "build:L1:r1": buildResult("aaaaaaa1"),
+    "review:L1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    "build:L2:r1": buildResult("bbbbbbb2"),
+    "review:L2:r1": reviewResult("APPROVE", "bbbbbbb2"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "seam:r1": reviewResult("APPROVE", FULL_HEAD),
+  });
+  await runScript({ ...args, recordPath: undefined }, stub);
+  const setupPromptText = stub.calls.find((c) => c.opts.label === "setup").prompt;
+  assert.match(setupPromptText, /integrator brief must say that the seam review runs AFTER Integrate/);
+  assert.match(setupPromptText, /never requires seam sign-off before its merge/);
+  assert.match(setupPromptText, /never refuses, waits or stops because a seam review is on/);
+  const integratePromptText = stub.calls.find((c) => c.opts.label === "integrate").prompt;
+  assert.match(integratePromptText, /seam review, when the loop runs one, comes AFTER you/);
+  assert.match(integratePromptText, /never a precondition for your merge/);
+});
+
+test("lane 67 addendum (h): a runner-reported check-acceptance FAIL is accept-prep-failed, and report-path-mismatch never masks it", async () => {
+  const stub = happyStub(L67_GIVEN, {
+    "accept-prep": acceptOkFor(L67_GIVEN, {
+      reportPath: "some/other/accept-prep.md",
+      checkAcceptance: { exitCode: 1, verdict: "FAIL", output: "[workflow-missing] Workflow: is missing" },
+    }),
+  });
+  const result = await runScript(L67_GIVEN, stub);
+  assert.deepEqual(result.blockers, [{ id: "accept-prep", reason: "accept-prep-failed" }]);
+  assert.match(result.acceptance.checkAcceptance.output, /workflow-missing/, "the check output rides in the acceptance object");
+});
+
+test("lane 67 addendum (h): an empty recordChanged, or a reported error, is accept-prep-failed", async () => {
+  const empty = await runScript(L67_GIVEN, happyStub(L67_GIVEN, { "accept-prep": acceptOkFor(L67_GIVEN, { recordChanged: [] }) }));
+  assert.deepEqual(empty.blockers, [{ id: "accept-prep", reason: "accept-prep-failed" }]);
+  const errored = await runScript(L67_GIVEN, happyStub(L67_GIVEN, { "accept-prep": acceptOkFor(L67_GIVEN, { recordChanged: ["Status"], error: "accept-prep: [missing-field] no Status: header line" }) }));
+  assert.deepEqual(errored.blockers, [{ id: "accept-prep", reason: "accept-prep-failed" }]);
+  assert.match(errored.acceptance.error, /missing-field/);
+});
+
+test("lane 67 addendum (h): a successful accept-prep still gets the report-path check, and a changed record with a PASS check is not a failure", async () => {
+  const ok = await runScript(L67_GIVEN, happyStub(L67_GIVEN, { "accept-prep": acceptOkFor(L67_GIVEN, { recordChanged: ["Status", "Artifact", "Evidence", "Worktree", "Log"] }) }));
+  assert.deepEqual(ok.blockers, []);
+  const mismatch = await runScript(L67_GIVEN, happyStub(L67_GIVEN, { "accept-prep": acceptOkFor(L67_GIVEN, { recordChanged: ["Status"], reportPath: "elsewhere.md" }) }));
+  assert.deepEqual(mismatch.blockers, [{ id: "accept-prep", reason: "report-path-mismatch" }]);
+});
+
+// ---- item 5: the second-host suite -----------------------------------------------------------------
+
+const SECOND_HOST_LOG = "/repo/wt-integrate/docs/specs/example/reports/second-host.md";
+function secondHostResult(over = {}) {
+  return { host: "netcup", verdict: "PASS", passed: 2100, failed: 0, logPath: SECOND_HOST_LOG, headSha: FULL_HEAD, ...over };
+}
+
+test("lane 67 item 5: without secondHost nothing is spawned for it and the return's secondHost is null", async () => {
+  const stub = happyStub(L67_GIVEN);
+  const result = await runScript(L67_GIVEN, stub);
+  assert.equal(result.secondHost, null);
+  assert.ok(!stub.calls.some((c) => c.opts.label === "second-host"));
+});
+
+test("lane 67 item 5: secondHost runs one runner (delegation:runner, sonnet, label second-host) after Accept and its result goes into the return", async () => {
+  const args = { ...L67_GIVEN, secondHost: "netcup" };
+  const stub = happyStub(args, { "second-host": secondHostResult() });
+  const phases = [];
+  const result = await runScript(args, stub, { phaseImpl: (name) => phases.push(name) });
+  const calls = stub.calls.filter((c) => c.opts.label === "second-host");
+  assert.equal(calls.length, 1, "one suite, one runner call");
+  assert.equal(calls[0].opts.agentType, "delegation:runner");
+  assert.equal(calls[0].opts.model, "sonnet");
+  assert.equal(calls[0].opts.phase, "Second host");
+  assert.deepEqual(result.secondHost, secondHostResult());
+  assert.deepEqual(result.blockers, []);
+  assert.equal(phases.at(-1), "Second host", "the last phase");
+  assert.ok(phases.indexOf("Accept") < phases.indexOf("Second host"));
+  const labels = stub.calls.map((c) => c.opts.label);
+  assert.ok(labels.indexOf("accept-prep") < labels.indexOf("second-host"));
+  for (const word of ["netcup", "ssh", "node scripts/run-tests.mjs", SECOND_HOST_LOG, "VERDICT: PASS", FULL_HEAD, "one suite per machine at a time", "none on Windows"]) {
+    assert.ok(calls[0].prompt.toLowerCase().includes(word.toLowerCase()), `second-host prompt names ${word}`);
+  }
+  assert.match(calls[0].prompt, DEADLINE_RE(45));
+  assert.match(calls[0].prompt, /Never send peer notes\./);
+});
+
+test("lane 67 item 5: secondHostGate replaces the default suite command", async () => {
+  const args = { ...L67_GIVEN, secondHost: "hetzner", secondHostGate: "node scripts/run-tests.mjs --sealed" };
+  const stub = happyStub(args, { "second-host": secondHostResult({ host: "hetzner" }) });
+  await runScript(args, stub);
+  const prompt = stub.calls.find((c) => c.opts.label === "second-host").prompt;
+  assert.ok(prompt.includes("node scripts/run-tests.mjs --sealed"));
+  assert.ok(prompt.includes("hetzner"));
+});
+
+test("lane 67 item 5: a Windows-looking secondHost is a blockers entry and nothing is spawned for it", async () => {
+  for (const host of ["win-desktop", "Windows-box", "my-windows-vm", "ben-desktop", "WIN11"]) {
+    const args = { ...L67_GIVEN, secondHost: host };
+    const stub = happyStub(args);
+    const result = await runScript(args, stub);
+    assert.ok(!stub.calls.some((c) => c.opts.label === "second-host"), `${host}: nothing spawned`);
+    assert.deepEqual(result.blockers, [{ id: "second-host", reason: "windows-host" }], host);
+    assert.equal(result.secondHost, null);
+  }
+});
+
+test("lane 67 item 5: the suite does not run when acceptance skipped", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", secondHost: "netcup" };
+  const stub = makeAgentStub({ "build:T1:r1": buildResult("aaaaaaa1"), "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"), integrate: integrateResult("PASS", FULL_HEAD) });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.acceptance, { skipped: "no-record-path" });
+  assert.equal(result.secondHost, null);
+  assert.ok(!stub.calls.some((c) => c.opts.label === "second-host"));
+});
+
+test("lane 67 item 5: a failed or blocked suite, a suite at another head, and a dead runner are blockers, never silent", async () => {
+  const args = { ...L67_GIVEN, secondHost: "netcup" };
+  const failed = await runScript(args, happyStub(args, { "second-host": secondHostResult({ verdict: "FAIL", failed: 3 }) }));
+  assert.deepEqual(failed.blockers, [{ id: "second-host", reason: "suite-failed" }]);
+  assert.equal(failed.secondHost.failed, 3);
+  const blocked = await runScript(args, happyStub(args, { "second-host": secondHostResult({ verdict: "BLOCKED" }) }));
+  assert.deepEqual(blocked.blockers, [{ id: "second-host", reason: "suite-blocked" }]);
+  const wrongHead = await runScript(args, happyStub(args, { "second-host": secondHostResult({ headSha: "1".repeat(40) }) }));
+  assert.deepEqual(wrongHead.blockers, [{ id: "second-host", reason: "review-sha-mismatch" }]);
+  const dead = await runScript(args, happyStub(args, { "second-host": [null, null] }));
+  assert.deepEqual(dead.blockers, [{ id: "second-host", reason: "agent-died" }]);
+  assert.equal(dead.secondHost.verdict, "BLOCKED");
+});
+
+test("lane 67 item 5: C:/ specPath puts the second-host log beside the spec, not under the integration worktree twice", async () => {
+  const args = { ...WIN_SETUP_ARGS, recordPath: "C:/repo/lane/docs/work/wr-win.record.md", leadSession: "x", secondHost: "netcup" };
+  const log = "C:/repo/lane/docs/specs/win/reports/second-host.md";
+  const stub = makeAgentStub({
+    setup: setupResultFor(args),
+    "build:W1:r1": buildResult("aaaaaaa1"),
+    "review:W1:r1": reviewResult("APPROVE", "aaaaaaa1", "C:/repo/lane/f.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "accept-prep": acceptOkFor(args, { reportPath: "C:/repo/lane/docs/specs/win/reports/accept-prep.md" }),
+    "second-host": secondHostResult({ logPath: log }),
+  });
+  const result = await runScript(args, stub);
+  assert.deepEqual(result.blockers, []);
+  assert.ok(stub.calls.find((c) => c.opts.label === "second-host").prompt.includes(log));
+});
+
+test("lane 67: every prompt the script renders, state and second-host runners included, carries the note-send prohibition", async () => {
+  const args = { ...L67_GIVEN, secondHost: "netcup" };
+  const stub = happyStub(args, { "second-host": secondHostResult() });
+  await runScript(args, stub);
+  assert.ok(stub.allCalls.length > stub.calls.length, "state calls are in allCalls");
+  for (const call of stub.allCalls) {
+    assert.match(call.prompt, /Never send peer notes\./, `prompt for ${call.opts.label}`);
+    assert.ok(!/note-send/.test(call.prompt));
+    assert.ok(PINNED_PAIRS.some((p) => p.agentType === call.opts.agentType && p.model === call.opts.model), `${call.opts.label} uses a pinned pair`);
+  }
 });
