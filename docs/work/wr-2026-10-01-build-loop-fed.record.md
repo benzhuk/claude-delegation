@@ -16,6 +16,6 @@ Base: 019aa850a2af1d2d20e99d8bbf08f4dd89c77c0f
 Log: 2026-10-01T17:15:00.000Z owned skills-o took lane 67 from skills-f-lane-67-1; launched when lane 66 freed a slot; build-loop Workflow next
 
 Measure: top-tier tokens per build and lead turns per build
-Workflow: pending
+Workflow: wf_8cb0fdf9-45d
 
 Observed: pending.
