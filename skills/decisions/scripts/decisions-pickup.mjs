@@ -363,7 +363,16 @@ function ownerInputsChanged(receipt, doc, now, base, fsImpl) {
   const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
   if (!original) return true;
   const fresh = ownerInputs(capturedItems(doc));
-  return !isSubMultiset(fresh, original);
+  if (isSubMultiset(fresh, original)) return false;
+  // Lane 64 F1: a round admitted from NEEDS_RECONCILIATION keeps its ORIGINAL capture as the
+  // receipt baseline, so the page that caused the wedge would re-wedge it on the next tick. The
+  // reconciliation capture (the page the closing step verified) is also a valid baseline.
+  if (receipt.state === 'ACCOUNTED' && receipt.accountedFrom === 'NEEDS_RECONCILIATION'
+      && receipt.reconciliationPrivateCaptureRef) {
+    const reconciled = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, now, base, fsImpl);
+    if (reconciled && isSubMultiset(fresh, reconciled)) return false;
+  }
+  return true;
 }
 
 function capturedItems(doc) {
@@ -1304,7 +1313,97 @@ export function status(options, deps = {}) {
   return result;
 }
 
+const STUCK_REASON = 'checked page bytes changed during the active round';
+const HISTORY_DIR = 'docs/decisions/history';
+
+/**
+ * Lane 64: every committed history file on origin/main, concatenated (any day, not only today's).
+ * Reads the committed ref only, never the working tree, so an uncommitted or unpushed note cannot
+ * pass. An unreadable ref is the empty string: absence of proof never admits a round.
+ */
+export function readOriginHistory(transportRepo, git = gitRunner) {
+  let listed;
+  try {
+    listed = String(git(['ls-tree', '-r', '--name-only', 'origin/main', '--', HISTORY_DIR], transportRepo));
+  } catch {
+    return '';
+  }
+  const files = listed.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.endsWith('.md'));
+  return files.map((file) => {
+    try { return String(git(['show', `origin/main:${file}`], transportRepo)); } catch { return ''; }
+  }).join('\n');
+}
+
+/** An owner input is "quoted in history" only in its exact quoted form, for a selection as for a comment. */
+export function quotedInHistory(triple, historyText) {
+  const text = triple?.[2];
+  if (typeof text !== 'string' || !text || !historyText) return false;
+  return historyText.includes(`"${text}"`);
+}
+
+/**
+ * Lane 64 F2: every input list is quoted in history by count, not only by presence. Each distinct
+ * text must occur as `"text"` at least as many times as its largest multiplicity in any one list
+ * (original capture, reconciliation capture), so a stale quote of a short answer such as "yes"
+ * cannot close a round whose new answers are not recorded. Overlapping lists are not double-counted.
+ */
+export function allQuotedInHistory(tripleLists, historyText) {
+  const need = new Map();
+  for (const list of tripleLists) {
+    const counts = new Map();
+    for (const triple of list) counts.set(triple?.[2], (counts.get(triple?.[2]) ?? 0) + 1);
+    for (const [text, n] of counts) need.set(text, Math.max(need.get(text) ?? 0, n));
+  }
+  for (const [text, n] of need) {
+    if (typeof text !== 'string' || !text || !historyText) return false;
+    if (historyText.split(`"${text}"`).length - 1 < n) return false;
+  }
+  return true;
+}
+
+/**
+ * Lane 64 item 3: the lead that runs the accounting is the owner of the attestation. `--owner`
+ * names that lead; without it the receipt's saved owner is used, as before. The receipt's own
+ * `owner` field is never rewritten: it is part of what every saved private capture is verified
+ * against, so a later lead is recorded as `accountedBy` instead.
+ */
 export function account(options, deps = {}) {
+  return settleRound(options, deps, ({ outcomePath }, fsImpl) => {
+    const resolved = path.resolve(outcomePath ?? '');
+    try { return { outcomePath: resolved, outcome: fsImpl.readFileSync(resolved, 'utf8') }; } catch (error) {
+      throw new PickupError(`accounting outcome is unreadable (${safeErrorCode(error)})`);
+    }
+  });
+}
+
+/**
+ * Lane 64 item 1: clearing Done and accounting the round are one step. `publish --clear-done` calls
+ * this after every check has passed and before it writes the page. The outcome file is written
+ * here, from the captured refs and the lead's name, so no outcome has to exist beforehand; every
+ * rule `account` enforces (integrity, provenance, attestation, one ref per captured item) still runs.
+ */
+export function closeRound(options, deps = {}) {
+  const reconciliation = String(options.reconciliation ?? '').replace(/\s+/g, ' ').trim();
+  if (!reconciliation) throw new PickupError('closing a round needs a nonempty reconciliation statement');
+  return settleRound(options, deps, ({ receipt, lead, requiredItems, base, now }, fsImpl) => {
+    const outcome = [
+      `Owner-attestation: ${lead}`,
+      `Round: ${receipt.round}`,
+      `Page: ${receipt.page}`,
+      `Fresh-page-reconciliation: ${reconciliation}`,
+      ...requiredItems.map((item) => `Accounted-ref: ${item.ref} closed in the same step that cleared Done`),
+      '',
+    ].join('\n');
+    const outcomePath = path.join(base, 'ws', 'decisions-pickup', 'outcomes', `${receipt.projectScope}-r${receipt.round}.md`);
+    privateMkdir(path.dirname(outcomePath), fsImpl);
+    const temp = `${outcomePath}.tmp-${process.pid}-${writeSequence += 1}`;
+    fsImpl.writeFileSync(temp, outcome, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    fsImpl.renameSync(temp, outcomePath);
+    return { outcomePath, outcome, now };
+  });
+}
+
+function settleRound(options, deps, outcomeFor) {
   const fsImpl = deps.fsImpl ?? fs;
   const now = new Date(deps.now ?? Date.now());
   const project = registeredProject(options.repo, options.page, fsImpl, deps.git ?? gitRunner);
@@ -1330,34 +1429,52 @@ export function account(options, deps = {}) {
     const reachedRecorded = typeof receipt.recordedAt === 'string'
       && (receipt.transportResult?.recorded === true || receipt.transportEvidence?.status === 'MATCH')
       && !receipt.uncertainAt && receipt.accountingOutcome == null;
-    const stuckAccountable = receipt.state === 'NEEDS_RECONCILIATION'
-      && receipt.reconciliationReason === 'checked page bytes changed during the active round'
-      && (receipt.previousState === 'RECORDED' || receipt.previousState === 'NEEDS_RECONCILIATION')
-      && reachedRecorded
-      && (() => {
-        const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
-        const reconciliation = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, now, base, fsImpl);
-        return Boolean(original) && Boolean(reconciliation) && isSubMultiset(reconciliation, original);
-      })();
-    if (receipt.state !== 'RECORDED' && !stuckAccountable) {
+    // Lane 64 item 2: the same stuck round is ALSO admitted as closed when its sub-multiset test
+    // fails but every owner input in BOTH the original and the reconciliation capture is quoted in
+    // a committed history file on origin/main (any day): the lead has already recorded every answer
+    // durably, so nothing the owner said is left unaccounted. Provenance gates are unchanged.
+    let admittedBy = null;
+    if (receipt.state === 'NEEDS_RECONCILIATION'
+        && receipt.reconciliationReason === STUCK_REASON
+        && (receipt.previousState === 'RECORDED' || receipt.previousState === 'NEEDS_RECONCILIATION')
+        && reachedRecorded) {
+      const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
+      const reconciliation = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, now, base, fsImpl);
+      if (original && reconciliation) {
+        if (isSubMultiset(reconciliation, original)) {
+          admittedBy = 'sub-multiset';
+        } else {
+          const history = deps.readHistory
+            ? deps.readHistory(receipt.transportRepo)
+            : readOriginHistory(receipt.transportRepo, deps.git ?? gitRunner);
+          if (allQuotedInHistory([original, reconciliation], history)) admittedBy = 'history';
+        }
+        // Lane 64 F6: the one-step close must account the page it verified. A fresh page in neither
+        // saved capture would leave the ACCOUNTED baseline stale, and the next tick would re-wedge it.
+        if (admittedBy && Array.isArray(options.freshInputs)
+            && !isSubMultiset(options.freshInputs, reconciliation) && !isSubMultiset(options.freshInputs, original)) {
+          throw new PickupError('the page changed after the pickup last read it; let one pickup tick run, then retry');
+        }
+      }
+    }
+    if (receipt.state !== 'RECORDED' && !admittedBy) {
       throw new PickupError('cannot account a round outside RECORDED; uncertain delivery never becomes repeat-safe');
     }
     if (typeof receipt.owner !== 'string' || !/^[a-z0-9-]+$/.test(receipt.owner)) {
       throw new PickupError('saved owner binding is invalid');
     }
-    const outcomePath = path.resolve(options.outcome ?? '');
-    let outcome;
-    try { outcome = fsImpl.readFileSync(outcomePath, 'utf8'); } catch (error) {
-      throw new PickupError(`accounting outcome is unreadable (${safeErrorCode(error)})`);
-    }
+    const lead = options.owner ? validateSlug('owner', options.owner) : receipt.owner;
+    const requiredItems = requiredItemsFromCapture(receipt, now, base, fsImpl);
+    const { outcomePath, outcome } = outcomeFor({
+      receipt, lead, requiredItems, base, now, outcomePath: options.outcome,
+    }, fsImpl);
     if (!outcome.trim()) throw new PickupError('accounting outcome is empty');
-    if (!new RegExp(`^Owner-attestation:\\s*${escapeRegExp(receipt.owner)}\\s*$`, 'mi').test(outcome)) {
+    if (!new RegExp(`^Owner-attestation:\\s*${escapeRegExp(lead)}\\s*$`, 'mi').test(outcome)) {
       throw new PickupError('accounting outcome must contain the required owner attestation');
     }
     if (!/^Fresh-page-reconciliation:\s*\S.+$/mi.test(outcome)) {
       throw new PickupError('accounting outcome must contain a nonempty Fresh-page-reconciliation line');
     }
-    const requiredItems = requiredItemsFromCapture(receipt, now, base, fsImpl);
     const missing = requiredItems
       .map((item) => item.ref)
       .filter((ref) => !new RegExp(`^Accounted-ref:\\s*${ref}(?:\\s|$)`, 'mi').test(outcome));
@@ -1366,9 +1483,15 @@ export function account(options, deps = {}) {
       ...receipt,
       state: 'ACCOUNTED',
       accountedAt: now.toISOString(),
+      accountedBy: lead,
       accountingOutcome: { path: outcomePath, digest: sha256(Buffer.from(outcome, 'utf8')), ownerAttested: true },
       observedUncheckedAt: null,
-      ...(stuckAccountable ? { accountedFrom: 'NEEDS_RECONCILIATION' } : {}),
+      ...(admittedBy ? { accountedFrom: 'NEEDS_RECONCILIATION' } : {}),
+      ...(admittedBy === 'history' ? { admittedBy: 'history' } : {}),
+      // A handoff marker left by a registered owner that differed from the saved one is settled by
+      // closing the round: the next round binds whichever lead runs the pickup then.
+      ...(receipt.handoffStatus === 'PENDING_MANUAL_HANDOFF'
+        ? { handoffStatus: null, handoffResolvedAt: now.toISOString() } : {}),
     };
     atomicJson(paths.receipt, updated, fsImpl);
     return receiptStatus(updated, paths.claim, base, fsImpl, false);

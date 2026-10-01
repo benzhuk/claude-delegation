@@ -122,7 +122,15 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
   // and any legacy/unknown status still mean this round was closed out abnormally (or is broken)
   // and must not be treated as fresh, verbatim-checked capture.
   const acceptableStatuses = new Set(['PREPARED', 'RECORDED', 'WAITING_OWNER', 'ACCOUNTED']);
-  if (!acceptableStatuses.has(st?.status)) return null;
+  // Lane 64: the one NEEDS_RECONCILIATION shape the pickup itself knows how to close (a round whose
+  // checked page bytes changed after its note was recorded, with its evidence intact) is returned,
+  // tagged `reconciling`, so `publish` can close it in the same step as clearing Done. Anything
+  // else in that status (broken evidence, conflicting envelope, uncertain delivery) stays refused.
+  const stuckRound = st?.status === 'NEEDS_RECONCILIATION'
+    && st.receipt?.state === 'NEEDS_RECONCILIATION'
+    && st.receipt.reconciliationReason === STUCK_ROUND_REASON
+    && st.evidenceIntegrity?.status === 'OK';
+  if (!acceptableStatuses.has(st?.status) && !stuckRound) return null;
   // Review r1 F1: an ACCOUNTED round whose unchecked page the pickup host has already observed
   // is over: any checked Done now is a new hand-back (round + 1), never this round's.
   if (st.status === 'ACCOUNTED' && st.receipt.observedUncheckedAt) return null;
@@ -142,7 +150,23 @@ export async function defaultReadPickupCapture({ repo, page }, { pickup } = {}) 
   return {
     round, tickAt, triples: ownerInputTriples(doc),
     ...(st.status === 'ACCOUNTED' ? { accounted: true, doneLabel: doc.doneLabel } : {}),
+    // An ACCOUNTED-from-reconciliation round keeps its original capture, so it is compared the same way.
+    ...(stuckRound || (st.status === 'ACCOUNTED' && st.receipt.accountedFrom === 'NEEDS_RECONCILIATION')
+      ? { reconciling: true } : {}),
   };
+}
+
+const STUCK_ROUND_REASON = 'checked page bytes changed during the active round';
+
+/** Lane 64 item 1: the default one-step close, `decisions-pickup.mjs`'s `closeRound` (the same
+ * rules `account` enforces, with the outcome written by the call itself). Throws on refusal. */
+export async function defaultAccountRound({
+  repo, page, owner, reconciliation, now, freshInputs,
+}, { pickup } = {}) {
+  const pickupMod = pickup ?? await import('./decisions-pickup.mjs');
+  return pickupMod.closeRound({
+    repo, page, ...(owner ? { owner } : {}), reconciliation, ...(freshInputs ? { freshInputs } : {}),
+  }, now ? { now } : {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,6 +261,32 @@ function gitLsTreeFiles(execGit, repo, ref, relDir) {
   } catch {
     return [];
   }
+}
+
+/** Lane 64 item 2: every committed history file on origin/main, any day, concatenated. */
+function readAllHistory(execGit, repo) {
+  return gitLsTreeFiles(execGit, repo, 'origin/main', 'docs/decisions/history')
+    .filter((rel) => rel.endsWith('.md'))
+    .map((rel) => gitShow(execGit, repo, 'origin/main', rel) ?? '')
+    .join('\n');
+}
+
+/** An owner input counts as quoted in history only in its exact quoted form (selection or comment). */
+function quotedInAllHistory([, , text], historyText) {
+  return typeof text === 'string' && text !== '' && historyText.includes(`"${text}"`);
+}
+
+/** Lane 64 F2: the triples of these lists not quoted in history by count (each text must occur as
+ * `"text"` at least as many times as its largest multiplicity in any one list). */
+function unquotedInHistory(tripleLists, historyText) {
+  const need = new Map();
+  for (const list of tripleLists) {
+    const counts = new Map();
+    for (const t of list) counts.set(t[2], (counts.get(t[2]) ?? 0) + 1);
+    for (const [text, n] of counts) need.set(text, Math.max(need.get(text) ?? 0, n));
+  }
+  return tripleLists.flat().filter((t) => !quotedInAllHistory(t, historyText)
+    || historyText.split(`"${t[2]}"`).length - 1 < need.get(t[2]));
 }
 
 const OPTION_LINE_RE = /^\s*-\s*\[[ xX]\]/;
@@ -409,7 +459,7 @@ function pushWithRebase(execGit, repo, nowIso) {
  */
 export async function publish(opts, deps = {}) {
   const {
-    repo, page, clearDone = false, adoptLive = false, dryRun = false, topic = null,
+    repo, page, clearDone = false, adoptLive = false, dryRun = false, topic = null, owner = null,
   } = opts;
   if (!repo) throw new PublishError(2, 'publish requires --repo');
   if (!page) throw new PublishError(2, 'publish requires --page');
@@ -428,6 +478,7 @@ export async function publish(opts, deps = {}) {
   const write = deps.write ?? (() => {});
   const writeErr = deps.writeErr ?? (() => {});
   const readPickupCapture = deps.readPickupCapture ?? defaultReadPickupCapture;
+  const accountRound = deps.accountRound ?? defaultAccountRound;
   const readLatestBackup = deps.readLatestBackup ?? (async () => null);
 
   if (!deps.readPage) throw new PublishError(3, 'publish requires deps.readPage (the notion.js reader)');
@@ -453,6 +504,7 @@ export async function publish(opts, deps = {}) {
 
   let doneLineForRender;
   let sessionSince = null;
+  let roundToAccount = null;
   if (clearDone) {
     const capture = await readPickupCapture({ repo, page });
     if (!capture) throw new PublishError(3, 'clear-done: no captured pickup round for this page');
@@ -471,7 +523,21 @@ export async function publish(opts, deps = {}) {
       throw new PublishError(3, `clear-done: an already-accounted round's Done line ("${capture.doneLabel}") differs from the fresh page's ("${doc.doneLabel}"): Done was cleared and re-checked since that round; run the pickup for the new round`);
     }
     const freshTriples = ownerInputTriples(doc);
-    if (!multisetsEqual(freshTriples, capture.triples)) {
+    // Lane 64 item 2: a round the pickup holds as stuck (`reconciling`) is closed by history, not by
+    // multiset equality: either the fresh page adds nothing the round's capture did not hold, or
+    // every owner input of the round and of the fresh page is quoted in a committed history file on
+    // origin/main (any day). The pickup re-checks its own side before it accounts.
+    let allHistory = null;
+    if (capture.reconciling) {
+      const addsNothing = multisetExtra(freshTriples, capture.triples).length === 0;
+      if (!addsNothing) {
+        allHistory = readAllHistory(execGit, repo);
+        const unquoted = unquotedInHistory([capture.triples, freshTriples], allHistory);
+        if (unquoted.length) {
+          throw new PublishError(3, `clear-done: the round is stuck in reconciliation and not every owner input is quoted in a committed history file on origin/main: ${JSON.stringify(unquoted)}`);
+        }
+      }
+    } else if (!multisetsEqual(freshTriples, capture.triples)) {
       throw new PublishError(3, `clear-done: captured owner inputs do not match the fresh read (${describeMismatch(freshTriples, capture.triples)})`);
     }
     // Review round-2 F2: read committed, pushed content only (origin/main), require the spec's
@@ -480,7 +546,7 @@ export async function publish(opts, deps = {}) {
     // quote the choice — so a short comment can never pass as a substring of unrelated text, and
     // a tick can never pass merely because its own waiting item still exists.
     const todayRelPath = `docs/decisions/history/${todayYmdNY(now)}.md`;
-    const todayText = gitShow(execGit, repo, 'origin/main', todayRelPath) ?? '';
+    const todayText = allHistory ?? gitShow(execGit, repo, 'origin/main', todayRelPath) ?? '';
     const waitingRelPaths = gitLsTreeFiles(execGit, repo, 'origin/main', 'docs/decisions/waiting');
     const waitingFiles = waitingRelPaths.map((rel) => ({ rel, text: gitShow(execGit, repo, 'origin/main', rel) }));
     for (const [kind, title, text] of freshTriples) {
@@ -490,6 +556,12 @@ export async function publish(opts, deps = {}) {
     }
     doneLineForRender = `- [ ] Done (last cleared: ${formatClearedTimestamp(now)})`;
     sessionSince = capture.tickAt ?? now.toISOString();
+    roundToAccount = capture.accounted ? null : { ownerInputCount: freshTriples.length, freshInputs: freshTriples };
+    // Lane 64 F3: in this one-step path the history/verbatim check above is the proof; the
+    // attestation only records who ran it, so the running lead must name itself.
+    if (roundToAccount && !owner && !dryRun) {
+      throw new PublishError(2, "clear-done: pass --owner <your-session-name>; this step accounts the round in that lead's name");
+    }
   } else {
     doneLineForRender = extractDoneLineVerbatim(doc);
   }
@@ -560,6 +632,26 @@ export async function publish(opts, deps = {}) {
   // Review round-2 F6: refuse before any Notion write, not after, when this checkout is not an
   // up-to-date main.
   checkOnMain(execGit, repo);
+
+  // Lane 64 item 1: clearing Done and accounting the round are one step. Every check above has
+  // passed, so the round is accounted here, BEFORE the page is written: a failure from here on
+  // leaves an ACCOUNTED round with Done still checked (the lane-58 state this same command can
+  // finish, including a round accounted from NEEDS_RECONCILIATION whose fresh inputs add nothing or
+  // are all quoted in origin history), never a cleared Done with an unaccounted round. A refusal to account stops the publish.
+  if (roundToAccount) {
+    try {
+      await accountRound({
+        repo,
+        page,
+        owner,
+        freshInputs: roundToAccount.freshInputs,
+        reconciliation: `publish --clear-done at ${now.toISOString()}: the ${roundToAccount.ownerInputCount} owner input(s) on the fresh page were verified quoted verbatim in committed history on origin/main, and Done is cleared in this same step.`,
+        now,
+      });
+    } catch (e) {
+      throw new PublishError(3, `clear-done: the round could not be accounted, so Done was not cleared: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 
   // Step 5: notion.js replace-md.
   const replaceResult = await deps.replaceMd(page, rendered);
