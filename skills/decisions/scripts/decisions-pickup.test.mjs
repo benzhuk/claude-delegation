@@ -1887,3 +1887,262 @@ test('readOriginHistory on a real repo reads only what origin/main holds, never 
   assert.equal(text.includes('answer two'), false, 'an unpushed local commit is not origin history');
   assert.equal(text.includes('answer three'), false, 'the working tree is not origin history');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 64b: `rebind` moves a receipt's project binding after a repo move. The fixture is the
+// 9/30 state, synthesised: the stuck round is built in a sealed repo, then the repo directory is
+// renamed so its old path no longer exists, keeping `.agents/project.json` and the untracked
+// pointer files under docs/notes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function movedRepo(t, { build = buildWedge } = {}) {
+  const fx = fixture(); t.after(fx.cleanup);
+  const receipt = await build(fx);
+  const moved = path.join(fx.fixtureRoot, 'moved-pickup');
+  fs.renameSync(fx.repo, moved);
+  assert.equal(fs.existsSync(fx.repo), false, 'the old path is gone');
+  const newProject = fs.realpathSync(moved);
+  const options = { ...fx.options, repo: moved };
+  const rebindOptions = { repo: moved, page: fx.options.page, fromProject: receipt.project };
+  const run = (extra = {}, over = {}) => pickupModule.rebind(
+    { ...rebindOptions, ...extra }, { agentsHome: fx.agentsHome, now: NOW, ...over },
+  );
+  const stat = () => status(options, { agentsHome: fx.agentsHome });
+  const receiptFile = receiptPaths({ agentsHome: fx.agentsHome, project: newProject, page: fx.options.page }).receipt;
+  return { fx, receipt, moved, newProject, options, rebindOptions, run, stat, receiptFile };
+}
+
+function treeBytes(root, into = new Map()) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) treeBytes(full, into);
+    else if (entry.isFile()) into.set(full, fs.readFileSync(full).toString('base64'));
+  }
+  return into;
+}
+
+const readJsonFile = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const captureFiles = (fx, receipt) => [receipt.privateCaptureRef, receipt.reconciliationPrivateCaptureRef]
+  .filter(Boolean).map((ref) => privateFile(fx, receipt, ref));
+
+/** An orphan next-round capture (or an earlier round) under the saved scope, with the old identity. */
+function writeExtraCapture(fx, receipt, round, text = PAGE) {
+  const bytes = Buffer.from(text, 'utf8');
+  const file = path.join(fx.agentsHome, 'ws', 'decisions-pickup', 'captures', receipt.projectScope, `r${round}.json`);
+  fs.writeFileSync(file, `${JSON.stringify({
+    version: 2, type: 'decisions-pickup-private-capture', page: receipt.page, project: receipt.project,
+    projectScope: receipt.projectScope, transportRepo: receipt.transportRepo, round, readAt: NOW,
+    owner: receipt.owner, from: receipt.from, digest: crypto.createHash('sha256').update(bytes).digest('hex'),
+    originalEncoding: 'utf8-base64', originalBytes: bytes.toString('base64'), items: [], reason: 'synthetic',
+  }, null, 2)}\n`);
+  return file;
+}
+
+test('rebind 64b: a moved repo is refused before and bound and intact after, the saved scope and owner kept', async (t) => {
+  const m = await movedRepo(t);
+  const extra = writeExtraCapture(m.fx, m.receipt, m.receipt.round + 1);
+  const before = m.stat();
+  assert.equal(before.status, 'PENDING_MANUAL_HANDOFF');
+  assert.equal(before.reason, 'this page is bound to a different authorization project');
+  assert.equal(before.boundProject, m.receipt.project);
+  const out = m.run();
+  assert.deepEqual(out.rebound, { from: m.receipt.project, to: m.newProject });
+  assert.equal(out.status, 'NEEDS_RECONCILIATION');
+  const after = m.stat();
+  assert.equal(after.status, 'NEEDS_RECONCILIATION', 'the receipt real state, no longer the foreign-project refusal');
+  assert.equal(after.reason, undefined);
+  assert.equal(after.evidenceIntegrity.status, 'OK');
+  const r = after.receipt;
+  assert.equal(r.project, m.newProject);
+  assert.equal(r.transportRepo, m.newProject);
+  assert.notEqual(r.project, m.receipt.project);
+  for (const key of ['projectScope', 'privateCaptureRef', 'reconciliationPrivateCaptureRef', 'detailsPath', 'noteId', 'owner', 'state', 'round', 'digest', 'observedDigest', 'handoffStatus', 'requestedOwner']) {
+    assert.deepEqual(r[key], m.receipt[key], key);
+  }
+  assert.equal(r.owner, 'skills-a');
+  const argv = r.exactSendInputs.argv;
+  assert.equal(argv[argv.indexOf('--recipient-repo') + 1], m.newProject);
+  assert.equal(argv[argv.indexOf('--sender-repo') + 1], m.newProject);
+  assert.deepEqual(argv.filter((v) => v === m.receipt.transportRepo), [], 'the old path is nowhere in the send argv');
+  assert.deepEqual({ ...r.exactSendInputs, argv: undefined }, { ...m.receipt.exactSendInputs, argv: undefined },
+    'id, topic, text, details, kind, needs untouched');
+  for (const file of [...captureFiles(m.fx, m.receipt), extra]) {
+    const capture = readJsonFile(file);
+    assert.equal(capture.project, m.newProject, file);
+    assert.equal(capture.transportRepo, m.newProject, file);
+    assert.equal(capture.projectScope, m.receipt.projectScope, file);
+  }
+  const bytes = boundPickup(m.fx).openPrivateCapture({ ...m.options, round: m.receipt.round });
+  assert.equal(bytes.toString('utf8'), W_ROUND);
+});
+
+test('rebind 64b: a different --owner leaves receipt.owner and sets the handoff marker that accounting settles', async (t) => {
+  const build = async (fx) => {
+    const recorded = await pickupOnce({ ...fx.options, owner: 'skills-a' }, deps(fx, { readPage: async () => W_ROUND }));
+    assert.equal(recorded.status, 'RECORDED');
+    assert.equal(recorded.receipt.handoffStatus, undefined);
+    return recorded.receipt;
+  };
+  const m = await movedRepo(t, { build });
+  const out = m.run({ owner: 'skills-fable' });
+  assert.equal(out.status, 'RECORDED');
+  assert.equal(out.receipt.owner, 'skills-a', 'the saved owner is never rewritten');
+  assert.equal(out.receipt.handoffStatus, 'PENDING_MANUAL_HANDOFF');
+  assert.equal(out.receipt.requestedOwner, 'skills-fable');
+  assert.equal(out.receipt.handoffObservedAt, NOW);
+  assert.equal(out.evidenceIntegrity.status, 'OK');
+  const closed = pickupModule.closeRound({
+    repo: m.moved, page: m.options.page, owner: 'skills-fable', reconciliation: 'rebound and handled',
+  }, { agentsHome: m.fx.agentsHome, now: NOW });
+  assert.equal(closed.status, 'ACCOUNTED');
+  assert.equal(closed.receipt.accountedBy, 'skills-fable');
+  assert.equal(closed.receipt.owner, 'skills-a');
+  assert.equal(closed.receipt.handoffStatus, null, 'closing the round clears the marker');
+  assert.equal(closed.evidenceIntegrity.status, 'OK');
+  const same = await movedRepo(t, { build });
+  const unchanged = same.run({ owner: 'skills-a' });
+  assert.equal(unchanged.receipt.handoffStatus, undefined, 'the same owner sets no marker');
+});
+
+test('rebind 64b: an existing old path is refused, every file byte-identical, and a live second project still gets the old refusal', async (t) => {
+  const m = await movedRepo(t);
+  fs.mkdirSync(m.receipt.project, { recursive: true });
+  const before = treeBytes(m.fx.agentsHome);
+  const notes = treeBytes(path.join(m.moved, 'docs'));
+  assert.throws(() => m.run(), (error) => error instanceof PickupError && /still exists.*never taken over/.test(error.message));
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+  assert.deepEqual(treeBytes(path.join(m.moved, 'docs')), notes);
+  // A live project is never taken over: a copy at the old path, with its own config, is refused too.
+  fs.mkdirSync(path.join(m.receipt.project, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(m.receipt.project, '.agents', 'project.json'), JSON.stringify({ decisions_url: m.options.page }));
+  assert.throws(() => pickupModule.rebind(
+    { repo: m.receipt.project, page: m.options.page, fromProject: m.receipt.project }, { agentsHome: m.fx.agentsHome, now: NOW },
+  ), /still exists/);
+  const live = m.stat();
+  assert.equal(live.status, 'PENDING_MANUAL_HANDOFF');
+  assert.equal(live.reason, 'this page is bound to a different authorization project');
+  assert.throws(() => account({ ...m.options, outcome: path.join(m.moved, 'unused.md') }, { agentsHome: m.fx.agentsHome }), /bound to another authorization project/);
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+});
+
+test('rebind 64b: a --from-project that is not the saved binding is refused with no write', async (t) => {
+  const m = await movedRepo(t);
+  const before = treeBytes(m.fx.agentsHome);
+  const elsewhere = path.join(m.fx.fixtureRoot, 'never-existed');
+  assert.throws(() => m.run({ fromProject: elsewhere }), /not --from-project/);
+  assert.throws(() => m.run({ fromProject: undefined }), /--from-project is required/);
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+});
+
+test('rebind 64b: a tampered saved capture is refused, receipt and captures byte-identical', async (t) => {
+  for (const which of [0, 1]) {
+    const m = await movedRepo(t);
+    const file = captureFiles(m.fx, m.receipt)[which];
+    const capture = readJsonFile(file);
+    capture.originalBytes = Buffer.from('<summary>Changed</summary>\n- [x] Done\n', 'utf8').toString('base64');
+    fs.writeFileSync(file, `${JSON.stringify(capture, null, 2)}\n`);
+    const before = treeBytes(m.fx.agentsHome);
+    assert.throws(() => m.run(), (error) => error instanceof PickupError && /is not intact/.test(error.message), `capture ${which}`);
+    assert.deepEqual(treeBytes(m.fx.agentsHome), before, `capture ${which} refusal writes nothing`);
+    fs.unlinkSync(file);
+    const missing = treeBytes(m.fx.agentsHome);
+    assert.throws(() => m.run(), /is not intact/, 'a missing capture refuses too');
+    assert.deepEqual(treeBytes(m.fx.agentsHome), missing);
+  }
+});
+
+test('rebind 64b: a tampered earlier-round capture under the saved scope is refused with no write', async (t) => {
+  const m = await movedRepo(t);
+  const extra = writeExtraCapture(m.fx, m.receipt, m.receipt.round + 1);
+  const capture = readJsonFile(extra);
+  capture.originalBytes = Buffer.from('tampered', 'utf8').toString('base64');
+  fs.writeFileSync(extra, `${JSON.stringify(capture, null, 2)}\n`);
+  const before = treeBytes(m.fx.agentsHome);
+  assert.throws(() => m.run(), /is not intact/);
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+  fs.writeFileSync(extra, '{not json');
+  assert.throws(() => m.run(), /is unreadable/);
+});
+
+test('rebind 64b: a pointer missing under the new transport repository is refused with no write', async (t) => {
+  const m = await movedRepo(t);
+  fs.unlinkSync(path.join(m.moved, ...m.receipt.detailsPath.split('/')));
+  const before = treeBytes(m.fx.agentsHome);
+  assert.throws(() => m.run(), /details pointer is not present under the new transport repository \(MISSING\)/);
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+});
+
+test('rebind 64b: a missing receipt and a version-1 legacy receipt are refused', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const run = () => pickupModule.rebind(
+    { repo: fx.repo, page: fx.options.page, fromProject: path.join(fx.fixtureRoot, 'gone') }, { agentsHome: fx.agentsHome, now: NOW },
+  );
+  assert.throws(run, /no pickup receipt to rebind/);
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  const file = receiptPaths({ agentsHome: fx.agentsHome, project: recorded.receipt.project, page: fx.options.page }).receipt;
+  fs.writeFileSync(file, `${JSON.stringify({ ...recorded.receipt, version: 1 }, null, 2)}\n`);
+  const before = treeBytes(fx.agentsHome);
+  assert.throws(run, /version-1 legacy receipt cannot be rebound/);
+  assert.deepEqual(treeBytes(fx.agentsHome), before);
+});
+
+test('rebind 64b: a second rebind is a clean refusal that changes nothing', async (t) => {
+  const m = await movedRepo(t);
+  m.run();
+  const before = treeBytes(m.fx.agentsHome);
+  assert.throws(() => m.run(), (error) => error instanceof PickupError && /not --from-project/.test(error.message));
+  assert.deepEqual(treeBytes(m.fx.agentsHome), before);
+  assert.equal(m.stat().evidenceIntegrity.status, 'OK');
+});
+
+test('rebind 64b: a crash after the captures are rewritten is finished by running rebind again', async (t) => {
+  const m = await movedRepo(t);
+  const extra = writeExtraCapture(m.fx, m.receipt, m.receipt.round + 1);
+  let failed = 0;
+  const fsImpl = {
+    ...fs,
+    renameSync(from, to) {
+      if (to === m.receiptFile && failed === 0) { failed += 1; const error = new Error('injected'); error.code = 'EIO'; throw error; }
+      return fs.renameSync(from, to);
+    },
+  };
+  assert.throws(() => m.run({}, { fsImpl }), /injected/);
+  assert.equal(failed, 1);
+  assert.equal(readJsonFile(m.receiptFile).project, m.receipt.project, 'the receipt is written last, so it is still the old one');
+  for (const file of [...captureFiles(m.fx, m.receipt), extra]) {
+    assert.equal(readJsonFile(file).project, m.newProject, 'the captures were already rewritten');
+  }
+  assert.equal(m.stat().status, 'PENDING_MANUAL_HANDOFF');
+  const out = m.run();
+  assert.equal(out.status, 'NEEDS_RECONCILIATION');
+  assert.equal(out.evidenceIntegrity.status, 'OK');
+  assert.equal(m.stat().evidenceIntegrity.status, 'OK');
+  assert.equal(m.stat().receipt.project, m.newProject);
+});
+
+test('rebind 64b: the CLI verb runs through a child process and runCli, sealed to AGENTS_HOME', async (t) => {
+  const m = await movedRepo(t);
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const cli = (...args) => spawnSync(process.execPath, [path.join(here, 'decisions-pickup.mjs'), ...args], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+    env: childEnv(m.fx.fixtureRoot, { AGENTS_HOME: m.fx.agentsHome }),
+  });
+  const missing = cli('rebind', '--page', m.options.page, '--repo', m.moved);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /--from-project is required/);
+  const child = cli('rebind', '--page', m.options.page, '--repo', m.moved, '--from-project', m.receipt.project);
+  assert.equal(child.error, undefined, String(child.error?.message ?? ''));
+  assert.equal(child.status, 0, `exit=${child.status}; stderr=${child.stderr}`);
+  const parsed = JSON.parse(child.stdout);
+  assert.equal(parsed.status, 'NEEDS_RECONCILIATION');
+  assert.deepEqual(parsed.rebound, { from: m.receipt.project, to: m.newProject });
+  assert.equal(parsed.evidenceIntegrity.status, 'OK');
+  assert.equal(m.stat().receipt.project, m.newProject);
+  const again = cli('rebind', '--page', m.options.page, '--repo', m.moved, '--from-project', m.receipt.project);
+  assert.equal(again.status, 1);
+  assert.match(again.stderr, /not --from-project/);
+  const errors = [];
+  const code = await pickupModule.runCli({ argv: ['rebind', '--page', m.options.page, '--repo', m.moved], write: () => {}, writeErr: (text) => errors.push(text) });
+  assert.equal(code, 1);
+  assert.match(errors.join(''), /--from-project is required/);
+});
