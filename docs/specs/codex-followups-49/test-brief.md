@@ -1,0 +1,22 @@
+Task: independently implement and prove T2 Lane49 tests from the pinned spec, not the builder's code.
+Goal: make omitted timing bounds, manifest parity drift and lost session identity fail executable checks.
+Work: wr-2026-09-28-codex-followups
+
+Inputs: docs/work/wr-2026-09-28-codex-followups.record.md; docs/specs/codex-followups-49/scout-T2.md; NATIVE_ROUTES interface stub at d7a9eb44881f3b4074ba8714526c69212241af00.
+
+PROJECT FACTS: checkout C:/Users/benzh/orca/workspaces/claude-delegation/codex-followups-49; branch build/codex-followups-49. Scratch only under C:/Users/benzh/orca/gates/01a0df4c-2809-7520-b1d7-876cc51a87ee/codex-followups-49. Shared Git index: coordinate commits with builder; never stage its source/docs/rootrecord. Explicit workdir; no identity/reset/clean/stash/installs/live homes. Test fixtures use childEnv and isolated home/project. Real policy denial stops step; ordinary runtime diagnostics are not permission refusals.
+
+Owned: hooks/multi-codex-hook.test.mjs, hooks/codex-unsupported.test.mjs, docs/specs/codex-followups-49/L49-test-report.md. No native-package assertion needs change, no Claude hook file changes, no production or work-record edits. Scratch copies for mutations are allowed; tracked manifests stay untouched.
+
+Timing: add monotonic <2000ms checks for runRoute default child kill and for runCodexHook with injected never-resolving route, preserving peer/ready-advisory assertions. In a scratch copy mutate governing400ms constant to5000ms, run the actual new tests and retain failure names/native exit. Restore real source and prove green. Ensure child reaping and timer cleanup even on assertion failure; do not add timeouts to production.
+
+Parity: remove the hand-typed wired pair list. Inventory both actual manifest objects, plus production NATIVE_ROUTES as the concrete-script bridge. Its arrays must each contain exactly one script, matching actual dispatcher capacity. Derive peer-inbox pairs from matching native wrapper events in the Claude inventory; shared delete guard pairs from both manifests. Enforce strict reasoned unsupported rows and reverse Codex coverage, with only the existing reasoned Interrupt exception. Parameterize the real validator for hermetic copies, not a second validator. Fake event on either manifest must fail (including a fake wrapper event). Add a production-route-declaration/consumption discriminating check if needed; retain actual output behavioral tests, so merely moving the map cannot hide a silent route.
+
+Timer: prove distinct native session ids from a Claude-style shared hook call and a Codex adapter call share the same home/project yet both emit; repeating the first is silent. Assert the exact sentinel paths for both supplied ids exist (not merely that two paths differ), so a dropped Codex id cannot hide behind a distinct unknown path. No wall-clock sleep. Same id means same cadence; absent id shares unknown. A scratch-only Codex adapter mutant dropping session_id must fail the actual cross-session assertion. The real Claude script stays byte-identical. Root has ruled no shared-code defect exists for distinct supplied ids.
+
+Independent red receipts may be mutation-red because the timing/timer runtime is already correct. Clearly distinguish baseline missing test/validation from mutation failure. Record the exact mutated text, original/mutant hashes, command, native exit and failing assertion. Coordinate builder source changes so each proof identifies its actual code. Never claim a mutant failed if setup/import failure prevented the assertion.
+
+Report: docs/specs/codex-followups-49/L49-test-report.md first line VERDICT: PASS or BLOCKED, with all red/green raw paths, source hashes, assertions, and Cause:, Discriminating check:, Fix location:, Simplification:. State file scratch/tests-state.md. Single scoped gate command node --test hooks/multi-codex-hook.test.mjs hooks/codex-unsupported.test.mjs under process-owned Global\\claude-verify<=60s, finally release; no unchanged duplicate runs or full suite. Capture native exit immediately.
+Autonomy: tests within contract; tell root of ambiguous parity identity or actual shared-code requirement. Do not change production to make tests pass.
+Un-agent-able: Opus, full host suites, acceptance/publication belong to other roles.
+ETA:25minutes or a concrete blocker. Commit early disjoint test changes with shared-index coordination, final report/commitSHA, then stop.

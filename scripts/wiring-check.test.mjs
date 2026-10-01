@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
-import { checkWiring, mergeChecks, expandHome, main } from "./wiring-check.mjs";
+import { checkWiring, mergeChecks, expandHome, expandPluginRoot, main } from "./wiring-check.mjs";
 import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -46,6 +46,24 @@ function write(home, rel, content) {
   fs.writeFileSync(full, content);
   return full;
 }
+
+/** J2: the shipped default list gained checks (besides lean-rules-file) that can actually fail. A
+ * fixture home used to prove "the CLI stays quiet / exits 0 when everything is wired" now has to
+ * wire all of them - this is the whole point of the change (a bare scratch home is now genuinely
+ * red). Callers add `.agents/lean-rules.md` themselves so a test can isolate that one check by
+ * omitting it. Does not touch the two hook_present checks or the two hook-script file_exists
+ * checks: those all read the plugin's OWN install root via CLAUDE_PLUGIN_ROOT, which every
+ * runCli() call below pins at the real repo root, so they are already 'ok' against this checkout's
+ * real, unmodified hooks/hooks.json, hooks/delete-guard.mjs and hooks/multi-inbox.js. */
+function wireEverythingElse(home) {
+  write(home, ".local/bin/note-send", "#!/bin/sh\nexit 0\n");
+  fs.mkdirSync(path.join(home, ".agents", "notes"), { recursive: true });
+  write(home, ".claude/settings.json", JSON.stringify({ crossSessionInbound: "accept" }));
+  write(home, ".agents/janitor/installed.json", JSON.stringify({ schema: 1 }));
+  write(home, ".agents/janitor/last-run.log", "ok\n");
+}
+
+const REPO_ROOT = path.join(HERE, "..");
 
 // ---------------------------------------------------------------------------
 // J1: pure export shape
@@ -461,6 +479,49 @@ test("expandHome expands a leading ~ and leaves other paths untouched", () => {
   assert.equal(expandHome("relative/path", "/home/x"), "relative/path");
 });
 
+test("expandPluginRoot expands a leading ${CLAUDE_PLUGIN_ROOT} and leaves other paths (including ~) untouched", () => {
+  assert.equal(expandPluginRoot("${CLAUDE_PLUGIN_ROOT}", "/plugin"), "/plugin");
+  assert.equal(expandPluginRoot("${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json", "/plugin"), path.join("/plugin", "hooks/hooks.json"));
+  assert.equal(expandPluginRoot("~/a/b", "/plugin"), "~/a/b", "a ~ path is not this function's job");
+  assert.equal(expandPluginRoot("/already/absolute", "/plugin"), "/already/absolute");
+  assert.equal(expandPluginRoot("relative/path", "/plugin"), "relative/path");
+});
+
+test("checkWiring resolves a ${CLAUDE_PLUGIN_ROOT}-prefixed file field against opts.pluginRoot, independent of home", () => {
+  const home = mkHome();
+  const pluginRoot = mkHome(); // reused as a second scratch dir, unrelated to `home`
+  write(pluginRoot, "hooks/hooks.json", JSON.stringify({
+    hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "node hooks/delete-guard.mjs" }] }] },
+  }));
+  const checks = [{ id: "plugin-hook", type: "hook_present", file: "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json", event: "PreToolUse", substring: "delete-guard.mjs", why: "w", fix: "f" }];
+  const { results } = checkWiring({ home, pluginRoot, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
+  assert.equal(results[0].state, "ok");
+  // Prove it is really reading pluginRoot and not home: point pluginRoot at an empty dir instead.
+  const emptyRoot = mkHome();
+  const { results: miss } = checkWiring({ home, pluginRoot: emptyRoot, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] } });
+  assert.equal(miss[0].state, "missing");
+});
+
+test("checkWiring defaults pluginRoot to env.CLAUDE_PLUGIN_ROOT, then to this script's own install directory - never process.env directly", () => {
+  const home = mkHome();
+  const fixtureRoot = mkHome();
+  write(fixtureRoot, "hooks/hooks.json", JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "x" }] }] } }));
+  const checks = [{ id: "plugin-hook", type: "hook_present", file: "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json", event: "PreToolUse", substring: "x", why: "w", fix: "f" }];
+  const viaEnv = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: checks, private: [] }, env: { CLAUDE_PLUGIN_ROOT: fixtureRoot } });
+  assert.equal(viaEnv.results[0].state, "ok", "env.CLAUDE_PLUGIN_ROOT must be honoured when no explicit opts.pluginRoot is given");
+
+  // This repo's real hooks/hooks.json (one level up from this test file) really does have the
+  // PreToolUse delete-guard hook, so the bare default (no env, no explicit pluginRoot) must find it.
+  const real = checkWiring({
+    home,
+    platform: "linux",
+    fsImpl: readOnlyFs(home),
+    lists: { public: [{ id: "real-hook", type: "hook_present", file: "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json", event: "PreToolUse", substring: "hooks/delete-guard.mjs", why: "w", fix: "f" }], private: [] },
+    env: {},
+  });
+  assert.equal(real.results[0].state, "ok", "with no CLAUDE_PLUGIN_ROOT set at all, the default must fall back to this script's own real install directory");
+});
+
 // ---------------------------------------------------------------------------
 // platforms filter
 // ---------------------------------------------------------------------------
@@ -638,7 +699,8 @@ test("the shipped list's pane-note-slug row is env_presence over NOTE_SLUG, and 
 
 test("CLI --line stays silent for pane-note-slug whether or not NOTE_SLUG is set - env_presence never reaches printLine's missing/stale path", () => {
   const home = mkHome();
-  write(home, ".agents/lean-rules.md", "# lean rules\n"); // only other required item that would print
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home); // everything else required item that would print, too
   const withSlug = runCli(["--line"], home, { NOTE_SLUG: "taxonomy" });
   assert.equal(withSlug.code, 0);
   assert.equal(withSlug.stdout, "", "an env_presence row can never trigger --line's noisy path, even with NOTE_SLUG set");
@@ -646,6 +708,211 @@ test("CLI --line stays silent for pane-note-slug whether or not NOTE_SLUG is set
   const withoutSlug = runCli(["--line"], home, { NOTE_SLUG: "" });
   assert.equal(withoutSlug.code, 0);
   assert.equal(withoutSlug.stdout, "", "nor with NOTE_SLUG absent");
+});
+
+// ---------------------------------------------------------------------------
+// J2: the six new checks that can actually fail (hook_present x2, file_exists x2, json_value,
+// file_fresh with a requiresFile gate) - each proven against the SHIPPED list's own row, not a
+// synthetic stand-in, so a change to the real JSON is what breaks these.
+// ---------------------------------------------------------------------------
+
+function shippedList() {
+  const raw = JSON.parse(fs.readFileSync(path.join(HERE, "required-wiring.default.json"), "utf8"));
+  return Array.isArray(raw) ? raw : raw.checks;
+}
+
+function shippedRow(id) {
+  const row = shippedList().find((c) => c.id === id);
+  assert.ok(row, `required-wiring.default.json must have a check with id ${id}`);
+  return row;
+}
+
+test("the shipped list gained exactly eight new checks: two hook_present (exact command+matcher), four file_exists, one json_value, one file_fresh with a requiresFile gate", () => {
+  const list = shippedList();
+  assert.equal(list.length, 18, "9 original + 8 new + 1 collect-status-fresh (collect-status-1/C3)");
+  const delGuard = shippedRow("hook-delete-guard");
+  assert.equal(delGuard.type, "hook_present");
+  assert.equal(delGuard.event, "PreToolUse");
+  assert.equal(delGuard.file, "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json");
+  assert.equal(delGuard.matcher, "Bash|PowerShell");
+  assert.equal(delGuard.command, "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"");
+
+  const postInbox = shippedRow("hook-post-tool-use-inbox");
+  assert.equal(postInbox.type, "hook_present");
+  assert.equal(postInbox.event, "PostToolUse");
+  assert.equal(postInbox.file, "${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json");
+  assert.equal(postInbox.matcher, "*");
+  assert.equal(postInbox.command, "node \"${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js\" PostToolUse");
+
+  const delGuardScript = shippedRow("hook-delete-guard-script");
+  assert.equal(delGuardScript.type, "file_exists");
+  assert.equal(delGuardScript.file, "${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs");
+
+  const postInboxScript = shippedRow("hook-post-tool-use-inbox-script");
+  assert.equal(postInboxScript.type, "file_exists");
+  assert.equal(postInboxScript.file, "${CLAUDE_PLUGIN_ROOT}/hooks/multi-inbox.js");
+
+  const shim = shippedRow("note-send-shim");
+  assert.equal(shim.type, "file_exists");
+  assert.equal(shim.file, "~/.local/bin/note-send");
+
+  const notesDir = shippedRow("notes-dir");
+  assert.equal(notesDir.type, "file_exists");
+  assert.equal(notesDir.file, "~/.agents/notes");
+
+  const cross = shippedRow("cross-session-inbound");
+  assert.equal(cross.type, "json_value");
+  assert.equal(cross.file, "~/.claude/settings.json");
+  assert.equal(cross.path, "crossSessionInbound");
+  assert.equal(cross.expected, "accept");
+
+  const lastRun = shippedRow("janitor-last-run");
+  assert.equal(lastRun.type, "file_fresh");
+  assert.equal(lastRun.file, "~/.agents/janitor/last-run.log");
+  assert.equal(lastRun.maxAgeSeconds, 26 * 3600);
+  assert.equal(lastRun.whenMissing, "missing");
+  assert.equal(lastRun.requiresFile, "~/.agents/janitor/installed.json");
+});
+
+test("hook-delete-guard and hook-post-tool-use-inbox: ok against this repo's own real hooks/hooks.json, missing against an empty plugin root", () => {
+  const home = mkHome();
+  const real = checkWiring({
+    home,
+    pluginRoot: REPO_ROOT,
+    platform: "linux",
+    fsImpl: readOnlyFs(home),
+    lists: { public: [shippedRow("hook-delete-guard"), shippedRow("hook-post-tool-use-inbox")], private: [] },
+  });
+  assert.equal(real.results[0].state, "ok", real.results[0].why);
+  assert.equal(real.results[1].state, "ok", real.results[1].why);
+
+  const emptyRoot = mkHome();
+  const missing = checkWiring({
+    home,
+    pluginRoot: emptyRoot,
+    platform: "linux",
+    fsImpl: readOnlyFs(home),
+    lists: { public: [shippedRow("hook-delete-guard"), shippedRow("hook-post-tool-use-inbox")], private: [] },
+  });
+  assert.equal(missing.results[0].state, "missing");
+  assert.equal(missing.results[1].state, "missing");
+});
+
+test("hook-delete-guard's exact command+matcher pin does not match a commented-out, echoed, disabled, renamed-file or wrong-matcher hook - only the real parsed command string under the real matcher", () => {
+  const check = shippedRow("hook-delete-guard");
+  const real = "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"";
+
+  function withCommand(command, matcher = check.matcher) {
+    const pluginRoot = mkHome();
+    write(pluginRoot, "hooks/hooks.json", JSON.stringify({
+      hooks: { PreToolUse: [{ matcher, hooks: [{ type: "command", command }] }] },
+    }));
+    return pluginRoot;
+  }
+
+  const home = mkHome();
+  function stateFor(pluginRoot) {
+    const { results } = checkWiring({ home, pluginRoot, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+    return results[0].state;
+  }
+
+  assert.equal(stateFor(withCommand(real)), "ok", "the real command under the real matcher must still read ok");
+
+  // Round-2 (B1): a raw substring match would be fooled by every one of these - an exact `command`
+  // equality plus a `matcher` equality is what tells them apart from the real thing.
+  assert.equal(stateFor(withCommand(`# ${real}`)), "missing", "a shell-commented command must not satisfy the pin");
+  assert.equal(stateFor(withCommand(`echo 'hooks/delete-guard.mjs is disabled for now'`)), "missing", "an echoed mention must not satisfy the pin");
+  assert.equal(stateFor(withCommand(`true || ${real}`)), "missing", "a true-|| disabled command must not satisfy the pin");
+  assert.equal(stateFor(withCommand(`node "\${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs.bak"`)), "missing", "a renamed-file command must not satisfy the pin");
+  assert.equal(stateFor(withCommand(real, "Read")), "missing", "the real command parked under a different matcher never fires for Bash and must not satisfy the pin");
+
+  const trulyDifferent = withCommand("node \"${CLAUDE_PLUGIN_ROOT}/hooks/some-other-guard.mjs\"");
+  assert.equal(stateFor(trulyDifferent), "missing", "a different hook command must never satisfy the delete-guard check");
+});
+
+test("note-send-shim and notes-dir: file_exists against ~/.local/bin/note-send and ~/.agents/notes", () => {
+  const home = mkHome();
+  const bare = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [shippedRow("note-send-shim"), shippedRow("notes-dir")], private: [] } });
+  assert.equal(bare.results[0].state, "missing");
+  assert.equal(bare.results[1].state, "missing");
+
+  write(home, ".local/bin/note-send", "#!/bin/sh\n");
+  fs.mkdirSync(path.join(home, ".agents", "notes"), { recursive: true });
+  const wired = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [shippedRow("note-send-shim"), shippedRow("notes-dir")], private: [] } });
+  assert.equal(wired.results[0].state, "ok");
+  assert.equal(wired.results[1].state, "ok");
+});
+
+test("cross-session-inbound: missing when absent, stale when present but not 'accept', ok when 'accept', unknown when the settings file is unreadable or invalid JSON", () => {
+  const home = mkHome();
+  const check = shippedRow("cross-session-inbound");
+  const absent = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(absent.results[0].state, "missing");
+
+  write(home, ".claude/settings.json", JSON.stringify({ crossSessionInbound: "ask" }));
+  const wrongValue = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(wrongValue.results[0].state, "stale");
+  assert.doesNotMatch(wrongValue.results[0].why, /"ask"/, "a string value must never be printed verbatim, only 'differs'");
+
+  write(home, ".claude/settings.json", JSON.stringify({ crossSessionInbound: "accept" }));
+  const ok = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(ok.results[0].state, "ok");
+
+  write(home, ".claude/settings.json", "{not-json");
+  const corrupt = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(corrupt.results[0].state, "unknown", "invalid JSON must be unknown, never ok");
+});
+
+test("janitor-last-run (file_fresh + requiresFile): the J1/J2 seam contract's exact state table", () => {
+  const check = shippedRow("janitor-last-run");
+  const home = mkHome();
+
+  // installed.json absent: info (round-2 amendment: spec.md J2.2 says a host without J1 is not
+  // red for that reason, so this must never count against checkWiring().ok), never missing - even
+  // though the log is also absent.
+  const neverInstalled = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(neverInstalled.results[0].state, "info");
+  assert.ok(neverInstalled.ok, "an uninstalled J1 timer must not make checkWiring().ok false");
+
+  // installed.json present, log absent: missing.
+  write(home, ".agents/janitor/installed.json", JSON.stringify({ schema: 1 }));
+  const installedNoLog = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(installedNoLog.results[0].state, "missing");
+
+  // log older than 26h: stale.
+  const logPath = write(home, ".agents/janitor/last-run.log", "ran\n");
+  const oldTime = new Date(Date.now() - 27 * 3600 * 1000);
+  fs.utimesSync(logPath, oldTime, oldTime);
+  const stale = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(stale.results[0].state, "stale");
+
+  // otherwise (fresh log, installed.json present): ok.
+  const freshTime = new Date();
+  fs.utimesSync(logPath, freshTime, freshTime);
+  const ok = checkWiring({ home, platform: "linux", fsImpl: readOnlyFs(home), lists: { public: [check], private: [] } });
+  assert.equal(ok.results[0].state, "ok");
+});
+
+test("janitor-last-run: installed.json itself being unreadable/corrupt is unknown, not a crash and not silently ok", () => {
+  const check = shippedRow("janitor-last-run");
+  const home = mkHome();
+  write(home, ".agents/janitor/installed.json", "{not-json");
+  write(home, ".agents/janitor/last-run.log", "ran\n");
+  const fsImpl = {
+    existsSync: (p) => fs.existsSync(p),
+    readFileSync: (p, enc) => fs.readFileSync(p, enc),
+    statSync: (p) => {
+      // installed.json exists but is unreadable for a reason other than "not found".
+      if (path.resolve(String(p)) === path.resolve(path.join(home, ".agents", "janitor", "installed.json"))) {
+        const err = new Error("EACCES simulated");
+        err.code = "EACCES";
+        throw err;
+      }
+      return fs.statSync(p);
+    },
+  };
+  const { results } = checkWiring({ home, platform: "linux", fsImpl, lists: { public: [check], private: [] } });
+  assert.equal(results[0].state, "unknown");
 });
 
 // ---------------------------------------------------------------------------
@@ -658,9 +925,13 @@ test("CLI --line stays silent for pane-note-slug whether or not NOTE_SLUG is set
  * so an ambient AGENTS_HOME on the machine running the suite can never leak into the child. */
 function runCli(args, home, over = {}) {
   try {
+    // Pin CLAUDE_PLUGIN_ROOT at this repo's own real root so the two hook_present checks (which
+    // read the plugin's own hooks.json, not anything under `home`) are deterministic here
+    // regardless of whatever the ambient shell running the suite happens to have set - the same
+    // rule test-child-env.mjs exists to enforce for every other environment input.
     const out = execFileSync(NODE, [SCRIPT, ...args], {
       encoding: "utf8",
-      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents"), ...over }),
+      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents"), CLAUDE_PLUGIN_ROOT: REPO_ROOT, ...over }),
     });
     return { code: 0, stdout: out, stderr: "" };
   } catch (err) {
@@ -668,61 +939,92 @@ function runCli(args, home, over = {}) {
   }
 }
 
-test("CLI: no flag prints a table and exits 0 against a scratch home with nothing configured", () => {
+test("CLI: no flag prints a table and exits 1 against a scratch home with nothing configured (J2: the wiring check can now actually go red)", () => {
   const home = mkHome();
   const { code, stdout } = runCli([], home);
-  assert.equal(code, 0);
+  assert.equal(code, 1);
   assert.match(stdout, /wiring check:/);
 });
 
-test("CLI --json prints a parseable { ok, results } object and exits 0", () => {
+test("CLI --json prints a parseable { ok, results } object, and the exit code mirrors ok", () => {
   const home = mkHome();
   const { code, stdout } = runCli(["--json"], home);
-  assert.equal(code, 0);
   const parsed = JSON.parse(stdout);
   assert.equal(typeof parsed.ok, "boolean");
   assert.ok(Array.isArray(parsed.results));
+  assert.equal(parsed.ok, false, "a bare scratch home has real findings against the shipped default list");
+  assert.equal(code, 1, "J2: the CLI's exit code must be 1 when checkWiring().ok is false");
 });
 
-test("CLI --line prints nothing when nothing is missing or stale (a scratch home with lean-rules.md present has only info/ok results)", () => {
+test("CLI --json exits 0 when a fully-wired scratch home makes checkWiring().ok true", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const { code, stdout } = runCli(["--json"], home);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed.results.filter((r) => r.state !== "ok" && r.state !== "info")));
+  assert.equal(code, 0);
+});
+
+test("CLI --line prints nothing when nothing is missing or stale (a fully-wired scratch home has only info/ok results)", () => {
   const home = mkHome();
   // lean-rules-file (file_fresh, no whenMissing override) is 'stale' when absent, same as any other
-  // required file - a truly "nothing to flag" home has to actually carry it.
+  // required file - a truly "nothing to flag" home has to actually carry it, and (J2) so do the
+  // note-send shim, the notes dir, the Claude settings value and the janitor's own last-run.log.
   write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
   const { code, stdout } = runCli(["--line"], home);
   assert.equal(code, 0);
   assert.equal(stdout, "");
 });
 
-test("CLI --line names lean-rules-file when ~/.agents/lean-rules.md is absent", () => {
+test("CLI --line names lean-rules-file when ~/.agents/lean-rules.md is absent, and only that (everything else is wired)", () => {
   const home = mkHome();
+  wireEverythingElse(home); // everything but lean-rules.md, so it is the ONLY finding
   const { code, stdout } = runCli(["--line"], home);
-  assert.equal(code, 0);
+  assert.equal(code, 1);
   assert.match(stdout.trim(), /^wiring: \d+ flagged \(.*\)\. Run wiring-check for the fixes\.$/);
   assert.match(stdout, /lean rules file/);
 });
 
+test("CLI --line --hook (the SessionStart caller): still prints the line when something is flagged, but always exits 0", () => {
+  const home = mkHome();
+  wireEverythingElse(home); // everything but lean-rules.md, so it is the ONLY finding
+  const { code, stdout } = runCli(["--line", "--hook"], home);
+  assert.equal(code, 0, "B2: a Claude Code command hook's non-zero exit drops its stdout, so --hook must keep exit 0 even while red");
+  assert.match(stdout, /lean rules file/, "the visibility line must still reach the session under --hook");
+});
+
+test("CLI --line --hook against a bare scratch home (nothing configured) still exits 0 and prints the line", () => {
+  const home = mkHome();
+  const { code, stdout } = runCli(["--line", "--hook"], home);
+  assert.equal(code, 0);
+  assert.match(stdout, /^wiring: \d+ flagged/);
+});
+
 test("CLI --line prints one line naming what is missing when something is", () => {
   const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
   // A private list this scratch home supplies, entirely independent of the shipped default list,
   // guaranteeing at least one 'missing' result regardless of platform.
   write(home, ".agents/required-wiring.json", JSON.stringify([
     { id: "definitely-missing", type: "file_exists", file: "~/does/not/exist", why: "w", fix: "f" },
   ]));
   const { code, stdout } = runCli(["--line"], home);
-  assert.equal(code, 0);
+  assert.equal(code, 1);
   assert.match(stdout.trim(), /^wiring: \d+ flagged \(.*\)\. Run wiring-check for the fixes\.$/);
   assert.match(stdout, /definitely missing/);
 });
 
-test("CLI --line prints nothing when ~/.agents/ws-off is present, even with a missing check", () => {
+test("CLI --line prints nothing when ~/.agents/ws-off is present, even with a missing check (ws-off only silences --line's output, never the exit code)", () => {
   const home = mkHome();
   write(home, ".agents/required-wiring.json", JSON.stringify([
     { id: "definitely-missing", type: "file_exists", file: "~/does/not/exist", why: "w", fix: "f" },
   ]));
   write(home, ".agents/ws-off", "");
   const { code, stdout } = runCli(["--line"], home);
-  assert.equal(code, 0);
+  assert.equal(code, 1, "ws-off silences the --line text, not the exit code - checkWiring().ok is still false");
   assert.equal(stdout, "");
 });
 
@@ -752,7 +1054,7 @@ test("CLI --line: an fsImpl whose stat throws a non-ENOENT error for ws-off coun
       fsImpl,
       lists: { public: [{ id: "definitely-missing", type: "file_exists", file: "~/does/not/exist", why: "w", fix: "f" }], private: [] },
     });
-    assert.equal(code, 0);
+    assert.equal(code, 1, "ws-off silences the printed line, not the exit code - checkWiring().ok is still false");
   } finally {
     console.log = origLog;
   }
@@ -783,7 +1085,7 @@ test("an injected opts.home wins over an ambient AGENTS_HOME (seam-delta precede
   console.log = (s) => { out += `${s}\n`; };
   try {
     assert.equal(main(["--line"], { home, lists: { public: [
-      { id: "definitely-missing", type: "file_exists", file: "~/nope", why: "w", fix: "f" }], private: [] } }), 0);
+      { id: "definitely-missing", type: "file_exists", file: "~/nope", why: "w", fix: "f" }], private: [] } }), 1);
   } finally {
     console.log = origLog;
     if (prev === undefined) delete process.env.AGENTS_HOME; else process.env.AGENTS_HOME = prev;
@@ -825,13 +1127,13 @@ test("main reports an unexpected dependency failure as bounded unknown without l
   const lines = [];
   console.log = (value) => { lines.push(String(value)); };
   try {
-    assert.equal(main(["--json"], opts), 0);
+    assert.equal(main(["--json"], opts), 1, "an unknown result is not ok, so the CLI's exit code must be 1 too");
     const parsed = JSON.parse(lines.shift());
     assert.equal(parsed.ok, false);
     assert.equal(parsed.results[0].state, "unknown");
     assert.doesNotMatch(JSON.stringify(parsed), /SECRET_SENTINEL/);
 
-    assert.equal(main(["--line"], opts), 0);
+    assert.equal(main(["--line"], opts), 1);
     assert.equal(lines.length, 1);
     assert.match(lines[0], /wiring: 1 flagged \(wiring check\)/);
     assert.doesNotMatch(lines[0], /SECRET_SENTINEL/);
@@ -935,16 +1237,220 @@ test("a check naming inboxes.json in ANY letter case is refused before any fs ca
 });
 
 // ---------------------------------------------------------------------------
+// P7 (docs/specs/stale-session-guard-1/spec.md) - the stale-session line. Same fact as
+// agent-dispatch-guard.mjs's R0-stale, read through THIS script's own path instead of the
+// guard's; `main()`'s `opts.scriptPath` stands in for `SELF_PATH` here exactly like
+// `opts.home`/`opts.fsImpl` already stand in for the real filesystem above.
+// ---------------------------------------------------------------------------
+
+/** A fake `.claude/plugins/cache/<marketplace>/<name>/<version>/` directory under `home`,
+ * plus its own `installed_plugins.json` - the exact shape `plugin-staleness.mjs` reads.
+ * Returns a `scriptPath` two directories below the version dir, mirroring this file's own
+ * `scripts/x.mjs` shape. */
+function staleFixture(home, { running, installedVersions, marketplace = "benzhuk", name = "delegation" }) {
+  const versionDir = path.join(home, ".claude", "plugins", "cache", marketplace, name, running);
+  fs.mkdirSync(versionDir, { recursive: true });
+  const scriptPath = path.join(versionDir, "scripts", "wiring-check.mjs");
+  write(home, ".claude/plugins/installed_plugins.json", JSON.stringify({
+    version: 2,
+    plugins: { [`${name}@${marketplace}`]: installedVersions.map((version) => ({ scope: "user", version })) },
+  }));
+  return scriptPath;
+}
+
+/** Runs `main()` in-process, capturing console.log - every P7 test below needs this, and
+ * every one pins `env: {}` so this suite never reads the real process's own
+ * CLAUDE_CONFIG_DIR. */
+function runMainCapturing(args, opts) {
+  const origLog = console.log;
+  let out = "";
+  console.log = (s) => { out += `${s}\n`; };
+  try {
+    return { code: main(args, { env: {}, ...opts }), out };
+  } finally {
+    console.log = origLog;
+  }
+}
+
+test("P7: --line prints the stale marker and the exit code goes red, even though checkWiring's own findings are all ok", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home); // checkWiring().ok === true on its own
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 1, "a stale session is a red exit even though every ordinary check is ok");
+  assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+});
+
+test("P7: --hook keeps exit 0 while stale, but the line still prints (same rule as any other flagged finding)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line", "--hook"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.match(out, /^stale session: /m);
+});
+
+test("P7: not stale (running equal to the installed entry) prints nothing extra and the exit stays green", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: not stale (running newer than every entry) prints nothing extra and the exit stays green", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.21.0", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: ws-off silences the printed line but the exit code stays red while stale (never silences the exit)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  write(home, ".agents/ws-off", "");
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 1, "ws-off silences the line, never the exit code - same rule as every other finding");
+  assert.equal(out, "");
+});
+
+test("P7: a non-cache scriptPath (the real repo-checkout shape) is not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = path.join(home, "repo-checkout", "scripts", "wiring-check.mjs");
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: with no scriptPath override at all, main() defaults to THIS repo's own real wiring-check.mjs - never stale in this suite", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const { code, out } = runMainCapturing(["--line"], { home });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: a staleness read that throws never crashes main() and is treated as not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const throwingFs = { ...fs, realpathSync() { throw new Error("boom"); } };
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing(["--line"], { home, scriptPath, fsImpl: throwingFs });
+  assert.equal(code, 0);
+  assert.equal(out, "");
+});
+
+test("P7: CLI subprocess through the real file - copying this script into a fake cache dir proves the CLI wrapper (not just an injected opts.scriptPath) reads its own real location", () => {
+  const home = mkHome();
+  const versionDir = path.join(home, ".claude", "plugins", "cache", "benzhuk", "delegation", "0.20.9", "scripts");
+  fs.mkdirSync(versionDir, { recursive: true });
+  const copiedScript = path.join(versionDir, "wiring-check.mjs");
+  fs.copyFileSync(SCRIPT, copiedScript);
+  fs.copyFileSync(path.join(HERE, "plugin-staleness.mjs"), path.join(versionDir, "plugin-staleness.mjs"));
+  fs.copyFileSync(path.join(HERE, "required-wiring.default.json"), path.join(versionDir, "required-wiring.default.json"));
+  write(home, ".claude/plugins/installed_plugins.json", JSON.stringify({
+    version: 2,
+    plugins: { "delegation@benzhuk": [{ scope: "user", version: "0.20.16" }] },
+  }));
+  let out;
+  try {
+    out = execFileSync(NODE, [copiedScript, "--line"], {
+      encoding: "utf8",
+      env: childEnv(home, { AGENTS_HOME: path.join(home, ".agents") }),
+    });
+  } catch (err) {
+    out = err.stdout ?? ""; // this fixture's ordinary checks are red too (no --hook here) - fine, only the marker matters
+  }
+  assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+});
+
+/** Like runMainCapturing, but also captures process.stderr.write - MINOR 4 (review-r1.md)
+ * puts the stale line on stderr in --json mode so stdout's JSON stays exactly parseable. */
+function runMainCapturingBoth(args, opts) {
+  const origLog = console.log;
+  const origErr = process.stderr.write.bind(process.stderr);
+  let out = "";
+  let err = "";
+  console.log = (s) => { out += `${s}\n`; };
+  process.stderr.write = (s) => { err += s; return true; };
+  try {
+    return { code: main(args, { env: {}, ...opts }), out, err };
+  } finally {
+    console.log = origLog;
+    process.stderr.write = origErr;
+  }
+}
+
+test("MINOR 4: --json keeps stdout exactly parseable and puts the stale reason on stderr", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out, err } = runMainCapturingBoth(["--json"], { home, scriptPath });
+  assert.equal(code, 1, "a stale session is a red exit in --json mode too");
+  const parsed = JSON.parse(out); // must not throw: stdout is untouched by the stale line
+  assert.equal(parsed.ok, true, "checkWiring()'s own findings are unaffected by staleness");
+  assert.match(err, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+});
+
+test("MINOR 4: --json prints nothing extra to stderr and stays green when not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const { code, err } = runMainCapturingBoth(["--json"], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.equal(err, "");
+});
+
+test("MINOR 4: table mode (no flag) prints the stale line too, and goes red", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing([], { home, scriptPath });
+  assert.equal(code, 1);
+  assert.match(out, /^stale session: this session loaded delegation hooks 0\.20\.9, but 0\.20\.16 is installed/m);
+  assert.match(out, /^wiring check:/m, "the ordinary table is still printed alongside the stale line");
+});
+
+test("MINOR 4: table mode prints nothing extra and stays green when not stale", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const { code, out } = runMainCapturing([], { home, scriptPath });
+  assert.equal(code, 0);
+  assert.doesNotMatch(out, /^stale session: /m);
+});
+
+// ---------------------------------------------------------------------------
 // Wired into hooks.json: SessionStart shows the wiring check on its own
 // ---------------------------------------------------------------------------
 
-test("hooks.json runs wiring-check.mjs --line on SessionStart, pointed at a real file, with a timeout", () => {
+test("hooks.json runs wiring-check.mjs --line --hook on SessionStart, pointed at a real file, with a timeout", () => {
   const repoRoot = path.join(HERE, "..");
   const hooksPath = path.join(repoRoot, "hooks", "hooks.json");
   const cfg = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
   const sessionStartHooks = cfg.hooks.SessionStart.flatMap((g) => g.hooks);
   const entry = sessionStartHooks.find((h) => h.command.includes("wiring-check.mjs") && h.command.includes("--line"));
   assert.ok(entry, "SessionStart must run wiring-check.mjs --line");
+  // Round-2 (B2): a bare --line's non-zero exit is a non-blocking hook error that Claude Code
+  // discards the stdout for, so the SessionStart caller must also pass --hook to keep exit 0.
+  assert.match(entry.command, /--hook\b/, "the SessionStart hook must pass --hook so its non-zero exit never drops the printed line");
   assert.match(entry.command, /\$\{CLAUDE_PLUGIN_ROOT\}/, "must be plugin-root relative like its neighbours");
   assert.equal(typeof entry.timeout, "number");
   assert.ok(entry.timeout > 0);

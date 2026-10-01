@@ -78,6 +78,17 @@ function validateSlug(label, value) {
   return slug;
 }
 
+// Contracts.md C3: registration entries may carry an optional topic; no colon (that is the
+// title-format separator), a letter to start, at most 40 characters.
+const TOPIC_PATTERN = /^[A-Za-z][A-Za-z0-9 &._-]{0,39}$/;
+
+function validateTopic(value) {
+  if (typeof value !== 'string' || !TOPIC_PATTERN.test(value)) {
+    throw new PickupError('registered pickup topic is invalid');
+  }
+  return value;
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -295,6 +306,64 @@ function writePointerExclusive(receipt, fsImpl = fs) {
     if (existing !== serialized) throw new PickupError('details pointer conflicts with the saved pickup intent');
   }
   return file;
+}
+
+/**
+ * Contracts.md C1: the owner-input triple. `line` moves with any lead edit and carries no
+ * owner meaning; `ref` and `replied` are bookkeeping, not something the owner put on the page.
+ */
+export function ownerInputs(items) {
+  return items.map((item) => [item.kind, item.title, item.text]);
+}
+
+function multisetKey(triple) {
+  return JSON.stringify(triple);
+}
+
+/** True when every element of `fresh` is accounted for by an equal-or-greater count in `original`. */
+function isSubMultiset(fresh, original) {
+  const counts = new Map();
+  for (const triple of original) {
+    const key = multisetKey(triple);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const triple of fresh) {
+    const key = multisetKey(triple);
+    const remaining = counts.get(key) ?? 0;
+    if (remaining <= 0) return false;
+    counts.set(key, remaining - 1);
+  }
+  return true;
+}
+
+/**
+ * Reads a private capture's owner-input triples derived from its digest-verified bytes (not the
+ * saved, possibly stale-parser `items` field), or null. `expectedDigest` ties the read to the
+ * capture the caller means to trust; a capture that fails digest verification is never used.
+ */
+function loadCaptureOwnerInputs(receipt, ref, expectedDigest, now, base, fsImpl) {
+  if (verifyOnePrivateCapture(receipt, ref, expectedDigest, base, fsImpl).status !== 'OK') return null;
+  try {
+    const full = resolvePrivateCapture(receipt, ref, base, fsImpl);
+    const capture = JSON.parse(fsImpl.readFileSync(full, 'utf8'));
+    const raw = Buffer.from(capture.originalBytes, 'base64').toString('utf8');
+    return ownerInputs(capturedItems(parseDocument(raw, { now })));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Contracts.md C1: a fresh checked read is a CHANGE against the active round's original
+ * capture only when it holds an owner-input triple the capture does not (a multiset compare,
+ * not raw bytes). Missing an original baseline to compare against is not proof of no change,
+ * so it is treated conservatively as a change.
+ */
+function ownerInputsChanged(receipt, doc, now, base, fsImpl) {
+  const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
+  if (!original) return true;
+  const fresh = ownerInputs(capturedItems(doc));
+  return !isSubMultiset(fresh, original);
 }
 
 function capturedItems(doc) {
@@ -559,15 +628,35 @@ export function readPageWithCli({ reader, page, timeoutMs = READER_TIMEOUT_MS, s
   return String(result.stdout);
 }
 
-function registeredProject(repo, page, fsImpl = fs) {
-  const project = canonicalProject(repo, fsImpl);
-  const loaded = loadProjectConfig(project);
+// Lane 34 / P1: the CONFIG is still read from the checkout named on the command line (or in a
+// registration entry) — a worktree's own `.agents/project.json`, unchanged. Only the returned
+// IDENTITY is normalized, through the same `durableTransportRepo`/`mainCheckout` resolver every
+// worktree of one repository already funnels through for its transport repo, so every worktree of
+// one repository is one project. A main-checkout path's identity is untouched: `durableTransportRepo`
+// of a main checkout resolves back to that same realpath (see its own doc comment), so existing
+// receipts and captures keyed by `/home/ben/Code/claude-delegation` stay valid byte for byte.
+function registeredProject(repo, page, fsImpl = fs, git = gitRunner) {
+  const configCheckout = canonicalProject(repo, fsImpl);
+  const loaded = loadProjectConfig(configCheckout);
   if (loaded.source === 'unreadable') throw new PickupError('project config is unreadable');
   if (!loaded.config.decisions_url) throw new PickupError('project has no registered decisions_url');
   if (normalizedPage(loaded.config.decisions_url) !== normalizedPage(page)) {
     throw new PickupError('page is not this project\'s registered decisions_url');
   }
-  return project;
+  return projectIdentity(configCheckout, git, fsImpl);
+}
+
+// Only a standard linked worktree (git common dir exactly `<main>/.git`) shares its main checkout's
+// identity. A bare-backed worktree, a separate-git-dir checkout or a submodule keeps its own realpath:
+// `mainCheckout` strips any `.git` suffix, so `proj.git` would otherwise resolve to a sibling `proj`.
+function projectIdentity(configCheckout, git = gitRunner, fsImpl = fs) {
+  const main = durableTransportRepo(configCheckout, git, fsImpl);
+  if (main === configCheckout) return main;
+  let common;
+  try { common = String(git(['rev-parse', '--git-common-dir'], configCheckout)).trim(); } catch { return configCheckout; }
+  const absolute = path.resolve(configCheckout, common);
+  if (path.basename(absolute) !== '.git') return configCheckout;
+  return canonicalProject(path.dirname(absolute), fsImpl) === main ? main : configCheckout;
 }
 
 function canonicalPathKey(value) {
@@ -585,7 +674,7 @@ function registrationPath(base) {
   return path.join(base, 'ws', 'decisions-pickup', 'registrations.json');
 }
 
-function readRegistration(file, fsImpl = fs) {
+function readRegistration(file, fsImpl = fs, git = gitRunner) {
   let info;
   try { info = fsImpl.lstatSync(file); } catch (error) {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
@@ -609,9 +698,14 @@ function readRegistration(file, fsImpl = fs) {
   const pages = new Set();
   const repos = new Set();
   const entries = parsed.entries.map((entry) => {
-    if (!exactKeys(entry, ['from', 'owner', 'page', 'reader', 'repo'])) {
+    const hasTopic = Boolean(entry) && typeof entry === 'object'
+      && Object.prototype.hasOwnProperty.call(entry, 'topic');
+    if (!exactKeys(entry, hasTopic
+      ? ['from', 'owner', 'page', 'reader', 'repo', 'topic']
+      : ['from', 'owner', 'page', 'reader', 'repo'])) {
       throw new PickupError('registered pickup entry is invalid');
     }
+    const topic = hasTopic ? validateTopic(entry.topic) : null;
     const page = normalizedPage(entry.page);
     if (!/^[0-9a-f]{32}$/.test(page)) throw new PickupError('registered pickup page is invalid');
     const from = validateSlug('from', entry.from);
@@ -635,7 +729,7 @@ function readRegistration(file, fsImpl = fs) {
     }
     // This is deliberately run for every entry before selection. One invalid project/page binding
     // invalidates the finite host registration and cannot leave a subset silently active.
-    const boundRepo = registeredProject(repo, page, fsImpl);
+    const boundRepo = registeredProject(repo, page, fsImpl, git);
     const pageKey = page;
     const repoKey = canonicalPathKey(boundRepo);
     if (pages.has(pageKey) || repos.has(repoKey)) {
@@ -643,7 +737,7 @@ function readRegistration(file, fsImpl = fs) {
     }
     pages.add(pageKey);
     repos.add(repoKey);
-    return { repo: boundRepo, page, from, owner, reader };
+    return { repo, page, from, owner, reader, topic };
   });
 
   return entries.sort((left, right) => {
@@ -681,7 +775,7 @@ export async function runRegisteredPickup(options = {}, deps = {}) {
 
   let entries;
   try {
-    entries = readRegistration(options.registrationPath ?? registrationPath(base), fsImpl);
+    entries = readRegistration(options.registrationPath ?? registrationPath(base), fsImpl, deps.git ?? gitRunner);
   } catch (error) {
     return {
       code: error instanceof PickupError && error.pickupCode === 'PICKUP_UNCONFIGURED'
@@ -854,7 +948,7 @@ export async function pickupOnce(options, deps = {}) {
   if (pickupSwitchActive(base, fsImpl)) {
     return { status: 'DISABLED', reason: 'decisions pickup is disabled by ws-off-decisions or ws-off' };
   }
-  const project = registeredProject(options.repo, options.page, fsImpl);
+  const project = registeredProject(options.repo, options.page, fsImpl, deps.git ?? gitRunner);
   const paths = receiptPaths({ agentsHome: base, project, page: options.page });
   let receipt = readJson(paths.receipt, fsImpl);
   if (receipt?.version === LEGACY_RECEIPT_VERSION) {
@@ -923,6 +1017,12 @@ export async function pickupOnce(options, deps = {}) {
 
     if (receipt?.state === 'CAPTURE_INTENT') {
       if (doc.done !== true || doc.warnings.length || doc.shapeless.length || digest !== receipt.digest) {
+        // Contracts.md C1: raw bytes differing from the digest that opened this intent is not,
+        // by itself, a change — only a new owner input against the round's original capture is.
+        if (doc.done === true && digest !== receipt.digest
+            && !ownerInputsChanged(receipt, doc, now, base, fsImpl)) {
+          return receiptStatus(receipt, paths.claim, base, fsImpl, false);
+        }
         let interrupted;
         if (doc.done === true && digest !== receipt.digest) {
           interrupted = changedReceipt(receipt, raw, doc, now, base, fsImpl);
@@ -1001,7 +1101,8 @@ export async function pickupOnce(options, deps = {}) {
     }
 
     if (receipt && doc.done === true && receipt.digest !== digest
-        && (receipt.state !== 'ACCOUNTED' || !receipt.observedUncheckedAt)) {
+        && (receipt.state !== 'ACCOUNTED' || !receipt.observedUncheckedAt)
+        && ownerInputsChanged(receipt, doc, now, base, fsImpl)) {
       const changed = changedReceipt(receipt, raw, doc, now, base, fsImpl);
       atomicJson(paths.receipt, changed, fsImpl);
       return receiptStatus(changed, paths.claim, base, fsImpl, false);
@@ -1170,7 +1271,7 @@ export async function pickupOnce(options, deps = {}) {
 
 export function status(options, deps = {}) {
   const fsImpl = deps.fsImpl ?? fs;
-  const project = registeredProject(options.repo, options.page, fsImpl);
+  const project = registeredProject(options.repo, options.page, fsImpl, deps.git ?? gitRunner);
   const base = deps.agentsHome ?? agentsHome(deps.env);
   const paths = receiptPaths({ agentsHome: base, project, page: options.page });
   const receipt = readJson(paths.receipt, fsImpl);
@@ -1206,7 +1307,7 @@ export function status(options, deps = {}) {
 export function account(options, deps = {}) {
   const fsImpl = deps.fsImpl ?? fs;
   const now = new Date(deps.now ?? Date.now());
-  const project = registeredProject(options.repo, options.page, fsImpl);
+  const project = registeredProject(options.repo, options.page, fsImpl, deps.git ?? gitRunner);
   const base = deps.agentsHome ?? agentsHome(deps.env);
   const paths = receiptPaths({ agentsHome: base, project, page: options.page });
   acquireClaim(paths.claim, fsImpl);
@@ -1218,7 +1319,29 @@ export function account(options, deps = {}) {
     if (receipt.transportRepo !== transportRepo) throw new PickupError('durable transport repository changed; reconcile before accounting');
     const integrity = verifyReceiptEvidence(receipt, base, fsImpl);
     if (integrity.status !== 'OK') throw new PickupError(`cannot account a round with ${integrity.status}`);
-    if (receipt.state !== 'RECORDED') throw new PickupError('cannot account a round outside RECORDED; uncertain delivery never becomes repeat-safe');
+    // Contracts.md C1 (P1.2): a round the old byte check stuck in NEEDS_RECONCILIATION may be
+    // accounted like RECORDED when the reconciliation capture's owner inputs are a sub-multiset
+    // of the original capture's — the lead acted on it, the owner added nothing new. `previousState`
+    // alone does not survive a second stuck pass under the old code (it gets overwritten to
+    // NEEDS_RECONCILIATION), so provenance is proven instead from the receipt's own evidence: only a
+    // round that actually reached RECORDED sets `recordedAt`, and only via a positive transport
+    // result or a MATCH recovery; an UNKNOWN round sets `uncertainAt` instead, and an already
+    // accounted round carries a non-null `accountingOutcome`.
+    const reachedRecorded = typeof receipt.recordedAt === 'string'
+      && (receipt.transportResult?.recorded === true || receipt.transportEvidence?.status === 'MATCH')
+      && !receipt.uncertainAt && receipt.accountingOutcome == null;
+    const stuckAccountable = receipt.state === 'NEEDS_RECONCILIATION'
+      && receipt.reconciliationReason === 'checked page bytes changed during the active round'
+      && (receipt.previousState === 'RECORDED' || receipt.previousState === 'NEEDS_RECONCILIATION')
+      && reachedRecorded
+      && (() => {
+        const original = loadCaptureOwnerInputs(receipt, receipt.privateCaptureRef, receipt.digest, now, base, fsImpl);
+        const reconciliation = loadCaptureOwnerInputs(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, now, base, fsImpl);
+        return Boolean(original) && Boolean(reconciliation) && isSubMultiset(reconciliation, original);
+      })();
+    if (receipt.state !== 'RECORDED' && !stuckAccountable) {
+      throw new PickupError('cannot account a round outside RECORDED; uncertain delivery never becomes repeat-safe');
+    }
     if (typeof receipt.owner !== 'string' || !/^[a-z0-9-]+$/.test(receipt.owner)) {
       throw new PickupError('saved owner binding is invalid');
     }
@@ -1245,6 +1368,7 @@ export function account(options, deps = {}) {
       accountedAt: now.toISOString(),
       accountingOutcome: { path: outcomePath, digest: sha256(Buffer.from(outcome, 'utf8')), ownerAttested: true },
       observedUncheckedAt: null,
+      ...(stuckAccountable ? { accountedFrom: 'NEEDS_RECONCILIATION' } : {}),
     };
     atomicJson(paths.receipt, updated, fsImpl);
     return receiptStatus(updated, paths.claim, base, fsImpl, false);
@@ -1255,7 +1379,7 @@ export function account(options, deps = {}) {
 
 export function openPrivateCapture(options, deps = {}) {
   const fsImpl = deps.fsImpl ?? fs;
-  const project = registeredProject(options.repo, options.page, fsImpl);
+  const project = registeredProject(options.repo, options.page, fsImpl, deps.git ?? gitRunner);
   const base = deps.agentsHome ?? agentsHome(deps.env);
   const paths = receiptPaths({ agentsHome: base, project, page: options.page });
   const receipt = readJson(paths.receipt, fsImpl);
@@ -1320,8 +1444,14 @@ export async function runCli({ argv = process.argv.slice(2), write = (text) => p
 }
 
 function isMainModule() {
-  if (!process.argv[1]) return false;
-  return path.resolve(process.argv[1]).toLowerCase() === path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const canon = (p) => {
+    let r = path.resolve(p);
+    try { r = fs.realpathSync(r); } catch { /* not on disk — fall back to the resolved path */ }
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  };
+  return canon(entry) === canon(fileURLToPath(import.meta.url));
 }
 
 if (isMainModule()) process.exitCode = await runCli();

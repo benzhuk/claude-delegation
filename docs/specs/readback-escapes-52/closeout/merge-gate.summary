@@ -1,0 +1,9 @@
+VERDICT: PASS
+SHA: 85766faf9bcb036f24d6f7a05f80ce9ece33ef2e
+HOST: Windows
+REPO: C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\readback-escapes-52\main-closeout
+NODE: C:\nvm4w\nodejs\node.exe
+START: 2026-09-29T02:22:18.7830517Z
+END: 2026-09-29T02:25:47.7613131Z
+NATIVE_EXIT: 0
+RAW: C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\readback-escapes-52\windows\85766faf9bcb036f24d6f7a05f80ce9ece33ef2e\suite.raw.log

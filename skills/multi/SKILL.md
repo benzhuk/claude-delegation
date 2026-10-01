@@ -29,14 +29,18 @@ Five rules carry the whole protocol:
   `note-inbox` or the ledger before you decide something did not land.
 - **Never wait on a peer inside a turn.** Send, record, carry on. They answer at their next pause.
 - **Receipts, not heartbeats.** One ACK when a peer starts, one RESULT when it finishes. Nothing in
-  between. A peer that says nothing is working, not stuck. Since 2026-09-20 an ACK no longer STARTS a
+  between. A peer that says nothing is working, not stuck until its by-time; after that the flusher
+  says so. Since 2026-09-20 an ACK no longer STARTS a
   turn — it is a ledger record, not a nudge (so is FYI); the recipient's own hooks surface it at their
   next event. It still shows up mid-turn if this turn does anything at all (a prompt, a tool call), and
   since round 2 (MINOR 11) it no longer costs a Stop-block by itself either: a Stop where EVERY waiting
   note is ACK/FYI does not block — it surfaces at your next prompt or tool call instead. A Stop where
   even one waiting note is louder (ASK/RESULT/BLOCKED) still blocks once, and still shows everything
   waiting, ACK/FYI included. `~/.agents/notes/wake-all-kinds` restores the old wake-and-block-on-ACK/FYI
-  behaviour.
+  behaviour. Never poll for a peer's merge or result with a shell loop; send the ASK with a by-time
+  and end your turn. When it is 15 minutes overdue the flusher posts a BLOCKED to you (lane thirteen),
+  which is the wake-up. A polling shell is what Windows killed for memory on 2026-09-26, and a lead
+  lost 3.5 hours.
 - **Never a hidden drop.** Ledger first, always. A refusal is reported with an exit code and a JSON
   object on stdout, never silence.
 
@@ -93,6 +97,8 @@ A plain run never touches a Codex home, and the installer refuses to wire live h
 running from a temporary checkout — a worktree or an unpacked archive, whose path is about to vanish.
 Point a scratch run at a scratch home with `--codex-home <dir>`.
 
+The same installer adds the delete guard to Codex. Codex subagents are covered: a recursive delete from one is refused, as it is in Claude. Top-level Codex lanes, such as a `codex exec` builder or a Codex pane running unattended, are not guarded yet.
+
 Two things silently untrust every hook, and both are repaired by re-running the installer: a node
 upgrade, because the recorded command is an absolute `node` path, and Orca adding or removing a hook
 group, because the trust key carries the group index. If Codex stops delivering notes, that `grep` is
@@ -114,6 +120,8 @@ every state a session can be in:
   turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in
   the ledger. ACK and FYI excepted, they are ledger-only — see below.
 
+A Codex peer sees nothing mid-turn. `codex queue` stores the row at once (`delivered: true`) and the Codex TUI starts it only when the current turn ends, however long that turn runs. Silence from a Codex peer after a delivered note means it is still in a turn. Re-asking queues a second turn behind the first; check the ledger for its ACK instead. `delivered to null` on a sender's receipt is the inbox path: no pane was resolved, so there is no handle to print.
+
 ### What you have to do to be reachable: nothing
 
 Your own hook registers you. Every event it handles writes `{your slug → your inbox}` into
@@ -131,6 +139,31 @@ note-flush --status                                       # is the timer running
 ls -l ~/.agents/notes/inboxes.json                        # there? recently modified?
 grep 'inbox' ~/.agents/notes/flush.log | tail             # what the flusher did, per note
 ```
+
+The status line also reports registered pickup's own state — the existing decisions-pickup
+mechanism, never a second one — ending in `; pickup: not registered on this host` (no
+`registrations.json` under `~/.agents/ws/decisions-pickup/`, i.e. pickup was never opted into on
+this machine, which is the normal state on most hosts), `; pickup: configured, awaiting first pickup
+pass` when the file exists but no pass has annotated a result yet, `; pickup: <code> <age>` once a pass
+has annotated one, or `; pickup: disabled (<switch>)` when `ws-off`/`ws-off-decisions` is present.
+
+`note-flush` also reads the whole ledger for an ASK whose by-time deadline is at least 15 minutes past
+with no RESULT or BLOCKED yet — an ACK does not answer one. It nudges once per id, ever: one BLOCKED
+note from `note-flush` into whichever of the sender or the recipient has a registered inbox on this
+host (neither registered logs it and moves on). A nudge only ever goes out when the answer side is
+observable on this host — the corpus already holds a reply from the recipient to the sender, of any
+kind and stamped at or after the ASK, or both slugs are registered here — otherwise it is logged and
+recorded without a send, since a cross-host pair's ledger here is only half the conversation, until
+the sender's host has the thread too, which the mirror now gives it. And the first pass ever on a
+machine seeds its state file silently, recording every already-overdue id without nudging any of them,
+so publishing this feature does not fire a burst of BLOCKED notes for asks that were merely old.
+BLOCKED, not FYI or ACK, because the multi skill already tells you what to do with one — remove the
+blocker, escalate, or send a RESULT dropping the ask. `~/.agents/ws-off-overdue` turns this off, beside
+the shared `~/.agents/ws-off`; the status line's own `; overdue: <n> open, <m> nudged` suffix counts the
+overdue asks still unanswered and, of those, how many were already handled once without a nudge landing
+(no inbox here, the send failed, or seeded on the first pass; `--json` counts answer-side-not-observable
+ids separately as `crossHost`) — a nudge that lands is itself a BLOCKED `re` the ask, so it closes the
+ask and leaves the count.
 
 On macOS and Linux that file is `-rw-------` (600) and that is the protection. **On Windows the mode is
 cosmetic** — `chmod` there only toggles the read-only bit, so `ls -l` in Git Bash reads `-rw-r--r--` and
@@ -287,7 +320,12 @@ ssh command, tmux) run `bash -lc 'note-send …'` or set `ORCA_CLI`, because not
 
 **A peer on another machine**: run note-send ON that machine over ssh. The packet and both
 ledger lines then land where the recipient actually works, and `Details:` stays
-repo-relative. There is no `<host>:` path form.
+repo-relative. There is no `<host>:` path form. When the sender's host differs from the one running
+this command (given by `--sender-host` or read off `SSH_CONNECTION`/`SSH_CLIENT`), the same envelope
+line also lands, best-effort, in the sender host's own `~/.agents/notes/<day>.md` — so the line now
+lands on both hosts, not just the recipient's; the repo ledger under `docs/ledger` is never mirrored,
+only that one file. The JSON result's `mirrorLedger` (`{host, ok:true}`, `{host, ok:false, error}`, or
+absent for a local send) reports that outcome and never changes the exit code or the delivery outcome.
 
 Call it by its absolute path and quote the whole remote command as ONE argument:
 
@@ -347,6 +385,7 @@ safety gate and its failures are silent.
 | 3 | **deferred — queued, nothing delivered yet** | nothing to do. The ledger has the note and `note-flush` retries. Do NOT re-send the id. Since 0.5.0 this is also what a recipient with no registered inbox looks like |
 | 4 | orca CLI error | the CLI's own message is included, and it says whether the text is stranded in the composer |
 | 5 | cross-host misuse | run note-send on the recipient's host over ssh instead |
+| 6 | **refused — no local recipient, NO ledger line written** (since 2026-09-27) | run note-send on the recipient's own machine over ssh — inside that command, add `--sender-host <the host you came from>` if `SSH_CONNECTION` doesn't map; pass `--local-ok` if this machine's ledger really is what the recipient reads |
 
 Exit 3 is the ordinary outcome now, not a problem. It covers **a recipient with no registered
 inbox on this machine** (the common one since 0.5.0 — the message says exactly that), an inbox post
@@ -386,6 +425,27 @@ delivery that was already coming.
 
 The one exit 3 that does need you: "the text may be sitting UNSENT in the composer". That one is
 NOT queued for retry, because retyping it is how the same note arrives twice. Clear the pane by hand.
+
+**Exit 6 refuses instead of recording a note nobody local can read (since 2026-09-27).** A plain
+`note-send --to <slug>` on a machine with no registered inbox for that slug and no cross-host mirror
+target used to append the ledger and post to nobody — the recipient on another host never saw it. Now
+`note-send` refuses (`{"refused":"no-local-recipient","to":"<slug>","hint":"…"}` on stdout, exit 6,
+**no ledger line written at all**) when every one of these holds: `--to` is not `ben`;
+`--recipient-repo` was not given (the live status collector always passes it, so it is unaffected);
+there is no resolved cross-host mirror target; no inbox is registered here for `--to`; and either the
+send never looks up a pane at all (a ledger-only ACK/FYI, or `--no-type`) or pane resolution on the
+typed path finds no pane whatsoever. An AMBIGUOUS pane is different — a session DOES exist here, just
+under an unclear title — and stays exit 2 as before. An inbox record stamped with a DIFFERENT
+machine's hostname (a restored backup, a synced profile) does not exempt the refusal either — this
+machine still has no inbox for that slug. Fix: run `note-send` on the recipient's own machine over
+ssh — inside that command, add `--sender-host <the host you came from>` if `SSH_CONNECTION` doesn't
+already map it, so the line mirrors back to this machine too (`--sender-host` naming the machine
+you're already on has no effect from a local shell). Pass `--local-ok` when you know this machine's
+ledger genuinely is what the recipient reads (a same-host peer with a pane that just hasn't
+registered its inbox yet); that restores the exact pre-2026-09-27 behaviour for this one send.
+`--dry-run` refuses the same way (exit 6, same JSON, nothing written) whenever that is knowable
+without a pane lookup: a ledger-only ACK/FYI, `--no-type`, or a foreign-host inbox record. A typed
+send in the same situation exits 1 under `--dry-run` instead (no `--recipient-repo`, no pane to plan from).
 
 **Two kill switches**, both a file whose mere presence restores the pre-2026-09-20 behaviour (`touch`
 to pause, `rm` to resume — no deploy, no restart):

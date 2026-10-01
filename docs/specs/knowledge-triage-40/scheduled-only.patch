@@ -1,0 +1,21 @@
+--- a/dot_claude/skills/triage/SKILL.md
++++ b/dot_claude/skills/triage/SKILL.md
+@@ -30,6 +30,8 @@
+ runs, set that up explicitly via the schedule/loop tooling — a deliberate step, not a
+ side effect of this skill.)
+ 
++A run started by the knowledge-triage job installed under Ben's decision of 2026-09-29 is Ben explicitly invoking this skill, as an exception to its general restrictions on automatic or unprompted invocation, for at most 60 notes per run gathered from all hosts.
++
+ ## Designated writer boundary
+ 
+ Curated knowledge publication has one designated writer: Windows host
+--- a/docs/windows-knowledge-update/README.md
++++ b/docs/windows-knowledge-update/README.md
+@@ -2,6 +2,6 @@
+ 
+ These are the exact reviewed BEN-DESKTOP launchers installed September 24, 2026. This docs directory is excluded by the existing .chezmoiignore; these files do not add managed targets or a scheduler. Existing ChezmoiUpdate calls ~/.local/bin/chezmoi-update-hidden.vbs, which waits for chezmoi-update.cmd and forwards its exit. Restore only after inspecting current files/task state and preserving backups; machine-specific paths are intentional.
+ 
+-One cooperative lock covers native file update with no-tty, less-interactive and error-on-conflict, then scripts-only apply without less-interactive, only after file success. Files and scripts need distinct native admission settings. The tracked mirror PowerShell template also propagates child refusal. No forced update, new service, automatic stale-lock expiry, or unattended triage. Curated writers follow the shared triage/learn boundary; arbitrary external editors do not obey that lock.
++One cooperative lock covers native file update with no-tty, less-interactive and error-on-conflict, then scripts-only apply without less-interactive, only after file success. Files and scripts need distinct native admission settings. The tracked mirror PowerShell template also propagates child refusal. No forced update, new service, automatic stale-lock expiry, or unattended triage. Curated writers follow the shared triage/learn boundary; arbitrary external editors do not obey that lock. A run started by the knowledge-triage job installed under Ben's decision of 2026-09-29 is Ben explicitly invoking this skill, as an exception to its general restrictions on automatic or unprompted invocation, for at most 60 notes per run gathered from all hosts.
+ 
+ Review and native tests: claude-delegation docs/work/evidence/knowledge-update-durability.md. Original installed failure and subsequent actual task results remain distinct evidence.

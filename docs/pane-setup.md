@@ -7,10 +7,13 @@ vocabulary; don't re-derive the tier table here.
 ## The panes
 
 - **`<project>-fable`** — top tier (Claude Fable / GPT-6-Astra). Writes the spec, reads
-  the high-tier red-team's report, renders the merge/ship verdict, and is the only pane
-  that writes the decisions page (`delegation:decisions`). Never executes: no builds, no
-  file edits outside the spec pack, no direct tool loops over code. Its tokens buy
-  judgment, nothing else.
+  the high-tier red-team's report, and is the pane that puts a release or install to the
+  owner's machines to the owner as a decision item, and any Waiting item a lane lead
+  cannot resolve on its own (a conflict, or a defect) — an ordinary accepted merge is the
+  lane lead's own gate and Closed entry, never fable's decision to make
+  (`delegation:decisions`). Never executes:
+  no builds, no file edits outside the spec pack, no direct tool loops over code. Its
+  tokens buy judgment, nothing else.
 - **`<project>-o`** — an Opus orchestrator pane. Runs `team-build` end to end (Setup
   through Ship, `skills/team-build/SKILL.md`); launches the build-review-fix loop
   (`skills/team-build/references/build-loop-workflow.js`, that file's own new SKILL.md
@@ -35,8 +38,10 @@ vocabulary; don't re-derive the tier table here.
    territory in parallel, `parallel()` as the barrier) from its own pane — never from
    `<project>-fable`, never from a builder or Sonnet-tier pane.
 4. `<project>-o` reads the loop's return (`{ territories, integrator, blockers }`),
-   applies Ship (work-record transitions, evidence copies), and reports the merge-ready
-   state back to `<project>-fable` for the actual ship decision.
+   applies Ship (work-record transitions, evidence copies, each lane lead's own merge and
+   Closed entry once its second-host suite is green), and reports up to `<project>-fable`
+   only what still needs the owner's word — a release or install, or a Waiting item a
+   lane lead couldn't resolve itself.
 5. If this build also uses the ladder for a bounded research/judge pass, `<project>-o`
    launches it the same way — its own pane, never a subordinate one. Both the ladder and
    the build loop are live as of 2026-09-22, each having had its first real run from an
@@ -114,8 +119,32 @@ reviewers, the integrator); `multi` is for talking to the fable pane.
 
 Run both census scripts from `<project>-o`'s pane once a build's Ship step completes
 (`skills/team-build/SKILL.md`'s Ship section names the exact moment); the numbers go into
-the merge ask `<project>-fable` puts on the decisions page, not into a pane's own
-transcript alone.
+the Closed entry a lane lead posts on its own gate, not into a pane's own transcript
+alone.
+
+## Closing a lane
+
+A lane's merge no longer edits the decisions page in place (Lane 26, see
+`skills/decisions/SKILL.md`'s Page rules): the lane lead appends ONE plain bullet — never
+starting with bold — to `docs/decisions/history/<today>.md`, in the same merge
+commit that lands the lane's branch on main:
+
+```
+Merged <branch> at <sha>, <M-D>: <one-line changelog>; suite <n> of <n> on <host>.
+```
+
+Then, once main is pushed, the lead runs the renderer:
+
+```
+node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page <decisions-page-id> --reader ~/.claude/scripts/notion.js
+```
+
+`publish` reads the page fresh, refuses (exit 4) if it has drifted from
+`docs/decisions/last-render.md` since the last successful render, retitles the
+page as its own last step, and commits+pushes `last-render.md` itself — only
+then does the lead send its RESULT. No Waiting item is posted for an ordinary
+accepted merge; a merge conflict of any kind means no merge at all (post a
+decision item under Waiting instead, per `SKILL.md`'s Page rules).
 
 ## Releasing
 
@@ -128,8 +157,18 @@ node skills/decisions/scripts/goals-mirror.mjs render --repo . > <scratch>/goals
 ```
 
 Read the existing Goals child fresh, then use the existing `notion-writing` skill for
-anchored targeted edits of agent-owned mirror sections only and verify the readback.
-Preserve surrounding human content; reconcile a changed anchor or uncertain write from
-a fresh read. Initial creation uses the existing writer under normal authority.
-`goals-mirror.mjs publish` is intentionally disabled. No runner brief template exists
-for this step; none is created here.
+anchored targeted edits of the agent-owned mirror sections: the marker callout, the
+one-line-per-goal table (its rows are agent-owned too, not just the callouts), and the
+`# Detail {toggle="true"}` block. Detail's children — the card callout, the source
+note, and each goal's own toggle — carry one leading tab now, since they nest under
+Detail rather than sitting at the page's top level; write and diff anchors at that
+depth. Verify the readback. Preserve surrounding human content; reconcile a changed
+anchor or uncertain write from a fresh read. Render exit 2 means a Status line's first
+sentence carries a sha, test count or session id: fix that line in docs/GOALS.md in the
+release commit and render again, never hand-edit the page. The readback returns the table
+as `<table>` rows; compare cell text. The first run after the one-line change is a
+one-time move: replace everything from the card callout through the last goal toggle with
+the rendered table and Detail block, carrying any `**` line Ben left inside a goal toggle.
+Initial creation uses the existing writer under normal authority. `goals-mirror.mjs
+publish` is intentionally disabled. No runner brief template exists for this step; none is
+created here.

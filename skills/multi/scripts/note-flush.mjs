@@ -55,7 +55,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { NoteError, parseEnvelope, LEDGER_ONLY_KINDS, suggestSlug } from './envelope.mjs';
+import {
+  NoteError, parseEnvelope, LEDGER_ONLY_KINDS, suggestSlug, DEFAULT_ZONE, zonedWallToInstant, nextCounter, envelopeInstant,
+} from './envelope.mjs';
 import {
   toPosix, makeOrcaRunner, resolvePaneWithSource, showPane, readPane, classifyPane, isSendable,
   twoPhaseSend, readOutbox, writeOutboxEntry, removeOutboxEntry, appendFlushLog,
@@ -291,6 +293,52 @@ function buildHeartbeat({ now, ms, result, caught, mode, prevTimerAt, prevPickup
 }
 
 /**
+ * R1 (merge-on-acceptance-1, contracts.md): the `; pickup: ...` suffix `buildFlushStatus` appends on
+ * BOTH of its return branches, and the `pickup` field its `json` carries either way. This reports the
+ * EXISTING registered-pickup mechanism's state - never a new reader, state file, or poll - by reusing
+ * the same on-disk checks `runPostFlushPickup` already does before it acts:
+ *   1. `heartbeatPickup` (the CURRENT heartbeat's own `pickup` annotation, when the caller has one -
+ *      only the normal/non-missing branch ever does) -> `{ state: 'annotated', at, code, ordinal, age_s }`,
+ *      `age_s` derived from `pickup.at` the same way `ageS` is derived from `heartbeat.at` above. `at`
+ *      and `ordinal` are carried through unchanged from the raw annotation (review round 1 finding 1:
+ *      this must stay a superset of the annotation status previously reported, never drop fields).
+ *   2. Else `ws-off` / `ws-off-decisions` (the same `switchActive` lstat-based check
+ *      `runPostFlushPickup` uses; `ws-off` named first if both exist - scout-M2.md's 2nd open
+ *      question) -> `{ state: 'disabled', switch }`. Checked BEFORE registration existence: a disabled
+ *      switch is reported regardless of whether a registration file also happens to exist, matching
+ *      `runPostFlushPickup`'s own precedence (it computes `disabled` before it ever gates on
+ *      `configured`).
+ *   3. Else exactly ONE `lstat` of `<agentsHome>/ws/decisions-pickup/registrations.json` (existence
+ *      only, never parsed - scout-M2.md's 3rd open question; ENOENT/ENOTDIR = absent, anything else
+ *      counts as present, mirroring `runPostFlushPickup`'s own check) -> absent:
+ *      `{ state: 'unregistered' }` ("not registered on this host"); present but nothing annotated yet
+ *      (registered, enabled, no full pass has recorded a pickup outcome since): `{ state: 'configured' }`.
+ */
+function buildPickupStatus(home, fsImpl, now, heartbeatPickup) {
+  const pickup = safePickupAnnotation(heartbeatPickup);
+  if (pickup) {
+    const pickupAtMs = Date.parse(pickup.at);
+    const ageS = Number.isFinite(pickupAtMs) ? Math.max(0, Math.round((now - pickupAtMs) / 1000)) : 0;
+    return { line: `; pickup: ${pickup.code} ${ageS}s`, json: { state: 'annotated', ...pickup, age_s: ageS } };
+  }
+  const base = path.resolve(home, '.agents');
+  const switchName = switchActive(path.join(base, 'ws-off'), fsImpl) ? 'ws-off'
+    : switchActive(path.join(base, 'ws-off-decisions'), fsImpl) ? 'ws-off-decisions'
+      : null;
+  if (switchName) return { line: `; pickup: disabled (${switchName})`, json: { state: 'disabled', switch: switchName } };
+  let configured = false;
+  try {
+    fsImpl.lstatSync(path.join(base, 'ws', 'decisions-pickup', 'registrations.json'));
+    configured = true;
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') configured = true;
+  }
+  return configured
+    ? { line: '; pickup: configured, awaiting first pickup pass', json: { state: 'configured' } }
+    : { line: '; pickup: not registered on this host', json: { state: 'unregistered' } };
+}
+
+/**
  * F3: `note-flush --status` - what the heartbeat says, without running a pass. Pure and injectable
  * (`fsImpl`, `home`, `now`), so fresh/stale/missing are all testable without a real clock or a real drain.
  *
@@ -307,12 +355,17 @@ export function buildFlushStatus(argv, deps = {}) {
     // send you to different places. Either way there is no full pass on record, so the json carries
     // `stale: true` rather than leaving a consumer reading `.stale` as `undefined` (falsy).
     const there = (() => { try { return Boolean(fsImpl.statSync(flushLastPath(home))); } catch { return false; } })();
+    const pickupStatus = buildPickupStatus(home, fsImpl, now, null);
+    const overdueStatus = buildOverdueStatus(home, fsImpl, now);
     return {
       exitCode: 1,
-      line: there
+      line: (there
         ? 'flush-last.json is there but unreadable or not valid JSON: the flusher cannot be checked'
-        : 'flusher has never run on this machine (no flush-last.json)',
-      json: { missing: !there, unreadable: there, age_s: null, timer_age_s: null, stale: true },
+        : 'flusher has never run on this machine (no flush-last.json)') + pickupStatus.line + overdueStatus.line,
+      json: {
+        missing: !there, unreadable: there, age_s: null, timer_age_s: null, stale: true,
+        pickup: pickupStatus.json, overdue: overdueStatus.json,
+      },
     };
   }
   const atMs = Date.parse(String(heartbeat.at ?? ''));
@@ -324,10 +377,12 @@ export function buildFlushStatus(argv, deps = {}) {
   const stale = timerAgeS === null || timerAgeS * 1000 > HEARTBEAT_STALE_MS;
   const base = `flusher last ran ${ageS === null ? 'an unknown time' : `${ageS}s`} ago on ${heartbeat.host ?? 'unknown host'}: `
     + `queued ${heartbeat.queued ?? 0}, delivered ${heartbeat.delivered ?? 0}, deferred ${heartbeat.deferred ?? 0}, errors ${heartbeat.errors ?? 0}`;
+  const pickupStatus = buildPickupStatus(home, fsImpl, now, heartbeat.pickup);
+  const overdueStatus = buildOverdueStatus(home, fsImpl, now);
   return {
     exitCode: stale ? 1 : 0,
-    line: stale ? `${base}. STALE: the one-minute timer is not running` : base,
-    json: { ...heartbeat, age_s: ageS, timer_age_s: timerAgeS, stale },
+    line: (stale ? `${base}. STALE: the one-minute timer is not running` : base) + pickupStatus.line + overdueStatus.line,
+    json: { ...heartbeat, age_s: ageS, timer_age_s: timerAgeS, stale, pickup: pickupStatus.json, overdue: overdueStatus.json },
   };
 }
 
@@ -1192,6 +1247,400 @@ export async function runPostFlushPickup(argv, context, deps = {}) {
   return summary;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Overdue asks (docs/specs/overdue-asks-1, territory O1): an ASK past its by-time nudges whoever can
+// still act on it. The already-running flusher notices, rather than a new watcher — see spec.md "Why".
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Spec item 2: "at least 15 minutes past" its by-time deadline. */
+export const OVERDUE_GRACE_MS = 15 * 60 * 1000;
+/** R1: only a deadline within the last 7 days is considered; older ones are ignored, never nudged. */
+export const OVERDUE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** R1: the cap — an entry in the state file older than this is dropped on the next write. A pruned id
+ * cannot come back, because its ASK is already outside OVERDUE_WINDOW_MS by the time it would prune. */
+export const OVERDUE_PRUNE_MS = 8 * 24 * 60 * 60 * 1000;
+/** R1: "created mode 600 on POSIX" — the same rule as inboxes.json and flush-last.json. */
+export const OVERDUE_STATE_MODE = 0o600;
+/** R1: `~/.agents/notes/.overdue-nudged.json`, `{ id: iso }` — once per id, ever. */
+export function overdueStatePath(home) { return toPosix(path.posix.join(notesDir(home), '.overdue-nudged.json')); }
+/** Spec item 1: the pass's own kill switch, beside the shared `ws-off`. */
+export function overdueKillSwitchPath(home) { return toPosix(path.posix.join(path.resolve(home, '.agents'), 'ws-off-overdue')); }
+
+/** `H:MM` or `HH:MM` only (R3) — anything else (empty, "tonight", "15:00 NY") is not a time, never an error. */
+function parseByTime(by) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(by ?? ''));
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return null;
+  return { hour, minute };
+}
+
+/**
+ * R3: the envelope's own `M.D.YY` date plus the `by` `HH:MM`, in `zone`. When `by` is earlier than the
+ * note's own `HH:MM`, the deadline is the next day (worked example: sent 9.26.26 23:50, by 00:10 ⇒
+ * deadline 9.27.26 00:10). Returns null for anything `parseEnvelope` already rejected, or a `by` that is
+ * not exactly `H:MM`/`HH:MM` — never throws, per R3's "ignored, so is a line parseEnvelope rejects."
+ */
+function overdueDeadlineMs(ask, zone = DEFAULT_ZONE) {
+  const d = /^(\d{1,2})\.(\d{1,2})\.(\d{2})$/.exec(String(ask?.date ?? ''));
+  const t = /^(\d{2}):(\d{2})$/.exec(String(ask?.time ?? ''));
+  const by = parseByTime(ask?.by);
+  if (!d || !t || !by) return null;
+  const noteMinutes = Number(t[1]) * 60 + Number(t[2]);
+  const byMinutes = by.hour * 60 + by.minute;
+  const dayOffset = byMinutes < noteMinutes ? 1 : 0;
+  return zonedWallToInstant({
+    year: 2000 + Number(d[3]), month: Number(d[1]), day: Number(d[2]) + dayOffset,
+    hour: by.hour, minute: by.minute,
+  }, zone);
+}
+
+/**
+ * `parseEnvelope`'s output has no `topic` field (scout-O1.md's open question) — recovered from the id's
+ * own `<from>-<topic>-<n>` shape instead: strip the sender prefix, then the trailing `-<counter>`.
+ */
+function overdueTopicFromId(id, from) {
+  const prefix = `${from}-`;
+  if (!id.startsWith(prefix)) return null;
+  const m = /^(.+)-\d+$/.exec(id.slice(prefix.length));
+  return m ? m[1] : null;
+}
+
+function readOverdueState(home, fsImpl) {
+  let raw;
+  try {
+    raw = fsImpl.readFileSync(overdueStatePath(home), 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return {};
+    throw err;
+  }
+  if (!raw.trim()) return {};
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('overdue state file is not a JSON object');
+  }
+  return parsed;
+}
+
+/**
+ * R8: a state entry is either the plain ISO string R1 always wrote, or — only for an id gated by the
+ * cross-host observability check — `{ at: iso, crossHost: true }`. Both shapes carry `at` for pruning;
+ * only the object shape marks "recorded, not nudged" for the status counters below.
+ */
+function overdueEntryAt(entry) { return typeof entry === 'string' ? entry : entry?.at; }
+function isCrossHostEntry(entry) { return Boolean(entry) && typeof entry === 'object' && entry.crossHost === true; }
+
+/** R1: "entries older than 8 days are pruned on each write." */
+function pruneOverdueState(state, now) {
+  const out = {};
+  for (const [id, entry] of Object.entries(state)) {
+    const at = Date.parse(String(overdueEntryAt(entry)));
+    if (Number.isFinite(at) && (now - at) <= OVERDUE_PRUNE_MS) out[id] = entry;
+  }
+  return out;
+}
+
+/** tmp + chmod + rename: the same atomic-write shape transport.mjs uses for inboxes.json (R1). */
+function writeOverdueState(home, state, fsImpl) {
+  const file = overdueStatePath(home);
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  try { fsImpl.rmSync(tmp, { force: true }); } catch { /* will be created, or the write says why */ }
+  fsImpl.writeFileSync(tmp, `${JSON.stringify(state)}\n`, { encoding: 'utf8', mode: OVERDUE_STATE_MODE });
+  try { fsImpl.chmodSync(tmp, OVERDUE_STATE_MODE); } catch { /* win32 has no POSIX mode; the ACL is the user's */ }
+  try {
+    fsImpl.renameSync(tmp, file);
+  } catch (err) {
+    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    throw err;
+  }
+  return file;
+}
+
+/**
+ * R1: the id is recorded BEFORE a send is ever attempted, so a throwing send is never retried.
+ * R8, point 3: `opts.crossHost` marks an id gated by the observability check — recorded, not nudged.
+ */
+function recordOverdueId(home, state, id, now, fsImpl, opts = {}) {
+  const pruned = pruneOverdueState(state, now);
+  pruned[id] = opts.crossHost ? { at: new Date(now).toISOString(), crossHost: true } : new Date(now).toISOString();
+  writeOverdueState(home, pruned, fsImpl);
+  return pruned;
+}
+
+/**
+ * R8: an overdue ASK is nudged only when its answer side is observable on this host — otherwise this
+ * host has, at best, half the conversation (O1-final-review.md MAJOR 1). Either:
+ *   (a) the corpus holds at least one envelope, of any kind, from the ASK's recipient to its sender; or
+ *   (b) both the sender and the recipient slugs are registered in this host's inbox registry.
+ */
+function observableAnswerSide(ask, lines, inboxes) {
+  const askAt = envelopeInstant(ask);
+  const hasReplyLine = askAt !== null && lines.some((line) => {
+    const g = parseEnvelope(line);
+    return Boolean(g) && g.from === ask.to && g.to === ask.from && (envelopeInstant(g) ?? -Infinity) >= askAt;
+  });
+  if (hasReplyLine) return true;
+  return Boolean(inboxes[ask.from]) && Boolean(inboxes[ask.to]);
+}
+
+/**
+ * Every ASK in the host ledger corpus that is open (spec item 2): parsed by `parseEnvelope`, not
+ * superseded (R2, `supersededIds`), not answered (R2 — a RESULT or BLOCKED `re` always answers; since
+ * the Defect 2 pinned rule below, 2026-09-27, an ACK also answers, but ONLY an ASK whose `Needs:` is
+ * `ack`, every other `Needs:` keeping the RESULT/BLOCKED-only rule), past its deadline by at least
+ * `OVERDUE_GRACE_MS`, and inside the `OVERDUE_WINDOW_MS` window (R1).
+ *
+ * Read-only and side-effect-free, so the pass (`runOverdueAsks`) and `--status` (`buildOverdueStatus`)
+ * share this one computation and can never disagree about what "open" means.
+ */
+function collectOverdueAsks(home, fsImpl, now) {
+  const ledgerTexts = readLedgerCorpus([notesDir(home)], fsImpl);
+  const lines = ledgerTexts.flatMap((text) => String(text).split('\n'));
+  const retired = supersededIds(ledgerTexts);
+  const answered = new Set();
+  const asks = new Map();
+  const parsed = [];
+  for (const line of lines) {
+    const g = parseEnvelope(line);
+    if (!g) continue;
+    parsed.push(g);
+    if ((g.kind === 'RESULT' || g.kind === 'BLOCKED') && g.re) answered.add(g.re);
+    if (g.kind === 'ASK' && !asks.has(g.id)) asks.set(g.id, g);
+  }
+  // Defect 2 pinned rule (spec docs/specs/multi-cross-host-1/spec.md, 2026-09-27): an ASK whose
+  // `Needs:` is `ack` is separately answered by an ACK that names it with `re`, sent from the ASK's
+  // `to` at or after the ASK's own instant — the same shape `hasReplyLine` uses above (a sender
+  // self-ACK or a stale ACK does not count). A second pass: this depends on the referenced ASK's own
+  // `to`/`needs`/instant, only known once every ASK id has been collected above. Every other `Needs:`
+  // (or none) keeps the pre-existing rule untouched — RESULT/BLOCKED only.
+  for (const g of parsed) {
+    if (g.kind !== 'ACK' || !g.re) continue;
+    const ask = asks.get(g.re);
+    if (!ask || ask.needs !== 'ack') continue;
+    if (g.from !== ask.to) continue; // a sender self-ACK does not count
+    const askAt = envelopeInstant(ask);
+    const ackAt = envelopeInstant(g);
+    if (askAt === null || ackAt === null || ackAt < askAt) continue; // a stale ACK does not count
+    answered.add(g.re);
+  }
+  const overdue = [];
+  for (const [id, ask] of asks) {
+    if (retired.has(id) || answered.has(id)) continue;
+    const deadlineMs = overdueDeadlineMs(ask);
+    if (deadlineMs === null) continue; // R3: a malformed by/date/time is ignored, never an error
+    const pastMs = now - deadlineMs;
+    if (pastMs < OVERDUE_GRACE_MS) continue; // spec item 2: not yet 15 minutes past
+    if (pastMs > OVERDUE_WINDOW_MS) continue; // R1: outside the 7-day window, ignored
+    overdue.push({ id, ask, pastMs, topic: overdueTopicFromId(id, ask.from) ?? 'overdue' });
+  }
+  return { overdue, ledgerTexts };
+}
+
+/**
+ * F3-style: what `--status` shows about the overdue pass, without running one — pure, injectable, never
+ * throws (a corrupt state file reads as "nothing nudged yet" here, the same fail-closed direction R1
+ * takes for the pass itself).
+ */
+export function buildOverdueStatus(home, fsImpl, now) {
+  let state;
+  try { state = readOverdueState(home, fsImpl); } catch { state = {}; }
+  const { overdue } = collectOverdueAsks(home, fsImpl, now);
+  const open = overdue.length;
+  // R8, point 3: a cross-host id is recorded but never nudged. `nudged` keeps its pre-R8 meaning
+  // (recorded AND not cross-host); `crossHost` is the smallest new field that makes the difference
+  // visible, rather than folding it into `nudged`'s existing count.
+  let nudged = 0;
+  let crossHost = 0;
+  for (const o of overdue) {
+    if (!Object.hasOwn(state, o.id)) continue;
+    if (isCrossHostEntry(state[o.id])) crossHost += 1; else nudged += 1;
+  }
+  return { line: `; overdue: ${open} open, ${nudged} nudged`, json: { open, nudged, crossHost } };
+}
+
+/**
+ * Spec item 1: the post-drain pass. Called from `main()`'s standalone path only (R4) — never from
+ * `drainQuietly` or the piggyback path — right beside `runPostFlushPickup`, under the identical guard
+ * list, the identical admission budget, and its own kill switch beside the shared `ws-off`.
+ *
+ * Every throw inside is the caller's to catch (R4): this never changes the drain's own result or exit
+ * code, exactly like `runPostFlushPickup`.
+ *
+ * @param {string[]} argv
+ * @param {{ result: object, elapsedMs: number }} context - the drain's own outcome; same shape
+ *   `runPostFlushPickup` takes.
+ * @param {object} deps - { fsImpl, env, home, homedir, now, inboxes, send, sendDeps, importer } —
+ *   injectable for tests. `send` defaults to `runNoteSend` (R5: reuse the pickup's own in-process send,
+ *   never `deliverToInbox` directly); tests stub it so no real peer note is ever sent.
+ */
+export async function runOverdueAsks(argv, context, deps = {}) {
+  if (['help', 'status', 'dry-run', 'to', 'home'].some((name) => hasArg(argv, name))) return null;
+  if (context?.result?.ok !== true) return null;
+
+  const fsImpl = deps.fsImpl ?? fs;
+  const env = deps.env ?? process.env;
+  const home = toPosix(path.resolve(deps.homedir ?? deps.home ?? os.homedir()));
+  const now = typeof deps.now === 'function' ? deps.now() : (deps.now ?? Date.now());
+  const stamp = new Date(now).toISOString();
+  const agentsBase = path.resolve(home, '.agents');
+
+  // Same admission budget as runPostFlushPickup: a drain that spent most of its own ceiling must not
+  // spend what is left on a pass nobody is waiting on this second for.
+  if (!Number.isFinite(Number(context.elapsedMs)) || Number(context.elapsedMs) >= PICKUP_ADMISSION_MS) {
+    return { ok: true, ran: false, reason: 'budget', open: 0, nudged: 0, crossHost: 0 };
+  }
+
+  if (switchActive(path.join(agentsBase, 'ws-off'), fsImpl) || switchActive(overdueKillSwitchPath(home), fsImpl)) {
+    appendFlushLog(home, `${stamp} overdue-skipped [*] -> * — kill switch`, fsImpl);
+    return { ok: true, ran: false, reason: 'kill-switch', open: 0, nudged: 0, crossHost: 0 };
+  }
+
+  // R8, point 2: "missing" and "corrupt/unreadable" are different problems and must not be confused —
+  // a corrupt file keeps R1's existing fail-closed behaviour (logged, nothing sent, nothing reseeded);
+  // only a file that TRULY does not exist yet gets the silent seed below. Checked before the read, since
+  // `readOverdueState` itself treats ENOENT as "empty" (returns `{}`) rather than throwing.
+  const stateFileExisted = fsImpl.existsSync(overdueStatePath(home));
+
+  let state;
+  try {
+    state = readOverdueState(home, fsImpl);
+  } catch {
+    // R1: a corrupt or unreadable state file fails CLOSED on the nudge — logged once, nothing sent.
+    appendFlushLog(home, `${stamp} overdue-skipped [*] -> * — state file unreadable; nudging skipped this pass`, fsImpl);
+    return { ok: true, ran: false, reason: 'state-error', open: 0, nudged: 0, crossHost: 0 };
+  }
+
+  const { overdue, ledgerTexts } = collectOverdueAsks(home, fsImpl, now);
+  const inboxes = deps.inboxes ?? readInboxes(home, fsImpl);
+
+  if (!stateFileExisted) {
+    // R8: seed silently on the first run — record every currently overdue id without sending, write
+    // the file (same atomic write, mode 600), and log one line. Nudging starts from the second pass on.
+    const seeded = {};
+    for (const { id } of overdue) seeded[id] = new Date(now).toISOString();
+    writeOverdueState(home, seeded, fsImpl);
+    appendFlushLog(home, `${stamp} overdue-seeded ${overdue.length}`, fsImpl);
+    return { ok: true, ran: true, seeded: true, open: overdue.length, nudged: 0, crossHost: 0 };
+  }
+
+  // Dynamic import (matching runPostFlushPickup's own `importer`): note-send.mjs imports `drainQuietly`
+  // and `deliverToInbox` from THIS file, so a static top-level import here would be a direct two-file
+  // cycle rather than the three-file one already tolerated at the pickup call site.
+  const importer = deps.importer ?? (() => import('./note-send.mjs'));
+  const send = deps.send ?? (await importer()).runNoteSend;
+
+  // R8: the corpus lines the observability check reads — the same split `collectOverdueAsks` already
+  // did internally, recomputed here rather than exported from it, since only this pass needs it.
+  const lines = ledgerTexts.flatMap((text) => String(text).split('\n'));
+
+  const nudgeCounters = new Map();
+  const nextNudgeId = (topic) => {
+    // R5: `note-flush-<topic>-overdue-<n>` — never the ASK's own id.
+    const prefix = `note-flush-${topic}-overdue`;
+    const n = nudgeCounters.has(prefix) ? nudgeCounters.get(prefix) + 1 : nextCounter(ledgerTexts, prefix);
+    nudgeCounters.set(prefix, n);
+    return `${prefix}-${n}`;
+  };
+
+  let nudgedCount = 0;
+  let crossHostCount = 0;
+  for (const { id, ask, pastMs, topic } of overdue) {
+    if (Object.hasOwn(state, id)) { // R1: once per id, ever
+      if (isCrossHostEntry(state[id])) crossHostCount += 1; else nudgedCount += 1;
+      continue;
+    }
+
+    // R8: nudge only when the answer side is observable on this host — applied before any target is
+    // chosen, so a cross-host pair is never sent to, even when one side happens to have a registered
+    // inbox here (the sender-first preference below is not a substitute for actually seeing the reply).
+    if (!observableAnswerSide(ask, lines, inboxes)) {
+      appendFlushLog(
+        home,
+        `${stamp} overdue-cross-host [${id}] -> ${ask.to} — answer side not observable on this host`,
+        fsImpl,
+      );
+      state = recordOverdueId(home, state, id, now, fsImpl, { crossHost: true });
+      crossHostCount += 1;
+      continue;
+    }
+
+    // Spec item 3: sender's inbox first, then the recipient's, else log and record without a send.
+    // Review round 2, MAJOR 1 (twin): registered alone is not enough — a registered inbox whose `cwd`
+    // is gone is no more reachable than no inbox at all. Prefer whichever of sender/recipient has a
+    // registered inbox with a `cwd` that still exists on disk; only fall back to "registered but
+    // possibly unreachable" (the `!target` branch below still keys on registered-at-all) when neither
+    // is reachable, so a live recipient is never skipped in favor of a stale sender.
+    const reachable = (slug) => Boolean(inboxes[slug]?.cwd) && fsImpl.existsSync(inboxes[slug].cwd);
+    const registered = inboxes[ask.from] ? ask.from : (inboxes[ask.to] ? ask.to : null);
+    const target = reachable(ask.from) ? ask.from : (reachable(ask.to) ? ask.to : registered);
+
+    if (!target) {
+      appendFlushLog(
+        home,
+        `${stamp} overdue-no-inbox [${id}] -> ${ask.to} — neither ${ask.from} nor ${ask.to} `
+        + 'has a registered inbox on this host',
+        fsImpl,
+      );
+      state = recordOverdueId(home, state, id, now, fsImpl);
+      continue;
+    }
+
+    // R1: written BEFORE the send is attempted — a send that throws or fails is never retried.
+    state = recordOverdueId(home, state, id, now, fsImpl);
+
+    // Review round 1, MAJOR 1: R5 says the repo ledger is written only when a repo can actually be
+    // named for the target. `runNoteSend`'s own inbox-cwd fallback (out of this territory to edit)
+    // otherwise falls back to THIS process's own cwd, which is never the recipient's repo. Rather than
+    // rely on that fallback, this pre-checks the registered inbox's own `cwd` and only sends — with
+    // `--recipient-repo` passed explicitly — when that path still exists on disk. Otherwise nothing is
+    // sent at all: the id stays recorded (never retried), and the failure is logged so it is visible.
+    // With the `reachable()` preference above, this branch is now reached only when NEITHER party's
+    // registered inbox has a resolvable `cwd` — a genuinely unresolvable case, not merely "the sender
+    // happened to be checked first." A reachable recipient is never dropped in favor of a stale sender.
+    // Final review NIT 1: `reachable()` was already computed above; re-deriving `recipientRepo` from
+    // the raw record duplicated it for no behavioural difference.
+    const recipientRepo = reachable(target) ? inboxes[target].cwd : null;
+    if (!recipientRepo) {
+      appendFlushLog(
+        home,
+        `${stamp} overdue-send-failed [${id}] -> ${target} — no repo resolvable for ${target}'s `
+        + 'registered inbox; not sent',
+        fsImpl,
+      );
+      continue;
+    }
+
+    const minutesPast = Math.floor(pastMs / 60_000);
+    const text = `ASK [${id}] from ${ask.from} to ${ask.to} is ${minutesPast} min past its by-time `
+      + `${ask.by} with no RESULT or BLOCKED`;
+    const nudgeId = nextNudgeId(topic);
+    const sendArgv = [
+      '--from', 'note-flush', '--to', target, '--kind', 'BLOCKED', '--topic', topic,
+      '--text', text, '--needs', 'none', '--re', id, '--id', nudgeId,
+      '--recipient-repo', recipientRepo,
+    ];
+    try {
+      const result = await send(sendArgv, deps.sendDeps ?? { fsImpl, env, home, now });
+      if (!result || result.ok !== true) {
+        throw new Error(result?.error ? String(result.error) : 'send did not resolve ok');
+      }
+      appendFlushLog(
+        home,
+        `${stamp} overdue-nudged [${id}] -> ${target} — posted ${nudgeId}, ${minutesPast} min past by-time ${ask.by}`,
+        fsImpl,
+      );
+      nudgedCount += 1;
+    } catch (err) {
+      // R1: "logged overdue-send-failed [<id>] and is not retried" — the id is already recorded above.
+      appendFlushLog(home, `${stamp} overdue-send-failed [${id}] -> ${target} — ${err?.message ?? String(err)}`, fsImpl);
+    }
+  }
+
+  return { ok: true, ran: true, open: overdue.length, nudged: nudgedCount, crossHost: crossHostCount };
+}
+
 export async function drainQuietly(deps = {}, opts = {}) {
   const argv = [];
   if (opts.to) argv.push('--to', String(opts.to));
@@ -1255,6 +1704,7 @@ async function main() {
     const elapsedMs = Date.now() - startedAt;
     process.stdout.write(wantsJson ? `${JSON.stringify(result)}\n` : `${formatFlush(result)}\n`);
     try { await runPostFlushPickup(argv, { result, elapsedMs }); } catch { /* optional pickup is fail-closed */ }
+    try { await runOverdueAsks(argv, { result, elapsedMs }); } catch { /* R4: fail-closed; the drain already returned */ }
   } catch (err) {
     const message = err?.message ?? String(err);
     if (wantsJson) process.stdout.write(`${JSON.stringify({ ok: false, exitCode: 0, drained: 0, results: [], error: message })}\n`);

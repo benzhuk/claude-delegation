@@ -17,7 +17,7 @@ import {
   upsertHooksState, buildHooksJson, trustEntriesFor, nodeCommand, codexHomes, CODEX_EVENTS,
   mergeHooksJson, trustEntriesForPlacements, HOOK_MARKER, pruneOurHooksState, unescapeTomlBasic,
   ourTrustHashes, canonicalTrustPath, logicalKey, tomlKeyString, hooksStateKey, trustKeyPath,
-  validateTomlTables, parseTomlKeyPath,
+  validateTomlTables, parseTomlKeyPath, CODEX_DELETE_GUARD_EVENTS, DELETE_GUARD_HOOK_MARKER,
 } from './codex-hook-trust.mjs';
 
 const FIXTURE_HOOKS_JSON = '/home/ben/tmp/hooktrust/home/hooks.json';
@@ -188,6 +188,96 @@ test('placement trust keys use the real indices, not 0:0', () => {
   assert.ok(entries['/home/h/hooks.json:interrupt:0:0']);
   assert.ok(entries['/home/h/hooks.json:stop:0:0']);
   assert.equal(entries['/home/h/hooks.json:session_start:0:0'], undefined, "Orca's handler is not ours to trust");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// delete-deny D2 — a SECOND script (hooks/delete-guard.mjs) merged into the same file, its own marker
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('CODEX_DELETE_GUARD_EVENTS names exactly PreToolUse, with a short timeout', () => {
+  assert.deepEqual(CODEX_DELETE_GUARD_EVENTS.map((e) => e.event), ['PreToolUse']);
+  assert.ok(CODEX_DELETE_GUARD_EVENTS[0].timeout > 0 && CODEX_DELETE_GUARD_EVENTS[0].timeout <= 30,
+    'short enough that a hung hook cannot sit on the approval prompt it exists to preempt');
+});
+
+test('DELETE_GUARD_HOOK_MARKER is distinct from the note-delivery HOOK_MARKER', () => {
+  assert.notEqual(DELETE_GUARD_HOOK_MARKER, HOOK_MARKER);
+  assert.match(DELETE_GUARD_HOOK_MARKER, /delete-guard/);
+});
+
+test('MERGE with a marker: two different scripts in the SAME event never collide', () => {
+  const afterNotes = mergeHooksJson(ORCA_HOOKS, '/x/hooks/multi-codex-hook.mjs');
+  // The delete-guard is merged in next, into the file the note-delivery merge already produced —
+  // exactly what installCodexHookScript does, running the two installers one after another.
+  const afterGuard = mergeHooksJson(
+    afterNotes.json, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  // Orca's handler (group 0) and ours (group 1) both survive PreToolUse untouched by either merge —
+  // this file only ever touches its own events (SessionStart/UserPromptSubmit/PostToolUse/Stop/
+  // Interrupt for notes, PreToolUse for the guard) so PreToolUse here is Orca's alone, unchanged.
+  assert.equal(afterGuard.json.hooks.PreToolUse.length, 2);
+  assert.equal(afterGuard.json.hooks.PreToolUse[0].hooks[0].command, ORCA_HOOKS.hooks.PreToolUse[0].hooks[0].command);
+  assert.ok(afterGuard.json.hooks.PreToolUse[1].hooks[0].command.includes(DELETE_GUARD_HOOK_MARKER));
+  // Every note-delivery event from the first merge is completely undisturbed by the second.
+  assert.equal(afterGuard.json.hooks.SessionStart.length, afterNotes.json.hooks.SessionStart.length);
+  assert.deepEqual(afterGuard.json.hooks.Stop, afterNotes.json.hooks.Stop);
+});
+
+test('MERGE with a marker is idempotent, same as the unmarked default path', () => {
+  const first = mergeHooksJson({}, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER);
+  const second = mergeHooksJson(first.json, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER);
+  assert.equal(second.changed, false);
+  assert.deepEqual(second.json, first.json);
+  assert.deepEqual(first.placements.map((p) => p.event), ['PreToolUse']);
+});
+
+test('MERGE with a marker updates its own handler without ever matching the OTHER script by accident', () => {
+  const withNotes = mergeHooksJson(ORCA_HOOKS, '/x/hooks/multi-codex-hook.mjs');
+  const withGuard = mergeHooksJson(
+    withNotes.json, '/old/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  const updated = mergeHooksJson(
+    withGuard.json, '/new/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  assert.equal(updated.changed, true);
+  assert.equal(updated.json.hooks.PreToolUse.length, 2, 'no second copy of the guard, and Orca is untouched');
+  const guardGroup = updated.json.hooks.PreToolUse.find((g) => g.hooks.some((h) => h.command.includes('delete-guard.mjs')));
+  assert.equal(guardGroup.hooks[0].command, `${process.execPath} /new/hooks/delete-guard.mjs`);
+  // The note-delivery merge from the FIRST call is never touched by the second script's update.
+  assert.equal(updated.json.hooks.SessionStart[0].hooks[0].command, ORCA_HOOKS.hooks.SessionStart[0].hooks[0].command);
+});
+
+// review round 1, MAJOR 1: an unmatched PreToolUse group fires on every Codex tool call, not just Bash.
+test('the delete-guard group written by mergeHooksJson carries matcher: "Bash"', () => {
+  const { json, placements } = mergeHooksJson(
+    {}, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  assert.equal(json.hooks.PreToolUse[0].matcher, 'Bash');
+  assert.equal(placements[0].matcher, 'Bash');
+  assert.equal(
+    codexHookHash(placements[0].handler, 'PreToolUse', placements[0].matcher),
+    codexHookHash(placements[0].handler, 'PreToolUse', 'Bash'),
+    'the placement carries the matcher the trust hash must be computed with',
+  );
+  // The note-delivery events carry no matcher key at all — this fix must not add one.
+  const notes = mergeHooksJson({}, '/x/hooks/multi-codex-hook.mjs');
+  for (const event of Object.keys(notes.json.hooks)) {
+    assert.equal(notes.json.hooks[event][0].matcher, undefined, `${event} group must stay unmatched`);
+  }
+});
+
+test('a guard group that exists without a matcher (an older install) gains one, with changed: true', () => {
+  const unmatched = {
+    hooks: {
+      PreToolUse: [{ hooks: [{ type: 'command', command: `${process.execPath} /x/hooks/delete-guard.mjs`, timeout: 10 }] }],
+    },
+  };
+  const { json, changed } = mergeHooksJson(
+    unmatched, '/x/hooks/delete-guard.mjs', CODEX_DELETE_GUARD_EVENTS, undefined, DELETE_GUARD_HOOK_MARKER,
+  );
+  assert.equal(changed, true);
+  assert.equal(json.hooks.PreToolUse[0].matcher, 'Bash');
+  assert.equal(json.hooks.PreToolUse.length, 1, 'repaired in place, not a second group');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@ the two, so a change to one side can drift until somebody notices.
 
 `scripts/mirror-shared-skills.mjs` copies every `codex/agents/*.toml` to
 `~/.codex/agents/` and publishes
-`skills/{multi,delegate,team-build,decisions,notion-writing,dev-server,bearings,continue}`
+`skills/{multi,delegate,team-build,decisions,notion-writing,dev-server,bearings,janitor}`
 (plus the chezmoi-managed `~/.claude/skills/{knowledge,triage,learn}` when
 present) to `~/.agents/skills/<name>`, which Codex scans natively. It also publishes the docs those
 skills link to into `~/.agents/skills/_docs/` — without them `../_docs/model-tiers.md`
@@ -55,9 +55,14 @@ this repository available to Codex as a native local marketplace package. It exp
 skills and selects `hooks/codex-hooks.json`, whose command handlers use Codex's installed-package
 `PLUGIN_ROOT` to invoke the same adapter on SessionStart, UserPromptSubmit, PostToolUse, Stop and
 Interrupt. Codex still requires review and trust of the hook definitions before it executes them.
+The delete guard is wired on Codex PreToolUse (matcher Bash) but denies only `spawn_agent` children,
+which carry `agent_id`; a top-level Codex session, including `codex exec`, passes and is logged
+`passed-lead`. See `docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md`.
 
 The mirror above remains a separate host integration for the existing Codex roles and shims. Do
 not install both hook routes automatically; duplicate handlers would deliver the same inbox twice.
+Backlog notices are paced per supplied native `session_id`; when a host omits that id, its sessions
+share the existing `unknown` fallback cadence.
 
 Codex 0.156.1 installs a root Agent Plugins manifest but does not load its hooks, and a colocated
 compatibility manifest remains shadowed by that root file. The package therefore uses only the

@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import { childEnv } from "../skills/multi/scripts/test-child-env.mjs";
 
 import {
   main,
@@ -22,8 +23,30 @@ import {
   isBranchMerged,
   applySafe,
   gatherWorkarounds,
+  isUnstarted,
+  isTipOnMainline,
+  summarizeCounts,
+  writeRecord,
+  gatherOutside,
+  classify,
+  fetchOrigin,
+  lastFetchAgeHours,
+  closeoutWorktree,
+  pathWithin,
+  idleHours,
+  IDLE_FLOOR_HOURS,
+  pathHasOpenProcess,
 } from "./janitor.mjs";
 import { loadProjectConfig } from "./project-config.mjs";
+
+// R2-6: every idleHours()/applySafe() call in this file passes its own fixture `home`, but idleHours
+// also reads `CODEX_HOME`/`CLAUDE_CONFIG_DIR` straight from `process.env` regardless of `home` - under
+// run-tests.mjs's sealed home both are already stripped (test-home.mjs), but a plain `node --test` run
+// of this file alone inherits whatever this shell happens to have set, which can point a fixture-home
+// test at this machine's REAL Codex/Claude config. Dropped here, once, for this file's own process
+// (Node isolates one test file per process), so no test in this file ever reads real state by accident.
+delete process.env.CODEX_HOME;
+delete process.env.CLAUDE_CONFIG_DIR;
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -69,6 +92,22 @@ function writeWorkRecord(root, filename, lines) {
 
 function addWorktree(root, branch, { fromBranch } = {}) {
   git(["branch", branch, ...(fromBranch ? [fromBranch] : [])], root);
+  const wt = path.join(mkTmp("janitor-wt-"), branch);
+  git(["worktree", "add", wt, branch], root);
+  // Every existing caller of this helper represents "some feature work happened" - one trivial
+  // commit so the branch's tip is never literally equal to main's own tip (J1 item 1's UNSTARTED
+  // class, pinned by addFreshWorktree() below on purpose, would otherwise swallow every fixture in
+  // this file that merges immediately after cutting a worktree without writing anything first).
+  fs.writeFileSync(path.join(wt, ".janitor-test-marker"), `${branch}\n`);
+  git(["add", "."], wt);
+  git(["commit", "-q", "-m", `work on ${branch}`], wt);
+  return wt;
+}
+
+/** The UNSTARTED repro itself (J1 item 1): a worktree cut from main with ZERO commits of its own -
+ * unlike addWorktree() above, this never writes anything, so its tip is byte-for-byte main's tip. */
+function addFreshWorktree(root, branch) {
+  git(["branch", branch], root);
   const wt = path.join(mkTmp("janitor-wt-"), branch);
   git(["worktree", "add", wt, branch], root);
   return wt;
@@ -117,6 +156,19 @@ function listAllFiles(dir) {
   return out.sort();
 }
 
+/** F1 (redteam): idleHours() reads, among other things, the mtime of a worktree's own git-admin
+ * `index` file - and a real `git status` call (which gatherState/isTreeClean always makes, every
+ * run, before applySafe ever gets to check idleHours) rewrites that file - resetting its mtime to
+ * the actual current instant - the moment the on-disk ctime/mtime of any tracked file looks even
+ * slightly inconsistent with what the index cached (measured directly: `fs.utimesSync`/`touch`
+ * always bumps a file's ctime to the real "now", which is exactly the inconsistency that triggers
+ * the rewrite). Backdating a fixture worktree's own file mtimes to fake "idle" is therefore
+ * unreliable - the very git-status call gatherState just made resets it before applySafe ever
+ * checks. Every existing --apply test that expects an actual SAFE-worktree removal instead passes
+ * `now: Date.now() + 25 * 3600000` to `main()` (see below) - advancing the clock idleHours computes
+ * against, rather than rewinding any file's mtime, sidesteps the git-internal refresh entirely. A
+ * test that means to prove the floor itself (the idle-floor tests, further down) does not do this. */
+
 // ---------------------------------------------------------------------------
 // Happy path (round 1, now with an origin remote - SAFE requires the branch tip to be confirmed
 // on origin/main, so these scenarios push after merging).
@@ -139,7 +191,7 @@ test("a merged, origin-confirmed, clean worktree is SAFE; a dirty worktree is JU
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   const safeRefs = state.safe.worktrees.map((w) => fs.realpathSync(w.ref));
   const judgmentRefs = state.judgment.worktrees.map((w) => fs.realpathSync(w.ref));
@@ -171,7 +223,7 @@ test("--apply removes only the SAFE class; the dirty worktree and its branch sur
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -210,7 +262,7 @@ test("the current worktree and its branch are never touched, and main is never d
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: wtC });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: wtC, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -343,7 +395,7 @@ test("the four drift numbers are all present and numeric (or null for disk, if `
   writeProjectConfig(root);
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.equal(typeof state.drift.worktreeCount, "number");
   assert.equal(typeof state.drift.openBranchCount, "number");
   assert.equal(typeof state.drift.untrackedFileCount, "number");
@@ -351,15 +403,26 @@ test("the four drift numbers are all present and numeric (or null for disk, if `
   assert.ok(!("registryPastEndCount" in state.drift), "the registry drift number is gone with the registry (round-1 cut)");
 });
 
-test("source never contains a destructive git verb, a force flag, or exit(2), outside comments", () => {
+// J1 item 3 CHANGED this test (was: "source never contains a destructive git verb, a force flag, or
+// exit(2), outside comments", which flatly banned the substring "branch -D" anywhere in the source).
+// The origin-truth fix legitimately introduces exactly one `git branch -D` call - the SAFE-gated
+// branch delete in applySafe(), reached only after this run's own origin-ancestry proof, per the
+// spec's item 3 ("`-D` is only reached from the SAFE class... anywhere else in the script deletion
+// stays as it is"). A blanket ban would now fail on the very code this territory was asked to ship.
+// Renamed and narrowed instead of deleted: every other destructive verb/force-flag stays banned
+// outright, and `-D` is now asserted to appear EXACTLY ONCE, at that one call site - anywhere else it
+// reappears is either a second destructive path or a weakening of the guard this test exists for.
+test("source never contains a destructive git verb, a force flag, or exit(2), outside comments (branch -D excepted: exactly one sanctioned call site)", () => {
   const files = ["janitor.mjs"].map((f) => path.join(import.meta.dirname, f));
-  const banned = ["git clean", "reset --hard", "stash", "rm -rf", "--force", "branch -D", "process.exit(2)"];
+  const banned = ["git clean", "reset --hard", "stash", "rm -rf", "--force", "process.exit(2)"];
   for (const file of files) {
     const src = fs.readFileSync(file, "utf8");
     const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     for (const bad of banned) {
       assert.equal(stripped.includes(bad), false, `${file} contains forbidden "${bad}" outside comments`);
     }
+    const branchDeleteSites = (stripped.match(/"branch",\s*"-D"/g) || []).length;
+    assert.equal(branchDeleteSites, 1, `${file} must contain exactly one sanctioned "branch -D" call site (found ${branchDeleteSites})`);
   }
 });
 
@@ -390,7 +453,7 @@ test("BLOCKER 1: a merged worktree holding a gitignored file with content is JUD
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const before = gatherState({ root: toplevel, config });
+  const before = gatherState({ root: toplevel, config, minAgeHours: 0 });
   const wtReal = fs.realpathSync(wt);
   assert.ok(
     !before.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal),
@@ -406,7 +469,7 @@ test("BLOCKER 1: a merged worktree holding a gitignored file with content is JUD
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -447,7 +510,7 @@ test("SAFE-CUT: --apply never removes a regular file anywhere - only a whole wor
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -477,7 +540,7 @@ test("BLOCKER 4: a worktree that becomes locked between classification and --app
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.equal(state.safe.worktrees.length, 1, "sanity: the worktree classified SAFE before the race");
 
   // The race: something locks the worktree AFTER classification but BEFORE applySafe runs.
@@ -513,7 +576,7 @@ test("BLOCKER 4b: applySafe accumulates into a caller-supplied log array, so mai
   const wtReal = fs.realpathSync(wt);
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   const externalLog = [];
   applySafe(state, externalLog);
@@ -541,7 +604,7 @@ test("MAJOR 5: a locked worktree is JUDGMENT with its lock reason, never SAFE", 
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   const wtReal = fs.realpathSync(wt);
   assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "a locked worktree is never SAFE");
   const judgmentRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
@@ -570,7 +633,7 @@ test("MAJOR 6: run from a linked worktree, the main working tree never appears i
 
   const toplevel = gitToplevel(other);
   const { config } = loadProjectConfig(other);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   const rootReal = fs.realpathSync(root);
   assert.ok(
     !state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === rootReal),
@@ -582,7 +645,7 @@ test("MAJOR 6: run from a linked worktree, the main working tree never appears i
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: other });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: other, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -599,7 +662,7 @@ test("MAJOR 7: a branch named 'release' that points at main is JUDGMENT and surv
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.ok(!state.safe.branches.some((b) => b.ref === "release"), "a protected-name branch must never be SAFE");
   assert.ok(state.judgment.branches.some((b) => b.ref === "release"), "it must be JUDGMENT instead");
 
@@ -607,7 +670,7 @@ test("MAJOR 7: a branch named 'release' that points at main is JUDGMENT and surv
   const origLog = console.log;
   console.log = () => {};
   try {
-    main(["--apply"], { cwd: root });
+    main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -634,7 +697,7 @@ test("round-1 MAJOR: a local branch named origin/main does not fool the origin-c
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   const wtReal = fs.realpathSync(wt);
   assert.ok(
@@ -653,7 +716,7 @@ test("round-1 MAJOR: a local branch named origin/main does not fool the origin-c
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -676,7 +739,7 @@ test("round-1 MINOR: a worktree checked out on a protected branch name is JUDGME
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   const wtReal = fs.realpathSync(wt);
   assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "a protected-name worktree must never be SAFE");
   const row = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
@@ -688,7 +751,7 @@ test("round-1 MINOR: a worktree checked out on a protected branch name is JUDGME
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -709,7 +772,7 @@ test("round-1 MINOR: when a worktree-remove fails, its branch is not deleted thi
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.equal(state.safe.worktrees.length, 1, "sanity: classified SAFE before the race");
   assert.ok(state.safe.branches.some((b) => b.ref === "feature-failremove"), "sanity: its branch is also SAFE");
 
@@ -740,7 +803,7 @@ test("round-1: run FROM a linked worktree, that worktree never appears in SAFE a
   mergeIntoMain(root, "feature-self");
   pushMain(root);
 
-  const state = gatherState({ root: gitToplevel(wt), config: loadProjectConfig(wt).config });
+  const state = gatherState({ root: gitToplevel(wt), config: loadProjectConfig(wt).config, minAgeHours: 0 });
   const wtReal = fs.realpathSync(wt);
   assert.ok(
     !state.safe.worktrees.some((w) => path.normalize(w.ref) === path.normalize(wtReal)),
@@ -751,7 +814,7 @@ test("round-1: run FROM a linked worktree, that worktree never appears in SAFE a
   const origLog = console.log;
   console.log = () => {};
   try {
-    main(["--apply"], { cwd: wt });
+    main(["--apply", "--min-age-hours", "0"], { cwd: wt, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -770,7 +833,7 @@ test(
     pushMain(root);
 
     const lowered = wt.toLowerCase();
-    const state = gatherState({ root: gitToplevel(lowered), config: loadProjectConfig(lowered).config });
+    const state = gatherState({ root: gitToplevel(lowered), config: loadProjectConfig(lowered).config, minAgeHours: 0 });
     const wtReal = fs.realpathSync(wt);
     assert.ok(
       !state.safe.worktrees.some((w) => path.normalize(w.ref).toLowerCase() === path.normalize(wtReal).toLowerCase()),
@@ -796,7 +859,7 @@ test("NEW-2: in a repo with NO remote at all, a merged branch is JUDGMENT (not c
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.ok(!state.safe.branches.some((b) => b.ref === "feat-local"), "a merged-but-unconfirmed branch must never be SAFE");
   const row = state.judgment.branches.find((b) => b.ref === "feat-local");
   assert.ok(row, "it must be JUDGMENT instead");
@@ -807,7 +870,7 @@ test("NEW-2: in a repo with NO remote at all, a merged branch is JUDGMENT (not c
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -853,7 +916,7 @@ test("MAJOR 10: an untracked scratch file with a space, and one with a non-ASCII
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   const flagged = state.judgment.untrackedFiles.map((f) => f.ref);
   assert.ok(flagged.includes("tmp-my notes.md"), `expected "tmp-my notes.md" in ${JSON.stringify(flagged)}`);
   assert.ok(flagged.includes("tmp-café.md"), `expected the accented filename in ${JSON.stringify(flagged)}`);
@@ -951,7 +1014,7 @@ test("round-2 MAJOR: a tag named refs/remotes/origin/main cannot fool the origin
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.ok(!state.safe.branches.some((b) => b.ref === "feat-unpushed"), "feat-unpushed must NOT be SAFE");
   assert.ok(state.judgment.branches.some((b) => b.ref === "feat-unpushed"), "it must be JUDGMENT - merged locally, not actually confirmed");
 
@@ -960,7 +1023,7 @@ test("round-2 MAJOR: a tag named refs/remotes/origin/main cannot fool the origin
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -987,7 +1050,7 @@ test("round-2 MINOR: a tag sharing a branch's name does not corrupt that branch'
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.ok(state.safe.branches.some((b) => b.ref === "feat-amb"), "feat-amb must classify as SAFE (merged and on origin) despite the same-named tag");
   const wtReal = fs.realpathSync(wt);
   assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "its worktree must classify as SAFE too");
@@ -1007,7 +1070,7 @@ test("round-2 MINOR: a tag literally named 'main' does not make the protected ma
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.ok(!state.judgment.branches.some((b) => b.ref === "heads/main" || b.ref === "main"), "main itself must never appear as a cleanup candidate");
   assert.ok(!state.safe.branches.some((b) => b.ref === "heads/main" || b.ref === "main"), "nor as SAFE");
 });
@@ -1030,7 +1093,7 @@ test(
 
     const toplevel = gitToplevel(root);
     const { config } = loadProjectConfig(root);
-    const state = gatherState({ root: toplevel, config });
+    const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
     assert.equal(state.safe.worktrees.length, 1, "sanity: classified SAFE before the race");
 
     const holder = spawn(process.execPath, ["-e", "setInterval(()=>{}, 1000)"], { cwd: wt, stdio: "ignore" });
@@ -1106,7 +1169,7 @@ test("round-4 MAJOR: a merged branch checked out in the MAIN worktree is never S
 
   const toplevel = gitToplevel(runner);
   const { config } = loadProjectConfig(runner);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   assert.ok(!state.safe.branches.some((b) => b.ref === "feat-done"), "feat-done must never be SAFE while checked out in the main worktree");
   const row = state.judgment.branches.find((b) => b.ref === "feat-done");
@@ -1118,7 +1181,7 @@ test("round-4 MAJOR: a merged branch checked out in the MAIN worktree is never S
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: runner });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: runner, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -1147,7 +1210,7 @@ test("round-4 MAJOR: a worktree moved aside (directory gone, git still registers
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   const wtRow = state.judgment.worktrees.find((w) => path.normalize(w.ref) === path.normalize(wt));
   assert.ok(wtRow, "the moved-aside worktree must be JUDGMENT, not silently absorbed into 'tree not clean'");
@@ -1162,7 +1225,7 @@ test("round-4 MAJOR: a worktree moved aside (directory gone, git still registers
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -1199,7 +1262,7 @@ test("round-5 MINOR: an abandoned worktree on a stale UNMERGED branch is reporte
   console.log = () => {};
   let code;
   try {
-    code = main(["--apply"], { cwd: root });
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
   } finally {
     console.log = origLog;
   }
@@ -1227,7 +1290,7 @@ test("T4: no docs/work directory at all is not a finding - judgment.workarounds 
   writeProjectConfig(root);
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.deepEqual(state.judgment.workarounds, []);
   // NIT (seam delta): suppress the real-machine WIRING section this report prints, display-only.
   const origLog = console.log;
@@ -1255,7 +1318,7 @@ test("T4: an overdue workaround (remove when a past 'by <date>') is a JUDGMENT r
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   const row = state.judgment.workarounds.find((w) => w.ref === "wr-2026-01-01-overdue");
   assert.ok(row, "the overdue workaround must appear as a JUDGMENT row");
@@ -1296,7 +1359,7 @@ test("T4: an open workaround (not yet due, or a worded condition) is a JUDGMENT 
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
 
   const rowA = state.judgment.workarounds.find((w) => w.ref === "wr-2026-01-01-open-a");
   const rowB = state.judgment.workarounds.find((w) => w.ref === "wr-2026-01-01-open-b");
@@ -1338,7 +1401,7 @@ test("T4: a record with no Work: id is skipped for workarounds, never guessed at
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.deepEqual(state.judgment.workarounds, []);
   const origLog = console.log;
   console.log = () => {};
@@ -1383,7 +1446,7 @@ test("MAJOR 2: an unreadable docs/work entry (a directory named *.record.md) doe
 
   const toplevel = gitToplevel(root);
   const { config } = loadProjectConfig(root);
-  const state = gatherState({ root: toplevel, config });
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
   assert.deepEqual(state.judgment.workarounds, [], "the unreadable entry yields no rows, but does not throw");
 
   const lines = [];
@@ -1397,6 +1460,2164 @@ test("MAJOR 2: an unreadable docs/work entry (a directory named *.record.md) doe
   }
   assert.equal(code, 0, "no other findings in this fixture - the report must still complete cleanly");
   assert.ok(lines.join("\n").includes("SAFE:"), "the rest of the report must still print despite the unreadable record entry");
+});
+
+// ---------------------------------------------------------------------------
+// J1 item 1: UNSTARTED - a branch/worktree whose tip equals main's tip is never SAFE, never
+// "merged" in the tables, reported as unstarted with its age.
+// ---------------------------------------------------------------------------
+
+test("J1.1: a worktree cut from main with zero commits is UNSTARTED - never SAFE, never lumped into the plain clean/dirty JUDGMENT reasons", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addFreshWorktree(root, "builder-fresh");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "must never be SAFE");
+  assert.ok(isUnstarted(toplevel, "builder-fresh", "main"), "sanity: the mechanical test itself agrees");
+  const row = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
+  assert.ok(row, "must appear in JUDGMENT");
+  assert.match(row.reason, /^unstarted \(tip is main\)/, "must be its own reason, not the generic clean/dirty ones");
+});
+
+test("J1.1: an UNSTARTED branch (tip equals main's tip) is reported with its age and never reaches the merged/SAFE branch path", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  git(["branch", "builder-fresh-b"], root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.ok(!state.safe.branches.some((b) => b.ref === "builder-fresh-b"));
+  const row = state.judgment.branches.find((b) => b.ref === "builder-fresh-b");
+  assert.ok(row);
+  assert.match(row.reason, /^unstarted \(tip is main\), [\d.]+h old$/);
+});
+
+test("J1.1: a genuinely --no-ff-merged, pushed branch is still classified SAFE (UNSTARTED never swallows real work)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-real-work");
+  mergeIntoMain(root, "feature-real-work");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.ok(state.safe.branches.some((b) => b.ref === "feature-real-work"), "real, merged work must still be SAFE");
+});
+
+// ---------------------------------------------------------------------------
+// J1 review round 2, finding F1: SHA-equality-against-origin/main's-CURRENT-tip only holds while
+// main never advances again. Once another lane merges and pushes, a zero-commit branch/worktree cut
+// EARLIER stops equaling main's NEW tip and must still read UNSTARTED, never "merged"/SAFE.
+// ---------------------------------------------------------------------------
+
+test("J1 review round 2 F1: a worktree and a branch cut from main stay UNSTARTED (never SAFE) even after another lane merges and pushes", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const freshWt = addFreshWorktree(root, "lane-w");
+  git(["branch", "lane-b"], root);
+
+  // Another lane's real work lands on main and is pushed - main's tip moves past the point lane-w
+  // and lane-b were cut from.
+  addWorktree(root, "other-lane-work");
+  mergeIntoMain(root, "other-lane-work");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const freshWtReal = fs.realpathSync(freshWt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === freshWtReal), "lane-w must never become SAFE just because main moved on");
+  assert.ok(!state.safe.branches.some((b) => b.ref === "lane-b"), "lane-b must never become SAFE just because main moved on");
+
+  const wtRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === freshWtReal);
+  assert.ok(wtRow, "lane-w must still be a JUDGMENT row");
+  assert.match(wtRow.reason, /^unstarted \(tip is main\)/);
+
+  const branchRow = state.judgment.branches.find((b) => b.ref === "lane-b");
+  assert.ok(branchRow, "lane-b must still be a JUDGMENT row");
+  assert.match(branchRow.reason, /^unstarted \(tip is main\)/);
+
+  // sanity: the mechanical primitive itself agrees, independent of classify()'s wiring.
+  assert.ok(isTipOnMainline(toplevel, git(["rev-parse", "refs/heads/lane-b"], root).trim(), "main"));
+});
+
+test("J1 review round 2 F1/F9: a DIRTY worktree cut from main is reported unstarted too, and only once (no duplicate branch row)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  const freshWt = addFreshWorktree(root, "lane-dirty");
+  fs.writeFileSync(path.join(freshWt, "scratch.txt"), "uncommitted\n");
+
+  addWorktree(root, "other-lane-work-2");
+  mergeIntoMain(root, "other-lane-work-2");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const freshWtReal = fs.realpathSync(freshWt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === freshWtReal));
+  const wtRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === freshWtReal);
+  assert.ok(wtRow);
+  assert.match(wtRow.reason, /tree not clean.*unstarted \(tip is main\)/, "a dirty unstarted worktree must say BOTH things");
+
+  const branchRows = state.judgment.branches.filter((b) => b.ref === "lane-dirty");
+  assert.equal(branchRows.length, 0, "the worktree row already told lane-dirty's story - no second row for the same lane");
+});
+
+// ---------------------------------------------------------------------------
+// J1 item 2: age floor - nothing younger than --min-age-hours (default 6) is SAFE.
+// ---------------------------------------------------------------------------
+
+test("J1.2: a merged, on-origin, clean worktree younger than --min-age-hours is JUDGMENT, not SAFE, and reports its age against the floor", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-young");
+  mergeIntoMain(root, "feature-young");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 1000000 });
+
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "must never be SAFE below the age floor");
+  const row = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
+  assert.ok(row);
+  assert.match(row.reason, /younger than the age floor.*floor 1000000h/);
+});
+
+test("J1.2: the same worktree IS SAFE once --min-age-hours is 0 - the age floor, not some other reason, was what held it back", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-old-enough");
+  mergeIntoMain(root, "feature-old-enough");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal));
+});
+
+test("J1.2: a merged, on-origin BRANCH (no worktree) younger than the age floor is JUDGMENT, not SAFE", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  git(["checkout", "-q", "-b", "feat-branch-young"], root);
+  fs.writeFileSync(path.join(root, "y.txt"), "y\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "y"], root);
+  git(["checkout", "-q", "main"], root);
+  git(["merge", "--no-ff", "-q", "-m", "merge feat-branch-young", "feat-branch-young"], root);
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 1000000 });
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-branch-young"));
+  const row = state.judgment.branches.find((b) => b.ref === "feat-branch-young");
+  assert.ok(row);
+  assert.match(row.reason, /younger than the age floor/);
+});
+
+test("J1.2: --min-age-hours defaults to 6 on the CLI when the flag is omitted", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-default-floor");
+  mergeIntoMain(root, "feature-default-floor");
+  pushMain(root);
+
+  const origLog = console.log;
+  const lines = [];
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main([], { cwd: root }); // no --min-age-hours: must use the default
+  } finally {
+    console.log = origLog;
+  }
+  const text = lines.join("\n");
+  assert.match(text, /younger than the age floor.*floor 6h/, "a just-created fixture must be held back by the default 6h floor");
+  assert.equal(code, 1);
+});
+
+test("J1 review round 2 F3: a branch re-created NOW at an old, already-merged commit is JUDGMENT 'younger than the age floor', not old-commit-time SAFE", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // A real, --no-ff-merged feature, but its own commit is backdated years into the past - the exact
+  // shape of `git switch <name>` on a long-merged remote branch: the COMMIT is old, the REF is not.
+  const wt = addWorktree(root, "feature-old-tip");
+  const oldEnv = childEnv(os.homedir(), { GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z" });
+  fs.writeFileSync(path.join(wt, "old.txt"), "old\n");
+  git(["add", "."], wt);
+  execFileSync("git", ["commit", "-q", "-m", "backdated work", "--amend", "--no-edit"], { cwd: wt, encoding: "utf8", env: oldEnv });
+  mergeIntoMain(root, "feature-old-tip");
+  pushMain(root);
+  const oldSha = git(["rev-parse", "refs/heads/feature-old-tip"], root).trim();
+  git(["worktree", "remove", "--force", wt], root);
+  git(["branch", "-D", "feature-old-tip"], root);
+
+  // A brand-new ref, created right now, pointing at that same old commit.
+  git(["branch", "revive", oldSha], root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config }); // default floor (6h), real clock
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "revive"), "must never be SAFE just because the COMMIT it points at is old");
+  const row = state.judgment.branches.find((b) => b.ref === "revive");
+  assert.ok(row, "must be a JUDGMENT row");
+  assert.match(row.reason, /^younger than the age floor, [\d.]+h old, floor 6h$/);
+});
+
+test("J1 review round 2 F4: an unknown age (null) is never treated as 'old enough' - classify() sends it to JUDGMENT, never SAFE", () => {
+  const state = classify({
+    root: "/fixture-root",
+    mainBranch: "main",
+    worktrees: [
+      { path: "/fixture-root", branch: "main", main: true, bare: false },
+      {
+        path: "/fixture-root/wt",
+        branch: "feature-null-age",
+        main: false,
+        bare: false,
+        locked: false,
+        hasSubmodules: false,
+        prunable: false,
+        clean: true,
+        merged: true,
+        onOrigin: true,
+        unstarted: false,
+        ageHours: null,
+      },
+    ],
+    branches: [
+      { name: "feature-null-age-branch", merged: true, onOrigin: true, daysSinceCommit: 1, unstarted: false, ageHours: null },
+    ],
+    untrackedFiles: [],
+    minAgeHours: 6,
+  });
+  assert.ok(!state.safe.worktrees.some((w) => w.branch === "feature-null-age"));
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feature-null-age-branch"));
+  const wtRow = state.judgment.worktrees.find((w) => w.branch === "feature-null-age");
+  const bRow = state.judgment.branches.find((b) => b.ref === "feature-null-age-branch");
+  assert.ok(wtRow && /age unknown, floor 6h/.test(wtRow.reason));
+  assert.ok(bRow && /age unknown, floor 6h/.test(bRow.reason));
+});
+
+// ---------------------------------------------------------------------------
+// J1 item 3: remote class, report-only - origin/* branches merged into origin/main, excluding
+// protected names, with the exact human delete command. Never executed.
+// ---------------------------------------------------------------------------
+
+test("J1.3: a remote-only branch merged into origin/main is JUDGMENT with the exact delete command, and --apply never touches it", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feat-remote-merged");
+  mergeIntoMain(root, "feat-remote-merged");
+  git(["push", "-q", "origin", "feat-remote-merged"], root);
+  pushMain(root);
+  git(["worktree", "remove", "--force", wt], root);
+  git(["branch", "-D", "feat-remote-merged"], root); // local branch gone; only origin/feat-remote-merged remains
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const row = state.judgment.remoteBranches.find((r) => r.ref === "origin/feat-remote-merged");
+  assert.ok(row, "a remote branch merged into origin/main must be a JUDGMENT row");
+  // J1 review round 2 (F6): the reason now names the tip sha the verdict was read against (another
+  // host's fetch could be stale), and the command is shell-quoted (a no-op for this ordinary name).
+  assert.match(row.reason, /^remote branch merged into main \(at [0-9a-f]{7}, as of last fetch\)$/);
+  assert.equal(row.command, "git push origin --delete feat-remote-merged");
+
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
+  } finally {
+    console.log = origLog;
+  }
+  const remoteRefsAfter = git(["for-each-ref", "refs/remotes/origin", "--format=%(refname)"], root);
+  assert.match(remoteRefsAfter, /feat-remote-merged/, "the janitor never deletes a remote branch itself - report-only");
+});
+
+test("J1 review round 2 F2: an unstarted PUSHED branch (a lane base cut from main) is never called 'merged into main' even after main advances, and gets no delete command", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // A lane's base branch, pushed at main's tip before any work happened.
+  git(["push", "-q", "origin", "main:refs/heads/lane-r"], root);
+
+  // Main advances and is pushed - the exact condition under which the OLD ancestor-based remote
+  // check called this "merged into main".
+  addWorktree(root, "other-lane-work-3");
+  mergeIntoMain(root, "other-lane-work-3");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  const row = state.judgment.remoteBranches.find((r) => r.ref === "origin/lane-r");
+  assert.ok(row, "an unstarted pushed branch must still be a JUDGMENT row");
+  assert.equal(row.reason, "unstarted remote branch (tip is main), a person decides");
+  assert.equal(row.command, "", "no delete command for a branch that is not actually merged");
+});
+
+test("J1.3: origin/<mainBranch> itself never appears as its own remote-class JUDGMENT row", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.ok(!state.judgment.remoteBranches.some((r) => r.ref === "origin/main"));
+});
+
+// ---------------------------------------------------------------------------
+// packet finding, 2026-09-26: a Windows sweep's prose said 39 SAFE worktrees while its own table
+// and JSON listed 43 - the summary must be computed from the same list the table prints.
+// ---------------------------------------------------------------------------
+
+test("packet finding: the printed SAFE summary count always equals the table's own row count (computed from the same list, never a separate counter)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-s1");
+  mergeIntoMain(root, "feature-s1");
+  addWorktree(root, "feature-s2");
+  mergeIntoMain(root, "feature-s2");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.equal(state.safe.worktrees.length, 2);
+  assert.deepEqual(summarizeCounts(state).safeWorktrees, state.safe.worktrees.length);
+
+  const origLog = console.log;
+  const lines = [];
+  console.log = (s) => lines.push(s);
+  try {
+    main(["--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  const text = lines.join("\n");
+  assert.match(text, /summary: 2 worktree\(s\), 2 branch\(es\)/, "the SAFE summary line must equal the table's own row count");
+
+  const jsonLines = [];
+  console.log = (s) => jsonLines.push(s);
+  try {
+    main(["--min-age-hours", "0", "--json"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  const parsed = JSON.parse(jsonLines.join("\n"));
+  assert.equal(parsed.summary.safeWorktrees, parsed.safe.worktrees.length);
+  assert.equal(parsed.summary.safeBranches, parsed.safe.branches.length);
+});
+
+// ---------------------------------------------------------------------------
+// J1 item 4: --record <dir> - the four drift numbers, fed and kept, not printed and lost.
+// ---------------------------------------------------------------------------
+
+test("J1.4: --record writes <dir>/<date>-<host>.json with the four drift numbers, SAFE/JUDGMENT counts, base sha and host, plus one drift.md line", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-rec");
+  mergeIntoMain(root, "feature-rec");
+  pushMain(root);
+
+  const recordDir = mkTmp("janitor-record-");
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const now = new Date("2026-09-26T12:00:00Z");
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, now });
+  const { jsonPath, driftPath } = writeRecord({ root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "Windows Test Host!" });
+
+  assert.equal(path.basename(jsonPath), "2026-09-26-windows-test-host.json");
+  const record = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+  assert.equal(record.date, "2026-09-26");
+  assert.equal(record.host, "windows-test-host");
+  assert.equal(typeof record.baseSha, "string");
+  assert.equal(record.baseSha.length, 40);
+  assert.equal(record.drift.worktreeCount, state.drift.worktreeCount);
+  assert.equal(record.drift.openBranchCount, state.drift.openBranchCount);
+  assert.equal(record.drift.untrackedFileCount, state.drift.untrackedFileCount);
+  assert.ok("diskUsedKB" in record.drift);
+  assert.equal(record.safeCounts.worktrees, state.safe.worktrees.length);
+  assert.equal(record.judgmentCounts.branches, state.judgment.branches.length);
+
+  const driftText = fs.readFileSync(driftPath, "utf8");
+  assert.match(driftText, /^- 2026-09-26 windows-test-host: worktrees=\d+ branches=\d+ untracked=\d+ diskKB=\S+ safe=\d+ removed=\d+$/m);
+});
+
+test("J1.4: a bare --record defaults to docs/work/evidence/janitor/ under the project root", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--record", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  // J1 review round 2 (F7): the date is now America/New_York, not UTC (facts.md fixes Ben's clock
+  // there) - compare against the same zone, not `toISOString()`, so this assertion cannot itself
+  // flake across the UTC/NY day boundary.
+  const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  const dir = path.join(root, "docs", "work", "evidence", "janitor");
+  const files = fs.readdirSync(dir);
+  assert.ok(files.some((f) => f.startsWith(`${dateStr}-`) && f.endsWith(".json")), `expected a dated json file, got ${JSON.stringify(files)}`);
+  assert.ok(files.includes("drift.md"));
+  void code;
+});
+
+test("J1 review round 1, m1: a bare --record <dir> --host <name>, driven through main(), writes the record under the given host, not os.hostname()", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+
+  const recordDir = mkTmp("janitor-record-host-");
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--record", recordDir, "--host", "Custom Host!", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  const files = fs.readdirSync(recordDir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  assert.ok(jsonFile, `expected a dated json file, got ${JSON.stringify(files)}`);
+  assert.ok(jsonFile.endsWith("-custom-host.json"), `expected the given host (sanitized) in the filename, got ${jsonFile}`);
+  const record = JSON.parse(fs.readFileSync(path.join(recordDir, jsonFile), "utf8"));
+  assert.equal(record.host, "custom-host");
+});
+
+test("J1 review round 2 F7: --record is byte-identical given the same now/hostName - the same inputs must never write two different bytes", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-det");
+  mergeIntoMain(root, "feature-det");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const now = new Date("2026-09-26T23:30:00Z"); // 19:30 EDT - inside the UTC/NY mismatch window F7 fixes
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, now });
+
+  const dirA = mkTmp("janitor-record-a-");
+  const dirB = mkTmp("janitor-record-b-");
+  const a = writeRecord({ root: toplevel, dir: dirA, state, mainBranch: "main", now, hostName: "same-host" });
+  const b = writeRecord({ root: toplevel, dir: dirB, state, mainBranch: "main", now, hostName: "same-host" });
+
+  assert.equal(path.basename(a.jsonPath), "2026-09-26-same-host.json", "19:30 EDT on 2026-09-26 must file under the NY date, not UTC's 2026-09-27");
+  assert.equal(fs.readFileSync(a.jsonPath, "utf8"), fs.readFileSync(b.jsonPath, "utf8"), "identical inputs must write identical bytes");
+  const driftA = fs.readFileSync(a.driftPath, "utf8");
+  const driftB = fs.readFileSync(b.driftPath, "utf8");
+  assert.equal(driftA, driftB, "identical inputs must append identical drift.md lines");
+});
+
+test("seam review MEDIUM 2: a second same-day writeRecord call never overwrites the first run's removed list - both removals survive", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+
+  const recordDir = mkTmp("janitor-record-medium2-");
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const now = new Date("2026-09-29T20:00:00Z"); // 16:00 EDT - a plausible second run, same NY date
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, now });
+
+  const first = writeRecord({
+    root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "h", act: "applied",
+    applyLog: [{ action: "worktree-remove", ref: "feature-a", branch: "feature-a", ok: true, sha: "a".repeat(40), restore: "git ..." }],
+  });
+  assert.equal(path.basename(first.jsonPath), "2026-09-29-h.json");
+  assert.equal(JSON.parse(fs.readFileSync(first.jsonPath, "utf8")).removed.length, 1);
+
+  const second = writeRecord({
+    root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "h", act: "applied",
+    applyLog: [{ action: "worktree-remove", ref: "feature-b", branch: "feature-b", ok: true, sha: "b".repeat(40), restore: "git ..." }],
+  });
+
+  assert.notEqual(second.jsonPath, first.jsonPath, "a same-day collision must land at a different path, never overwrite the first run's file");
+  const hms = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(/:/g, "");
+  assert.equal(path.basename(second.jsonPath), `2026-09-29-h-${hms}.json`);
+
+  // The first run's own file must still hold its own removal, untouched by the second run.
+  const firstAfter = JSON.parse(fs.readFileSync(first.jsonPath, "utf8"));
+  assert.equal(firstAfter.removed.length, 1);
+  assert.equal(firstAfter.removed[0].ref, "feature-a");
+  const secondRecord = JSON.parse(fs.readFileSync(second.jsonPath, "utf8"));
+  assert.equal(secondRecord.removed.length, 1);
+  assert.equal(secondRecord.removed[0].ref, "feature-b");
+
+  // Seam review r2, finding 3: a THIRD writeRecord call in the very same NY second must not collide
+  // with (and truncate) the second run's own suffixed file either - it lands at a further `-2` name.
+  const third = writeRecord({
+    root: toplevel, dir: recordDir, state, mainBranch: "main", now, hostName: "h", act: "applied",
+    applyLog: [{ action: "worktree-remove", ref: "feature-c", branch: "feature-c", ok: true, sha: "c".repeat(40), restore: "git ..." }],
+  });
+  assert.equal(path.basename(third.jsonPath), `2026-09-29-h-${hms}-2.json`);
+  const thirdRecord = JSON.parse(fs.readFileSync(third.jsonPath, "utf8"));
+  assert.equal(thirdRecord.removed[0].ref, "feature-c");
+  // The second run's own file must still hold its own removal, untouched by the third run.
+  const secondAfter = JSON.parse(fs.readFileSync(second.jsonPath, "utf8"));
+  assert.equal(secondAfter.removed[0].ref, "feature-b");
+
+  // Taken together, this NY date's records for this host carry all three removals - none is lost.
+  const files = fs.readdirSync(recordDir).filter((f) => f.startsWith("2026-09-29-h") && f.endsWith(".json"));
+  const allRemovedRefs = files.flatMap((f) => JSON.parse(fs.readFileSync(path.join(recordDir, f), "utf8")).removed.map((r) => r.ref));
+  assert.deepEqual(allRemovedRefs.sort(), ["feature-a", "feature-b", "feature-c"]);
+});
+
+// ---------------------------------------------------------------------------
+// J1 item 5: --outside - report-only visibility into ~/.agents/rollout-backups and ~/.agents/ws.
+// ---------------------------------------------------------------------------
+
+test("J1.5: --outside lists rollout-backups/ws entries by size and date, recommending removal of everything but the newest two", () => {
+  const agentsDir = mkTmp("janitor-agents-");
+  const backups = path.join(agentsDir, "rollout-backups");
+  fs.mkdirSync(backups, { recursive: true });
+  const names = ["a-old", "b-mid", "c-new"];
+  const now = Date.now();
+  names.forEach((name, i) => {
+    const p = path.join(backups, name);
+    fs.mkdirSync(p);
+    fs.writeFileSync(path.join(p, "f.txt"), "x");
+    const t = new Date(now - (names.length - i) * 86400000);
+    fs.utimesSync(p, t, t);
+  });
+
+  const rows = gatherOutside({ agentsDir });
+  const refs = rows.map((r) => r.ref);
+  assert.ok(refs.includes("~/.agents/rollout-backups/a-old"));
+  assert.ok(refs.includes("~/.agents/rollout-backups/c-new"));
+  const oldRow = rows.find((r) => r.ref.endsWith("a-old"));
+  assert.match(oldRow.reason, /recommend: remove/);
+  const newRow = rows.find((r) => r.ref.endsWith("c-new"));
+  assert.match(newRow.reason, /keep/);
+});
+
+test("J1.5: gatherOutside never throws and returns [] for a missing ~/.agents directory", () => {
+  const agentsDir = path.join(mkTmp("janitor-agents-missing-"), "does-not-exist");
+  assert.deepEqual(gatherOutside({ agentsDir }), []);
+});
+
+test("J1 review round 2 F5: ws/* entries are always 'a person decides' - a live workspace's top-level mtime says nothing about activity inside it", () => {
+  const agentsDir = mkTmp("janitor-agents-ws-");
+  const ws = path.join(agentsDir, "ws");
+  fs.mkdirSync(ws, { recursive: true });
+  const names = ["ws-old", "ws-mid", "ws-new"];
+  const now = Date.now();
+  names.forEach((name, i) => {
+    const p = path.join(ws, name);
+    fs.mkdirSync(p);
+    fs.writeFileSync(path.join(p, "f.txt"), "x");
+    const t = new Date(now - (names.length - i) * 86400000);
+    fs.utimesSync(p, t, t);
+  });
+
+  const rows = gatherOutside({ agentsDir });
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
+    assert.match(row.reason, /a person decides/, `ws entries must never get a removal recommendation: ${row.reason}`);
+    assert.doesNotMatch(row.reason, /recommend: remove/);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// J1 origin-truth fix (2026-09-26): merged means an ancestor of origin/<main>, fetched first this
+// run; local main plays no part in SAFE; a branch proved merged on origin is deleted with `-D` only
+// from the SAFE class, after that same run's fetch. Three cases (merged on origin only / merged
+// locally only / merged on both - the "merged on both" case is already covered by the very first
+// test in this file, "a merged, origin-confirmed, clean worktree is SAFE..."), the fetch-failure
+// downgrade, and the --no-fetch labelling.
+// ---------------------------------------------------------------------------
+
+/** J1: pushes `branch` to origin, then merges `origin/<branch>` into origin's OWN `main` from a
+ * SEPARATE clone and pushes that - `root`'s own local main is never touched. Models "another lane
+ * merged and pushed while this checkout's local main stayed stale" (the packet's own Netcup repro:
+ * six releases behind). `bareOrigin` is the path `addOrigin()` returned. */
+function mergeOnOriginOnly(root, bareOrigin, branch) {
+  git(["push", "-q", "origin", branch], root);
+  const clone = path.join(mkTmp("janitor-mergeclone-"), "clone");
+  git(["clone", "-q", bareOrigin, clone]);
+  git(["checkout", "-q", "main"], clone);
+  git(["merge", "-q", "--no-ff", "-m", `merge ${branch}`, `origin/${branch}`], clone);
+  git(["push", "-q", "origin", "main"], clone);
+}
+
+/** A local branch cut from main's current tip, with one commit, checked out nowhere (root ends back
+ * on main) - the plain "some feature work happened, never merged anywhere yet" shape, without the
+ * worktree machinery `addWorktree()` also brings in. */
+function createLocalBranch(root, name) {
+  git(["checkout", "-q", "-b", name], root);
+  fs.writeFileSync(path.join(root, `${name}.txt`), "x\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", `work on ${name}`], root);
+  git(["checkout", "-q", "main"], root);
+}
+
+test("J1 item 2: a branch (and its worktree) merged on origin only, with a stale local main, is SAFE - onOrigin decides, not local `merged`", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+
+  const wt = addWorktree(root, "feat-origin-only");
+  mergeOnOriginOnly(root, bare, "feat-origin-only");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  assert.equal(isBranchMerged(toplevel, "feat-origin-only", "main"), false, "sanity: local main never received this merge - it is genuinely stale");
+  assert.equal(isBranchOnOrigin(toplevel, "feat-origin-only", "main"), true, "sanity: gatherState's own fetch picked up origin's merge");
+
+  assert.ok(state.safe.branches.some((b) => b.ref === "feat-origin-only"), "merged on origin must be SAFE even though local main never merged it (J1 item 2)");
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "its worktree must be SAFE too - same rule (J1 item 4)");
+});
+
+test("J1 item 2: a branch merged only into local main (never (re)pushed) stays JUDGMENT 'not confirmed on origin', even with origin present", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  addWorktree(root, "feat-local-only");
+  mergeIntoMain(root, "feat-local-only"); // local main advances; never pushed again
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  assert.equal(isBranchMerged(toplevel, "feat-local-only", "main"), true, "sanity: merged into local main");
+  assert.equal(isBranchOnOrigin(toplevel, "feat-local-only", "main"), false, "sanity: never (re)pushed, so not on origin");
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-local-only"), "local-only merge must never be SAFE (J1 item 2)");
+  const row = state.judgment.branches.find((b) => b.ref === "feat-local-only");
+  assert.ok(row, "must be JUDGMENT");
+  assert.match(row.reason, /merged locally, not confirmed on origin\/main/);
+});
+
+test("J1 item 3: a branch merged on origin but not in local main IS deleted under --apply - proves `git branch -D`, not `-d`, is what runs", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  createLocalBranch(root, "feat-origin-delete");
+  mergeOnOriginOnly(root, bare, "feat-origin-delete");
+
+  const toplevel = gitToplevel(root);
+  assert.equal(isBranchMerged(toplevel, "feat-origin-delete", "main"), false, "sanity: NOT merged into local main - a plain `git branch -d` would refuse this exact branch");
+
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
+  } finally {
+    console.log = origLog;
+  }
+  assert.ok(
+    !listLocalBranches(gitToplevel(root)).includes("feat-origin-delete"),
+    "merged on origin must be deleted under --apply even though local main never merged it",
+  );
+  void code;
+});
+
+test("J1 item 3: a branch merged only into local main (never pushed) is never deleted by --apply", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  createLocalBranch(root, "feat-local-only-delete");
+  mergeIntoMain(root, "feat-local-only-delete");
+
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply", "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
+  } finally {
+    console.log = origLog;
+  }
+  assert.ok(listLocalBranches(gitToplevel(root)).includes("feat-local-only-delete"), "merged only locally must survive --apply");
+  assert.equal(code, 1);
+});
+
+test("J1 item 1: a fetch that fails this run downgrades an already-origin-confirmed branch and worktree to JUDGMENT UNVERIFIABLE, never SAFE", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  const wt = addWorktree(root, "feat-fetchfail");
+  mergeIntoMain(root, "feat-fetchfail");
+  pushMain(root); // origin/main now confirms feat-fetchfail merged, from this push
+
+  // Break the remote so THIS run's own `git fetch origin --prune` fails, while the already-confirmed
+  // origin/main ref (from the push above) stays exactly where it was - stale, and now unverifiable.
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+
+  assert.equal(state.fetch.attempted, true);
+  assert.equal(state.fetch.ok, false, "sanity: the fetch itself failed");
+
+  assert.ok(!state.safe.branches.some((b) => b.ref === "feat-fetchfail"), "must never be SAFE when this run's own fetch failed");
+  const branchRow = state.judgment.branches.find((b) => b.ref === "feat-fetchfail");
+  assert.ok(branchRow, "must be a JUDGMENT row instead");
+  assert.match(branchRow.reason, /UNVERIFIABLE/);
+
+  const wtReal = fs.realpathSync(wt);
+  assert.ok(!state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal));
+  const wtRow = state.judgment.worktrees.find((w) => fs.realpathSync(w.ref) === wtReal);
+  assert.ok(wtRow, "the worktree must be JUDGMENT too");
+  assert.match(wtRow.reason, /UNVERIFIABLE/);
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main(["--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.match(lines[0], /^FETCH FAILED/, "the fetch failure must be said on the report's own first line");
+  assert.equal(code, 1);
+});
+
+test("J1 item 1: --no-fetch skips the fetch entirely and labels the verdict 'as of last fetch, <age>'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  addWorktree(root, "feat-nofetch");
+  mergeIntoMain(root, "feat-nofetch");
+  pushMain(root);
+
+  // Simulate offline: a live fetch attempted now would fail - --no-fetch must never even try.
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, noFetch: true });
+
+  assert.equal(state.fetch.attempted, false, "no fetch may be attempted under --no-fetch");
+  assert.equal(state.fetch.ok, true, "skipping the fetch is not itself a failure");
+
+  assert.ok(
+    state.safe.branches.some((b) => b.ref === "feat-nofetch"),
+    "the already-confirmed (now stale) origin ref must still classify SAFE under --no-fetch",
+  );
+  const row = state.safe.branches.find((b) => b.ref === "feat-nofetch");
+  assert.match(row.reason, /as of last fetch/, "the verdict must say how old the origin view it relied on is");
+
+  const lines = [];
+  const origLog = console.log;
+  console.log = (s) => lines.push(s);
+  let code;
+  try {
+    code = main(["--no-fetch", "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+  }
+  assert.match(lines[0], /^--no-fetch: every origin-ancestry verdict below is as of last fetch/);
+  void code;
+});
+
+// ---------------------------------------------------------------------------
+// J1 round 2 (review round 1 findings): each fix below is pinned by a test that fails when its own
+// fix is reverted (see pack/reports/J1-review-r1.md for the reviewer's own probes and predictions).
+// ---------------------------------------------------------------------------
+
+test("J1 round 2 MAJOR 1: --apply refuses to run at all under --no-fetch, so a stale view never reaches -D", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  createLocalBranch(root, "feat-round2-major1");
+  mergeOnOriginOnly(root, bare, "feat-round2-major1");
+
+  // Sanity: with a LIVE fetch this run, it really would be SAFE (and deleted) - the point of this
+  // test is that --no-fetch must never reach that delete, not that the branch isn't a genuine
+  // candidate.
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const live = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.ok(live.safe.branches.some((b) => b.ref === "feat-round2-major1"), "sanity: SAFE with a live fetch this run");
+
+  const code = main(["--no-fetch", "--apply", "--min-age-hours", "0"], { cwd: root });
+  assert.equal(code, 3, "--apply under --no-fetch must refuse outright (exit 3), never act");
+  assert.ok(
+    listLocalBranches(gitToplevel(root)).includes("feat-round2-major1"),
+    "the branch must survive - --no-fetch has no fetch this run to point the ancestry proof at",
+  );
+});
+
+test("J1 round 2 MAJOR 1 (defence in depth): applySafe itself refuses every branch delete when its state did not come from a successful fetch this run", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  createLocalBranch(root, "feat-major1-defence");
+  mergeIntoMain(root, "feat-major1-defence");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0, noFetch: true });
+  assert.equal(state.fetch.attempted, false, "sanity: no fetch attempted under --no-fetch");
+  assert.ok(
+    state.safe.branches.some((b) => b.ref === "feat-major1-defence"),
+    "sanity: still reads SAFE under --no-fetch (report-only, not silent)",
+  );
+
+  const log = [];
+  applySafe(state, log);
+  assert.ok(
+    listLocalBranches(gitToplevel(root)).includes("feat-major1-defence"),
+    "applySafe itself, called directly, must never delete without this run's own successful fetch",
+  );
+  const row = log.find((l) => l.action === "branch-delete" && l.ref === "feat-major1-defence");
+  assert.ok(row && row.ok === false && /no successful fetch this run/.test(row.error));
+});
+
+test("J1 round 2 MAJOR 2: a commit made after gatherState but before applySafe survives - `-D` never deletes a tip it didn't itself just prove merged", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  const wt = addWorktree(root, "feat-major2-latecommit");
+  mergeOnOriginOnly(root, bare, "feat-major2-latecommit");
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  const safeRow = state.safe.branches.find((b) => b.ref === "feat-major2-latecommit");
+  assert.ok(safeRow, "sanity: SAFE this run");
+  assert.ok(safeRow.sha, "the SAFE row must carry the sha this run proved merged");
+  const provenSha = safeRow.sha;
+
+  // The exact window MAJOR 2 named: a new commit lands in the SAFE worktree after gatherState ran,
+  // before apply.
+  fs.writeFileSync(path.join(wt, "late.txt"), "late\n");
+  git(["add", "."], wt);
+  git(["commit", "-q", "-m", "late work, after classify"], wt);
+  const lateSha = git(["rev-parse", "feat-major2-latecommit"], root).trim();
+  assert.notEqual(lateSha, provenSha, "sanity: the branch really did move");
+
+  const log = [];
+  applySafe(state, log);
+
+  assert.ok(
+    listLocalBranches(gitToplevel(root)).includes("feat-major2-latecommit"),
+    "the branch, and the late commit it now holds, must survive",
+  );
+  assert.equal(
+    git(["rev-parse", "feat-major2-latecommit"], root).trim(),
+    lateSha,
+    "the late commit itself must still be there - nothing rewound it",
+  );
+  const row = log.find((l) => l.action === "branch-delete" && l.ref === "feat-major2-latecommit");
+  assert.ok(row, "must log a branch-delete attempt");
+  assert.equal(row.ok, false);
+  assert.match(row.error, /tip moved/);
+});
+
+test("J1 round 2 MINOR 1: a failed fetch also downgrades the remote-branch class to UNVERIFIABLE, never a bare 'merged' verdict with a delete command", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const bare = addOrigin(root);
+  const wt = addWorktree(root, "feat-minor1-remote");
+  mergeIntoMain(root, "feat-minor1-remote");
+  git(["push", "-q", "origin", "feat-minor1-remote"], root);
+  pushMain(root);
+  git(["worktree", "remove", "--force", wt], root);
+  git(["branch", "-D", "feat-minor1-remote"], root); // local branch gone; only origin/feat-minor1-remote remains
+
+  // Break the remote so THIS run's own fetch fails, while the cached origin/* refs (from the pushes
+  // above) stay exactly where they were.
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.equal(state.fetch.ok, false, "sanity: the fetch itself failed");
+
+  const row = state.judgment.remoteBranches.find((r) => r.ref === "origin/feat-minor1-remote");
+  assert.ok(row, "must still be a JUDGMENT row");
+  assert.match(row.reason, /UNVERIFIABLE/, "a stale remote-merged reading must never be printed as a plain verdict once this run's fetch has failed");
+  assert.equal(row.command, "", "no delete command may be offered off an unverifiable reading");
+});
+
+test("J1 round 2 MINOR 2: FETCH_HEAD's mtime is trusted only when its own content names <main> at its CURRENT tip - a narrow fetch of a different branch must not reset the age to 'just fetched'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+
+  // A real fetch that legitimately touches main - FETCH_HEAD now references it.
+  git(["fetch", "-q", "origin"], root);
+  // No reflog-based signal in this fixture: MINOR 2 is entirely about FETCH_HEAD, so remove origin/
+  // main's own reflog and rely on FETCH_HEAD alone.
+  fs.rmSync(path.join(root, ".git", "logs", "refs", "remotes", "origin", "main"), { force: true });
+
+  const fetchHeadPath = path.join(root, ".git", "FETCH_HEAD");
+  const fiveDaysAgo = Date.now() / 1000 - 5 * 86400;
+  fs.utimesSync(fetchHeadPath, fiveDaysAgo, fiveDaysAgo);
+
+  const before = lastFetchAgeHours(root, "main");
+  assert.ok(before !== null && before > 24, "sanity: a backdated FETCH_HEAD whose content names main at its current tip is trusted");
+
+  // A narrow fetch of a DIFFERENT branch legitimately never touches origin/main, but does rewrite
+  // FETCH_HEAD's mtime to right now.
+  createLocalBranch(root, "other-narrow-branch");
+  git(["push", "-q", "origin", "other-narrow-branch"], root);
+  git(["fetch", "-q", "origin", "other-narrow-branch"], root);
+
+  const after = lastFetchAgeHours(root, "main");
+  assert.ok(
+    after === null || after > 1,
+    "FETCH_HEAD's fresh mtime must not be credited to origin/main when its content never mentions main",
+  );
+});
+
+test("J1 round 2 MINOR 3: a fetch failure's error text is exactly one line, even though git's own stderr is several", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  git(["remote", "remove", "origin"], root);
+
+  const result = fetchOrigin(root);
+  assert.equal(result.ok, false);
+  assert.ok(result.error, "must carry an error message");
+  assert.equal(result.error.includes("\n"), false, "the error text itself must never contain a newline");
+  assert.match(result.error, /^fatal:/i, "prefers git's own fatal/error line over surrounding advice");
+});
+
+test("J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and disables an interactive terminal/credential prompt", () => {
+  const src = fs.readFileSync(path.join(import.meta.dirname, "janitor.mjs"), "utf8");
+  const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const fnMatch = /export function fetchOrigin\(root\) \{[\s\S]*?\n\}\n/.exec(stripped);
+  assert.ok(fnMatch, "fetchOrigin must be found in the source");
+  const body = fnMatch[0];
+  assert.match(body, /timeout:\s*\d+/, "the janitor's one network call must be bounded by a timeout");
+  assert.match(body, /GIT_TERMINAL_PROMPT:\s*"0"/, "must disable git's own terminal credential prompt");
+});
+
+test("J1 round 2 MINOR 5 (updated, lane 59 C5): SKILL.md's origin-is-the-record-of-truth text stays folded into an existing section; lane 59 adds exactly one new section, the Reclaim section, after the daily timer installer's own section", () => {
+  const src = fs.readFileSync(path.join(import.meta.dirname, "..", "skills", "janitor", "SKILL.md"), "utf8");
+  const headings = src.split("\n").filter((l) => /^#{1,2} /.test(l));
+  assert.deepEqual(headings, [
+    "# Janitor: mechanical cleanup, two classes, one owner call",
+    "## janitor never deletes a file",
+    "## The two classes",
+    "## What janitor will never do",
+    "## Definition of done, for any builder",
+    "## Cadence: fed, not run on a whim",
+    "## Installing the daily timer",
+    "## Cleanup is never chained onto productive work",
+    "## Reclaim: the one allowlisted deleter",
+    "## Adapters",
+  ]);
+  assert.match(src, /Origin is the record of truth/, "the origin-truth content must still be present, just not under its own heading");
+});
+
+// ── C1 ruling b (lane-closeout): closeoutWorktree, the one new export this file gains ──────
+
+test("closeoutWorktree: removes a clean worktree and deletes its local branch with -d, never -D", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-clean-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  assert.deepEqual(result.steps.map((s) => s.step), ["worktree", "branch"]);
+  assert.equal(result.steps[0].result, "removed");
+  assert.equal(result.steps[1].result, "removed");
+  assert.equal(fs.existsSync(wt), false);
+  assert.equal(git(["branch", "--list", branch], root).trim(), "");
+});
+
+test("closeoutWorktree: a dirty worktree is reported 'dirty', left in place, and its branch is refused (never forced)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-dirty-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  fs.writeFileSync(path.join(wt, "uncommitted.txt"), "dirty\n");
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "dirty");
+  assert.equal(steps.branch.result, "refused");
+  assert.equal(fs.existsSync(wt), true);
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "");
+});
+
+// F1/L4 (C1 round 2, CRITICAL): an ignored file (never untracked/modified) still makes the
+// worktree 'dirty' on the LIVE path, not only the dry-run path - `git worktree remove` (unforced)
+// silently deletes ignored files even though it refuses on untracked/modified ones.
+test("closeoutWorktree: an ignored-only file (no untracked/modified) is 'dirty' live, not just on --dry-run, and the file survives", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-ignored-1";
+  const wt = addWorktree(root, branch);
+  fs.writeFileSync(path.join(wt, ".gitignore"), "secret-file\n");
+  git(["add", ".gitignore"], wt);
+  git(["commit", "-q", "-m", "gitignore"], wt);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  fs.writeFileSync(path.join(wt, "secret-file"), "x\n");
+  const status = git(["status", "--porcelain", "--ignored"], wt).trim();
+  assert.match(status, /^!! secret-file$/m, "fixture sanity: reported ignored, not untracked");
+  const dry = closeoutWorktree({ root, worktreeField: branch, cwd: root, dryRun: true });
+  assert.equal(Object.fromEntries(dry.steps.map((s) => [s.step, s])).worktree.result, "dirty");
+  const live = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(live.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "dirty");
+  assert.match(steps.worktree.detail, /ignored/);
+  assert.equal(fs.existsSync(wt), true, "the worktree must survive");
+  assert.equal(fs.existsSync(path.join(wt, "secret-file")), true, "the ignored file must survive - unforced `git worktree remove` would otherwise silently delete it");
+});
+
+// F7 (C1 round 2, MAJOR): --repo (root) equal to, or containing, the worktree entry being
+// considered is refused - the reviewer's own repro (e13-repo-is-wt.mjs) called closeoutWorktree
+// with root === the linked worktree's own path.
+test("closeoutWorktree: F7 - refuses a worktree entry that IS (or contains) --repo, distinct from the main-worktree and cwd-containment checks", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "close-repo-is-wt-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  const dry = closeoutWorktree({ root: wt, worktreeField: branch, cwd: root, dryRun: true });
+  assert.equal(dry.steps[0].result, "refused");
+  assert.match(dry.steps[0].detail, /--repo/);
+  const live = closeoutWorktree({ root: wt, worktreeField: branch, cwd: root });
+  assert.equal(live.steps[0].result, "refused");
+  assert.match(live.steps[0].detail, /--repo/);
+  assert.equal(fs.existsSync(wt), true);
+  assert.equal(fs.existsSync(path.join(wt, ".git")), true, "the worktree's own .git link must survive - this is exactly what an unguarded live removal would delete");
+});
+
+test("closeoutWorktree: refuses the main worktree, and refuses the worktree containing cwd", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const mainResult = closeoutWorktree({ root, worktreeField: root, cwd: root });
+  assert.equal(mainResult.steps[0].result, "refused");
+  assert.match(mainResult.steps[0].detail, /main worktree/);
+
+  const branch = "close-cwd-1";
+  const wt = addWorktree(root, branch);
+  const cwdResult = closeoutWorktree({ root, worktreeField: branch, cwd: wt });
+  assert.equal(cwdResult.steps[0].result, "refused");
+  assert.match(cwdResult.steps[0].detail, /process\.cwd\(\)/);
+  assert.equal(fs.existsSync(wt), true);
+});
+
+// R2-8 (C1 round 3), narrowed by the round-4 idempotent-closeout ruling: a Worktree: naming a
+// branch never checked out anywhere is no longer a blanket "refused worktree-unresolved" - the
+// branch it names genuinely exists (only the WORKTREE part is absent), so this now goes on to the
+// branch step as usual, same as the round-4 "directory gone, branch survives" case.
+test("closeoutWorktree: R2-8/round-4 - a Worktree: naming a branch never checked out anywhere reports the worktree absent and still removes the local branch", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  git(["branch", "close-absent-1"], root);
+  const result = closeoutWorktree({ root, worktreeField: "close-absent-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", ref: "close-absent-1", result: "removed" },
+  ]);
+  assert.equal(git(["branch", "--list", "close-absent-1"], root).trim(), "", "the local branch must actually be gone now");
+});
+
+// R2-8 (C1 round 3, MINOR): kills the "entry lookup is not normalized" gap directly - a
+// Worktree: given as "origin/build/p9-1" (an origin-branch-shaped value, not a plain branch name)
+// against a REAL linked worktree on branch build/p9-1 now resolves (branchField normalization),
+// instead of falling through to worktree-unresolved and leaving a real worktree untouched.
+test("closeoutWorktree: R2-8 - a Worktree: given as an origin-branch-shaped value (origin/build/x) still resolves to the real linked worktree on that branch", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "build/p9-1";
+  const wt = addWorktree(root, branch);
+  const result = closeoutWorktree({ root, worktreeField: `origin/${branch}`, cwd: root, dryRun: true });
+  assert.equal(result.steps[0].step, "worktree");
+  assert.equal(result.steps[0].result, "removed");
+  assert.equal(path.resolve(result.steps[0].ref), path.resolve(wt), "must resolve to the real linked worktree");
+});
+
+// R2-3(j) (C1 round 3, blocker item): the win32 case/separator fold `closeoutWorktree`'s
+// containment check relies on had NO test at all, on any host, including the one host (win32)
+// where it matters - this is the exact check round-1's F7 found broken there. Exercised through
+// `path.win32` so it is pinned on every CI host, not only a Windows one.
+test("pathWithin: win32 fold - backslash separators and drive-letter case all compare equal, only a DIFFERENT path is not contained", () => {
+  assert.equal(
+    pathWithin("C:\\Users\\X\\wt\\scripts", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    true,
+  );
+  assert.equal(
+    pathWithin("c:\\users\\x\\wt", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    true,
+  );
+  assert.equal(
+    pathWithin("C:\\Users\\X\\wt2", "C:/Users/X/wt", { platform: "win32", pathImpl: path.win32 }),
+    false,
+  );
+});
+test("pathWithin: posix - equal paths and a real subdirectory are 'within'; a sibling directory sharing a name prefix is not", () => {
+  assert.equal(pathWithin("/a/b", "/a/b"), true);
+  assert.equal(pathWithin("/a/b/c", "/a/b"), true);
+  assert.equal(pathWithin("/a/b2", "/a/b"), false, "must not treat a prefix-sharing sibling as contained");
+});
+
+// Seam review MEDIUM 1: `pathWithin` used to treat any relative path merely BEGINNING with ".."
+// as an escape, so a real child directory literally named "..live" read as "outside" - the exact
+// defect LOW 12 fixed in path-safety.mjs and MEDIUM 3 fixed in reclaim.mjs, left open here. Only
+// an exact ".." segment (or one followed by a separator) is an actual escape.
+test("pathWithin: MEDIUM 1 - a real child dir named '..live' is inside; an actual '..' escape is not, on posix and win32", () => {
+  const d = mkTmp("janitor-pathwithin-dotdot-");
+  fs.mkdirSync(path.join(d, "..live"));
+  assert.equal(pathWithin(path.join(d, "..live"), d), true, "a directory literally named '..live' is a real child, not an escape");
+  assert.equal(pathWithin(path.join(d, ".."), d), false, "an actual '..' segment still escapes");
+  assert.equal(
+    pathWithin("C:\\a\\..x", "C:\\a", { platform: "win32", pathImpl: path.win32, realpath: (p) => p }),
+    true,
+    "the win32 form of the same fix",
+  );
+});
+
+test("closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and reports the same verdicts a live run would", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const branch = "close-dry-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch);
+  pushMain(root);
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root, dryRun: true });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "removed");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(fs.existsSync(wt), true, "--dry-run must not remove the worktree");
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "--dry-run must not delete the branch");
+});
+
+// C1 round 4 (idempotent closeout, the lead's ruling on the R2-3 review's O1 observation): a
+// Worktree: whose directory is genuinely gone from disk, with no registered worktree holding its
+// branch either, is `absent`, not a refusal - a re-run must be safe. But when the LOCAL BRANCH
+// still exists (only the directory is gone), closeout goes on to remove that branch as usual (a
+// plain `git branch -d`), rather than treating the missing directory as cover to skip it too.
+test("closeoutWorktree: idempotent - a genuinely absent Worktree: (no directory, no registered worktree, no local branch) is 'absent' on both steps, not a refusal", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const result = closeoutWorktree({ root, worktreeField: "idem-never-existed-1", cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ]);
+});
+
+test("closeoutWorktree: idempotent - a Worktree: whose directory is genuinely gone, but whose local branch still exists, goes on to remove that branch as usual", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const branch = "idem-branch-survives-1";
+  const wt = addWorktree(root, branch);
+  mergeIntoMain(root, branch); // so a plain `git branch -d` (never -D) can succeed below
+  git(["worktree", "remove", "--force", wt], root); // the directory is gone; the local branch is not
+  assert.equal(fs.existsSync(wt), false, "fixture sanity");
+  assert.notEqual(git(["branch", "--list", branch], root).trim(), "", "fixture sanity: the local branch still exists");
+  const result = closeoutWorktree({ root, worktreeField: branch, cwd: root });
+  const steps = Object.fromEntries(result.steps.map((s) => [s.step, s]));
+  assert.equal(steps.worktree.result, "absent");
+  assert.equal(steps.branch.result, "removed");
+  assert.equal(git(["branch", "--list", branch], root).trim(), "", "the local branch must actually be gone now");
+});
+
+// R2-8 still holds on this same re-run path: a value this host cannot resolve as a local path at
+// all (a Windows-shaped value read on Linux) stays ambiguous, even though it also never exists on
+// disk on this host - idempotency narrows ONLY the "the path is simply gone now" case.
+test("closeoutWorktree: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (never silently absent)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  // Foreign to THIS host: a Linux-written value read on win32, a Windows-written value read elsewhere.
+  const foreign = process.platform === "win32" ? "/home/ben/orca/workspaces/x/idem-foreign-1" : "C:/Users/benzh/orca/workspaces/x/idem-foreign-1";
+  const result = closeoutWorktree({ root, worktreeField: foreign, cwd: root });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ]);
+});
+
+// R2-8 still holds: a real directory that exists on disk but simply is not a registered worktree
+// also stays ambiguous - only a target that is genuinely gone counts as absent.
+test("closeoutWorktree: idempotent - a Worktree: naming a real directory that exists but is not a registered worktree stays refused worktree-unresolved", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const notAWorktree = mkTmp("closeout-idem-not-a-worktree-");
+  const result = closeoutWorktree({ root, worktreeField: notAWorktree, cwd: root });
+  assert.equal(result.steps[0].result, "refused");
+  assert.equal(result.steps[0].detail, "worktree-unresolved");
+  assert.equal(fs.existsSync(notAWorktree), true, "an unregistered real directory must never be removed");
+});
+
+// R4-3 (C1 round 5): the dry-run early return in the branch-survives idempotent path had no test
+// at all - removing it let `--dry-run` delete a merged local branch for real.
+test("closeoutWorktree: idempotent - --dry-run on a gone directory whose local branch survives deletes nothing", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  git(["branch", "idem-dry-1"], root);
+  const result = closeoutWorktree({ root, worktreeField: "idem-dry-1", cwd: root, dryRun: true });
+  assert.deepEqual(result.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", ref: "idem-dry-1", result: "removed" },
+  ]);
+  assert.notEqual(git(["branch", "--list", "idem-dry-1"], root).trim(), "", "--dry-run must not delete the branch");
+});
+
+// R4-4/W1 (C1 round 5): a pure unit test of the `hostAbsolute` classifier itself, forced to both
+// `platform: "win32"` and `platform: "posix"` on this (Linux) host - so the Windows form of the
+// classifier is pinned even though this suite never runs on a live win32 filesystem. A posix-
+// shaped value is native on a posix host and foreign on a win32 host; a win32-shaped value is
+// native on a win32 host and foreign on a posix host.
+test("closeoutWorktree: classifier - hostAbsolute forced to win32 and to posix picks the right form as native vs foreign", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const posixValue = "/nonexistent/idem-classifier-1";
+  const win32Value = "C:\\nonexistent\\idem-classifier-1";
+
+  const posixOnWin32 = closeoutWorktree({ root, worktreeField: posixValue, cwd: root, platform: "win32" });
+  assert.deepEqual(posixOnWin32.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ], "a posix-shaped value is foreign on a win32 host");
+
+  const win32OnWin32 = closeoutWorktree({ root, worktreeField: win32Value, cwd: root, platform: "win32" });
+  assert.deepEqual(win32OnWin32.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ], "a win32-shaped value is native on a win32 host");
+
+  const win32OnPosix = closeoutWorktree({ root, worktreeField: win32Value, cwd: root, platform: "posix" });
+  assert.deepEqual(win32OnPosix.steps, [
+    { step: "worktree", result: "refused", detail: "worktree-unresolved" },
+    { step: "branch", result: "refused", detail: "worktree-unresolved (not checked)" },
+  ], "a win32-shaped value is foreign on a posix host");
+
+  const posixOnPosix = closeoutWorktree({ root, worktreeField: posixValue, cwd: root, platform: "posix" });
+  assert.deepEqual(posixOnPosix.steps, [
+    { step: "worktree", result: "absent" },
+    { step: "branch", result: "absent" },
+  ], "a posix-shaped value is native on a posix host");
+});
+
+// ---------------------------------------------------------------------------
+// F1 (redteam): idleHours() and the daily act's 24h idle floor for a SAFE worktree.
+// ---------------------------------------------------------------------------
+
+test("F1: idleHours() reads the newest of the worktree dir mtime, git-admin mtimes, and ~/.claude/projects/<slug> entries", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const wt = addWorktree(root, "feature-idle-unit");
+
+  const home = mkTmp("janitor-idlehome-");
+  const slug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+  const projectsDir = path.join(home, ".claude", "projects", slug);
+  fs.mkdirSync(projectsDir, { recursive: true });
+  fs.writeFileSync(path.join(projectsDir, "x.jsonl"), "{}\n");
+
+  const fresh = idleHours(wt, { home, now: Date.now() });
+  assert.ok(fresh < 1, `expected a freshly-touched worktree to read well under 1h idle, got ${fresh}`);
+
+  const old = new Date(Date.now() - 25 * 3600000);
+  fs.utimesSync(wt, old, old);
+  fs.utimesSync(path.join(projectsDir, "x.jsonl"), old, old);
+  const gitDir = git(["rev-parse", "--git-dir"], wt).trim();
+  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(wt, gitDir);
+  for (const f of ["HEAD", "index", path.join("logs", "HEAD")]) {
+    try {
+      fs.utimesSync(path.join(absGitDir, f), old, old);
+    } catch {
+      // some of these may not exist yet on a fresh worktree - not this test's concern
+    }
+  }
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle >= IDLE_FLOOR_HOURS, `expected >=${IDLE_FLOOR_HOURS}h idle after backdating every signal, got ${idle}`);
+});
+
+// review round 1, finding 9: "found nothing" and "could not tell" used to share one confident
+// answer (Infinity, "fully idle"). Ruling r0: doubt always resolves to active, never a number a
+// caller could read as a green light - NaN, which every `!(hrs >= floor)` check treats as active.
+test("F1: idleHours() returns NaN (unknown, never idle) when it finds no candidate mtime at all", () => {
+  const home = mkTmp("janitor-idlehome-empty-");
+  const idle = idleHours(path.join(home, "does-not-exist"), { home, now: Date.now() });
+  assert.ok(Number.isNaN(idle), `expected NaN for a wtPath that cannot even be stat'd, got ${idle}`);
+});
+
+/** Backdates a real worktree's own directory mtime and its git-admin `HEAD`/`index`/`logs/HEAD`
+ * files 48h back - the shared setup for every "idleHours must find THIS one extra source, and only
+ * that source" test below, so the every-other-signal path is deliberately made to look stale first. */
+function backdateWorktreeSignals(wt) {
+  const old = new Date(Date.now() - 48 * 3600000);
+  fs.utimesSync(wt, old, old);
+  const gitDir = git(["rev-parse", "--git-dir"], wt).trim();
+  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(wt, gitDir);
+  for (const f of ["HEAD", "index", path.join("logs", "HEAD")]) {
+    try {
+      fs.utimesSync(path.join(absGitDir, f), old, old);
+    } catch {
+      // some of these may not exist yet on a fresh worktree - not this test's concern
+    }
+  }
+}
+
+// review round 1, finding 1: idleHours only ever looked at ~/.claude/projects/<naive slug> - four
+// measured live-session shapes read as idle regardless, and would have been removed under the daily
+// act. Each test below backdates every OTHER signal 48h first, so only the new source under test can
+// make the result read under the floor.
+
+test("F1 (review finding 1): idleHours() reads a live session under a CLAUDE_CONFIG_DIR account (~/.claude-acct2), not only the plain ~/.claude", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const wt = addWorktree(root, "feature-idle-acct2");
+  backdateWorktreeSignals(wt);
+
+  const home = mkTmp("janitor-idlehome-acct2-");
+  const slug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+  const projectsDir = path.join(home, ".claude-acct2", "projects", slug);
+  fs.mkdirSync(projectsDir, { recursive: true });
+  fs.writeFileSync(path.join(projectsDir, "session.jsonl"), "{}\n");
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle < IDLE_FLOOR_HOURS, `expected the acct2 session to read as active, got ${idle}h idle`);
+});
+
+test("F1 (review finding 1): idleHours() reads a session launched in a SUBDIRECTORY of the worktree (slug <wt-slug>-sub)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const wt = addWorktree(root, "feature-idle-sub");
+  backdateWorktreeSignals(wt);
+
+  const home = mkTmp("janitor-idlehome-sub-");
+  const slug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+  const projectsDir = path.join(home, ".claude", "projects", `${slug}-sub`);
+  fs.mkdirSync(projectsDir, { recursive: true });
+  fs.writeFileSync(path.join(projectsDir, "session.jsonl"), "{}\n");
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle < IDLE_FLOOR_HOURS, `expected a subdirectory-launched session to read as active, got ${idle}h idle`);
+});
+
+test("F1 (review finding 1): idleHours() matches Claude Code's own hashed-slug truncation for a worktree path over 200 characters", () => {
+  const base = mkTmp("janitor-wt-longslug-");
+  const longSeg = "x".repeat(50);
+  const wt = path.join(base, longSeg, longSeg, longSeg, longSeg);
+  fs.mkdirSync(wt, { recursive: true });
+  fs.utimesSync(wt, new Date(Date.now() - 48 * 3600000), new Date(Date.now() - 48 * 3600000));
+
+  const rawSlug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+  assert.ok(rawSlug.length > 200, `sanity: fixture slug must exceed 200 chars, got ${rawSlug.length}`);
+  const home = mkTmp("janitor-idlehome-longslug-");
+  const truncatedName = `${rawSlug.slice(0, 200)}-deadbeef36`; // Claude Code appends a base36 hash after the 200-char prefix
+  const projectsDir = path.join(home, ".claude", "projects", truncatedName);
+  fs.mkdirSync(projectsDir, { recursive: true });
+  fs.writeFileSync(path.join(projectsDir, "session.jsonl"), "{}\n");
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle < IDLE_FLOOR_HOURS, `expected the truncated-slug session to read as active, got ${idle}h idle`);
+});
+
+test("F1 (review finding 1): idleHours() reads a Codex rollout session whose own payload.cwd is inside the worktree", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const wt = addWorktree(root, "feature-idle-codex");
+  backdateWorktreeSignals(wt);
+
+  const home = mkTmp("janitor-idlehome-codex-");
+  const todayLocal = new Intl.DateTimeFormat("en-CA").format(new Date());
+  const [y, m, d] = todayLocal.split("-");
+  const sessDir = path.join(home, ".codex", "sessions", y, m, d);
+  fs.mkdirSync(sessDir, { recursive: true });
+  const row = { type: "session_meta", timestamp: new Date().toISOString(), payload: { id: "x", cwd: wt } };
+  fs.writeFileSync(path.join(sessDir, "rollout-x.jsonl"), `${JSON.stringify(row)}\n`);
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle < IDLE_FLOOR_HOURS, `expected a Codex session whose cwd is the worktree to read as active, got ${idle}h idle`);
+});
+
+test(
+  "review finding R2-1: an unreadable matched session directory (EACCES, not ENOENT) counts as unknown (NaN), never as idle",
+  {
+    skip:
+      process.platform === "win32"
+        ? "chmod 0 does not deny reads on win32"
+        : typeof process.getuid === "function" && process.getuid() === 0
+          ? "root ignores the mode-000 permission this fixture relies on"
+          : false,
+  },
+  () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    const wt = addWorktree(root, "feature-idle-unreadable");
+    backdateWorktreeSignals(wt);
+
+    const home = mkTmp("janitor-idlehome-unreadable-");
+    const slug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+    const projectsDir = path.join(home, ".claude", "projects", slug);
+    fs.mkdirSync(projectsDir, { recursive: true });
+    fs.writeFileSync(path.join(projectsDir, "session.jsonl"), "{}\n");
+    // A genuinely fresh session sits inside, so a naive "not a candidate" read of this directory
+    // would find nothing and wrongly fall back to "idle" - the mode-000 denial must make the WHOLE
+    // answer unknown instead, per ruling r1: an unreadable source counts as active, not idle.
+    fs.chmodSync(projectsDir, 0o000);
+    try {
+      const idle = idleHours(wt, { home, now: Date.now() });
+      assert.ok(Number.isNaN(idle), `an unreadable matched session dir must read as unknown (NaN), got ${idle}`);
+    } finally {
+      fs.chmodSync(projectsDir, 0o755); // restore before this file's own after() hook rm's the tree
+    }
+  },
+);
+
+test("review finding R2-2: a Codex session started more than a day ago (still writing today) is not invisible to idleHours", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const wt = addWorktree(root, "feature-idle-codex-oldstart");
+  backdateWorktreeSignals(wt);
+
+  const home = mkTmp("janitor-idlehome-codex-oldstart-");
+  // The rollout lives in the date-dir of 4 days ago (its session's START date - measured on real
+  // hosts to run this long after its own dir date), but its own file mtime, and the session_meta
+  // line's own cwd, are fresh right now - "today or yesterday" alone missed this shape entirely.
+  const fourDaysAgo = new Date(Date.now() - 4 * 86400000);
+  const dateStr = new Intl.DateTimeFormat("en-CA").format(fourDaysAgo);
+  const [y, m, d] = dateStr.split("-");
+  const sessDir = path.join(home, ".codex", "sessions", y, m, d);
+  fs.mkdirSync(sessDir, { recursive: true });
+  const row = { type: "session_meta", timestamp: new Date().toISOString(), payload: { id: "x", cwd: wt } };
+  fs.writeFileSync(path.join(sessDir, "rollout-oldstart.jsonl"), `${JSON.stringify(row)}\n`);
+
+  const idle = idleHours(wt, { home, now: Date.now() });
+  assert.ok(idle < IDLE_FLOOR_HOURS, `expected a session started 4 days ago but still writing to read as active, got ${idle}h idle`);
+});
+
+test("F1: --apply skips a SAFE worktree active in the last 24h, and removes it once idle past the floor", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-idle-apply");
+  mergeIntoMain(root, "feature-idle-apply");
+  pushMain(root);
+
+  const home = mkTmp("janitor-idlehome2-");
+  const slug = path.resolve(wt).replace(/[^A-Za-z0-9]/g, "-");
+  const projectsDir = path.join(home, ".claude", "projects", slug);
+  fs.mkdirSync(projectsDir, { recursive: true });
+  fs.writeFileSync(path.join(projectsDir, "session.jsonl"), "{}\n");
+
+  const prevHome = process.env.HOME;
+  const prevUserProfile = process.env.USERPROFILE;
+  const origLog = console.log;
+  const runApply = (opts = {}) => {
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    console.log = () => {};
+    try {
+      return main(["--apply", "--min-age-hours", "0"], { cwd: root, ...opts });
+    } finally {
+      console.log = origLog;
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevUserProfile;
+    }
+  };
+
+  // Real clock: the worktree and its Claude session file are both "just now" by construction - well
+  // inside the 24h floor - so this run must skip the removal, not perform it.
+  const code1 = runApply();
+  assert.ok(fs.existsSync(wt), "a worktree active in the last 24h (per its Claude session dir) must survive --apply");
+  assert.equal(code1, 1, "the skipped SAFE worktree is still a finding");
+
+  // Advance the clock idleHours computes against, rather than rewinding any file's mtime (see the
+  // note above this file's Happy-path section - a real git-status call would just re-freshen a
+  // backdated index file's mtime before applySafe ever got to check it).
+  const code2 = runApply({ now: Date.now() + 25 * 3600000 });
+  assert.ok(!fs.existsSync(wt), "once idle past the 24h floor, the SAFE worktree is removed");
+  assert.equal(code2, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Review round 1, finding 10: `git ls-files -v` inside isTreeClean() used to run through the shared
+// `git()` wrapper, whose execFileSync call takes node's default 1 MB maxBuffer - a repo with roughly
+// 35k+ tracked files overflows it (ENOBUFS), and the catch below silently returns "not clean", so a
+// big repo's worktrees never go SAFE at all.
+// ---------------------------------------------------------------------------
+
+test(
+  "review finding 10: isTreeClean() does not ENOBUFS-fail-closed on a repo whose `git ls-files -v` output exceeds the default 1 MB maxBuffer",
+  { timeout: 120000 },
+  () => {
+    const root = initRepo();
+    // Windows portability (lane 59 Windows gate): the original fixture used a 200-char filename per
+    // entry, which overflows NTFS's legacy ~260-char full-path limit once combined with this test's
+    // (already long) sealed-home fixture path - `git add -A` itself failed with "Filename too long"
+    // before isTreeClean() was ever reached, on Windows only. Reaching the same >1 MB `git ls-files
+    // -v` output with many NORMAL-length names instead (well under any path-length limit on any
+    // platform) exercises the exact same ENOBUFS-fail-closed behaviour without depending on long
+    // filenames at all: ~30000 files at ~43 bytes/line (tag + name + newline) comes to roughly
+    // 1.29 MB - comfortably over node's default 1 MB maxBuffer, comfortably under the fix's 256 MB
+    // ceiling.
+    const N = 30000;
+    for (let i = 0; i < N; i++) {
+      fs.writeFileSync(path.join(root, `normal-length-tracked-file-${String(i).padStart(6, "0")}`), "");
+    }
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", "many tracked files"], root);
+
+    // Sanity check on the fixture's own construction, not on the code under test: measured with an
+    // explicitly generous maxBuffer so this assertion itself cannot trip the very ENOBUFS this test
+    // exists to catch.
+    const raw = execFileSync("git", ["ls-files", "-v"], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+    assert.ok(Buffer.byteLength(raw) > 1024 * 1024, `fixture must exceed the default 1MB maxBuffer, got ${Buffer.byteLength(raw)} bytes`);
+
+    assert.equal(
+      isTreeClean(root),
+      true,
+      "a genuinely clean tree with many tracked files must not read as dirty just because git ls-files -v's own output is large",
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// F16 (redteam): isTreeClean() must catch a skip-worktree/assume-unchanged edit, and applySafe()
+// must re-check it immediately before removal.
+// ---------------------------------------------------------------------------
+
+test("F16: a tracked file marked --skip-worktree with a real local edit is not tree-clean, even though git status reports nothing", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-skipwt");
+  mergeIntoMain(root, "feature-skipwt");
+  pushMain(root);
+
+  git(["update-index", "--skip-worktree", ".janitor-test-marker"], wt);
+  fs.writeFileSync(path.join(wt, ".janitor-test-marker"), "edited, hidden by skip-worktree\n");
+
+  assert.equal(
+    git(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], wt).trim(),
+    "",
+    "sanity: plain git status sees nothing wrong here",
+  );
+  assert.equal(isTreeClean(wt), false, "isTreeClean must catch a skip-worktree edit git status misses");
+
+  git(["update-index", "--no-skip-worktree", ".janitor-test-marker"], wt); // release for later cleanup
+});
+
+test("F16: applySafe re-checks isTreeClean immediately before removal and skips a worktree that changed since classify", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-changedsinceclassify");
+  mergeIntoMain(root, "feature-changedsinceclassify");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  assert.equal(state.safe.worktrees.length, 1, "sanity: classified SAFE before the race");
+
+  // The race: something dirties the worktree AFTER classification but BEFORE applySafe runs.
+  fs.writeFileSync(path.join(wt, "late-edit.txt"), "late\n");
+
+  const log = applySafe(state, []);
+  const entry = log.find((l) => l.action === "worktree-remove");
+  assert.equal(entry.ok, false);
+  assert.equal(entry.skipped, "tree changed since classify");
+  assert.ok(fs.existsSync(wt), "the worktree must survive when it changed since classify");
+});
+
+// ---------------------------------------------------------------------------
+// F2 (redteam): applied rows carry a sha and a restore hint; --record gains act/removed/safeLeft
+// and the drift.md line gains a safe=/removed= suffix.
+// ---------------------------------------------------------------------------
+
+// R2-3: a test-side mirror of janitor.mjs's own (unexported, internal) `q()` - single-quoted on
+// POSIX, double-quoted with backslashes normalized to `/` on win32; `null` for anything not provably
+// inert. Kept here only to build the EXPECTED restore-hint strings below, never imported from
+// production, so this test still catches a real drift in the production function's own behaviour.
+const qExpect = (s) => {
+  const v = process.platform === "win32" ? String(s).replace(/\\/g, "/") : String(s);
+  return process.platform === "win32" ? `"${v}"` : `'${v}'`;
+};
+
+test("F2: applySafe logs a sha and a restore hint for a removed worktree and a removed branch", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-restorehint");
+  mergeIntoMain(root, "feature-restorehint");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  const safeBranchRow = state.safe.branches.find((b) => b.ref === "feature-restorehint");
+  assert.ok(safeBranchRow && safeBranchRow.sha, "sanity: the SAFE branch row carries a sha");
+
+  const log = applySafe(state, []);
+  const wtRow = log.find((l) => l.action === "worktree-remove");
+  assert.equal(wtRow.ok, true);
+  assert.equal(wtRow.sha, safeBranchRow.sha);
+  // review round 1, finding 4: the hint now re-creates the worktree DETACHED at the removed tip - it
+  // works whether or not the branch survived this same run, unlike the old
+  // `git branch <b> <sha> && git worktree add ...` form, which fails outright once the branch still
+  // exists (the common case: most worktree rows are removed on their own, before their branch is).
+  assert.equal(wtRow.restore, `git -C ${qExpect(toplevel)} worktree add ${qExpect(wt)} ${safeBranchRow.sha}`);
+
+  const branchRow = log.find((l) => l.action === "branch-delete" && l.ref === "feature-restorehint");
+  assert.ok(branchRow, "the branch is SAFE separately from its worktree and must also be deleted and logged");
+  assert.equal(branchRow.ok, true);
+  assert.equal(branchRow.sha, safeBranchRow.sha);
+  assert.equal(
+    branchRow.restore,
+    `git -C ${qExpect(toplevel)} branch ${qExpect("feature-restorehint")} ${safeBranchRow.sha}`,
+  );
+});
+
+test("review finding R2-3: a restore hint whose branch name is not provably inert (e.g. contains `$`) is null, but the sha is still there to restore by hand", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  // `$` is legal in a git refname and would let `$(...)` expand under sh/PowerShell double quotes if
+  // merely JSON-quoted (the R2-3 finding) - a hostile or merely odd branch name like this one must
+  // never produce a hint at all, only a sha.
+  const hostileName = "feat$x";
+  const wt = addWorktree(root, hostileName);
+  mergeIntoMain(root, hostileName);
+  pushMain(root);
+
+  const { config } = loadProjectConfig(root);
+  const toplevel = gitToplevel(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  const safeBranchRow = state.safe.branches.find((b) => b.ref === hostileName);
+  assert.ok(safeBranchRow && safeBranchRow.sha, "sanity: the SAFE branch row carries a sha");
+
+  const log = applySafe(state, []);
+  const wtRow = log.find((l) => l.action === "worktree-remove");
+  assert.equal(wtRow.ok, true);
+  assert.equal(wtRow.restore, null, "a hostile ref must never produce a pasteable restore hint");
+  assert.equal(wtRow.sha, safeBranchRow.sha);
+  assert.match(wtRow.sha, /^[0-9a-f]{40}$/, "the sha alone is still enough to restore by hand");
+
+  const branchRow = log.find((l) => l.action === "branch-delete" && l.ref === hostileName);
+  assert.ok(branchRow);
+  assert.equal(branchRow.ok, true);
+  assert.equal(branchRow.restore, null);
+  assert.match(branchRow.sha, /^[0-9a-f]{40}$/);
+});
+
+test("F2: --record's JSON gains act/removed/safeLeft, and the drift.md line gains a safe=/removed= suffix", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-rec-safe");
+  mergeIntoMain(root, "feature-rec-safe");
+  pushMain(root);
+  const wtDirty = addWorktree(root, "feature-rec-dirty");
+  fs.writeFileSync(path.join(wtDirty, "uncommitted.txt"), "x\n");
+
+  const recordDir = mkTmp("janitor-record-f2-");
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply", "--record", recordDir, "--min-age-hours", "0"], { cwd: root, now: Date.now() + 25 * 3600000 });
+  } finally {
+    console.log = origLog;
+  }
+  void code;
+
+  const files = fs.readdirSync(recordDir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  const record = JSON.parse(fs.readFileSync(path.join(recordDir, jsonFile), "utf8"));
+  assert.equal(record.act, "applied");
+  assert.ok(Array.isArray(record.removed));
+  assert.ok(
+    record.removed.some((r) => r.kind === "worktree" && typeof r.sha === "string" && r.sha.length === 40),
+    `expected a worktree removal with a sha in ${JSON.stringify(record.removed)}`,
+  );
+  assert.ok(
+    record.removed.some((r) => r.kind === "branch" && r.ref === "feature-rec-safe" && typeof r.sha === "string"),
+    `expected a branch removal for feature-rec-safe in ${JSON.stringify(record.removed)}`,
+  );
+  assert.equal(record.safeLeft.worktrees, 0);
+  assert.equal(record.safeLeft.branches, 0);
+
+  const driftText = fs.readFileSync(path.join(recordDir, "drift.md"), "utf8");
+  assert.match(driftText, /safe=0 removed=2$/m);
+});
+
+// ---------------------------------------------------------------------------
+// Review round 1, finding 2 (F1 twin): idle-by-every-file-mtime is not the same as "nobody is here".
+// ---------------------------------------------------------------------------
+
+test(
+  "review finding 2: a SAFE worktree with a live process sitting in it (cwd) survives --apply even once idle past the floor",
+  {
+    skip: process.platform !== "linux"
+      ? "the /proc/[pid]/cwd probe is linux-only; darwin (lsof) and win32 (rename probe) use different mechanisms this fixture cannot exercise on this host"
+      : false,
+  },
+  async () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    addOrigin(root);
+    const wt = addWorktree(root, "feature-openproc");
+    mergeIntoMain(root, "feature-openproc");
+    pushMain(root);
+
+    const home = mkTmp("janitor-idlehome-openproc-");
+    const toplevel = gitToplevel(root);
+    const { config } = loadProjectConfig(root);
+    const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+    state.act = true;
+
+    // env: {} (not inherited) satisfies skills/multi/scripts/hooks.test.mjs's N2 check (a sibling
+    // territory's rule, scanned here but not owned here): this holder process needs no env at all.
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: wt, stdio: "ignore", env: {} });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400)); // let it actually start and chdir
+
+      // No Claude/Codex session anywhere, and `now` pushed 25h ahead - idleHours alone would call
+      // this idle past the floor. The live shell sitting in it is the only thing that should stop
+      // the removal.
+      const log = applySafe(state, [], { home, now: Date.now() + 25 * 3600000 });
+      const row = log.find((l) => l.action === "worktree-remove");
+      assert.equal(row.ok, false);
+      assert.equal(row.skipped, "a process has its cwd here");
+      assert.ok(fs.existsSync(wt), "a worktree with a live process sitting in it must survive --apply");
+    } finally {
+      child.kill();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  },
+);
+
+// Seam review MEDIUM 1: the daily act's open-shell guard (worktreeHasOpenProcess, through
+// pathWithin) used to read a live shell's cwd as "outside" the worktree whenever it sat in a real
+// child directory whose name merely BEGAN with "..", such as "..live" - the containment test's own
+// defect, not a gap in the guard's wiring. A worktree with a live process in exactly such a
+// directory must be refused the same way the plain "review finding 2" case above is.
+test(
+  "seam review MEDIUM 1: a SAFE worktree with a live process sitting in a real '..live' child dir is still refused, not misread as outside",
+  {
+    skip: process.platform !== "linux"
+      ? "the /proc/[pid]/cwd probe is linux-only; darwin (lsof) and win32 (rename probe) use different mechanisms this fixture cannot exercise on this host"
+      : false,
+  },
+  async () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    addOrigin(root);
+    const wt = addWorktree(root, "feature-dotdotlive");
+    mergeIntoMain(root, "feature-dotdotlive");
+    pushMain(root);
+
+    const dotDotLive = path.join(wt, "..live");
+    fs.mkdirSync(dotDotLive);
+
+    const home = mkTmp("janitor-idlehome-dotdotlive-");
+    const toplevel = gitToplevel(root);
+    const { config } = loadProjectConfig(root);
+    const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+    state.act = true;
+
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: dotDotLive, stdio: "ignore", env: {} });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400)); // let it actually start and chdir
+
+      const log = applySafe(state, [], { home, now: Date.now() + 25 * 3600000 });
+      const row = log.find((l) => l.action === "worktree-remove");
+      assert.equal(row.ok, false);
+      assert.equal(row.skipped, "a process has its cwd here", "a live shell in '..live' must be seen as inside, not outside");
+      assert.ok(fs.existsSync(wt), "a worktree with a live process sitting in a '..live' child dir must survive --apply");
+    } finally {
+      child.kill();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  },
+);
+
+test("review finding R2-4: a failed in-use check (darwin, no lsof on PATH) is labelled 'in-use check failed', never 'a process has its cwd here'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-openproc-nolsof");
+  mergeIntoMain(root, "feature-openproc-nolsof");
+  pushMain(root);
+
+  const home = mkTmp("janitor-idlehome-openproc-nolsof-");
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  state.act = true;
+
+  // Simulate darwin with no `lsof` reachable on PATH, regardless of whether this host happens to have
+  // one installed elsewhere: a scratch PATH holding only a `git` symlink (still needed by idleHours'
+  // own git-dir lookup and applySafe's real removal calls) guarantees `lsof` cannot resolve. The check
+  // itself then fails to answer - nothing was found BECAUSE nothing could be checked, a different fact
+  // than "a process has its cwd here", and must be labelled as such (ruling r1: a skip states its real
+  // reason, never a confident one it cannot back up).
+  const gitPath = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const scratchBin = mkTmp("janitor-scratch-bin-");
+  fs.symlinkSync(gitPath, path.join(scratchBin, "git"));
+  const platformDesc = Object.getOwnPropertyDescriptor(process, "platform");
+  const prevPath = process.env.PATH;
+  Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+  process.env.PATH = scratchBin;
+  try {
+    const log = applySafe(state, [], { home, now: Date.now() + 25 * 3600000 });
+    const row = log.find((l) => l.action === "worktree-remove");
+    assert.equal(row.ok, false);
+    assert.equal(row.skipped, "in-use check failed");
+    assert.ok(fs.existsSync(wt), "a worktree whose in-use check failed must survive --apply, same direction as a real match");
+  } finally {
+    Object.defineProperty(process, "platform", platformDesc);
+    process.env.PATH = prevPath;
+  }
+});
+
+// Seam review r2, finding 2: `worktreeHasOpenProcess`'s linux branch treats a readable /proc as a
+// complete view of every live process. Inside a private PID namespace (Claude Code's own linux
+// sandbox runs bwrap with --unshare-pid, its own private /proc) it would see only the sandbox's own
+// processes and call a live shell OUTSIDE that namespace "clean" - the fix's discriminator is PID 1
+// (normally root/uid 0 on a real host) reading back as owned by the caller's own uid, which only
+// happens inside such a namespace. Forced here through the exported `statImpl` seam rather than a
+// real `unshare --pid` on the host, per ruling r3.
+test(
+  "seam review r2: worktreeHasOpenProcess fails closed inside a private PID namespace, discriminated through an injected statImpl (no real unshare needed)",
+  {
+    skip: process.platform !== "linux"
+      ? "the PID-1-ownership discriminator is linux-only, matching the /proc probe it guards"
+      : false,
+  },
+  () => {
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (uid === null || uid === 0) return; // root's own uid IS 0: the discriminator can never fire for root
+
+    // Simulated private PID namespace: PID 1 reads back as owned by the caller's own uid, exactly
+    // what bwrap --unshare-pid produces (measured, seam-review-r2.md finding 2).
+    const namespaced = pathHasOpenProcess("/", { statImpl: () => ({ uid }) });
+    assert.equal(namespaced, "unknown", "PID 1 owned by the caller's own uid must fail closed, never read as clean");
+
+    // The real host: PID 1 belongs to someone else - falls through unaffected to the normal scan,
+    // which (parent "/") matches the very first readable /proc/[pid]/cwd it finds.
+    const hostLike = pathHasOpenProcess("/", { statImpl: () => ({ uid: uid + 1 }) });
+    assert.notEqual(hostLike, "unknown", "PID 1 owned by someone else must not trip the namespace guard");
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Review round 1, finding 3: a "gone anyway" (partial) worktree removal must carry its own sha and
+// restore hint, and count as removed in the record - not dropped from `removed` while still counted
+// in `safeLeft` even though nothing about it is actually left.
+// ---------------------------------------------------------------------------
+
+test(
+  "review finding 3: a partial (gone-anyway) worktree removal logs partial:true with a sha and a restore hint, and lands in the record's removed[]",
+  {
+    skip:
+      typeof process.getuid === "function" && process.getuid() === 0
+        ? "root ignores the read-only directory permission this fixture relies on to force a partial removal"
+        : false,
+  },
+  () => {
+    const root = initRepo();
+    writeProjectConfig(root);
+    addOrigin(root);
+    const wt = addWorktree(root, "feature-partial");
+    // A read-only child directory git cannot recursively delete through: `git worktree remove`
+    // still deregisters the worktree and deletes everything it CAN, but the final directory removal
+    // fails partway (measured directly against this host's git: it errors "failed to delete
+    // '<wt>'", yet `git worktree list` no longer lists it afterward - the exact `goneAnyway` shape).
+    fs.mkdirSync(path.join(wt, "locked"));
+    fs.writeFileSync(path.join(wt, "locked", "f.txt"), "y\n");
+    git(["add", "."], wt);
+    git(["commit", "-q", "-m", "add locked dir"], wt);
+    fs.chmodSync(path.join(wt, "locked"), 0o555);
+    try {
+      mergeIntoMain(root, "feature-partial");
+      pushMain(root);
+
+      const toplevel = gitToplevel(root);
+      const { config } = loadProjectConfig(root);
+      const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+      assert.equal(state.safe.worktrees.length, 1, "sanity: classified SAFE before the removal attempt");
+      const safeBranchRow = state.safe.branches.find((b) => b.ref === "feature-partial");
+      assert.ok(safeBranchRow && safeBranchRow.sha);
+
+      const log = applySafe(state, []);
+      const row = log.find((l) => l.action === "worktree-remove");
+      assert.equal(row.ok, false, "the final rmdir genuinely failed - this is not a clean ok:true removal");
+      assert.equal(row.partial, true, "git already deregistered it and deleted everything it could - a partial removal, not a survival");
+      assert.equal(row.sha, safeBranchRow.sha);
+      assert.equal(row.restore, `git -C ${qExpect(toplevel)} worktree add ${qExpect(wt)} ${safeBranchRow.sha}`);
+
+      const written = writeRecord({
+        root: toplevel,
+        dir: mkTmp("janitor-record-f3-"),
+        state,
+        mainBranch: "main",
+        act: "applied",
+        applyLog: log,
+      });
+      const removedRow = written.record.removed.find((r) => r.kind === "worktree");
+      assert.ok(removedRow, "a gone-anyway removal must appear in the record's removed[] list, not be silently dropped");
+      assert.equal(removedRow.partial, true);
+      assert.equal(written.record.safeLeft.worktrees, 0, "nothing about this worktree is actually left behind");
+    } finally {
+      try {
+        fs.chmodSync(path.join(wt, "locked"), 0o755);
+      } catch {
+        // best-effort cleanup of the fixture's own read-only dir; the top-level after() hook still
+        // needs to be able to rm -rf this tree
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Review round 1, finding 5: F2's own pinned contract ("the record is written ... including when
+// apply throws") had no test that actually exercised the catch path.
+// ---------------------------------------------------------------------------
+
+test("review finding 5: --record is written from the CATCH path when apply throws partway, including whatever it logged before throwing", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-throwcatch");
+  mergeIntoMain(root, "feature-throwcatch");
+  pushMain(root);
+
+  const recordDir = mkTmp("janitor-record-f5-");
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--apply", "--record", recordDir, "--min-age-hours", "0"], {
+      cwd: root,
+      // A stand-in that logs one row and then throws - proves the catch path in main() writes the
+      // record with whatever applyImpl managed to push before it failed, without needing to
+      // engineer a real filesystem failure mid-applySafe.
+      applyImpl: (state, log) => {
+        log.push({ action: "branch-delete", ref: "feature-throwcatch", ok: true, sha: "a".repeat(40), restore: null });
+        throw new Error("boom");
+      },
+    });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 1, "an apply that throws partway must never report a clean exit");
+
+  const files = fs.readdirSync(recordDir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  assert.ok(jsonFile, "the record must still be written when apply throws partway");
+  const record = JSON.parse(fs.readFileSync(path.join(recordDir, jsonFile), "utf8"));
+  assert.equal(record.act, "applied");
+  assert.ok(
+    record.removed.some((r) => r.sha === "a".repeat(40)),
+    `expected the row applyImpl pushed before throwing to survive into the record, got ${JSON.stringify(record.removed)}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review round 1, finding 8: an idle-floor skip must add the worktree's branch to
+// failedWorktreeBranches too, the same second guard every other worktree-removal skip already has.
+// ---------------------------------------------------------------------------
+
+test("review finding 8: an idle-floor skip blocks the branch delete on 'its worktree removal did not report success', not merely on 'still checked out'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-idle-branchguard");
+  mergeIntoMain(root, "feature-idle-branchguard");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  state.act = true;
+
+  const home = mkTmp("janitor-idlehome-branchguard-");
+  // Fresh worktree, real clock: idleHours reads it as active (well under the 24h floor), so the
+  // worktree row is skipped for being active.
+  const log = applySafe(state, [], { home, now: Date.now() });
+  const wtRow = log.find((l) => l.action === "worktree-remove");
+  assert.equal(wtRow.skipped, "active in last 24h");
+
+  const branchRow = log.find((l) => l.action === "branch-delete" && l.ref === "feature-idle-branchguard");
+  assert.ok(branchRow, "sanity: the branch is SAFE separately from its worktree");
+  assert.equal(branchRow.ok, false);
+  assert.equal(
+    branchRow.error,
+    "skipped: its worktree removal did not report success",
+    "the idle-floor skip must be caught by the same failedWorktreeBranches guard as every other worktree-removal skip",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review round 1, finding 9: an idle skip's own label must be honest about WHY - a future mtime
+// (idleHours returns a negative number) is not "seen 0-24h ago".
+// ---------------------------------------------------------------------------
+
+test("review finding 9: a future worktree mtime (idleHours negative) is labelled 'mtime in the future', not folded into 'active in last 24h'", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  addWorktree(root, "feature-idle-futuremtime");
+  mergeIntoMain(root, "feature-idle-futuremtime");
+  pushMain(root);
+
+  const toplevel = gitToplevel(root);
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: toplevel, config, minAgeHours: 0 });
+  state.act = true;
+
+  // `now` pushed 48h into the PAST relative to the worktree's own real (current) mtime makes
+  // idleHours return a negative number - the same shape a clock running ahead on this filesystem
+  // would produce for real. R2-6: `home` is an empty fixture dir, never the default `os.homedir()` -
+  // this test must never read this machine's real ~/.claude*/projects or Codex rollouts, even under
+  // a plain `node --test` outside run-tests.mjs's sealed home.
+  const log = applySafe(state, [], { home: mkTmp("janitor-idlehome-future-"), now: Date.now() - 48 * 3600000 });
+  const row = log.find((l) => l.action === "worktree-remove");
+  assert.equal(row.skipped, "mtime in the future");
+});
+
+test("review finding R2-6: every applySafe(...) call in THIS file that passes `now` also passes an explicit `home`, never falling back to the real os.homedir()", () => {
+  // Mechanical, not a one-off: idleHours() is only ever reached from applySafe() when `state.act ===
+  // true`, and every such call in this test file is written with an explicit `now` (there is no other
+  // reason to pass one) - so "passes `now` but not `home`" is exactly the R2-6 shape (a fixture test
+  // that silently falls through to the real os.homedir() and reads this machine's actual
+  // ~/.claude*/projects or Codex rollouts). Scanning this file's own source, rather than special-casing
+  // one line number, means the NEXT such test gets caught here too, not just the one the review found.
+  const self = path.join(import.meta.dirname, "janitor.test.mjs");
+  const src = fs.readFileSync(self, "utf8");
+  const callRe = /applySafe\s*\(\s*state\s*,\s*[^,()]*,\s*\{([^{}]*)\}\s*\)/g;
+  const offenders = [];
+  let m;
+  while ((m = callRe.exec(src))) {
+    const opts = m[1];
+    if (!/\bnow\s*:/.test(opts)) continue; // no `now` at all: state.act is never true here, idleHours is never reached
+    if (/\bhome\b/.test(opts)) continue; // already isolated (`home: <expr>` or the `{ home, now }` shorthand)
+    const line = src.slice(0, m.index).split("\n").length;
+    offenders.push(`line ${line}: ${m[0].replace(/\s+/g, " ").trim()}`);
+  }
+  assert.deepEqual(offenders, [], `applySafe call(s) pass 'now' without 'home' and so read the real os.homedir(): ${offenders.join("; ")}`);
+});
+
+// ---------------------------------------------------------------------------
+// F14 (redteam): the ws-off-janitor-act kill switch.
+// ---------------------------------------------------------------------------
+
+test("F14: ~/.agents/ws-off-janitor-act treats --apply as record-only; the report's first line says so, and the record/drift still write", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-actoff");
+  mergeIntoMain(root, "feature-actoff");
+  pushMain(root);
+
+  const home = mkTmp("janitor-actoff-home-");
+  fs.mkdirSync(path.join(home, ".agents"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".agents", "ws-off-janitor-act"), "");
+
+  const recordDir = mkTmp("janitor-record-actoff-");
+  const prevHome = process.env.HOME;
+  const prevAgentsHome = process.env.AGENTS_HOME;
+  process.env.HOME = home;
+  process.env.AGENTS_HOME = path.join(home, ".agents");
+
+  const logs = [];
+  const origLog = console.log;
+  console.log = (...args) => logs.push(args.join(" "));
+  let code;
+  try {
+    code = main(["--apply", "--record", recordDir, "--min-age-hours", "0"], { cwd: root });
+  } finally {
+    console.log = origLog;
+    process.env.HOME = prevHome;
+    if (prevAgentsHome === undefined) delete process.env.AGENTS_HOME;
+    else process.env.AGENTS_HOME = prevAgentsHome;
+  }
+  void code;
+
+  assert.equal(logs[0], "janitor: act switched off (~/.agents/ws-off-janitor-act)", "the report's first line must say the switch is on");
+  assert.ok(fs.existsSync(wt), "the switch means --apply removes nothing");
+
+  const files = fs.readdirSync(recordDir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  assert.ok(jsonFile, "the record must still be written under the switch");
+  const record = JSON.parse(fs.readFileSync(path.join(recordDir, jsonFile), "utf8"));
+  assert.equal(record.act, "switched-off");
+  assert.deepEqual(record.removed, []);
+  assert.equal(record.safeLeft.worktrees, 1);
+  assert.equal(record.safeLeft.branches, 1);
+});
+
+test("F14: the master ~/.agents/ws-off switch still silences janitor entirely, even before the act-specific switch is checked", () => {
+  // Sanity that F14's new, narrower switch didn't change the meaning of the existing ones (ruling
+  // r0: "the existing ws-off and ws-off-janitor switches keep their meaning: no run").
+  const root = initRepo();
+  writeProjectConfig(root);
+  const home = mkTmp("janitor-masteroff-home-");
+  fs.mkdirSync(path.join(home, ".agents"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".agents", "ws-off"), "");
+  const prevHome = process.env.HOME;
+  const prevAgentsHome = process.env.AGENTS_HOME;
+  process.env.HOME = home;
+  process.env.AGENTS_HOME = path.join(home, ".agents");
+  let code;
+  try {
+    code = main(["--apply"], { cwd: root });
+  } finally {
+    process.env.HOME = prevHome;
+    if (prevAgentsHome === undefined) delete process.env.AGENTS_HOME;
+    else process.env.AGENTS_HOME = prevAgentsHome;
+  }
+  assert.equal(code, 0);
 });
 
 after(() => {

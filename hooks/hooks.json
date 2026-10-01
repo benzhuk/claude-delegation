@@ -15,7 +15,7 @@
           },
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/wiring-check.mjs\" --line",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/wiring-check.mjs\" --line --hook",
             "timeout": 5
           }
         ]
@@ -73,6 +73,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Read|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/knowledge-log.mjs\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -82,6 +92,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-dispatch-guard.mjs\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/delete-guard.mjs\"",
             "timeout": 5
           }
         ]

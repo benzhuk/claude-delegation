@@ -7,9 +7,12 @@ import test from 'node:test';
 import { makeTempHome } from '../../../scripts/test-home.mjs';
 import { buildEnvelope } from '../../multi/scripts/envelope.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
+import { childEnv } from '../../multi/scripts/test-child-env.mjs';
+import { fileURLToPath } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
-  account, inspectTransport, openPrivateCapture, pickupOnce, readPageWithCli, receiptPaths,
-  runRegisteredPickup, status, PickupError,
+  account, inspectTransport, openPrivateCapture, ownerInputs, pickupOnce, readPageWithCli,
+  receiptPaths, runRegisteredPickup, status, PickupError,
 } from './decisions-pickup.mjs';
 
 const PAGE = `<summary>Choose transport</summary>
@@ -25,6 +28,33 @@ const EMPTY_DONE = `<summary>Choose transport</summary>
 No default: owner action is required
 - [x] Done
 `;
+// Contracts.md C1: a plain, non-checkbox, non-comment bullet "carries no signal"
+// (skills/decisions/scripts/decisions-read.mjs:306) — bytes differ, owner inputs do not.
+const BYTE_ONLY_CHANGE = PAGE.replace(
+  'No default: owner action is required',
+  'No default: owner action is required\n- a closed bullet with no owner signal',
+);
+const NEW_COMMENT = PAGE.replace(
+  '\\*\\*Please preserve the capture',
+  '\\*\\*Please preserve the capture\n\\*\\*Also notify finance',
+);
+// Fewer owner inputs than the capture (the lead acted on the comment) — a sub-multiset, per C1.
+const SUBSET_CHANGE = `<summary>Choose transport</summary>
+- [x] Keep the existing transport
+No default: owner action is required
+- [x] Done
+`;
+// Spec P1.5's literal fixture: the lead moves the whole settled decision under `# Closed` between
+// rounds. `# Closed`'s block is untouched (skills/decisions/scripts/decisions-read.mjs:337) and its
+// captured triples are identical to `PAGE`'s, so bytes differ but no owner input does.
+const CLOSED_MOVE = `# Closed
+<summary>Choose transport</summary>
+- [x] Keep the existing transport
+No default: owner action is required
+\\*\\*Please preserve the capture
+# Next
+- [x] Done
+`;
 const NOW = '2026-09-23T16:00:00.000Z';
 const REGISTERED_PAGE = '1234567890abcdef1234567890abcdef';
 
@@ -38,6 +68,31 @@ function fixture() {
   };
   const cleanup = () => sealed.cleanup();
   return { ...sealed, repo, options, cleanup };
+}
+
+// Lane 34 / P1: a real git main checkout, committed under the sealed fixture identity (never a
+// per-command -c user.* override — see skills/../scripts/test-home.mjs's includeIf identity), with
+// `.agents/project.json` tracked so a linked worktree checks out the identical config.
+function gitMainFixture(page = 'page-registered') {
+  const sealed = makeTempHome();
+  const repo = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'git-main-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: repo, env: sealed.env });
+  fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.agents', 'project.json'), JSON.stringify({ decisions_url: page }));
+  execFileSync('git', ['add', '-A'], { cwd: repo, env: sealed.env });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env: sealed.env });
+  const options = {
+    repo, page, from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js',
+  };
+  const cleanup = () => sealed.cleanup();
+  return { ...sealed, repo, options, cleanup };
+}
+
+/** `git worktree add` a linked worktree of `fx.repo`, still inside the sealed fixture root. */
+function addLinkedWorktree(fx, branch = 'lane34-worktree') {
+  const worktree = path.join(fx.fixtureRoot, 'linked-worktree');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', branch, worktree], { cwd: fx.repo, env: fx.env });
+  return worktree;
 }
 
 function deps(fx, overrides = {}) {
@@ -388,6 +443,304 @@ test('changed checked bytes stay in the active round and require reconciliation'
   assert.equal(sends, 1);
 });
 
+test('C1: raw bytes differing with no new owner input keeps a RECORDED round unchanged', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  let sends = 0;
+  await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
+  const before = status(fx.options, { agentsHome: fx.agentsHome });
+  const captureBefore = fs.readFileSync(privateFile(fx, before.receipt), 'utf8');
+  const result = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => BYTE_ONLY_CHANGE,
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(result.status, 'RECORDED');
+  assert.equal(result.receipt.round, 1);
+  assert.equal(result.receipt.digest, before.receipt.digest, 'the saved receipt is untouched, not rewritten');
+  assert.equal(fs.readFileSync(privateFile(fx, before.receipt), 'utf8'), captureBefore, 'no reconciliation capture is written');
+  assert.equal(sends, 1, 'no new send for a non-change');
+
+  // Fewer owner inputs than the capture (the lead acted on the comment) is also not a change.
+  const subset = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => SUBSET_CHANGE,
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(subset.status, 'RECORDED');
+  assert.equal(sends, 1, 'a sub-multiset fresh read never sends again');
+
+  // Spec P1.5: the whole decision moved under `# Closed` between rounds is a byte change with
+  // identical captured triples, so it is not a change either.
+  const closedMove = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => CLOSED_MOVE,
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(closedMove.status, 'RECORDED', 'a decision moved verbatim under # Closed is not a change');
+  assert.equal(sends, 1, 'no new send for the Closed-move fixture');
+});
+
+test('C1: a new owner comment is a change and still requires reconciliation', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  let sends = 0;
+  await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
+  const result = await pickupOnce(fx.options, deps(fx, {
+    readPage: async () => NEW_COMMENT,
+    send: async () => { sends += 1; return {}; },
+  }));
+  assert.equal(result.status, 'NEEDS_RECONCILIATION');
+  assert.equal(result.receipt.round, 1);
+  assert.equal(sends, 1);
+});
+
+test('ownerInputs drops line/ref/replied and keeps kind, title, and text', () => {
+  const items = [
+    { ref: 'selection-001', kind: 'selection', title: 'Choose transport', text: 'Keep the existing transport', line: 12 },
+    { ref: 'comment-001', kind: 'comment', title: 'Choose transport', text: 'Please preserve the capture', line: 14, replied: true },
+  ];
+  assert.deepEqual(ownerInputs(items), [
+    ['selection', 'Choose transport', 'Keep the existing transport'],
+    ['comment', 'Choose transport', 'Please preserve the capture'],
+  ]);
+});
+
+test('C1 multiset: a third identical comment, a swapped tick, and a renamed title are changes; equal counts are not', async (t) => {
+  const TWO_SAME = PAGE.replace('\\*\\*Please preserve the capture', '\\*\\*Please preserve the capture\n\\*\\*Please preserve the capture');
+  const THREE_SAME = PAGE.replace('\\*\\*Please preserve the capture', '\\*\\*Please preserve the capture\n\\*\\*Please preserve the capture\n\\*\\*Please preserve the capture');
+  const SWAPPED = PAGE.replace('- [x] Keep the existing transport', '- [ ] Keep the existing transport\n- [x] Switch transport');
+  const RENAMED = PAGE.replace('<summary>Choose transport</summary>', '<summary>Choose the transport</summary>');
+  for (const [name, first, second, expected] of [
+    ['three identical comments against two', TWO_SAME, THREE_SAME, 'NEEDS_RECONCILIATION'],
+    ['two identical comments, byte-only edit', TWO_SAME, TWO_SAME.replace('- [x] Done', '- a closed bullet\n- [x] Done'), 'RECORDED'],
+    ['one tick removed and a different one added', PAGE, SWAPPED, 'NEEDS_RECONCILIATION'],
+    ['decision title renamed under a live input', PAGE, RENAMED, 'NEEDS_RECONCILIATION'],
+  ]) {
+    const fx = fixture(); t.after(fx.cleanup);
+    assert.equal((await pickupOnce(fx.options, deps(fx, { readPage: async () => first }))).status, 'RECORDED', name);
+    assert.equal((await pickupOnce(fx.options, deps(fx, { readPage: async () => second }))).status, expected, name);
+  }
+});
+
+test('a stuck NEEDS_RECONCILIATION round is accountable from receipt-evidenced provenance, either previousState', async (t) => {
+  // This is the live shape a round reaches when the old byte check re-applied `changedReceipt` on
+  // an already-NR receipt: `previousState` gets clobbered to NEEDS_RECONCILIATION, so provenance
+  // must come from the receipt's own recordedAt/transportResult evidence, not from previousState.
+  for (const previousState of ['RECORDED', 'NEEDS_RECONCILIATION']) {
+    const fx = fixture(); t.after(fx.cleanup);
+    const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+    assert.equal(recorded.status, 'RECORDED', previousState);
+    const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+    const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+    const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, receipt), 'utf8'));
+    const observedDigest = crypto.createHash('sha256').update(Buffer.from(BYTE_ONLY_CHANGE, 'utf8')).digest('hex');
+    const ref = `captures/${receipt.projectScope}/r1-changed-${observedDigest}.json`;
+    const reconCapture = {
+      ...originalCapture,
+      digest: observedDigest,
+      originalBytes: Buffer.from(BYTE_ONLY_CHANGE, 'utf8').toString('base64'),
+    };
+    const reconPath = privateFile(fx, receipt, ref);
+    fs.mkdirSync(path.dirname(reconPath), { recursive: true });
+    fs.writeFileSync(reconPath, `${JSON.stringify(reconCapture, null, 2)}\n`);
+    const stuck = {
+      ...receipt,
+      previousState,
+      state: 'NEEDS_RECONCILIATION',
+      reconciliationReason: 'checked page bytes changed during the active round',
+      observedDigest,
+      reconciliationPrivateCaptureRef: ref,
+      observedAt: NOW,
+    };
+    fs.writeFileSync(paths.receipt, `${JSON.stringify(stuck, null, 2)}\n`);
+
+    const report = path.join(fx.repo, `outcome-${previousState}.md`);
+    fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+    const result = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
+    assert.equal(result.status, 'ACCOUNTED', previousState);
+    assert.equal(result.receipt.accountedFrom, 'NEEDS_RECONCILIATION', previousState);
+    assert.equal(result.receipt.accountingOutcome.ownerAttested, true, previousState);
+  }
+});
+
+test('a stuck NEEDS_RECONCILIATION round with a genuinely different reconciliation input is refused', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  await pickupOnce(fx.options, deps(fx));
+  const captured = await pickupOnce(fx.options, deps(fx, { readPage: async () => NEW_COMMENT }));
+  assert.equal(captured.status, 'NEEDS_RECONCILIATION');
+  assert.equal(captured.receipt.reconciliationReason, 'checked page bytes changed during the active round');
+  assert.equal(captured.receipt.previousState, 'RECORDED');
+  const report = path.join(fx.repo, 'outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+});
+
+test('C1 stuck path derives reconciliation inputs from verified bytes, never the saved items field', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+  assert.equal(recorded.status, 'RECORDED');
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+  const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, receipt), 'utf8'));
+  // The reconciliation bytes carry a genuine new owner comment; only the saved `items` field claims
+  // otherwise. The digest matches the bytes, so the capture verifies; a reader trusting `items`
+  // would wrongly account this round.
+  const observedDigest = crypto.createHash('sha256').update(Buffer.from(NEW_COMMENT, 'utf8')).digest('hex');
+  const ref = `captures/${receipt.projectScope}/r1-changed-${observedDigest}.json`;
+  const reconPath = privateFile(fx, receipt, ref);
+  fs.mkdirSync(path.dirname(reconPath), { recursive: true });
+  fs.writeFileSync(reconPath, `${JSON.stringify({
+    ...originalCapture,
+    digest: observedDigest,
+    originalBytes: Buffer.from(NEW_COMMENT, 'utf8').toString('base64'),
+    items: originalCapture.items,
+  }, null, 2)}\n`);
+  fs.writeFileSync(paths.receipt, `${JSON.stringify({
+    ...receipt,
+    previousState: 'NEEDS_RECONCILIATION',
+    state: 'NEEDS_RECONCILIATION',
+    reconciliationReason: 'checked page bytes changed during the active round',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+    observedAt: NOW,
+  }, null, 2)}\n`);
+  const report = path.join(fx.repo, 'outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\nAccounted-ref: comment-002 answered\n');
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+});
+
+test('uncertain-delivery provenance is never accepted by the stuck-round account path, even with sub-multiset inputs', async (t) => {
+  // The realistic uncertain-delivery shape: SENDING -> UNKNOWN, then a byte-only page change during
+  // the active round gives NEEDS_RECONCILIATION with previousState UNKNOWN, uncertainAt set, and no
+  // recordedAt. The sub-multiset clause alone must not be enough to account it — only provenance
+  // (reachedRecorded) and the reconciliation-reason gate can refuse it.
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+  assert.equal(recorded.status, 'RECORDED');
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  const receipt = JSON.parse(fs.readFileSync(paths.receipt, 'utf8'));
+  const originalCapture = JSON.parse(fs.readFileSync(privateFile(fx, receipt), 'utf8'));
+  const observedDigest = crypto.createHash('sha256').update(Buffer.from(BYTE_ONLY_CHANGE, 'utf8')).digest('hex');
+  const ref = `captures/${receipt.projectScope}/r1-changed-${observedDigest}.json`;
+  const reconCapture = {
+    ...originalCapture,
+    digest: observedDigest,
+    originalBytes: Buffer.from(BYTE_ONLY_CHANGE, 'utf8').toString('base64'),
+  };
+  const reconPath = privateFile(fx, receipt, ref);
+  fs.mkdirSync(path.dirname(reconPath), { recursive: true });
+  fs.writeFileSync(reconPath, `${JSON.stringify(reconCapture, null, 2)}\n`);
+
+  const { recordedAt, transportResult, ...receiptWithoutRecordedAtAndTransportResult } = receipt;
+  const uncertain = {
+    ...receiptWithoutRecordedAtAndTransportResult,
+    state: 'NEEDS_RECONCILIATION',
+    previousState: 'UNKNOWN',
+    uncertainAt: NOW,
+    reconciliationReason: 'checked page bytes changed during the active round',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+  };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(uncertain, null, 2)}\n`);
+  const report = path.join(fx.repo, 'outcome.md');
+  fs.writeFileSync(report, 'Owner-attestation: decision-owner\nFresh-page-reconciliation: reconciled by hand\nAccounted-ref: selection-001 applied\nAccounted-ref: comment-001 answered\n');
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+
+  // Same live-shaped RECORDED provenance (recordedAt + transportResult intact), but a different
+  // reconciliationReason: the reason gate alone must also refuse it.
+  const wrongReason = {
+    ...receipt,
+    state: 'NEEDS_RECONCILIATION',
+    previousState: 'RECORDED',
+    reconciliationReason: 'the saved note id exists with conflicting envelope fields',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+  };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(wrongReason, null, 2)}\n`);
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+
+  // Isolates the provenance gate itself from the previousState gate: previousState and reason both
+  // read as an accountable stuck round, and the reconciliation inputs are a true sub-multiset, but
+  // recordedAt (and transportResult/transportEvidence) never got set, so the round never actually
+  // reached RECORDED. A mutant that drops the recordedAt/transport-evidence check would wrongly
+  // account this; only the provenance gate refuses it.
+  const neverRecorded = {
+    ...receiptWithoutRecordedAtAndTransportResult,
+    state: 'NEEDS_RECONCILIATION',
+    previousState: 'RECORDED',
+    reconciliationReason: 'checked page bytes changed during the active round',
+    observedDigest,
+    reconciliationPrivateCaptureRef: ref,
+  };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(neverRecorded, null, 2)}\n`);
+  assert.throws(
+    () => account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW }),
+    /cannot account a round outside RECORDED/,
+  );
+});
+
+test('C1 at the CAPTURE_INTENT branch: byte-only bytes stay an orphan capture, a real owner input reconciles', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx, { send: async () => ({}) }));
+  assert.equal(recorded.status, 'RECORDED');
+  const paths = receiptPaths({ agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page });
+  const receiptText = fs.readFileSync(paths.receipt, 'utf8');
+  const receipt = JSON.parse(receiptText);
+  // The capture and pointer from the RECORDED round already exist, so this shape's evidence verifies.
+  const intent = { ...receipt, state: 'CAPTURE_INTENT' };
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(intent, null, 2)}\n`);
+  const capturesDir = path.join(fx.agentsHome, 'ws', 'decisions-pickup', 'captures');
+  const changedFilesBefore = fs.readdirSync(capturesDir, { recursive: true }).filter((entry) => String(entry).includes('-changed-'));
+  assert.equal(changedFilesBefore.length, 0);
+
+  const byteOnly = await pickupOnce(fx.options, deps(fx, { readPage: async () => BYTE_ONLY_CHANGE }));
+  assert.equal(byteOnly.status, 'ORPHAN_CAPTURE');
+  assert.equal(fs.readFileSync(paths.receipt, 'utf8'), `${JSON.stringify(intent, null, 2)}\n`, 'the receipt file is not rewritten');
+  const changedFilesAfter = fs.readdirSync(capturesDir, { recursive: true }).filter((entry) => String(entry).includes('-changed-'));
+  assert.equal(changedFilesAfter.length, 0, 'no reconciliation capture is written for a non-change at CAPTURE_INTENT');
+
+  const withComment = await pickupOnce(fx.options, deps(fx, { readPage: async () => NEW_COMMENT }));
+  assert.equal(withComment.status, 'NEEDS_RECONCILIATION');
+  assert.equal(withComment.receipt.reconciliationReason, 'checked page bytes changed during the active round');
+});
+
+test('the CLI runs identically through a symlink to the script', (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const real = path.join(here, 'decisions-pickup.mjs');
+  const link = path.join(fx.fixtureRoot, 'decisions-pickup-link.mjs');
+  try {
+    fs.symlinkSync(real, link, 'file');
+  } catch (error) {
+    if (error && (error.code === 'EPERM' || error.code === 'EACCES')) {
+      t.skip(`symlinks not permitted on this machine (${error.code})`);
+      return;
+    }
+    throw error;
+  }
+  const reader = path.join(fx.fixtureRoot, 'symlink-reader.mjs');
+  fs.writeFileSync(reader, "process.stdout.write('# Group {toggle=\"true\"}\\n');\n");
+  const child = spawnSync(process.execPath, [
+    link, '--once', '--repo', fx.repo, '--page', fx.options.page, '--from', fx.options.from,
+    '--reader', reader,
+  ], {
+    encoding: 'utf8', timeout: 15_000, windowsHide: true,
+    env: childEnv(fx.fixtureRoot, { AGENTS_HOME: fx.agentsHome }),
+  });
+  assert.equal(child.error, undefined, String(child.error?.message ?? ''));
+  assert.equal(child.status, 0, `exit=${child.status}; stderr=${child.stderr}`);
+  const parsed = JSON.parse(child.stdout);
+  assert.equal(parsed.status, 'UNCHANGED');
+});
+
 test('changed checked bytes after accounting still reconcile until unchecked is observed', async (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   let sends = 0;
@@ -430,6 +783,7 @@ test('account requires explicit owner, reconciliation, and every captured ref', 
   const result = account({ ...fx.options, outcome: report }, { agentsHome: fx.agentsHome, now: NOW });
   assert.equal(result.status, 'ACCOUNTED');
   assert.equal(result.receipt.accountingOutcome.ownerAttested, true);
+  assert.equal(Object.hasOwn(result.receipt, 'accountedFrom'), false, 'a normal RECORDED account never carries accountedFrom');
 });
 
 test('account derives required refs from immutable bytes, not mutable receipt metadata', async (t) => {
@@ -792,8 +1146,11 @@ test('comments-only and selections-only checked pages still admit a round', asyn
 test('empty checked bytes never erase an active round and preserve accounted episode sequencing', async (t) => {
   const active = fixture(); t.after(active.cleanup);
   await pickupOnce(active.options, deps(active));
+  // Contracts.md C1: the option disappearing (the lead acting on it) is a sub-multiset of the
+  // round's capture, not a new owner input, so this is not a change: RECORDED stays RECORDED,
+  // untouched, rather than moving to NEEDS_RECONCILIATION.
   const changed = await pickupOnce(active.options, deps(active, { readPage: async () => EMPTY_DONE }));
-  assert.equal(changed.status, 'NEEDS_RECONCILIATION');
+  assert.equal(changed.status, 'RECORDED');
   assert.equal(changed.receipt.round, 1);
 
   const accounted = fixture(); t.after(accounted.cleanup);
@@ -989,4 +1346,122 @@ test('transport recovery and success receipts discard external envelope diagnost
   }));
   assert.deepEqual(success.receipt.transportResult, { id: success.receipt.noteId, recorded: true });
   assert.equal(JSON.stringify(success).includes(senderCanary), false);
+});
+
+// Lane 34 (pickup-binding, lead ruling P1): project identity resolves through the main checkout
+// (the same `mainCheckout`/`durableTransportRepo` resolver `Details uses the durable main checkout...`
+// above already exercises for the transport repo), so every worktree of one repository is one
+// project. Real git fixtures throughout: `git init` plus `git worktree add` in mktemp dirs under the
+// sealed fixture root, committed under the fixture's own configured identity — no `-c user.*` here.
+test('a linked worktree of a repo resolves to the same project and projectScope as its main checkout, and finds a RECORDED round bound to the main checkout', async (t) => {
+  const fx = gitMainFixture('page-worktree-identity'); t.after(fx.cleanup);
+  const worktree = addLinkedWorktree(fx);
+
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  assert.equal(recorded.status, 'RECORDED');
+  assert.equal(recorded.receipt.round, 1);
+
+  const fromWorktree = status({ repo: worktree, page: fx.options.page }, { agentsHome: fx.agentsHome });
+  assert.equal(fromWorktree.status, 'RECORDED', JSON.stringify(fromWorktree));
+  assert.equal(fromWorktree.receipt.round, 1, 'the worktree finds the round RECORDED from the main checkout');
+  assert.equal(
+    fromWorktree.receipt.project, fs.realpathSync(fx.repo),
+    'a linked worktree must resolve to its main checkout, never its own path',
+  );
+  assert.equal(fromWorktree.receipt.projectScope, recorded.receipt.projectScope);
+
+  const expected = receiptPaths({
+    agentsHome: fx.agentsHome, project: fs.realpathSync(fx.repo), page: fx.options.page,
+  });
+  assert.equal(fromWorktree.receipt.projectScope, expected.projectScope);
+});
+
+test("a main-checkout path's projectScope is unchanged from today's formula", async (t) => {
+  const fx = gitMainFixture('page-main-formula'); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  assert.equal(recorded.status, 'RECORDED');
+  const todaysProject = fs.realpathSync(fx.repo);
+  const todaysPaths = receiptPaths({ agentsHome: fx.agentsHome, project: todaysProject, page: fx.options.page });
+  assert.equal(recorded.receipt.project, todaysProject, 'a main checkout keeps the plain realpath identity');
+  assert.equal(recorded.receipt.projectScope, todaysPaths.projectScope, "today's sha256(project + page) formula, byte for byte");
+});
+
+test('a non-git directory keeps its realpath identity', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const recorded = await pickupOnce(fx.options, deps(fx));
+  assert.equal(recorded.status, 'RECORDED');
+  assert.equal(recorded.receipt.project, fs.realpathSync(fx.repo));
+  assert.equal(recorded.receipt.transportRepo, fs.realpathSync(fx.repo));
+});
+
+// Review r1 F1 (MEDIUM regression): `readRegistration` used to hand `pickupOnce` the main-checkout
+// identity as `entry.repo`, so the config got re-read from the main checkout instead of the checkout
+// named in the registration entry. Here the entry names a linked worktree whose main checkout has
+// no `.agents/project.json` at all (never committed there), so the old behaviour throws "project has
+// no registered decisions_url" for every registered run, while the entry's own worktree config is
+// valid throughout. Fails on bafd52d: PICKUP_FAILED instead of PICKUP_RECORDED.
+test('a registration entry naming a linked worktree is validated from the worktree, and its receipt still binds to the main checkout', async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const repo = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'git-main-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: repo, env: sealed.env });
+  fs.writeFileSync(path.join(repo, 'README.md'), 'root\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, env: sealed.env });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env: sealed.env });
+  const worktree = path.join(sealed.fixtureRoot, 'f1-worktree');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'lane34-f1', worktree], { cwd: repo, env: sealed.env });
+  const page = 'f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1';
+  fs.mkdirSync(path.join(worktree, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, '.agents', 'project.json'), JSON.stringify({ decisions_url: page }));
+  const reader = path.join(sealed.fixtureRoot, 'f1-reader.mjs');
+  fs.writeFileSync(reader, '#!/usr/bin/env node\n', 'utf8');
+  const registrationPath = path.join(sealed.agentsHome, 'ws', 'decisions-pickup', 'registrations.json');
+  fs.mkdirSync(path.dirname(registrationPath), { recursive: true });
+  const entry = { repo: worktree, page, from: 'pickup-host', owner: 'decision-owner', reader };
+  fs.writeFileSync(registrationPath, JSON.stringify({ version: 1, entries: [entry] }), 'utf8');
+
+  const result = await runRegisteredPickup({ registrationPath }, {
+    agentsHome: sealed.agentsHome,
+    selectIndex: () => 0,
+    now: NOW,
+    readPage: async () => PAGE,
+    send: async () => ({ id: 'saved-id', envelope: 'recorded' }),
+  });
+  assert.deepEqual(result, { code: 'PICKUP_RECORDED', ordinal: 0 });
+
+  const direct = status({ repo: worktree, page }, { agentsHome: sealed.agentsHome });
+  assert.equal(direct.status, 'RECORDED', JSON.stringify(direct));
+  assert.equal(direct.receipt.project, fs.realpathSync(repo), "the receipt binds to the worktree's main checkout");
+});
+
+// Review r1 F2 (MEDIUM misbinding): `mainCheckout`'s `/\/?\.git\/?$/` strip is happy to remove a
+// bare gitdir's own trailing `.git`, so a worktree of a separate bare clone `proj.git` used to take
+// the identity of an unrelated sibling clone `proj`. `git clone --bare`/`--shared` and
+// `git worktree add` make no commits; only the shared origin commit uses the sealed fixture identity.
+test("a worktree of a bare-backed clone stays its own project, never a sibling clone's", async (t) => {
+  const sealed = makeTempHome(); t.after(sealed.cleanup);
+  const origin = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'origin-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: origin, env: sealed.env });
+  const page = 'f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2';
+  fs.mkdirSync(path.join(origin, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(origin, '.agents', 'project.json'), JSON.stringify({ decisions_url: page }));
+  execFileSync('git', ['add', '-A'], { cwd: origin, env: sealed.env });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: origin, env: sealed.env });
+
+  const proj = path.join(sealed.fixtureRoot, 'proj');
+  execFileSync('git', ['clone', '--quiet', '--shared', origin, proj], { env: sealed.env });
+
+  const bareGitDir = path.join(sealed.fixtureRoot, 'proj.git');
+  execFileSync('git', ['clone', '--quiet', '--bare', origin, bareGitDir], { env: sealed.env });
+  const bwt = path.join(sealed.fixtureRoot, 'bwt');
+  execFileSync('git', ['worktree', 'add', '-q', '--detach', bwt, 'HEAD'], { cwd: bareGitDir, env: sealed.env });
+
+  const options = { repo: proj, page, from: 'pickup-host', owner: 'decision-owner', reader: 'synthetic-reader.js' };
+  const recorded = await pickupOnce(options, deps(sealed));
+  assert.equal(recorded.status, 'RECORDED');
+  assert.equal(recorded.receipt.project, fs.realpathSync(proj));
+
+  const fromBareWorktree = status({ repo: bwt, page }, { agentsHome: sealed.agentsHome });
+  assert.equal(
+    fromBareWorktree.status, 'PENDING_MANUAL_HANDOFF', JSON.stringify(fromBareWorktree),
+  );
 });

@@ -84,8 +84,8 @@ and state conclusions with each lane's evidence path. A confirmed absence or a p
 limit reported by a lane is a first-class result — surface it, don't re-run the lane
 hoping for a positive.
 
-At synthesis or status closeout for an ongoing goal, use the `continue` skill's canonical
-decision before treating this fan-out as a stopping point. Continue independent ready work;
+At synthesis or status closeout for an ongoing goal, check remaining outcomes and blockers
+before treating this fan-out as a stopping point. Continue independent ready work;
 one blocked lane does not end the goal.
 
 ## Practical delta research

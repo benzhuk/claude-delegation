@@ -386,9 +386,43 @@ export const CODEX_EVENTS = [
   // way, and codex-hook-trust.test.mjs asserts it so they cannot drift apart (review MINOR 1). The
   // constant is not imported: this installer has no other reason to pull in the hook core.
   { event: 'Stop', timeout: 60 },
-  // Codex clamps Interrupt hooks to three seconds. This callback only disarms continuation state.
+  // Codex clamps Interrupt hooks to three seconds. The callback used to disarm continuation state; the
+  // continuation runtime is retired, so it is inert now but stays registered to keep the trust identities stable.
   { event: 'Interrupt', timeout: 3 },
 ];
+
+/**
+ * delete-deny Territory D2 — the SAME PreToolUse guard D1 wires for Claude (hooks/delete-guard.mjs),
+ * offered to Codex through this file's existing merge/trust machinery. A separate list from
+ * `CODEX_EVENTS` on purpose: that one is note delivery (a different script, `multi-codex-hook.mjs`),
+ * and the two must never share a trust-key index — see `DELETE_GUARD_HOOK_MARKER` below.
+ *
+ * Ten seconds: long enough for a cold `node` start on a loaded box, short enough that a hung hook
+ * cannot sit on the very approval prompt this guard exists to preempt.
+ *
+ * `matcher: 'Bash'` (review round 1, MAJOR 1): D1's `decide()` reads `tool_input.command` whatever the
+ * tool, so an unmatched group fires on EVERY Codex tool call — `apply_patch` included, whose
+ * `tool_input.command` is the entire patch text (codex-rs/core/src/tools/handlers/apply_patch.rs:459-463)
+ * — and any doc, test or script edit that merely mentions a delete verb gets refused. Codex treats
+ * `matcher: "Bash"` as an exact string match (hooks/src/events/common.rs:169-173) and the shell tool is
+ * always named `Bash`, Windows included (core/src/tools/hook_names.rs:53-56); `apply_patch` only aliases
+ * `Write`/`Edit` (hook_names.rs:33-38), so it and every MCP tool are excluded. `codexHookHash` already
+ * folds the matcher into the trust hash (below), and `mergeHooksJson` writes and repairs it.
+ *
+
+ * The deny shape is ESTABLISHED, not assumed (see docs/notes/2026-09-27-delete-deny-codex-pretooluse-gap.md
+ * for the full writeup): Codex's own upstream source (openai/codex, `codex-rs/hooks/src/events/
+ * pre_tool_use.rs`) hashes and matches the exact JSON `hooks/agent-dispatch-guard.mjs` already emits for
+ * Claude — `{ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
+ * permissionDecisionReason } }` — and that file's own unit tests (`permission_decision_deny_blocks_
+ * processing`, plus the integration suite in `codex-rs/core/tests/suite/hooks.rs`) confirm this actually
+ * blocks the tool call, not merely that the hook fires. `mirror-shared-skills.mjs` therefore wires this
+ * list alongside the note-delivery hooks whenever `--codex-hooks`/`--codex-hooks-only` is used — no
+ * separate opt-in. What is still outstanding is a LIVE end-to-end check (a real Codex turn attempting the
+ * probe delete and being refused) rather than a static confirmation; that is tracked as a follow-up in the
+ * gap doc, not a gate on shipping the wiring.
+ */
+export const CODEX_DELETE_GUARD_EVENTS = [{ event: 'PreToolUse', timeout: 10, matcher: 'Bash' }];
 
 /**
  * Timeouts our handler has shipped with and no longer writes, per event.
@@ -450,8 +484,17 @@ export function buildHooksJson(scriptPath, events = CODEX_EVENTS, nodeBin = proc
  */
 export const HOOK_MARKER = 'multi-codex-hook.mjs';
 
-function isOurHandler(handler) {
-  return typeof handler?.command === 'string' && handler.command.includes(HOOK_MARKER);
+/**
+ * delete-deny D2: the marker for the OTHER script this file merges into a Codex home,
+ * `hooks/delete-guard.mjs` (D1's PreToolUse guard). A separate marker is not cosmetic —
+ * `mergeHooksJson` finds "our" existing handler in an event's group list by searching for this
+ * substring, and two scripts sharing one marker would each mistake the other's entry for its own,
+ * silently overwriting a different guard's command instead of adding its own group.
+ */
+export const DELETE_GUARD_HOOK_MARKER = 'delete-guard.mjs';
+
+function isOurHandler(handler, marker) {
+  return typeof handler?.command === 'string' && handler.command.includes(marker);
 }
 
 /**
@@ -461,33 +504,43 @@ function isOurHandler(handler) {
  * therefore keeps its trust, which is keyed by that index. An earlier copy of ours is updated in place
  * for the same reason.
  *
+ * @param {string} marker  how OUR handler is told apart from anyone else's in the same event —
+ *   defaults to `HOOK_MARKER` (the note-delivery script). A second script merged into the same file
+ *   (delete-deny D2's delete-guard) passes its OWN marker, so the two never mistake each other's group.
  * @returns {{ json: object, changed: boolean, placements: {event: string, groupIndex: number, handlerIndex: number, command: string, timeout: number}[] }}
  */
-export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath) {
+export function mergeHooksJson(existing, scriptPath, events = CODEX_EVENTS, nodeBin = process.execPath, marker = HOOK_MARKER) {
   const command = nodeCommand(scriptPath, nodeBin);
   const base = existing && typeof existing === 'object' ? existing : {};
   const json = { ...base, hooks: { ...(base.hooks && typeof base.hooks === 'object' ? base.hooks : {}) } };
   const placements = [];
   let changed = false;
 
-  for (const { event, timeout } of events) {
+  for (const { event, timeout, matcher } of events) {
     const groups = Array.isArray(json.hooks[event]) ? json.hooks[event].map((g) => ({ ...g })) : [];
-    let groupIndex = groups.findIndex((g) => Array.isArray(g?.hooks) && g.hooks.some(isOurHandler));
+    let groupIndex = groups.findIndex((g) => Array.isArray(g?.hooks) && g.hooks.some((h) => isOurHandler(h, marker)));
     let handlerIndex = 0;
 
     if (groupIndex === -1) {
-      groups.push({ hooks: [{ type: 'command', command, timeout }] });
+      groups.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command, timeout }] });
       groupIndex = groups.length - 1;
       changed = true;
     } else {
       const hooks = [...groups[groupIndex].hooks];
-      handlerIndex = hooks.findIndex(isOurHandler);
+      handlerIndex = hooks.findIndex((h) => isOurHandler(h, marker));
       const current = hooks[handlerIndex];
       if (current.command !== command || current.timeout !== timeout || current.type !== 'command') {
         hooks[handlerIndex] = { ...current, type: 'command', command, timeout };
         changed = true;
       }
       groups[groupIndex] = { ...groups[groupIndex], hooks };
+      // A group we placed ourselves earlier (before this fix, or by an older version) but that is
+      // missing the matcher we now require: repair it in place. Never touches a matcher we did not ask
+      // for — only fills in ours when it is absent or wrong.
+      if (matcher && groups[groupIndex].matcher !== matcher) {
+        groups[groupIndex] = { ...groups[groupIndex], matcher };
+        changed = true;
+      }
     }
 
     json.hooks[event] = groups;

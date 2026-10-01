@@ -72,16 +72,10 @@ installed.
   UserPromptSubmit; SessionStart does not persist a classification for later events.
   Prompts without that classification or a usable card receive no new advisory.
   Confirmed children receive
-  neither new effect, and unknown identity retains only existing inbox/continuation
+  neither new effect, and unknown identity retains only existing inbox
   behavior. Codex has no bearings cadence on PostToolUse, Stop, or Interrupt;
   installed-host proof, mixed-host validation, and live Goals preservation/readback
   remain separate release gates.
-- **`/delegation:continue`** — keep an ongoing authorized goal moving through a pause,
-  wave closeout, or status turn: select useful ready work, preserve its evidence identity,
-  refill genuinely free capacity, and use verified native host resume paths. On supported
-  Claude Code and Codex hooks, explicitly bind the current native episode to selected existing work
-  records for one bounded completion correction. Accounting uses current evidence;
-  a new prompt suspends the prior binding. This does not grant authority or schedule idle work.
 - **`/delegation:janitor`** — mechanical worktree/branch cleanup, report-only by
   default: a SAFE table (`--apply` acts on it, merged+clean+origin-confirmed only) and
   a JUDGMENT table for a human to decide, plus a read-only wiring-check section that
@@ -159,9 +153,22 @@ if you're reading a mirrored skill copy without `docs/` next to it, e.g. Codex's
   session without anyone typing into its pane. `Stop` blocks the stop while something is
   waiting (honouring `stop_hook_active`). Silent when there are no notes, when the
   session is not in an Orca pane, and on any error — a hook must never break a session.
-- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line`): prints one line
-  at session start when a required guard, hook, timer or switch looks missing or stale;
-  silent when everything is wired, and honours `~/.agents/ws-off`.
+- **Wiring check** (SessionStart — `scripts/wiring-check.mjs --line --hook`): prints one
+  line at session start when a required guard, hook, timer or switch looks missing,
+  stale or unknown; silent when everything is wired, and honours `~/.agents/ws-off`. The
+  CLI now exits 1 whenever `checkWiring().ok` is false (a check is missing, stale or
+  unknown; `info` never fails), so a human or agent running it directly (bare `--line`,
+  `--json` or the table) sees a real red exit code — but the SessionStart hook above
+  passes `--hook`, which always exits 0, because Claude Code drops a command hook's
+  stdout on any non-zero exit and the visibility line has to reach the session either
+  way. `scripts/required-wiring.default.json` carries the checks the plugin can actually
+  verify: the PreToolUse delete-guard and PostToolUse peer-note hooks are wired by exact
+  command and matcher, not a raw substring (`hook_present` against the plugin's own
+  `hooks/hooks.json`), their own hook scripts exist (`file_exists`), the `note-send` shim
+  and `~/.agents/notes/` exist (`file_exists`), `crossSessionInbound: accept` is set
+  (`json_value`), and the daily janitor timer's own `~/.agents/janitor/last-run.log` is
+  under 26 hours old once installed (`file_fresh`; `info` — never `missing`, and never
+  counted against `ok` — on a host that never installed the timer).
 
 ## Model tiers
 
@@ -239,6 +246,8 @@ node scripts/mirror-shared-skills.mjs
 
 Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/skills/_docs/` (so `../_docs/<name>.md` links resolve); Codex roles to `~/.codex/agents/*.toml` with models from the tier table above; and the four PATH shims `note-{send,inbox,flush,notify}` (plus a `.cmd` for each on Windows) — all recorded in `~/.agents/skills/.mirror-manifest.json`, so `--uninstall` removes exactly what it created.
 
+After installing a release on a host, run `node scripts/wiring-check.mjs --line` on that host and report its line and exit code, so the install is verified that same day rather than assumed clean.
+
 ## The philosophy, in four lines
 
 1. Orchestrator tokens buy judgment (spec, adjudication, ship); executors run at full
@@ -253,12 +262,127 @@ Publishes: skills to `~/.agents/skills/<name>`; the shared docs to `~/.agents/sk
 MIT
 
 ## Changelog
+- 0.20.19 — the lanes closed from Sep 29 afternoon to Sep 30:
+  - The janitor acts: a daily reclaim of the safe class on every host (session scratch, plugin temp folders, finished lane worktrees, merged branches) through one deleter that refuses any other path, with a live-pane guard and a kill switch (janitor-acts, lane 59). The mirror-shim test counts the note shims by name, so a durable checkout passes (lane 59b).
+  - A record can accept and close an artifact that lives in another repo, such as dotfiles (Artifact-repo, lane 60b). The plugin side of the secret guard lands (lane 60); its Windows selftest fix is in dotfiles (lane 60c).
+  - One daily Opus triage gathers the knowledge inboxes of every host (knowledge-triage, lane 40), and the census reader is repaired (lane 40b). A hand-run baseline gives the census something to beat (baseline, lane 61).
+  - The notion-writing skill moves into the plugin with page-lint (lane 39). publish --clear-done works after accounting (lane 58). The Windows test-ipc failure is closed as not reproduced, with a trip-wire (lane 57).
+  - The continue skill, its runtime and its per-prompt epoch banner are retired after six weeks unused (retire-continue).
+- 0.20.18 — the lanes closed from Sep 28 evening to Sep 29:
+  - Each test run gets one temp folder, removed at the end (test-temp-hygiene, lane 46); plugin scripts drop repo-locating git env everywhere (repo-env-everywhere, lane 47); the notes transport runs git without inherited repo env (transport-identity, lane 44).
+  - The census counts per build and splits lead tokens (census-completeness, lane 38; fable-wave, lane 51); four-read refuses a census that is not build-census JSON (four-read-json, lane 54); Codex census rows restored (lane 55).
+  - A lane leaves nothing behind at close (lane-closeout, lane 36); decisions readback tolerates escapes and separators (lanes 48, 52).
+  - Codex parity and follow-ups: wiring, backlog, advisory deadlines and deterministic clock checks (lanes 37, 49, 56).
+  - review-run.mjs runs a high-tier Claude review as a claude -p child from any host, Codex included (review-run, lane 53).
+- 0.20.17 — the lanes closed on Sep 28 evening:
+  - The Done pickup treats every worktree of a repository as one project, so a tick clears from a clean checkout (pickup-binding, b015f60).
+  - A stall ask from the collector also lands on the owning lead's own host (cross-host-nudge, c56a1ae).
+  - A session running older plugin hooks than the installed version is refused builder, reviewer, runner and integrator spawns, and told to start a fresh session (stale-session-guard, c91c1cc).
+- 0.20.16 — the lanes closed on Sep 27 and 28:
+  - The Windows janitor task XML is UTF-16LE (windows-task, da6b9f6).
+  - Work records gain a closed status, and the collector lists it.
+  - note-send refuses a note no session on this machine can read (multi-cross-host, 854784c).
+  - The decisions page is rendered from docs/decisions (a4ae147), and publish refuses uncommitted sources (render-guard, 1f6b749).
+  - The Goals page is one line per goal (goals-one-line, 3dbe935).
+  - Inbox reads tell a packet not checked from an absent one (83b0966).
+  - A killed suite no longer leaks its sealed home (sealed-home-leak, 71f8351), and the sealed runner forwards signals at once (sealed-signal, 5bf0564).
+  - The collector asks the owning lead once per stall (stall-nudge, 1839481).
+  - The timer installer keeps --stale-hours for collect-status, and closed is a terminal collector state (collect-followups, 4608419).
+  - The autolink guard (321bb3a).
+- 0.20.15 — collect-status: scripts/collect-status.mjs writes one lane-status
+  file per repo (~/.agents/collect/<repo>/status.md, attention first) from
+  collect-from-origin and sends one RESULT to the lead only when lane state
+  changes; install-janitor-timer.mjs gains --job collect-status --every
+  <minutes> (lane twenty-one, a77b790).
+- 0.20.14 — four-read, accept: the four-number read counts stalls across every
+  transcript of a build, lead and children, and top-tier tokens from both Claude and
+  Codex shaped records; accept refuses a record missing Spec-session, a Spec-from not
+  in Z form, a Base that is not one sha, an approving review line without a model
+  token, or a zero-stall claim beside a hung, stall or relaunch Log line (lane
+  fourteen, c2f3b73).
+- 0.20.14 — census: the census reads a Codex lead's children, models and windows
+  natively, and the four-number read takes the lead id from the census for a Codex
+  build; default top tiers gain gpt-6-astra and gpt-5.6-sol; the Codex fixture's
+  golden matches the Claude golden byte for byte (lane seventeen, led from Codex,
+  f474c7d).
+- 0.20.14 — knowledge: a PostToolUse knowledge-log hook records topic reads and
+  inbox writes under ~/.agents/knowledge, kill switches ~/.agents/no-knowledge-log
+  and ~/.agents/ws-off; SessionStart prints one knowledge line with topics, pending
+  inbox notes and reads in seven days; knowledge-count.mjs and the GOALS.md status
+  feed from it (lane eighteen, 83c415d).
+- 0.20.14 — janitor: install-janitor-timer.mjs installs a daily report-only janitor
+  --record timer or task per host and never --apply; wiring-check.mjs exits 1 on a
+  missing or stale wire and its checks can fail; the release procedure names the
+  check (lane nineteen, 619ad1c).
+- 0.20.14 — decisions: the pickup's active-round check compares owner inputs, not
+  page bytes, and a round stuck by the old byte check can be accounted; Bearings
+  sections read as historical; the pickup CLI works through a symlink;
+  decisions-title.mjs retitles a page to "<Topic>: M/D H:MMAM Decisions" in
+  America/New_York and the hand-back requires --title-meta and refuses a stale or
+  off-pattern title (pickup completion, ae60967).
+- 0.20.14 — docs: record closures and four-number reads for lanes fourteen,
+  seventeen, eighteen, nineteen and the pickup completion (78bf171, 26cc132, 56f80ce,
+  de52a91, 0a39e0b).
+- 0.20.14 — docs: the 2026-09-27 bearings evidence branch docs/bearings-0927
+  (a2bd711) is referenced, not merged.
+- 0.20.13 — work-record: a terminal withdrawn status and a withdraw command; the two
+  Sep 23 rejected records are withdrawn, so the prompt work line is quiet (lane nine,
+  68d2a15).
+- 0.20.13 — janitor: fed from origin records, first-parent UNSTARTED guard, report-only
+  class for remote branches (lane five, bbd9f5d); then fetches origin first, judges
+  merged only against origin/main, --no-fetch is report-only and --apply refuses it,
+  branch -D only for a re-proven SAFE tip (lane eleven, c8f7668).
+- 0.20.13 — tests: the two delegation-reminder timing tests assert the design's
+  promise instead of the host's speed; the 400 ms check is armed only by
+  DELEGATION_PERF_ASSERT=1 (lane twelve, led from Codex, dad0f79, evidence c3f9ad0).
+- 0.20.13 — tests, mirror: the sealed suite is green on Linux; mainCheckout composes
+  drive-lettered paths with path.posix; the V4 mirror test polices symlink publish on
+  Linux (lane ten, 3bd6ef6).
+- 0.20.13 — multi: an ASK 15 minutes past its by-time gets one BLOCKED from
+  note-flush when its answer side is observable on that host, kill switch
+  ~/.agents/ws-off-overdue; builders never delete directories (lane thirteen,
+  7aad49b).
+- 0.20.13 — multi: a note sent to a peer on another machine also lands in the sender
+  machine's ledger through the peer's note-send --append-ledger, so each host holds
+  both halves of a cross-host thread (lane fifteen, 806d773).
+- 0.20.13 — hooks: a recursive delete from a subagent is refused by a PreToolUse
+  delete-guard on Bash and PowerShell before any permission prompt, kill switch
+  ~/.agents/no-delete-guard; the lead's own calls pass through; Codex gets the same
+  hook through the opt-in codex-hooks install (lane sixteen, e47504b).
+- 0.20.13 — docs: record metadata follow-ups for lanes eleven, fifteen and sixteen
+  (65d2994, d0da77c, 9c4e1b0, 380a666).
+- 0.20.12 — feat(team-build): accept-prep runs the census after the reviewed Log
+  line and rewrites only its own record lines; given mode gets a seam brief; setup
+  paths compare normalised; Base is one sha (lane seven, 9f0dfee).
+- 0.20.12 — feat(team-build, decisions): lane leads merge on acceptance once the
+  sealed suite is green on a second host, and post a Closed entry instead of a
+  Waiting item; releases and installs stay the owner's decision; an
+  accepted-unmerged row older than four hours is a defect; note-flush --status
+  reports the decisions pickup state (lane eight, b7ddf11).
+- 0.20.12 — tests: the collect-from-origin fixture test pins its clock instead of
+  sampling it twice (4861e5f).
+- 0.20.12 — docs: lane two's Codex fresh-project walk, bounded PARTIAL evidence,
+  docs only (9c9f34b).
+- 0.20.11 — feat: the one-launch build loop (`skills/team-build/references/build-loop-workflow.js`
+  and SKILL.md) runs a setup-territory launch through build, one review round, a
+  second launch for fix rounds, integration, seam and accept-prep; the old
+  given-worktree call shape is kept as a documented legacy example.
+- 0.20.11 — fix(decisions): the reader now warns (not INVALID) on optionless items
+  and on overdue OPEN decisions past their default under Waiting, and reads the
+  by-hand action-request option as "Done by hand" rather than the page's own Done
+  line.
+- 0.20.11 — feat: `scripts/collect-from-origin.mjs` collects accepted work from
+  origin lanes for review; the team-build and decisions skills gain a lane lead's
+  own merge item shape, so lanes post their own merge item to Ben's decisions page.
+- 0.20.10 — feat: scripts/four-read.mjs prints the goal's four numbers per build (or
+  unavailable with a reason), records carry Lead-session/Spec-session/Spec-from/Base,
+  accept takes --at and --four-read, GOALS.md stale status corrected.
 - 0.20.9 — Codex lead source parity: when native metadata on an event positively
   classifies a lead, it receives the shared goal card and due/unknown
   bearings advisory at SessionStart and each UserPromptSubmit. This deliberate
   per-prompt tradeoff uses up to 1,200 bytes of card context plus a bounded advisory,
   with no fired/tally cadence state. Confirmed children receive no new card or bearings
-  effect, while unknown native identity keeps its established inbox/continuation behavior
+  effect, while unknown native identity keeps its established inbox behavior
   without the new advisory. `ws-off-goalcard` disables the card and its bearings advisory;
   `ws-off-bearings` disables bearings only. Codex has no new PostToolUse, Stop, or
   Interrupt cadence. This is source behavior, not an installation or live-observation

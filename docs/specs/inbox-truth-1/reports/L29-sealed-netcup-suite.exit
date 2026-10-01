@@ -1,0 +1,6 @@
+OUTER_SSH_EXIT=0
+START_UTC=2026-09-27T23:23:13.2942470Z
+END_UTC=2026-09-27T23:23:32.6822370Z
+TESTED_SHA=d1345220822651c762fa5a5a461e5bbe94620c7c
+NODE_PRE_RESOLVED=/home/ben/.local/state/fnm_multishells/393699_1790551126615/bin/node
+INVOCATION=first actual suite after prior runner-not-loaded launch failure

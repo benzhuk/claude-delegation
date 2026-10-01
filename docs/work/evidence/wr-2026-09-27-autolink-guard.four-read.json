@@ -1,0 +1,43 @@
+{
+  "acceptAt": "2026-09-28T10:28:19Z",
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "76 messages; tokens: cache-read 4438042, cache-write 349013, input 152, output 57203"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "1 note(s) to skills-o: ASK skills-a-lane31-verify-3"
+    }
+  ],
+  "leadSession": {
+    "id": "588290d9-ee43-400b-a808-cf44c407171c",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "4844410 tokens: build 4844410 (claude-opus-5-5); partial (no spec slice): spec-census not run"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "7.4h; largest gap 179.1min at 2026-09-28T07:11:42.049Z"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "0 commits touching build files within 7 days; 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "1 gap(s) over 30min stalled; 4 waiting-on-agents (415.1 min); agent a356bf87ac505c39d silent 413.3 min from 2026-09-28T03:15:48.781Z; 0 unanswered ASKs to skills-o"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-27-autolink-guard.record.md"
+}

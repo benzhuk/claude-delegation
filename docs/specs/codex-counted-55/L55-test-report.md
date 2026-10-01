@@ -1,0 +1,25 @@
+VERDICT: PASS
+
+R1 tested tree: `d69bbea674e93859ca847ed815744a61bc20efc7`, containing source/docs fix `06a93de342d60060efb4f33e04ef4221e74d1c6c`; production blob `8a04a38fa8e0f58b23094960d17f6e60659fb5cd`; contract blob `2de98251ff20a4c0043fc803bc91605279fe087b`; generic-test blob `848ff984aee4665a33435990036fbc17bc89820d`.
+
+Cause: the exact base `72f1dfc1c026c0e410bf6e74d910550e1fe0f843` used a two-day discovery horizon, coupled temporal COUNTED to field support, lacked segment union and complete temporal witnesses, and could expose unsupported values as exact totals.
+
+Discriminating check: the retained base scratch `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\baseline-main` produced the original meaningful red: known `leadSession` had no verified identity evidence and missing cached input remained falsely coverage-supported. Later retained red receipts exposed same-id segment conflict, child usage-conflict non-refusal, unconditional task-turn/nudge support, open-child completeness, invalid future-child exemption, filtered timestamp completeness, and an injected-filesystem boundary regression. Equal-usage duplicate model/timestamp disagreement is intentionally unavailable/PARTIAL, not a throwing usage conflict.
+
+Fix location: production `scripts/build-census.mjs`; independent contracts `scripts/build-census.codex.contract.test.mjs`; root-authorized Codex-only legacy contract alignment `scripts/build-census.test.mjs`.
+
+Simplification: all new fixtures are native-shaped, synthetic JSONL without prompt content; the existing sanitized native fixture bytes are unchanged.
+
+Mandatory case map: identity/out-of-horizon/old-child and spoof rejection are at contract lines 380 and 423; segment union, aliases, and usage conflict are at line 435 and the earlier logical-identity contract; damaged/open/historical/completed/future-child witnesses are at lines 452 and 541; missing required fields, cache-write schema proof, reasoning subset, exact derivation, response/turn distinction, malformed task ids, and nudge evidence are at lines 485 and 529; unchanged four-read unavailable propagation is at line 515. Equal-usage duplicate attribution conflicts are pinned in the earlier contract cases and generic line 215. Malformed prefix preservation and same-id nonoverlap union are pinned at generic lines 244 and 362. Existing Claude assertions and the generic injected-filesystem assertion were not weakened.
+
+Final focused gate: `node --test scripts/build-census.test.mjs scripts/build-census.codex.contract.test.mjs scripts/build-census.completeness.test.mjs scripts/build-census.wake-split.test.mjs scripts/four-read.test.mjs scripts/four-read.completeness.test.mjs scripts/work-record.test.mjs`, under process-owned `Global\claude-verify`, acquired within 60 seconds and released in `finally`. Native exit `0`; 498 tests, 498 pass, 0 fail, 0 skipped, 0 todo; 34857.2577 ms. Raw receipt: `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\t2-focused-green.txt`; immediate native exit: adjacent `.exit` file.
+
+The runner overwrote its first exit-1 raw path during the superseding run. That preservation mistake is recorded honestly in `C:\Users\benzh\orca\gates\01a0df4c-2809-7520-b1d7-876cc51a87ee\codex-counted-55\t2-focused-failed-summary.md`, which reconstructs the recorded candidate, exit and failures without claiming original raw bytes. It also records the rejected alias/EOL candidate. The base scratch and commit history retain the original red-before-green evidence.
+
+## Opus R1
+
+Exact source-review base `60ece109bc24eb03bc17c242472e9c105b063ca4` used source blob `127043eff29bf548cef6d68a254592c826abf41c` in isolated Orca worktree `C:\Users\benzh\orca\workspaces\claude-delegation\lane55-r1-red`. The final discriminating red run failed all four R1 cases: corrupt verified child, relevant zero-usage child, chronological segment witness, and expected/found identity diagnostic. Receipt `t2-r1-red-exact60ece10-r2.txt`; native exit 1 in the adjacent `.exit`. The prior `t2-r1-red-exact60ece10.txt` is retained too; it caught three cases before the chronology fixture gained a bounded window. The contaminated shared-worktree attempt is separately retained as `t2-r1-red-60ece10.txt` and is explicitly not exact-base evidence.
+
+R1 green covers negative output, string input, wrong usage session id, zero-usage logical child, explicit later lead chronology, and expected/found ids. Existing future-child and empty-window exemptions remain green; the model-conflict fixture now proves model support can be UNSUPPORTED while temporal discovery stays complete.
+
+The first two R1 focused attempts are preserved uniquely at `t2-r1-focused-06a93de.txt` and `t2-r1-focused-06a93de-r2.txt`, both exit 1. They exposed test-fixture temporal defects: first a missing terminal witness, then a non-monotonic context timestamp. Material test commits `b8e2cf8` and `d69bbea` corrected them. The final focused command above passed 502/502 tests, 0 failed/skipped/todo, in 34534.6226 ms with native exit 0. Unique receipt: `t2-r1-focused-06a93de-r3.txt` and adjacent `.exit`.

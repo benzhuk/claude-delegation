@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { childEnv } from './test-child-env.mjs';
 
 import { codexHookHash, trustKey } from '../../../scripts/codex-hook-trust.mjs';
+import { isDurablePath, isLinkedWorktree } from '../../../scripts/mirror-shared-skills.mjs';
 
 const MIRROR = fileURLToPath(new URL('../../../scripts/mirror-shared-skills.mjs', import.meta.url));
 const REPO_ROOT = path.dirname(path.dirname(MIRROR));
@@ -174,15 +175,26 @@ test('MAJOR 1: one foreign duplicate and NEITHER file is written', () => {
 /** v4: four commands on PATH, not one. note-notify is named in ~/.codex/config.toml on every machine. */
 const COMMANDS = ['note-send', 'note-inbox', 'note-flush', 'note-notify'];
 
+// R4 (lane 59b): a PATH-shim action line reads `…install PATH shim: <dest> -> <target>`, and lane 59
+// added a fifth shim command, `reclaim`, published ONLY from a durable, non-linked-worktree checkout
+// (F12; see mirror-shared-skills.mjs collectSources()). A bare `/PATH shim/` match therefore counts
+// reclaim's action line right alongside the four note-* ones on any checkout where the gate holds —
+// which is every durable main checkout, just not the /var/tmp or linked-worktree homes every lane run
+// used. Matching by command name keeps this test about the four note commands only; the reclaim gate
+// gets its own assertion below instead of being folded into this count.
+function shimActionFor(actions, command) {
+  return actions.filter((a) => /PATH shim/.test(a) && new RegExp(`[\\\\/]${command}(\\.cmd)? -> `).test(a));
+}
+
 test('R4: Windows plans BOTH shims — .cmd for cmd/PowerShell, extensionless for Git Bash', () => {
   const plan = dryRunPlan();
   assert.equal(plan.ok, true, JSON.stringify(plan.refusals));
   assert.equal(plan.dryRun, true);
 
-  const shimActions = plan.actions.filter((a) => /PATH shim/.test(a));
+  const shimActions = COMMANDS.flatMap((command) => shimActionFor(plan.actions, command));
   const expected = COMMANDS.length * (IS_WINDOWS ? 2 : 1);
   assert.equal(shimActions.length, expected,
-    `expected ${expected} shim(s) on ${process.platform}, got:\n${shimActions.join('\n')}`);
+    `expected ${expected} note-command shim(s) on ${process.platform}, got:\n${shimActions.join('\n')}`);
   assert.equal(plan.shims.length, expected);
   assert.deepEqual(plan.shimCommands, COMMANDS);
 
@@ -194,6 +206,16 @@ test('R4: Windows plans BOTH shims — .cmd for cmd/PowerShell, extensionless fo
     assert.ok(plan.shims.some((s) => s.endsWith(`/${command}`)), `no extensionless shim for ${command} in ${plan.shims}`);
   }
   for (const s of plan.shims) assert.match(s, /\/\.local\/bin\/note-(send|inbox|flush|notify)(\.cmd)?$/);
+
+  // F12: the reclaim shim is planned exactly when the gate holds for THIS checkout (REPO_ROOT) —
+  // durable and not a linked git worktree — 2 actions on win32 (reclaim + reclaim.cmd), 1 on POSIX,
+  // and none at all when the gate does not hold (e.g. this test's own /var/tmp or worktree gate run).
+  const reclaimGateHolds = isDurablePath(REPO_ROOT) && !isLinkedWorktree(REPO_ROOT);
+  const reclaimActions = shimActionFor(plan.actions, 'reclaim');
+  const expectedReclaim = reclaimGateHolds ? (IS_WINDOWS ? 2 : 1) : 0;
+  assert.equal(reclaimActions.length, expectedReclaim,
+    `expected ${expectedReclaim} reclaim shim action(s) on ${process.platform} `
+    + `(gate ${reclaimGateHolds ? 'holds' : 'does not hold'} for ${REPO_ROOT}), got:\n${plan.actions.join('\n')}`);
 });
 
 test('V4: each shim points at its OWN script, never at note-send', () => {
@@ -288,13 +310,43 @@ test('V4: a real install writes one shim per command, each naming ITS OWN comman
   // mirrored directory. Windows publishes by copy, so this can only be pinned by
   // checking what actually landed, not the dry-run plan (which logs a per-directory
   // file count, not names).
-  const mirroredFiles = fs.readdirSync(path.join(home, '.agents', 'skills'), { recursive: true });
-  assert.ok(!mirroredFiles.some((f) => f.endsWith('.test.mjs')),
-    'SKILL_FILE_EXCLUDE let a .test.mjs file publish');
-  // Positive control: the assertion above must fail because the walk found real files and
-  // filtered one out, not because the walk (or the whole publish) silently did nothing.
-  assert.ok(mirroredFiles.some((f) => f.replace(/\\/g, '/').endsWith('multi/scripts/transport.mjs')),
-    'the skill file walk published nothing');
+  const skillsRoot = path.join(home, '.agents', 'skills');
+  if (IS_WINDOWS) {
+    const mirroredFiles = fs.readdirSync(skillsRoot, { recursive: true });
+    assert.ok(!mirroredFiles.some((f) => f.endsWith('.test.mjs')),
+      'SKILL_FILE_EXCLUDE let a .test.mjs file publish');
+    // Positive control: the assertion above must fail because the walk found real files and
+    // filtered one out, not because the walk (or the whole publish) silently did nothing.
+    assert.ok(mirroredFiles.some((f) => f.replace(/\\/g, '/').endsWith('multi/scripts/transport.mjs')),
+      'the skill file walk published nothing');
+  } else {
+    // Linux/macOS publish by symlinking each skill directory WHOLE into the repo (`publishSymlink`)
+    // — there is no per-file copy step to filter a `.test.mjs` out of, so SKILL_FILE_EXCLUDE is a
+    // copy-mode-only concern here. What this branch polices instead: publish really did produce a
+    // symlink into the repo for every skill, with nothing copied in beside it (no real directory or
+    // file sharing that name — the entry IS the symlink, nothing else lives at that path).
+    // `.mirror-manifest.json` (the installer's own bookkeeping file) and `_docs` (S1's shared docs,
+    // published by `publishFile`/copy on every platform, never by `MODE`) are real, on purpose, and
+    // are not skill entries — excluded here rather than treated as a copy that landed wrongly.
+    const topEntries = fs.readdirSync(skillsRoot, { withFileTypes: true })
+      .filter((d) => d.name !== '.mirror-manifest.json' && d.name !== '_docs');
+    assert.ok(topEntries.length > 0, 'the skill publish created no entries under ~/.agents/skills');
+    for (const d of topEntries) {
+      const dest = path.join(skillsRoot, d.name);
+      assert.ok(d.isSymbolicLink(),
+        `${dest} is a real ${d.isDirectory() ? 'directory' : 'file'}, not a symlink — a copy landed beside where the symlink should be`);
+      const target = fs.realpathSync(dest);
+      const rel = path.relative(REPO_ROOT, target);
+      assert.ok(rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel),
+        `${dest} -> ${target} does not resolve into the repo (${REPO_ROOT})`);
+    }
+    // Positive control: the assertions above must fail if the walk found nothing real — prove a
+    // symlink actually resolves to live repo content (following it), not a dangling link, so a
+    // silently-broken publish still trips something even with no `.test.mjs` check to fail on.
+    const mirroredFiles = fs.readdirSync(skillsRoot, { recursive: true });
+    assert.ok(mirroredFiles.some((f) => f.replace(/\\/g, '/').endsWith('multi/scripts/transport.mjs')),
+      'the skill symlink walk found no real content in the repo');
+  }
   // …and it removes exactly what it created.
   execFileSync(process.execPath, [MIRROR, '--uninstall'], { encoding: 'utf8', env: fakeEnv(home) });
   assert.equal(fs.existsSync(bin), false, 'uninstall left shims behind');

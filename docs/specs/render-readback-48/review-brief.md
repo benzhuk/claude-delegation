@@ -1,0 +1,9 @@
+# Lane48 Opus attack brief
+
+Review the exact artifact supplied in the peer ASK. The root specification and provenance are in docs/work/wr-2026-09-28-render-readback.record.md; scout and builder/test evidence are under docs/specs/render-readback-48. Original snapshot fixtures must retain the scout hashes.
+
+This is a data-integrity comparison fix, not permission to ignore arbitrary formatting or page content. Try to defeat it: removed bullet, changed tick, moved line, code fence containing a literal closing details tag, unrelated paragraph/code whitespace, callout whitespace without observed provenance, malformed/unclosed fences, and changed owner text. Confirm exact original render/read equality after normalization, red proof before source change and green after, and that publish uses this actual shared function. Attack the failure class: a check that passes because it is not looking, or an unknown rendered as a confident number.
+
+Check scope is limited to normalize, its comparison contract comment, and tests/fixtures. No render composition, pickup, title/autolink guard, adoption semantics, retry, page writer, timeout, or new state mechanism. Shared comparisons for drift, readback and pre-write backup must remain consistent. Consider whether the change fixes the cause or merely compensates for one snapshot. Preserve substantive and code-literal differences.
+
+Report first line must be VERDICT: APPROVE <full SHA> or VERDICT: NEEDS_FIXES <full SHA>. Name actual reviewer model/session identity and inspected artifact. Findings require severity, file:line or measured evidence, and a ready-to-apply patch when mechanical. Include Cause:, Discriminating check:, Fix location:, Simplification:. Run focused tests once; no full suite or live page write. No guard/permission bypass. Root owns the record and final acceptance, merge, live publish and closure. Reviewer never edits docs/work.

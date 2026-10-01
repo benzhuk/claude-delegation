@@ -1,0 +1,107 @@
+ok                       base=refuse new=refuse  cat <<EOF | bash
+ok                       base=refuse new=refuse  cat <<EOF > x.sh && bash x.sh
+ok                       base=refuse new=refuse  cat > x.sh <<EOF ... bash x.sh (redirect BEFORE <<)
+ok                       base=refuse new=refuse  cat >x.sh <<'EOF' ... bash x.sh
+ok                       base=refuse new=refuse  tee x.sh <<EOF ... bash x.sh
+ok                       base=refuse new=refuse  tee x.sh <<EOF >/dev/null; sh x.sh
+ok                       base=refuse new=refuse  cat <<EOF | tee x | sh
+ok                       base=refuse new=refuse  cat <<EOF |& bash
+ok                       base=refuse new=refuse  cat <<EOF | timeout 5 bash
+ok                       base=refuse new=refuse  cat <<EOF | command bash
+ok                       base=refuse new=refuse  cat <<EOF | nohup sh
+ok                       base=refuse new=refuse  cat <<EOF |<NL>body<NL>EOF<NL>bash (pipe continues after body)
+ok                       base=refuse new=refuse  bash <(cat <<EOF ... EOF)
+ok                       base=refuse new=refuse  bash -c "$(cat <<'EOF' ... EOF)"
+ok                       base=refuse new=refuse  eval "$(cat <<EOF ... EOF)"
+ok                       base=refuse new=refuse  $(cat <<EOF ... EOF) as a command
+ok                       base=refuse new=refuse  source <(cat <<EOF)
+ok                       base=refuse new=refuse  bash -s cat <<EOF
+ok                       base=refuse new=refuse  sh -s -- tee <<EOF
+ok                       base=refuse new=refuse  CAT=1 bash <<EOF (case-insensitive consumer word)
+ok                       base=refuse new=refuse  echo x & bash <<EOF with cat earlier (& not a separator)
+ok                       base=refuse new=refuse  tee >(bash) <<EOF
+ok                       base=refuse new=refuse  cat <<EOF > >(bash)
+ok                       base=refuse new=refuse  unquoted-delimiter body with $( ) (executes during expansion)
+ok                       base=refuse new=refuse  unquoted-delimiter body with backticks
+ok                       base=refuse new=refuse  tee report <<EOF with $( ) body
+ok                       base=refuse new=refuse  note-send <<EOF with $( ) body
+ok                       base=refuse new=refuse  git commit -F - <<EOF with $( ) body
+ok                       base=refuse new=refuse  two heredocs on one line: bash <<A; cat <<B
+ok                       base=refuse new=refuse  partly-quoted delimiter <<E"OF" (guard reads E, bash reads EOF)
+ok                       base=refuse new=refuse  here-string cat <<<"x" misread as heredoc
+ok                       base=refuse new=refuse  here-string cat <<<EOF
+ok                       base=refuse new=refuse  <<EOF inside a quoted grep pattern, real delete next line
+ok                       base=refuse new=refuse  <<EOF in a comment, real delete next line
+ok                       base=refuse new=refuse  quoted delim, backslash-newline in body (normalizer joins EOF line away)
+ok                       base=refuse new=refuse  arith shift misread as heredoc
+ok                       base=refuse new=refuse  ssh host <<EOF
+ok                       base=refuse new=refuse  bash <<EOF
+FALSE-REFUSAL            base=refuse new=refuse  cat <<-EOF tab-indented terminator
+ok                       base=refuse new=refuse  delimiter text inside body (earlier than real)
+ok                       base=refuse new=refuse  grep 'x' f; DEL
+ok                       base=refuse new=refuse  echo "a" && DEL
+ok                       base=refuse new=refuse  echo "a" || DEL
+ok                       base=refuse new=refuse  echo "a"<NL>DEL
+ok                       base=refuse new=refuse  echo "a" & DEL
+BYPASS(pre-existing)     base=pass   new=pass    echo x & bash -c 'DEL'
+BYPASS(pre-existing)     base=pass   new=pass    echo hi & 'rm' -rf d
+ok                       base=refuse new=refuse  echo "$(DEL)"
+ok                       base=refuse new=refuse  echo "`DEL`"
+BYPASS(pre-existing)     base=pass   new=pass    echo $(sh -c 'DEL')
+BYPASS(pre-existing)     base=pass   new=pass    $(echo 'DEL')
+BYPASS(pre-existing)     base=pass   new=pass    bash -c "$(echo 'DEL')"
+BYPASS(pre-existing)     base=pass   new=pass    bash <(echo 'DEL')
+BYPASS(pre-existing)     base=pass   new=pass    echo 'DEL' > >(bash)
+BYPASS(pre-existing)     base=pass   new=pass    echo 'DEL' |& bash
+BYPASS(pre-existing)     base=pass   new=pass    echo 'DEL' | timeout 5 sh
+BYPASS(pre-existing)     base=pass   new=pass    echo 'DEL' | tee x.sh; bash x.sh
+ok                       base=pass   new=refuse  FOO=echo sh -c 'DEL'
+ok                       base=refuse new=refuse  sudo -u rg sh -c 'DEL' (rg as a word)
+ok                       base=refuse new=refuse  /opt/rg/bin/sh -c 'DEL'
+ok                       base=refuse new=refuse  note-send --text "$(DEL)"
+BYPASS(pre-existing)     base=pass   new=pass    note-send --text $(sh -c 'DEL')
+ok                       base=refuse new=refuse  ssh host "DEL"
+ok                       base=refuse new=refuse  ssh host 'DEL'
+ok                       base=refuse new=refuse  ssh host bash -c "'DEL'"
+ok                       base=refuse new=refuse  ssh -o X=y host "DEL"
+ok                       base=refuse new=refuse  ssh -o "X=y" host "DEL"
+ok                       base=refuse new=refuse  ssh host DEL (unquoted)
+ok                       base=refuse new=refuse  ssh host "echo 'DEL'" | sh (remote prints, LOCAL shell runs)
+ok                       base=refuse new=refuse  ssh host "printf 'DEL'" | bash
+BYPASS(pre-existing)     base=pass   new=pass    $(ssh host "echo 'DEL'")
+BYPASS(pre-existing)     base=pass   new=pass    bash -c "$(ssh host "echo 'DEL'")"
+ok                       base=pass   new=refuse  ssh host echo '$(DEL)' (unquoted remote, remote expands)
+ok                       base=pass   new=refuse  ssh host echo "a & DEL" (unquoted remote, remote re-parses &)
+ok                       base=refuse new=refuse  ssh host grep 'x' f \; DEL
+ok                       base=refuse new=refuse  ssh host 'grep x f; DEL'
+ok                       base=refuse new=refuse  ssh host "grep 'x' f; DEL"
+ok                       base=refuse new=refuse  ssh host 'echo "$(DEL)"'
+ok                       base=refuse new=refuse  ssh host "grep \"rm\" f; DEL"
+ok                       base=refuse new=refuse  ssh host "sh -s" cat <<EOF
+ok                       base=refuse new=refuse  sudo bash -c "DEL"
+ok                       base=refuse new=refuse  env bash -c "DEL"
+ok                       base=refuse new=refuse  command bash -c "DEL"
+ok                       base=refuse new=refuse  nohup sh -c "DEL"
+ok                       base=refuse new=refuse  timeout 5 sh -c "DEL"
+ok                       base=refuse new=refuse  xargs DEL
+ok                       base=refuse new=refuse  echo 'DEL' | xargs -I{} sh -c {}
+ok                       base=refuse new=refuse  find -exec DEL
+ok                       base=refuse new=refuse  find -exec sh -c 'DEL'
+ok                       base=refuse new=refuse  bash -c "git -C x clean -fdx"
+ok                       base=refuse new=refuse  sh -c "cd x && git clean -fdx"
+ok                       base=refuse new=refuse  note-send --text "$(git clean -fdx)"
+ok                       base=refuse new=refuse  pwsh -Command "Remove-Item -Recurse d"
+ok                       base=refuse new=refuse  echo 'RI' | iex
+BYPASS(pre-existing)     base=pass   new=pass    Invoke-Expression (echo 'RI')
+ok                       base=refuse new=refuse  echo "$(RI)"
+ok                       base=refuse new=refuse  echo 'x'; RI
+ok                       base=refuse new=refuse  @" here-string "@ | iex
+ok                       base=refuse new=refuse  unbalanced echo "DEL
+ok                       base=refuse new=refuse  unbalanced ssh host "DEL
+ok                       base=refuse new=refuse  unterminated heredoc
+FALSE-REFUSAL            base=refuse new=refuse  FP1 cat <<EOF report
+ok                       base=pass   new=pass    FP2 grep -n "rm -rf" f
+ok                       base=pass   new=pass    FP3 ssh host "grep -n 'rm -rf' f"
+ok                       base=refuse new=pass    tee report.md <<'EOF'
+FALSE-REFUSAL            base=refuse new=refuse  git commit -m "$(cat <<'EOF' ... EOF)"
+bypass count (new): 14

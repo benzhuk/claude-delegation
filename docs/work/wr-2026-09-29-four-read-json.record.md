@@ -1,0 +1,102 @@
+Work: wr-2026-09-29-four-read-json
+Scope: the spec section of this record (lane 54), from packet docs/notes/skills-fable-lane-53-1.md "Queued behind it: lane 54" read at 7ab59db
+Owner: skills-n
+Status: closed
+Authority: build, review, integrate, push build/four-read-json-1, merge into main on acceptance under the standing grant of 2026-09-26 without Ben; rerun build-census and four-read read-only against lead transcripts and merged records; no release, no install
+Next: census, four-read and accept pinned at 63996a6, then merge, publish, close, RESULT
+Artifact: 63996a6b35eb2a143092bb354f58e026f9981f77
+Evidence: docs/work/evidence/wr-2026-09-29-four-read-json-review.md, docs/work/evidence/wr-2026-09-29-four-read-json-review-r1.md, docs/work/evidence/wr-2026-09-29-four-read-json-suites.md
+Worktree: build/four-read-json-1
+Scratch: /tmp/claude-1000/-home-ben-Code-claude-delegation/f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e/scratchpad/lane-54
+Opened: 2026-09-29T02:24:00.000Z
+Lead-session: f6c8ae21-4813-4cbb-aeb5-9dd45b8ad01e
+Spec-session: 9c61c35a-82dd-4aef-8eca-c99bb0e72e31
+Spec-from: 2026-09-29T02:04:06Z
+Base: 7ab59dbd496c062f1cbb8eb259dd5a95aa9f9088
+Log: 2026-09-29T02:24:05.000Z owned skills-n picked up lane 54 from the skills-fable-lane-53-1 packet while lane 53 waits on two decisions (disjoint territory); small lane, spec written by the lead, no spec red-team; Sonnet builder spawned
+Log: 2026-09-29T02:35:51.000Z delivered skills-n Sonnet builder DONE 02c2535, report 48c879b (four-read refuses a non-JSON census with exit 2, 10 new tests, four-read suites 117 pass, full suite 2928 pass 0 fail; lanes 42, 43, 44, 46, 47 rerun with the census JSON, no lane 45 record); Opus code review and Windows suite started
+Log: 2026-09-29T02:41:28.000Z rejected skills-n Opus code review by a04896a79a9e5e130 NEEDS_FIXES (4) 84e643e (F-1 the gate requires stallNudges and refuses 34 of 40 committed older census JSONs, F-2 --spec-census markdown still silent, F-3 appendix cells drop two unavailable parts, F-4 lead check untested); all four adopted, F-2 in scope; Windows suite at 84e643e 2918 pass, 1 fail the hooks/codex-unsupported load flake, 13 of 13 twice alone; fresh builder spawned
+Log: 2026-09-29T02:48:03.000Z delivered skills-n fresh Sonnet fix round 1 builder DONE b13f448 and 63996a6, report eb2a2af (F-1 to F-4 applied, each new test red first, four-read suites 119 pass, full suite 2930 pass 0 fail); same Opus reviewer resumed for delta r2, Windows suite started
+Log: 2026-09-29T02:52:30.000Z reviewed skills-n Opus delta review r2 by a04896a79a9e5e130 APPROVE 63996a6 (all four r1 findings verified fixed, each revert fails exactly one new test, four-read suites 119 pass); Windows suite at 63996a6 2920 pass, 1 fail the hooks/codex-unsupported load flake, 13 of 13 twice alone
+Census: - leadTurns: 8
+Census: - wallClockHours: 0.48
+Census: - wakes: 1 (1 note-flush, 0 Done-tick)
+Census: - wakeSplit: wake 1, stopBlock 0, other 7 (coalescable 0 at hold 10m — see "Wake-opened turns" below)
+Census: - stopBlocks: 0
+Census: - stallNudges: unavailable (ledger dir unreadable)
+Census: - by-model: claude-opus-5-5=10362749, claude-sonnet-5=30730484
+Census: - by-role: unassigned=33109270
+Census: - subagentFiles: 227
+Census: - Total assistant turns, deduped (whole file): **1428**
+Census: - Window assistant turns, deduped: **37**
+Census: - leadTurns (conversational runs — see docs/census.md): **8**
+Census: - Wakes (turns opened by a note-flush or Done-tick line, see docs/census.md): **1** (1 note-flush, 0 Done-tick)
+Census: - Stop-blocks (multi-inbox Stop hook blocks): **0**
+Census: - Stall nudges received (ledger `collect-*-stall-*` ASKs to the lead's slug, in the window): **unavailable (ledger dir unreadable)**
+Census: - Window: 2026-09-29T02:24:01.175Z .. 2026-09-29T02:52:33.583Z
+Census: - Turns/hour in window: **77.79**
+Census: ### Lead tokens by model — whole file (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | <synthetic> | 0 | 0 | 0 | 0 |
+Census: | claude-opus-5-5 | 2854 | 4443758 | 239958248 | 951419 |
+Census: ### Lead tokens by model — window (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 74 | 104498 | 7853681 | 25710 |
+Census: - wakeTurns: 1, stopBlockTurns: 0, otherTurns: 7
+Census: - cache_creation per turn (M6) — wake: claude-opus-5-5=6095.0; other: claude-opus-5-5=14057.6
+Census: - coalescable (W1b, hold 10m, RESULT wakes only, Done-tick excluded): turns 0, upper (none), lower (none); ceiling (every RESULT wake turn) turns 1, claude-opus-5-5=934833
+Census: ### Subagent tokens by model — totals (deduped)
+Census: | model | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | claude-opus-5-5 | 74 | 189009 | 2161489 | 28214 |
+Census: | claude-sonnet-5 | 508 | 471347 | 30067046 | 191583 |
+Census: ### Subagent tokens by role — totals (deduped)
+Census: | role | input | cache_creation | cache_read | output |
+Census: |---|---|---|---|---|
+Census: | unassigned | 582 | 660356 | 32228535 | 219797 |
+Census: ## Combined split (lead window + subagents)
+Census: | model | output_tokens | input+cache_creation+cache_read |
+Census: |---|---|---|
+Census: | claude-opus-5-5 | 53924 | 10308825 |
+Census: | claude-sonnet-5 | 191583 | 30538901 |
+Four numbers: Top-tier tokens per build: 10362749 tokens: build 10362749 (claude-opus-5-5); partial (no spec slice): spec-census not run
+Four numbers: Hours ask to accepted: 0.5h; largest gap 9.8min at 2026-09-29T02:25:50.710Z
+Four numbers: Rework after acceptance: 1 commit(s) touching build files within 7 days: 5766f1a "docs(work): lane 54 reviewed at 63996a6, evidence copied"; 0 re-accept Log: entries after the first
+Four numbers: Work lost or stalled: 0 gap(s) over 30min stalled; 0 waiting-on-agents (0.0 min); 0 unanswered ASKs to skills-n; wakes 1 (1 note-flush, 0 Done-tick); Stop-blocks 0; stall nudges 0 to skills-n
+Log: 2026-09-29T02:52:38.000Z accepted skills-n artifact 63996a6b35eb2a143092bb354f58e026f9981f77
+Log: 2026-09-29T02:53:31.000Z merged skills-n into main at 7a7d48f3ceb06d68064d239e0bfbe26e58d9f5fc under the standing grant of 2026-09-26, merge suite 2937 pass 0 fail
+Log: 2026-09-29T02:53:31.000Z closed skills-n merge 7a7d48f3ceb06d68064d239e0bfbe26e58d9f5fc
+
+Observed: four-read now refuses a --census or --spec-census file that is not build-census --json output, with exit 2, a message naming the flag and no output written. At 7ab59db the census markdown was read silently as no census, with exit 0. All 40 committed census JSON files in the repo pass the gate, older pre-lane-38 ones included. The rerun of lanes 42, 43, 44, 46 and 47 with the census JSON fills their token, gap and wake cells in the census-0928 appendix, with the unavailable parts shown verbatim. Two Opus reviews, the second APPROVE 63996a6.
+
+Predicts: the next four-read on any record gives either a full reading or exit 2, never a blank census row. The next census of a lane accepted through this plugin shows no "no census" cell caused by a markdown input.
+
+Stall: nothing stalled. The word "silent" in the Log describes the defect (a markdown census read silently), not an agent. Builders and reviewers each reported within their ETA.
+
+## Spec (lead, from the packet)
+
+Measure: work lost or stalled, and the census's own reliability. The records of lanes 42 to 47 show blank gap and stall cells, because scripts/four-read.mjs was handed the census markdown and silently read it as "no census" (docs/reports/census-0928/four-read.md, the paragraph beginning "Finding 4b is wrong"). A check that passes because it isn't looking. Must not worsen: every existing four-read and accept test.
+
+F1. `scripts/four-read.mjs --census <path>` refuses any input that is not build-census `--json` output. Refusing means:
+- a stderr message naming the flag and the fix: "four-read: --census must be the build-census --json data file, not the census markdown";
+- exit 2, before any output file is written.
+
+The test for "is it the JSON" is a successful JSON.parse plus the top-level shape build-census writes (the builder names the exact keys, with file:line in build-census.mjs). A missing file keeps whatever four-read does today, if that is already loud; if it is silent, it also exits 2.
+
+F2. Callers. Find every place that hands four-read a census path: scripts, skills/*/references, docs that show the command (docs/census.md, skills/team-build/SKILL.md, docs/work-record.md). Any one showing or passing the markdown is corrected to pass the `--json` file. The builder lists each with file:line in the report. A doc that already shows the JSON is left alone.
+
+F3. Tests: a unit test red at the base on markdown input (today silent and exit 0) and green after (exit 2 with the message). A JSON input keeps passing. The existing four-read suites pass.
+
+F4. The reruns. For each lane record among lanes 42, 43, 44, 46 and 47 on main (the builder maps the lane numbers to wr-2026-09-28-* records from their Log lines and titles, and says which lane 45 is, if any):
+- regenerate its census JSON with build-census.mjs `--lead <that lane's lead transcript>`, `--from <record Opened>` and `--to <the record's accepted Log time>`. Lead transcripts on this host are under ~/.claude/projects/-home-ben-Code-claude-delegation/<Lead-session>.jsonl;
+- rerun four-read with that JSON against the record as merged on main.
+The gap and stall cells then go as one appendix line per lane in docs/reports/census-0928/four-read.md, under a new "## Appendix: lanes 42 to 47 rerun with the census JSON (lane 54)" heading at the end. Nothing else in that report changes. If a lead transcript is missing or a rerun fails, the line says so with the error, never a blank.
+
+Territory:
+- scripts/four-read.mjs and its test file(s);
+- the caller corrections F2 finds, one line each;
+- docs/reports/census-0928/four-read.md, the appendix only.
+
+NOT scripts/build-census.mjs, docs/GOALS.md, or any record's own body.

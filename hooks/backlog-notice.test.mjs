@@ -164,6 +164,22 @@ test('T2/C3: one runnable unowned prints the C3 line on UserPromptSubmit', () =>
   assert.equal(fs.existsSync(sentinelPathFor(agentsOf(home), SESSION_ID)), true, 'a printed line writes the sentinel');
 });
 
+// R3 (withdraw-status-1): a withdrawn record is excluded from every bucket (never counted
+// as rejected, nor anywhere else) - the false "N rejected awaiting a fix round" signal this
+// build closes. A genuinely runnable record still prints normally alongside it.
+test('R3: a withdrawn record is excluded from the counts entirely, not counted as rejected or malformed', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecord(cwd, { work: 'wr-2026-09-23-withdrawn-fixture', status: 'withdrawn' });
+  writeRecord(cwd, { work: 'wr-2026-09-21-still-runnable', status: 'runnable' });
+  const out = runHook('UserPromptSubmit', home, cwd);
+  assert.ok(out.json, 'the genuinely runnable record still prints');
+  const line = out.json.hookSpecificOutput.additionalContext;
+  assert.match(line, /^work: 1 runnable and unowned \(wr-2026-09-21-still-runnable\), 0 delivered and unreviewed \(\), 0 rejected awaiting a fix round \(\)\. Pull one or say why not\.$/);
+  assert.ok(!line.includes('wr-2026-09-23-withdrawn-fixture'), 'a withdrawn record must not appear in any bucket');
+  assert.doesNotMatch(out.stderr, /malformed/, 'withdrawn is a known status - it must not be counted as malformed either');
+});
+
 test('T2/C3: Stop prints systemMessage only, never a decision', () => {
   const home = fixtureHome();
   const cwd = fixtureProject();

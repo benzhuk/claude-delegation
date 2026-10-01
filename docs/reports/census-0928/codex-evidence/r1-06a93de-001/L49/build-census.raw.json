@@ -1,0 +1,2475 @@
+{
+  "combined": {
+    "gpt-5.6-terra": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 43587584,
+      "derived_total_tokens": 44669299,
+      "input_tokens": 947022,
+      "native_input_tokens": 44534606,
+      "output_tokens": 134693,
+      "reasoning_output_tokens": 27155,
+      "total_tokens": 44669299,
+      "unavailable": []
+    },
+    "gpt-6-astra": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 21979136,
+      "derived_total_tokens": 22357188,
+      "input_tokens": 308154,
+      "native_input_tokens": 22287290,
+      "output_tokens": 69898,
+      "reasoning_output_tokens": 24843,
+      "total_tokens": 22357188,
+      "unavailable": []
+    }
+  },
+  "defaultSubagentsDir": null,
+  "lead": {
+    "codex": {
+      "discovery": {
+        "candidates": 186,
+        "excluded": [
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
+            "reason": "duplicate lead/path"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\19\\rollout-2026-03-19T09-57-19-019d0662-ea33-75c0-ae39-c78d769df03d.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\19\\rollout-2026-03-19T10-09-16-019d066d-dc23-7f50-a23a-0c01412979ad.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\22\\rollout-2026-03-22T12-36-23-019d1667-a069-7f91-a83f-eea4abc577fc.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\28\\rollout-2026-03-28T12-48-32-019d3558-ea8b-75c2-831e-d54f11c79d35.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\28\\rollout-2026-03-28T14-15-31-019d35a8-8ccb-7710-a680-6784331f3ab5.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\28\\rollout-2026-03-28T18-39-17-019d369a-097d-7aa3-a2fd-23601c29ead1.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\28\\rollout-2026-03-28T19-00-40-019d36ad-9cc4-7e32-8348-83358da2caf4.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\29\\rollout-2026-03-29T12-55-46-019d3a85-e3ca-7e00-8c7a-1d0733a23f79.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\29\\rollout-2026-03-29T13-23-12-019d3a9f-0096-7ae1-ba5e-f494f345174f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\29\\rollout-2026-03-29T15-44-22-019d3b20-404a-7eb3-b924-7c704f21350d.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\30\\rollout-2026-03-30T08-41-24-019d3ec3-5eb7-7a91-832a-2ec6828fffaf.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\30\\rollout-2026-03-30T09-25-47-019d3eeb-ffe5-7aa1-865b-48581a554622.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\30\\rollout-2026-03-30T11-07-22-019d3f49-02e0-71f3-8fda-81af9a82b90d.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\30\\rollout-2026-03-30T11-08-15-019d3f49-d0db-7072-bf78-9cfd6c5f3b4f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\30\\rollout-2026-03-30T12-20-04-019d3f8b-9246-7db2-a701-a683bac888aa.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\03\\31\\rollout-2026-03-31T16-43-06-019d45a2-bd19-70d2-a2af-4b79a1a9db32.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\04\\01\\rollout-2026-04-01T15-37-44-019d4a8d-419a-7913-914f-5d3af72b313a.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\04\\03\\rollout-2026-04-03T17-53-11-019d5555-f968-7913-bc50-cdb92f1ee07e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\04\\05\\rollout-2026-04-05T18-09-09-019d5fb1-5337-77f0-a443-b19f0ed049bc.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\04\\14\\rollout-2026-04-14T12-47-26-019d8ce4-039d-7463-8760-046aa390c60b.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\05\\05\\rollout-2026-05-05T09-40-01-019df85d-f950-7682-a1e9-5cb399bba3d9.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\05\\05\\rollout-2026-05-05T11-49-35-019df8d4-973c-7482-a51d-edbca0ff36c3.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\05\\08\\rollout-2026-05-08T16-05-53-019e0932-521d-7cc1-8f57-aaf078df6ae3.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\01\\rollout-2026-09-01T16-11-08-01a05e98-d2aa-7570-8fb6-8ddf3526b857.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\01\\rollout-2026-09-01T18-35-11-01a05f1c-b379-73e3-9978-4ea619c306fd.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\03\\rollout-2026-09-03T10-39-18-01a067b5-bcbb-7491-98e3-78f54d273b8d.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\03\\rollout-2026-09-03T12-54-56-01a06831-e8d2-70a1-a2e7-ea995f5eaf56.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\08\\rollout-2026-09-08T18-24-50-01a0831f-bd38-71f3-899d-84cc3abee12e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\09\\rollout-2026-09-09T21-06-30-01a088da-1dc9-7b42-8abb-ed9bd1991444.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\10\\rollout-2026-09-10T13-57-30-01a08c77-b382-7631-8340-8b773880b720.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\10\\rollout-2026-09-10T14-18-56-01a08c8b-52f1-7f02-9a84-1903baa1d8bb.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\10\\rollout-2026-09-10T15-27-43-01a08cca-4e5b-71f0-aa73-3e5ef1d3bd95.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\11\\rollout-2026-09-11T10-58-07-01a090f9-d655-7ee2-b03e-914e7428a1da.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\11\\rollout-2026-09-11T14-26-48-01a091b8-e592-7030-95bd-5e58f158f78f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\11\\rollout-2026-09-11T15-43-31-01a091ff-20d3-70f1-b8c3-c44c226bb39c.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\11\\rollout-2026-09-11T16-51-43-01a0923d-8f27-7410-ba9f-33bebb7a18f0.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\11\\rollout-2026-09-11T21-54-13-01a09352-83fa-7a73-876f-e0851c5c2b9e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\14\\rollout-2026-09-14T14-48-21-01a0a13f-b424-7a53-9eb3-bc98d54bedea.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\18\\rollout-2026-09-18T13-46-46-01a0b5a0-c32f-7d31-b13e-eff537f9c1c6.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\20\\rollout-2026-09-20T21-15-22-01a0c188-2dd3-7d12-8e11-8a6e5239cd90.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T11-00-18-01a0c47b-6e1b-79e2-870c-590fad7a796c.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T11-00-33-01a0c47b-a8ab-7791-897c-ae4b7792d894.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T11-00-58-01a0c47c-0af2-77f2-966a-9a3df70f8dce.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T11-05-22-01a0c480-1207-77c0-a5df-c6190f3907a6.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T17-56-05-01a0c5f8-1865-7d93-9ff3-38793062f1ee.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T18-25-33-01a0c613-0f6e-7263-8597-4a251405c0a7.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T18-25-45-01a0c613-4070-71d1-b8f8-bf2f59620dfa.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T18-25-56-01a0c613-6847-7092-9307-8821761a2192.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T18-47-23-01a0c627-0e46-7cb3-8210-4a88f000a911.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T18-47-33-01a0c627-3630-7693-a14e-c5220e199eca.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\21\\rollout-2026-09-21T18-47-45-01a0c627-6259-71b2-b5a8-d0708453bf77.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T08-51-18-01a0ce52-0afd-7a80-86a8-af5d01bec542.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T08-51-29-01a0ce52-3634-7dc2-b177-c2047f7d53f2.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T08-51-39-01a0ce52-5e6c-7540-9b65-e663852af852.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T09-08-00-01a0ce61-569c-7e02-9c49-c67c13728551.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T09-08-11-01a0ce61-8222-7d20-a00f-2719294b3af5.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T10-18-43-01a0cea2-130c-7f43-b85e-5cd28bcb1e30.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T10-18-53-01a0cea2-38d9-7202-9306-e6ed4b4f6061.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T12-43-02-01a0cf26-3249-7321-b5f9-15b7ecefef56.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T12-43-10-01a0cf26-5346-7523-8959-a96f4cf55cdb.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-25-45-01a0cf84-3ee3-7030-9bd1-9757747ed6ac.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-37-53-01a0cf8f-57fb-7092-89b1-4b054d0a49df.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-37-58-01a0cf8f-6b7b-7b82-9cfd-9c082ef52f5e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-38-02-01a0cf8f-7ea0-7642-a573-3511258ddab0.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-40-22-01a0cf91-9de5-7101-a3fc-ecea4b279ff5.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-40-42-01a0cf91-efae-7e01-8c94-0bb169f4b8c8.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-41-20-01a0cf92-81aa-71c2-abbd-639d2b1abbe4.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T14-42-50-01a0cf93-e078-7812-89ce-8ef2c301a3af.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-34-47-01a0cffa-5ebc-71e1-84d5-e7ab61fb18a8.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-34-53-01a0cffa-78b5-73b1-9807-77955bbd39b6.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-35-01-01a0cffa-9528-7001-b86b-c068dfe10eae.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-50-56-01a0d009-2ae4-7690-bef9-3110117818fd.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-51-04-01a0d009-49b6-7fc1-b8fc-081ba8bcda5e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-52-08-01a0d00a-410f-7d93-8fe7-64c5a62d8268.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-53-16-01a0d00b-4e00-7030-ab9b-0c6f7132c972.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-53-24-01a0d00b-6bfd-72c0-ac87-0ed777280e75.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-54-55-01a0d00c-ce63-7cd3-a970-3f372fef4a53.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T16-56-31-01a0d00e-4588-7843-8b52-0aeec3a91237.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-00-13-01a0d011-a77b-7c32-8171-a0e640dbf9d3.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-00-57-01a0d012-5592-7190-8f73-548fb4d99cfa.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-01-44-01a0d013-0bb0-7d42-a65f-5b9c7fb45804.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-04-23-01a0d015-7b23-7571-b70f-4d568dab8baa.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-05-44-01a0d016-b512-7a41-9a9d-33cb417b88b7.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-10-49-01a0d01b-5c21-7702-8263-59696c49b143.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-11-52-01a0d01c-530a-7b03-a663-c7bc0cd39dcd.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-27-32-01a0d02a-ad1a-7311-b02b-5334a8490ebc.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-27-39-01a0d02a-c57b-7ad3-8be5-eb8739664d1b.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-27-45-01a0d02a-dfa0-7953-9235-7d0cadccb97f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-30-21-01a0d02d-4103-7520-855f-7706c24db98e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-30-30-01a0d02d-6157-7290-a893-05d97cd24cb3.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-30-40-01a0d02d-880a-7630-a9d6-d992951a8580.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-33-25-01a0d030-0fa3-7eb0-a93f-dcc895cb66f7.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-34-32-01a0d031-1356-7891-b7c7-6548691b32b3.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-35-03-01a0d031-8c78-7af2-8cb1-f5d73aa12f59.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-39-38-01a0d035-bdc0-7670-ab83-90dabf2aa34c.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-40-52-01a0d036-df2f-7743-b6aa-90e54ca44d69.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-41-47-01a0d037-b7bc-7ca0-ac0a-2e300c09fcaf.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-44-53-01a0d03a-8c10-77d3-bdb8-722c111bea21.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-45-05-01a0d03a-bc85-73b2-b6bb-96ee03f73e7e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-49-15-01a0d03e-8efe-78d2-8630-766e10596e58.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-53-21-01a0d042-4e4a-76d0-90ef-79472695fd3e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-53-28-01a0d042-67b4-71a2-99b7-cd329513537f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-55-54-01a0d044-a354-7be2-8a16-ea26a486ec35.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T17-56-43-01a0d045-648a-7933-9ba1-d1279a6cd6ea.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T18-01-06-01a0d049-6778-7ff3-9719-9c7dfdad798e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T18-17-15-01a0d058-2dfa-7f90-865f-72bd41ee27d1.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T18-57-37-01a0d07d-22b9-7bd2-afd0-6bcbb8bafeba.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T18-57-44-01a0d07d-4075-7913-9a70-aaf0676764ec.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T18-57-51-01a0d07d-5b43-7421-9191-ab197509f36f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T19-05-40-01a0d084-82e7-7402-9ee3-97fad8f61f02.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T19-28-42-01a0d099-9b5f-7cb3-be77-6a827340ab32.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T21-28-09-01a0d106-f6b7-72b1-a1ae-6fd456ec32a1.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T21-59-09-01a0d123-56af-7400-9265-21c40c3c3389.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T22-04-43-01a0d128-7217-7883-9d81-881119d5f275.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T22-05-55-01a0d129-89ad-77a1-8eb1-b5cd5efdf0e1.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T22-08-37-01a0d12c-0211-7500-b120-f7e753ca87b9.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T22-12-18-01a0d12f-5fa5-7712-b6a3-48c9cf2ff578.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T23-14-26-01a0d168-4570-7043-8605-72e389bae68f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T23-16-17-01a0d169-f783-7c11-a06b-8f79f55220d4.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\23\\rollout-2026-09-23T23-37-37-01a0d17d-7d73-7681-b51d-cb1e34e761c4.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\24\\rollout-2026-09-24T07-10-53-01a0d31c-772a-7a92-b473-b9588aef7344.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\24\\rollout-2026-09-24T09-30-19-01a0d39c-2050-7251-9ad1-86fe6beaf86f.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\24\\rollout-2026-09-24T09-43-57-01a0d3a8-9c5d-7122-8afa-d45a14fcbb9e.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\24\\rollout-2026-09-24T09-44-03-01a0d3a8-b320-7951-935f-7f15c5c13789.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T09-17-30-01a0d8b6-bfe2-7491-bf83-dbd4b581388c.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T09-20-42-01a0d8b9-ade7-78a0-a71b-b0f053a1fac1.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T09-21-11-01a0d8ba-1dea-7722-a46a-6519f4984074.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T18-23-14-01a0daaa-63a0-7f81-a42f-6883d7c68961.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T18-24-02-01a0daab-1c89-7c92-8224-0b84d989007c.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T18-26-00-01a0daac-eafe-7b02-8905-b2fb36dbc947.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T18-26-44-01a0daad-974d-7bb0-aec3-89948887a119.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\25\\rollout-2026-09-25T18-31-35-01a0dab2-065e-7a31-bff4-9aecfe1fa833.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-06-50-01a0df1c-ef5c-7870-b029-e1f02e2e5109.jsonl",
+            "reason": "unrelated"
+          },
+          {
+            "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-36-12-01a0df37-d1c4-7d33-a1ec-8ac16ce15d23.jsonl",
+            "reason": "unrelated"
+          }
+        ],
+        "home": "canonical",
+        "horizonUtcDays": [],
+        "malformedFiles": [],
+        "scope": {
+          "complete": true,
+          "kind": "canonical-session-tree",
+          "reason": null
+        },
+        "selectedLeadIdentityVerified": true,
+        "unreadableDirs": [],
+        "unreadableFiles": []
+      },
+      "effectiveWindow": {
+        "from": "2026-09-29T00:00:00.000Z",
+        "to": "2026-09-29T01:20:03.000Z"
+      },
+      "fields": {
+        "cacheWriteTokens": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "cachedInputTokens": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "derivedTotalTokens": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "inputTokens": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "leadTurns": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "model": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "outputTokens": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "reasoningOutputTokens": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "responses": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "stallNudges": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "stalls": {
+          "reason": "native Agent/Task/Workflow stall attribution is unsupported",
+          "status": "UNSUPPORTED"
+        },
+        "stopBlocks": {
+          "reason": null,
+          "status": "COUNTED"
+        },
+        "wakes": {
+          "reason": null,
+          "status": "COUNTED"
+        }
+      },
+      "identity": {
+        "expectedId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "path": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
+        "paths": [
+          "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl"
+        ],
+        "source": "lead-session",
+        "verified": true
+      },
+      "responseTimeline": [
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abaff7ee31487d1afeff61b7a8dce62",
+          "timestamp": "2026-09-29T00:00:02.469Z",
+          "turnId": "01a0ea76-0530-7c21-aa1f-2b4ee1b8124b"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abaff835a5487d182419ce6662ced5a",
+          "timestamp": "2026-09-29T00:00:15.075Z",
+          "turnId": "01a0ea76-1705-7e73-ae96-ef9b3d23b306"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abaffb774d887d189b0cde71efb87a9",
+          "timestamp": "2026-09-29T00:01:03.314Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abaffc0afcc87d1a37f63fe55d77c4e",
+          "timestamp": "2026-09-29T00:01:32.259Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abaffdfbfec87d1aeb4b7831d864c9e",
+          "timestamp": "2026-09-29T00:02:42.605Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0023225c87d194b2912e60623171",
+          "timestamp": "2026-09-29T00:02:55.218Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0030077487d19b0a7fe5734878e4",
+          "timestamp": "2026-09-29T00:03:03.329Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0038525887d1ac603d3b44de4de8",
+          "timestamp": "2026-09-29T00:03:19.975Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00484a8087d19fb503639057c8a5",
+          "timestamp": "2026-09-29T00:03:39.951Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00988a0487d1bee2906ce6af351b",
+          "timestamp": "2026-09-29T00:04:49.601Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00a29a9487d194d67e316c3be838",
+          "timestamp": "2026-09-29T00:05:02.024Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00bb084c87d1b73c355c88df835b",
+          "timestamp": "2026-09-29T00:05:23.364Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00c4650c87d18b609f77165964b7",
+          "timestamp": "2026-09-29T00:05:31.303Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00cc503887d1a5b1f2c3acd5f7b8",
+          "timestamp": "2026-09-29T00:05:41.642Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00d69fec87d1bef260b5ea0ad058",
+          "timestamp": "2026-09-29T00:06:06.559Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb00ef0a0487d1a7044a282b20073f",
+          "timestamp": "2026-09-29T00:06:52.219Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb011cc1f887d1bab6a255c1be7f6d",
+          "timestamp": "2026-09-29T00:07:07.847Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb012c6f0c87d19c5020473d185f87",
+          "timestamp": "2026-09-29T00:07:14.960Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb013376fc87d18c81df4a81e933b4",
+          "timestamp": "2026-09-29T00:08:03.446Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0166264c87d18dce8fbc8c04f2c3",
+          "timestamp": "2026-09-29T00:09:12.580Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01ab404c87d191e5f19bc12fe420",
+          "timestamp": "2026-09-29T00:09:41.652Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01c7826087d1982f91c561b3966d",
+          "timestamp": "2026-09-29T00:09:52.592Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01d49db887d1acec3f2717017da0",
+          "timestamp": "2026-09-29T00:10:04.458Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01dd254487d1a28ed59c40231f0e",
+          "timestamp": "2026-09-29T00:10:13.174Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01e5f32887d180b608dbc29b5322",
+          "timestamp": "2026-09-29T00:10:21.290Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01ee9af087d1894cf0365732720e",
+          "timestamp": "2026-09-29T00:10:38.179Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb01ff068087d1b72984fd0c3c662f",
+          "timestamp": "2026-09-29T00:11:16.975Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0225bda087d19a00c8e162b0caef",
+          "timestamp": "2026-09-29T00:11:30.018Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0232980887d1af226df047534223",
+          "timestamp": "2026-09-29T00:11:36.227Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb02464a2c87d1a3f50d1ed23c228a",
+          "timestamp": "2026-09-29T00:11:55.752Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0269278c87d1898abb00f1fc3551",
+          "timestamp": "2026-09-29T00:12:33.239Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb027246f887d1bc7c2376fa394a2a",
+          "timestamp": "2026-09-29T00:12:44.931Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0294d6e087d199783e97cb1f2637",
+          "timestamp": "2026-09-29T00:13:17.743Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb029e4b8087d186b0a4b86264b410",
+          "timestamp": "2026-09-29T00:13:31.187Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb02abb65887d1a5e31a410145bc4e",
+          "timestamp": "2026-09-29T00:13:39.006Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb02f7064c87d1843b2b09ea978e45",
+          "timestamp": "2026-09-29T00:14:54.594Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb02ff326087d1b1841cfecbdc6ae9",
+          "timestamp": "2026-09-29T00:15:03.569Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb030890b887d1ac2c4bd5e655699b",
+          "timestamp": "2026-09-29T00:15:45.105Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0332294887d18f736d0791b2488a",
+          "timestamp": "2026-09-29T00:15:51.349Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0338065487d195e5f8509c7820e8",
+          "timestamp": "2026-09-29T00:16:01.584Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb039ea02c87d1822480051251b037",
+          "timestamp": "2026-09-29T00:17:41.123Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb03a603f087d192dfd6f2aba0682a",
+          "timestamp": "2026-09-29T00:17:56.340Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb03b4de3887d180987d85ecd7f791",
+          "timestamp": "2026-09-29T00:18:03.513Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb03bc04fc87d1b3a3d2bfd1edc53b",
+          "timestamp": "2026-09-29T00:18:21.875Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb03cf43ac87d1811c74dab9672040",
+          "timestamp": "2026-09-29T00:18:38.902Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb03dfe58087d183a0265d2cbeced3",
+          "timestamp": "2026-09-29T00:18:49.879Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb03fe462887d1a0f032280a103bd0",
+          "timestamp": "2026-09-29T00:19:32.801Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0416a37c87d1b235a69ead253ef0",
+          "timestamp": "2026-09-29T00:20:00.931Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb046d646087d18a04c04290baacea",
+          "timestamp": "2026-09-29T00:21:25.913Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb049c8ef087d1960010643fbc2837",
+          "timestamp": "2026-09-29T00:22:19.658Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb04bd9c1c87d1b572a763cae5d33e",
+          "timestamp": "2026-09-29T00:22:25.651Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb04c3367c87d181762562aa7cd6b7",
+          "timestamp": "2026-09-29T00:22:36.941Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb04cd963087d1bdedc18c869383c6",
+          "timestamp": "2026-09-29T00:23:16.129Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb04ff985087d18a92b6d5ba22fcd6",
+          "timestamp": "2026-09-29T00:23:44.022Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb051101c487d1a00edd9f5bf979a3",
+          "timestamp": "2026-09-29T00:24:08.273Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0529c7d887d1ba8e850142011b5a",
+          "timestamp": "2026-09-29T00:24:14.791Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb052fd43487d196d3b2101e168c25",
+          "timestamp": "2026-09-29T00:24:19.679Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb053620d087d1bc8682602ffb03e1",
+          "timestamp": "2026-09-29T00:24:32.172Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0540fb2487d1b8a69260bf075758",
+          "timestamp": "2026-09-29T00:24:40.390Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0548e00887d1ba935f588779b9c4",
+          "timestamp": "2026-09-29T00:25:08.021Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0564a2f087d1987c929bc2c20958",
+          "timestamp": "2026-09-29T00:25:27.505Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb05b4a81087d1aeac8677e5d8a91c",
+          "timestamp": "2026-09-29T00:26:40.955Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb05fe0bb887d1a81ea729ad600da0",
+          "timestamp": "2026-09-29T00:27:47.030Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0603d9a887d1bf651f642d11bea6",
+          "timestamp": "2026-09-29T00:27:56.832Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb06217a0887d1b2d065d5cdb4f3ee",
+          "timestamp": "2026-09-29T00:28:43.162Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0677d30c87d1b1829a9981b15c88",
+          "timestamp": "2026-09-29T00:29:52.261Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb068162d487d1878485c5a982d78f",
+          "timestamp": "2026-09-29T00:30:00.940Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb06894c3887d1a4503be70c226e79",
+          "timestamp": "2026-09-29T00:30:51.630Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb06bc590087d1940f5e7f41f4aa6d",
+          "timestamp": "2026-09-29T00:31:01.451Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb06c661f487d195522e45ea6567f4",
+          "timestamp": "2026-09-29T00:31:37.439Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb06ea38c487d19b384b3a8d9feb8b",
+          "timestamp": "2026-09-29T00:31:53.257Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb070000a887d1baa81a59b1aa7a9e",
+          "timestamp": "2026-09-29T00:32:30.358Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0720058487d19d104bd69421df39",
+          "timestamp": "2026-09-29T00:32:37.197Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0726a12887d1ae87fa371a7ae977",
+          "timestamp": "2026-09-29T00:32:45.160Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0730947c87d19109d8a32feb966a",
+          "timestamp": "2026-09-29T00:32:58.425Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb073b818887d1b9076541f5c98a0d",
+          "timestamp": "2026-09-29T00:33:12.967Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb074a0f8087d19d4b9c6b22b61907",
+          "timestamp": "2026-09-29T00:33:21.377Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0751f35487d1887f3f03839c86d0",
+          "timestamp": "2026-09-29T00:33:55.248Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb07b095f887d1b7b551d607361125",
+          "timestamp": "2026-09-29T00:35:32.866Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb08118d4887d18bf5dcb5bcf29c7a",
+          "timestamp": "2026-09-29T00:37:05.385Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb08319b0487d1895b2782e1ae0850",
+          "timestamp": "2026-09-29T00:40:37.376Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09068f8c87d1993f3e40a3c7fa9c",
+          "timestamp": "2026-09-29T00:40:45.623Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09105ac487d1805c12ce87bca831",
+          "timestamp": "2026-09-29T00:40:58.129Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb091c58d087d1ac59f69cd72cf75a",
+          "timestamp": "2026-09-29T00:41:07.099Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0923dc7887d1aea17665edf1497e",
+          "timestamp": "2026-09-29T00:41:13.673Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb092af7e087d18f9d344d493ab7a2",
+          "timestamp": "2026-09-29T00:41:37.608Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb094391a087d193c31d5285582740",
+          "timestamp": "2026-09-29T00:41:46.041Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb094abd4887d1b5db4605d223ac08",
+          "timestamp": "2026-09-29T00:42:00.747Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0959837887d1b8412add13069fa4",
+          "timestamp": "2026-09-29T00:42:06.477Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb095fc60087d1832f321b7c415c9c",
+          "timestamp": "2026-09-29T00:42:12.781Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0966a63087d19f5ac57fc19addb9",
+          "timestamp": "2026-09-29T00:42:19.868Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0970221487d19fce389415db9b0d",
+          "timestamp": "2026-09-29T00:42:29.187Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0976849c87d1b19cf7c212c7f7b6",
+          "timestamp": "2026-09-29T00:42:36.814Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb097d7d8887d1a1cf693d6a19c44e",
+          "timestamp": "2026-09-29T00:42:42.585Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0983cab487d187ca3a9751f95259",
+          "timestamp": "2026-09-29T00:42:46.312Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0991050087d18a7a0ab422e637ba",
+          "timestamp": "2026-09-29T00:43:04.824Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb099984b887d194fa90e78fa8a3e8",
+          "timestamp": "2026-09-29T00:43:09.224Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09a7fa3487d183e9c9d4a4af40ba",
+          "timestamp": "2026-09-29T00:43:24.802Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09ad669887d1a2b318cd4f3241f1",
+          "timestamp": "2026-09-29T00:43:29.177Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09bbcf9c87d1b8484582f76a3cb4",
+          "timestamp": "2026-09-29T00:43:42.960Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09cc5d3487d1b5ea839106aa0d86",
+          "timestamp": "2026-09-29T00:44:01.281Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09d2767c87d181329b0996aa49de",
+          "timestamp": "2026-09-29T00:44:07.621Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09d8b5bc87d1aade555242fa7b92",
+          "timestamp": "2026-09-29T00:44:12.777Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09f6958c87d18bfaf0152a6e424a",
+          "timestamp": "2026-09-29T00:44:44.863Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb09fdf68c87d1a19d03f2ca4194ba",
+          "timestamp": "2026-09-29T00:45:05.145Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0a12af5487d1a13d8c2d9214e391",
+          "timestamp": "2026-09-29T00:45:23.378Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0a2aa1c887d1886813904f0a71ba",
+          "timestamp": "2026-09-29T00:45:42.404Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0a37047887d18185d4f636efd596",
+          "timestamp": "2026-09-29T00:45:53.844Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0a43023887d1bb11d4787d043a11",
+          "timestamp": "2026-09-29T00:45:58.263Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0a836a8887d1a508f7233f178b51",
+          "timestamp": "2026-09-29T00:47:04.966Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ac5b3a087d191052f40468c65fe",
+          "timestamp": "2026-09-29T00:48:09.407Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ac9ff5087d1a90722ffca926e73",
+          "timestamp": "2026-09-29T00:48:16.369Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ad1b33887d18590eb6db07052f8",
+          "timestamp": "2026-09-29T00:48:26.616Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b17396c87d1b3a6877ef1b16e79",
+          "timestamp": "2026-09-29T00:49:30.564Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b1b400087d18cdfc2a6758a02b5",
+          "timestamp": "2026-09-29T00:49:37.636Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b296ce887d18ed7355b5a314f29",
+          "timestamp": "2026-09-29T00:49:59.529Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b3826c087d1b18e96b87a9bd2ae",
+          "timestamp": "2026-09-29T00:50:06.051Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b3f558c87d1b081db8cb157a1a3",
+          "timestamp": "2026-09-29T00:50:19.240Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b4c5f7087d19805f0f4efb3a392",
+          "timestamp": "2026-09-29T00:50:29.601Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b56ead487d1b3d9d93cf97e07c6",
+          "timestamp": "2026-09-29T00:50:53.042Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b73e07c87d1942f8f84931c3943",
+          "timestamp": "2026-09-29T00:51:04.396Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b793fb887d1a289a56994a70ad9",
+          "timestamp": "2026-09-29T00:51:11.925Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0b99aadc87d182b40e0e9bd3e319",
+          "timestamp": "2026-09-29T00:51:45.163Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ba2934487d1b2cae4b0e0528141",
+          "timestamp": "2026-09-29T00:52:08.815Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0bb991e087d1a235b4589c1dd24c",
+          "timestamp": "2026-09-29T00:52:24.378Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0bc924d887d1a62800a795ff65be",
+          "timestamp": "2026-09-29T00:52:36.299Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0bd5088087d185d8128b82a527cd",
+          "timestamp": "2026-09-29T00:52:50.858Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0be4221887d1b3393341eec53919",
+          "timestamp": "2026-09-29T00:53:01.403Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0bee978487d1ab19a39e952a7236",
+          "timestamp": "2026-09-29T00:53:05.604Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0bf2786087d1b657eeca3bf5072f",
+          "timestamp": "2026-09-29T00:53:11.025Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c23787887d19ecced63a07f24e1",
+          "timestamp": "2026-09-29T00:54:07.493Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c30e09087d19b28f2e0a1a17418",
+          "timestamp": "2026-09-29T00:54:20.142Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c3cda6c87d1a72c4075ef0e77bd",
+          "timestamp": "2026-09-29T00:54:41.730Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c577ef487d1b04449e5935340ba",
+          "timestamp": "2026-09-29T00:54:56.950Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c62208887d19679712c9c00f2f6",
+          "timestamp": "2026-09-29T00:55:05.304Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c69ebec87d1a8e0c3888a6c56a6",
+          "timestamp": "2026-09-29T00:55:17.617Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0c76806487d1b56608599de8637c",
+          "timestamp": "2026-09-29T00:55:21.436Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0cb5df7087d1a787437b349e1f80",
+          "timestamp": "2026-09-29T00:56:28.263Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0cf91a1c87d1afbef144f31f163d",
+          "timestamp": "2026-09-29T00:57:35.890Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0d0107ac87d1ace68b34d3a18582",
+          "timestamp": "2026-09-29T00:57:41.344Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0d4262a087d186ca5afa70134a70",
+          "timestamp": "2026-09-29T00:58:48.691Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0d88f48087d1ac3dea8258153d72",
+          "timestamp": "2026-09-29T00:59:57.581Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0d8ec89487d1944e6f562c3b64db",
+          "timestamp": "2026-09-29T01:00:08.669Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0d99bd0887d18519a94c7f4c78a3",
+          "timestamp": "2026-09-29T01:00:25.639Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0daa448887d1838d5b95ae2a4325",
+          "timestamp": "2026-09-29T01:00:35.296Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0db3ed7487d18f57aa73643d494d",
+          "timestamp": "2026-09-29T01:00:43.257Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0dc2ff3087d1840f928f0c762554",
+          "timestamp": "2026-09-29T01:01:00.864Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0dcd74a087d1b6abb437b967048a",
+          "timestamp": "2026-09-29T01:01:04.917Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0dd19f9887d184d1152cc4305616",
+          "timestamp": "2026-09-29T01:01:13.959Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0de0f2b487d19774b20a71d89709",
+          "timestamp": "2026-09-29T01:01:39.625Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0df507ac87d1bf2ce11b0d31a094",
+          "timestamp": "2026-09-29T01:01:50.802Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0dff23c487d1acde7d8f645be73a",
+          "timestamp": "2026-09-29T01:02:03.360Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0e48313c87d1a655be234b70b32b",
+          "timestamp": "2026-09-29T01:03:12.511Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0e63b1e087d198b1066b441850a3",
+          "timestamp": "2026-09-29T01:03:38.926Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0e6c355087d18c4beed69906b728",
+          "timestamp": "2026-09-29T01:03:59.454Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0e86302087d190ae56565b9a1497",
+          "timestamp": "2026-09-29T01:04:17.918Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0e9329bc87d1a4a48cb25dbc33df",
+          "timestamp": "2026-09-29T01:04:26.751Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0e9b72f487d1856b0313a5e14187",
+          "timestamp": "2026-09-29T01:04:34.204Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ee9904887d199389be2dd27ff59",
+          "timestamp": "2026-09-29T01:05:55.207Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ef4586c87d183ffd551ee90aa48",
+          "timestamp": "2026-09-29T01:06:07.888Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f01422c87d196d61e32bbe53be2",
+          "timestamp": "2026-09-29T01:06:19.499Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f0c4af087d194a7fad777667f31",
+          "timestamp": "2026-09-29T01:06:37.110Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f1f0b3087d1bedf79c3fa7d8f29",
+          "timestamp": "2026-09-29T01:06:46.041Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f36e5d887d1b23b8ce1c428cd13",
+          "timestamp": "2026-09-29T01:07:08.779Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f53e7d887d19833f2021f3d3eb5",
+          "timestamp": "2026-09-29T01:07:42.240Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f5f8b1087d183b4c202aa7991d2",
+          "timestamp": "2026-09-29T01:07:48.947Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f659ae487d18b2e6af9701d046c",
+          "timestamp": "2026-09-29T01:07:53.379Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f94d6dc87d19f1d0bf565eb8005",
+          "timestamp": "2026-09-29T01:08:41.771Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0f9a569c87d1a4ea2f1b38639d65",
+          "timestamp": "2026-09-29T01:08:54.682Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0ff7a04487d1b6f8b1545abbf581",
+          "timestamp": "2026-09-29T01:10:22.540Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb0fffa81487d184eba49c02b42ac5",
+          "timestamp": "2026-09-29T01:10:48.447Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb10190bc487d187cfad539c72b456",
+          "timestamp": "2026-09-29T01:11:11.883Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb1030f79c87d1b1382ab5d1702300",
+          "timestamp": "2026-09-29T01:11:29.522Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb107e366c87d1859bbe51c00a765f",
+          "timestamp": "2026-09-29T01:12:34.946Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb10bdb43887d1a0243bacd2658aaa",
+          "timestamp": "2026-09-29T01:13:39.015Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb10c43fd087d1bc4b9868ece8adda",
+          "timestamp": "2026-09-29T01:14:06.398Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb10e47b0c87d1851bab3bf98e7d7b",
+          "timestamp": "2026-09-29T01:14:22.015Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb10eeec1887d189faf1e58d45565b",
+          "timestamp": "2026-09-29T01:14:29.491Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb10f625ec87d1a03bc5a09c5fcc9b",
+          "timestamp": "2026-09-29T01:14:36.800Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb112daf4087d191c85b9fe66aa43a",
+          "timestamp": "2026-09-29T01:15:33.761Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb1137a17487d19fdf8eb75568a57e",
+          "timestamp": "2026-09-29T01:15:40.023Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb1178e20887d1b9ed205a63eea1c0",
+          "timestamp": "2026-09-29T01:16:53.111Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb118669b487d19d2f71d99e9c52ef",
+          "timestamp": "2026-09-29T01:17:07.234Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb11d01f6487d1b55b932458814384",
+          "timestamp": "2026-09-29T01:18:14.123Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb11f8fa3c87d1ade5dcb974dc09df",
+          "timestamp": "2026-09-29T01:18:53.503Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb11fe9ad887d1a49cd6ec9daad195",
+          "timestamp": "2026-09-29T01:19:04.879Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb12097e8887d19b55deb5d28a0602",
+          "timestamp": "2026-09-29T01:19:25.721Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb121e880087d1840430ec0066aae0",
+          "timestamp": "2026-09-29T01:19:40.279Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        },
+        {
+          "model": "gpt-6-astra",
+          "responseId": "resp_08b5bea8b5a6a97d016abb122d683887d188f1cb26171ad0c1",
+          "timestamp": "2026-09-29T01:19:52.482Z",
+          "turnId": "01a0ea76-e0c1-7a31-9116-14fd0afc6dea"
+        }
+      ],
+      "responseTimelineComplete": true,
+      "unavailable": [
+        "stalls: native Agent/Task/Workflow stall attribution is unsupported"
+      ]
+    },
+    "coverageReason": null,
+    "coverageSupported": true,
+    "host": "codex",
+    "leadLastMessageAt": "2026-09-29T03:36:16.128Z",
+    "leadTurns": 2,
+    "leadTurnsTotal": 53,
+    "markerFound": true,
+    "nativeTurnCount": 53,
+    "nativeTurnCountWindow": 2,
+    "observedLeadRequests": 189,
+    "observedLeadTokens": 22357188,
+    "observedNativeTurnCount": 53,
+    "observedNativeTurnCountWindow": 2,
+    "observedTotalByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 223232256,
+        "derived_total_tokens": 227517999,
+        "input_tokens": 3596857,
+        "native_input_tokens": 226829113,
+        "output_tokens": 688886,
+        "reasoning_output_tokens": 263120,
+        "total_tokens": 227517999,
+        "unavailable": []
+      }
+    },
+    "observedWindowByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 21979136,
+        "derived_total_tokens": 22357188,
+        "input_tokens": 308154,
+        "native_input_tokens": 22287290,
+        "output_tokens": 69898,
+        "reasoning_output_tokens": 24843,
+        "total_tokens": 22357188,
+        "unavailable": []
+      }
+    },
+    "sessionId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+    "stopBlocks": 0,
+    "stopBlocksTotal": 1,
+    "totalByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 223232256,
+        "derived_total_tokens": 227517999,
+        "input_tokens": 3596857,
+        "native_input_tokens": 226829113,
+        "output_tokens": 688886,
+        "reasoning_output_tokens": 263120,
+        "total_tokens": 227517999,
+        "unavailable": []
+      }
+    },
+    "totalTurns": 1907,
+    "turnsPerHour": 142.03113287363175,
+    "wakeSplit": null,
+    "wakeSplitUnavailable": "codex lead",
+    "wakes": 2,
+    "wakesDoneTick": 0,
+    "wakesNoteFlush": 2,
+    "wakesTotal": 50,
+    "wallClockHours": 1.3306941666666667,
+    "windowByModel": {
+      "gpt-6-astra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 21979136,
+        "derived_total_tokens": 22357188,
+        "input_tokens": 308154,
+        "native_input_tokens": 22287290,
+        "output_tokens": 69898,
+        "reasoning_output_tokens": 24843,
+        "total_tokens": 22357188,
+        "unavailable": []
+      }
+    },
+    "windowEndAt": "2026-09-29T01:19:52.890Z",
+    "windowStartAt": "2026-09-29T00:00:02.391Z",
+    "windowTurns": 189
+  },
+  "leadPath": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T15-58-25-01a0df4c-2809-7520-b1d7-876cc51a87ee.jsonl",
+  "marker": null,
+  "stallNudges": {
+    "count": 0,
+    "ids": [],
+    "ledgerDir": "C:/Users/benzh/Code/claude-delegation/docs/ledger",
+    "reason": null,
+    "slug": "skills-a",
+    "slugSource": "option",
+    "windowEndAt": "2026-09-29T01:20:03.000Z",
+    "windowStartAt": "2026-09-29T00:00:00Z"
+  },
+  "subagents": {
+    "excludedByWindow": 3832,
+    "fileCount": 51,
+    "incomplete": false,
+    "perFile": [
+      {
+        "agentNickname": "Lovelace",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 97,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T16-01-40-01a0df4f-22fb-7470-8fa3-4c65985f778b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Avicenna",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 14,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T16-01-59-01a0df4f-6df1-79e2-bb8b-fb9b45a91596.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Goodall",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 39,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T16-03-11-01a0df50-8480-71d0-8fa4-a29c1a4ed66c.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Pasteur",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T18-43-40-01a0dfe3-715f-7a71-88bd-2867e2403bed.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Euler",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 291,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T18-44-04-01a0dfe3-cc6e-7f92-986e-0cd18accb121.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Pascal",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 49,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\26\\rollout-2026-09-26T18-51-04-01a0dfea-3494-7f81-88b0-d854a37cbbca.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Raman",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 700,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-19-28-01a0e297-6632-7fc0-8d9d-7e3de75325c8.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "integrator",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Confucius",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 111,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-19-54-01a0e297-cf24-7fb3-828b-e3dc14ef1df3.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Sartre",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 8,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-20-41-01a0e298-8265-7d61-9f78-17535db6e244.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Heisenberg",
+        "byModel": {},
+        "depth": 2,
+        "excludedByWindow": 2,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-27-30-01a0e29e-c19d-7aa2-8cb4-a092c9967d6f.jsonl",
+        "parentId": "01a0e297-cf24-7fb3-828b-e3dc14ef1df3",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Faraday",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 40,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-32-06-01a0e2a2-f888-7a23-b091-0356e340a2f4.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "builder",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Anscombe",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 67,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-54-47-01a0e2b7-bd02-7bd1-b289-1147b973f7d6.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Averroes",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 92,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T07-55-46-01a0e2b8-a508-7581-a556-b1cf5ea95e4d.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "reviewer",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Carson",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 107,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T08-02-31-01a0e2be-cfa6-7cb3-96ee-8bdf0e1873c7.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Popper",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T10-07-08-01a0e330-e8b0-7b53-9d46-45f5ba4bee27.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Planck",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 39,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T10-09-52-01a0e333-687a-7b43-ae05-d851e0982ecb.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Maxwell",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 33,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-32-29-01a0e491-b64d-7ff3-9b41-e4114bc48457.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Kierkegaard",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 8,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-33-34-01a0e492-b42f-7723-abe7-8a0b3165ef4e.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Boyle",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 56,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-35-32-01a0e494-80c7-77f3-b49b-4eb917e00765.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Lorentz",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 12,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-47-20-01a0e49f-4c9c-7b83-ad60-3fa163402e8e.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Turing",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 13,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T16-56-17-01a0e4a7-7e81-78f1-bc5c-d684d8f283ba.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Sagan",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 11,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T17-13-00-01a0e4b6-cba2-7412-b770-2de18d8665b9.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Schrodinger",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 17,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T19-06-40-01a0e51e-dcdf-7f03-b298-e7f014bd048b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Meitner",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 34,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T19-10-43-01a0e522-9122-7593-9dce-2a1739d9897e.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Godel",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 7,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T19-14-32-01a0e526-0fdb-7ed2-a3c0-6d265519c972.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Herschel",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 23,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T22-46-32-01a0e5e8-27bd-70a0-8de8-610a7a423522.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Bacon",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 32,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T22-46-52-01a0e5e8-788e-7ca3-9b46-bb5015790924.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Dirac",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 27,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T22-53-10-01a0e5ee-3b4f-7671-9769-21b83db6ce6c.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Descartes",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 22,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T22-59-01-01a0e5f3-962e-7233-b08d-bb7b20899c6a.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Peirce",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 65,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T23-03-50-01a0e5f8-006e-7ff3-a6b3-36daa5d16a7f.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Bohr",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 17,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T23-04-14-01a0e5f8-5c84-76e2-b953-08ff1b3a3dcd.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Hubble",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 183,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\27\\rollout-2026-09-27T23-06-01-01a0e5fa-00a1-70d3-b3cd-743775d82c7b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Poincare",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 158,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T17-45-43-01a0e9fb-1e6f-72a2-9387-e54a51e46b5b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Kant",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 9,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T17-46-35-01a0e9fb-e9c0-74e2-8b2b-b5b093520ba9.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Aristotle",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 242,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T17-49-00-01a0e9fe-1f50-7142-8807-5813d498112c.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Bernoulli",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 220,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T17-49-19-01a0e9fe-6898-7042-b29c-2897dc9a6451.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Linnaeus",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 86,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T19-15-11-01a0ea4d-0590-7223-84f1-72078a2195bb.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Erdos",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 83,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T19-20-56-01a0ea52-49da-7e22-bd45-a0b499c5bb63.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "McClintock",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 73,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T19-21-08-01a0ea52-780c-72e1-b4ca-0bbcc78aceb8.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Hilbert",
+        "byModel": {
+          "gpt-5.6-terra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 17480192,
+            "derived_total_tokens": 17888499,
+            "input_tokens": 361023,
+            "native_input_tokens": 17841215,
+            "output_tokens": 47284,
+            "reasoning_output_tokens": 7692,
+            "total_tokens": 17888499,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 33,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T20-02-55-01a0ea78-b8cb-7881-835b-735d0370e7b6.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 130
+      },
+      {
+        "agentNickname": "Parfit",
+        "byModel": {
+          "gpt-5.6-terra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6977792,
+            "derived_total_tokens": 7319960,
+            "input_tokens": 308335,
+            "native_input_tokens": 7286127,
+            "output_tokens": 33833,
+            "reasoning_output_tokens": 9655,
+            "total_tokens": 7319960,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 14,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T20-10-04-01a0ea7f-4568-7f20-9784-688736ae9f07.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 75
+      },
+      {
+        "agentNickname": "Hypatia",
+        "byModel": {
+          "gpt-5.6-terra": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 19129600,
+            "derived_total_tokens": 19460840,
+            "input_tokens": 277664,
+            "native_input_tokens": 19407264,
+            "output_tokens": 53576,
+            "reasoning_output_tokens": 9808,
+            "total_tokens": 19460840,
+            "unavailable": []
+          }
+        },
+        "depth": 1,
+        "excludedByWindow": 14,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T20-10-13-01a0ea7f-679b-7963-9b9a-231016d8e942.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 135
+      },
+      {
+        "agentNickname": "Ptolemy",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 104,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T21-42-13-01a0ead3-a487-73e0-8bdf-f608a8bb9b77.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Hooke",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 37,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T21-42-20-01a0ead3-be5a-7262-83af-5af917becd58.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Newton",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 44,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T21-54-05-01a0eade-7fd9-70b1-ae59-4802df44d1bc.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Ramanujan",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 61,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T21-54-12-01a0eade-9c57-7e31-a0ae-9d774ddd86ba.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Dewey",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 18,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-34-41-01a0eb03-ad86-7020-8bbe-723da3ab9581.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Arendt",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 97,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-36-14-01a0eb05-175f-7df0-aa59-203016ce232a.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Noether",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 142,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-53-10-01a0eb14-9800-7b91-878a-0a38e90f47a6.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Hegel",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 61,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T22-53-18-01a0eb14-b75e-7522-8bcb-658ecb3ae65b.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      },
+      {
+        "agentNickname": "Volta",
+        "byModel": {},
+        "depth": 1,
+        "excludedByWindow": 94,
+        "file": "C:\\Users\\benzh\\AppData\\Roaming\\orca\\codex-accounts\\f22a4cc4-fb5a-4af5-aeec-4951188a536a\\home\\sessions\\2026\\09\\28\\rollout-2026-09-28T23-04-01-01a0eb1e-8768-7482-b034-ba63d50fac0c.jsonl",
+        "parentId": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+        "role": "unmapped",
+        "turns": 0
+      }
+    ],
+    "roleFileCounts": {
+      "builder": 1,
+      "integrator": 1,
+      "reviewer": 1,
+      "unmapped": 48
+    },
+    "totalByModel": {
+      "gpt-5.6-terra": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 43587584,
+        "derived_total_tokens": 44669299,
+        "input_tokens": 947022,
+        "native_input_tokens": 44534606,
+        "output_tokens": 134693,
+        "reasoning_output_tokens": 27155,
+        "total_tokens": 44669299,
+        "unavailable": []
+      }
+    },
+    "totalByRole": {
+      "unmapped": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 43587584,
+        "derived_total_tokens": 44669299,
+        "input_tokens": 947022,
+        "native_input_tokens": 44534606,
+        "output_tokens": 134693,
+        "reasoning_output_tokens": 27155,
+        "total_tokens": 44669299,
+        "unavailable": []
+      }
+    },
+    "totalTurns": 340,
+    "unreadable": 0,
+    "unreadableDirs": []
+  },
+  "tasksPaths": []
+}

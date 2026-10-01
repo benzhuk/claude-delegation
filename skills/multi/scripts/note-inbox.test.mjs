@@ -145,6 +145,89 @@ test('V2: the packet a Details path names is reported present or MISSING', async
   assert.match(formatInbox(res), /packet MISSING: docs\/notes\/astra-gone-1\.md/);
 });
 
+test('L29: packet state distinguishes unchecked, absent, present, and no Details', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [
+    line('astra', 'taxonomy', 'astra-unchecked-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md'),
+    line('astra', 'taxonomy', 'astra-absent-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-gone-1.md'),
+    line('astra', 'taxonomy', 'astra-no-details-1', 'ASK', 'No packet'),
+  ]);
+  const packet = path.join(home, 'docs/notes/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+
+  const unchecked = await runNoteInbox(['--me', 'taxonomy', '--no-repo'], deps(home));
+  const uncheckedById = Object.fromEntries(unchecked.notes.map((n) => [n.id, n]));
+  assert.equal(uncheckedById['astra-unchecked-1'].packetExists, null);
+  assert.equal(uncheckedById['astra-unchecked-1'].packetChecked, false);
+  assert.equal(uncheckedById['astra-no-details-1'].packetExists, null);
+  assert.equal(uncheckedById['astra-no-details-1'].packetChecked, false);
+  assert.equal(unchecked.problems.length, 0);
+  assert.match(formatInbox(unchecked), /packet: docs\/notes\/astra-here-1\.md, not checked here/);
+  assert.match(formatInbox(unchecked), /\[astra-no-details-1\] ASK: No packet\.$/);
+
+  const checked = await runNoteInbox(['--me', 'taxonomy'], deps(home));
+  const checkedById = Object.fromEntries(checked.notes.map((n) => [n.id, n]));
+  assert.equal(checkedById['astra-unchecked-1'].packetExists, true);
+  assert.equal(checkedById['astra-unchecked-1'].packetChecked, true);
+  assert.equal(checkedById['astra-absent-1'].packetExists, false);
+  assert.equal(checkedById['astra-absent-1'].packetChecked, true);
+  assert.equal(checkedById['astra-no-details-1'].packetChecked, false);
+  assert.equal(checked.problems.length, 1);
+  assert.match(formatInbox(checked), /packet: .*docs\/notes\/astra-here-1\.md/);
+  assert.match(formatInbox(checked), /packet MISSING: docs\/notes\/astra-gone-1\.md/);
+});
+
+// Lane 47, P7: a `git` that cannot answer for the hook's cwd (a hook cwd genuinely outside any
+// repo, git missing from PATH, or any other error — note-inbox cannot and must not try to tell
+// these apart) is not a real, checked repo. Before the fix, mainCheckout's own "not a repo: write
+// where we were told" fallback (correct for a WRITER) was reused as the READER's repo, so a packet
+// that really lives in a DIFFERENT directory (the actual repo git could not identify from `cwd`)
+// read as MISSING instead of "not checked here". Must fail on base
+// d6f5c9d (red) before the fix, pass after it (green).
+test('L47/P7: a repo git could not identify from cwd is never treated as checked — the packet reads "not checked here", never MISSING', async () => {
+  const home = tmp();
+  const repoRoot = tmp(); // the packet's REAL location — deliberately not `home`/`cwd`
+  mirror(home, TODAY, [
+    line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md'),
+  ]);
+  const packet = path.join(repoRoot, 'docs/notes/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+
+  const throwingGit = () => { throw new Error('git could not answer for this cwd'); };
+  const res = await runNoteInbox(['--me', 'taxonomy'], deps(home, { git: throwingGit, env: {}, cwd: home }));
+  const note = res.notes.find((n) => n.id === 'astra-here-1');
+  assert.equal(note.packetChecked, false);
+  assert.equal(note.packetExists, null);
+  assert.equal(res.problems.length, 0, 'a packet nobody could check for must never be reported as missing');
+  assert.match(formatInbox(res), /packet: docs\/notes\/astra-here-1\.md, not checked here/);
+});
+
+// The straightforward companion: when git CAN answer, the resolved repo is still checked exactly
+// as before (no regression from the P7 hardening on the ordinary, working path).
+test('L47/P7: when git answers, the resolved repo is still checked as before', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: docs/notes/astra-here-1.md')]);
+  const packet = path.join(home, 'docs/notes/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+  const res = await runNoteInbox(['--me', 'taxonomy'], deps(home));
+  const note = res.notes.find((n) => n.id === 'astra-here-1');
+  assert.equal(note.packetChecked, true);
+  assert.equal(note.packetExists, true);
+});
+
+test('L29: the Codex queue explanation is verbatim directly after the idle bullet', () => {
+  const skill = fs.readFileSync(fileURLToPath(new URL('../SKILL.md', import.meta.url)), 'utf8');
+  const idle = '- **While you are idle**, `note-flush` posts one line into YOUR INBOX, within about a minute of the note\n'
+    + '  being written — a Claude session\'s messaging socket, a Codex session\'s queue. Claude Code starts a new\n'
+    + '  turn with it; Codex runs it as its next turn. That is the wake-up, not the note: the note is already in\n'
+    + '  the ledger. ACK and FYI excepted, they are ledger-only — see below.\n';
+  const paragraph = 'A Codex peer sees nothing mid-turn. `codex queue` stores the row at once (`delivered: true`) and the Codex TUI starts it only when the current turn ends, however long that turn runs. Silence from a Codex peer after a delivered note means it is still in a turn. Re-asking queues a second turn behind the first; check the ledger for its ACK instead. `delivered to null` on a sender\'s receipt is the inbox path: no pane was resolved, so there is no handle to print.';
+  assert.equal(skill.indexOf(`${idle}\n${paragraph}`) >= 0, true);
+});
+
 test('V2: `--me ben` reads the reserved recipient', async () => {
   const home = tmp();
   mirror(home, TODAY, [

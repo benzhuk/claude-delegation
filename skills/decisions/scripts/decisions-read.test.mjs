@@ -657,6 +657,54 @@ test('a stray details close removes every archive exemption without becoming a n
   ]);
 });
 
+// C4 (pickup-complete-1): the three live-page Bearings headings, exactly as they
+// appear (toggle attribute included), each open the same historical scope as `# Closed`.
+test('C4: each live Bearings/First bearings heading opens historical scope like Closed', () => {
+  const headings = [
+    '# Bearings — September 26, 2026 (independent, Opus) {toggle="true"}',
+    '# Bearings — September 27, 2026',
+    '# First bearings assessment — September 23, 2026 {toggle="true"}',
+  ];
+  for (const heading of headings) {
+    const doc = parseDocument(L(
+      heading,
+      '<summary>Historical summary</summary>',
+      '\t- historical prose',
+    ));
+    assert.deepEqual(doc.shapeless, [], `${heading} must open historical scope`);
+  }
+});
+
+test('C4: an owner comment inside a Bearings section is still reported, same as under Closed', () => {
+  const doc = parseDocument(L(
+    '# Bearings — September 27, 2026',
+    '<summary>Historical actionable item</summary>',
+    '\t- [x] preserve this selection',
+    '\t\\*\\* an owner comment left under Bearings',
+  ));
+  assert.deepEqual(doc.shapeless, []);
+  assert.deepEqual(doc.decisions[0].comments.map((c) => c.text), ['an owner comment left under Bearings']);
+  assert.equal(doc.decisions[0].status, 'TICKED');
+});
+
+test('C4: an optionless summary under a plain heading stays shapeless, unaffected by Bearings scope', () => {
+  const doc = parseDocument(L(
+    '# What is being built',
+    '<summary>Active malformed summary</summary>',
+    '\t- prose only, no checkbox options',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Active malformed summary', line: 2 }]);
+});
+
+test('C4: a heading that is not Bearings (e.g. "Not Bearings") does not open historical scope', () => {
+  const doc = parseDocument(L(
+    '# Not Bearings',
+    '<summary>Active malformed summary</summary>',
+    '\t- prose only, no checkbox options',
+  ));
+  assert.deepEqual(doc.shapeless, [{ title: 'Active malformed summary', line: 2 }]);
+});
+
 test('MINOR 8: formatText and JSON report an explicit decision count', () => {
   const zero = parseDocument(L('<summary>t</summary>', '\t- plain bullet, no checkbox'));
   assert.equal(zero.decisions.length, 0);
@@ -1162,3 +1210,85 @@ test('P8: a page with only grouping titles and no real decisions does not need a
 function detailForTest(doc) {
   return formatText(doc).split('\n')[0].split('\t')[2];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ben's 2026-09-26 rule: a request for the owner's hands under Waiting is a decision
+// item too — optionless there WARNs, and an overdue default WARNs (build-decisions-actions.md)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('an optionless <summary> block directly under Waiting WARNs, naming the title', () => {
+  const md = L(
+    '# Waiting on you now',
+    '<summary>Your steps today</summary>',
+    '\t- do the thing by hand',
+  );
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'non-decision item under Waiting: Your steps today'));
+});
+
+test('the same optionless block under Closed does not WARN', () => {
+  const md = L(
+    '# Closed {toggle="true"}',
+    '<summary>Your steps today</summary>',
+    '\t- do the thing by hand',
+  );
+  const doc = parseDocument(md);
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('non-decision item under Waiting')));
+});
+
+test('OVERDUE: an OPEN decision past its default prints a WARN line with the original date string, never in doc.warnings (pickup-safe)', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a');
+  const doc = parseDocument(md, { now: new Date('2021-01-01T00:00:00Z') });
+  assert.ok(formatText(doc).includes('overdue: t, default was due 2020-01-01 00:00 +00:00'));
+  assert.ok(!doc.warnings.some((w) => w.text.startsWith('overdue:')), 'never a doc.warnings entry — pickup treats those as page-invalid');
+});
+
+test('OVERDUE: a decision not yet at its default does not WARN', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tDefault after 2020-01-01 00:00 +00:00: a');
+  const doc = parseDocument(md, { now: new Date('2019-01-01T00:00:00Z') });
+  assert.ok(!formatText(doc).includes('overdue:'));
+});
+
+test('OVERDUE: a "No default" item never warns on age, however far --now runs', () => {
+  const md = L('<summary>t</summary>', '\t- [ ] a', '\tNo default: irreversible');
+  const doc = parseDocument(md, { now: new Date('2099-01-01T00:00:00Z') });
+  assert.ok(!formatText(doc).includes('overdue:'));
+});
+
+test('OVERDUE: pickup safety — an overdue item on a page with a ticked Done has zero doc.warnings (RECORDED, not INVALID)', () => {
+  const md = L(
+    '<summary>Old item</summary>',
+    '\t- [ ] a',
+    '\tDefault after 2020-01-01 00:00 +00:00: a',
+    '- [x] Done',
+  );
+  const doc = parseDocument(md, { now: new Date('2021-01-01T00:00:00Z') });
+  assert.equal(doc.warnings.length, 0, 'pickup refuses any page with a doc.warnings entry, so overdue must never add one');
+  assert.equal(doc.done, true);
+  assert.ok(formatText(doc).includes('overdue: Old item, default was due 2020-01-01 00:00 +00:00'));
+});
+
+test('by-hand action-request item is spelled "Done by hand", never read as the page Done: OPEN with no WARN unticked, TICKED when ticked', () => {
+  const untouched = parseDocument(L(
+    '<summary>Your steps today</summary>',
+    '\t- [ ] Done by hand',
+    '\t- [ ] Not doing this, because [reason]',
+    '\tNo default: needs your hands',
+    '- [ ] Done',
+  ));
+  assert.equal(untouched.decisions[0].status, 'OPEN');
+  assert.equal(untouched.warnings.length, 0);
+  assert.equal(untouched.done, false, 'the item option never satisfies the page-level Done control');
+
+  const ticked = parseDocument(L(
+    '<summary>Your steps today</summary>',
+    '\t- [x] Done by hand',
+    '\t- [ ] Not doing this, because [reason]',
+    '\tNo default: needs your hands',
+    '- [ ] Done',
+  ));
+  assert.equal(ticked.decisions[0].status, 'TICKED');
+  assert.equal(ticked.decisions[0].options.find((o) => o.ticked).text, 'Done by hand');
+  assert.equal(ticked.warnings.length, 0);
+  assert.equal(ticked.done, false);
+});

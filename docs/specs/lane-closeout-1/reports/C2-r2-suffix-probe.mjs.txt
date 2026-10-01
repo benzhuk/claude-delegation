@@ -1,0 +1,9 @@
+import { detectDelete as d } from './new/hooks/delete-guard.mjs';
+const D = 'r' + 'm -' + 'rf d';
+const NL = '\n';
+for (const f of ['report.md','x.sh','x.py','x.mjs','x.SH','x.ps1','x.txt','x.md.sh']) {
+  for (const head of ["cat > " + f + " <<'EOF'", "tee " + f + " <<'EOF'", "cat <<'EOF' > " + f]) {
+    const cmd = head + NL + D + NL + 'EOF';
+    console.log((d(cmd) ? 'refuse' : 'pass  ').padEnd(8), JSON.stringify(head));
+  }
+}

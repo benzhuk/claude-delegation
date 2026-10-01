@@ -1,0 +1,125 @@
+✔ probe (0.4608ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 100.2273
+✔ runSealed removes the sealed home when the suite passes (233.0526ms)
+✖ probe (3.5767ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 83.5085
+
+✖ failing tests:
+
+test at ..\..\..\..\AppData\Local\Temp\run-tests-probe-J8OiOB\probe.test.mjs:3:1
+✖ probe (3.5767ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(false)
+  
+      at TestContext.<anonymous> (file:///C:/Users/benzh/AppData/Local/Temp/run-tests-probe-J8OiOB/probe.test.mjs:3:30)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.start (node:internal/test_runner/test:1191:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+run-tests: leaving the sealed home for inspection: C:\Users\benzh\AppData\Local\Temp\sealed-home-qgXY3u
+swept 1 stale sealed homes
+swept 0 stale sealed homes
+C:\Users\benzh\AppData\Local\Temp\sealed-home-0DZIf6
+✔ runSealed keeps the sealed home when the suite fails (and it survives this process's own bookkeeping) (201.2848ms)
+✔ sweepStaleHomes removes only sealed-home-* dirs older than 6h, keeps young and non-matching ones (4.648ms)
+✔ sweepStaleHomes prints exactly one 'swept n stale sealed homes' line (3.9038ms)
+✔ sweepStaleHomes is skipped when <homeDir>/.agents/ws-off exists (shared kill switch) (2.5151ms)
+✔ sweepStaleHomes is skipped when <homeDir>/.agents/ws-off-sweep exists (lane-specific kill switch) (2.5501ms)
+✔ sweepStaleHomes never throws when the temp dir can't be read - prints an error and returns (0.6454ms)
+﹣ F3: one unremovable stale entry does not abort the sweep, and the partial count is still printed (0.0539ms) # no POSIX permission bits on win32 - the sweep's own guarantee there is the 6h age check
+✔ probe (0.418ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 100.2263
+C:\Users\benzh\AppData\Local\Temp\sealed-home-O2Dn9g
+✔ main() calls sweep by default, before running the suite (312.8324ms)
+✔ probe (0.4019ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 152.4755
+✔ main() does not call sweep when --no-sweep is passed (432.3473ms)
+✔ main() still rejects an unsupported flag (0.3266ms)
+✔ the real CLI honours --no-sweep end to end (spawned process, real exit code) (368.4712ms)
+✔ the real CLI keeps a failed suite's home after the process has exited (RT-18/F6) (257.035ms)
+﹣ SIGTERM to a runSealed wrapper with a foreign listener delivers once and removes its home (R1, POSIX only) (0.0484ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ SIGTERM to only the runner terminates its immediate suite controller and removes the runner home (R1, POSIX only) (0.0285ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+run-tests: leaving the sealed home for inspection: C:\Users\benzh\AppData\Local\Temp\run-tests-forward-tmp-kUPOXy\sealed-home-LGreYj
+✔ taskkill of only the suite child keeps the runner home after its nonzero exit (R1, win32 only) (587.7404ms)
+﹣ a SIGTERM sent to the whole process group re-raises on the runner and removes its own sealed home (F1, POSIX only) (0.1279ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+C:\Users\benzh\AppData\Local\Temp\sealed-home-IZkWhU
+✔ makeTempHome returns a fresh, empty, disposable home with the expected shape (4.748ms)
+✔ makeTempHome never reuses a directory across calls (4.8178ms)
+✔ makeTempHome blanks the messaging socket/token in env (never inherits the runner's session) (1.8278ms)
+✔ makeTempHome writes files passed under opts.files, relative to the new home (7.7768ms)
+✔ FIXTURE_ROOT reaches the sealed child (0.627ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 97.5365
+✔ run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child (208.2433ms)
+✔ cleanup removes the home directory (3.7884ms)
+✔ makeTempHome seeds .gitconfig with an includeIf scoped to the realpath'd fixtureRoot, forward slashes only (7.9043ms)
+✔ makeTempHome seeds .gitconfig-fixture with the Fixture identity, forward slashes only (2.7587ms)
+✔ gitIdentity: false leaves an empty global gitconfig (no identity anywhere under the seal) (1.7524ms)
+✔ a fixture commit succeeds under the seal with the fixture identity (433.347ms)
+✔ a repo built under the system temp dir but OUTSIDE fixtureRoot gets no identity under the seal (L-C7 canary) (594.4088ms)
+✔ a commit attempted outside the system temp dir has no identity under the seal and is refused (130.4096ms)
+✔ gitIdentity: false refuses a commit even under fixtureRoot (120.8401ms)
+✔ checkSeal fails in a child for an unsealed home, even when AGENTS_HOME is self-consistent (52.2086ms)
+✔ checkSeal fails when AGENTS_HOME is unset (0.1996ms)
+✔ checkSeal passes inside a real sealed child process (89.7221ms)
+✔ checkSeal fails in a child when the seal is broken on purpose (AGENTS_HOME points elsewhere) (60.3646ms)
+✔ checkSeal fails in a child when AGENTS_HOME is not '<home>/.agents' (63.3757ms)
+✔ class test: exactly one construction of the fixture includeIf gitdir-scope directive anywhere in the repo (32.1814ms)
+✔ keep() and unregister() are the same function (alias) (2.9225ms)
+✔ keep() removes a home from the leak-fix registry without deleting it from disk (3.3355ms)
+﹣ a child killed with SIGINT removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (0.0495ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ a child killed with SIGTERM removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (0.0275ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ a child killed with SIGHUP removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (0.0933ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ a kept (unregistered) home survives SIGTERM - keep() truly removes it from the leak-fix registry (POSIX only) (0.047ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ an existing SIGTERM listener receives one delivery and owns the eventual exit (F4, POSIX only) (0.0217ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+✔ handler registration is idempotent: exactly one listener per event, even after two homes (55.0492ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 9
+ℹ todo 0
+ℹ duration_ms 2491.1915

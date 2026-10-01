@@ -1,0 +1,77 @@
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/contract.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/contract.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/contract.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'base.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'base.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/build-l23-1.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'base.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/feat-noise.record.md', LF will be replaced by CRLF the next time Git touches it
+C:\Users\benzh\AppData\Local\Temp\record-closed-status-QWrc1A\status.md
+C:\Users\benzh\AppData\Local\Temp\record-closed-status-QWrc1A\status.md
+✖ close is exported and closes an accepted record through the CLI on a real git repository (471.4397ms)
+✖ close refusals preserve record bytes: source status, ancestry, already closed, and clock (298.8787ms)
+✔ a hand-edited closed status is invalid without the accepted and closed receipts (240.2076ms)
+✖ continuation snapshots every declared status, including closed and withdrawn, without SELECTION_UNREADABLE (11.2949ms)
+✔ prefixes filter collector rows; collect-status defaults to build/, counts skipped branches, and labels rendered state lane (1471.3292ms)
+✔ change keys use only listed row data and survive the status.md lane-label rename (0.3723ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 3
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2606.9698
+
+✖ failing tests:
+
+test at scripts\record-closed-and-skip.contract.test.mjs:53:1
+✖ close is exported and closes an accepted record through the CLI on a real git repository (471.4397ms)
+  TypeError: Cannot read properties of undefined (reading 'write')
+      at acceptanceMain (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/work-record.mjs:1703:15)
+      at runClose (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/record-closed-and-skip.contract.test.mjs:47:16)
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/record-closed-and-skip.contract.test.mjs:56:16)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.start (node:internal/test_runner/test:1191:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17)
+
+test at scripts\record-closed-and-skip.contract.test.mjs:66:1
+✖ close refusals preserve record bytes: source status, ancestry, already closed, and clock (298.8787ms)
+  TypeError: Cannot read properties of undefined (reading 'write')
+      at acceptanceMain (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/work-record.mjs:1703:15)
+      at runClose (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/record-closed-and-skip.contract.test.mjs:47:16)
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/record-closed-and-skip.contract.test.mjs:76:20)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)
+
+test at scripts\record-closed-and-skip.contract.test.mjs:89:1
+✖ continuation snapshots every declared status, including closed and withdrawn, without SELECTION_UNREADABLE (11.2949ms)
+  AssertionError [ERR_ASSERTION]: INVALID_RECORD
+  
+  'UNKNOWN' !== 'OK'
+  
+      at TestContext.<anonymous> (file:///C:/Users/benzh/orca/workspaces/claude-delegation/record-closed-and-skip-1/scripts/record-closed-and-skip.contract.test.mjs:101:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'UNKNOWN',
+    expected: 'OK',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

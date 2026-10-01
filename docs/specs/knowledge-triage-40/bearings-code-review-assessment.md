@@ -1,0 +1,58 @@
+VERDICT: CONTINUE
+
+# Lane 40 bearings refresh — September 29, 2026, 7:12 PM America/New_York
+
+## Scope and decision
+
+Continue **one bounded repair and verification round** for the ten findings in the first independent implementation review. The credible next action is source fix round 2, discriminating independent regressions, one integrated focused gate, and independent delta review on the resulting SHA. The current candidate is not ready for a live run. This decision rests on specific repairable causes and preserved scope, not time already spent or the prior green test count.
+
+Independent reviewer: Codex `/root/lane40_bearings`, distinct from lead `01a0df4c-2809-7520-b1d7-876cc51a87ee`. Assessment window: the September 29 pickup assessment through the 7:08 PM America/New_York review-rejection/repair assignment. Checkout at inspection: `10340c2fc69eb413428bc44706c96b858f86149d`; reviewed implementation: `42e356b3714202cc187a2fa6baa44e859b8c14a8`.
+
+Evidence boundary: prior bearings and response, current Lane 40 work record, first implementation review and its identity receipt, root adjudication, focused-gate reports, R4 probe, spec approval identity, delivery/install authority, readiness addendum, and Netcup slot report. No tests, census, live action, code review, external write, or broad repository survey was performed. Relative links below are local/unlinked evidence; source identities are pinned where available. Publication remains the lead's responsibility.
+
+## Evidence and the four measures
+
+| Observation | Basis and evidence | What it establishes / limit |
+| --- | --- | --- |
+| E1. Spec approval and R4 prove a usable bounded scratch path: correct selected slug exactly once, unselected note preserved, lock released, and active guards. R4 reports 197,231 aggregate tokens and 65.6 seconds. | Directly inspected [spec identity](spec-review-r4.identity.json); attributed [R4 probe](probe-r4-report.md), with hashes and raw artifact paths. | Concrete prerequisite progress. No live publication, remote reconciliation, throughput or overall cost win. |
+| E2. The first focused gate had 24 failures, predominantly fixture/precondition mismatches. The repaired candidate had 101 passes, zero failures and three skips. Independent review then found ten defects, including negative tests that could pass on the wrong precondition. | Cross-checked [first gate](focused-r1-report.md), [second gate](focused-r2-report.md), [code review](code-review-r1.md), especially finding 5. These are attributed test/review results, not reruns. | The green gate did not establish intended behavior. Repairing fixtures without proving branch reachability left a real quality hole. |
+| E3. Review identifies failure notification that cannot deliver on Windows and silently ignores errors; an archive ordering race that can remove an untriaged replacement from the inbox; unresolved managed-note lookup treated as an empty set; and inconsistent receipts. | [Code review](code-review-r1.md), findings 1–4 and measured scratch receipts, attributed to independent reviewer. [Identity](code-review-r1.identity.json) directly verifies NEEDS_FIXES on `42e356b`, distinct Opus session and exit 0. | These defects directly threaten lost/stalled work and duplicate processing. They justify withholding the live proof, not declaring the entire owner-directed objective invalid. |
+| E4. Root assigns all ten causes, including independent regressions and actual negative-path assertions. Its atomic archive claim is stronger than the reviewer's minimal hash-order patch; unknown managed discovery skips before any gather or spawn. | Directly verified [adjudication](code-r1-adjudication.md). | A credible finite repair plan. The claim adds state and therefore needs proof of changed-byte preservation, conflict handling and recoverable failure; its correctness is not established by this assessment. |
+| E5. Netcup's gate ran zero tests because another owner held the slot. AppleDouble dirt is excluded from the exact publication allowlist, with before/after preservation still required. Lock-skill delivery is peer-attributed; Mac remains pending. | [Netcup report](netcup-gate-r1.md), [readiness addendum](live-readiness-r1-addendum.md), [delivery](lock-owner-delivered.md), all attributed reports. | Neither slot contention nor unrelated dirt warrants a new mechanism or cleanup lane. Host gates and live proof remain unfulfilled. |
+| E6. The lane opened at 3:17 PM America/New_York and remained unaccepted at its 7:08 PM repair assignment: at least 3h51 elapsed. The first code review alone reports 3,401,457 tokens across input/cache/output categories. | Directly read timestamps in [work record](../../work/wr-2026-09-29-knowledge-triage.record.md) and summed categories in [code-review identity](code-review-r1.identity.json). Token generation and timing remain reported telemetry, not independently recensused. | Nontrivial cost and delay. Full build cost is absent; this reviewer slice is not total build cost or proof of cost regression. |
+
+- **Top-tier tokens per build:** unknown. Small probe cost cannot stand in for repeated specs, reviews, root context and builders. E6 establishes a partial cost that must remain visible.
+- **Hours ask to accepted:** no accepted endpoint yet; retain the original opening time, including pickup and gate delays. No speed benefit is demonstrated (E6).
+- **Rework after acceptance:** not yet applicable to this unaccepted lane. Three spec rejections, fixture repair and the first code rejection are pre-acceptance work, not a zero-rework success (E1–E4; current record).
+- **Work lost or stalled:** no live knowledge backlog reduction established. Review exposed exactly the notification, duplicate-processing and archive hazards this measure is meant to catch (E3). Their discovery before live use is valuable, but fixing them is still necessary.
+
+## Four questions
+
+1. **Significant progress toward the goal?** Progress toward a testable implementation, yes: the probe/skill dependencies are resolved and the code has reached independent review (E1–E3). Significant measured outcome improvement is still unproven. The original manual-proof prediction remains untested, not passed.
+2. **Sidelined on a too-specific sub-project?** The guard/name detour consumed work, but transferring its regression to Lane 60 and preserving the narrow delivered skill change restores scope ([delivery](lock-owner-delivered.md)). Do not reclaim that work or turn AppleDouble preservation into cleanup. The owner's all-machine triage requirement still justifies the gather boundary.
+3. **A castle of patches instead of simplification?** The risk has increased: repeated spec repair and a green test gate followed by ten findings show costly contract gaps. However, several fixes simplify a cause: direct Node notification invocation, managed-set resolution once, and accurate receipt ownership (E4). The archive claim is the one material increase in state; require a small, recoverable protocol, and reassess if that cannot be proved within the current contract rather than piling on retries or a claim-cleanup service.
+4. **Still the simplest solution to the core problem?** Conditionally. Existing triage retains judgment and publication; the timer installer retains scheduling. Repairing those narrow integration contracts is simpler than abandoning the owner-directed outcome for another engine. Another green aggregate test count alone will not support that conclusion; the next review must establish the actual failure paths are closed.
+
+## Ranked gaps and next action
+
+| Rank | Gap / evidence | Impact and confidence | Why this rank |
+| --- | --- | --- | --- |
+| 1 | Notification, archive and managed-lookup defects, with insufficient discriminating tests (E2–E4). | High confidence in the independently reported cases; fixes unverified. Risk of silent stall, duplicate judgment and stranding unprocessed notes. | Directly prevents trustworthy live evidence, so it selects the finite source/test repair and independent delta. |
+| 2 | No real publication/reconciliation result or full host gates (E1, E5). | High confidence in absence from the packet. Scratch PASS cannot establish end-to-end knowledge benefit. | Next after the code correction; no speculative new machinery. |
+| 3 | Cost and elapsed time rising without a delivered benefit (E6). | Actual partial telemetry and lower-bound elapsed time; no complete comparator. | Demands a finite next round and candid accounting, not sunk-cost continuation or an invented savings claim. |
+| 4 | Prior project branch/token/parity prediction checks remain unavailable in this packet. | Unknown outcomes; inherited from [prior assessment](bearings-assessment.md) and [lead response](bearings-lead-response.md). | Remains a project evidence obligation; does not serialize separately authorized Lane 40 work. |
+
+**One next action:** complete the adjudicated ten-finding repair with independent regressions and obtain an independent delta verdict on the exact integrated candidate. This is the selected next build step; it does not authorize a live run, acceptance or installation.
+
+**Falsifiable prediction:** at the next independent delta, before any live proof, the original broken notification and managed-lookup behavior, replacement-during-archive case, and wrong-precondition publication fixtures each fail their intended regression on the rejected candidate and pass on the fixed candidate; receipt counts agree; no new persistent helper service or unbounded claim cleanup is required. If any of these remain unproved, this prediction fails and readiness remains withheld. If the round cannot close the same failure classes without further state, reassess the integration boundary before assigning another patch round.
+
+Independent work may continue within authority: source and tests in parallel, read-only readiness and preservation baselines, and ordinary host-gate preparation when a slot is available. No suite should bypass another owner's lock. Guards remain unchanged. No repeated permission request is needed for the already recorded tick: [install authority](install-authority.md) reports Ben's September 29, 5:11 PM America/New_York authorization; installation still follows acceptance/merge through the next release.
+
+## STOP, response and publication
+
+**STOP threshold is not triggered.** The actual dated bearings verdicts are CONTINUE on September 28 ([Lane 37](../codex-parity-37/bearings-assessment.md)) and CONTINUE on September 29 ([Lane 40 pickup](bearings-assessment.md)); this refresh is CONTINUE. The earlier September 26/27 coordination RE-PLAN pair is documented as resolved by Ben's collector choice in the [prior project assessment](../codex-parity-37/prior-bearings.md). Spec/code NEEDS_FIXES verdicts and failed gates are not bearings RE-PLAN verdicts and must not be counted as a STOP pair. This does not waive the existing live-proof hold.
+
+Lead response: pending the lead's own accounting. Publication: **PENDING**, no publication attempted under this reviewer-only mandate. This file is not a completed published bearings receipt. Report path: `docs/specs/knowledge-triage-40/bearings-code-review-assessment.md`; completion URL and lead-response path remain pending.
+
+Publication update from lead: assessment and lead response published September29 at7:16:51PM America/New_York on https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d. See bearings-code-review-response.md and bearings-code-review-publication.md for exact readback and the disclosed full-page lint limitation. Original reviewer pending statement above is retained as provenance.
+

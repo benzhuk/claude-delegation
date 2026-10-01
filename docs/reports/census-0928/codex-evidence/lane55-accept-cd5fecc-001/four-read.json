@@ -1,0 +1,43 @@
+{
+  "acceptAt": null,
+  "companions": [
+    {
+      "key": "topTierAssistantMessagesPerBuild",
+      "label": "Top-tier assistant messages per build",
+      "value": "unavailable (no accepted Log: entry: census window cannot be checked)"
+    },
+    {
+      "key": "notesToLeadPerBuild",
+      "label": "Notes to the lead per build",
+      "value": "unavailable (no accepted Log: entry)"
+    }
+  ],
+  "leadSession": {
+    "id": "01a0df4c-2809-7520-b1d7-876cc51a87ee",
+    "note": "from the record's Lead-session: field",
+    "source": "record"
+  },
+  "numbers": [
+    {
+      "key": "topTierTokensPerBuild",
+      "label": "Top-tier tokens per build",
+      "value": "unavailable (no accepted Log: entry: census window cannot be checked)"
+    },
+    {
+      "key": "hoursAskToAccepted",
+      "label": "Hours ask to accepted",
+      "value": "unavailable (no accepted Log: entry)"
+    },
+    {
+      "key": "reworkAfterAcceptance",
+      "label": "Rework after acceptance",
+      "value": "unavailable (no range); 0 re-accept Log: entries after the first"
+    },
+    {
+      "key": "workLostOrStalled",
+      "label": "Work lost or stalled",
+      "value": "unavailable (no accepted Log: entry)"
+    }
+  ],
+  "record": "docs/work/wr-2026-09-28-codex-counted.record.md"
+}

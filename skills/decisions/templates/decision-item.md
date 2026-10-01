@@ -21,6 +21,15 @@ result under the Open section of the page.
 For anything irreversible, costly, or that changes the owner's machines, replace the
 last line with `No default: <reason>` instead of a deadline.
 
+A request for the owner to do something by hand is the same shape, not a bare
+`<details>` with no options: options `- [ ] Done by hand` and `- [ ] Not doing this,
+because [reason]`, last line `No default: needs your hands`.
+
+A release or install to the owner's machines is the same shape too — options
+`- [ ] Install now` and `- [ ] Hold`, last line
+`No default: installs take your word per item`; its evidence is the merged changelog
+lines copied from the Closed entries it covers, not a fresh writeup.
+
 ## Replying to an owner's comment (fenced — reference only, not a live decision)
 
 ```
