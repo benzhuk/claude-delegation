@@ -70,3 +70,5 @@ Measure: work lost or stalled
 Workflow: wf_fc977d4c-e0b (3 rounds, NEEDS_FIXES 2 MINOR at 535f5140), resumed as wf_5acf0680-908 from that findings file
 
 Observed: pending.
+
+Open remainder: scope item 5 (live close of round 3 and publish) moves to lane 64b, build/pickup-rebind-64b, per skills-f-resume-lanes-2.
