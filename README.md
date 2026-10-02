@@ -262,6 +262,11 @@ After installing a release on a host, run `node scripts/wiring-check.mjs --line`
 MIT
 
 ## Changelog
+- 0.20.20 — the lanes closed from Sep 30 evening to Oct 2 (71 to 74):
+  - The knowledge triage fetches before it commits and names its state in ATTENTION (lane 71).
+  - The decisions page carries Goal card, Bearings and Components toggles and the page-shape rule joins the decisions skill (lane 72); the Bearings link uses the URL form Notion stores, so publish readback verifies again (lane 72b).
+  - Report first lines are DONE, NEEDS BEN, NEEDS a peer or FAILED with steps done; PARTIAL is refused; open records and reports carry Now, To finish and Est, and the Workflow line carries maxRounds (lane 73).
+  - The janitor sweeps every repo under Code: archive-then-remove for dirty orphan worktrees and unmerged branches, merged origin branches deleted, deregistered folders archived, untracked files over seven days reported. Each new class acts only when listed in ~/.agents/janitor-policy.json; with no file it reports only. Closeout removes a landed lane's clean territory worktrees, packets and pointers live outside the checkout, and installing a release re-registers the janitor timer (janitor-cleanup, lane 74).
 - 0.20.19 — the lanes closed from Sep 29 afternoon to Sep 30:
   - The janitor acts: a daily reclaim of the safe class on every host (session scratch, plugin temp folders, finished lane worktrees, merged branches) through one deleter that refuses any other path, with a live-pane guard and a kill switch (janitor-acts, lane 59). The mirror-shim test counts the note shims by name, so a durable checkout passes (lane 59b).
   - A record can accept and close an artifact that lives in another repo, such as dotfiles (Artifact-repo, lane 60b). The plugin side of the secret guard lands (lane 60); its Windows selftest fix is in dotfiles (lane 60c).
