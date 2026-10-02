@@ -63,5 +63,8 @@ a bug-fix review.
 
 If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
 
-Termination: report to the path above, first line `VERDICT: <word>`, then stop. A bare
+Termination: report to the path above, first line `VERDICT: <word>` (a reviewer, integrator or seam
+report; a runner or other long-running progress report opens `DONE`, `NEEDS BEN: ...`, `NEEDS <peer slug>: ...`
+or `FAILED: ...` ending `(<n> of <m> steps done)` with `Now: ... | To finish: ... | Est: ...` on line 2,
+checked by `node scripts/report-check.mjs <report>`; see docs/subagent-contract.md), then stop. A bare
 "Done" means read the file; nothing is trusted from a final message alone.

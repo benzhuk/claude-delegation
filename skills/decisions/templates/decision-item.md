@@ -8,6 +8,7 @@ result under the Open section of the page.
 ```
 <details>
 <summary>**[Decision title — short, unique on the page]**</summary>
+	Now: [where this stands] | To finish: [what must still happen] | Est: [how much longer]
 	[One or two lines of context: the evidence that raised this.]
 	- [ ] [Recommended option] (recommended)
 	- [ ] [Second option]
@@ -49,6 +50,7 @@ deleted.
 
 <details>
 <summary>**Cap the nightly batch at 200 items or run it uncapped**</summary>
+	Now: the batch was killed twice this month | To finish: you pick a cap or none | Est: a day after your tick
 	Evidence: the nightly batch queue has outgrown the box's free memory twice this
 	month; the last two runs were killed by the OS before finishing.
 	- [ ] Cap the batch at 200 items per run, queue the rest for the next night (recommended)

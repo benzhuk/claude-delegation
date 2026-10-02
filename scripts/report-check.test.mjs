@@ -103,3 +103,26 @@ test("item 4: docs/components.md header names the hook card line format once, th
   // the example in the header is itself a valid progress line
   assert.ok(parseProgressLine("Now: done | To finish: nothing | Est: none"));
 });
+
+test("item 5: team-build and delegate briefs state the first-line rule exactly once each", () => {
+  for (const rel of ["skills/team-build/SKILL.md", "skills/delegate/SKILL.md"]) {
+    const text = fs.readFileSync(path.join(HERE, "..", rel), "utf8");
+    assert.equal(text.split("First-line rule:").length - 1, 1, rel);
+    assert.match(text, /First-line rule: a reviewer, integrator or seam report opens `VERDICT: <word>`;/, rel);
+    assert.match(text, /`PARTIAL` is refused\./, rel);
+  }
+});
+
+test("item 3 docs: the decision-item template shows the line under the title; the decisions skill states the rule", () => {
+  const tpl = fs.readFileSync(path.join(HERE, "..", "skills", "decisions", "templates", "decision-item.md"), "utf8");
+  assert.equal((tpl.match(/<\/summary>\n\tNow: /g) ?? []).length, 2);
+  const skill = fs.readFileSync(path.join(HERE, "..", "skills", "decisions", "SKILL.md"), "utf8");
+  assert.equal(skill.split("Every waiting item carries `Now: <one line> | To finish: <one line> | Est: <duration>`").length - 1, 1);
+});
+
+test("contract: docs/subagent-contract.md names both first-line kinds and the check script once", () => {
+  const text = fs.readFileSync(path.join(HERE, "..", "docs", "subagent-contract.md"), "utf8");
+  assert.match(text, /`PARTIAL` is refused/);
+  assert.equal(text.split("node scripts/report-check.mjs <report>").length - 1, 1);
+  assert.match(text, /reviewer, integrator or seam\*\* report keeps `VERDICT: <word>`/);
+});

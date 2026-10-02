@@ -15,7 +15,17 @@ subagents inherit none of it by default.
   SUFFIX-style paths — `t1-report.md`, `r2-findings.md`, `integrator-report.md` — never
   `report-t1.md`.
 - **The report's first line carries the verdict**, so a `head -3` recovers it even when
-  the reply loses it (see below).
+  the reply loses it (see below). Two kinds of report, two first lines:
+  - A **reviewer, integrator or seam** report keeps `VERDICT: <word>` on line 1; accept and
+    the evidence check read exactly that (`scripts/work-record.mjs`).
+  - A **progress** report (a runner, a lead, anything long-running) opens with its state:
+    `DONE`, `NEEDS BEN: <one line>`, `NEEDS <peer slug>: <one line>` or
+    `FAILED: <why>`, the line ending `(<n> of <m> steps done)`. `PARTIAL` is refused: a goal
+    sits in it for weeks and says nothing. Line 2, for anything not DONE, is
+    `Now: <one line> | To finish: <one line> | Est: <duration>` (Now is where it is, To finish is
+    what must still happen, Est is how much longer). `node scripts/report-check.mjs <report>`
+    exits 0 or 1 naming what is missing. The same line is the `Now:` header of an open lane
+    record and sits under every waiting item and in-progress bullet on the decisions page.
 - Copy-time normalization preserves the original report bytes and provenance. It may add
   a format-only wrapper around an already explicit verdict and exact artifact with clear
   attribution; it cannot infer approval or identity from a reply, tests, or parent
