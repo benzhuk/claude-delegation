@@ -3,8 +3,11 @@
 // One daily job on the designated writer host: gather pending notes from the fixed hosts, run the
 // existing triage skill ONCE over the union (nested Claude Opus, capped selection), verify the
 // skill's own publication read-only, then reconcile archived originals back to their origin hosts.
-// It never takes or clears `.curated-update.lock`, never commits, pushes or runs chezmoi. Any
-// guard/permission denial stops the affected step and is reported; nothing routes around it.
+// Lane 71: before the run it fetches the chezmoi source repo and fast-forwards it (dirty, ahead or
+// diverged stops with ATTENTION before anything is gathered), and after the run it repairs one push race
+// (fetch, rebase the skill's single commit once, push) via scripts/knowledge-publish-sync.mjs. It still
+// never force-pushes, never takes or clears `.curated-update.lock`, never makes a commit of its own and never runs chezmoi.
+// Any guard/permission denial stops the affected step and is reported; nothing routes around it.
 // Import-safe: no side effects until the CLI entry point runs.
 
 import crypto from "node:crypto";
@@ -18,6 +21,7 @@ import {
   describeInbox, digestCommitSince, digestHasSlug, gatherKnowledge, killTree, managedNames, noteSlug, publicationState,
   reconcileKnowledge, recordLocalOriginal, runProcess, sha256, writeFileAtomic,
 } from "./knowledge-gather.mjs";
+import { recoveryBlock, repairPushRace, syncBeforeStart } from "./knowledge-publish-sync.mjs";
 
 export const MODEL = "claude-opus-5-5";
 export const CAP = 60;
@@ -63,9 +67,10 @@ function isAlive(pid) {
 
 const emptyResidue = () => ({ managed: [], resurrected: [], unresolved: [], oversize: [], unsupportedName: [] });
 
-function recoveryText(problem) {
+function recoveryText(problem, block = []) {
   return [
     `${problem}`,
+    ...block,
     "Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):",
     "  rmdir ~/.claude/knowledge/.curated-update.lock",
     "Then, once the cause is fixed:",
@@ -106,8 +111,8 @@ async function defaultNoteSend(ctx, text, packetFile) {
  * Write ATTENTION (the detail packet) first, then post exactly one BLOCKED to Ben. Only the outer job
  * does this. Returns a visible suffix ("" when everything worked) naming any failed leg.
  */
-async function raiseAttention(ctx, reason) {
-  const text = recoveryText(reason);
+async function raiseAttention(ctx, reason, block = []) {
+  const text = recoveryText(reason, block);
   let suffix = "";
   try { fs.mkdirSync(ctx.stateDir, { recursive: true }); fs.writeFileSync(ctx.attention, `${ctx.now().toISOString()}\n${text}\n`); }
   catch (err) { suffix += ` [ATTENTION write failed: ${err.message}]`; }
@@ -236,7 +241,7 @@ export async function runKnowledgeTriage(options = {}) {
     schemaVersion: 1, startedAt: started.toISOString(), endedAt: started.toISOString(), status: "skipped", reason: null, sessionId: null,
     model: MODEL, cap: CAP, wallClockMs: 0, notesIn: 0, notesEligible: 0, notesArchived: 0, notesArrived: 0, topicsTouched: [],
     selected: [], outOfSelection: [], deferredConsecutive: runState.consecutiveDeferred ?? 0, tokens: { unavailable: "nested run not started" },
-    dotfilesBefore: null, dotfilesSha: null, hosts: [], nestedExitCode: null,
+    dotfilesBefore: null, dotfilesSha: null, sync: null, hosts: [], nestedExitCode: null,
     publication: { verified: false, reason: null, head: null, remoteRef: null, digestPath: null }, residue: emptyResidue(), terminal: [],
   };
   let runLockToken = null;
@@ -254,7 +259,7 @@ export async function runKnowledgeTriage(options = {}) {
     return { receipt, exitCode };
   };
   const skip = (reason) => done("skipped", reason, 0);
-  const attend = async (why, shown = why) => done("attention", `${shown}${await raiseAttention(ctx, why)}`, 1);
+  const attend = async (why, shown = why, block = []) => done("attention", `${shown}${await raiseAttention(ctx, why, block)}`, 1);
 
   try {
     if (exists(path.join(ctx.home, ".agents", "no-knowledge-triage")) || exists(path.join(ctx.home, ".agents", "ws-off"))) return skip("kill switch present");
@@ -295,6 +300,15 @@ export async function runKnowledgeTriage(options = {}) {
     };
     let holder = heldNow();
     if (holder) return await deferOnLock(holder);
+
+    // Lane 71 item 1: fetch and fast-forward the chezmoi source repo BEFORE anything is read or gathered, so the
+    // managed set, the baseline HEAD and the skill all see the post-fast-forward tree. Refusals touch nothing.
+    const sync = await syncBeforeStart(opts);
+    if (!sync.ok) {
+      receipt.sync = { action: "stopped", kind: sync.kind, repo: sync.repo, branch: sync.branch };
+      return await attend(sync.reason, sync.reason, recoveryBlock(sync.kind, sync.repo, sync.branch));
+    }
+    receipt.sync = { action: sync.action, kind: null, repo: sync.repo, branch: sync.branch, behind: sync.behind };
 
     const { set: managed, error: managedError } = await managedNames(opts);
     if (managedError) return skip(`managed set unresolved: ${managedError}`);
@@ -369,15 +383,24 @@ export async function runKnowledgeTriage(options = {}) {
     }
 
     // Publication identity: strict only when this run changed DIGEST; otherwise unverified just defers.
-    const pub = await publicationState(opts);
+    let pub = await publicationState(opts);
+    let repairNote = "";
+    // Lane 71 item 2: this run changed DIGEST and origin moved before the skill could push its one commit.
+    if (digestChanged && !pub.verified && pub.head && pub.remoteRef && pub.head !== pub.remoteRef) {
+      const fix = await repairPushRace(opts, { repo: receipt.sync.repo, branch: receipt.sync.branch, before: receipt.dotfilesBefore });
+      receipt.publication = { ...receipt.publication, repair: fix.stop ? { attempted: true, outcome: fix.stop.kind } : fix.pushed ? { attempted: true, outcome: "pushed" } : { attempted: false, why: fix.why } };
+      if (fix.stop) return await attend(fix.stop.reason, fix.stop.reason, recoveryBlock(fix.stop.kind, receipt.sync.repo, receipt.sync.branch));
+      if (fix.pushed) pub = await publicationState(opts);
+      else repairNote = ` [repair not attempted: ${fix.why}]`;
+    }
     receipt.dotfilesSha = pub.head;
-    receipt.publication = { verified: pub.verified, reason: pub.reason, head: pub.head, remoteRef: pub.remoteRef, digestPath: pub.digestRel };
+    receipt.publication = { ...receipt.publication, verified: pub.verified, reason: pub.reason, head: pub.head, remoteRef: pub.remoteRef, digestPath: pub.digestRel };
     if (digestChanged) {
       const commit = await digestCommitSince(opts, pub, receipt.dotfilesBefore);
       const problem = !pub.verified ? pub.reason : !commit ? "DIGEST changed but no commit touching its source path since the run began" : null;
       if (problem) {
         receipt.publication = { ...receipt.publication, verified: false, reason: problem };
-        return await attend(`publication not verified: ${problem}`);
+        return await attend(`publication not verified: ${problem}${repairNote}`);
       }
     }
     let reason = null;

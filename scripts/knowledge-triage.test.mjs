@@ -162,10 +162,16 @@ if (args[0] === 'rev-parse' && args.includes('HEAD')) console.log(head);
 else if (args[0] === 'rev-parse' && args.includes('--abbrev-ref')) console.log('main');
 else if (args[0] === 'symbolic-ref' || args[0] === 'branch') console.log('main');
 else if (args[0] === 'ls-remote' && s.failureReason) { process.stderr.write(s.failureReason); process.exit(2); }
-else if (args[0] === 'ls-remote') console.log((s.remoteHead || head) + '\\trefs/heads/main');
+else if (args[0] === 'ls-remote') console.log((s.race && !s.pushed ? 'a'.repeat(40) : (s.remoteHead || head)) + '\\trefs/heads/main');
 else if (args[0] === 'log') { if (s.touchesDigest) console.log(s.newHead); }
 else if (args[0] === 'show') process.stdout.write(fs.readFileSync(digest, 'utf8'));
 else if (args[0] === 'diff') { if (s.phase === 'after' && s.touchesDigest) console.log(digest); }
+else if (args[0] === 'status') { if (s.dirty) console.log(' M tracked.txt'); }
+else if (args[0] === 'fetch') { if (s.fetchFailure) { process.stderr.write(s.fetchFailure); process.exit(128); } }
+else if (args[0] === 'rev-list') { if (args.includes('--count')) console.log(String(args.some((a) => a.endsWith('..HEAD')) ? (s.ahead || 0) : (s.behind || 0))); else if (s.race && s.phase === 'after') console.log(s.newHead); }
+else if (args[0] === 'rebase') { if (s.rebaseFail && args[1] !== '--abort') { process.stderr.write('CONFLICT (content): Merge conflict in DIGEST.md'); process.exit(1); } }
+else if (args[0] === 'push') { s.pushed = true; fs.writeFileSync(statePath, JSON.stringify(s)); }
+else if (args[0] === 'merge') { /* fast-forward accepted */ }
 else console.log(head);
 `);
 
@@ -642,4 +648,91 @@ test('archived note without its exact committed digest slug remains named residu
   assert.ok(result.receipt.residue.unresolved.some((item) => item.name === name && /digest entry missing/i.test(item.reason)));
   assert.equal(result.receipt.status, 'success');
   assert.equal(result.receipt.hosts.find((host) => host.host === 'netcup').archived, 0);
+});
+
+// ---- lane 71 wiring (the real-git proof of the same behavior is scripts/knowledge-publish-sync.test.mjs) ----
+
+const gitSubcommands = (h) => fs.readFileSync(h.gitLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).map((argv) => (argv[0] === '-C' ? argv.slice(2) : argv));
+const quotedRepo = (h) => { const r = h.options.deps.dotfilesRepo; return /\s/.test(r) ? `"${r}"` : r; };
+
+test('lane 71: a dirty tracked tree stops before the fetch, the gather and the nested run, with the repo and commands in the packet', async () => {
+  const h = makeHarness();
+  const name = '2026-08-01-dirty.md';
+  writeNote(h, name);
+  h.configure({ action: 'archive' });
+  h.configureGit({ dirty: true });
+  const result = await runKnowledgeTriage(h.options);
+  assert.equal(result.receipt.status, 'attention');
+  assert.equal(result.exitCode, 1);
+  assert.match(result.receipt.reason, /^dirty before start/);
+  assert.ok(!fs.existsSync(h.claudeLog), 'nested run must not start');
+  assert.ok(!fs.existsSync(path.join(h.stateDir, 'gather')), 'gather must not start');
+  assert.ok(fs.existsSync(path.join(h.inboxDir, name)), 'inbox untouched');
+  assert.ok(!gitSubcommands(h).some((a) => a[0] === 'fetch'), 'a dirty tree is refused before any fetch');
+  const packet = fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8');
+  assert.ok(packet.includes(`  git -C ${quotedRepo(h)} status --short\n`));
+  assert.ok(packet.includes('  rmdir ~/.claude/knowledge/.curated-update.lock\n'));
+  assert.ok(packet.includes('  rm ~/.agents/knowledge-triage/ATTENTION\n'));
+  assert.equal(h.notes.length, 1);
+  assert.doesNotThrow(() => assertFieldSafe('text', h.notes[0]));
+});
+
+test('lane 71: preflight runs status, fetch, then the baseline reads, before the nested run', async () => {
+  const h = makeHarness();
+  writeNote(h, '2026-08-01-order.md');
+  h.configure({ action: 'archive' });
+  const result = await runKnowledgeTriage(h.options);
+  assert.equal(result.receipt.status, 'success');
+  assert.equal(result.receipt.sync.action, 'in sync');
+  assert.equal(result.receipt.dotfilesBefore, '1'.repeat(40));
+  const subs = gitSubcommands(h).map((a) => a[0]);
+  assert.ok(subs.indexOf('status') < subs.indexOf('fetch') && subs.indexOf('fetch') < subs.indexOf('ls-remote'));
+  assert.ok(!subs.includes('rebase') && !subs.includes('push'), 'nothing to repair on a clean run');
+  assert.equal(subs.indexOf('merge'), -1, 'in sync: no fast-forward');
+});
+
+test('lane 71: a fetch failure is ATTENTION naming the git error, never a skip', async () => {
+  const h = makeHarness();
+  writeNote(h, '2026-08-01-fetch.md');
+  h.configureGit({ fetchFailure: 'fatal: unable to access the remote' });
+  const result = await runKnowledgeTriage(h.options);
+  assert.equal(result.receipt.status, 'attention');
+  assert.match(result.receipt.reason, /^fetch failed before start.*unable to access the remote/);
+  assert.ok(!fs.existsSync(h.claudeLog));
+  assert.ok(fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8').includes(`  git -C ${quotedRepo(h)} fetch origin\n`));
+});
+
+test('lane 71: a push race with one own commit is repaired by one rebase and one plain push', async () => {
+  const h = makeHarness();
+  writeNote(h, '2026-08-01-race.md');
+  h.configure({ action: 'archive' });
+  h.configureGit({ race: true });
+  const result = await runKnowledgeTriage(h.options);
+  assert.equal(result.receipt.status, 'success');
+  assert.equal(result.receipt.publication.verified, true);
+  assert.deepEqual(result.receipt.publication.repair, { attempted: true, outcome: 'pushed' });
+  const calls = gitSubcommands(h);
+  const subs = calls.map((a) => a[0]);
+  assert.equal(subs.filter((s) => s === 'rebase').length, 1);
+  assert.equal(subs.filter((s) => s === 'push').length, 1);
+  assert.deepEqual(calls.find((a) => a[0] === 'push'), ['push', 'origin', 'HEAD:main']);
+  assert.ok(subs.lastIndexOf('fetch') < subs.indexOf('rebase') && subs.indexOf('rebase') < subs.indexOf('push'));
+  assert.ok(!JSON.stringify(calls).includes('--force'));
+});
+
+test('lane 71: a rebase conflict is aborted and stops with ATTENTION naming the state and the commands', async () => {
+  const h = makeHarness();
+  writeNote(h, '2026-08-01-conflict.md');
+  h.configure({ action: 'archive' });
+  h.configureGit({ race: true, rebaseFail: true });
+  const result = await runKnowledgeTriage(h.options);
+  assert.equal(result.receipt.status, 'attention');
+  assert.match(result.receipt.reason, /^conflict on rebase.*rebase aborted/);
+  const calls = gitSubcommands(h);
+  assert.ok(calls.some((a) => a[0] === 'rebase' && a[1] === '--abort'));
+  assert.ok(!calls.some((a) => a[0] === 'push'), 'nothing is pushed after a conflict');
+  const packet = fs.readFileSync(path.join(h.stateDir, 'ATTENTION'), 'utf8');
+  for (const line of ['status', 'fetch origin', 'rebase origin/main', 'rebase --continue', 'push origin HEAD:main', 'rebase --abort']) {
+    assert.ok(packet.includes(`  git -C ${quotedRepo(h)} ${line}\n`), line);
+  }
 });
