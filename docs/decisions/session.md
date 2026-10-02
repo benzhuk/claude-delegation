@@ -1,9 +1,6 @@
-since: 2026-09-30T23:35:13.153Z
-- Lane 59 janitor acts merged 10:27 PM: daily safe-class reclaim, one deleter, live-pane guard, allow line per machine. One item below asks when to release and install it with notion-writing.
-- Lane 40 triage ran twice for real today: 111 notes into 29 topics, both SSH hosts reached. Two skill-text defects fixed on the way. Final delivery and acceptance tonight.
-- Three ticks read 5:51 PM: goal card gate queued behind the 10/1 census read; transcript retention is 365 days on three machines now; lane 61 opened for the hand-run baseline and the continue census.
-- Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
-- Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
-- This page is rendered from repo files, refuses to publish while any source is uncommitted, and never drops a line you wrote unless it is saved in the history first.
-- Two lanes stalled for hours today, one at a delete prompt, one on a reviewer that never reported. Two night lanes now running make the collector ask the lead after two silent hours.
-- Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
+Since: 2026-10-01T21:20:41.260Z
+- Five lanes merged today through the build loop, each with an Opus approval and the full suite green on Netcup and Hetzner: 66 landed the fresh-host install docs, 64 unwedged this page, 64b moved its pickup to the new repo path and closed round 3, 65 enforces the .claude/worktrees folder, 67 makes the build loop the only build route.
+- Lane 68 part one merged 5:58 PM: a pane now warns when it runs an older plugin than the one installed, and inboxes register only from the main session.
+- Your B for the guard question is running as lane 68b (census half, the cheaper state write, and merge refusing an unaccepted record). The guard narrowing becomes lane 70 when you lift the guard for one run.
+- Two lanes were merged before their accept step by a lead script defect; accept passed on main right after, and lane 68b makes the merge refuse it from now on.
+- Knowledge triage is stopped on Windows until you clear its ATTENTION; the item above has the steps.
