@@ -232,12 +232,13 @@ export function revertOwnerInput(freshText, doc) {
   let text = out.join('\n');
   if (doc.done === true && doc.doneLabel !== null) {
     const escLabel = doc.doneLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`^-\\s*\\[[xX]\\]\\s*${escLabel}\\s*$`, 'gm');
+    // Lane 72: the Done checkbox is the last block inside the Waiting toggle, so it is tab-indented.
+    const re = new RegExp(`^([ \\t]*)-\\s*\\[[xX]\\]\\s*${escLabel}\\s*$`, 'gm');
     const matches = [...text.matchAll(re)];
     if (matches.length) {
       const last = matches[matches.length - 1];
       const start = last.index;
-      text = `${text.slice(0, start)}- [ ] ${doc.doneLabel}${text.slice(start + last[0].length)}`;
+      text = `${text.slice(0, start)}${last[1]}- [ ] ${doc.doneLabel}${text.slice(start + last[0].length)}`;
     }
   }
   return text;

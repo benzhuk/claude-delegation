@@ -36,12 +36,13 @@ export const RULES = {
   'open-question-visible': ['decisions'],
   'decision-block': ['decisions'],
   'done-last': ['decisions'],
+  'top-level-toggle': ['decisions'],
   'no-byline': KINDS,
   'em-dash-arrow': KINDS.filter((k) => k !== 'plain'),
 };
 
 /** `--fragment` (an append-md or replace-range body) turns off the page-level rules. */
-export const FRAGMENT_OFF = ['goal-callout', 'read-status', 'done-last', 'decision-block', 'prior-rounds'];
+export const FRAGMENT_OFF = ['goal-callout', 'read-status', 'done-last', 'top-level-toggle', 'decision-block', 'prior-rounds'];
 
 const ROUND = /\b(round|pass)\s*(\d+)/i;
 export const HEADING_PREFIX = /^(\d+[.)]|[A-Z][.)]\s|[IVX]+[.)]\s|P\d+\b|(Step|Phase|Part)\s+\d+)/;
@@ -481,13 +482,45 @@ function ruleDecisionBlock(ctx) {
   return out;
 }
 
+const DONE_RE = /^- \[[ xX]\] Done\b/;
+
 function ruleDoneLast(ctx) {
+  // Page shape (lane 72): the Done checkbox is the last block inside the "Waiting on you now"
+  // toggle. A page without that toggle keeps the legacy rule: Done is the last line of the page.
+  const waiting = ctx.toggles.find((el) => el.kind === 'heading' && el.indent === 0 && el.summary === 'Waiting on you now');
+  if (waiting) {
+    let k = waiting.end;
+    while (k > waiting.line && (ctx.info[k].blank || ctx.info[k].t === EMPTY_BLOCK)) k -= 1;
+    if (k <= waiting.line || !DONE_RE.test(ctx.info[k].t)) {
+      return [{ rule: 'done-last', line: Math.max(k, waiting.line) + 1, message: 'the last block inside the "Waiting on you now" toggle is the "- [ ] Done" checkbox' }];
+    }
+    return [];
+  }
   let j = ctx.lines.length - 1;
   while (j >= 0 && (ctx.info[j].blank || ctx.info[j].t === EMPTY_BLOCK)) j -= 1;
-  if (j < 0 || !/^- \[[ xX]\] Done\b/.test(ctx.info[j].t)) {
+  if (j < 0 || !DONE_RE.test(ctx.info[j].t)) {
     return [{ rule: 'done-last', line: Math.max(j, 0) + 1, message: 'the last line of a decisions page is the "- [ ] Done" checkbox' }];
   }
   return [];
+}
+
+/** Page shape (lane 72, skills/decisions/references/page-shape.md): every top-level block of a
+ * decisions page is a toggle or a heading. A column-0 paragraph, bullet, callout, checkbox or
+ * table is a top-level block that is not; it belongs inside a toggle. The `<details>` frame lines
+ * (`<details>`, `<summary>`, `</details>`) and `<empty-block/>` are the toggle itself or spacing. */
+function ruleTopLevelToggle(ctx) {
+  const out = [];
+  ctx.lines.forEach((_, i) => {
+    const x = ctx.info[i];
+    if (x.blank || exempt(ctx, i) || x.extentIndent !== 0) return;
+    if (/^#{1,3}\s/.test(x.t) || /^<details\b/.test(x.t) || /^<summary>/.test(x.t) || /^<\/details>/.test(x.t) || x.t === EMPTY_BLOCK) return;
+    out.push({
+      rule: 'top-level-toggle',
+      line: i + 1,
+      message: `"${x.t.slice(0, 50)}" is a top-level block that is not a toggle or a heading; put it inside a toggle (a heading with {toggle="true"} and tab-indented children)`,
+    });
+  });
+  return out;
 }
 
 function ruleNoByline(ctx) {
@@ -524,6 +557,7 @@ const RUNNERS = {
   'open-question-visible': ruleOpenQuestionVisible,
   'decision-block': ruleDecisionBlock,
   'done-last': ruleDoneLast,
+  'top-level-toggle': ruleTopLevelToggle,
   'no-byline': ruleNoByline,
   'em-dash-arrow': ruleEmDashArrow,
 };

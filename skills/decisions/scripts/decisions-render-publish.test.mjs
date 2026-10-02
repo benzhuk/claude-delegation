@@ -7,11 +7,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import {
-  publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture, defaultAccountRound,
+  publish, PublishError, revertOwnerInput, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture, defaultAccountRound,
 } from './decisions-render-publish.mjs';
 import { normalize, RefusedError } from './decisions-render-core.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { run } from './decisions-render.mjs';
+import { toggleFiles, CARD_SHA } from './fixtures/toggles-fixtures.mjs';
 
 const REPO = '/repo';
 function p(...parts) { return path.join(REPO, ...parts); }
@@ -41,6 +42,7 @@ function fakeFs(files) {
 
 function baseFiles(overrides = {}) {
   return {
+    ...toggleFiles(path.join, REPO),
     [p('docs', 'decisions', 'now.md')]: 'The plugin runs the loop by itself. Ticks reach the right session within a minute. Knowledge sharing between machines is the next lane.',
     [p('docs', 'decisions', 'session.md')]: 'since: 2026-09-27T18:16:00Z\n- The collector runs on Netcup every 15 minutes.',
     [p('docs', 'decisions', 'history', '2026-09-27.md')]: '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n- some bullet\n',
@@ -60,6 +62,7 @@ function fakeGit(overrides = {}) {
     calls.push(args);
     if (overrides[args[0]]) return overrides[args[0]](args, cwd);
     if (args[0] === 'ls-tree') return args[args.length - 1];
+    if (args[0] === 'log') return CARD_SHA;
     if (args[0] === 'rev-parse') return args.includes('--abbrev-ref') ? 'main' : 'sha-fixed';
     if (args[0] === 'show') return '';
     if (args[0] === 'diff') throw new Error('there is a staged difference');
@@ -96,16 +99,30 @@ function baseDeps(over = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PAGE_NO_INPUT = [
-  '# Waiting on you now',
-  'Nothing right now.',
-  '# What is going on',
-  'Text.',
+  '# Waiting on you now {toggle="true"}',
+  '\tNothing right now.',
+  '\t## What is going on',
+  '\tText.',
+  '\t<callout icon="x">note</callout>',
+  '\t- [ ] Done',
+  '\t<empty-block/>',
   '# History {toggle="true"}',
   '\t<empty-block/>',
-  '<callout icon="x">note</callout>',
-  '- [ ] Done',
-  '<empty-block/>',
 ].join('\n');
+
+test('revertOwnerInput: a ticked Done nested in the Waiting toggle is unticked in place, indentation kept', () => {
+  const live = PAGE_NO_INPUT.replace('\t- [ ] Done', '\t- [x] Done');
+  const doc = parseDocument(live);
+  assert.equal(doc.done, true);
+  assert.deepEqual(doc.warnings, []);
+  assert.equal(revertOwnerInput(live, doc), PAGE_NO_INPUT);
+});
+
+test('revertOwnerInput: a legacy column-0 ticked Done is still unticked in place', () => {
+  const legacy = '# Waiting on you now\nNothing right now.\n# History {toggle="true"}\n\t<empty-block/>\n- [x] Done\n<empty-block/>';
+  const doc = parseDocument(legacy);
+  assert.equal(revertOwnerInput(legacy, doc), legacy.replace('- [x] Done', '- [ ] Done'));
+});
 
 test('hasOwnerInput: a clean page (unticked Done, no comments) has none', () => {
   const doc = parseDocument(PAGE_NO_INPUT);
@@ -243,8 +260,8 @@ test('publish: no owner input and no --clear-done runs clean through dry-run', a
     repo: REPO, page: 'PAGE', dryRun: true,
   }, deps);
   assert.equal(result.code, 0);
-  assert.match(result.rendered, /^# Waiting on you now/);
-  assert.match(result.rendered, /- \[ \] Done\n/); // step 4 copied the fresh (unticked) Done verbatim
+  assert.match(result.rendered, /^# Goal card {toggle="true"}/);
+  assert.match(result.rendered, /	- \[ \] Done\n/); // step 4 copied the fresh (unticked) Done verbatim
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,7 +422,7 @@ test('publish: Fix 1 — --dry-run warns on stderr for a dirty docs/decisions tr
   });
   const result = await publish({ repo: REPO, page: 'PAGE', dryRun: true }, deps);
   assert.equal(result.code, 0);
-  assert.match(result.rendered, /^# Waiting on you now/);
+  assert.match(result.rendered, /^# Goal card {toggle="true"}/);
   assert.ok(warnings.some((w) => w.startsWith('warning:')));
   assert.ok(warnings.some((w) => w.includes('docs/decisions/scratch.md')));
 });

@@ -119,16 +119,38 @@ function lastContentLineIndex(lines) {
 }
 
 /**
- * Every column-0 Done line found anywhere is a candidate (R3): never an option, and the
- * LAST one found is canonical — it sets `done`. Anything else about the set of candidates
- * (more than one, or the last one not truly last) is an anomaly and WARNs; it is never
- * silent, and it never fails the parse (this is still all inside "parsed, but look").
+ * The last content line of the section a Done line sits in: the line before the next column-0
+ * heading (or the end of the page), ignoring blanks, `<empty-block/>` and fenced text. Used for a
+ * Done checkbox nested inside the `Waiting on you now` toggle, where "last" means last block of
+ * that toggle, not last line of the page (the History toggle follows it).
+ */
+function lastLineOfSection(lines, fromIdx) {
+  let last = fromIdx;
+  let fence = false;
+  for (let i = fromIdx + 1; i < lines.length; i += 1) {
+    const raw = lines[i];
+    if (/^\s*`{3,}/.test(raw)) { fence = !fence; last = i; continue; }
+    if (!fence && /^#[ \t]/.test(raw)) break;
+    const t = raw.trim();
+    if (fence || (t !== '' && t !== '<empty-block/>')) last = i;
+  }
+  return last;
+}
+
+/**
+ * Every Done line found anywhere (column 0, or tab-indented inside the Waiting toggle) is a
+ * candidate (R3): never an option, and the LAST one found is canonical — it sets `done`.
+ * Anything else about the set of candidates (more than one, or the last one not truly last) is
+ * an anomaly and WARNs; it is never silent, and it never fails the parse (this is still all
+ * inside "parsed, but look"). A column-0 Done is last when it is the page's last content line
+ * (legacy layout); a Done nested in the Waiting toggle is last when nothing but empty blocks
+ * follows it before the next top-level heading (lane 72, spec scope item 7).
  */
 function finalizeDone(candidates, lines) {
   if (candidates.length === 0) return { done: null, doneLabel: null, warnings: [] };
   const last = candidates[candidates.length - 1];
   const warnings = [];
-  const trueLastIdx = lastContentLineIndex(lines);
+  const trueLastIdx = last.nested ? lastLineOfSection(lines, last.line - 1) : lastContentLineIndex(lines);
   if (last.line - 1 !== trueLastIdx) warnings.push({ text: 'Done is not the last line', line: last.line });
   if (candidates.length > 1) warnings.push({ text: 'more than one Done line', line: last.line });
   return { done: last.ticked, doneLabel: last.label, warnings };
@@ -177,6 +199,9 @@ export function parseDocument(text, { now = new Date() } = {}) {
   // "under Waiting" for the optionless-item WARN — a title before any heading, or under
   // any other section, is not touched by that WARN.
   let underWaiting = false;
+  // Lane 72: true only when the page-level `# Waiting on you now` heading is a toggle, so a Done
+  // checkbox tab-indented under it is the canonical layout rather than an indented stray.
+  let waitingIsToggle = false;
 
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i];
@@ -203,6 +228,7 @@ export function parseDocument(text, { now = new Date() } = {}) {
       if (topLevelHeading !== null) {
         inArchive = topLevelHeading === 'Closed' || /^(?:First )?[Bb]earings\b/.test(topLevelHeading);
         underWaiting = topLevelHeading === 'Waiting on you now';
+        waitingIsToggle = underWaiting && /\{[^}]*\btoggle="true"[^}]*\}\s*$/.test(raw);
       }
     }
 
@@ -236,8 +262,11 @@ export function parseDocument(text, { now = new Date() } = {}) {
     // supported label so callers can distinguish legacy Done from a cleared timestamp.
     if (parsed.kind === 'checkbox' && /^Done(?: \(last cleared: .+\))?$/.test(parsed.text.trim())) {
       const indented = /^[ \t]/.test(raw);
-      doneCandidates.push({ line: lineNo, ticked: parsed.ticked, label: parsed.text.trim(), attachedTitle: currentTitle });
-      if (indented) warnings.push({ text: 'Done line is indented', line: lineNo });
+      const nested = indented && underWaiting && waitingIsToggle && detailsDepth === 0;
+      doneCandidates.push({
+        line: lineNo, ticked: parsed.ticked, label: parsed.text.trim(), attachedTitle: currentTitle, nested,
+      });
+      if (indented && !nested) warnings.push({ text: 'Done line is indented', line: lineNo });
       continue;
     }
 

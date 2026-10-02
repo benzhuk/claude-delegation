@@ -277,11 +277,24 @@ const decidedItem = (over = {}) => [
     `${T}${T}<details>`, `${T}${T}<summary>**Original text**</summary>`, `${T}${T}${T}- [ ] **Publish six?**`, `${T}${T}${T}<empty-block/>`, `${T}${T}</details>`,
   ]),
 ];
+// The page shape (lane 72): every top-level block is a toggle; the items and the Done checkbox sit
+// inside the Waiting toggle, Done last.
 const decisionsPage = (waiting = waitingItem(), decided = decidedItem()) => doc(
-  '# Waiting on you', ...waiting,
+  '# Waiting on you now {toggle="true"}', ...waiting.map((l) => (l === '' ? l : `${T}${l}`)),
+  `${T}- [ ] Done`, `${T}<empty-block/>`,
   '# Decided {toggle="true"}', ...decided, `${T}<empty-block/>`,
-  '- [ ] Done', '<empty-block/>',
 );
+
+test('decisions page: the hand-written shape notion-writing section 7 describes is clean (Goals and How to read toggles, Waiting on you now, Done last inside it)', () => {
+  const sec = (name) => [`# ${name} {toggle="true"}`, `${T}- a line`, `${T}<empty-block/>`];
+  const page = doc(
+    ...sec('🎯 Goals'), ...sec('How to read'),
+    '# Waiting on you now {toggle="true"}', ...waitingItem().map((l) => (l === '' ? l : `${T}${l}`)), `${T}- [ ] Done`, `${T}<empty-block/>`,
+    '# Decided {toggle="true"}', ...decidedItem(), `${T}<empty-block/>`,
+    ...sec('Parked'), ...sec('Closed without a decision'), ...sec('Information only'), ...sec('Standing asks not yet done'),
+  );
+  assert.deepEqual(lintPage(page, { kind: 'decisions' }), []);
+});
 
 test('decisions page: the packet block, complete, is clean under every decisions rule', () => {
   assert.deepEqual(lintPage(decisionsPage(), { kind: 'decisions' }), []);
@@ -327,13 +340,60 @@ test('open-question-visible: probe, options inside a Background toggle are not q
   assert.ok(!ids(decisionsPage(item), { kind: 'decisions' }).includes('open-question-visible'));
 });
 
+const SK = ['top-level-toggle'];
 test('done-last: red when Done is missing or not last, green with trailing empty blocks', () => {
-  assert.deepEqual(ids(doc('# Waiting on you', '- [ ] Done', 'Later text.'), { kind: 'decisions' }), ['done-last']);
-  assert.deepEqual(ids(doc('# Waiting on you', 'Text.'), { kind: 'decisions' }), ['done-last']);
-  assert.deepEqual(ids(doc('Text.', '- [ ] Done', '<empty-block/>', ''), { kind: 'decisions' }), []);
-  assert.deepEqual(ids(doc('Text.', '- [x] Done (last cleared Sep 28)'), { kind: 'decisions' }), []);
+  assert.deepEqual(ids(doc('# Waiting on you', '- [ ] Done', 'Later text.'), { kind: 'decisions', skip: SK }), ['done-last']);
+  assert.deepEqual(ids(doc('# Waiting on you', 'Text.'), { kind: 'decisions', skip: SK }), ['done-last']);
+  assert.deepEqual(ids(doc('Text.', '- [ ] Done', '<empty-block/>', ''), { kind: 'decisions', skip: SK }), []);
+  assert.deepEqual(ids(doc('Text.', '- [x] Done (last cleared Sep 28)'), { kind: 'decisions', skip: SK }), []);
   assert.deepEqual(ids(doc('Text.'), { kind: 'decisions', fragment: true }), []);
   assert.deepEqual(ids(doc('Text.'), { kind: 'spec' }), ['goal-callout']);
+});
+
+test('done-last (lane 72): green when Done is the last block inside the Waiting toggle with History after it', () => {
+  const page = doc(
+    '# Waiting on you now {toggle="true"}', `${T}Text.`, `${T}- [ ] Done`, `${T}<empty-block/>`,
+    '# History {toggle="true"}', `${T}- a day`, `${T}<empty-block/>`,
+  );
+  assert.deepEqual(lintPage(page, { kind: 'decisions' }), []);
+});
+
+test('done-last (lane 72): red when something follows Done inside the Waiting toggle, or Done sits outside it', () => {
+  const after = doc(
+    '# Waiting on you now {toggle="true"}', `${T}- [ ] Done`, `${T}Later text.`, `${T}<empty-block/>`,
+    '# History {toggle="true"}', `${T}<empty-block/>`,
+  );
+  assert.deepEqual(ids(after, { kind: 'decisions' }), ['done-last']);
+  const outside = doc(
+    '# Waiting on you now {toggle="true"}', `${T}Text.`, `${T}<empty-block/>`,
+    '# History {toggle="true"}', `${T}<empty-block/>`,
+    '- [ ] Done',
+  );
+  assert.ok(ids(outside, { kind: 'decisions' }).includes('done-last'));
+});
+
+// ---------------------------------------------------------------------------
+// top-level-toggle (lane 72, skills/decisions/references/page-shape.md)
+// ---------------------------------------------------------------------------
+
+test('top-level-toggle: red for a top-level paragraph, bullet, callout, checkbox or table; green for toggles and headings', () => {
+  const good = doc(
+    '# Goal card {toggle="true"}', `${T}main at x`, `${T}<empty-block/>`,
+    '<details>', '<summary>**An item**</summary>', `${T}text`, `${T}<empty-block/>`, '</details>',
+    '## A plain heading', '<empty-block/>',
+  );
+  assert.deepEqual(rule(good, { kind: 'decisions' }, 'top-level-toggle'), []);
+  for (const bad of ['Loose text.', '- a bullet', '- [ ] Done', '<callout icon="x">', '<table header-row="true">']) {
+    assert.deepEqual(rule(doc('# Goal card {toggle="true"}', `${T}x`, `${T}<empty-block/>`, bad), { kind: 'decisions' }, 'top-level-toggle'), [4], `a top-level ${bad} is red`);
+  }
+});
+
+test('top-level-toggle: ignores fenced code, owner comment lines and Original text subtrees; off for a fragment and other kinds', () => {
+  const page = doc('# Goal card {toggle="true"}', `${T}x`, `${T}<empty-block/>`, '\\*\\* an owner comment', '```', 'fenced text', '```');
+  assert.deepEqual(rule(page, { kind: 'decisions' }, 'top-level-toggle'), []);
+  assert.deepEqual(rule(doc('Loose text.'), { kind: 'decisions', fragment: true }, 'top-level-toggle'), []);
+  assert.deepEqual(rule(doc('Loose text.'), { kind: 'plain' }, 'top-level-toggle'), []);
+  assert.deepEqual(lintPage(doc('Loose text.', '- [ ] Done'), { kind: 'decisions', skip: ['top-level-toggle'] }), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -517,7 +577,7 @@ test('read-status: off for a fragment, so a two-round fragment without a callout
   assert.deepEqual(rule(doc(...roundToggle(2), ...priorToggle(roundToggle(1))), { kind: 'read' }, 'read-status').length > 0, true, 'and red for a whole page');
 });
 
-const RENDER_SKIP = ['open-question-visible', 'decision-block', 'done-last', 'em-dash-arrow'];
+const RENDER_SKIP = ['open-question-visible', 'decision-block', 'em-dash-arrow'];
 const fixtureIds = (name, opts) => ids(fs.readFileSync(path.join(FIX, name), 'utf8'), opts);
 
 test('fixture: today\'s render (decisions, the render skip list) gives []', () => {
@@ -533,16 +593,16 @@ test('fixture: the handoff brief (handoff) gives exactly [toggle-tail]', () => {
 });
 
 // Lead ruling: the 19 em-dash-arrow hits are real (Ben's "no em dashes, no arrows" rule; the page predates enforcement, like toggle-tail on the other two), and the Done line is absent from today's read.
-test('fixture: decisions page (decisions) gives exactly [done-last, em-dash-arrow], 19 em-dash-arrow hits', () => {
+test('fixture: decisions page (decisions) gives exactly [done-last, em-dash-arrow, top-level-toggle], 19 em-dash-arrow hits', () => {
   const text = fs.readFileSync(path.join(FIX, 'open-decisions.skeleton.md'), 'utf8');
   const v = lintPage(text, { kind: 'decisions' });
-  assert.deepEqual([...new Set(v.map((x) => x.rule))].sort(), ['done-last', 'em-dash-arrow']);
+  assert.deepEqual([...new Set(v.map((x) => x.rule))].sort(), ['done-last', 'em-dash-arrow', 'top-level-toggle']);
   assert.equal(v.filter((x) => x.rule === 'em-dash-arrow').length, 19);
 });
 
 test('fixture: decisions page, the sets that do hold, the other ten rules are green', () => {
   const got = fixtureIds('open-decisions.skeleton.md', { kind: 'decisions' });
-  assert.deepEqual(got.filter((r) => r !== 'em-dash-arrow'), ['done-last'], 'today\'s read has no Done line');
+  assert.deepEqual(got.filter((r) => r !== 'em-dash-arrow'), ['done-last', 'top-level-toggle'], 'today\'s read has no Done line and is a legacy flat page');
 });
 
 // ---------------------------------------------------------------------------

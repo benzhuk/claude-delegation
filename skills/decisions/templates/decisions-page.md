@@ -7,17 +7,39 @@ only thing ever allowed to write it — see `SKILL.md`'s Page rules). This file
 documents the shape that composition produces, so a source-file edit's effect on
 the rendered page is predictable without running the renderer first.
 
-## The six sections, in order
+## The sections, in order (every one a toggle; see `references/page-shape.md`)
 
 ```
-# Waiting on you now
-[one block per file under docs/decisions/waiting/, in file-name order, or
- "Nothing right now." when that directory is empty or absent]
-# What is going on
-[docs/decisions/now.md, verbatim — 3 to 5 sentences, no bold, no hex-like tokens]
-# This session (since your tick at [Day H:MM AM/PM, America/New_York])
-[docs/decisions/session.md's bullets, verbatim, in file order — at most 8, each
- at most 200 characters]
+# Goal card {toggle="true"}
+	main at [short sha of the last commit that changed the goals sources]
+	[docs/goals/card.md, every line]
+	<empty-block/>
+# Bearings {toggle="true"}
+	Decision: [CONTINUE, RE-PLAN or CUT] ([date]).
+	Condition: [only when the assessment states one]
+	Next action: [from the assessment]
+	Prediction, check [M/D H:MM AM/PM]: [from the lead response]
+	Links: [Goals page](...), [assessment](...), [response](...).
+	<empty-block/>
+# Components {toggle="true"}
+	- [name] ([state]): [what it does for the goal]
+	  ...one line per component in docs/components.md...
+	<empty-block/>
+# Waiting on you now {toggle="true"}
+	[one block per file under docs/decisions/waiting/, in file-name order, or
+	 "Nothing right now." when that directory is empty or absent]
+	## What is going on
+	[docs/decisions/now.md, verbatim, 3 to 5 sentences, no bold, no hex-like tokens]
+	## This session (since your tick at [Day H:MM AM/PM, America/New_York])
+	[docs/decisions/session.md's bullets, verbatim, in file order, at most 8, each
+	 at most 200 characters]
+	<callout icon="✅">
+		To comment, start a line with `**` anywhere on this page, then tick Done to
+		submit; the answer appears here and the exchange is kept in that day's
+		history file.
+	</callout>
+	- [ ] Done (last cleared: [Mon D, YYYY, H:MM AM/PM America/New_York])
+	<empty-block/>
 # History {toggle="true"}
 	- [Mon D](.../docs/decisions/history/YYYY-MM-DD.md) — [that file's Summary: line]
 	  ...one bullet per history file, newest first...
@@ -25,16 +47,18 @@ the rendered page is predictable without running the renderer first.
 	  [Mon D archive](.../docs/decisions/archive/decisions-page-YYYY-MM-DD.md).
 	  ...one bullet per archive file...
 	<empty-block/>
-<callout icon="✅">
-	To comment, start a line with `**` anywhere on this page, then tick Done to
-	submit; the answer appears here and the exchange is kept in that day's
-	history file.
-</callout>
-- [ ] Done (last cleared: [Mon D, YYYY, H:MM AM/PM America/New_York])
-<empty-block/>
 ```
 
-## Where each section's bytes come from
+- **Goal card**: `docs/goals/card.md` in full, with `main at <sha>` (the sha `goals-mirror.mjs`
+  `computeSha` returns). The hand-back compares it to the head. Never hand-edited.
+- **Bearings**: the newest `docs/work/evidence/<date>-bearings-assessment.md` and its `-response.md`:
+  the verdict word on line 1, the `Condition:` and `Next action:` lines of the assessment, the
+  `Check on <M/D H:MM AM/PM>:` line of the response. Any field missing refuses the render.
+- **Components**: `docs/components.md`, one line per component, state word one of fed, measured,
+  unfed, partial, missing. A backticked `skills/`, `scripts/` or `hooks/` path that is absent from
+  `origin/main` refuses the render.
+
+## Where each remaining section's bytes come from
 
 - **Waiting**: every `docs/decisions/waiting/*.md` file, in file-name order
   (`decision-item.md`'s fill-in shape — a toggle with checkbox options). A file
@@ -58,9 +82,9 @@ the rendered page is predictable without running the renderer first.
   file (oldest to newest) — the one-time, byte-for-byte snapshot taken when
   this page was first redesigned into a render (2026-09-27). No new archive
   file is expected in ordinary operation.
-- **Done**: `- [ ] Done (last cleared: <timestamp>)`, written only by
-  `publish` — never by hand, never left as a bare `- [ ] Done` once a round
-  has cleared it once.
+- **Done**: `- [ ] Done (last cleared: <timestamp>)`, the last block inside the Waiting
+  toggle, written only by `publish` — never by hand, never left as a bare `- [ ] Done`
+  once a round has cleared it once.
 
 ## What never appears here
 
