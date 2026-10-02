@@ -617,7 +617,7 @@ describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
     const { repo, bare } = makeRepo("live", "iso-live");
     const wt = dirtyOrphan(repo, "feature/live", "live");
     writePolicy([CLASS_IDS.dirtyWorktree]);
-    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: wt, stdio: "ignore" });
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: wt, stdio: "ignore", env: th.env });
     try {
       await new Promise((resolve) => setTimeout(resolve, 400));
       const r = runMain(["--apply"], { sweepOpts: { roots: [{ kind: "code", path: path.join(CODE, "iso-live") }] }, now: Date.now() + 2 * DAY });

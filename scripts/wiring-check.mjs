@@ -497,6 +497,18 @@ function staleness(opts) {
   }
 }
 
+/** True when `target` resolves inside `<home>/.claude/plugins/cache` (realpath both sides, case-fold
+ * on win32/darwin, the way the installer's own isInstalledPluginRoot allowlist does). */
+function isUnderClaudeCache(target, home) {
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } };
+  const fold = process.platform === "win32" || process.platform === "darwin";
+  const norm = (p) => {
+    const t = real(path.resolve(String(p))).split("\\").join("/");
+    return fold ? t.toLowerCase() : t;
+  };
+  return norm(target).startsWith(`${norm(path.join(home, ".claude", "plugins", "cache"))}/`);
+}
+
 /** Lane 74 item 6: after the hook's own output, let a NEW release re-register an already-registered
  * janitor timer. Fail open (any throw is swallowed), no new hook entry, silent unless it acted.
  * `opts.refresh` injects the call (tests pass one so no real scheduler is ever reached); the real
@@ -505,12 +517,15 @@ function refreshJanitorTimer(opts) {
   try {
     const home = opts.home ?? homedir();
     const hostEnv = opts.env ?? process.env;
+    // Only a Claude session running from the installed Claude cache may re-register the timer: a dev
+    // checkout would only draw a refusal each session, and a Codex root is a second valid cache that
+    // would fight Claude's over the one timer (and Codex kills this hook at 400 ms).
+    const root = opts.pluginRoot ?? hostEnv?.CLAUDE_PLUGIN_ROOT;
+    if (!root || !isUnderClaudeCache(root, home)) return;
     const refresh = opts.refresh
       ?? (timerRefresh && ((o) => timerRefresh.refreshIfRegistered({ ...o, exec: timerRefresh.makeBoundedExec({ budgetMs: 4300 - process.uptime() * 1000 }) })));
     if (!refresh) return;
-    const args = { home, env: hostEnv };
-    const root = opts.pluginRoot ?? hostEnv?.CLAUDE_PLUGIN_ROOT;
-    if (root) args.pluginRoot = root;
+    const args = { home, env: hostEnv, pluginRoot: root };
     const r = refresh(args);
     if (r && (r.action === "refreshed" || r.action === "refused" || r.action === "failed")) {
       console.log(`janitor timer: ${r.action}: ${r.reason}`);
@@ -567,7 +582,8 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // the SessionStart caller keeps exit 0 and the line still reaches the session; the red exit is
   // for a human or agent running the CLI directly (bare `--line`, `--json`, or the table).
   if (argv.includes("--hook")) {
-    refreshJanitorTimer(opts);
+    // A stale session is not the installed release; refreshing from it would downgrade the timer.
+    if (!stale.stale) refreshJanitorTimer(opts);
     return 0;
   }
   return (result.ok && !stale.stale) ? 0 : 1;

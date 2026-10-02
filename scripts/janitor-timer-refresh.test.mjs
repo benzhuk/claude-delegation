@@ -129,6 +129,7 @@ describe("refreshIfRegistered", () => {
     f.calls.length = 0;
     const r = refresh(f, { forceRoot: false });
     assert.equal(r.action, "refused");
+    assert.doesNotMatch(r.reason, /^refused:/, "the installer's own prefix is stripped, so wiring-check prints one");
     assert.equal(unitOf(f), before);
     assert.deepEqual(f.calls, []);
   });
