@@ -195,15 +195,15 @@ const SECOND_HOST = {
 // there... it never restates the full briefs." R9: every rendered prompt carries the
 // note-send prohibition, so it is baked into every mandate constant below.
 const BUILD_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead\'s own standalone command. Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead\'s own standalone command. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 const REVIEW_MANDATE =
-  'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git. Never send peer notes.'
+  'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 const INTEGRATE_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push. Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 const SETUP_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf); never push. Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf); never push. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 const ACCEPT_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you never call accept and never write Status: accepted; no destructive git; never push. Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you never call accept and never write Status: accepted; no destructive git; never push. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 
 // lane 67 item 3 / item 5: the state-file runner and the second-host runner. Neither writes a
 // report with a VERDICT line of its own except the second-host suite log, which its own prompt
@@ -211,7 +211,7 @@ const ACCEPT_MANDATE =
 const STATE_MANDATE =
   'Touch that one file only; your only other output is the schema-forced return (when you hit the wall-clock limit, return written false); never run git, never stage or commit the file, never delete anything; never set or switch a git identity; never push. Never send peer notes.'
 const SECOND_HOST_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push; never start the suite on a Windows machine or on a machine already running one. Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; you fix nothing and decide nothing; no destructive git; never push; never start the suite on a Windows machine or on a machine already running one. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 
 // lane 67 item 2: a hung agent ends. The Workflow API gives an agent call no per-agent
 // time limit (its opts are label, phase, schema, model, effort, agentType and nothing that
@@ -623,7 +623,7 @@ async function flushState(phaseName) {
       while (stateDirty) {
         stateDirty = false
         const lbl = stateNext
-        const stateOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: STATE_WRITE, phase: lbl, label: `state:${lbl}` }
+        const stateOpts = { agentType: 'delegation:runner', model: 'haiku', schema: STATE_WRITE, phase: lbl, label: `state:${lbl}` }
         const wrote = await agent(stateWritePrompt(lbl), stateOpts)
         if (wrote === null || wrote.written !== true) log(`state: write after ${lbl} failed, carrying on without it`)
       }
