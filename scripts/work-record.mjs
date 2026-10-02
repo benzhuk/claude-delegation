@@ -2359,6 +2359,60 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
   return { step: "scratch", result: "removed", ref: scratchPath };
 }
 
+/**
+ * Lane 74 item 4: a lane that lands leaves nothing. The build loop's territory worktrees
+ * (`wt-<slug>-<id>`) and branches (`<lane branch>-<id>`) are named by no record, so the record's
+ * own Worktree: step above never reaches them. This step does, for the branches that match
+ * `<lane branch>-<id>` (id: letters, digits, `_` or `.` only, so another lane whose own branch merely
+ * starts with this one's name and a hyphen is not swept up), and only when ALL hold:
+ *   - no other record that is not closed/withdrawn claims that branch (recordBranchNames);
+ *   - its tip is an ancestor of origin/main (merge proof: no work is lost by removing it);
+ *   - the worktree is clean (closeoutWorktree refuses a dirty one and leaves it, and its branch).
+ * Removal goes only through closeoutWorktree, one worktree line and one branch line per territory
+ * (`territory-worktree` / `territory-branch`: removed, refused <reason>, absent or dirty). Nothing
+ * is returned when the lane has no territory branch or worktree at all.
+ */
+const TERRITORY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.]*$/;
+export function closeoutTerritories({ repoRoot, laneBranch, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId, worktreesByPath }) {
+  if (!laneBranch) return [];
+  const prefix = `${laneBranch}-`;
+  const gitEnv = withoutRepoLocatingGitEnv(process.env);
+  const branches = new Set();
+  const ref = spawnImpl("git", ["for-each-ref", "--format=%(refname:short)", `refs/heads/${prefix}*`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: gitEnv });
+  if (!ref.error && ref.status === 0) {
+    for (const line of String(ref.stdout ?? "").split(/\r?\n/)) if (line.trim()) branches.add(line.trim());
+  }
+  const worktrees = listWorktreesImpl(repoRoot);
+  for (const w of worktrees ?? []) if (w.branch && !w.main) branches.add(normalizeBranchName(w.branch));
+  const found = [...branches].filter((b) => b.startsWith(prefix) && TERRITORY_ID_RE.test(b.slice(prefix.length))).sort();
+  const steps = [];
+  for (const b of found) {
+    const claimant = (records || []).find((r) => {
+      if (ownWorkId !== undefined && r.fields.work === ownWorkId) return false;
+      if (r.fields.status === "closed" || r.fields.status === "withdrawn") return false;
+      return recordBranchNames(r, worktreesByPath).has(b);
+    });
+    if (claimant) {
+      steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `named by ${claimant.fields.work} (Status: ${claimant.fields.status ?? "<missing>"}), not closed/withdrawn` });
+      continue;
+    }
+    const tip = resolveRefSha(repoRoot, `refs/heads/${b}`, spawnImpl);
+    if (tip) {
+      const anc = spawnImpl("git", ["merge-base", "--is-ancestor", tip, mainRef], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: gitEnv });
+      if (anc.error || anc.status !== 0) {
+        steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `not merged: ${tip} is not an ancestor of origin/main` });
+        continue;
+      }
+    }
+    const wt = closeoutWorktree({ root: repoRoot, worktreeField: b, branchName: b, mainBranch, cwd: process.cwd(), dryRun, listWorktreesImpl });
+    for (const st of wt.steps) {
+      steps.push({ ...st, step: st.step === "worktree" ? "territory-worktree" : "territory-branch" });
+    }
+    if (!wt.steps.some((st) => st.step === "branch")) steps.push({ step: "territory-branch", ref: b, result: "absent" });
+  }
+  return steps;
+}
+
 function formatCloseoutLine(r, dryRun) {
   const verb = dryRun ? `would ${r.result}` : r.result;
   const ref = r.ref ? ` ${r.ref}` : "";
@@ -2555,6 +2609,11 @@ export function closeoutRecord(opts = {}) {
           results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: del.moved ? "moved" : del.error.replace(/\s+/g, " ").trim() });
         }
       }
+    }
+
+    // 4b. Territory worktrees and branches of this lane (lane 74 item 4).
+    if (worktreesByPath !== null && ownBranchName) {
+      for (const st of closeoutTerritories({ repoRoot, laneBranch: ownBranchName, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId: record.fields.work, worktreesByPath })) results.push(st);
     }
 
     // 5. Scratch directory.

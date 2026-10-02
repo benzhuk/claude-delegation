@@ -296,8 +296,14 @@ vs main) before pushing main. Once main is pushed, the lead posts ONE Closed ent
 plain bullet, never starting with bold: `Merged <branch> at <sha>, <M-D>: <one-line
 changelog>; suite <n> of <n> on <host>.` — on the owner's decisions page through the
 decisions skill's existing `notion.js edit --safe` anchored-edit route
-(`skills/decisions/SKILL.md` names the exact shape and the Done-checked exception), and
-only then sends its RESULT; no Waiting item is posted for an ordinary accepted merge. A
+(`skills/decisions/SKILL.md` names the exact shape and the Done-checked exception), then
+runs the closeout, the step that follows a pushed merge: `node scripts/work-record.mjs close
+--record <record> --repo <root> --merge <merge sha> --closeout --by <Lead-session>`. It closes the
+record and removes the lane's worktree, local and origin branch and scratch directory, and the
+lane's clean, merged territory worktrees and local territory branches (`<lane branch>-<id>`),
+each with its own `removed`, `refused <reason>` or `absent` line; a dirty or unmerged one is left
+where it is, never forced, and a line that is not `removed` or `absent` goes in the RESULT. Only
+then the lead sends its RESULT; no Waiting item is posted for an ordinary accepted merge. A
 Codex lane whose mirror of the decisions skill cannot yet post the Closed entry carries
 its text verbatim in its RESULT instead, so the collector still finds the branch.
 Releases and installs to the owner's machines stay per Ben's own word: the release item
@@ -468,7 +474,7 @@ re-run the census now (Ship's `build-census.mjs` command, `--out
 as `census-stale` — then run `work-record.mjs accept --record <recordPath> --repo
 <integrationWorktree> --delivery-ref <integrationBranch> --census <that file>`
 (`--no-census "<reason>"` only when the census itself breaks), push the branch, merge into
-main per Ship's merge paragraph, post the Closed entry, and only
+main per Ship's merge paragraph, post the Closed entry, run the closeout that paragraph names, and only
 then send ONE RESULT. The record and its evidence are committed only after `accept`
 succeeds, never between accept-prep and `accept`, and before the push and merge above:
 accept-prep pins `Artifact:` to the reviewed integration head, and a commit on the
