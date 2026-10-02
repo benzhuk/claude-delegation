@@ -859,6 +859,15 @@ export function notesMirrorPath(home, ymd) { return toPosix(path.posix.join(note
  * written before this keep resolving against the repo, exactly as before.
  */
 export const PACKET_DETAILS_PREFIX = '.agents/notes/packets/';
+/**
+ * The agents home on THIS host: AGENTS_HOME when the environment sets it (decisions-pickup writes its
+ * pointers there), else `<home>/.agents`. The `.agents/...` Details form resolves against it, and
+ * note-send writes its packets under it, so a writer and a reader on one host always agree.
+ */
+export function agentsHomeOf(home, env) {
+  const override = env && typeof env.AGENTS_HOME === 'string' ? env.AGENTS_HOME.trim() : '';
+  return override ? toPosix(path.resolve(override)) : toPosix(path.posix.join(toPosix(home), '.agents'));
+}
 /** The repo's name for packet and pointer paths: the last segment of its path, reduced to the Details charset. */
 export function repoName(repo) {
   const seg = toPosix(String(repo ?? '')).split('/').filter(Boolean).pop() ?? '';
@@ -872,18 +881,20 @@ export function packetDetailsFor(repo, id) { return `${PACKET_DETAILS_PREFIX}${r
  * else against `repo` (the legacy `docs/notes/...` form). Returns null for a Details that cannot be
  * placed (no repo for a repo-relative one).
  */
-export function resolveDetailsPath(details, { home, repo } = {}) {
+export function resolveDetailsPath(details, { home, repo, env } = {}) {
   const d = String(details ?? '');
-  if (!d) return null;
-  if (d.startsWith(PACKET_DETAILS_PREFIX)) return home ? toPosix(path.posix.join(toPosix(home), d)) : null;
+  // A `..` segment would climb out of the packets folder (the home-anchored form lands at HOME, which
+  // holds secrets); a Details that cannot be placed safely is not placed at all.
+  if (!d || d.split('/').includes('..')) return null;
+  if (d.startsWith(PACKET_DETAILS_PREFIX)) return home ? toPosix(path.posix.join(agentsHomeOf(home, env), d.slice('.agents/'.length))) : null;
   return repo ? toPosix(path.posix.join(toPosix(repo), d)) : null;
 }
 /**
  * The packet file for `id`. With `home` it is the out-of-checkout location above; without it, the
  * legacy `<repo>/docs/notes/<id>.md` (kept only so an old caller or fixture still resolves).
  */
-export function packetPathFor(repo, id, home) {
-  if (home) return toPosix(path.posix.join(toPosix(home), packetDetailsFor(repo, id)));
+export function packetPathFor(repo, id, home, env) {
+  if (home) return toPosix(path.posix.join(agentsHomeOf(home, env), packetDetailsFor(repo, id).slice('.agents/'.length)));
   return toPosix(path.posix.join(toPosix(repo), 'docs/notes', `${id}.md`));
 }
 export function outboxDir(home) { return toPosix(path.posix.join(notesDir(home), 'outbox')); }

@@ -2179,6 +2179,24 @@ test('lane 74 item 5: the derived Details is valid for validateDetails and resol
   assert.equal(resolveDetailsPath(details, { repo }), null, 'a home-relative Details needs a home');
 });
 
+test('lane 74 F5: with AGENTS_HOME set, the home-relative Details and the packet writer both follow it', () => {
+  const repo = tmp();
+  const home = tmp();
+  const agents = tmp();
+  const details = packetDetailsFor(repo, 'astra-here-1');
+  const expected = `${agents.split(path.sep).join('/')}/notes/packets/${repoName(repo)}/astra-here-1.md`;
+  assert.equal(resolveDetailsPath(details, { home, repo, env: { AGENTS_HOME: agents } }), expected);
+  assert.equal(packetPathFor(repo, 'astra-here-1', home, { AGENTS_HOME: agents }), expected, 'the writer and the reader agree');
+  assert.equal(resolveDetailsPath(details, { home, repo, env: {} }), packetPathFor(repo, 'astra-here-1', home), 'without AGENTS_HOME it is <home>/.agents as before');
+});
+
+test('lane 74 F6: a Details with a .. segment resolves nowhere, so no path outside the packets folder is ever printed', () => {
+  const repo = tmp();
+  const home = tmp();
+  assert.equal(resolveDetailsPath('.agents/notes/packets/../../../hidden/x', { home, repo }), null);
+  assert.equal(resolveDetailsPath('docs/notes/../../outside/x.md', { home, repo }), null);
+});
+
 test('lane 74 item 5: repoName reduces a path to the Details charset', () => {
   assert.equal(repoName('/home/ben/Code/claude-delegation'), 'claude-delegation');
   assert.equal(repoName('C:/Users/benzh/Code/zhuk-infra/claude-delegation/'), 'claude-delegation');

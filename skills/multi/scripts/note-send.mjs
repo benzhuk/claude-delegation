@@ -730,7 +730,7 @@ export async function runNoteSend(argv, deps = {}) {
   const n = args.n !== undefined ? Number(args.n) : nextCounter(readLedgerCorpus(ledgerDirs, fsImpl), prefix);
   if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
   const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
-  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id, home) : null;
+  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id, home, env) : null;
   // A packet is useful only if the ledger points the recipient to it. Explicit --details remains a
   // caller-controlled reference; without it, derive the exact packet path from the resolved id once.
   const details = args.details
@@ -753,8 +753,8 @@ export async function runNoteSend(argv, deps = {}) {
   if (packetPath && paneError) {
     warnings.push(`the packet was written to ${packetPath} — this session's repo, not the recipient's, because the pane did not resolve. Details: may not resolve for the reader.`);
   }
-  if (details && !packetPath && !dryRun && !fsImpl.existsSync(resolveDetailsPath(details, { home, repo: targetRepo }))) {
-    warnings.push(`Details points at ${details}, which does not exist (looked in ${resolveDetailsPath(details, { home, repo: targetRepo })}) — write it, or pass --packet-file`);
+  if (details && !packetPath && !dryRun && !fsImpl.existsSync(resolveDetailsPath(details, { home, repo: targetRepo, env }) ?? '')) {
+    warnings.push(`Details points at ${details}, which does not exist (looked in ${resolveDetailsPath(details, { home, repo: targetRepo, env }) ?? 'nowhere: the path cannot be placed'}) — write it, or pass --packet-file`);
   }
 
   if (dryRun) {
