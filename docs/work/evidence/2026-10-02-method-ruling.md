@@ -1,4 +1,4 @@
-# Lead ruling on the method synthesis (skills-f, 10/2 10:40 AM America/New_York)
+# Lead ruling on the method synthesis (skills-f, 10/2 10:06 AM America/New_York)
 
 Read: docs/work/evidence/2026-10-02-method-synthesis.md (Opus, all seven research reports folded in), the seven reports' verdict lines and gap lists, the measures report section 3 and the process report section 3. Tested against Ben's three statements of 10/2 (history 2026-10-02, "Ben on the aim and the method").
 
