@@ -1,0 +1,2 @@
+- 2026-10-01 gate 1: nothing merged (no approved territory; wtloc65 excluded, rounds-exhausted); gate not run; BLOCKED. HEAD 208a303a022c73e8489e3f2b4f821c9067c440a6
+- 2026-10-01 gate 2: merged wtloc65@ea919e4c (approved r4); focused node --test, 13 files; PASS (794 pass, 0 fail, 16 skipped). HEAD 9b2d196983541a5dc914a72eb92411d950e1050e

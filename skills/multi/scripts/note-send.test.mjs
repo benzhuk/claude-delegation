@@ -1361,6 +1361,7 @@ test('N1: FYI to a slug is ledger-only — no pane resolution, no outbox, exit 0
 
 test('N1: even a registered inbox is never posted to for a ledger-only kind', async () => {
   const repo = tmp(); const home = tmp();
+  fs.mkdirSync(path.join(repo, '.git')); // lane 68: the registered cwd must be a git checkout to be used
   writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/home/ben/.codex', threadId: 't1', cwd: repo }, { now: NOW });
   let posted = 0;
   const res = await runNoteSend(
@@ -1371,6 +1372,32 @@ test('N1: even a registered inbox is never posted to for a ledger-only kind', as
   assert.equal(res.delivered, false);
   assert.equal(res.wake, 'none');
   assert.ok(res.ledgers[0].startsWith(repo), 'still lands in the registered recipient repo, just never posted');
+});
+
+test('lane 68: a registered cwd that exists but is not a git checkout is treated like a missing one - sender repo, warning, no write into it', async () => {
+  const probe = tmp(); const senderRepo = tmp(); const home = tmp();
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', cwd: probe }, { now: NOW });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${senderRepo}::workspace:w` } },
+  );
+  assert.equal(res.exitCode, 0);
+  assert.ok(res.ledgers[0].startsWith(senderRepo), `ledger line went to the sender's repo, got ${res.ledgers[0]}`);
+  assert.deepEqual(fs.readdirSync(probe), [], 'nothing was written into the non-checkout directory');
+  assert.match(res.warnings.join('\n'), /is not a git checkout/);
+  assert.match(res.warnings.join('\n'), /not the recipient's/);
+});
+
+test('lane 68: the same registered cwd, once it is a git checkout, receives the ledger line (no warning)', async () => {
+  const repo = tmp(); const senderRepo = tmp(); const home = tmp();
+  fs.mkdirSync(path.join(repo, '.git'));
+  writeInbox(home, 'nucleus', { kind: 'codex-queue', codexHome: '/x', threadId: 't', cwd: repo }, { now: NOW });
+  const res = await runNoteSend(
+    ['--from', 'taxonomy', '--to', 'nucleus', '--kind', 'FYI', '--topic', 'ping', '--text', 'Batch finished, 413 films'],
+    { orca: mockOrca({ panes: [] }), home, git: () => '.git', now: NOW, env: { ORCA_WORKTREE_ID: `id::${senderRepo}::workspace:w` } },
+  );
+  assert.ok(res.ledgers[0].startsWith(repo));
+  assert.equal((res.warnings ?? []).filter((w) => /git checkout/.test(w)).length, 0);
 });
 
 test('N1: ACK to a slug is ledger-only too, and --dry-run says the same', async () => {

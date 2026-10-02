@@ -28,7 +28,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  HANDLE_RE, readBindings, isMainModule, toPosix, codexInboxRecord, registerInbox,
+  HANDLE_RE, readBindings, isMainModule, toPosix, codexInboxRecord, registerMainSessionInbox,
 } from '../skills/multi/scripts/transport.mjs';
 import { runNoteInbox } from '../skills/multi/scripts/note-inbox.mjs';
 import { classifyCodexRole } from './codex-role.mjs';
@@ -235,8 +235,13 @@ export async function runCodexHook(input = {}, deps = {}) {
   // `session_id` from this payload IS the thread id `codex queue --thread` accepts (spiked live on
   // 2026-09-17), so nothing new has to be plumbed through. Best-effort and silent: `registerInbox`
   // never throws, and a registration that fails costs one deferred nudge, never a note.
-  if (me) {
-    registerInbox(
+  // Lane 68 item 2: only the main session's own event registers. A payload that names an `agent_id`
+  // is a child's callback even when its transcript metadata is unreadable (role 'unknown' stays
+  // lead-like for note delivery, but must never re-register the lead's inbox under a child's cwd),
+  // and registerMainSessionInbox refuses a cwd that is not inside a git checkout.
+  const childShaped = input.agent_id != null && input.agent_id !== '';
+  if (me && !childShaped) {
+    registerMainSessionInbox(
       home,
       me.slug,
       codexInboxRecord(env, { threadId: input.session_id, cwd, pid: deps.pid ?? process.ppid, home }),

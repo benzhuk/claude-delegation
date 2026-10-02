@@ -63,7 +63,7 @@ log. `replace-md`, `replace-range`, `append-md`, `publish` and every hand or anc
 edit are banned there for every agent — `scripts/decisions-render.mjs` (the renderer)
 excepted — because that script is the ONLY way the page is ever written. Write it only
 by running `node <skill-dir>/scripts/decisions-render.mjs publish --repo . --page
-<decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done` when the
+<decisions-page-id> --reader ~/.claude/scripts/notion.js` (add `--clear-done --owner <your-session-name>` when the
 fresh read shows owner input, per "Reading answers" below). `publish` runs from any
 clean checkout on branch main of the registered repository; `--clear-done` finds the
 pickup round only from the registered checkout or one of its linked worktrees (`git
@@ -119,17 +119,25 @@ shape, `templates/decision-item.md`) and `decisions-render.mjs render`/`publish`
 it above the page-level Done control itself — there is no way to append past Done any
 more (Lane 26). A checked `Done` means the owner has submitted choices/comments for
 accounting; it grants no authority by itself. Account those inputs, reconcile a changed
-fresh read if necessary, then run `decisions-render.mjs publish --clear-done`, which
+fresh read if necessary, then run `decisions-render.mjs publish --clear-done --owner <your-session-name>`, which
 writes `- [ ] Done (last cleared: <America/New_York timestamp>)` itself — no one hand-writes
 that line. An unchecked Done is valid with zero or open decisions; an absent Done line
-blocks the hand-back. In a registered pickup round the order is the reverse — clear Done
-first (`publish --clear-done`), then account — because any page edit while that round's
-Done is still checked moves its receipt to NEEDS_RECONCILIATION (the Done-window rules
-under "Reading answers") (not checked). Either order reaches a working `publish
---clear-done`: it also accepts an already-`ACCOUNTED` round whose Done is still checked
+blocks the hand-back. In a registered pickup round, clearing Done and accounting the round
+are ONE step (Lane 64): `publish --clear-done` accounts the round itself, after every check
+has passed and before it writes the page, so no path clears Done and leaves the round
+unaccounted (any page edit while that round's Done is still checked moves its receipt to
+NEEDS_RECONCILIATION — the Done-window rules under "Reading answers"). Pass `--owner
+<your-session-name>` (required when the step accounts the round): the attestation the step
+records is that lead's, not the lead that first ran the pickup. If the page changed after the pickup last read it, the step refuses (exit 3); let one tick run and retry. In this one-step path the
+history/verbatim check is the proof; the attestation records who ran it. If the round is stuck in
+NEEDS_RECONCILIATION because the page changed after the note was recorded, `publish
+--clear-done` closes it too when every owner input (the round's and the fresh page's) is
+quoted in a committed `docs/decisions/history/` file on origin/main, any day, counted (an input text that appears N times must be quoted N times). The older
+order still works: it also accepts an already-`ACCOUNTED` round whose Done is still checked
 from that same round (the Done line unchanged since the capture, never cleared and
-re-checked) and whose owner inputs still match, so accounting first no longer strands the
-page (checked by `decisions-render-publish.test.mjs`).
+re-checked) and whose owner inputs still match (or, for a round accounted from NEEDS_RECONCILIATION,
+whose fresh inputs add nothing or are all quoted in origin history) (checked by
+`decisions-render-publish.test.mjs` and `decisions-pickup.test.mjs`).
 
 The page is composed only of the sections `decisions-render.mjs render` builds —
 `# Waiting on you now`, `# What is going on`, `# This session (since your tick at …)`,
@@ -243,6 +251,11 @@ capture resumes only that saved round; a missing capture may be recreated only f
 same unchanged checked bytes, while a partial, conflicting, or changed capture requires
 manual reconciliation.
 
+After a repo move, run `decisions-pickup.mjs rebind --page <id> --repo <new project root> --from-project <old path> [--owner <lead>]`
+to move the receipt and its saved captures to the new project. It refuses while the old path
+still exists, so a live project is never taken over; rounds opened after it use the new
+project's scope, and the old round keeps its saved one.
+
 A fresh, otherwise valid checked Done with zero captured selections or comments reports
 `NO_ACTION`; it creates no round, receipt, private capture, pointer, or ASK. This admission
 rule never replaces or erases an existing round.
@@ -254,11 +267,20 @@ reference and reconciled a fresh page read, write an outcome report containing
 attestation with:
 
 ```
-node <skill-dir>/scripts/decisions-pickup.mjs account --page <id> --repo <project-root> --outcome <existing-report-path>
+node <skill-dir>/scripts/decisions-pickup.mjs account --page <id> --repo <project-root> --outcome <existing-report-path> [--owner <your-session-name>]
 ```
 
-Accounting does not mechanically prove the consequences and does not clear Done. Use the
-existing attended fresh-read and anchored-edit route below to clear it. A later round is
+`--owner` names the lead that runs the accounting; the report's `Owner-attestation:` line
+must name that lead, and without `--owner` it must name the receipt's saved owner. The
+receipt's own `owner` field is never rewritten (every saved capture is verified against it);
+the accounting lead is recorded as `accountedBy`. A round stuck in NEEDS_RECONCILIATION by a
+changed page is also accountable when every owner input in its original and reconciliation
+captures is quoted in a committed `docs/decisions/history/` file on origin/main (any day), and
+accounting settles a manual-handoff marker left by a differing registered owner. The normal
+route for a pickup round is `publish --clear-done`, which accounts in the same step.
+
+`account` does not mechanically prove the consequences and does not clear Done; `publish
+--clear-done` is what clears it. A later round is
 admitted only after this host has observed a valid unchecked page; an invisible same-byte
 uncheck/recheck between reads cannot be detected. `UNKNOWN` has no automatic repair in
 this first slice.
@@ -269,11 +291,11 @@ page at all, so it can never wedge a pickup round: the bullet goes straight into
 anyone, on any host, whenever it next runs) picks it up — carried or not, since nothing
 but `publish` ever writes that page. The pickup round itself still holds three rules.
 First, the owner lead's own first write in a pickup round clears Done
-(`publish --clear-done`), then works items from the saved capture (`open`) plus a fresh
-read, then runs `account`. Second, a lane lead whose own fresh read shows Done already
+(`publish --clear-done --owner <your-session-name>`, which also accounts the round), after
+the items from the saved capture (`open`) plus a fresh read are handled. Second, a lane lead whose own fresh read shows Done already
 checked does not run `publish` itself: it carries whatever it would have posted verbatim
 in its RESULT instead, for the owner lead to fold in once Done is next cleared. Third,
-every round ends with `account`, or a later Done tick wakes no one. The pickup host is
+every round ends accounted — `publish --clear-done` does it, or `account` by hand — or a later Done tick wakes no one. The pickup host is
 the host where the owner lead's inbox lives — `note-send` delivers only on the
 recipient's own host, so registering pickup on the wrong host silently dead-letters the
 wake (not checked).
@@ -295,10 +317,10 @@ change nothing (checked by `scripts/decisions-read.mjs`).
   captured line, write the answer, with Ben's full text verbatim, into today's
   `docs/decisions/history/<today>.md` file (an instruction, or a question now closed) or
   into the relevant `docs/decisions/waiting/<slug>.md` item (a question on something
-  still open there); then run `decisions-render.mjs publish --clear-done`, which
+  still open there); then run `decisions-render.mjs publish --clear-done --owner <your-session-name>`, which
   refuses (exit 3) unless every captured line's text landed verbatim in one of those two
   places, and which composes the whole page fresh — so a handled owner note simply never
-  reappears, nothing is deleted in place; then run `account`. The bulleted flow below
+  reappears, nothing is deleted in place, and which accounts the round in the same step. The bulleted flow below
   (writing under `# Closed`, deleting the owner's line by anchored edit) describes the
   goals page only, unchanged.
 - An owner note (a line starting with the escaped `\*\*`, on either the decisions page

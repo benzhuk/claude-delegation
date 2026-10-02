@@ -5,7 +5,7 @@
  *
  *   node decisions-render.mjs render --repo <dir> [--done-line <text>] [--drop-owner-lines <file>]
  *   node decisions-render.mjs publish --repo <dir> --page <id> --reader <path-to-notion.js>
- *     [--clear-done] [--adopt-live] [--dry-run] [--topic <Topic>]
+ *     [--clear-done --owner <your-session>] [--adopt-live] [--dry-run] [--topic <Topic>]   (--owner is required whenever the step accounts a round)
  *
  * `render` is pure (the one optional side effect is an injectable, read-only `git ls-tree`
  * against `origin/main`); `publish` is the numbered 8-step pipeline. `--reader <path>` is the
@@ -50,7 +50,7 @@ function parseArgs(argv) {
   const opts = { cmd };
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
-    if (a === '--repo') { opts.repo = rest[i + 1]; i += 1; } else if (a === '--page') { opts.page = rest[i + 1]; i += 1; } else if (a === '--done-line') { opts.doneLine = rest[i + 1]; i += 1; } else if (a === '--drop-owner-lines') { opts.dropOwnerLines = rest[i + 1]; i += 1; } else if (a === '--topic') { opts.topic = rest[i + 1]; i += 1; } else if (a === '--reader') { opts.reader = rest[i + 1]; i += 1; } else if (a === '--clear-done') { opts.clearDone = true; } else if (a === '--adopt-live') { opts.adoptLive = true; } else if (a === '--dry-run') { opts.dryRun = true; } else {
+    if (a === '--repo') { opts.repo = rest[i + 1]; i += 1; } else if (a === '--page') { opts.page = rest[i + 1]; i += 1; } else if (a === '--done-line') { opts.doneLine = rest[i + 1]; i += 1; } else if (a === '--drop-owner-lines') { opts.dropOwnerLines = rest[i + 1]; i += 1; } else if (a === '--topic') { opts.topic = rest[i + 1]; i += 1; } else if (a === '--reader') { opts.reader = rest[i + 1]; i += 1; } else if (a === '--owner') { opts.owner = rest[i + 1]; i += 1; } else if (a === '--clear-done') { opts.clearDone = true; } else if (a === '--adopt-live') { opts.adoptLive = true; } else if (a === '--dry-run') { opts.dryRun = true; } else {
       throw new RefusedError(`unrecognized argument: ${a}`);
     }
   }
@@ -182,6 +182,7 @@ export async function run({
         adoptLive: Boolean(opts.adoptLive),
         dryRun: Boolean(opts.dryRun),
         topic: opts.topic ?? null,
+        owner: opts.owner ?? null,
       }, publishDeps);
       return result.code ?? 0;
     }

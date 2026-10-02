@@ -25,7 +25,7 @@ description: "Use when a prompt decomposes into independent research, review, au
    `Explore` (opens at about 19k, far under `general-purpose`, and has no Write
    tool, so ask it for its conclusion inline); a shell job, data pull,
    census, diff, or doc edit through a CLI goes to `delegation:runner`; use
-   `general-purpose` only when neither of those fits.
+   `general-purpose` only when neither of those fits. Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else.
 2. **Tier the models** (`docs/model-tiers.md`, shipped next to this skill as
    `../_docs/model-tiers.md` when mirrored, and in the plugin repo's `docs/`
    otherwise): the mid tier (Claude Sonnet /
@@ -51,7 +51,10 @@ description: "Use when a prompt decomposes into independent research, review, au
    scoped out, autonomy grants explicit, and the termination formula at the end. Start
    every mandate from `docs/mandate-template.md`, shipped next to this skill as
    `../_docs/mandate-template.md` when mirrored, and in the plugin repo's `docs/`
-   otherwise.
+   otherwise. Every mandate carries this line, verbatim:
+
+   If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
+
 5. **Set ETAs and timers** (`docs/agent-pacing.md`, shipped next to this skill as
    `../_docs/agent-pacing.md` when mirrored, and in the plugin repo's `docs/`
    otherwise) for anything expected past a

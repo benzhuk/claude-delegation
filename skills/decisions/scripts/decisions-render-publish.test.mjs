@@ -7,7 +7,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import {
-  publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture,
+  publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture, defaultAccountRound,
 } from './decisions-render-publish.mjs';
 import { normalize, RefusedError } from './decisions-render-core.mjs';
 import { parseDocument } from './decisions-read.mjs';
@@ -975,7 +975,7 @@ test('publish --clear-done: a fresh read with Ben\'s lines PLUS one other edited
     },
   });
   await assert.rejects(
-    publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps),
+    publish({ repo: REPO, page: 'PAGE', clearDone: true, owner: 'skills-fable' }, deps),
     (e) => e instanceof PublishError && e.code === 4,
   );
 });
@@ -1067,6 +1067,7 @@ test('publish: since: is set only under --clear-done — an ordinary publish nev
 });
 
 test('publish --clear-done: the accepted round\'s commit adds session.md alongside last-render.md', async () => {
+  const accounted = [];
   const live = pageWithComment('please look at this');
   const historyWithAnswer = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
     + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
@@ -1080,9 +1081,11 @@ test('publish --clear-done: the accepted round\'s commit adds session.md alongsi
     gitOverrides: {
       show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': historyWithAnswer }),
     },
+    deps: { accountRound: async (ctx) => { accounted.push(ctx); } },
   });
-  const result = await publish({ repo: REPO, page: 'PAGE', clearDone: true }, deps);
+  const result = await publish({ repo: REPO, page: 'PAGE', clearDone: true, owner: 'skills-fable' }, deps);
   assert.equal(result.code, 0);
+  assert.equal(accounted.length, 1, 'a non-accounted round is accounted by the same publish that clears Done');
   assert.ok(calls.some((c) => c[0] === 'add' && c.includes('docs/decisions/session.md')));
   assert.match(fsMap.get(p('docs', 'decisions', 'session.md')), /^since: 2026-09-27T19:05:00Z/);
 });
@@ -1177,4 +1180,226 @@ test('page-lint: the same publish with the kill switch present goes through and 
     assert.equal(replaceCount(), 0);
     assert.ok(seen.some((l) => /page-lint skipped, kill switch/.test(l)), seen.join(''));
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 64: one step (clear Done + account) and the stuck round admitted by history.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STUCK_REASON = 'checked page bytes changed during the active round';
+
+test('defaultReadPickupCapture (lane 64): a stuck-by-changed-bytes NEEDS_RECONCILIATION round with intact evidence is returned, tagged reconciling', async () => {
+  const pickup = {
+    status: () => ({
+      status: 'NEEDS_RECONCILIATION',
+      evidenceIntegrity: { status: 'OK' },
+      receipt: { state: 'NEEDS_RECONCILIATION', round: 3, reconciliationReason: STUCK_REASON, captureReadAt: '2026-09-30T23:00:00Z' },
+    }),
+    openPrivateCapture: () => Buffer.from(pageWithComment('hello'), 'utf8'),
+  };
+  assert.deepEqual(await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup }), {
+    round: 3, tickAt: '2026-09-30T23:00:00Z', triples: [['comment', 'A decision', 'hello']], reconciling: true,
+  });
+});
+
+test('defaultReadPickupCapture (lane 64 F1): an ACCOUNTED round admitted from NEEDS_RECONCILIATION is tagged accounted and reconciling', async () => {
+  const pickup = {
+    status: () => ({
+      status: 'ACCOUNTED',
+      receipt: { state: 'ACCOUNTED', accountedFrom: 'NEEDS_RECONCILIATION', round: 3, captureReadAt: '2026-09-30T23:00:00Z', observedUncheckedAt: null },
+    }),
+    openPrivateCapture: () => Buffer.from(pageWithComment('hello'), 'utf8'),
+  };
+  const capture = await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup });
+  assert.equal(capture.accounted, true);
+  assert.equal(capture.reconciling, true);
+  const plain = { ...pickup, status: () => ({ status: 'ACCOUNTED', receipt: { state: 'ACCOUNTED', round: 3, observedUncheckedAt: null } }) };
+  assert.equal((await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup: plain })).reconciling, undefined);
+});
+
+test('defaultReadPickupCapture (lane 64): any other NEEDS_RECONCILIATION shape stays refused and never opens the capture', async () => {
+  for (const [name, receipt, evidenceIntegrity] of [
+    ['a different reason', { state: 'NEEDS_RECONCILIATION', round: 3, reconciliationReason: 'the saved note id exists with conflicting envelope fields' }, { status: 'OK' }],
+    ['broken evidence', { state: 'NEEDS_RECONCILIATION', round: 3, reconciliationReason: STUCK_REASON }, { status: 'CAPTURE_INVALID' }],
+    ['no evidence verdict', { state: 'NEEDS_RECONCILIATION', round: 3, reconciliationReason: STUCK_REASON }, undefined],
+  ]) {
+    let opened = false;
+    const pickup = {
+      status: () => ({ status: 'NEEDS_RECONCILIATION', evidenceIntegrity, receipt }),
+      openPrivateCapture: () => { opened = true; return Buffer.from(pageWithComment('hello'), 'utf8'); },
+    };
+    assert.equal(await defaultReadPickupCapture({ repo: REPO, page: 'PAGE' }, { pickup }), null, name);
+    assert.equal(opened, false, name);
+  }
+});
+
+const HISTORY_ANSWER = '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n'
+  + '- Your note, 9-27: "please look at this" — looked at it, nothing further needed.\n';
+
+function clearDoneHarness({
+  capture, accountRound, gitOverrides, owner = 'skills-fable', dryRun = false, live = pageWithComment('please look at this'),
+}) {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: CLEAN_PAGE_WITH_DECISION });
+  const { readPage, replaceMd: innerReplace } = wireNotion(live);
+  const order = [];
+  const built = baseDeps({
+    files,
+    readPage,
+    replaceMd: async (...args) => { order.push('replaceMd'); return innerReplace(...args); },
+    readPickupCapture: async () => capture,
+    gitOverrides: gitOverrides ?? { show: showOverride({ 'origin/main:docs/decisions/history/2026-09-27.md': HISTORY_ANSWER }) },
+    deps: { accountRound: async (ctx) => { order.push('accountRound'); return accountRound(ctx); } },
+  });
+  const runIt = () => publish({
+    repo: REPO, page: 'PAGE', clearDone: true, dryRun, ...(owner ? { owner } : {}),
+  }, built.deps);
+  return { run: runIt, order, ...built };
+}
+
+const RECORDED_CAPTURE = { round: 1, tickAt: '2026-09-27T19:05:00Z', triples: [['comment', 'A decision', 'please look at this']] };
+
+test('publish --clear-done (lane 64): accounts the round once, with the running lead, BEFORE the page is written', async () => {
+  const seen = [];
+  const h = clearDoneHarness({ capture: RECORDED_CAPTURE, owner: 'skills-fable', accountRound: async (ctx) => { seen.push(ctx); } });
+  const result = await h.run();
+  assert.equal(result.code, 0);
+  assert.deepEqual(h.order, ['accountRound', 'replaceMd']);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].repo, REPO);
+  assert.equal(seen[0].page, 'PAGE');
+  assert.equal(seen[0].owner, 'skills-fable');
+  assert.match(seen[0].reconciliation, /publish --clear-done at 2026-09-27T19:00:00\.000Z: the 1 owner input\(s\)/);
+});
+
+test('publish --clear-done (lane 64 F3): a step that would account the round refuses without --owner (exit 2), before any write', async () => {
+  const h = clearDoneHarness({ capture: RECORDED_CAPTURE, owner: null, accountRound: async () => { throw new Error('must not run'); } });
+  await assert.rejects(h.run(), (e) => e instanceof PublishError && e.code === 2 && /pass --owner/.test(e.message));
+  assert.deepEqual(h.order, []);
+});
+
+test('publish --clear-done (lane 64 F2): a stale older-day quote of a short answer does not close a round whose new answers are unrecorded', async () => {
+  const once = pageWithComment('yes');
+  const live = once.replace('\t\\*\\* yes', '\t\\*\\* yes\n\t\\*\\* yes');
+  assert.notEqual(live, once);
+  const stale = '# Sep 23, 2026\nSummary: unrelated.\n- Ben wrote "yes" about something else, and "old answer".\n';
+  const h = clearDoneHarness({
+    live,
+    capture: { ...RECORDED_CAPTURE, triples: [['comment', 'A decision', 'old answer']], reconciling: true },
+    gitOverrides: {
+      'ls-tree': () => 'docs/decisions/history/2026-09-23.md',
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-23.md': stale }),
+    },
+    accountRound: async () => {},
+  });
+  await assert.rejects(
+    h.run(),
+    (e) => e instanceof PublishError && e.code === 3 && /not every owner input is quoted/.test(e.message),
+  );
+  assert.deepEqual(h.order, []);
+});
+
+test('publish --clear-done (lane 64 F1): an ACCOUNTED-from-reconciliation round is compared as reconciling, not by equality with its original capture', async () => {
+  const live = pageWithComment('a different answer');
+  const older = '# Sep 26, 2026\nSummary: recorded.\n- Ben wrote "a different answer" and "please look at this".\n';
+  const h = clearDoneHarness({
+    live,
+    capture: { ...RECORDED_CAPTURE, accounted: true, doneLabel: 'Done', reconciling: true },
+    gitOverrides: {
+      'ls-tree': () => 'docs/decisions/history/2026-09-26.md',
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-26.md': older }),
+    },
+    accountRound: async () => { throw new Error('must not run'); },
+  });
+  assert.equal((await h.run()).code, 0);
+  assert.deepEqual(h.order, ['replaceMd']);
+});
+
+test('publish --clear-done (lane 64): a refusal to account stops the publish before any page write (exit 3)', async () => {
+  const h = clearDoneHarness({ capture: RECORDED_CAPTURE, accountRound: async () => { throw new Error('cannot account a round outside RECORDED'); } });
+  await assert.rejects(
+    h.run(),
+    (e) => e instanceof PublishError && e.code === 3 && /could not be accounted, so Done was not cleared: cannot account a round outside RECORDED/.test(e.message),
+  );
+  assert.deepEqual(h.order, ['accountRound']);
+  assert.equal(h.calls.some((c) => c[0] === 'add' || c[0] === 'commit' || c[0] === 'push'), false);
+});
+
+test('publish --clear-done (lane 64): --dry-run never accounts', async () => {
+  const h = clearDoneHarness({ capture: RECORDED_CAPTURE, dryRun: true, accountRound: async () => { throw new Error('must not run'); } });
+  assert.equal((await h.run()).code, 0);
+  assert.deepEqual(h.order, []);
+});
+
+test('publish --clear-done (lane 64): an already-ACCOUNTED round is not accounted a second time', async () => {
+  const h = clearDoneHarness({
+    capture: { ...RECORDED_CAPTURE, accounted: true, doneLabel: 'Done' },
+    accountRound: async () => { throw new Error('must not run'); },
+  });
+  assert.equal((await h.run()).code, 0);
+  assert.deepEqual(h.order, ['replaceMd']);
+});
+
+test('publish --clear-done (lane 64): a stuck round is admitted when every input is quoted in an older day of history, and accounted', async () => {
+  const live = pageWithComment('a different answer');
+  const older = '# Sep 26, 2026\nSummary: the answers are recorded.\n- Ben wrote "a different answer", and "please look at this" earlier.\n';
+  const h = clearDoneHarness({
+    live,
+    capture: { ...RECORDED_CAPTURE, reconciling: true },
+    gitOverrides: {
+      'ls-tree': () => 'docs/decisions/history/2026-09-26.md',
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-26.md': older }),
+    },
+    accountRound: async () => {},
+  });
+  assert.equal((await h.run()).code, 0);
+  assert.deepEqual(h.order, ['accountRound', 'replaceMd']);
+});
+
+test('publish --clear-done (lane 64): a stuck round with an input quoted nowhere stays refused, naming it (exit 3)', async () => {
+  const live = pageWithComment('a different answer');
+  const h = clearDoneHarness({
+    live,
+    capture: { ...RECORDED_CAPTURE, reconciling: true },
+    gitOverrides: {
+      'ls-tree': () => 'docs/decisions/history/2026-09-26.md',
+      show: showOverride({ 'origin/main:docs/decisions/history/2026-09-26.md': '# Sep 26, 2026\nSummary: x.\n- Ben wrote "please look at this".\n' }),
+    },
+    accountRound: async () => {},
+  });
+  await assert.rejects(
+    h.run(),
+    (e) => e instanceof PublishError && e.code === 3 && /not every owner input is quoted/.test(e.message) && e.message.includes('a different answer'),
+  );
+  assert.deepEqual(h.order, []);
+});
+
+test('defaultAccountRound (lane 64): calls the pickup closeRound with the lead, the reconciliation text and the clock', async () => {
+  const calls = [];
+  const pickup = { closeRound: (opts, deps) => { calls.push([opts, deps]); return { status: 'ACCOUNTED' }; } };
+  const now = new Date('2026-09-27T19:00:00Z');
+  await defaultAccountRound({ repo: REPO, page: 'PAGE', owner: 'skills-fable', reconciliation: 'r', now }, { pickup });
+  await defaultAccountRound({ repo: REPO, page: 'PAGE', owner: null, reconciliation: 'r' }, { pickup });
+  assert.deepEqual(calls[0], [{ repo: REPO, page: 'PAGE', owner: 'skills-fable', reconciliation: 'r' }, { now }]);
+  assert.deepEqual(calls[1], [{ repo: REPO, page: 'PAGE', reconciliation: 'r' }, {}]);
+});
+
+test('defaultAccountRound (lane 64 F6): forwards the fresh page triples so the pickup can refuse an uncaptured page', async () => {
+  const calls = [];
+  const pickup = { closeRound: (opts, deps) => { calls.push([opts, deps]); return { status: 'ACCOUNTED' }; } };
+  const freshInputs = [['comment', 'Leftover folders', 'and the temp dirs under scratch too']];
+  await defaultAccountRound({ repo: REPO, page: 'PAGE', owner: 'skills-fable', reconciliation: 'r', freshInputs }, { pickup });
+  assert.deepEqual(calls[0], [{ repo: REPO, page: 'PAGE', owner: 'skills-fable', reconciliation: 'r', freshInputs }, {}]);
+});
+
+test('CLI run() (lane 64): --owner is an accepted publish argument, not an unrecognized one', async () => {
+  const errors = [];
+  const code = await run({
+    argv: ['publish', '--repo', REPO, '--page', 'PAGE', '--clear-done', '--dry-run', '--owner', 'skills-fable'],
+    write: () => {},
+    writeErr: (s) => errors.push(s),
+    deps: { readPage: async () => { throw new Error('stop after argument parsing'); } },
+  });
+  assert.equal(code, 1);
+  assert.equal(errors.join('').includes('unrecognized argument'), false);
+  assert.match(errors.join(''), /stop after argument parsing/);
 });

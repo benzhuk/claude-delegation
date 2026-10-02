@@ -171,3 +171,43 @@ test('the pinned scratch sentence appears, verbatim and on its own line, in all 
     );
   }
 });
+
+// Lane 65 item 4 (docs/specs/worktree-location-65/spec.md): the worktree location is stated once in
+// each of team-build, delegate, builder, runner and pane-setup, and for the two agents it sits OUTSIDE
+// the safety block (that block is pinned byte-identical and under its character cap).
+test('the worktree location rule is stated exactly once in each of the five places, outside any safety block', () => {
+  const SENTENCE = 'Every worktree lives at `<repo>/.claude/worktrees/<name>`, never as a sibling in Code or anywhere else.';
+  const ROOT = path.join(HERE, '..');
+  const places = ['agents/builder.md', 'agents/runner.md', 'skills/team-build/SKILL.md', 'skills/delegate/SKILL.md', 'docs/pane-setup.md'];
+  for (const rel of places) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    assert.equal(text.split(SENTENCE).length - 1, 1, `${rel} must carry the sentence exactly once`);
+    if (rel.startsWith('agents/')) {
+      assert.ok(!safetyBlock(text, rel).includes('.claude/worktrees'), `${rel}: the rule must sit outside the safety block`);
+    }
+  }
+});
+
+// Lane 68 item 3 (docs/specs/reliability-68/spec.md): "a PostToolUse guard report is a report, not a
+// block" is in every shipped brief template, once, on its own line. For the four agents it sits OUTSIDE
+// the safety block (pinned byte-identical, 11 bullets, under its character cap).
+test('the guard-report sentence is on its own line, exactly once, in each of the eleven places, outside any safety block', () => {
+  const SENTENCE = 'If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; '
+    + 'never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.';
+  const ROOT = path.join(HERE, '..');
+  const places = [
+    'agents/builder.md', 'agents/reviewer.md', 'agents/runner.md', 'agents/integrator.md',
+    'codex/agents/builder.toml', 'codex/agents/reviewer.toml', 'codex/agents/runner.toml', 'codex/agents/integrator.toml',
+    'skills/team-build/SKILL.md', 'skills/delegate/SKILL.md', 'docs/mandate-template.md',
+  ];
+  assert.equal(places.length, 11);
+  for (const rel of places) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    assert.equal(text.split(SENTENCE).length - 1, 1, `${rel} must carry the sentence exactly once`);
+    const lines = text.split(/\r?\n/).map((l) => l.trim().replace(/^-\s*/, ''));
+    assert.ok(lines.includes(SENTENCE), `${rel}: the sentence must be on its own line`);
+    if (rel.startsWith('agents/')) {
+      assert.ok(!safetyBlock(text, rel).includes('A PostToolUse guard report'), `${rel}: the sentence must sit outside the safety block`);
+    }
+  }
+});

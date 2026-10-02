@@ -724,6 +724,42 @@ export function countStallNudges(entries, leadSlug, fromMs, toMs) {
   return { count: hits.length, ids: hits.map((e) => e.id) };
 }
 function ledgerHasSlug(entries, leadSlug) { return entries.some((e) => e.from === leadSlug || e.to === leadSlug); }
+// ── Lane 68: name the cause of each lead stalled piece ───────────────────────────────────────
+// The record's Status at an instant is the status of the latest Log: entry at or before it
+// (null before the first entry). Only `owned` is a working state (STATUSES in work-record.mjs).
+function statusAt(statusLog, ms) {
+  let current = null;
+  for (const e of statusLog) { if (e.ms <= ms) current = e.status; else break; }
+  return current;
+}
+// An ASK from the lead to a peer, inside the build window and not yet answered (RESULT/BLOCKED
+// `re` it) at `ms`. An answer whose own time is unreadable cannot be shown to precede `ms`.
+function openPeerAskAt(ledgerEntries, leadSlug, openedMs, ms) {
+  return ledgerEntries.find((a) => a.kind === 'ASK' && a.from === leadSlug && a.to !== leadSlug && a.ms !== null && a.ms >= openedMs && a.ms <= ms
+    && !ledgerEntries.some((r) => (r.kind === 'RESULT' || r.kind === 'BLOCKED') && r.re === a.id && r.ms !== null && r.ms <= ms)) || null;
+}
+// Text appended to the stalled part of Number 4 (every clause starts with `; `), or ''.
+function attributeLeadStalls(leadStalled, statusLog, ledgerEntries, leadSlug, openedMs) {
+  if (!statusLog || !leadStalled.length) return '';
+  if (statusLog.reason) return `; stall attribution unavailable (${statusLog.reason})`;
+  const owned = leadStalled.filter((p) => statusAt(statusLog, p.startMs) === 'owned');
+  if (!owned.length) return '';
+  if (!leadSlug) return '; stall attribution unavailable (no --lead-slug)';
+  if (ledgerEntries === null) return '; stall attribution unavailable (no ledger dir)';
+  if (!ledgerHasSlug(ledgerEntries, leadSlug)) return `; stall attribution unavailable (slug ${leadSlug} not in ledger)`;
+  const clauses = [];
+  for (const p of owned) {
+    const ask = openPeerAskAt(ledgerEntries, leadSlug, openedMs, p.startMs);
+    const span = `${p.minutes.toFixed(1)} min from ${new Date(p.startMs).toISOString()}`;
+    clauses.push(ask ? `waiting on a peer ${span} (ASK ${ask.id} to ${ask.to})` : `pane silent ${span}`);
+  }
+  return `; ${clauses.join('; ')}`;
+}
+// The record's Log: entries as a time-ordered status timeline for attribution.
+function statusLogFrom(logs) {
+  const entries = logs.map((l) => ({ ms: parseDateMs(l.at), status: l.status.toLowerCase() })).filter((e) => e.ms !== null).sort((a, b) => a.ms - b.ms);
+  return entries.length ? entries : { reason: 'no readable Log: entries in the record' };
+}
 // ── Number 4 — work lost or stalled. leadGapReason (MAJOR 1): see computeHoursAskToAccepted.
 // `spans` (R6, a merged union of [start,end] Agent/Task/Workflow intervals from
 // buildAgentSpans+mergeSpans) and `agentResults` (R7, {stalls, unreadableIds, filesFound,
@@ -738,7 +774,12 @@ function ledgerHasSlug(entries, leadSlug) { return entries.some((e) => e.from ==
 // silence is a heuristic; it cannot establish Claude Agent/Task/Workflow wait spans or
 // child-agent stall semantics, so those remain explicitly unavailable even when the
 // heuristic finds zero long response gaps.
-export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, leadGapReason, spans = null, agentResults = null, nativeGapUnit = null) {
+// `statusLog` (lane 68): the record's own Log: entries as {ms, status}, or {reason} when they
+// cannot be read, or null/undefined to skip attribution (the pre-lane-68 wording, unchanged).
+// With it, each lead stalled piece is named: a piece that starts while the record's Status is
+// `owned` is "waiting on a peer" when the lead has an ASK to a peer unanswered at that instant,
+// else "pane silent". The leading stalled integer is unchanged: the clauses attribute a subset.
+export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug, { openedMs, acceptedMs, reason }, leadGapReason, spans = null, agentResults = null, nativeGapUnit = null, statusLog = null) {
   if (openedMs === null) return { value: 'unavailable (no Opened:)' };
   if (acceptedMs === null) return { value: `unavailable (${reason || 'no accepted Log: entry'})` }; // MAJOR 4
   const nativeStallUnavailable = nativeGapUnit
@@ -782,7 +823,8 @@ export function computeWorkLostOrStalled(leadTimestamps, ledgerEntries, leadSlug
       const stalledList = leadStalled.map((p) => `${new Date(p.startMs).toISOString()} (${p.minutes.toFixed(1)}min)`).join(', ');
       gapPart = `${n} gap(s) over 30min stalled${leadStalled.length ? `: ${stalledList}` : ''}`
         + `; ${waiting.length} waiting-on-agents (${waitingMinutes.toFixed(1)} min)`
-        + `${agentLines.length ? `; ${agentLines.join('; ')}` : ''}`;
+        + `${agentLines.length ? `; ${agentLines.join('; ')}` : ''}`
+        + attributeLeadStalls(leadStalled, statusLog, ledgerEntries, leadSlug, openedMs);
     }
   }
   let askPart;
@@ -974,7 +1016,7 @@ export function buildFourRead(opts, fsImpl = fs) {
   const numberThree = computeReworkAfterAcceptance(fields, logs, reworkGit, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(
     leadTimestamps, ledgerEntries, opts.leadSlug, windowMs, leadGapReason,
-    agentSpans, agentStallResults, isCodexCensus(census) ? 'native API response gap' : null,
+    agentSpans, agentStallResults, isCodexCensus(census) ? 'native API response gap' : null, statusLogFrom(logs),
   );
   if (!numberFour.value.startsWith('unavailable')) {
     numberFour.value = `${numberFour.value}; ${computeCompletenessSuffix(census, ledgerEntries, opts.leadSlug, windowMs, lastAcceptedMs)}`;

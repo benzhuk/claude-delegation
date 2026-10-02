@@ -55,7 +55,7 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkStaleness, staleSessionText } from "./plugin-staleness.mjs";
+import { checkStaleness, staleSessionText, restartAdvisoryLine } from "./plugin-staleness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // This script's OWN file path (docs/specs/stale-session-guard-1/spec.md P7) - "it uses
@@ -514,7 +514,9 @@ export function main(argv = process.argv.slice(2), opts = {}) {
       printLine(result.results);
       // P7: the same marker, "stale session: ...", as the guard's own deny text (P6) - one
       // shared builder (staleSessionText), never two hand-typed copies that can drift.
-      if (stale.stale) console.log(staleSessionText(stale));
+      // Lane 68 item 1: the SessionStart caller (--hook) gets the one-line restart advisory
+      // instead of the long stale-session text; bare --line / --json / table keep the long text.
+      if (stale.stale) console.log(argv.includes("--hook") ? (restartAdvisoryLine(stale) ?? staleSessionText(stale)) : staleSessionText(stale));
     }
   }
   else {

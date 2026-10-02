@@ -22,6 +22,7 @@ import {
   isBranchOnOrigin,
   isBranchMerged,
   applySafe,
+  defaultRecordDir,
   gatherWorkarounds,
   isUnstarted,
   isTipOnMainline,
@@ -1879,15 +1880,16 @@ test("J1.4: --record writes <dir>/<date>-<host>.json with the four drift numbers
   assert.match(driftText, /^- 2026-09-26 windows-test-host: worktrees=\d+ branches=\d+ untracked=\d+ diskKB=\S+ safe=\d+ removed=\d+$/m);
 });
 
-test("J1.4: a bare --record defaults to docs/work/evidence/janitor/ under the project root", () => {
+test("J1.4 / lane 65 item 7: a bare --record defaults to <home>/.agents/janitor-evidence/, never the watched repo", () => {
   const root = initRepo();
   writeProjectConfig(root);
+  const home = mkTmp("janitor-record-home-");
 
   const origLog = console.log;
   console.log = () => {};
   let code;
   try {
-    code = main(["--record", "--min-age-hours", "0"], { cwd: root });
+    code = main(["--record", "--min-age-hours", "0"], { cwd: root, home });
   } finally {
     console.log = origLog;
   }
@@ -1895,11 +1897,159 @@ test("J1.4: a bare --record defaults to docs/work/evidence/janitor/ under the pr
   // there) - compare against the same zone, not `toISOString()`, so this assertion cannot itself
   // flake across the UTC/NY day boundary.
   const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
-  const dir = path.join(root, "docs", "work", "evidence", "janitor");
+  const dir = path.join(home, ".agents", "janitor-evidence");
+  assert.equal(defaultRecordDir(home), dir);
   const files = fs.readdirSync(dir);
   assert.ok(files.some((f) => f.startsWith(`${dateStr}-`) && f.endsWith(".json")), `expected a dated json file, got ${JSON.stringify(files)}`);
-  assert.ok(files.includes("drift.md"));
-  void code;
+  assert.ok(files.includes("drift.md"), "the drift line lands in the same out-of-tree directory");
+  assert.equal(fs.existsSync(path.join(root, "docs", "work", "evidence", "janitor")), false, "nothing is written into the watched repo");
+  assert.equal(code, 0);
+});
+
+test("lane 65 item 7: an explicit --record <dir> still writes exactly there, and nothing lands under the default", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  const home = mkTmp("janitor-record-home-explicit-");
+  const explicit = mkTmp("janitor-record-explicit-");
+  const inRepo = path.join("docs", "work", "evidence", "janitor-explicit");
+
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    assert.equal(main(["--record", explicit, "--min-age-hours", "0"], { cwd: root, home }), 0);
+    assert.equal(main(["--record", inRepo, "--min-age-hours", "0"], { cwd: root, home }), 0);
+  } finally {
+    console.log = origLog;
+  }
+  assert.ok(fs.existsSync(path.join(explicit, "drift.md")), "an absolute dir is used as given");
+  assert.ok(fs.existsSync(path.join(root, inRepo, "drift.md")), "a relative dir still resolves against the project root");
+  assert.equal(fs.existsSync(path.join(home, ".agents")), false, "an explicit dir never touches the default location");
+});
+
+test("lane 65 item 7: the scheduled argv (bare --record, --host, --apply) on a clean fixture repo leaves `git status --porcelain` empty", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  fs.writeFileSync(path.join(root, ".gitignore"), ".claude/worktrees/\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "project config and ignore"], root);
+  addOrigin(root);
+  const home = mkTmp("janitor-record-home-clean-");
+  assert.equal(git(["status", "--porcelain"], root), "", "precondition: the fixture checkout is clean");
+
+  // The same argv shape install-janitor-timer's scheduledCommandArgv builds (minus --repo, which
+  // main() takes from cwd): a bare --record, the baked-in --host, and --apply.
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--record", "--host", "ci-host", "--apply", "--min-age-hours", "0"], { cwd: root, home, now: Date.now() + 25 * 3600000 });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  assert.equal(git(["status", "--porcelain"], root), "", "a scheduled run must leave the durable checkout exactly as it found it");
+  const evidence = fs.readdirSync(path.join(home, ".agents", "janitor-evidence"));
+  assert.ok(evidence.includes("drift.md") && evidence.some((f) => f.endsWith("-ci-host.json")), `expected the record out of tree, got ${JSON.stringify(evidence)}`);
+});
+
+test("lane 65 item 7: the same scheduled run reclaiming a merged worktree under .claude/worktrees/ still leaves the checkout clean", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  fs.writeFileSync(path.join(root, ".gitignore"), ".claude/worktrees/\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "project config and ignore"], root);
+  addOrigin(root);
+  const wt = addWorktreeUnderFolder(root, "feature-sched");
+  mergeIntoMain(root, "feature-sched");
+  pushMain(root);
+  const home = mkTmp("janitor-record-home-reclaim-");
+
+  const origLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = main(["--record", "--host", "ci-host", "--apply", "--min-age-hours", "0"], { cwd: root, home, now: Date.now() + 25 * 3600000 });
+  } finally {
+    console.log = origLog;
+  }
+  assert.equal(code, 0);
+  assert.equal(fs.existsSync(wt), false, "the merged, clean worktree under the folder was reclaimed");
+  assert.equal(git(["status", "--porcelain"], root), "");
+  const driftText = fs.readFileSync(path.join(home, ".agents", "janitor-evidence", "drift.md"), "utf8");
+  assert.match(driftText, /ci-host: .* removed=2$/m);
+});
+
+// Lane 65 item 2 (docs/specs/worktree-location-65/spec.md): the SAFE class covers clean, merged worktrees
+// under `<repo>/.claude/worktrees/`. classify() has no location filter, so this pins the behavior that
+// already holds; it deliberately adds no location demotion (a worktree OUTSIDE the folder is not made
+// JUDGMENT for being there - the dispatch guard's R4 refuses creating one, the janitor still sweeps the
+// strays that already exist).
+function addWorktreeUnderFolder(root, branch) {
+  git(["branch", branch], root);
+  const wt = path.join(root, ".claude", "worktrees", branch);
+  fs.mkdirSync(path.dirname(wt), { recursive: true });
+  git(["worktree", "add", wt, branch], root);
+  // one marker file PER branch: two such worktrees merged into main must not add/add-conflict.
+  fs.writeFileSync(path.join(wt, `.janitor-test-marker-${branch}`), `${branch}\n`);
+  git(["add", "."], wt);
+  git(["commit", "-q", "-m", `work on ${branch}`], wt);
+  return wt;
+}
+
+test("lane 65 item 2: a merged, clean, aged worktree at <repo>/.claude/worktrees/<name> is SAFE", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  fs.writeFileSync(path.join(root, ".gitignore"), ".claude/worktrees/\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "project config and ignore"], root);
+  addOrigin(root);
+  const wt = addWorktreeUnderFolder(root, "feature-in-folder");
+  mergeIntoMain(root, "feature-in-folder");
+  pushMain(root);
+
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: gitToplevel(root), config, minAgeHours: 0 });
+  const wtReal = fs.realpathSync(wt);
+  assert.match(wtReal.split(path.sep).join("/"), /\/\.claude\/worktrees\/feature-in-folder$/);
+  assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal), "clean + merged + aged + under the folder = SAFE");
+  assert.ok(!state.judgment.worktrees.some((w) => fs.realpathSync(w.ref) === wtReal));
+});
+
+test("lane 65 item 2: ... and the same worktree is still JUDGMENT when dirty or too young (location earns no exemption)", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  fs.writeFileSync(path.join(root, ".gitignore"), ".claude/worktrees/\n");
+  git(["add", "."], root);
+  git(["commit", "-q", "-m", "project config and ignore"], root);
+  addOrigin(root);
+  const dirty = addWorktreeUnderFolder(root, "feature-in-folder-dirty");
+  fs.writeFileSync(path.join(dirty, "uncommitted.txt"), "x\n");
+  const young = addWorktreeUnderFolder(root, "feature-in-folder-young");
+  mergeIntoMain(root, "feature-in-folder-dirty");
+  mergeIntoMain(root, "feature-in-folder-young");
+  pushMain(root);
+
+  const { config } = loadProjectConfig(root);
+  const aged = gatherState({ root: gitToplevel(root), config, minAgeHours: 0 });
+  const dirtyReal = fs.realpathSync(dirty);
+  assert.ok(!aged.safe.worktrees.some((w) => fs.realpathSync(w.ref) === dirtyReal), "dirty is never SAFE");
+  assert.ok(aged.judgment.worktrees.some((w) => fs.realpathSync(w.ref) === dirtyReal));
+  const floor = gatherState({ root: gitToplevel(root), config, minAgeHours: 1000000 });
+  const youngReal = fs.realpathSync(young);
+  assert.ok(!floor.safe.worktrees.some((w) => fs.realpathSync(w.ref) === youngReal), "below the age floor is never SAFE");
+});
+
+test("lane 65 item 2: no location demotion - a merged, clean worktree OUTSIDE the folder is SAFE exactly as before", () => {
+  const root = initRepo();
+  writeProjectConfig(root);
+  addOrigin(root);
+  const wt = addWorktree(root, "feature-stray-sibling"); // lives in a temp dir, not under <repo>/.claude/worktrees
+  mergeIntoMain(root, "feature-stray-sibling");
+  pushMain(root);
+
+  const { config } = loadProjectConfig(root);
+  const state = gatherState({ root: gitToplevel(root), config, minAgeHours: 0 });
+  assert.ok(state.safe.worktrees.some((w) => fs.realpathSync(w.ref) === fs.realpathSync(wt)));
 });
 
 test("J1 review round 1, m1: a bare --record <dir> --host <name>, driven through main(), writes the record under the given host, not os.hostname()", () => {

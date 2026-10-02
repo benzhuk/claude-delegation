@@ -37,7 +37,7 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // eight-role pinned sentence. Optional here (validateRecord/parseRecord parse it like any other
 // singleton) so an old record without one still parses cleanly; the refusal/warning split lives
 // in checkScratchField below, called from both validateRecord and checkAcceptance.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch", "roleSessions", "followUpOf"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch", "workflow", "measure", "roleSessions", "followUpOf"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -85,6 +85,12 @@ const FIELD_LABELS = [
   // C1 ruling a (lane-closeout): a singleton, same shape as Worktree:/Superseded-by above -
   // `close --closeout` is the only reader that treats its absence as load-bearing.
   ["scratch", "Scratch"],
+  // lane 67 (build-loop-fed): `Workflow: <run id>` or `Workflow: none, <reason>` names the
+  // build-loop Workflow run that built this record's lane (checkWorkflowField below refuses
+  // accept without it from WORKFLOW_FROM on); `Measure:` is the free-text line a record uses
+  // to state the measure it moves. Both are singletons in the header, round-trip through the
+  // parser and requireStrictRecordShape like Scratch: above.
+  ["workflow", "Workflow"], ["measure", "Measure"],
   // lane62: optional singletons. Role-sessions names a repo-relative role manifest (detached sessions
   // build-census counts with --record); Follow-up-of names the parent Work id (four-read rework link).
   ["roleSessions", "Role-sessions"], ["followUpOf", "Follow-up-of"],
@@ -157,6 +163,48 @@ export function checkScratchField(record, opts = {}) {
   return {
     refusal: null,
     warning: "scratch-missing: no Scratch: line present (not refused: Spec-from is absent, unparseable, or before SCRATCH_FROM)",
+  };
+}
+
+// lane 67 (build-loop-fed): the instant on/after which a record's own Spec-from: requires a
+// `Workflow:` header line at accept time (the build-loop Workflow is the only route; a build
+// that did not use it says `Workflow: none, <reason>`). Same discipline as SCRATCH_FROM: no
+// CLI flag moves it, `opts.workflowFrom` is for tests only.
+export const WORKFLOW_FROM = "2026-10-01T00:00:00Z";
+
+// opts: { workflowFrom? } -> { refusal: { code, message } | null, warning: string | null }.
+// Used by checkAcceptance (and therefore accept and accept-prep's check-acceptance step).
+// - Present and `<run id>` or `none, <reason>`: fine at any date.
+// - Present as a bare `none` (no reason): `workflow-invalid` at any date.
+// - Absent: `workflow-missing` when Spec-from: is parseable AND on or after workflowFrom;
+//   any other record without the line gets a warning only.
+export function checkWorkflowField(record, opts = {}) {
+  const workflowFrom = opts.workflowFrom ?? WORKFLOW_FROM;
+  const workflowFromMs = Date.parse(workflowFrom);
+  const workflow = typeof record.fields.workflow === "string" ? record.fields.workflow.trim() : "";
+  if (workflow) {
+    if (/^none\b/i.test(workflow) && !/^none\s*,\s*\S/i.test(workflow)) {
+      return {
+        refusal: { code: "workflow-invalid", message: `Workflow: "${workflow}" must be a run id, or "none, <reason>" saying why the build-loop Workflow was not used` },
+        warning: null,
+      };
+    }
+    return { refusal: null, warning: null };
+  }
+  const specFromMs = Date.parse(record.fields.specFrom ?? "");
+  const required = !Number.isNaN(specFromMs) && !Number.isNaN(workflowFromMs) && specFromMs >= workflowFromMs;
+  if (required) {
+    return {
+      refusal: {
+        code: "workflow-missing",
+        message: `Workflow: is missing, and Spec-from: (${record.fields.specFrom}) is on or after WORKFLOW_FROM (${workflowFrom}); set Workflow: to the build-loop run id, or "none, <reason>"`,
+      },
+      warning: null,
+    };
+  }
+  return {
+    refusal: null,
+    warning: "workflow-missing: no Workflow: line present (not refused: Spec-from is absent, unparseable, or before WORKFLOW_FROM)",
   };
 }
 
@@ -1225,6 +1273,14 @@ export function checkAcceptance(opts = {}) {
     throw acceptanceError(scratchCheck.refusal.message, scratchCheck.refusal.code);
   }
 
+  // workflow (lane 67, build-loop-fed): the same refusal/warning split as scratch above; see
+  // checkWorkflowField. opts.workflowFrom moves WORKFLOW_FROM the way opts.scratchFrom moves
+  // SCRATCH_FROM.
+  const workflowCheck = checkWorkflowField(record, { workflowFrom: opts.workflowFrom });
+  if (workflowCheck.refusal) {
+    throw acceptanceError(workflowCheck.refusal.message, workflowCheck.refusal.code);
+  }
+
   // measure-truth-1 (contracts.md R1-R4): strict cutoff, Base/Spec-session/Spec-from
   // field refusals, model tokens on reviewed/APPROVE Log lines, and the hung/stall/
   // relaunch check - factored into one call so R5's real-record fixtures can exercise it
@@ -1478,6 +1534,7 @@ export function checkAcceptance(opts = {}) {
   // checkMeasureTruthRules, before this point is ever reached.
   const warnings = [...measureTruth.warnings];
   if (scratchCheck.warning) warnings.push(scratchCheck.warning);
+  if (workflowCheck.warning) warnings.push(workflowCheck.warning);
   if (!isSessionId(record.fields.specSession)) {
     warnings.push("spec-session-missing: Spec-session: is absent or a placeholder; the four-read's token number will be partial (no spec slice)");
   }
@@ -1830,6 +1887,47 @@ export function closeRecord(opts = {}) {
   const absPath = path.resolve(repoRoot, opts.recordPath);
   fsImpl.writeFileSync(absPath, updated);
   return { ok: true, work: record.fields.work, path: absPath, status: "closed", merge: fullMerge };
+}
+
+/**
+ * merge-check (lane 68b item 7): "accept before merge, always". The lead's merge into main is
+ * prose in skills/team-build/SKILL.md, not a script, so this read-only check sits in the helper
+ * the accept turn already runs. It reads the record as committed on the branch about to be
+ * merged (`git show <branch>:<record>`, never the working tree) and refuses unless that copy
+ * says `Status: accepted`. It writes nothing.
+ * opts: { recordPath, repoRoot?, branch, execImpl? }
+ */
+export function checkMergeReady(opts = {}) {
+  const execImpl = opts.execImpl ?? execFileSync;
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+  const branch = typeof opts.branch === "string" ? opts.branch.trim() : "";
+  if (!branch || branch.startsWith("-")) throw acceptanceError("--branch is required (a branch or commit, not an option)", "branch-missing");
+  const repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
+  const rel = String(opts.recordPath).replace(/\\/g, "/");
+  let text;
+  try {
+    text = String(execImpl("git", ["show", `${branch}:${rel}`], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: withoutRepoLocatingGitEnv(process.env) }));
+  } catch {
+    throw acceptanceError(`cannot read ${rel} on ${branch}: refusing to merge a branch whose record is not on it`, "record-not-on-branch");
+  }
+  const record = parseRecord(text);
+  const status = record.fields.status ?? "<missing>";
+  if (status !== "accepted") {
+    throw acceptanceError(`refusing to merge ${branch}: ${rel} says Status: "${status}" there, not accepted - run accept on the branch first`, "not-accepted-for-merge");
+  }
+  return { ok: true, work: record.fields.work, branch, status: "accepted" };
+}
+
+export function parseMergeCheckArgs(argv) {
+  if (argv[0] !== "merge-check") throw acceptanceError("expected command: merge-check");
+  const opts = { command: "merge-check" };
+  const names = new Map([["--record", "recordPath"], ["--repo", "repoRoot"], ["--branch", "branch"]]);
+  for (let i = 1; i < argv.length; i += 2) {
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+  }
+  return opts;
 }
 
 // ── close --closeout / sweep-origin (C1 rulings b, c) ───────────────────────────────
@@ -2633,6 +2731,11 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
       }
       const result = closeRecord(opts);
       io.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+    if (argv[0] === "merge-check") {
+      const { command, ...opts } = parseMergeCheckArgs(argv);
+      io.stdout.write(`${JSON.stringify(checkMergeReady(opts))}\n`);
       return 0;
     }
     if (argv[0] === "sweep-origin") {

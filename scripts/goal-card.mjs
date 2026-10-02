@@ -442,10 +442,12 @@ export function renderInjection(text, mtimeMs, opts = {}) {
   return fits(extra ? [...body, extra] : body);
 }
 
+const SELF_PATH = fileURLToPath(import.meta.url);
+
 /** The one sentence the owner sees when his card exists but will not be injected. */
 export function rejectionNotice(cardPath, reason) {
   return `goal card not injected: ${cardPath} — ${reason}. No goals are being restated in this session; `
-    + "fix the card or run `node scripts/goal-card.mjs check`.";
+    + `fix the card or run \`node "${SELF_PATH}" check\` from the project root.`;
 }
 
 /**

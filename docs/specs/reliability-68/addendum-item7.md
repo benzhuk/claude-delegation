@@ -1,0 +1,1 @@
+7. Added 5:30 PM NY from the 64b and 65 reports: the lead-side merge step refuses when the lane's record is not `Status: accepted` on the branch being merged, with a test. Accept before merge, always.

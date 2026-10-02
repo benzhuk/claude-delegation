@@ -1,0 +1,16 @@
+VERDICT: PASS
+
+# Lane 68 setup
+
+Worktrees created at base 0f910a7a142f8bc346619136587d27dea87088d6; `git -C <worktree> rev-parse HEAD` output, verbatim:
+- hooks68: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/wt-reliability-68-hooks68, branch build/reliability-68-hooks68, HEAD 0f910a7a142f8bc346619136587d27dea87088d6
+- census68: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/wt-reliability-68-census68, branch build/reliability-68-census68, HEAD 0f910a7a142f8bc346619136587d27dea87088d6
+
+Written (all under C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-68/docs/specs/reliability-68/): briefs/scout-hooks68.md, briefs/scout-census68.md, briefs/hooks68.md, briefs/census68.md, briefs/reviewer.md, briefs/integrator.md, briefs/seam.md. The integrator brief says the seam review runs AFTER Integrate on the merged head as a separate reviewer's job and never gates, delays or stops the merge. Nothing was committed; no test was run (Windows has no suite; gates are in the briefs).
+
+## Scout findings that change the spec's premises (spec still wins; for the lead's ruling)
+1. Item 1 is mostly built. The stale-session guard (aeb7f762, a960c366, 9/28) already prints "stale session: this session loaded delegation hooks X, but Y is installed ..." from `wiring-check.mjs --line --hook` on SessionStart, and many tests pin that text. The spec's one-liner does not exist. Brief default: print the one-liner in `--hook` mode only, leave the guard/CLI text alone. A SessionStart hook cannot reach a pane that never restarts (fires on start, resume, clear, compact only).
+2. Item 2: `hooks/multi-inbox.js` already skips registration on `agent_id` and on `DELEGATION_REVIEW_RUN=1`. The gap found is the recipient side: `mainCheckout()` returns a non-git directory as is, so `note-send` can write a ledger line into a probe folder. Brief default: refuse a non-checkout cwd at registration (both hooks) and at note-send. The event that produced the 20-hour "gudgeon" registration is not on disk.
+3. Item 3: "waiting on a peer" is not an existing census category (only `stalled` and `waiting-on-agents`). Brief default: peer wait = unanswered outbound ASK in the ledger at gap start; pane silent = Status `owned` and no span, no ASK. The sentence is absent from every shipped template; hooks68 gets agents/, codex/, two SKILL.md, mandate-template; census68 gets the six mandate constants in build-loop-workflow.js (file ownership rule).
+4. Item 4: the guard hook and its denoised detector live in the dotfiles repo (~/.claude/hooks/secret-guard.sh, chezmoi), outside this repo; the lane record has `Artifact: none`. Today's refusal was the PreToolUse "references a secret file" deny, not the denoised PostToolUse pass. Brief: census68 builds the log reader and the per-build count only, and writes the detector narrowing as a text proposal; the lead decides where it is built. The denials log is per host and has no session id, so "per build" is a time window on the census host.
+5. Item 6: the cited line 567 has drifted; the state write is at line 626. The workflow test's PINNED_PAIRS must gain runner/haiku and one assertion changes to haiku.
