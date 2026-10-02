@@ -1,5 +1,6 @@
 <details>
 <summary>**Goal card v6: the diff to apply**</summary>
+	Now: v6 draft ready for your tick | To finish: you tick, v5 replaced in docs/GOALS.md | Est: one lane after your tick
 	You ticked A. The draft is [GOALS-v6-draft](https://github.com/benzhuk/claude-delegation/blob/main/docs/goals/GOALS-v6-draft.md).
 	Status words are replaced by Now, To finish, Est on every goal and component.
 	The measures table gains a live column written by the census.

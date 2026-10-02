@@ -1,5 +1,6 @@
 <details>
 <summary>**Janitor policy, one tick**</summary>
+	Now: lane 74 builds the classes in report mode | To finish: you tick, the classes act | Est: default fires 10/3 noon
 	You asked whether the janitor stops the 9/30 mess from recurring. It does not yet. Lane 74 builds the classes below; they act only after this tick and until then report what they would do. Roots: every git repo under `~/Code`, `<repo>/.claude/worktrees`, the session Temp scratch root, `orca/workspaces`, `/var/tmp/lane-*`. Never BTO, never dotfiles.
 	- [ ] Dirty worktree with no open record, idle 24 h: commit all of it to archive/<name>, push, remove the worktree (recommended)
 	- [ ] Unmerged local-only branch with no open record: push as archive/<name>, delete locally (recommended)
