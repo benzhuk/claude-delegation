@@ -6,7 +6,7 @@
 	A COMPONENTS table of ten lines, in your plan order.
 	The card gains MEASURE and COMPONENTS lines, and its cap moves from 1,200 to 1,600 bytes.
 	- [ ] Apply v6 as drafted (recommended)
-	- [ ] Apply with changes, I write them as ** lines
+	- [ ] Apply with changes, I write them as comment lines on this item
 	No default: the card is your goal statement
 	<empty-block/>
 </details>
