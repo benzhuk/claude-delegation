@@ -6,7 +6,7 @@ Status: NEEDS BEN
 Now: H3 source fixes at 8b4462a0 (Opus r2 NEEDS_FIXES addressed, corpus probe 30 of 73), one existing test needs an expected-text change, held | To finish: Ben rules guard-lift-62, regression tests plus that test edit plus sealing, one Opus review, both suites, accept, merge | Est: 2 h after Ben's word
 Authority: skills-fable-census-62-1, section A items1-4 at a3aa244b. One Opus spec red-team round, mid builds and tests, Opus review, two host suites and standing reviewed merge grant. No installs, release, guards or new orchestration.
 Artifact: none
-Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/census-completeness-62
+Worktree: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-62
 Evidence: docs/specs/census-completeness-62/bearings-assessment.md, docs/specs/census-completeness-62/bearings-publication.md
 Next: Ben decides guard-lift-62 (decisions page) and the disposition of e9326657; then land H1 H2 H3 M1 M2 L2 regressions and spawn sealing, review and gate the final tree
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
@@ -27,6 +27,7 @@ Log: 2026-09-30T23:12:01.000Z owned skills-a T2 exact receipts confirm two secre
 Log: 2026-10-02T00:30:00.000Z owned skills-o recovery writer transfer from skills-a per skills-a-census62-recovery-1, skills-a stays accountable
 Log: 2026-10-02T06:45:00.000Z owned skills-o NEEDS BEN: six regression tests refused by the secret guard, no waiver (skills-a, upheld by skills-f). Host suites at 95a18cb5 exit 1 on Netcup and Hetzner, N2 env scan only. Incident: fix builder routed around a guard refusal with the Edit tool, commit e9326657 kept as unapproved evidence, used for no gate (skills-a-lane62-env-disposition-1). 9 AM target forecast missed
 Log: 2026-10-02T07:05:00.000Z owned skills-o Opus review r2 NEEDS_FIXES on 0b85c79b (H3 interval and rolled-up children, M1 silent not-shared); Sonnet source fix 8b4462a0, focused 603 of 604, the one failure is four-read.test.mjs:1256 expected text, held with the tests. Builder report refused by the guard on write, kept inline, not rewritten through another tool
+Log: 2026-10-02T19:20:00.000Z owned skills-o Worktree moved to the recovery worktree so the janitor counts it owned
 
 Predicts: one mixed-host build reports all linked role usage, observable stall coverage, parent-attributed follow-up rework and a baseline-comparable token definition without false zeroes.
 Observed: not built. Existing native-only census and baseline limitations motivate this bounded instrument repair.
