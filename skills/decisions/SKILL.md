@@ -223,7 +223,7 @@ pickup. Existing `AGENTS_HOME/ws-off` or `ws-off-decisions` disables pickup befo
 page reads or writes; status and attended accounting remain available. It never edits
 the page or clears Done. Exact immutable page bytes and parsed items are private under
 `AGENTS_HOME/ws/decisions-pickup/captures`, outside every Git checkout. The durable
-transport checkout receives only a sanitized `docs/notes/*.pointer.json` Details packet
+transport receives only a sanitized pointer Details packet under `AGENTS_HOME/notes/packets/<repo-name>/` (never in the checkout)
 with hashes, local availability, and generic opening instructions. Inspect the receipt
 with `decisions-pickup.mjs status --page <id> --repo <project-root>`. On the pickup host,
 open an exact saved round only through the validating helper:
